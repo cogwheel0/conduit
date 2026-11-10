@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -10,11 +12,15 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_capabilities.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:flutter/foundation.dart';
@@ -157,6 +163,106 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
+  group('a LibreChat chat', () {
+    final conversation = withChatStorageProvenance(
+      stampLibreChatProvenance(_chat()),
+      ChatStorageKind.libreChat,
+    );
+
+    Future<void> pumpSheet(
+      WidgetTester tester,
+      Future<String?> Function(dynamic ref, String conversationId) lookUp, {
+      bool canPublish = true,
+      Conversation? chat,
+    }) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiServiceProvider.overrideWithValue(null),
+            conversationsProvider.overrideWith(_TestConversations.new),
+            libreChatCapabilitiesProvider.overrideWith(
+              (ref) async => LibreChatCapabilities(sharedLinks: canPublish),
+            ),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ChatShareSheet(
+                conversation: chat ?? conversation,
+                lookUpLibreChatLink: lookUp,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    ConduitButton copyButton(WidgetTester tester) =>
+        tester.widget<ConduitButton>(find.byKey(const Key('chat-share-copy')));
+
+    testWidgets('shows a link made elsewhere before anything is copied', (
+      tester,
+    ) async {
+      final lookUp = Completer<String?>();
+      await pumpSheet(tester, (_, _) => lookUp.future);
+
+      // Nothing can be copied or shared until the server has answered.
+      check(copyButton(tester).onPressed).isNull();
+      check(
+        tester
+            .widget<ConduitButton>(find.byKey(const Key('chat-share-system')))
+            .onPressed,
+      ).isNull();
+
+      lookUp.complete('web');
+      await tester.pump();
+      check(copyButton(tester).onPressed).isNotNull();
+      expect(find.text(l10n.updateAndCopyLink), findsOneWidget);
+      expect(find.byKey(const Key('chat-share-delete')), findsOneWidget);
+    });
+
+    testWidgets('a link it may not update can still be deleted', (
+      tester,
+    ) async {
+      await pumpSheet(
+        tester,
+        (_, _) async => 'web',
+        canPublish: false,
+        chat: conversation.copyWith(shareId: 'web'),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('chat-share-copy')), findsNothing);
+      expect(find.byKey(const Key('chat-share-system')), findsNothing);
+      expect(find.byKey(const Key('chat-share-delete')), findsOneWidget);
+    });
+
+    testWidgets('asks through the app, which outlives the sheet', (
+      tester,
+    ) async {
+      Object? asker;
+      await pumpSheet(tester, (ref, _) async {
+        asker = ref;
+        return null;
+      });
+      await tester.pump();
+      // An answer that arrives after the sheet closes is still recorded.
+      check(asker).isA<ProviderContainer>();
+    });
+
+    testWidgets('keeps what the chat knows when the server cannot say', (
+      tester,
+    ) async {
+      await pumpSheet(tester, (_, _) async => throw StateError('offline'));
+      await tester.pump();
+      check(copyButton(tester).onPressed).isNotNull();
+      expect(find.text(l10n.copyLink), findsOneWidget);
+      expect(find.byKey(const Key('chat-share-delete')), findsNothing);
+    });
+  });
+
   testWidgets('copying an existing share re-snapshots every time', (
     tester,
   ) async {
@@ -185,10 +291,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Update and copy link'));
+    await tester.tap(find.text('Update and Copy Link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.text('Update and copy link'));
+    await tester.tap(find.text('Update and Copy Link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -282,7 +388,7 @@ void main() {
     );
     container.read(activeConversationProvider.notifier).set(native);
 
-    await tester.tap(find.text('Update and copy link'));
+    await tester.tap(find.text('Update and Copy Link'));
     await tester.pump(const Duration(milliseconds: 100));
 
     check(api.sharedConversationIds).deepEquals(<String>[rawId]);
@@ -395,7 +501,7 @@ void main() {
       final deleteRow = tester.widget<UtilityRow>(delete);
       check(deleteRow.title).equals(l10n.shareChatDeleteLink);
       check(deleteRow.subtitle).equals(l10n.shareChatDeleteAndCreate);
-      check(l10n.chatShareAudience).equals('Who has access');
+      check(l10n.chatShareAudience).equals('Who Has Access');
       check(l10n.chatShareAudienceDescription)
           .equals('Choose who can open this chat');
 

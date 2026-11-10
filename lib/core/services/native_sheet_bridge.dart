@@ -1138,12 +1138,20 @@ enum NativeSheetItemKind {
   dropdown,
   searchablePicker,
   toggle,
+
+  /// One of a few values. On iOS a one-line row whose value at the trailing
+  /// edge opens a menu, as a Settings form's menu picker does; the
+  /// subtitle, if any, runs under the title.
   segment,
   slider,
   info,
   readOnlyText,
   source,
   statusUpdate,
+
+  /// Preview tiles for a few looks (System, Light, Dark), each painted from
+  /// its option's swatches, with a label and a selection mark under it.
+  appearanceTiles,
 }
 
 class NativeSheetOptionConfig {
@@ -1158,12 +1166,20 @@ class NativeSheetOptionConfig {
     this.showBranch = false,
     this.hasMoreSiblings = false,
     this.filterGroup,
+    this.swatches,
+    this.darkSwatches,
   });
 
   final String id;
   final String label;
   final String? subtitle;
   final String? sfSymbol;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, shown as
+  /// small discs beside its label in light appearance; [darkSwatches] in
+  /// dark. Null for an ordinary option.
+  final List<int>? swatches;
+  final List<int>? darkSwatches;
   final bool enabled;
   final bool destructive;
   final List<bool> ancestorHasMoreSiblings;
@@ -1185,6 +1201,8 @@ class NativeSheetOptionConfig {
       'ancestorHasMoreSiblings': ancestorHasMoreSiblings,
       'showBranch': showBranch,
       'hasMoreSiblings': hasMoreSiblings,
+      if (swatches != null) 'swatches': swatches,
+      if (darkSwatches != null) 'darkSwatches': darkSwatches,
     };
   }
 }
@@ -1481,6 +1499,8 @@ extension on NativeSheetItemKind {
       NativeSheetItemKind.source => PlatformNativeSheetItemKind.source,
       NativeSheetItemKind.statusUpdate =>
         PlatformNativeSheetItemKind.statusUpdate,
+      NativeSheetItemKind.appearanceTiles =>
+        PlatformNativeSheetItemKind.appearanceTiles,
     };
   }
 }
@@ -1498,6 +1518,8 @@ extension on NativeSheetOptionConfig {
       showBranch: showBranch,
       hasMoreSiblings: hasMoreSiblings,
       filterGroup: filterGroup,
+      swatchesArgb: swatches,
+      darkSwatchesArgb: darkSwatches,
     );
   }
 }

@@ -169,6 +169,13 @@ class ChatTimelineViewportController {
 
   double get distanceFromLatest => metrics?.distanceFromLatest ?? 0;
   bool get hasRealContentOverflow => metrics?.hasRealContentOverflow ?? false;
+
+  /// How much of the transcript lies below the visible end, read from the
+  /// scroll position now rather than from the last measured [metrics]. A
+  /// settled pin skips remeasuring while a reply streams, so the snapshot can
+  /// lag; this is one subtraction and is always current.
+  double get liveDistanceFromLatest =>
+      _state?._liveDistanceFromLatest() ?? distanceFromLatest;
   List<String> get visibleMessageIds =>
       metrics?.visibleMessageIds ?? const <String>[];
 
@@ -289,6 +296,7 @@ class ChatTimelineViewport extends StatefulWidget {
     this.rowRebuildKeys = const <Object?>[],
     this.estimateRowExtent,
     this.onRowExtentMeasured,
+    this.onLatestDistanceChanged,
     super.key,
   }) : assert(
          rowRebuildKeys.length == 0 ||
@@ -333,6 +341,12 @@ class ChatTimelineViewport extends StatefulWidget {
   final VoidCallback onUserDragEnd;
   final ValueChanged<ChatTimelineViewportMetrics> onMetricsChanged;
   final ValueChanged<double> onPinEndSpaceChanged;
+
+  /// Called after a frame in which [ChatTimelineViewportController.
+  /// liveDistanceFromLatest] changed, including while a settled pin skips
+  /// remeasuring the rows, so a caller can show the way down to text that
+  /// streams on below the composer.
+  final ValueChanged<double>? onLatestDistanceChanged;
   final VoidCallback onOldestThresholdReached;
   final Future<void> Function() onTrailingRefresh;
   final Future<void> Function() onNativeScrollToTop;
@@ -406,6 +420,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   int? _seekEntryGeneration;
   bool _layoutMaintenanceScheduled = false;
   bool _metricsCallbackScheduled = false;
+  bool _latestDistanceReportScheduled = false;
+  double? _reportedLatestDistance;
   bool _initialPositionResolved = false;
   bool _initialPositionCallbackScheduled = false;
   bool _initialEmptyFallbackVisible = false;
@@ -1017,6 +1033,33 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         ) ??
         previous;
     _scheduleMetricsCallback();
+  }
+
+  double? _liveDistanceFromLatest() {
+    final position = _dimensionedPosition;
+    if (position == null) return null;
+    return math.max(0.0, _contentLatestOffset(position) - position.pixels);
+  }
+
+  /// Reports the live distance once per frame, only when it moved.
+  void _scheduleLatestDistanceReport() {
+    if (widget.onLatestDistanceChanged == null ||
+        _latestDistanceReportScheduled) {
+      return;
+    }
+    _latestDistanceReportScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _latestDistanceReportScheduled = false;
+      if (!mounted) return;
+      final distance = _liveDistanceFromLatest();
+      if (distance == null) return;
+      final reported = _reportedLatestDistance;
+      if (reported != null && (distance - reported).abs() <= _geometryEpsilon) {
+        return;
+      }
+      _reportedLatestDistance = distance;
+      widget.onLatestDistanceChanged?.call(distance);
+    });
   }
 
   void _scheduleMetricsCallback() {
@@ -1824,6 +1867,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     );
   }
 
+  /// Whether the scroll indicator reacts to [notification]. Like UIKit's,
+  /// it shows only while the user scrolls (a drag, a fling after it, or a
+  /// wheel): the app's own moves — pinning a sent message, following a
+  /// streaming reply, restoring a position — happen without it. Every
+  /// scroll end still reaches it so an indicator on screen fades out.
+  bool _scrollbarFollows(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    return _userDragging || notification is ScrollEndNotification;
+  }
+
   bool _handleScrollNotification(ScrollNotification notification) {
     if (notification.depth != 0) return false;
     if (notification is ScrollStartNotification &&
@@ -1944,6 +1997,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }) {
     final transcript = NotificationListener<ScrollMetricsNotification>(
       onNotification: (notification) {
+        if (notification.depth == 0) _scheduleLatestDistanceReport();
         // A settled automatic pin owns a fixed pixel target and viewport-sized
         // support. Streamed row growth does not change either value, so avoid
         // remeasuring the whole transcript for every markdown extent update.
@@ -2099,9 +2153,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       child: PlatformInfo.isIOS
           ? CupertinoScrollbar(
               controller: _scrollController,
+              notificationPredicate: _scrollbarFollows,
               child: insetTranscript,
             )
-          : Scrollbar(controller: _scrollController, child: insetTranscript),
+          : Scrollbar(
+              controller: _scrollController,
+              notificationPredicate: _scrollbarFollows,
+              child: insetTranscript,
+            ),
     );
 
     return Stack(
@@ -2155,7 +2214,8 @@ double estimateChatRowExtent({
   // ponytail: flat per-kind terms plus body-text lines, as paseo does; code
   // blocks, tables, and markdown structure are not modelled. Refine only if
   // the thumb still drifts.
-  final chrome = isUser ? 56.0 : 88.0;
+  // Assistant chrome includes the 16 + 44 pt action row.
+  final chrome = isUser ? 56.0 : 100.0;
   final lineHeight = 22.0 * textScale;
   final glyphWidth = 8.0 * textScale;
   const minCharsPerLine = 20.0;

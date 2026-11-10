@@ -34,6 +34,8 @@ import '../../direct_connections/views/ollama_model_actions.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatModelSection;
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -76,6 +78,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _showMore = false;
+  final Set<String> _collapsedSections = <String>{};
 
   /// The chat and account this sheet opened for: it can stay open while
   /// another chat opens under it, and a pick is only for this one.
@@ -195,11 +198,16 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       pinnedModelIds: pinnedModelIds,
       defaultModelId: defaultModelId,
       selectedModelId: markedModelId,
+      sectionOf: libreChatModelSection,
     );
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     final moreModels = layout.more
         .where((model) => modelSelectorQueryMatches(model, normalizedQuery))
         .toList(growable: false);
+    final moreSections = [
+      for (final section in layout.sections)
+        ?modelSelectorSectionForQuery(section, normalizedQuery),
+    ];
     final l10n = AppLocalizations.of(context)!;
     final effortPolicy = ref.watch(reasoningEffortPolicyProvider);
     final selectedModel = ref.watch(selectedModelProvider);
@@ -263,7 +271,49 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                 const SizedBox(height: Spacing.md),
               ],
               Expanded(
-                child: _showMore
+                child: _showMore && layout.sections.isNotEmpty
+                    ? ListView(
+                        controller: scrollController,
+                        children: [
+                          if (moreModels.isNotEmpty || moreSections.isEmpty)
+                            _ModelGroup(
+                              models: moreModels,
+                              onTogglePinnedModel: _togglePinnedModel,
+                              selectedModelId: markedModelId,
+                              onPick: widget.onPick,
+                              pickTarget: _pickTarget,
+                            ),
+                          for (final section in moreSections) ...[
+                            const SizedBox(height: Spacing.md),
+                            _SectionToggle(
+                              label: section.label,
+                              // A search shows every section it matched.
+                              collapsed:
+                                  normalizedQuery.isEmpty &&
+                                  _collapsedSections.contains(section.label),
+                              onTap: normalizedQuery.isEmpty
+                                  ? () => setState(() {
+                                      if (!_collapsedSections.remove(
+                                        section.label,
+                                      )) {
+                                        _collapsedSections.add(section.label);
+                                      }
+                                    })
+                                  : null,
+                            ),
+                            if (normalizedQuery.isNotEmpty ||
+                                !_collapsedSections.contains(section.label))
+                              _ModelGroup(
+                                models: section.models,
+                                onTogglePinnedModel: _togglePinnedModel,
+                                selectedModelId: markedModelId,
+                                onPick: widget.onPick,
+                                pickTarget: _pickTarget,
+                              ),
+                          ],
+                        ],
+                      )
+                    : _showMore
                     ? _ModelGroup(
                         models: moreModels,
                         onTogglePinnedModel: _togglePinnedModel,
@@ -319,7 +369,8 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                               },
                             ),
                           ],
-                          if (layout.more.isNotEmpty) ...[
+                          if (layout.more.isNotEmpty ||
+                              layout.sections.isNotEmpty) ...[
                             const SizedBox(height: Spacing.md),
                             _ActionCard(
                               icon: Platform.isIOS
@@ -368,6 +419,128 @@ bool modelSelectorQueryMatches(Model model, String query) {
       model.id.toLowerCase().contains(normalizedQuery) ||
       (directSource?.contains(normalizedQuery) ?? false) ||
       model.modelTags.any((tag) => tag.toLowerCase().contains(normalizedQuery));
+}
+
+/// [section] as a search for [query] shows it: whole when its label
+/// matches, else only the models that match; null when nothing does.
+@visibleForTesting
+ModelSelectorSection? modelSelectorSectionForQuery(
+  ModelSelectorSection section,
+  String query,
+) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.isEmpty ||
+      section.label.toLowerCase().contains(normalizedQuery)) {
+    return section;
+  }
+  final models = section.models
+      .where((model) => modelSelectorQueryMatches(model, normalizedQuery))
+      .toList(growable: false);
+  return models.isEmpty
+      ? null
+      : ModelSelectorSection(label: section.label, models: models);
+}
+
+/// A section's title in the more-models list, which folds the section away.
+class _SectionToggle extends StatefulWidget {
+  const _SectionToggle({
+    required this.label,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool collapsed;
+  final VoidCallback? onTap;
+
+  @override
+  State<_SectionToggle> createState() => _SectionToggleState();
+}
+
+class _SectionToggleState extends State<_SectionToggle> {
+  bool _showFocus = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final onTap = widget.onTap;
+    final label = widget.label;
+    final collapsed = widget.collapsed;
+    // One node that screen readers announce and can activate, and a focus
+    // stop so a keyboard or switch can open and close the section too.
+    return Semantics(
+      container: true,
+      child: FocusableActionDetector(
+        enabled: onTap != null,
+        // A keyboard user sees which heading Enter or Space will fold.
+        onShowFocusHighlight: (show) => setState(() => _showFocus = show),
+        mouseCursor: onTap != null
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
+        actions: <Type, Action<Intent>>{
+          if (onTap != null)
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                onTap();
+                return null;
+              },
+            ),
+        },
+        child: Semantics(
+          button: onTap != null,
+          expanded: onTap == null ? null : !collapsed,
+          label: label,
+          onTap: onTap,
+          excludeSemantics: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                border: Border.all(
+                  color: _showFocus
+                      ? context.conduitTheme.buttonPrimary
+                      : const Color(0x00000000),
+                  width: 2,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.sm,
+                  vertical: Spacing.xs,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: AppTypography.labelMediumStyle.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: context.conduitTheme.textSecondary,
+                        ),
+                      ),
+                    ),
+                    if (onTap != null)
+                      Icon(
+                        collapsed
+                            ? (Platform.isIOS
+                                  ? CupertinoIcons.chevron_right
+                                  : Icons.chevron_right)
+                            : (Platform.isIOS
+                                  ? CupertinoIcons.chevron_down
+                                  : Icons.expand_more),
+                        size: 18,
+                        color: context.conduitTheme.iconSecondary,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SelectorHeader extends StatelessWidget {

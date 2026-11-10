@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
@@ -22,7 +23,9 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
+import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
 
@@ -44,8 +47,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
+import '../../terminal/widgets/computer_page.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
@@ -55,7 +60,9 @@ import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -63,16 +70,26 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_trus
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 
+import '../../hermes/widgets/hermes_background_work_chip.dart';
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/widgets/hermes_context_usage_sheet.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../../hermes/widgets/hermes_read_only_session_notice.dart';
+import '../../hermes/widgets/hermes_todo_card.dart';
 import '../widgets/live_connection_button.dart';
+import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
-
-import 'package:conduit_core/utils/user_display_name.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
+    show installedModelLogoCatalog;
+import 'package:conduit_core/utils/model_display_name.dart';
+import 'package:conduit_core/utils/user_display_name.dart'
+    show deriveGreetingName;
 
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
@@ -133,6 +150,7 @@ import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';
 import '../widgets/chat_timeline_viewport.dart';
+import '../widgets/chat_scroll_to_latest_button.dart';
 import '../../../platform/frame_profiler.dart';
 
 @visibleForTesting
@@ -161,15 +179,57 @@ Widget debugBuildArchivedAssistantPlaceholderForTesting({Key? key}) =>
 
 class _ChatToolbarActionDescriptor {
   const _ChatToolbarActionDescriptor({
+    required this.id,
     required this.widget,
     required this.nativeAction,
     this.icon,
   });
 
+  /// Stable identity of the action, so the bar's grouped actions fade only
+  /// the ones that change.
+  final String id;
   final Widget widget;
   final ConduitNativeToolbarAction nativeAction;
   final IconData? icon;
+
+  ConduitToolbarClusterItem get clusterItem => ConduitToolbarClusterItem(
+    id: id,
+    action: nativeAction,
+    fallbackIcon: icon,
+  );
 }
+
+/// How long a new chat's bar actions wait, after its first send, for the
+/// conversation to exist before showing a chat's actions anyway.
+const Duration kChatHeaderNewChatActionsHold = Duration(milliseconds: 1200);
+
+/// Whether the header keeps a new chat's actions (the Temporary Chat toggle)
+/// for now: the first message is on its way but the conversation it creates
+/// does not exist yet, or exists only as the local placeholder the server's
+/// chat will replace.
+///
+/// Its bar actions depend on that conversation (More needs it), so without
+/// the hold the trailing glass stepped through every state in between:
+/// toggle, toggle and New Chat, New Chat alone, then New Chat and More.
+/// Holding lets them change once, to their final set. [holdExpired] ends the
+/// hold should the conversation take unusually long (offline, say).
+@visibleForTesting
+bool chatHeaderHoldsNewChatActions({
+  required bool hasMessages,
+  required bool hasSettledConversation,
+  required bool holdExpired,
+}) => hasMessages && !hasSettledConversation && !holdExpired;
+
+/// Whether [conversation] is the chat's own: a server chat, or a local one
+/// the user chose to keep temporary. A local placeholder for a chat that is
+/// being saved is not settled yet.
+@visibleForTesting
+bool chatHeaderConversationSettled({
+  required Conversation? conversation,
+  required bool temporaryChatEnabled,
+}) =>
+    conversation != null &&
+    (temporaryChatEnabled || !isTemporaryChat(conversation.id));
 
 @visibleForTesting
 Widget debugBuildChatEmptyStateViewportForTesting({
@@ -222,6 +282,8 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 // off-screen instead of inside the visible fling.
 const double _chatMessageScrollCachePixels = 1200.0;
 
+const double _kScrollToLatestButtonSize = 40.0;
+
 @visibleForTesting
 bool shouldShowChatModelDropdown({
   required Model? selectedModel,
@@ -237,11 +299,18 @@ bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
   bool temporaryChatEnforced = false,
-}) =>
-    !isHermes &&
-    // The server keeps the chat temporary, and would refuse to save it.
-    !temporaryChatEnforced &&
-    (activeConversation == null || isTemporaryChat(activeConversation.id));
+  bool isLibreChat = false,
+  bool isTemporary = false,
+}) {
+  if (isHermes) return false;
+  // Temporary chats are Open WebUI's; a LibreChat chat is always saved. A
+  // new chat still set to temporary offers the switch only to turn it off,
+  // since LibreChat will not send it as it is.
+  if (isLibreChat) return isTemporary && activeConversation == null;
+  // The server keeps the chat temporary, and would refuse to save it.
+  return !temporaryChatEnforced &&
+      (activeConversation == null || isTemporaryChat(activeConversation.id));
+}
 
 @visibleForTesting
 String? chatHermesBotTitle(Conversation? conversation) {
@@ -444,6 +513,53 @@ enum _ChatTimelineScrollMode {
   freeScrolling,
 }
 
+/// What a Desktop chat's transcript refresh does with the read it made.
+enum HermesTranscriptRefreshStep {
+  /// Show the read.
+  apply,
+
+  /// Keep the chat as it is.
+  keep,
+
+  /// Read again now.
+  retry,
+
+  /// Read again once the reply running now ends.
+  afterReply,
+}
+
+/// The step for a transcript read, given whether the chat on screen
+/// changed while it was read ([shownChanged]), whether a reply streams now,
+/// whether this read is already a retry, the authoritative message counts
+/// on screen and in the read, and [shortened], which uses up the allowance
+/// a change that shortened the chat gave (an undo) and says whether there
+/// was one. It is asked only for a read that is compared.
+@visibleForTesting
+HermesTranscriptRefreshStep hermesTranscriptRefreshStep({
+  required bool shownChanged,
+  required bool streaming,
+  required bool retried,
+  required int shownCount,
+  required int readCount,
+  required bool Function() shortened,
+}) {
+  // A message sent, or a reply streamed, while the transcript was read is
+  // not in it: replacing the chat now would drop it.
+  if (shownChanged) {
+    if (streaming) return HermesTranscriptRefreshStep.afterReply;
+    return retried
+        ? HermesTranscriptRefreshStep.keep
+        : HermesTranscriptRefreshStep.retry;
+  }
+  final allowed = shortened();
+  // A shorter read is taken only after a change that shortened the chat;
+  // otherwise it is an incomplete one.
+  if (shownCount > 0 && readCount < shownCount && !allowed) {
+    return HermesTranscriptRefreshStep.keep;
+  }
+  return HermesTranscriptRefreshStep.apply;
+}
+
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
 
@@ -467,6 +583,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         hideThreshold: _scrollButtonHideThreshold,
       );
   bool _showScrollToBottom = false;
+
+  /// Whether the transcript has scrolled under the header, so the header
+  /// names the chat above its model.
+  final ValueNotifier<bool> _headerShowsTitle = ValueNotifier<bool>(false);
+
+  /// Ends the hold that keeps a new chat's bar actions while its first send
+  /// creates the conversation (see [chatHeaderHoldsNewChatActions]).
+  Timer? _newChatActionsHoldTimer;
+  bool _newChatActionsHoldExpired = false;
+
   bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _scrollToBottomPrewarmPending = false;
   bool _hasUserScrolled = false;
@@ -505,7 +631,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // the viewport's sliver delegate skip rebuilding every mounted row, and lets
   // the stable-layout cache hit its identity fast path.
   List<ChatMessage>? _transcriptWindowSource;
-  int _transcriptWindowCount = -1;
+  int _transcriptWindowRequestedCount = -1;
+  int _transcriptWindowPagingGeneration = -1;
+  int _transcriptWindowOwnerGeneration = -1;
   List<ChatMessage> _transcriptWindowMemo = const <ChatMessage>[];
   List<ChatMessage>? _timelineModelSource;
   int _timelineModelGeneration = -1;
@@ -516,6 +644,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ChatTimelineRowBuilder? _rowBuilderMemo;
   List<Object?> _rowRebuildKeysMemo = const <Object?>[];
   String? _cachedGreetingName;
+  // Whose name [_cachedGreetingName] is: it never greets another account.
+  PrimaryAccountRef? _greetingAccount;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _conversationLoadingSub;
@@ -524,7 +654,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<Object>? _authEpochSub;
   ProviderSubscription<ApiService?>? _apiOwnerSub;
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
-  ProviderSubscription<AsyncValue<String>>? _hermesTranscriptSub;
+  ProviderSubscription<AsyncValue<HermesTranscriptChange>>?
+  _hermesTranscriptSub;
   ProviderSubscription<bool>? _hermesStreamingSub;
   late final OpenWebUiLivePromptNotifier _livePromptNotifier;
   String? _pendingHermesTranscriptRefresh;
@@ -548,7 +679,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
       _pinToTopState.isActive && _pinToTopState.isAutoFollowing;
-  String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
+  String? get _pinnedUserMessageId =>
+      _currentMessageId(_pinToTopState.userMessageId);
+
+  /// The pinned reply, by the id it has now: a LibreChat turn swaps the ids
+  /// minted here for the server's while it runs.
+  String? get _pinnedStreamingMessageId =>
+      _currentMessageId(_pinToTopState.streamingMessageId);
+
+  String? _currentMessageId(String? id) => id == null
+      ? null
+      : ref.read(chatMessagesProvider.notifier).currentMessageId(id);
 
   bool get _isUserInteractingWithScroll =>
       _bottomAnchorController.isUserInteractingWithScroll;
@@ -561,10 +702,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   set _isAnchoredToBottom(bool value) {
     _bottomAnchorController.isAnchoredToBottom = value;
     _syncLayoutBottomAnchor();
-  }
-
-  String _formatModelDisplayName(String name) {
-    return _formatChatModelDisplayName(name);
   }
 
   void _invalidateChatListStableLayoutMetadata() {
@@ -609,6 +746,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _handleViewportMetricsChanged(ChatTimelineViewportMetrics metrics) {
     if (!mounted || _isDeactivated) return;
+    final hasOlderMessages = ref.read(chatTranscriptPagingProvider).hasOlder;
+    _headerShowsTitle.value = chatHeaderShowsTitle(
+      scrolledFromTop: metrics.pixels - metrics.minScrollExtent,
+      hasOlderMessages: hasOlderMessages,
+      currentlyShowing: _headerShowsTitle.value,
+      contentOverflowsViewport: metrics.hasRealContentOverflow,
+    );
     if (_isUserInteractingWithScroll &&
         metrics.distanceFromLatest > _scrollButtonHideThreshold) {
       _bottomAnchorController.detachByUser();
@@ -879,7 +1023,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub = ref.listenManual(
       hermesDesktopTranscriptChangesProvider,
       (_, next) => next.whenData(
-        (storedId) => unawaited(_refreshDesktopHermesTranscript(storedId)),
+        (change) =>
+            unawaited(_refreshDesktopHermesTranscript(change.storedId)),
       ),
     );
     _hermesStreamingSub = ref.listenManual(isChatStreamingProvider, (
@@ -951,6 +1096,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       InteractionActivity.instance.endInteraction();
     }
     _timelineViewportController.dispose();
+    _headerShowsTitle.dispose();
+    _newChatActionsHoldTimer?.cancel();
     super.dispose();
   }
 
@@ -1017,7 +1164,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return result.dispatched ? committed : null;
   }
 
-  Future<void> _refreshDesktopHermesTranscript(String storedId) async {
+  Future<void> _refreshDesktopHermesTranscript(
+    String storedId, {
+    bool retried = false,
+  }) async {
     final active = ref.read(activeConversationProvider);
     if (active == null ||
         !isNativeHermesConversation(active) ||
@@ -1033,6 +1183,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final service = ref.read(hermesApiServiceProvider);
     if (service is! HermesDesktopApiService) return;
     final generation = ++_hermesTranscriptRefreshGeneration;
+    final shownBefore = ref.read(chatMessagesProvider);
     try {
       final raw = await service.getSessionMessages(storedId);
       List<HermesPendingDesktopDecision> pending;
@@ -1079,6 +1230,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             raw,
             modelId: model.id,
             trustedLocalDocumentKeys: trustedKeys,
+            sensitiveValues: service.config.sensitiveValues,
           )..addAll(
             hermesPendingDesktopDecisionMessages(pending, modelId: model.id),
           );
@@ -1090,6 +1242,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             service.turnStateFor(storedId) == HermesDesktopTurnState.running,
       );
       final currentMessages = ref.read(chatMessagesProvider);
+      final shownChanged = !identical(currentMessages, shownBefore);
       final currentAuthoritativeCount = currentMessages
           .where(
             (message) =>
@@ -1104,9 +1257,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 !isRestoredHermesDesktopRunningPlaceholder(message),
           )
           .length;
-      if (currentAuthoritativeCount > 0 &&
-          candidateAuthoritativeCount < currentAuthoritativeCount) {
-        return;
+      final step = hermesTranscriptRefreshStep(
+        shownChanged: shownChanged,
+        streaming: ref.read(isChatStreamingProvider),
+        retried: retried,
+        shownCount: currentAuthoritativeCount,
+        readCount: candidateAuthoritativeCount,
+        // A change the user made may have shortened the chat: a compaction
+        // (a Bot Chat's history leaves compacted rows out), or an undo it
+        // did not see. Both marks are used up by the read that is compared,
+        // longer or not: left for a later incomplete read, they would let
+        // that one shorten the chat.
+        shortened: () => [
+          service.takeShortenedTranscript(storedId),
+          service.takeCompactedTranscript(storedId),
+        ].any((taken) => taken),
+      );
+      switch (step) {
+        case HermesTranscriptRefreshStep.keep:
+          return;
+        case HermesTranscriptRefreshStep.afterReply:
+          _pendingHermesTranscriptRefresh = storedId;
+          return;
+        case HermesTranscriptRefreshStep.retry:
+          unawaited(_refreshDesktopHermesTranscript(storedId, retried: true));
+          return;
+        case HermesTranscriptRefreshStep.apply:
+          break;
       }
       ref.read(chatMessagesProvider.notifier).setMessages(messages);
       ref
@@ -1309,24 +1486,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Resolve model on-demand if none selected yet
     if (selectedModel == null) {
+      Model? fallback;
+      var failed = false;
       try {
-        // Prefer already-loaded models
-        List<Model> models;
-        final modelsAsync = ref.read(modelsProvider);
-        if (modelsAsync.hasValue) {
-          models = modelsAsync.value!;
-        } else {
-          models = await ref.read(modelsProvider.future);
-        }
-        if (models.isNotEmpty) {
-          selectedModel = models.first;
-          ref.read(selectedModelProvider.notifier).set(selectedModel);
-        }
+        fallback = await modelForUnpickedSend(ref.read);
       } catch (_) {
-        // If models cannot be resolved, bail out without sending
+        failed = true;
+      }
+      if (!mounted) return false;
+      // A model picked while that waited is the user's choice; the fallback
+      // only stands in for none.
+      selectedModel = ref.read(selectedModelProvider) ?? fallback;
+      if (selectedModel == null) {
+        // The draft stays in the composer: say why it was not sent.
+        final l10n = AppLocalizations.of(context)!;
+        AdaptiveSnackBar.show(
+          context,
+          message: failed ? l10n.failedToLoadModels : l10n.noModelsAvailable,
+          type: AdaptiveSnackBarType.error,
+        );
         return false;
       }
-      if (selectedModel == null) return false;
+      ref.read(selectedModelProvider.notifier).set(selectedModel);
     }
 
     ChatSendPlaceholderHandle? pendingSend;
@@ -1382,11 +1563,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       } else {
         var admissionConfirmed = false;
+        final directBinding = ref
+            .read(directModelRegistryProvider)
+            .resolve(selectedModel);
+        // A Hermes or device Direct turn says when it goes to its run; an
+        // Open WebUI Direct one, sent through the server, does not.
+        final signalsTurnStart =
+            isHermesModel(selectedModel) ||
+            directBinding?.source == DirectModelSource.device;
+        // Every Direct binding is sent inline, with no outbox receipt.
         final usesOutbox =
             hasDurableOutbox &&
             !isHermesModel(selectedModel) &&
-            ref.read(directModelRegistryProvider).resolve(selectedModel) ==
-                null;
+            directBinding == null;
         await durableSend(
           ref,
           text,
@@ -1408,10 +1597,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   onDraftCommitted(pendingSend!);
                 }
               : null,
+          // A Hermes or Direct send lasts the whole turn: its words leave
+          // the composer once the turn is handed to its run, not when an
+          // approval or question that holds the turn open is answered.
+          onTurnStarted: () {
+            if (admissionConfirmed || pendingSend == null) return;
+            admissionConfirmed = true;
+            onDraftCommitted?.call(pendingSend!);
+          },
         );
         // Inline backends have no outbox receipt. Keep their draft until
-        // the existing send path has accepted it successfully.
-        if (!admissionConfirmed && pendingSend != null) {
+        // the existing send path has accepted it successfully. A Hermes or
+        // device Direct turn that never went to its run (a new session that
+        // could not be made) keeps it too.
+        if (!admissionConfirmed && pendingSend != null && !signalsTurnStart) {
           onDraftCommitted?.call(pendingSend!);
         }
       }
@@ -1455,6 +1654,30 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             error,
             models: ref.read(modelsProvider).asData?.value,
           ),
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
+    } on LibreChatTemporaryChatException {
+      // Refused before anything was sent; the draft stays for once temporary
+      // chat is off.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.libreChatTemporaryChatOff,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
+    } on LibreChatReplyRunningException {
+      // Refused before anything was written; the draft stays for once the
+      // reply is done or stopped.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -2133,9 +2356,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       bottomAnchorDetached: _bottomAnchorController.isUserDetachedFromBottom,
       currentlyShowing: _showScrollToBottom,
       distanceFromLatest: distanceFromLatest,
+      pinnedTurnPlaced: _pinnedTurnPlaced,
+      contentBelowPinnedTurn:
+          _timelineViewportController.liveDistanceFromLatest,
       showThreshold: _scrollButtonShowThreshold,
       hideThreshold: _scrollButtonHideThreshold,
     );
+  }
+
+  /// A pinned turn that has reached its place at the top (or stopped
+  /// following, e.g. the user touched the transcript mid-move). Before that
+  /// the transcript is still moving to it, and what lies below is not yet
+  /// meaningful.
+  bool get _pinnedTurnPlaced =>
+      _wantsPinToTop &&
+      (_pinToTopPositionSettled || !_shouldAutoFollowPinnedTurn);
+
+  /// While a turn is pinned, the live distance to the end of the transcript
+  /// can change with no scroll (a reply streaming on under the composer), so
+  /// the button is re-decided whenever it moves; this is a single comparison
+  /// until the decision actually flips.
+  void _handleLatestDistanceChanged(double distance) {
+    if (!mounted || _isDeactivated || !_pinnedTurnPlaced) return;
+    final threshold = _showScrollToBottom
+        ? _scrollButtonHideThreshold
+        : _scrollButtonShowThreshold;
+    if ((distance > threshold) == _showScrollToBottom) return;
+    _scheduleScrollToBottomVisibilitySync();
   }
 
   int _renderedTranscriptCount(
@@ -2150,14 +2397,53 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> completeMessages,
     ChatTranscriptPagingState paging,
   ) {
-    final count = _renderedTranscriptCount(completeMessages, paging);
-    if (!identical(_transcriptWindowSource, completeMessages) ||
-        count != _transcriptWindowCount) {
-      _transcriptWindowSource = completeMessages;
-      _transcriptWindowCount = count;
-      _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
+    final requested = _renderedTranscriptCount(completeMessages, paging);
+    final sameWindow =
+        paging.generation == _transcriptWindowPagingGeneration &&
+        _conversationOwnerGeneration == _transcriptWindowOwnerGeneration;
+    if (sameWindow &&
+        identical(_transcriptWindowSource, completeMessages) &&
+        requested == _transcriptWindowRequestedCount) {
+      return _transcriptWindowMemo;
     }
+    // A send appends its turn before paging hears of the new total; keep the
+    // rows already on screen rather than sliding the window past them.
+    final count = transcriptCountKeepingOldestRow(
+      total: completeMessages.length,
+      requestedCount: requested,
+      previousOldestIndex: sameWindow
+          ? _indexOfWindowStart(completeMessages, _transcriptWindowMemo)
+          : null,
+    );
+    _transcriptWindowSource = completeMessages;
+    _transcriptWindowRequestedCount = requested;
+    _transcriptWindowPagingGeneration = paging.generation;
+    _transcriptWindowOwnerGeneration = _conversationOwnerGeneration;
+    _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
     return _transcriptWindowMemo;
+  }
+
+  /// Where [window]'s oldest message now sits in [completeMessages], or null.
+  /// Appends leave it where it was, so that index is checked first.
+  static int? _indexOfWindowStart(
+    List<ChatMessage> completeMessages,
+    List<ChatMessage> window,
+  ) {
+    if (window.isEmpty) return null;
+    final oldestId = window.first.id;
+    // Where it would be if nothing before it changed.
+    final likely = completeMessages.length - window.length;
+    for (final index in [likely, likely - 1, likely - 2]) {
+      if (index >= 0 &&
+          index < completeMessages.length &&
+          completeMessages[index].id == oldestId) {
+        return index;
+      }
+    }
+    final index = completeMessages.indexWhere(
+      (message) => message.id == oldestId,
+    );
+    return index < 0 ? null : index;
   }
 
   bool _hasScrollableTranscriptContent() {
@@ -2176,9 +2462,40 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : math.max(0, _inputHeight - Spacing.xl);
   }
 
+  /// Distance from the bottom of the page body to the composer's top edge.
+  ///
+  /// The measured composer section includes [Spacing.xl] of transparent
+  /// headroom above the composer itself. Before it is measured, assume a
+  /// one-line composer above the home indicator.
+  double _composerTopInset(BuildContext context) => _inputHeight > 0
+      ? math.max(0, _inputHeight - Spacing.xl)
+      : MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl;
+
+  /// The soft edge under the header: the transcript stays in view as it
+  /// passes under the floating glass, easing into the page background behind
+  /// the status bar.
+  Widget _buildHeaderScrollEdge(BuildContext context) {
+    return ConduitChromeGradientFade.top(
+      contentHeight:
+          MediaQuery.viewPaddingOf(context).top +
+          conduitAdaptiveToolbarHeightOf(context),
+    );
+  }
+
+  /// The same soft edge behind the floating composer.
+  Widget _buildComposerScrollEdge(BuildContext context) {
+    return ConduitChromeGradientFade.bottom(
+      contentHeight: math.max(
+        _composerTopInset(context),
+        MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
+      ),
+      fadeHeight: Spacing.md,
+    );
+  }
+
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
-    ConduitHaptics.lightImpact();
+    ConduitHaptics.selectionClick();
     if (debugShouldReleasePinnedTurnForManualNavigationForTesting(
       pinActive: _wantsPinToTop,
       userDragStarted: false,
@@ -2405,6 +2722,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .cancelForConversation(outgoingId);
 
     _conversationOwnerGeneration += 1;
+    // Another chat: its own scroll decides whether the bar names it.
+    _headerShowsTitle.value = false;
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     _saveCurrentScrollAnchor(conversationId: outgoingId);
@@ -2451,6 +2770,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hasPrewarmedAttachedViewport = false;
     _lastVisibleMessageIds = const <String>{};
     _conversationOwnerGeneration += 1;
+    _headerShowsTitle.value = false;
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     setState(() {
@@ -2518,7 +2838,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ChatTurnPhase? assistantPhase,
   ) {
     if (!_shouldAutoFollowPinnedTurn) return;
-    final assistantMessageId = _pinToTopState.streamingMessageId;
+    final assistantMessageId = _pinnedStreamingMessageId;
     if (assistantMessageId == null) return;
     if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
@@ -2536,7 +2856,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       if (!mounted ||
           scheduledGeneration != _pinPositionGeneration ||
-          _pinToTopState.streamingMessageId != assistantMessageId) {
+          _pinnedStreamingMessageId != assistantMessageId) {
         return;
       }
       ChatMessage? currentAssistant;
@@ -2729,6 +3049,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     setState(() => _pinToTopPositionSettled = true);
+    // A reply already longer than the screen now runs on under the composer.
+    _scheduleScrollToBottomVisibilitySync();
   }
 
   void _clearPinToTopAnchor({
@@ -2753,7 +3075,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final icon = Platform.isIOS
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
-    const buttonSize = 40.0;
+    const buttonSize = _kScrollToLatestButtonSize;
     const iconSize = IconSize.medium;
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
@@ -2795,9 +3117,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isStreaming = watchRef.watch(isChatStreamingProvider);
     final completeMessages = watchRef.read(chatMessagesProvider);
     final paging = watchRef.watch(chatTranscriptPagingProvider);
-    final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
-    final pinnedAssistantId = _pinToTopState.streamingMessageId;
+    final requestedCount = messages.length;
+    final pinnedAssistantId = _pinnedStreamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
         : watchRef.watch(
@@ -2831,7 +3153,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final currentMessageCount = ref.read(chatMessagesProvider).length;
         ref
             .read(chatTranscriptPagingProvider.notifier)
-            .ensureTotal(currentMessageCount);
+            .ensureTotal(
+              currentMessageCount,
+              minimumLoaded: _transcriptWindowMemo.length,
+            );
       });
     }
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
@@ -3125,6 +3450,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _maybeLoadOlderMessages();
       },
       onMetricsChanged: _handleViewportMetricsChanged,
+      onLatestDistanceChanged: _handleLatestDistanceChanged,
       onPinEndSpaceChanged: _handlePinEndSpaceChanged,
       onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
@@ -3366,7 +3692,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           final bubble = UserMessageBubble(
             message: latestMessage,
             isUser: true,
-            readOnly: rowRef.watch(activeConversationReadOnlyProvider),
+            readOnly:
+                rowRef.watch(activeConversationReadOnlyProvider) ||
+                rowRef.watch(activeHermesSessionReadOnlyProvider),
             isStreaming: latestMessage.isStreaming,
             modelName: rowMetadata.displayModelName,
             onCopy: () {
@@ -3380,7 +3708,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Clipboard.setData(ClipboardData(text: currentMessage.content));
               }
             },
-            onDelete: () => _deleteMessageGroup(<String>[messageId]),
+            // LibreChat keeps its messages on its server, which a delete
+            // here would not reach: the next sync would bring them back,
+            // and a reply still running would put its turn back at once.
+            onDelete: _messagesDeletable(rowRef)
+                ? () => _deleteMessageGroup(<String>[messageId])
+                : null,
             onRegenerate: () => _regenerateMessage(messageId),
           );
           // An edited message keeps each version as a sibling in the stored
@@ -3433,7 +3766,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool suppressStreamingHaptics,
   }) {
     final groupIds = rowMetadata.groupMessageIds;
-    final readOnly = rowRef.watch(activeConversationReadOnlyProvider);
+    // A shared chat of another user's, or a Hermes session another Hermes
+    // app owns: its messages are read here, never changed.
+    final readOnly =
+        rowRef.watch(activeConversationReadOnlyProvider) ||
+        rowRef.watch(activeHermesSessionReadOnlyProvider);
     final displayedMessage = groupIds.length > 1
         ? _messageWithGroupedHermesToolStatuses(rowRef, latestMessage, groupIds)
         : latestMessage;
@@ -3489,11 +3826,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // replacement.
       onRegenerate: () =>
           _regenerateMessage(groupIds.isEmpty ? messageId : groupIds.first),
-      onDelete: () => _deleteMessageGroup(
-        groupIds.isEmpty ? <String>[messageId] : groupIds,
-      ),
+      onDelete: _messagesDeletable(rowRef)
+          ? () => _deleteMessageGroup(
+              groupIds.isEmpty ? <String>[messageId] : groupIds,
+            )
+          : null,
     );
   }
+
+  /// Whether the open chat's messages can be deleted here: not a LibreChat
+  /// chat's, which a delete here would not take off its server.
+  bool _messagesDeletable(WidgetRef rowRef) => !rowRef.watch(
+    activeConversationProvider.select(isLibreChatConversation),
+  );
 
   ChatMessage _messageWithGroupedHermesToolStatuses(
     WidgetRef rowRef,
@@ -3638,17 +3983,52 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   // Inline editing handled by UserMessageBubble. Dialog flow removed.
 
+  /// How much of the empty state's height the composer is taken to cover.
+  ///
+  /// The greeting centres above a single-line composer however long the
+  /// draft grows, so typing never nudges it; only the keyboard moves it,
+  /// which it does continuously because the area shrinks with the keyboard
+  /// frame by frame (and the safe-area gap below the composer shrinks with
+  /// it). The measured composer height arrives a frame late and in steps,
+  /// so it is used only once a long draft would otherwise reach the
+  /// greeting.
+  double _emptyStateBottomReserve(BuildContext context) {
+    final measured = _messageListBottomPadding();
+    if (ref.read(chatVoiceModeControllerProvider).isActive) return measured;
+    final singleLine =
+        math.max(MediaQuery.paddingOf(context).bottom, Spacing.sm) +
+        MediaQuery.textScalerOf(context)
+            .scale(_emptyStateSingleLineComposerHeight);
+    return math.max(singleLine, measured - _emptyStateComposerGrowthAllowance);
+  }
+
+  /// A one-line composer pill, unscaled.
+  static const double _emptyStateSingleLineComposerHeight = 48;
+
+  /// The new-chat greeting: Title 1 size and tracking, bold, as the large
+  /// titles are.
+  static const double _emptyStateGreetingFontSize = 28;
+  static const double _emptyStateGreetingLineHeight = 34;
+  static const double _emptyStateGreetingTracking = 0.38;
+
+  /// How far the composer may grow past one line before the greeting makes
+  /// room for it.
+  static const double _emptyStateComposerGrowthAllowance = 120;
+
   Widget _buildEmptyState(ThemeData theme) {
     final l10n = AppLocalizations.of(context)!;
-    final authUser = ref.watch(currentUserProvider2);
-    final asyncUser = ref.watch(currentUserProvider);
-    final user = asyncUser.maybeWhen(
-      data: (value) => value ?? authUser,
-      orElse: () => authUser,
-    );
+    // Whoever owns the Chats tab: an Open WebUI or a LibreChat user.
+    final account = ref.watch(primaryAccountProvider);
+    if (account != _greetingAccount) {
+      _greetingAccount = account;
+      _cachedGreetingName = null;
+    }
+    final user = ref.watch(primaryUserProvider);
     String? greetingName;
     if (user != null) {
-      final derived = deriveUserDisplayName(user, fallback: '').trim();
+      // "Hello, Robin", not a form letter's full name; the whole name when
+      // it has no clear first name.
+      final derived = deriveGreetingName(user.displayName);
       if (derived.isNotEmpty) {
         greetingName = derived;
         _cachedGreetingName = derived;
@@ -3664,12 +4044,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         });
       });
     }
-    final baseGreetingStyle =
-        theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle;
-    final greetingStyle = baseGreetingStyle.copyWith(
-      fontWeight: FontWeight.w600,
-      color: context.conduitTheme.textPrimary,
-    );
+    // A title, not a caption: 28 pt bold with Title 1 tracking, the weight
+    // of the app's large titles, so the one line on an empty screen reads as
+    // deliberate. The theme's display style keeps the display cut of the
+    // system font at this size.
+    final greetingStyle =
+        (theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle)
+            .copyWith(
+              fontSize: _emptyStateGreetingFontSize,
+              height:
+                  _emptyStateGreetingLineHeight / _emptyStateGreetingFontSize,
+              letterSpacing: _emptyStateGreetingTracking,
+              fontWeight: FontWeight.w700,
+              color: context.conduitTheme.textPrimary,
+            );
     final textScaler = MediaQuery.textScalerOf(context);
     final greetingHeight =
         textScaler.scale(greetingStyle.fontSize ?? 24) *
@@ -3695,9 +4083,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         MediaQuery.paddingOf(context).top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
-    final bottomPadding = _messageListBottomPadding();
+    final bottomPadding = _emptyStateBottomReserve(context);
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Sit at the optical centre between the header and the composer, a
+        // little above the geometric one.
+        final opticalLift = debugChatEmptyStateOpticalLiftForTesting(
+          availableHeight: constraints.maxHeight - topPadding - bottomPadding,
+        );
         final greetingDisplay = greetingText;
         final temporaryChatNotice = Column(
           mainAxisSize: MainAxisSize.min,
@@ -3732,7 +4125,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Spacing.lg,
                 topPadding,
                 Spacing.lg,
-                bottomPadding,
+                bottomPadding + 2 * opticalLift,
               ),
               children: [
                 if (pendingFolder != null) ...[
@@ -3884,6 +4277,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       findPendingHermesComposerPrompt,
                     ),
                   );
+                  final hermesPlan = composerRef
+                      .watch(hermesActiveTodoProvider)
+                      .asData
+                      ?.value;
+                  // Running subagents and processes; only their counts
+                  // rebuild the composer. Listed only while this chat is
+                  // in sight: the router keeps a hidden destination's page
+                  // mounted with its tickers muted. The work sheet watches
+                  // the list itself.
+                  final hermesWork =
+                      TickerMode.valuesOf(context).enabled
+                      ? composerRef.watch(
+                          hermesBackgroundWorkProvider.select(
+                            (work) => (
+                              agents: work?.runningSubagents ?? 0,
+                              processes: work?.runningProcesses ?? 0,
+                            ),
+                          ),
+                        )
+                      : (agents: 0, processes: 0);
                   final pendingDirectMcpMetadata = composerRef.watch(
                     chatMessagesProvider.select(
                       findPendingDirectMcpComposerPrompt,
@@ -3898,6 +4311,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           isLive: composerRef
                               .read(directRunRegistryProvider)
                               .hasLiveMcpApproval,
+                        );
+                  final pendingLibreChatPrompt = composerRef.watch(
+                    chatMessagesProvider.select(
+                      findPendingLibreChatComposerPrompt,
+                    ),
+                  );
+                  // Only a run live in this app can be answered.
+                  final pendingLibreChatAction = pendingLibreChatPrompt == null
+                      ? null
+                      : libreChatPendingActionFor(
+                          composerRef,
+                          pendingLibreChatPrompt.id,
                         );
                   final Widget? attachedOverlay;
                   if (persistedPrompt != null) {
@@ -3961,6 +4386,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       key: ValueKey(approval['id']),
                       message: pendingDirectMcpPrompt,
                     );
+                  } else if (pendingLibreChatAction != null) {
+                    final messageId = pendingLibreChatPrompt!.id;
+                    attachedOverlay = LibreChatComposerPromptOverlay(
+                      key: ValueKey(
+                        '$messageId\u0000${pendingLibreChatAction.actionId}',
+                      ),
+                      action: pendingLibreChatAction,
+                      onResolve: ({decisions, answers}) =>
+                          resolveLibreChatPendingAction(
+                            composerRef,
+                            messageId,
+                            decisions: decisions,
+                            answers: answers,
+                          ),
+                    );
                   } else {
                     attachedOverlay = null;
                   }
@@ -3971,6 +4411,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   )) {
                     return _buildReadOnlyNotice(context);
+                  }
+                  final readOnlyHermesSource = watchHermesReadOnlySessionSource(
+                    composerRef,
+                    activeConversation,
+                  );
+                  if (readOnlyHermesSource != null) {
+                    return HermesReadOnlySessionNotice(
+                      source: readOnlyHermesSource,
+                    );
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
@@ -3986,7 +4435,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         PlatformUiCapabilities.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
-                    attachedOverlay: attachedOverlay,
+                    // The agent's plan sits above any prompt card, and
+                    // its background work above both.
+                    attachedOverlay: withHermesBackgroundWork(
+                      withHermesPlan(
+                        attachedOverlay,
+                        plan: hermesPlan,
+                        chatKey: activeConversationId,
+                      ),
+                      agents: hermesWork.agents,
+                      processes: hermesWork.processes,
+                    ),
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,
@@ -4078,14 +4537,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final hermesBot = chatHermesBotPresentation(activeConversation);
     final formattedModelName = selectedModel != null
-        ? _formatModelDisplayName(selectedModel.name)
+        ? displayNameForModel(selectedModel)
         : null;
     final modelLabel =
         hermesBot?.title ?? formattedModelName ?? l10n.chooseModel;
     final overlayStyle = theme.appBarTheme.systemOverlayStyle;
 
     // Whether the messages list can actually scroll (avoids showing button when not needed)
-    final canScroll = _hasScrollableTranscriptContent();
+    // A pinned reply that runs on under the composer is scrollable content
+    // even before the next full measurement says so.
+    final canScroll =
+        _hasScrollableTranscriptContent() ||
+        (_pinnedTurnPlaced &&
+            _timelineViewportController.liveDistanceFromLatest >
+                _scrollButtonHideThreshold);
 
     // Focus composer on app startup once (minimal delay for layout to settle)
     if (!_didStartupFocus) {
@@ -4160,77 +4625,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 top: 0,
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      MediaQuery.viewPaddingOf(context).top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                ),
+                child: _buildHeaderScrollEdge(context),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: ConduitChromeGradientFade.bottom(
-                  contentHeight: math.max(
-                    0,
-                    math.max(
-                      _inputHeight - Spacing.xl,
-                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
-                    ),
-                  ),
-                  fadeHeight: Spacing.md,
-                ),
+                child: _buildComposerScrollEdge(context),
               ),
               Positioned(
-                bottom: (_inputHeight > 0)
-                    ? math.max(0, _inputHeight - Spacing.xl + Spacing.md)
-                    : (Spacing.xxl + Spacing.xxxl),
+                bottom: _composerTopInset(context),
                 left: 0,
                 right: 0,
-                child: AnimatedSwitcher(
-                  duration: context.motionDuration(
-                    AnimationDuration.microInteraction,
-                  ),
-                  switchInCurve: AnimationCurves.microInteraction,
-                  switchOutCurve: AnimationCurves.microInteraction,
-                  transitionBuilder: (child, animation) {
-                    final slideAnimation = Tween<Offset>(
-                      begin: context.reduceMotion
-                          ? Offset.zero
-                          : const Offset(0, 0.15),
-                      end: Offset.zero,
-                    ).animate(animation);
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: slideAnimation,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: ThemedSheets.hideNativeChromeWhileCovered(
-                    child: Consumer(
-                      builder: (context, scrollButtonRef, _) {
-                        final hasMessages = scrollButtonRef.watch(
-                          hasChatMessagesProvider,
-                        );
-                        return debugShouldRenderScrollToLatestForTesting(
-                              requested: _showScrollToBottom,
-                              hasScrollableContent: canScroll,
-                              hasMessages: hasMessages,
-                            )
-                            ? Center(
-                                key: const ValueKey('scroll_to_bottom_visible'),
-                                child: AdaptiveTooltip(
-                                  message: l10n.scrollToBottom,
-                                  child: _buildScrollToBottomButton(context),
-                                ),
-                              )
-                            : const SizedBox.shrink(
-                                key: ValueKey('scroll_to_bottom_hidden'),
-                              );
-                      },
-                    ),
+                child: ThemedSheets.hideNativeChromeWhileCovered(
+                  child: Consumer(
+                    builder: (context, scrollButtonRef, _) {
+                      final hasMessages = scrollButtonRef.watch(
+                        hasChatMessagesProvider,
+                      );
+                      final visible = debugShouldRenderScrollToLatestForTesting(
+                        requested: _showScrollToBottom,
+                        hasScrollableContent: canScroll,
+                        hasMessages: hasMessages,
+                      );
+                      return ChatScrollToLatestButton(
+                        key: const ValueKey('scroll_to_bottom'),
+                        visible: visible,
+                        // Sending: gone in a blink, before the message
+                        // rises past it.
+                        quickExit: _wantsPinToTop && !_pinnedTurnPlaced,
+                        dimension: _kScrollToLatestButtonSize,
+                        child: AdaptiveTooltip(
+                          message: l10n.scrollToBottom,
+                          child: _buildScrollToBottomButton(context),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -4272,17 +4702,58 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _isOpeningModelSelector = false;
 
-  Future<void> _openModelSelector(BuildContext context) async {
+  /// Whether the pinned-model menu is up. The pill it hangs from keeps its
+  /// label meanwhile, so this, not [_isOpeningModelSelector], rejects a
+  /// second opening.
+  bool _isModelMenuOpen = false;
+
+  /// Opens the model picker. With [menuAnchor], the pill that was tapped, the
+  /// account's pinned models come first as a native menu under it on iOS 26;
+  /// its last item, or a tap with nothing pinned, opens the full list.
+  Future<void> _openModelSelector(
+    BuildContext context, {
+    BuildContext? menuAnchor,
+  }) async {
     // Model loading can take a moment on a cold cache. Show that on the
     // selector itself and reject overlapping taps instead of letting the
     // control look dead (#692).
-    if (_isOpeningModelSelector || ref.read(isLoadingConversationProvider)) return;
+    if (_isOpeningModelSelector ||
+        _isModelMenuOpen ||
+        ref.read(isLoadingConversationProvider)) {
+      return;
+    }
     setState(() => _isOpeningModelSelector = true);
     try {
-      final models = await ref
+      final loaded = await ref
           .read(nativeSheetHydrationServiceProvider)
           .loadModels();
       if (!mounted || !context.mounted) return;
+      // A saved chat goes on only with its own backend: a LibreChat chat
+      // takes only LibreChat's models, and no other chat takes them.
+      final active = ref.read(activeConversationProvider);
+      final models = active == null
+          ? loaded
+          : [
+              for (final model in loaded)
+                if (isLibreChatModel(model) == isLibreChatConversation(active))
+                  model,
+            ];
+      if (models.isEmpty) {
+        // The native picker opens on nothing: say why there is no list.
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.noModelsAvailable,
+          type: AdaptiveSnackBarType.warning,
+        );
+        return;
+      }
+      if (menuAnchor != null && menuAnchor.mounted) {
+        final openFullList = await _showPinnedModelMenu(menuAnchor, models);
+        if (!openFullList || !mounted || !context.mounted) return;
+      }
+      // Loaded: the pill shows its model again while the list is up, which a
+      // short list's sheet leaves in view.
+      setState(() => _isOpeningModelSelector = false);
       await _showModelDropdown(context, ref, models);
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -4314,8 +4785,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
-    final showNewChatAction = activeConversation != null || hasMessages;
+    final hasSettledConversation = chatHeaderConversationSettled(
+      conversation: activeConversation,
+      temporaryChatEnabled: isTemporary,
+    );
+    // Through a first send the bar keeps the new chat's actions until the
+    // conversation exists, then changes once to the chat's own.
+    final holdsNewChatActions = _syncNewChatActionsHold(
+      hasMessages: hasMessages,
+      hasSettledConversation: hasSettledConversation,
+    );
+    // While held, the actions are a new chat's: no conversation, no messages.
+    final actionsConversation = holdsNewChatActions ? null : activeConversation;
+    final actionsSeeMessages = hasMessages && !holdsNewChatActions;
+    final showNewChatAction = actionsConversation != null || actionsSeeMessages;
     final tintColor = context.conduitTheme.textPrimary;
+    final controlExtent = conduitScaledControlExtent(context);
     final selectedModel = ref.watch(selectedModelProvider);
     final isHermes =
         (selectedModel != null && isHermesModel(selectedModel)) ||
@@ -4327,24 +4812,67 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<_ChatToolbarActionDescriptor> buildActions({bool compact = false}) =>
         _buildAdaptiveToolbarActions(
           context: context,
-          activeConversation: activeConversation,
+          activeConversation: actionsConversation,
           isHermes: isHermes,
           isTemporary: isTemporary,
-          hasMessages: hasMessages,
+          hasMessages: actionsSeeMessages,
           showNewChatAction: showNewChatAction,
+          // The send has read the setting already, so the toggle stays
+          // inert until its chat exists, however long that takes, even
+          // after the bar's hold has ended.
+          temporaryToggleLocked: hasMessages && !hasSettledConversation,
+          newChatActionsHeld: holdsNewChatActions,
           compact: compact,
           overflowModel: overflowModel,
         );
     var actionDescriptors = buildActions();
-    double modelWidth() => resolveConduitAdaptiveLeadingPillWidth(
-      context,
-      trailingActionCount:
-          actionDescriptors.length + (showConnectionIssue ? 1 : 0),
-      maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
-    );
+    // On iOS 26 the trailing actions share one glass capsule, as the
+    // sidebar's do.
+    bool groupsActions() =>
+        conduitSupportsNativeGlass() &&
+        actionDescriptors.isNotEmpty &&
+        actionDescriptors.length <= 3;
+    double trailingWidth() {
+      final count = actionDescriptors.length;
+      final actionsWidth = count == 0
+          ? 0.0
+          : groupsActions()
+          ? conduitToolbarClusterWidth(context, count)
+          : count * controlExtent + (count - 1) * Spacing.sm;
+      final connectionWidth = showConnectionIssue
+          ? controlExtent + (count > 0 ? Spacing.sm : 0)
+          : 0.0;
+      return actionsWidth + connectionWidth;
+    }
+
+    // The pill sits at the leading edge, right after the sidebar button, so
+    // a chat's title has all the room up to the trailing actions rather
+    // than twice the room from the centre line to the nearer control. On
+    // iOS it keeps the bar's least gap from the controls on either side;
+    // Material sizes it from the number of actions.
+    double modelWidth() {
+      if (PlatformInfo.isIOS) {
+        final room =
+            MediaQuery.sizeOf(context).width -
+            2 * Spacing.inputPadding -
+            controlExtent -
+            trailingWidth() -
+            2 * kConduitBarTitleGap;
+        return room
+            .clamp(0.0, kConduitAdaptiveToolbarMaxModelSelectorWidth)
+            .toDouble();
+      }
+      return resolveConduitAdaptiveLeadingPillWidth(
+        context,
+        trailingActionCount:
+            actionDescriptors.length + (showConnectionIssue ? 1 : 0),
+        maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
+      );
+    }
+
     var maxModelWidth = modelWidth();
     // Keep the model picker while preserving secondary actions in More.
-    if (maxModelWidth < conduitScaledControlExtent(context)) {
+    if (maxModelWidth < controlExtent) {
       actionDescriptors = buildActions(compact: true);
       maxModelWidth = modelWidth();
     }
@@ -4376,19 +4904,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (showConnectionIssue) const LiveConnectionButton(),
       for (final action in actionDescriptors) action.widget,
     ]);
-    final useNativeActionGroup =
-        Platform.isIOS &&
-        conduitSupportsNativeGlass() &&
-        actionDescriptors.isNotEmpty &&
-        actionDescriptors.length <= 3;
-    final cupertinoTrailing = useNativeActionGroup
+    final cupertinoTrailing = groupsActions()
         ? Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (showConnectionIssue) const LiveConnectionButton(),
-              ConduitNativeToolbarActionGroup(
-                actions: [
-                  for (final action in actionDescriptors) action.nativeAction,
+              if (showConnectionIssue) ...[
+                const LiveConnectionButton(),
+                const SizedBox(width: Spacing.sm),
+              ],
+              ConduitToolbarActionCluster(
+                key: const ValueKey('chat-toolbar-actions'),
+                items: [
+                  for (final action in actionDescriptors) action.clusterItem,
                 ],
               ),
             ],
@@ -4399,8 +4926,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       tintColor: tintColor,
       leading: ConduitAdaptiveAppBarIconButton(
         key: const ValueKey('chat-sidebar-toggle'),
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        iosSymbol: 'line.3.horizontal',
+        // iOS shows a sidebar with "sidebar.left"; three lines read as a
+        // web menu. Material keeps its own menu glyph.
+        icon: Platform.isIOS ? CupertinoIcons.sidebar_left : Icons.menu,
+        iosSymbol: 'sidebar.left',
         semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: () => _toggleResponsiveDrawer(context),
         iconColor: tintColor,
@@ -4408,6 +4937,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       title: title,
       actions: actionWidgets,
       cupertinoTrailing: cupertinoTrailing,
+      // The pill starts beside the sidebar button, leaving the title room.
       centerTitle: false,
     );
   }
@@ -4428,12 +4958,108 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         active: hermesBotActive,
       );
     }
-    return ConduitAdaptiveAppBarModelSelector(
-      label: modelLabel,
-      maxWidth: maxModelWidth,
-      isLoading: isLoadingConversation || _isOpeningModelSelector,
-      showChevron: showModelDropdown,
-      onPressed: () => _openModelSelector(context),
+    return Builder(
+      builder: (pillContext) => ConduitAdaptiveAppBarModelSelector(
+        label: modelLabel,
+        maxWidth: maxModelWidth,
+        isLoading: isLoadingConversation || _isOpeningModelSelector,
+        showChevron: showModelDropdown,
+        title: chatHeaderTitle(ref.watch(activeConversationProvider)?.title),
+        showsTitle: _headerShowsTitle,
+        onPressed: () => _openModelSelector(context, menuAnchor: pillContext),
+      ),
+    );
+  }
+
+  /// Shows the account's pinned models as a native menu under [anchor], the
+  /// model pill, with the chat's model checked and "All models…" last.
+  /// Returns whether the full model list should open instead: when that item
+  /// is chosen, or when there is no menu to show (no pinned model that is
+  /// offered now, or no native menu on this platform).
+  Future<bool> _showPinnedModelMenu(
+    BuildContext anchor,
+    List<Model> models,
+  ) async {
+    final pinned = availablePinnedModels(
+      models: models,
+      pinnedModelIds: ref.read(effectivePinnedModelIdsProvider),
+    );
+    if (pinned.isEmpty || !AdaptiveAnchoredMenu.canShow(anchor)) return true;
+
+    const allModelsId = '\u0000all-models';
+    final selectedId = ref.read(selectedModelProvider)?.id;
+    // The chat and account the menu opens for: a pick is only for them.
+    final pickTarget = captureChatModelPickTarget(ref);
+    final allModelsLabel = AppLocalizations.of(context)!.modelMenuAllModels;
+    String labelOf(Model model) {
+      final name = displayNameForModel(model);
+      return name.isEmpty ? model.id : name;
+    }
+
+    // The menu hangs from the pill, which keeps its label while it is up.
+    setState(() {
+      _isOpeningModelSelector = false;
+      _isModelMenuOpen = true;
+    });
+    final String? choice;
+    try {
+      choice = await AdaptiveAnchoredMenu.show(
+        anchorContext: anchor,
+        items: [
+          for (final model in pinned)
+            AdaptiveAnchoredMenuItem(
+              id: model.id,
+              label: labelOf(model),
+              checked: model.id == selectedId,
+            ),
+          AdaptiveAnchoredMenuItem(
+            id: allModelsId,
+            label: allModelsLabel,
+            sfSymbol: 'square.stack.3d.up',
+            startsSection: true,
+          ),
+        ],
+      );
+    } finally {
+      _isModelMenuOpen = false;
+    }
+    if (!mounted) return false;
+    if (choice == allModelsId) {
+      setState(() => _isOpeningModelSelector = true);
+      return true;
+    }
+    for (final model in pinned) {
+      if (model.id != choice) continue;
+      // As a pick in the full list: an explicit choice, which a late default
+      // or New Chat must not replace.
+      if (applyChatModelPick(ref, model, target: pickTarget)) {
+        ref.read(isManualModelSelectionProvider.notifier).set(true);
+      }
+      break;
+    }
+    return false;
+  }
+
+  /// Whether the bar keeps a new chat's actions through its first send, and
+  /// starts or ends the hold's deadline to match. Called from build.
+  bool _syncNewChatActionsHold({
+    required bool hasMessages,
+    required bool hasSettledConversation,
+  }) {
+    if (!hasMessages || hasSettledConversation) {
+      _newChatActionsHoldTimer?.cancel();
+      _newChatActionsHoldTimer = null;
+      _newChatActionsHoldExpired = false;
+      return false;
+    }
+    _newChatActionsHoldTimer ??= Timer(kChatHeaderNewChatActionsHold, () {
+      if (!mounted) return;
+      setState(() => _newChatActionsHoldExpired = true);
+    });
+    return chatHeaderHoldsNewChatActions(
+      hasMessages: hasMessages,
+      hasSettledConversation: hasSettledConversation,
+      holdExpired: _newChatActionsHoldExpired,
     );
   }
 
@@ -4444,6 +5070,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
+    bool temporaryToggleLocked = false,
+    bool newChatActionsHeld = false,
     bool compact = false,
     ({String label, bool enabled})? overflowModel,
   }) {
@@ -4457,14 +5085,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isTemporary: isTemporary,
       hasMessages: hasMessages,
       tintColor: defaultTint,
+      locked: temporaryToggleLocked,
+      held: newChatActionsHeld,
     );
     if (temporaryAction != null) {
       actions.add(temporaryAction);
     }
 
+    final computerAction = _buildComputerToolbarAction(
+      context: context,
+      isHermes: isHermes,
+      tintColor: defaultTint,
+    );
+    if (computerAction != null) {
+      actions.add(computerAction);
+    }
+
     if (showNewChatAction) {
       actions.add(
         _buildChatToolbarIconAction(
+          id: 'new-chat',
           icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
           accessibilityLabel: AppLocalizations.of(context)!.newChat,
           tintColor: defaultTint,
@@ -4489,28 +5129,69 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   _ChatToolbarActionDescriptor _buildChatToolbarIconAction({
+    required String id,
     required IconData icon,
     required String accessibilityLabel,
     required Color tintColor,
     required VoidCallback? onPressed,
+    String? iosSymbol,
+    Key? key,
+    bool labelFlutterButton = false,
   }) {
-    final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
-    assert(iosSymbol != null);
+    final symbol = conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol);
+    assert(symbol != null);
     return _ChatToolbarActionDescriptor(
+      id: id,
       icon: icon,
       widget: ConduitAdaptiveAppBarIconButton(
+        key: key,
         icon: icon,
-        iosSymbol: iosSymbol,
+        iosSymbol: symbol,
         iconColor: tintColor,
+        semanticLabel: labelFlutterButton ? accessibilityLabel : null,
         onPressed: onPressed,
       ),
       nativeAction: ConduitNativeToolbarAction(
-        iosSymbol: iosSymbol!,
+        iosSymbol: symbol!,
         accessibilityLabel: accessibilityLabel,
         tintColor: tintColor,
         enabled: onPressed != null,
         onPressed: onPressed,
       ),
+    );
+  }
+
+  /// Opens the live Desktop or Browser of the chat's terminal. Shown whenever
+  /// the selected terminal offers one; discovering that never starts it.
+  _ChatToolbarActionDescriptor? _buildComputerToolbarAction({
+    required BuildContext context,
+    required bool isHermes,
+    required Color tintColor,
+  }) {
+    final selectedModel = ref.watch(selectedModelProvider);
+    if (isHermes ||
+        (selectedModel != null &&
+            (isLibreChatModel(selectedModel) ||
+                hasReservedDirectIdentity(selectedModel))) ||
+        !ref.watch(computerAvailableProvider)) {
+      return null;
+    }
+    return _buildChatToolbarIconAction(
+      id: 'computer',
+      key: const ValueKey('chat-computer-button'),
+      icon: Platform.isIOS
+          ? CupertinoIcons.desktopcomputer
+          : Icons.desktop_windows_outlined,
+      // The outline display, in the header glyphs' one outline family; the
+      // filled desktopcomputer screen read heavier than its neighbours.
+      iosSymbol: 'display',
+      accessibilityLabel: AppLocalizations.of(context)!.computerTitle,
+      labelFlutterButton: true,
+      tintColor: tintColor,
+      onPressed: () {
+        _dismissComposerFocus();
+        unawaited(openComputerWorkspace(context, ref));
+      },
     );
   }
 
@@ -4521,11 +5202,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required Color tintColor,
+    bool locked = false,
+    bool held = false,
   }) {
+    final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
       temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
+      isLibreChat:
+          (selectedModel != null && isLibreChatModel(selectedModel)) ||
+          isLibreChatConversation(activeConversation),
+      isTemporary: isTemporary,
     );
     if (!showTemporaryAction) {
       return null;
@@ -4533,6 +5221,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (isTemporary && hasMessages && activeConversation != null) {
       return _buildChatToolbarIconAction(
+        id: 'save-chat',
         icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
         accessibilityLabel: AppLocalizations.of(context)!.saveChat,
         tintColor: tintColor,
@@ -4540,17 +5229,45 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
+    final l10n = AppLocalizations.of(context)!;
+    void setTemporary(bool value) {
+      final current = ref.read(temporaryChatEnabledProvider);
+      if (value == current) return;
+      ConduitHaptics.selectionClick();
+      ref.read(temporaryChatEnabledProvider.notifier).set(value);
+      if (value) {
+        // The empty state explains it on screen; say it aloud too.
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          l10n.temporaryChatTooltip,
+          Directionality.of(context),
+        );
+      }
+    }
+
     return _buildChatToolbarIconAction(
+      id: 'temporary-chat',
       icon: isTemporary
           ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
-      accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
-      tintColor: isTemporary ? context.conduitTheme.info : tintColor,
-      onPressed: () {
-        ConduitHaptics.selectionClick();
-        final current = ref.read(temporaryChatEnabledProvider);
-        ref.read(temporaryChatEnabledProvider.notifier).set(!current);
-      },
+      // A dashed circle reads as "not kept", and fills while it is on. It
+      // matches the regular weight of the other bar glyphs, where the eye
+      // was heavier and read as "show/hide".
+      iosSymbol: temporaryChatToolbarSymbol(isTemporary: isTemporary),
+      accessibilityLabel: isTemporary
+          ? '${l10n.temporaryChat}, ${l10n.enabled}'
+          : l10n.temporaryChat,
+      tintColor: tintColor,
+      // A tap turns it on or off at once. Until the first message's chat
+      // exists the toggle no longer changes the chat, whose send has already
+      // read it. Through the bar's hold it keeps looking enabled, so the bar
+      // does not flicker before it changes to the chat's actions; past the
+      // hold, while the chat is still on its way, it shows as disabled.
+      onPressed: !locked
+          ? () => setTemporary(!ref.read(temporaryChatEnabledProvider))
+          : held
+          ? () {}
+          : null,
     );
   }
 
@@ -4675,6 +5392,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
+    // A Hermes chat's context window, token totals and plan usage, with
+    // Compact now.
+    final hermesSessionId = isNativeHermesConversation(activeConversation)
+        ? activeConversation?.metadata['hermesSessionId']?.toString()
+        : null;
+    if (hermesSessionId != null &&
+        hermesSessionId.isNotEmpty &&
+        ref.watch(hermesApiServiceProvider) != null) {
+      addItem(
+        label: AppLocalizations.of(context)!.hermesContextUsage,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'gauge.with.dots.needle.33percent',
+          materialIcon: Icons.data_usage_rounded,
+        ),
+        iosSymbol: 'gauge.with.dots.needle.33percent',
+        onSelected: () async {
+          if (!mounted) return;
+          await showHermesContextUsageSheet(
+            context,
+            sessionId: hermesSessionId,
+          );
+        },
+      );
+    }
+
     // Export is an everyday action on the chat being read, so it does not
     // wait for Advanced; the account's own `chat.export` permission decides.
     final exportConversation = activeConversation;
@@ -4702,6 +5444,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     return _ChatToolbarActionDescriptor(
+      id: 'more',
       widget: ConduitAdaptiveToolbarOverflowButton<int>(
         tintColor: tintColor,
         materialIcon: Icons.more_vert,
@@ -4807,8 +5550,51 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 }
 
-String _formatChatModelDisplayName(String name) {
-  return name.trim();
+/// A model name as shown above replies: a name someone chose as written, a
+/// raw id as its models.dev name or without its provider prefix.
+String _formatChatModelDisplayName(String name) =>
+    modelDisplayName(name: name, id: name, catalog: installedModelLogoCatalog);
+
+/// The SF Symbol for the Temporary Chat toggle in the chat header.
+@visibleForTesting
+String temporaryChatToolbarSymbol({required bool isTemporary}) =>
+    isTemporary ? 'circle.dashed.inset.filled' : 'circle.dashed';
+
+/// The chat title the header shows once the transcript scrolls under it,
+/// or `null` while the chat has no real title yet.
+@visibleForTesting
+String? chatHeaderTitle(String? title) {
+  final trimmed = title?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  // The placeholder a chat carries until the server names it.
+  if (trimmed.toLowerCase() == 'new chat') return null;
+  return trimmed;
+}
+
+/// Whether the header should name the chat: once the first message has
+/// slipped under the bar, or older messages wait above. Hysteresis keeps a
+/// resting scroll from flickering the title in and out.
+///
+/// A transcript that fits on one screen never brings the title in: nothing
+/// can be under the bar, and a first turn that is still settling into place
+/// (its pinned end space reports a scroll offset) must not flash the title.
+///
+/// Once shown, only a scroll back to the top takes it away. While a sent
+/// turn settles under the bar the transcript can read as fitting for a
+/// while (the viewport grows as the keyboard leaves, and its scroll extent
+/// catches up later), and the title must not blink out and back meanwhile.
+/// The page clears [currentlyShowing] whenever it changes chats.
+@visibleForTesting
+bool chatHeaderShowsTitle({
+  required double scrolledFromTop,
+  required bool hasOlderMessages,
+  required bool currentlyShowing,
+  bool contentOverflowsViewport = true,
+}) {
+  if (hasOlderMessages) return true;
+  if (currentlyShowing) return scrolledFromTop > 8.0;
+  if (!contentOverflowsViewport) return false;
+  return scrolledFromTop > 20.0;
 }
 
 ({String? displayName, Model? matchedModel}) _resolveChatModelPresentation({
@@ -4833,19 +5619,13 @@ String _formatChatModelDisplayName(String name) {
 
   final matched = modelLookup?[trimmedModel];
   if (matched != null) {
-    return (
-      displayName: _formatChatModelDisplayName(matched.name),
-      matchedModel: matched,
-    );
+    return (displayName: displayNameForModel(matched), matchedModel: matched);
   }
 
   if (models != null && modelLookup == null) {
     for (final model in models) {
       if (model.id == trimmedModel || model.name == trimmedModel) {
-        return (
-          displayName: _formatChatModelDisplayName(model.name),
-          matchedModel: model,
-        );
+        return (displayName: displayNameForModel(model), matchedModel: model);
       }
     }
   }
@@ -5479,18 +6259,28 @@ bool debugShouldExposeScrollToLatestForTesting({
   required bool bottomAnchorDetached,
   required bool currentlyShowing,
   required double distanceFromLatest,
+  bool pinnedTurnPlaced = false,
+  double contentBelowPinnedTurn = 0,
   double showThreshold = 48,
   double hideThreshold = 12,
 }) {
+  bool beyond(double distance) =>
+      currentlyShowing ? distance > hideThreshold : distance > showThreshold;
+  // A turn pinned to the top is its own "latest" presentation, but a reply
+  // longer than the screen runs on under the composer: whenever text lies
+  // below, offer the way down to it, streaming or finished. The pinned
+  // turn's text only grows, so the distance only grows and the button never
+  // flickers while it streams.
+  if (pinnedTurnPlaced) {
+    return contentBelowPinnedTurn > 0 && beyond(contentBelowPinnedTurn);
+  }
   // Scroll mode is the ownership source. The bottom-anchor flag is a derived
   // metric hint and can briefly clear against stale pin-support dimensions.
   final hasDetachedPresentation = freeScrolling;
   if (!hasScrollableContent || pinAutoFollowing || !hasDetachedPresentation) {
     return false;
   }
-  return currentlyShowing
-      ? distanceFromLatest > hideThreshold
-      : distanceFromLatest > showThreshold;
+  return beyond(distanceFromLatest);
 }
 
 @visibleForTesting
@@ -5517,6 +6307,14 @@ bool debugShouldHideTranscriptForInitialPinForTesting({
   required bool settleImmediately,
   required bool positionSettled,
 }) => settleImmediately && !positionSettled;
+
+/// How far the empty chat's greeting sits above the geometric centre of
+/// [availableHeight] (between the header and the composer): 4 %, the usual
+/// optical-centre correction, so it does not read as sagging.
+@visibleForTesting
+double debugChatEmptyStateOpticalLiftForTesting({
+  required double availableHeight,
+}) => availableHeight <= 0 ? 0 : availableHeight * 0.04;
 
 @visibleForTesting
 bool debugShouldApplyDeferredConversationMutationForTesting({

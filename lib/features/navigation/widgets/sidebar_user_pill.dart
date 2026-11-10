@@ -21,6 +21,8 @@ import '../../../core/network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show primaryUserProvider;
 
 import 'package:conduit_core/services/api_service.dart';
 
@@ -47,6 +49,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/account_display.dart' show AccountCardKind;
 
+import 'package:conduit_core/utils/profile_avatar.dart'
+    show extractAvatarInitials, isDefaultProfileImageUrl;
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 
 import 'package:conduit_core/utils/user_display_name.dart';
@@ -65,6 +69,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
+import 'sidebar_monogram_avatar.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -73,7 +78,11 @@ typedef SidebarNativeProfilePresenter = Future<bool> Function(
 );
 
 const double _sidebarProfileAvatarSize = 36;
-const double _sidebarNativeProfileAvatarSize = 28;
+
+/// The native profile button's photo or monogram, inside its 44 pt glass
+/// button with a thin rim of glass around it: it reads as one of the bar's
+/// glass buttons rather than as a heavier disc beside them.
+const double _sidebarNativeProfileAvatarSize = _sidebarProfileAvatarSize;
 const int _sidebarAvatarMaximumSourceDimension = 8192;
 const int _sidebarAvatarMaximumSourcePixels = 32 * 1024 * 1024;
 const double _sidebarAvatarMaximumAspectRatio = 64;
@@ -318,11 +327,9 @@ Widget buildSidebarProfileButton({
           : null,
       imageAsset: avatarBytes == null
           ? null
-          : CNImageAsset(
-              '',
-              imageData: avatarBytes,
-              size: _sidebarNativeProfileAvatarSize,
-            ),
+          // The image is the whole button's canvas, the photo or monogram
+          // centred in it at its own diameter.
+          : CNImageAsset('', imageData: avatarBytes, size: TouchTarget.minimum),
       onPressed: onPressed,
       config: const CNButtonConfig(
         padding: EdgeInsets.zero,
@@ -352,11 +359,31 @@ Widget buildSidebarProfileButton({
 }
 
 /// Profile button used as the sidebar adaptive app bar leading widget.
-class SidebarProfileAppBarLeading extends ConsumerWidget {
+class SidebarProfileAppBarLeading extends ConsumerStatefulWidget {
   const SidebarProfileAppBarLeading({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SidebarProfileAppBarLeading> createState() =>
+      _SidebarProfileAppBarLeadingState();
+}
+
+class _SidebarProfileAppBarLeadingState
+    extends ConsumerState<SidebarProfileAppBarLeading> {
+  bool _openingProfile = false;
+
+  Future<void> _openProfile(Future<void> Function() present) async {
+    // Claim the opening before navigation or account loading can yield.
+    if (_openingProfile) return;
+    _openingProfile = true;
+    try {
+      await present();
+    } finally {
+      _openingProfile = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = resolveSidebarUser(ref);
     final nativeProfilePresenter = ref.watch(
       sidebarNativeProfilePresenterProvider,
@@ -364,7 +391,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
-    if (user == null && !hermesOnly && !directPrimary) {
+    // With LibreChat in charge there is no Open WebUI user: the button
+    // stands for the LibreChat account.
+    final libreChatUser =
+        ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? ref.watch(primaryUserProvider)
+        : null;
+    if (user == null &&
+        !hermesOnly &&
+        !directPrimary &&
+        libreChatUser == null) {
       return const SizedBox.shrink();
     }
 
@@ -373,19 +409,36 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final directTitle = l10n.directConnectionsTitle;
     final hermesName = ref.watch(hermesActiveConnectionNameProvider);
-    final displayName = hermesOnly
+    final displayName = libreChatUser != null
+        ? (libreChatUser.displayName.isEmpty
+              ? l10n.libreChatTitle
+              : libreChatUser.displayName)
+        : hermesOnly
         ? hermesName ?? kHermesDefaultConnectionName
         : directPrimary && user == null
         ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
-    final initial = hermesOnly
+    // The button's initials and avatar stand for the same account as its
+    // name: LibreChat's, when it is in charge, over a Hermes connection.
+    final hermesShown = hermesOnly && libreChatUser == null;
+    final initial = hermesShown
         ? hermesConnectionInitials(hermesName)
         : directPrimary && user == null
         ? directTitle.characters.first.toUpperCase()
         : displayName.isEmpty
         ? 'U'
         : displayName.characters.first.toUpperCase();
-    final avatarUrl = hermesOnly || user == null
+    // Open WebUI gives a user without a photo a grey silhouette; show their
+    // initials on a neutral disc instead, as iOS does for a contact. A
+    // LibreChat account in charge has no photo here, so it is drawn the same
+    // way, never with the parked Open WebUI user's photo.
+    final showsMonogram =
+        libreChatUser != null ||
+        (!hermesOnly &&
+            user != null &&
+            isDefaultProfileImageUrl(deriveUserProfileImage(user)));
+    final monogram = extractAvatarInitials(displayName);
+    final avatarUrl = hermesOnly || user == null || showsMonogram
         ? null
         : resolveUserAvatarUrlForUser(api, user);
     final iconColor = context.conduitTheme.textPrimary;
@@ -397,7 +450,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final supportsNativeGlass = conduitSupportsNativeGlass();
     final rawNativeAvatarBytes = !supportsNativeGlass
         ? null
-        : hermesOnly
+        : hermesShown
         ? ref.watch(_sidebarHermesAvatarBytesProvider).asData?.value
         : inlineAvatarBytes ??
               (api == null || avatarUrl == null || avatarUrl.isEmpty
@@ -411,7 +464,22 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                         )
                         .asData
                         ?.value);
-    final nativeAvatarBytes = rawNativeAvatarBytes == null
+    final nativeAvatarBytes = supportsNativeGlass && showsMonogram
+        ? ref
+              .watch(
+                sidebarMonogramRasterProvider((
+                  initials: monogram,
+                  canvasExtent: TouchTarget.minimum,
+                  diameter: _sidebarNativeProfileAvatarSize,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  brightness: context.conduitTheme.isDark
+                      ? Brightness.dark
+                      : Brightness.light,
+                )),
+              )
+              .asData
+              ?.value
+        : rawNativeAvatarBytes == null
         ? null
         : ref
               .watch(
@@ -429,8 +497,13 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               .asData
               ?.value;
 
-    Future<void> openProfile() async {
+    Future<void> presentProfile() async {
       await Navigator.of(context).maybePop();
+      if (!context.mounted) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      // Native sheets do not participate in Flutter's focus traversal.
+      // Let the chat input release its keyboard before presenting Settings.
+      await WidgetsBinding.instance.endOfFrame;
       if (!context.mounted) return;
 
       if (nativeProfilePresenter != null) {
@@ -496,6 +569,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               showChatDataControls: ref.read(
                 chatDataControlsEntryVisibleProvider,
               ),
+              showLibreChatPersonalization:
+                  ref.read(primaryAccountKindProvider) ==
+                  PrimaryAccountKind.libreChat,
             ),
             hermesAvatarBytes: hermesAvatarBytes,
           );
@@ -524,7 +600,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       }
 
       if (context.mounted) {
-        context.pushNamed(
+        await context.pushNamed(
           sidebarProfileFallbackRouteName(
             directPrimary: directPrimary,
             hasOpenWebUiUser: user != null,
@@ -536,25 +612,31 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     // Exclude the native glass button's own node so VoiceOver announces one
     // labelled control instead of an unlabelled avatar image.
     return Semantics(
-      label: l10n.manage,
+      label: l10n.account,
       button: true,
       excludeSemantics: true,
-      onTap: openProfile,
+      onTap: () => _openProfile(presentProfile),
       child: buildSidebarProfileButton(
         supportsNativeGlass: supportsNativeGlass,
-        onPressed: openProfile,
+        onPressed: () => _openProfile(presentProfile),
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
         nativeSymbolColor: iconColor,
         nativeAvatarBytes: nativeAvatarBytes,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
-          child: UserAvatar(
-            size: _sidebarProfileAvatarSize,
-            imageUrl: avatarUrl,
-            fallbackText: initial,
-          ),
-        ),
+        child: showsMonogram
+            ? SidebarMonogramAvatar(
+                key: const ValueKey<String>('sidebar-profile-monogram'),
+                initials: monogram,
+                size: _sidebarProfileAvatarSize,
+              )
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
+                child: UserAvatar(
+                  size: _sidebarProfileAvatarSize,
+                  imageUrl: avatarUrl,
+                  fallbackText: initial,
+                ),
+              ),
       ),
     );
   }
@@ -691,12 +773,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required String initials,
     required AccountMetadata? accountProfile,
   }) {
-    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
+    // Open WebUI's grey stand-in is no photo: the card shows the initials on
+    // a neutral disc instead, as the sidebar's profile button does.
+    final standIn =
+        user != null && isDefaultProfileImageUrl(deriveUserProfileImage(user));
+    final avatarUrl = standIn ? null : resolveUserAvatarUrlForUser(api, user);
     final avatarBytes = _decodeDataImage(avatarUrl);
     return NativeProfileSheetUser(
       displayName: displayName,
       email: _extractEmail(user) ?? l10n.noEmailLabel,
-      initials: initials,
+      initials: extractAvatarInitials(displayName),
       avatarUrl: avatarBytes == null ? avatarUrl : null,
       avatarBytes: avatarBytes,
       avatarHeaders: avatarUrl == null
@@ -744,14 +830,17 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       account: rootAccount,
       visibility: visibility,
       card: (title: card.title, subtitle: card.subtitle),
+      appLanguageTag: readNativeAppLanguageTag(ref.read),
       otherAccountCount: readNativeOtherAccountCount(ref.read),
     );
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are
     // its fallback when a payload carries none.
+    final supportIds = {for (final item in supportItems) item.id};
     final menuItems = <NativeSheetItemConfig>[
       for (final section in sections)
-        if (section.title != l10n.supportConduit) ...section.items,
+        for (final item in section.items)
+          if (!supportIds.contains(item.id)) item,
     ];
 
     return NativeProfileSheetConfig(
@@ -773,6 +862,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           displayName: l10n.directConnectionsTitle,
           email: l10n.directConnectionsSubtitle,
           initials: l10n.directConnectionsTitle.characters.first.toUpperCase(),
+        ),
+        AccountCardKind.libreChat => NativeProfileSheetUser(
+          displayName: card.title,
+          email:
+              ref.read(primaryUserProvider)?.email ??
+              card.subtitle ??
+              l10n.libreChatTitle,
+          initials: card.title.characters.isEmpty
+              ? 'L'
+              : card.title.characters.first.toUpperCase(),
         ),
         AccountCardKind.openWebUi => _nativeAccountProfileUser(
           ref,

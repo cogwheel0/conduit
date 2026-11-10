@@ -42,6 +42,12 @@ enum PlatformNativeSheetItemKind {
   readOnlyText,
   source,
   statusUpdate,
+
+  /// A choice among a few looks, drawn as preview tiles with a label and a
+  /// selection mark under each, as Display & Brightness draws Light and Dark.
+  /// Each option's swatches paint its preview; one with dark swatches too
+  /// previews both halves.
+  appearanceTiles,
 }
 
 class PlatformBackgroundStreamLease {
@@ -313,6 +319,8 @@ class PlatformNativeSheetOption {
     required this.showBranch,
     required this.hasMoreSiblings,
     this.filterGroup,
+    this.swatchesArgb,
+    this.darkSwatchesArgb,
   });
 
   String id;
@@ -326,6 +334,11 @@ class PlatformNativeSheetOption {
   bool hasMoreSiblings;
 
   String? filterGroup;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, in light
+  /// and dark appearance. Null for an ordinary option.
+  List<int>? swatchesArgb;
+  List<int>? darkSwatchesArgb;
 }
 
 class PlatformNativeSheetTheme {

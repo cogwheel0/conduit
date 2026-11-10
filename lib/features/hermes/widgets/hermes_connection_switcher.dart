@@ -29,12 +29,21 @@ String hermesConnectionInitials(String? name) {
 }
 
 /// "Desktop Gateway · host" style summary of a saved connection.
-String hermesConnectionSummary(HermesConnectionProfile profile) {
+String hermesConnectionSummary(
+  HermesConnectionProfile profile,
+  AppLocalizations l10n,
+) {
   final mode = profile.mode == HermesBackendMode.desktopGateway
       ? 'Desktop Gateway'
       : 'Responses API';
   final host = Uri.tryParse(profile.baseUrl)?.host ?? '';
-  return host.isEmpty ? mode : '$mode · $host';
+  return [
+    mode,
+    if (host.isNotEmpty) host,
+    // Its credentials travel in the clear, consented to or not.
+    if (HermesConfig.plainHttpOrigin(profile.baseUrl) != null)
+      l10n.hermesNotEncrypted,
+  ].join(' · ');
 }
 
 /// The app's [HermesConnectionSwitchPrompt]: asks, through the UI request
@@ -107,7 +116,7 @@ Future<void> showHermesConnectionPicker(
         return AdaptiveSelectionTile(
           key: ValueKey<String>('hermes-connection-option-${connection.id}'),
           title: connection.name,
-          subtitle: hermesConnectionSummary(connection),
+          subtitle: hermesConnectionSummary(connection, l10n),
           selected: connection.id == activeId,
           onTap: () => Navigator.of(sheetContext).pop(connection.id),
         );

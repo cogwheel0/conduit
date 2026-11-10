@@ -39,8 +39,11 @@ import '../../features/profile/views/audio_settings_page.dart';
 import '../../features/profile/views/voice_provider_settings_page.dart';
 import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
+import '../../features/librechat/views/librechat_sign_in_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/hermes/views/hermes_mcp_page.dart';
+import '../../features/hermes/views/hermes_hidden_sessions_page.dart';
+import '../../features/hermes/views/hermes_room_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
@@ -192,6 +195,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
                 );
               },
             ),
+            GoRoute(
+              path: Routes.hermesRoom,
+              name: RouteNames.hermesRoom,
+              pageBuilder: (context, state) {
+                final roomId = state.pathParameters['id']!;
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: HermesRoomPage(
+                    key: ValueKey<String>('hermes-room-$roomId'),
+                    roomId: roomId,
+                  ),
+                );
+              },
+            ),
           ],
         ),
         for (final tab in sidebarTabRegistry.where(
@@ -224,6 +241,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.backendChooser,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const BackendChooserPage()),
+    ),
+    GoRoute(
+      path: Routes.libreChatSignIn,
+      name: RouteNames.libreChatSignIn,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const LibreChatSignInPage()),
     ),
     GoRoute(
       path: Routes.serverConnection,
@@ -565,6 +588,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.hermesMcp,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const HermesMcpPage()),
+    ),
+    GoRoute(
+      path: Routes.hermesHiddenSessions,
+      name: RouteNames.hermesHiddenSessions,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const HermesHiddenSessionsPage(),
+      ),
     ),
     GoRoute(
       path: Routes.about,

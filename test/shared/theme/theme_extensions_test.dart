@@ -51,6 +51,34 @@ void main() {
     check(t3.tint).equals(t3.accent);
   });
 
+  test('text tiers step down from primary and stay readable', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final theme = brightness == Brightness.dark
+            ? AppTheme.dark(definition)
+            : AppTheme.light(definition);
+        final conduit = theme.extension<ConduitThemeExtension>()!;
+        final page = conduit.surfaceBackground;
+        final primary = contrastRatio(conduit.textPrimary, page);
+        final secondary = contrastRatio(conduit.textSecondary, page);
+        final tertiary = contrastRatio(conduit.textTertiary, page);
+        final label = '${definition.id} $brightness';
+
+        // Each tier reads as quieter than the one above it.
+        check(because: '$label primary > secondary', primary)
+            .isGreaterThan(secondary);
+        check(because: '$label secondary > tertiary', secondary)
+            .isGreaterThan(tertiary);
+        // Secondary text carries content (subtitles, captions), so it keeps
+        // body-text contrast; tertiary is for hints and placeholders.
+        check(because: '$label secondary', secondary).isGreaterOrEqual(4.5);
+        check(because: '$label tertiary', tertiary).isGreaterOrEqual(3.0);
+        check(because: label, conduit.inputPlaceholder)
+            .equals(conduit.textTertiary);
+      }
+    }
+  });
+
   test('grouped cards on the plain page never match the page', () {
     for (final definition in TweakcnThemes.all) {
       for (final brightness in Brightness.values) {

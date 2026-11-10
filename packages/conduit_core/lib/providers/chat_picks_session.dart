@@ -1,6 +1,7 @@
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 /// Marks the start of what the user's own picks in a chat belong to: one
@@ -22,7 +23,10 @@ class ChatPicksSession extends Notifier<Object> {
   Object build() {
     ref
       ..watch(currentUserProvider2.select((user) => user?.id))
-      ..watch(activeServerProvider.select((server) => server.asData?.value?.id));
+      ..watch(activeServerProvider.select((server) => server.asData?.value?.id))
+      // LibreChat's tool picks name its servers, which another account may
+      // name too.
+      ..watch(activeLibreChatAccountProvider.select((account) => account?.id));
     return Object();
   }
 

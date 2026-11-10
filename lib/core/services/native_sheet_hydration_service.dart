@@ -23,6 +23,7 @@ import '../../shared/theme/theme_extensions.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/models/tool.dart';
 
 import '../network/image_header_utils.dart';
@@ -30,6 +31,9 @@ import '../network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
@@ -70,6 +74,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import '../../shared/theme/theme_providers.dart';
 import '../../shared/services/app_package_info.dart';
 import '../utils/account_display.dart';
+import '../../shared/utils/model_picker_subtitles.dart';
 
 final nativeSheetHydrationServiceProvider =
     Provider<NativeSheetHydrationService>(NativeSheetHydrationService.new);
@@ -125,10 +130,13 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   showScheduledTasks: read(scheduledTasksEntryVisibleProvider),
   showPersonalConnections: read(personalConnectionsEntryVisibleProvider),
   showChatDataControls: read(chatDataControlsEntryVisibleProvider),
+  showLibreChatPersonalization:
+      read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat,
 );
 
 /// Whom the account card atop the native Settings root is for, and what it
-/// says, read now.
+/// says, read now. An Open WebUI account's card opens its profile, with
+/// Accounts in a row of its own, so it does not count the others.
 ({AccountCardKind kind, String title, String? subtitle}) readNativeAccountCard(
   NativeSheetProviderReader read,
   AppLocalizations l10n, {
@@ -137,20 +145,41 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   return accountCardSummary(
     l10n,
     signedInName: account?.displayName,
+    signedInEmail: account?.email,
     accounts: read(openWebUiAccountsProvider).value ?? const [],
     hermesConnections: read(hermesConnectionsProvider),
     hermesInUseId: read(hermesEnabledProvider)
         ? read(hermesActiveConnectionIdProvider)
         : null,
+    countsOthers: account == null,
+    libreChatPrimary:
+        read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? read(activeLibreChatAccountProvider)
+        : null,
+    libreChatAccounts:
+        read(libreChatRegistryProvider).value?.accounts ?? const [],
   );
 }
 
+/// The language the app is set to, as the App Language row names it: a
+/// language tag, or `system`.
+String readNativeAppLanguageTag(NativeSheetProviderReader read) =>
+    read(appLocaleProvider)?.toLanguageTag() ?? 'system';
+
 /// The saved Open WebUI accounts besides the active one, read now; null
 /// when they could not be read.
-int? readNativeOtherAccountCount(NativeSheetProviderReader read) =>
-    read(openWebUiAccountsProvider).value
-        ?.where((entry) => !entry.isActive)
-        .length;
+int? readNativeOtherAccountCount(NativeSheetProviderReader read) {
+  final others = read(
+    openWebUiAccountsProvider,
+  ).value?.where((entry) => !entry.isActive).length;
+  if (others == null) return null;
+  // Saved LibreChat accounts are others too: signing out of every account
+  // would forget them, and their chats, with this one. Not read yet, there
+  // may be some.
+  final libreChatAccounts = read(libreChatRegistryProvider).value?.accounts;
+  if (libreChatAccounts == null) return null;
+  return others + libreChatAccounts.length;
+}
 
 /// The native Accounts page, read now.
 NativeSheetDetailConfig readNativeAccountsDetail(
@@ -160,8 +189,19 @@ NativeSheetDetailConfig readNativeAccountsDetail(
   // The Apple toggles default to on: only where Apple Intelligence can exist
   // are they rows.
   final apple = read(applePccPlatformSupportedProvider);
+  final libreChatSession = read(libreChatSessionProvider).value;
   return buildNativeAccountsDetail(
     l10n,
+    libreChatEnabled: read(libreChatBackendEnabledProvider),
+    libreChatAccounts:
+        read(libreChatRegistryProvider).value?.accounts ?? const [],
+    libreChatInChargeId:
+        read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? read(activeLibreChatAccountProvider)?.id
+        : null,
+    // Only a session known to be signed in is shown in use: one that could
+    // not be read keeps its sign-in a tap away.
+    libreChatInChargeSignedIn: libreChatSession is LibreChatSignedInState,
     accounts: read(openWebUiAccountsProvider).value,
     hermesConnections: read(hermesConnectionsProvider),
     hermesInUseId: read(hermesEnabledProvider)
@@ -171,6 +211,27 @@ NativeSheetDetailConfig readNativeAccountsDetail(
     appleOnDevice: apple && read(appleOnDeviceEnabledProvider),
     applePcc: apple && read(applePccEnabledProvider),
   );
+}
+
+/// Waits for what the native Accounts page shows from secure storage:
+/// LibreChat's saved accounts, rather than showing none, and the session of
+/// the one in charge, which while loading is neither signed in nor out.
+Future<void> settleNativeAccountsDetail(NativeSheetProviderReader read) async {
+  // Not for ever: storage that does not answer leaves the accounts as the
+  // providers have them.
+  const patience = Duration(seconds: 2);
+  try {
+    await read(libreChatRegistryProvider.future).timeout(patience);
+    if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      await read(libreChatSessionProvider.future).timeout(patience);
+    }
+  } catch (error) {
+    DebugLogger.warning(
+      'native-accounts-librechat-unreadable',
+      scope: 'native-sheet/hydration',
+      data: {'error': error.runtimeType.toString()},
+    );
+  }
 }
 
 /// The native Settings root on screen and the account it was built for.
@@ -228,10 +289,12 @@ class NativeSheetHydrationService {
     _ref.onDispose(sheetEvents.cancel);
     // The native sheet keeps the rows it was handed, so a language chosen
     // inside it left every label in the old language until the sheet was
-    // reopened. Hand it rows built in the new language.
+    // reopened. Hand it rows built in the new language: the root, where the
+    // language is picked, and Appearance when it was opened.
     _ref.listen<Locale?>(appLocaleProvider, (previous, next) {
-      if (previous == next || !_appearanceDetailPresented) return;
-      unawaited(_rehydrateAppearanceAfterLocaleChange());
+      if (previous == next) return;
+      if (!_appearanceDetailPresented && _profileRoot == null) return;
+      unawaited(_rehydrateAfterLocaleChange());
     });
   }
 
@@ -295,6 +358,7 @@ class NativeSheetHydrationService {
             subtitle: subtitle,
           ),
         },
+        appLanguageTag: readNativeAppLanguageTag(_ref.read),
         otherAccountCount: readNativeOtherAccountCount(_ref.read),
       ),
     );
@@ -438,11 +502,18 @@ class NativeSheetHydrationService {
           // A system symbol is UIKit's to draw, so hand the native sheet the
           // symbol name instead of an image reference it cannot fetch.
           final symbolName = nativeSymbolNameFromUrl(avatarUrl);
+          // Friendly names, with the full id underneath whenever the name
+          // was derived from it.
+          final name = displayNameForModel(model);
+          final subtitle = modelPickerSubtitle(
+            model,
+            apple: appleModelPickerSubtitles(l10n),
+          );
           if (symbolName != null) {
             return NativeSheetModelOption(
               id: model.id,
-              name: model.name,
-              subtitle: model.description,
+              name: name,
+              subtitle: subtitle,
               sfSymbol: symbolName,
               tags: model.modelTags,
             );
@@ -451,8 +522,8 @@ class NativeSheetHydrationService {
           if (logoId != null) {
             return NativeSheetModelOption(
               id: model.id,
-              name: model.name,
-              subtitle: model.description,
+              name: name,
+              subtitle: subtitle,
               avatarBytes: logoBytes[logoId],
               tags: model.modelTags,
             );
@@ -463,8 +534,8 @@ class NativeSheetHydrationService {
                     const <String, String>{};
           return NativeSheetModelOption(
             id: model.id,
-            name: model.name,
-            subtitle: model.description,
+            name: name,
+            subtitle: subtitle,
             avatarUrl: avatarUrl,
             avatarHeaders: avatarHeaders,
             tags: model.modelTags,
@@ -638,10 +709,12 @@ class NativeSheetHydrationService {
 
   /// The rows read their strings from the app's localizations, which switch on
   /// the frame that follows the locale change, so wait for that frame first.
-  Future<void> _rehydrateAppearanceAfterLocaleChange() async {
+  Future<void> _rehydrateAfterLocaleChange() async {
     try {
       await WidgetsBinding.instance.endOfFrame;
-      await hydrateDetail(NativeSheetRoutes.appearance);
+      if (_appearanceDetailPresented) {
+        await hydrateDetail(NativeSheetRoutes.appearance);
+      }
       await refreshProfileRoot();
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -668,6 +741,7 @@ class NativeSheetHydrationService {
       case nativeAccountsDetailId:
         // As they are now: the Direct providers may have been read since the
         // sheet opened, and a pushed page comes back to this one.
+        await settleNativeAccountsDetail(_ref.read);
         final accounts = readNativeAccountsDetail(_ref.read, l10n);
         await NativeSheetBridge.instance.applyDetailPatch(
           detailId: nativeAccountsDetailId,
@@ -981,6 +1055,7 @@ class NativeSheetHydrationService {
           title: nativeAiMemoryTitle(l10n),
           sections: [
             NativeSheetSectionConfig(
+              footer: memoriesPermitted ? l10n.aiMemoryFooter : null,
               items: [
                 NativeSheetItemConfig(
                   id: 'system-prompt',
@@ -1072,22 +1147,25 @@ class NativeSheetHydrationService {
     final masterItem = NativeSheetItemConfig(
       id: 'notifications-enabled',
       title: l10n.notificationsEnabledTitle,
-      subtitle: s.notificationsEnabled
-          ? l10n.notificationsEnabledDescription
-          : l10n.notificationRequiresMaster,
       sfSymbol: 'bell',
       kind: NativeSheetItemKind.toggle,
       value: s.notificationsEnabled,
     );
+    final masterSection = NativeSheetSectionConfig(
+      footer: l10n.notificationsEnabledDescription,
+      items: [masterItem],
+    );
+    // With notifications off the rest cannot do anything, so it is not
+    // shown, as Settings hides an app's alert options until they are
+    // allowed. Turning them on redraws the page with every option.
+    if (!s.notificationsEnabled) return [masterSection];
     final deliveryItems = <NativeSheetItemConfig>[
       NativeSheetItemConfig(
         id: 'notification-in-app-banner',
         title: l10n.notificationInAppBannerTitle,
         subtitle: l10n.notificationInAppBannerDescription,
         sfSymbol: 'rectangle.topthird.inset.filled',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationInAppBanner,
       ),
       NativeSheetItemConfig(
@@ -1095,9 +1173,7 @@ class NativeSheetHydrationService {
         title: l10n.notificationSystemTitle,
         subtitle: l10n.notificationSystemDescription,
         sfSymbol: 'bell.badge',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationSystem,
       ),
     ];
@@ -1107,19 +1183,17 @@ class NativeSheetHydrationService {
         title: l10n.notificationSoundTitle,
         subtitle: l10n.notificationSoundDescription,
         sfSymbol: 'speaker.wave.2',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationSound,
       ),
       NativeSheetItemConfig(
         id: 'notification-sound-always',
         title: l10n.notificationSoundAlwaysTitle,
-        subtitle: s.notificationsEnabled && !s.notificationSound
+        subtitle: !s.notificationSound
             ? l10n.notificationRequiresSound
             : l10n.notificationSoundAlwaysDescription,
         sfSymbol: 'speaker.wave.3',
-        kind: s.notificationsEnabled && s.notificationSound
+        kind: s.notificationSound
             ? NativeSheetItemKind.toggle
             : NativeSheetItemKind.info,
         value: s.notificationSoundAlways,
@@ -1131,9 +1205,7 @@ class NativeSheetHydrationService {
         title: l10n.notificationChatTitle,
         subtitle: l10n.notificationChatDescription,
         sfSymbol: 'bubble.left.and.bubble.right',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationChatEnabled,
       ),
       NativeSheetItemConfig(
@@ -1141,14 +1213,12 @@ class NativeSheetHydrationService {
         title: l10n.notificationChannelTitle,
         subtitle: l10n.notificationChannelDescription,
         sfSymbol: 'number',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationChannelEnabled,
       ),
     ];
     return [
-      NativeSheetSectionConfig(items: [masterItem]),
+      masterSection,
       NativeSheetSectionConfig(items: deliveryItems),
       NativeSheetSectionConfig(items: soundItems),
       NativeSheetSectionConfig(items: contentItems),
@@ -1274,78 +1344,91 @@ class NativeSheetHydrationService {
   Future<void> _applyNativeAppearanceDetail(AppLocalizations l10n) async {
     try {
       final themeMode = _ref.read(appThemeModeProvider);
-      final appLocale = _ref.read(appLocaleProvider);
       final activePalette = _ref.read(appThemePaletteProvider);
-      final currentLanguageTag = appLocale?.toLanguageTag() ?? 'system';
-      final themeItems = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'theme-light',
-          title: l10n.colorScheme,
-          sfSymbol: 'moon.stars',
-          kind: NativeSheetItemKind.segment,
-          value: themeMode.name,
-          options: [
-            NativeSheetOptionConfig(id: 'system', label: l10n.system),
-            NativeSheetOptionConfig(id: 'light', label: l10n.themeLight),
-            NativeSheetOptionConfig(id: 'dark', label: l10n.themeDark),
-          ],
-        ),
-        NativeSheetItemConfig(
-          id: 'theme-palette',
-          title: l10n.themePalette,
-          sfSymbol: 'paintpalette',
-          kind: NativeSheetItemKind.searchablePicker,
-          value: activePalette.id,
-          options: [
-            for (final theme in TweakcnThemes.all)
-              NativeSheetOptionConfig(id: theme.id, label: theme.label(l10n)),
-          ],
-        ),
-        NativeSheetItemConfig(
-          id: nativeCitationBackgroundId,
-          title: l10n.citationBackground,
-          subtitle: l10n.citationBackgroundDescription,
-          sfSymbol: 'quote.bubble',
-          kind: NativeSheetItemKind.toggle,
-          value: _ref.read(appSettingsProvider).citationBackground,
-        ),
-      ];
-      final languageItem = NativeSheetItemConfig(
-        id: 'language',
-        title: l10n.appLanguage,
-        sfSymbol: 'globe',
-        kind: NativeSheetItemKind.searchablePicker,
-        value: currentLanguageTag,
-        options: nativeLanguageDropdownOptions(l10n),
-      );
+      final appSettings = _ref.read(appSettingsProvider);
+      // How the app looks. The colour scheme leads as preview tiles, as
+      // Display & Brightness shows Light and Dark, each painted in the
+      // palette in use; the palette and citation shading follow, then the
+      // sidebar. Its language is a row of the Settings root. A toggle that
+      // needs explaining is explained in its group's footer, as Settings
+      // does, rather than in a second line under its title.
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.appearance,
           title: nativeAppearanceTitle(l10n),
           sections: [
-            NativeSheetSectionConfig(items: themeItems),
             NativeSheetSectionConfig(
               items: [
                 NativeSheetItemConfig(
-                  id: 'composer-notes-button',
-                  title: l10n.showComposerNotesButton,
-                  subtitle: l10n.showComposerNotesButtonDescription,
-                  sfSymbol: 'note.text.badge.plus',
-                  kind: NativeSheetItemKind.toggle,
-                  value: _ref.read(appSettingsProvider).showComposerNotesButton,
+                  id: 'theme-light',
+                  title: l10n.colorScheme,
+                  sfSymbol: 'circle.lefthalf.filled',
+                  kind: NativeSheetItemKind.appearanceTiles,
+                  value: themeMode.name,
+                  options: [
+                    NativeSheetOptionConfig(
+                      id: 'system',
+                      label: l10n.system,
+                      swatches: nativeSchemePreviewSwatches(
+                        activePalette.light,
+                      ),
+                      darkSwatches: nativeSchemePreviewSwatches(
+                        activePalette.dark,
+                      ),
+                    ),
+                    NativeSheetOptionConfig(
+                      id: 'light',
+                      label: l10n.themeLight,
+                      swatches: nativeSchemePreviewSwatches(
+                        activePalette.light,
+                      ),
+                    ),
+                    NativeSheetOptionConfig(
+                      id: 'dark',
+                      label: l10n.themeDark,
+                      swatches: nativeSchemePreviewSwatches(activePalette.dark),
+                    ),
+                  ],
                 ),
               ],
             ),
-            NativeSheetSectionConfig(items: [languageItem]),
             NativeSheetSectionConfig(
+              footer: l10n.citationBackgroundDescription,
+              items: [
+                NativeSheetItemConfig(
+                  id: 'theme-palette',
+                  title: l10n.themePalette,
+                  sfSymbol: 'paintpalette',
+                  kind: NativeSheetItemKind.searchablePicker,
+                  value: activePalette.id,
+                  options: [
+                    for (final theme in TweakcnThemes.all)
+                      NativeSheetOptionConfig(
+                        id: theme.id,
+                        label: theme.label(l10n),
+                        swatches: nativePaletteSwatches(theme.light),
+                        darkSwatches: nativePaletteSwatches(theme.dark),
+                      ),
+                  ],
+                ),
+                NativeSheetItemConfig(
+                  id: nativeCitationBackgroundId,
+                  title: l10n.citationBackground,
+                  sfSymbol: 'quote.bubble',
+                  kind: NativeSheetItemKind.toggle,
+                  value: appSettings.citationBackground,
+                ),
+              ],
+            ),
+            NativeSheetSectionConfig(
+              footer: l10n.slidingSidebarDescription,
               items: [
                 NativeSheetItemConfig(
                   id: nativeSlidingSidebarId,
                   title: l10n.slidingSidebar,
-                  subtitle: l10n.slidingSidebarDescription,
                   sfSymbol: 'sidebar.left',
                   kind: NativeSheetItemKind.toggle,
-                  value: _ref.read(appSettingsProvider).slidingSidebarEnabled,
+                  value: appSettings.slidingSidebarEnabled,
                 ),
               ],
             ),
@@ -1372,7 +1455,7 @@ class NativeSheetHydrationService {
   ) async {
     // Appearance reads only local settings, so it is applied before anything
     // that waits on the server, and a failed models or tools request cannot
-    // replace it (and the language picker) with an error row.
+    // replace it with an error row.
     await _applyNativeAppearanceDetail(l10n);
     try {
       final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
@@ -1436,8 +1519,8 @@ class NativeSheetHydrationService {
             subtitle: quickPillsSubtitle,
             sfSymbol: 'bolt',
           ),
+        _nativeMessageActionsItem(l10n),
       ];
-      final behaviorItems = _nativeChatBehaviorItems(l10n, appSettings);
       final promptOverridesItem = hasOpenWebUiAccount
           ? NativeSheetItemConfig(
               id: 'advanced-prompt-overrides',
@@ -1452,7 +1535,7 @@ class NativeSheetHydrationService {
           title: nativeChatsTitle(l10n),
           sections: [
             NativeSheetSectionConfig(items: modelItems),
-            NativeSheetSectionConfig(items: behaviorItems),
+            ..._nativeChatBehaviorSections(l10n, appSettings),
             if (promptOverridesItem != null)
               NativeSheetSectionConfig(items: [promptOverridesItem]),
             // Advanced stays last and on its own, as on the Flutter page: it
@@ -1499,10 +1582,11 @@ class NativeSheetHydrationService {
           items: [
             if (transportAvail.allowPolling &&
                 transportAvail.allowWebsocketOnly)
+              // The row's menu shows the mode in use; a subtitle would
+              // only repeat it.
               NativeSheetItemConfig(
                 id: 'transport-mode',
                 title: l10n.transportMode,
-                subtitle: transportLabel,
                 sfSymbol: 'network',
                 kind: NativeSheetItemKind.segment,
                 value: effectiveTransport == 'ws' ? 'ws' : 'polling',
@@ -1525,14 +1609,6 @@ class NativeSheetHydrationService {
                 sfSymbol: 'network',
                 kind: NativeSheetItemKind.info,
               ),
-            NativeSheetItemConfig(
-              id: 'disable-haptics-streaming',
-              title: l10n.disableHapticsWhileStreaming,
-              subtitle: l10n.disableHapticsWhileStreamingDescription,
-              sfSymbol: 'waveform.path',
-              kind: NativeSheetItemKind.toggle,
-              value: appSettings.disableHapticsWhileStreaming,
-            ),
             if (socketService != null)
               NativeSheetItemConfig(
                 id: 'socket-health',
@@ -1572,11 +1648,10 @@ class NativeSheetHydrationService {
           id: NativeSheetRoutes.chats,
           title: nativeChatsTitle(l10n),
           sections: [
-            NativeSheetSectionConfig(
-              items: _nativeChatBehaviorItems(
-                l10n,
-                _ref.read(appSettingsProvider),
-              ),
+            NativeSheetSectionConfig(items: [_nativeMessageActionsItem(l10n)]),
+            ..._nativeChatBehaviorSections(
+              l10n,
+              _ref.read(appSettingsProvider),
             ),
             NativeSheetSectionConfig(
               items: [
@@ -1602,40 +1677,81 @@ class NativeSheetHydrationService {
     }
   }
 
-  List<NativeSheetItemConfig> _nativeChatBehaviorItems(
+  /// The Message actions row: a page of its own, which explains itself.
+  NativeSheetItemConfig _nativeMessageActionsItem(AppLocalizations l10n) =>
+      NativeSheetItemConfig(
+        id: 'message-actions',
+        title: l10n.messageActionsTitle,
+        sfSymbol: 'ellipsis.circle',
+      );
+
+  /// The Chats page's toggles: how the message field behaves, then how
+  /// chats and replies behave (the Computer viewer leading). They read only
+  /// local settings.
+  List<NativeSheetSectionConfig> _nativeChatBehaviorSections(
     AppLocalizations l10n,
     AppSettings appSettings,
   ) {
     return [
-      NativeSheetItemConfig(
-        id: 'message-actions',
-        title: l10n.messageActionsTitle,
-        subtitle: l10n.messageActionsDescription,
-        sfSymbol: 'ellipsis.circle',
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'send-on-enter',
+            title: l10n.sendOnEnter,
+            subtitle: l10n.sendOnEnterDescription,
+            sfSymbol: 'paperplane',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.sendOnEnter,
+          ),
+          // A button in the message field, so it sits with the other
+          // message field setting rather than under Appearance.
+          NativeSheetItemConfig(
+            id: 'composer-notes-button',
+            title: l10n.showComposerNotesButton,
+            subtitle: l10n.showComposerNotesButtonDescription,
+            sfSymbol: 'note.text.badge.plus',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.showComposerNotesButton,
+          ),
+        ],
       ),
-      NativeSheetItemConfig(
-        id: 'send-on-enter',
-        title: l10n.sendOnEnter,
-        subtitle: l10n.sendOnEnterDescription,
-        sfSymbol: 'paperplane',
-        kind: NativeSheetItemKind.toggle,
-        value: appSettings.sendOnEnter,
-      ),
-      NativeSheetItemConfig(
-        id: 'temporary-chat-default',
-        title: l10n.temporaryChatByDefault,
-        subtitle: l10n.temporaryChatByDefaultDescription,
-        sfSymbol: 'clock.arrow.circlepath',
-        kind: NativeSheetItemKind.toggle,
-        value: appSettings.temporaryChatByDefault,
-      ),
-      NativeSheetItemConfig(
-        id: nativeCitationShowTitlesId,
-        title: l10n.citationShowTitles,
-        subtitle: l10n.citationShowTitlesDescription,
-        sfSymbol: 'link',
-        kind: NativeSheetItemKind.toggle,
-        value: appSettings.citationShowTitles,
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'computer-enabled',
+            title: l10n.computerTitle,
+            subtitle: l10n.computerEnabledDescription,
+            sfSymbol: 'display',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.computerEnabled,
+          ),
+          NativeSheetItemConfig(
+            id: 'temporary-chat-default',
+            title: l10n.temporaryChatByDefault,
+            subtitle: l10n.temporaryChatByDefaultDescription,
+            sfSymbol: 'clock.arrow.circlepath',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.temporaryChatByDefault,
+          ),
+          NativeSheetItemConfig(
+            id: nativeCitationShowTitlesId,
+            title: l10n.citationShowTitles,
+            subtitle: l10n.citationShowTitlesDescription,
+            sfSymbol: 'link',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.citationShowTitles,
+          ),
+          // How a streaming reply feels, so it belongs with chats, not with
+          // the connection it streams over.
+          NativeSheetItemConfig(
+            id: 'disable-haptics-streaming',
+            title: l10n.disableHapticsWhileStreaming,
+            subtitle: l10n.disableHapticsWhileStreamingDescription,
+            sfSymbol: 'waveform.path',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.disableHapticsWhileStreaming,
+          ),
+        ],
       ),
     ];
   }
@@ -2104,3 +2220,20 @@ class NativeSheetHydrationService {
     );
   }
 }
+
+/// The colour a palette row previews in Appearance, as ARGB: the palette's
+/// primary, its ink and buttons, drawn as one disc beside the palette's
+/// name (as Calendar marks a calendar), so Conduit reads as the monochrome
+/// it is and a coloured palette shows its hue.
+List<int> nativePaletteSwatches(TweakcnThemeVariant variant) => [
+  variant.primary.toARGB32(),
+];
+
+/// The colours a Color Scheme tile paints its miniature screen with, as
+/// ARGB: the palette's background, ink, fill and border in one appearance.
+List<int> nativeSchemePreviewSwatches(TweakcnThemeVariant variant) => [
+  variant.background.toARGB32(),
+  variant.foreground.toARGB32(),
+  variant.card.toARGB32(),
+  variant.border.toARGB32(),
+];

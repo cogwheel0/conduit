@@ -88,7 +88,10 @@ bool _conversationUsesOpenWebUiContext(Conversation? conversation) {
   // backend marker describes the transport used by a turn and may legitimately
   // be direct/Hermes inside an OpenWebUI-owned chat.
   if (storage == ChatStorageKind.openWebUi) return true;
-  if (storage == ChatStorageKind.directLocal) return false;
+  if (storage == ChatStorageKind.directLocal ||
+      storage == ChatStorageKind.libreChat) {
+    return false;
+  }
   final backend = conversation.metadata['backend'];
   return backend != kDirectTransport &&
       !isNativeHermesConversation(conversation);

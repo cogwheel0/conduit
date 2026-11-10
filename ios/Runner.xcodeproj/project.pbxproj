@@ -49,7 +49,6 @@
 		D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */; };
 		D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */; };
 		E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */; };
-		E7C1A2B42F6D4E5F8091A2B3 /* FloatingTabBarPlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C1A2B32F6D4E5F8091A2B3 /* FloatingTabBarPlatformView.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
 		F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -170,7 +169,6 @@
 		D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ConduitWidget/ConduitRecordingActivity.swift; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageViewerBridge.swift; sourceTree = "<group>"; };
-		E7C1A2B32F6D4E5F8091A2B3 /* FloatingTabBarPlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingTabBarPlatformView.swift; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ConduitWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -400,7 +398,6 @@
 				D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */,
 				E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */,
 				D2A0B1F52F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift */,
-				E7C1A2B32F6D4E5F8091A2B3 /* FloatingTabBarPlatformView.swift */,
 				D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */,
 				D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */,
 				D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */,
@@ -698,7 +695,6 @@
 				D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */,
 				E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */,
 				D2A0B1F62F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift in Sources */,
-				E7C1A2B42F6D4E5F8091A2B3 /* FloatingTabBarPlatformView.swift in Sources */,
 				D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */,
 				D2A0B2142F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift in Sources */,
 				D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */,

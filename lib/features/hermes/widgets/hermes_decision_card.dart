@@ -21,9 +21,13 @@ final class HermesDecisionCard extends StatefulWidget {
     this.mcpAction,
     this.choices = const <String>[],
     this.multiSelect = false,
+    this.title,
   });
 
   final HermesDecisionKind kind;
+
+  /// Shown instead of the kind's own title, for agents other than Hermes.
+  final String? title;
   final String? prompt;
   final String? mcpServer;
   final String? mcpAction;
@@ -68,7 +72,7 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final title = switch (widget.kind) {
+    final title = widget.title ?? switch (widget.kind) {
       HermesDecisionKind.clarification => l10n.hermesClarificationTitle,
       HermesDecisionKind.sudo => l10n.hermesSudoTitle,
       HermesDecisionKind.secret => l10n.hermesSecretTitle,

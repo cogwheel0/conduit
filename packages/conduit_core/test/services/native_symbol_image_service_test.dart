@@ -15,7 +15,7 @@ void main() {
     test('renders once per name, size, and scale', () async {
       final requests = <List<Object>>[];
       final service = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) async {
+        renderer: (name, pointSize, scale, symbolScale) async {
           requests.add([name, pointSize, scale]);
           return _pngBytes;
         },
@@ -46,10 +46,53 @@ void main() {
       check(requests).length.equals(2);
     });
 
+    test('a symbol scale renders and caches apart from the default', () async {
+      final requests = <NativeSymbolScale>[];
+      final service = NativeSymbolImageService(
+        renderer: (name, pointSize, scale, symbolScale) async {
+          requests.add(symbolScale);
+          return _pngBytes;
+        },
+      );
+
+      await service.load('square.on.square', pointSize: 17, scale: 3);
+      check(
+        service.isResolved(
+          'square.on.square',
+          pointSize: 17,
+          scale: 3,
+          symbolScale: NativeSymbolScale.small,
+        ),
+      ).isFalse();
+      await service.load(
+        'square.on.square',
+        pointSize: 17,
+        scale: 3,
+        symbolScale: NativeSymbolScale.small,
+      );
+      await service.load(
+        'square.on.square',
+        pointSize: 17,
+        scale: 3,
+        symbolScale: NativeSymbolScale.small,
+      );
+
+      check(requests)
+          .deepEquals([NativeSymbolScale.medium, NativeSymbolScale.small]);
+      check(
+        service.cached(
+          'square.on.square',
+          pointSize: 17,
+          scale: 3,
+          symbolScale: NativeSymbolScale.small,
+        ),
+      ).isNotNull();
+    });
+
     test('concurrent loads share one render', () async {
       var renders = 0;
       final service = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) async {
+        renderer: (name, pointSize, scale, symbolScale) async {
           renders++;
           await Future<void>.delayed(Duration.zero);
           return _pngBytes;
@@ -68,7 +111,7 @@ void main() {
     test('a missing symbol settles as resolved without bytes', () async {
       var renders = 0;
       final service = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) async {
+        renderer: (name, pointSize, scale, symbolScale) async {
           renders++;
           return null;
         },
@@ -98,10 +141,11 @@ void main() {
 
     test('the host renderer serves the default service', () async {
       final requests = <String>[];
-      NativeSymbolImageService.hostRenderer = (name, pointSize, scale) async {
-        requests.add(name);
-        return _pngBytes;
-      };
+      NativeSymbolImageService.hostRenderer =
+          (name, pointSize, scale, symbolScale) async {
+            requests.add(name);
+            return _pngBytes;
+          };
       final service = NativeSymbolImageService();
 
       check(

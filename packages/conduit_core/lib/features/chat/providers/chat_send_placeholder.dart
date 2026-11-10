@@ -265,6 +265,11 @@ class ChatAdmissionNotDurableException implements Exception {
 /// that certification, so a send that would take an inline path throws
 /// [ChatAdmissionNotDurableException] instead of running without one.
 ///
+/// [onTurnStarted] runs once a Hermes or Direct turn is in the chat and
+/// handed to its run. The send itself returns only when that run ends,
+/// which an approval or a question can hold open for as long as the user
+/// takes.
+///
 /// [contextAttachments] replaces the composer's context attachments for this
 /// send and leaves the composer's own untouched.
 Future<void> durableSend(
@@ -279,6 +284,7 @@ Future<void> durableSend(
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
   void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
+  void Function()? onTurnStarted,
 }) async {
   Future<void> inlineSend() {
     if (onAdmissionCommitted != null) {
@@ -293,6 +299,7 @@ Future<void> durableSend(
       pendingFolderIdOverride,
       onAssistantPlaceholderCreated,
       voice,
+      onTurnStarted,
     );
   }
   final voiceReply = voice?.reply;
@@ -349,6 +356,14 @@ Future<void> durableSend(
   // Hermes agent chats never touch the OpenWebUI outbox/sync engine — route
   // them through the inline path, which dispatches to the Hermes runs transport.
   if (selectedModel != null && isHermesModel(selectedModel)) {
+    await inlineSend();
+    return;
+  }
+
+  // LibreChat runs its turns on its server, which keeps them across a
+  // dropped connection; they never touch Open WebUI's outbox either.
+  if ((selectedModel != null && isLibreChatModel(selectedModel)) ||
+      isLibreChatConversation(activeAtSendStart)) {
     await inlineSend();
     return;
   }

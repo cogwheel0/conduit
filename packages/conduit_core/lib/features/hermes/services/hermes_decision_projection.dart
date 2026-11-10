@@ -40,6 +40,10 @@ List<ChatMessage> hermesPendingDesktopDecisionMessages(
               'mcpAction': ?record.mcpAction,
               if (record.choices.isNotEmpty) 'choices': record.choices,
               if (record.multiSelect) 'multiSelect': true,
+              if (record.questions.isNotEmpty)
+                'questions': [
+                  for (final question in record.questions) question.toJson(),
+                ],
               'expiresAt': record.expiresAt.toIso8601String(),
             },
         },

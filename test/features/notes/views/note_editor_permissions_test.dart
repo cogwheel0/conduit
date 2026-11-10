@@ -16,6 +16,9 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/features/notes/widgets/note_floating_actions.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -34,6 +37,13 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show
+        CNPopupMenuItem,
+        CNToolbar,
+        CNToolbarButton,
+        CNToolbarItemStyle,
+        CNToolbarMenu;
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -43,6 +53,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/native_platform_views.dart';
 import '../../../support/test_fonts.dart';
 
 const _alice = User(
@@ -269,8 +280,9 @@ void main() {
   /// from the list does.
   Future<void> openEditor(
     WidgetTester tester,
-    ProviderContainer container,
-  ) async {
+    ProviderContainer container, {
+    bool nativeIOS26 = false,
+  }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -278,6 +290,9 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
+          builder: nativeIOS26
+              ? (context, child) => LegacyDesignCompatibility(child: child!)
+              : null,
           home: const NoteEditorPage(noteId: 'note-1'),
         ),
       ),
@@ -293,6 +308,7 @@ void main() {
     NoteDeleter? deleter,
     AppSettings settings = const AppSettings(),
     VoiceInputService? voice,
+    bool nativeIOS26 = false,
   }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
@@ -330,7 +346,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
-    await openEditor(tester, container);
+    await openEditor(tester, container, nativeIOS26: nativeIOS26);
     return container;
   }
 
@@ -2485,6 +2501,276 @@ void main() {
       expect(find.text(l10n(tester).noteShare), findsNothing);
       expect(find.text(l10n(tester).delete), findsNothing);
     });
+  });
+
+  testWidgets('outside iOS 26 the body is edited without a Done button', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    await tester.tap(find.byType(FleatherEditor));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FleatherToolbar), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('note-editor-done')),
+      findsNothing,
+    );
+  });
+
+  group('iOS 26 bottom toolbar', () {
+    setUp(() {
+      stubNativePlatformViews();
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+    });
+    tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    final ios = TargetPlatformVariant.only(TargetPlatform.iOS);
+
+    CNToolbar toolbar(WidgetTester tester) =>
+        tester.widget<CNToolbar>(find.byType(CNToolbar));
+
+    List<String?> itemIds(WidgetTester tester) => [
+      for (final item in toolbar(tester).items) item.id,
+    ];
+
+    T item<T>(WidgetTester tester, String id) =>
+        toolbar(tester).items.singleWhere((item) => item.id == id) as T;
+
+    /// The menu's rows by label, a divider as '-'.
+    List<String> rows(CNToolbarMenu menu) => [
+      for (final entry in menu.items)
+        entry is CNPopupMenuItem ? entry.label : '-',
+    ];
+
+    const doneKey = ValueKey<String>('note-editor-done');
+
+    /// Presses Done in the top bar, as VoiceOver names it.
+    Future<void> pressDone(WidgetTester tester) async {
+      final done = tester.widget<ConduitAdaptiveAppBarIconButton>(
+        find.byKey(doneKey),
+      );
+      expect(done.semanticLabel, l10n(tester).done);
+      done.onPressed!();
+      await tester.pumpAndSettle();
+    }
+
+    /// Chooses [label] in [menu] as UIKit reports it: by the row's index.
+    Future<void> choose(
+      WidgetTester tester,
+      CNToolbarMenu menu,
+      String label,
+    ) async {
+      final index = menu.items.indexWhere(
+        (entry) => entry is CNPopupMenuItem && entry.label == label,
+      );
+      expect(index, isNonNegative, reason: '$label is in the menu');
+      menu.onSelected!([index]);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('holds the voice, AI and note actions in place of the '
+        'floating buttons and the top bar menu', (tester) async {
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      final text = l10n(tester);
+
+      expect(find.byType(NoteFloatingActions), findsNothing);
+      expect(find.byType(ConduitAdaptiveToolbarOverflowButton), findsNothing);
+      expect(find.byType(ConduitNativeToolbarActionGroup), findsNothing);
+      expect(itemIds(tester), ['voice', 'enhance', 'space', 'share', 'more']);
+      expect(rows(item<CNToolbarMenu>(tester, 'voice')), [
+        text.dictation,
+        text.recordAudio,
+      ]);
+      expect(rows(item<CNToolbarMenu>(tester, 'enhance')), [
+        text.enhanceNote,
+        text.generateTitle,
+      ]);
+      final more = item<CNToolbarMenu>(tester, 'more');
+      expect(rows(more), [
+        text.generateTitle,
+        text.copy,
+        text.pin,
+        '-',
+        text.delete,
+      ]);
+      expect((more.items.last as CNPopupMenuItem).isDestructive, isTrue);
+      expect(item<CNToolbarButton>(tester, 'share').label, text.noteShare);
+      // Lets the native views' creation guard run out.
+      await tester.pump(const Duration(milliseconds: 500));
+    }, variant: ios);
+
+    testWidgets('offers a read-only note only Pages, Copy and Pin', (
+      tester,
+    ) async {
+      final note = twoPageNote()..['write_access'] = false;
+      await storeLocally(note);
+      await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      final text = l10n(tester);
+
+      expect(itemIds(tester), ['space', 'pages', 'more']);
+      expect(rows(item<CNToolbarMenu>(tester, 'more')), [text.copy, text.pin]);
+
+      // Reading brings up no keyboard, so the toolbar stays and Done is not
+      // offered.
+      await tester.tap(find.byType(FleatherEditor));
+      await tester.pumpAndSettle();
+      expect(find.byType(CNToolbar), findsOneWidget);
+      expect(find.byKey(doneKey), findsNothing);
+
+      item<CNToolbarButton>(tester, 'pages').onPressed!();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('note-page-p2')),
+        findsOneWidget,
+      );
+    }, variant: ios);
+
+    testWidgets('Share opens the access sheet and Pin pins the note', (
+      tester,
+    ) async {
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      final api = _DetailApi(detail: note);
+      await pumpEditor(tester, api, nativeIOS26: true);
+      final text = l10n(tester);
+
+      await choose(tester, item<CNToolbarMenu>(tester, 'more'), text.pin);
+      expect((await db.notesDao.getNote('note-1'))!.isPinned, isTrue);
+      expect(rows(item<CNToolbarMenu>(tester, 'more')), contains(text.unpin));
+
+      item<CNToolbarButton>(tester, 'share').onPressed!();
+      await tester.pumpAndSettle();
+      expect(api.accessReads, ['note-1']);
+      expect(find.byKey(const Key('workspace-access-list')), findsOneWidget);
+    }, variant: ios);
+
+    testWidgets('dictation turns the voice item into Stop, which ends it', (
+      tester,
+    ) async {
+      final voice = _HeldVoice();
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      await pumpEditor(
+        tester,
+        _DetailApi(detail: note),
+        voice: voice,
+        nativeIOS26: true,
+      );
+      final text = l10n(tester);
+
+      await choose(
+        tester,
+        item<CNToolbarMenu>(tester, 'voice'),
+        text.dictation,
+      );
+      voice.ready.complete(true);
+      await tester.pumpAndSettle();
+      voice.run!.add('spoken');
+      await tester.pump();
+      expect(
+        contentController(tester).document.toPlainText(),
+        contains('spoken'),
+      );
+
+      final stop = item<CNToolbarButton>(tester, 'voice');
+      expect(stop.label, text.stopRecording);
+      expect(stop.style, CNToolbarItemStyle.prominent);
+      stop.onPressed!();
+      await tester.pumpAndSettle();
+      expect(voice.run, isNull);
+      expect(item<CNToolbarMenu>(tester, 'voice').label, text.voiceOptions);
+    }, variant: ios);
+
+    testWidgets('steps aside while a page such as the recording overlay is '
+        'pushed above the editor', (tester) async {
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      expect(find.byType(CNToolbar), findsOneWidget);
+
+      final navigator = Navigator.of(tester.element(find.byType(CNToolbar)));
+      unawaited(
+        navigator.push(
+          PageRouteBuilder<void>(
+            opaque: false,
+            pageBuilder: (_, _, _) => const SizedBox.shrink(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CNToolbar), findsNothing);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(CNToolbar), findsOneWidget);
+    }, variant: ios);
+
+    testWidgets('gives way to the formatting bar while the body is edited, '
+        'and Done brings it back', (tester) async {
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      expect(find.byKey(doneKey), findsNothing);
+
+      await tester.tap(find.byType(FleatherEditor));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CNToolbar), findsNothing);
+      expect(find.byKey(doneKey), findsOneWidget);
+      // The text ends above the formatting bar, so the caret stays in view.
+      final formattingRect = tester.getRect(find.byType(FleatherToolbar));
+      final textRect = tester.getRect(
+        find
+            .ancestor(
+              of: find.byType(FleatherEditor),
+              matching: find.byType(SingleChildScrollView),
+            )
+            .first,
+      );
+      expect(textRect.bottom, lessThanOrEqualTo(formattingRect.top));
+
+      await pressDone(tester);
+
+      final editor = tester.widget<FleatherEditor>(find.byType(FleatherEditor));
+      expect(editor.focusNode!.hasFocus, isFalse);
+      expect(find.byType(FleatherToolbar), findsNothing);
+      expect(find.byKey(doneKey), findsNothing);
+      expect(find.byType(CNToolbar), findsOneWidget);
+    }, variant: ios);
+
+    testWidgets('gives way while the title is edited too, and Done ends it', (
+      tester,
+    ) async {
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      final title = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText &&
+            widget.focusNode.debugLabel == 'note_title',
+      );
+
+      await tester.tap(title, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(tester.widget<EditableText>(title).focusNode.hasFocus, isTrue);
+
+      expect(find.byType(CNToolbar), findsNothing);
+      expect(find.byType(FleatherToolbar), findsNothing);
+      expect(find.byKey(doneKey), findsOneWidget);
+
+      await pressDone(tester);
+
+      expect(tester.widget<EditableText>(title).focusNode.hasFocus, isFalse);
+      expect(find.byKey(doneKey), findsNothing);
+      expect(find.byType(CNToolbar), findsOneWidget);
+    }, variant: ios);
   });
 }
 

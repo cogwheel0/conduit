@@ -125,9 +125,10 @@ mixin _UserSettingsApi on _ApiServiceBase {
     });
   }
 
-  /// Persists the notification preferences that Open WebUI stores server-side.
-  /// These live at the top level of the user settings object (not under `ui`).
-  /// Only non-null values are written so callers can update a subset.
+  /// Persists the notification preferences that Open WebUI stores server-side,
+  /// under `ui` where its web client reads and writes them (and where Open
+  /// WebUI 0.13.1 checks whether to notify a Tether desktop). Only non-null
+  /// values are written so callers can update a subset.
   Future<ServerUserSettings> updateUserNotificationSettings({
     bool? notificationEnabled,
     bool? notificationSound,
@@ -138,15 +139,17 @@ mixin _UserSettingsApi on _ApiServiceBase {
       final settings = _deepCloneJsonMap(
         await getUserSettings(authSnapshot: authSnapshot),
       );
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
       if (notificationEnabled != null) {
-        settings['notificationEnabled'] = notificationEnabled;
+        ui['notificationEnabled'] = notificationEnabled;
       }
       if (notificationSound != null) {
-        settings['notificationSound'] = notificationSound;
+        ui['notificationSound'] = notificationSound;
       }
       if (notificationSoundAlways != null) {
-        settings['notificationSoundAlways'] = notificationSoundAlways;
+        ui['notificationSoundAlways'] = notificationSoundAlways;
       }
+      settings['ui'] = ui;
 
       _traceApi('Updating user notification settings');
       final response = await _postUserSettings(

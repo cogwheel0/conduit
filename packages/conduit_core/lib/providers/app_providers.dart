@@ -36,6 +36,12 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show isLibreChatToolId;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/models/server_config.dart';
@@ -109,6 +115,8 @@ import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/primary_sync.dart';
+import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 
 export 'package:conduit_core/providers/storage_providers.dart';

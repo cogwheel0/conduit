@@ -23,6 +23,9 @@ Future<ServerConfig?> activeServer(Ref ref) async {
   if (publishedConfigs.isEmpty) return null;
 
   final activeId = await storage.getActiveServerId();
+  // Parked for another account backend: no Open WebUI account is active
+  // until one is chosen by id, the only saved one included.
+  if (activeId == null && storage.isOpenWebUiParked) return null;
 
   ServerConfig? fallback;
   for (final config in publishedConfigs) {

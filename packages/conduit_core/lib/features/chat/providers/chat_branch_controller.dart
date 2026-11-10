@@ -72,6 +72,19 @@ enum ChatForkAvailability {
 }
 
 final chatForkAvailabilityProvider = Provider<ChatForkAvailability>((ref) {
+  // A LibreChat chat branches on its own server, which keeps every message
+  // the open chat shows.
+  final active = ref.watch(activeConversationProvider);
+  if (isLibreChatConversation(active)) {
+    if (ref.watch(libreChatSyncEngineProvider) == null) {
+      return ChatForkAvailability.hidden;
+    }
+    if (!ref.watch(isOnlineProvider)) return ChatForkAvailability.offline;
+    if (ref.watch(isChatStreamingProvider)) {
+      return ChatForkAvailability.responseRunning;
+    }
+    return ChatForkAvailability.available;
+  }
   if (!ref.watch(chatBranchControlsProvider)) {
     return ChatForkAvailability.hidden;
   }

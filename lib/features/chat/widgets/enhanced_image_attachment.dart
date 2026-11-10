@@ -275,6 +275,15 @@ class _ImageAttachmentLoader {
     }
 
     if (attachmentId.startsWith('/')) {
+      final fetchPath = cacheScope?.fetchPath;
+      if (fetchPath != null) {
+        return _loadFetchedPath(
+          attachmentId: attachmentId,
+          cacheScope: cacheScope,
+          fetchPath: fetchPath,
+          l10n: l10n,
+        );
+      }
       if (api == null) {
         final error = l10n.unableToLoadImage;
         // API availability is lifecycle state, not an immutable property of
@@ -348,6 +357,35 @@ class _ImageAttachmentLoader {
       // File metadata/content requests can fail transiently. Return the error
       // to this mounted caller but leave the shared cache retryable on remount.
       return _ImageLoadResult(error: message, isSvg: false);
+    }
+  }
+
+  /// Loads a server-relative image through [fetchPath], which sends the
+  /// account's credentials current at that moment (LibreChat checks its
+  /// cookie against the live session) and renews once when refused. Only the
+  /// bytes are cached, never a URL that would need those credentials again.
+  Future<_ImageLoadResult> _loadFetchedPath({
+    required String attachmentId,
+    required ImageAttachmentCacheScope? cacheScope,
+    required Future<Uint8List> Function(String path) fetchPath,
+    required AppLocalizations l10n,
+  }) async {
+    try {
+      final bytes = await fetchPath(attachmentId);
+      final isSvg = _isSvgBytes(bytes) || _isSvgUrl(attachmentId);
+      imageAttachmentCacheStore.cacheBytes(
+        attachmentId,
+        bytes,
+        scope: cacheScope,
+        isSvg: isSvg,
+      );
+      return _ImageLoadResult(bytes: bytes, isSvg: isSvg);
+    } catch (error) {
+      // Like a failed file request: shown to this caller, retried on remount.
+      return _ImageLoadResult(
+        error: l10n.failedToLoadImage(error.toString()),
+        isSvg: false,
+      );
     }
   }
 
@@ -536,12 +574,10 @@ class _EnhancedImageAttachmentState
   @override
   void initState() {
     super.initState();
-    _cacheScope = usesAccountScopedImageCache(widget.attachmentId)
-        ? ImageAttachmentCacheScope(
-            api: ref.read(apiServiceProvider),
-            authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider),
-          )
-        : null;
+    _cacheScope = imageAttachmentCacheScopeFor(
+      ref.read,
+      widget.attachmentId,
+    );
     _heroTag = 'image_${widget.attachmentId}_${identityHashCode(this)}';
     // Defer loading until after first frame to avoid accessing inherited widgets
     // (e.g., Localizations) during initState
@@ -741,12 +777,10 @@ class _EnhancedImageAttachmentState
     // process-local cache key is already the literal itself. Avoid pulling the
     // authenticated app graph into public/generated image rows; server file IDs
     // still watch both ownership identities and reset immediately on a switch.
-    final currentScope = usesAccountScopedImageCache(widget.attachmentId)
-        ? ImageAttachmentCacheScope(
-            api: ref.watch(apiServiceProvider),
-            authSessionEpoch: ref.watch(openWebUiAuthSessionEpochProvider),
-          )
-        : null;
+    final currentScope = imageAttachmentCacheScopeFor(
+      ref.watch,
+      widget.attachmentId,
+    );
     if (currentScope != _cacheScope) {
       _cacheScope = currentScope;
       _cachedImageData = null;

@@ -6,6 +6,7 @@ import 'package:conduit/features/automations/views/scheduled_task_editor_page.da
 import 'package:conduit/features/automations/views/scheduled_tasks_page.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
@@ -508,6 +509,8 @@ Future<AutomationSession> pumpAutomations(
         routerConfig: router,
         localizationsDelegates: localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        // As in the app, legacy-design widgets read its theme through this.
+        builder: (context, child) => LegacyDesignCompatibility(child: child!),
       ),
     ),
   );

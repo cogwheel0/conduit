@@ -29,6 +29,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 
 part 'auth_state_manager.g.dart';
@@ -1229,6 +1230,42 @@ class AuthStateManager extends _$AuthStateManager {
       attemptRevision: attemptRevision,
       hasSession: hasSession,
     );
+  }
+
+  /// Parks Open WebUI so another account backend can own the Chats tab.
+  ///
+  /// The active account's session goes into its vault and no account is left
+  /// active, but nothing is signed out of or forgotten: [switchToAccount]
+  /// later takes the account back up, signed in, with its database as it
+  /// was. Like a switch, the storage barrier is told before the active id
+  /// moves, so the account's database closes instead of being purged as an
+  /// unannounced server change; then it is closed for real, since no Open
+  /// WebUI account will open another while parked.
+  Future<void> parkActiveAccount() async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final previousActiveId = await storage.getEffectiveActiveServerId();
+    final attemptRevision = _enterAccountBoundary();
+    try {
+      await storage.parkActiveServer(fromServerId: previousActiveId);
+    } catch (error, stackTrace) {
+      _logAuthenticationFailure(
+        'account-park-failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      // Settle on whatever reached storage rather than staying in loading.
+      _invalidateServerProviders();
+      if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    if (_authAttemptSuperseded(attemptRevision)) return;
+    await _settleAtAccountBoundary(
+      attemptRevision: attemptRevision,
+      hasSession: false,
+    );
+    // A command, not a dependency: through the container, as the storage
+    // barrier is.
+    await ref.container.read(databaseManagerProvider).closeActive();
   }
 
   /// Signs out of [accountId] and forgets it on this device.

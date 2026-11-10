@@ -205,11 +205,22 @@ void main() {
       }
       expect(find.text('Replying to Alice'), findsOneWidget);
       expect(find.byType(ThreadPanel), findsOneWidget);
-      final draftContexts = tester.elementList(find.byType(ModernChatInput)).map(
-        (element) => ProviderScope.containerOf(element).read(composerDraftContextProvider),
-      ).toList();
-      expect(draftContexts.map((draft) => draft.scope), containsAll(['channel', 'thread:channel-1']));
-      expect(draftContexts.every((draft) => draft.temporary && draft.store == null), isTrue);
+      final draftContexts = tester
+          .elementList(find.byType(ModernChatInput))
+          .map(
+            (element) =>
+                ProviderScope.containerOf(element)
+                    .read(composerDraftContextProvider),
+          )
+          .toList();
+      expect(
+        draftContexts.map((draft) => draft.scope),
+        containsAll(['channel', 'thread:channel-1']),
+      );
+      expect(
+        draftContexts.every((draft) => draft.temporary && draft.store == null),
+        isTrue,
+      );
 
       check(
         tester
@@ -521,16 +532,24 @@ void main() {
     check(tester.takeException()).isNull();
 
     final reaction = find.widgetWithText(ActionChip, '🎉 1');
+    final threadScrollable = find
+        .descendant(
+          of: find.byType(ThreadPanel),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       reaction,
       400,
-      scrollable: find
-          .descendant(
-            of: find.byType(ThreadPanel),
-            matching: find.byType(Scrollable),
-          )
-          .first,
+      scrollable: threadScrollable,
     );
+    // Reaching the reply can leave it under the floating composer, wherever
+    // the last step landed; the end of the thread clears it.
+    final position = tester
+        .state<ScrollableState>(threadScrollable)
+        .position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
 
     check(tester.takeException()).isNull();
     expect(reaction.hitTestable(), findsOneWidget);
@@ -754,11 +773,7 @@ void main() {
   ) async {
     final api = _ChannelApi(
       threadMessages: [
-        {
-          ..._appCardMessageJson(),
-          'id': 'reply-1',
-          'parent_id': 'message-1',
-        },
+        {..._appCardMessageJson(), 'id': 'reply-1', 'parent_id': 'message-1'},
       ],
       interactionResponse: {'type': 'error', 'visibility': 'private'},
     );
@@ -877,9 +892,7 @@ void main() {
   ) async {
     final socket = _AppSocket();
     final api = _ChannelApi(
-      messages: [
-        _messageJson('<@A:app-1|Deploy Bot> deploy'),
-      ],
+      messages: [_messageJson('<@A:app-1|Deploy Bot> deploy')],
     );
     final container = _appRigContainer(api, socket: socket);
     addTearDown(container.dispose);
@@ -966,6 +979,35 @@ void main() {
   });
 
   // Open WebUI 0.12.1 ChannelMenu.svelte: All messages / Mentions only.
+  testWidgets('the attachment button is a named button that opens its menu', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final container = _appRigContainer(_ChannelApi());
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(tester.element(find.byType(ChannelPage)))!;
+
+    // The trigger is only an icon: assistive tech needs its name and action.
+    final attach = find.bySemanticsLabel(l10n.attach);
+    expect(
+      tester.getSemantics(attach),
+      isSemantics(label: l10n.attach, isButton: true, hasTapAction: true),
+    );
+    expect(find.text(l10n.camera), findsNothing);
+
+    tester.semantics.tap(find.semantics.byLabel(l10n.attach));
+    await tester.pumpAndSettle();
+    // Named as the chat's attach panel names them: Files and Photos, as the
+    // pickers they open are named.
+    for (final item in [l10n.files, l10n.composerAttachPhotos, l10n.camera]) {
+      expect(find.text(item), findsOneWidget);
+    }
+    expect(find.text(l10n.photo), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('the channel menu sets notifications to mentions only', (
     tester,
   ) async {
@@ -979,8 +1021,8 @@ void main() {
     await container.read(channelsListProvider.future);
     await _pumpChannelPage(tester, container);
 
-    ConduitAdaptiveToolbarOverflowButton<String> menu() => tester
-        .widget<ConduitAdaptiveToolbarOverflowButton<String>>(
+    ConduitAdaptiveToolbarOverflowButton<String> menu() =>
+        tester.widget<ConduitAdaptiveToolbarOverflowButton<String>>(
           find.byType(ConduitAdaptiveToolbarOverflowButton<String>),
         );
     Map<String, bool> checked() => {
@@ -988,10 +1030,7 @@ void main() {
           in menu().items.whereType<AdaptivePopupMenuItem<String>>())
         if (item.value!.startsWith('notify-')) item.value!: item.checked,
     };
-    check(checked()).deepEquals({
-      'notify-all': true,
-      'notify-mentions': false,
-    });
+    check(checked()).deepEquals({'notify-all': true, 'notify-mentions': false});
 
     menu().onSelected('notify-mentions');
     await tester.pump(const Duration(milliseconds: 1));
@@ -1001,10 +1040,7 @@ void main() {
     check(
       container.read(channelsListProvider).requireValue.single.isChannelMuted,
     ).isTrue();
-    check(checked()).deepEquals({
-      'notify-all': false,
-      'notify-mentions': true,
-    });
+    check(checked()).deepEquals({'notify-all': false, 'notify-mentions': true});
 
     // Choosing the current setting sends nothing.
     menu().onSelected('notify-mentions');

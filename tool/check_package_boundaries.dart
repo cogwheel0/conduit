@@ -148,7 +148,6 @@ const List<String> _iosFlutterHostSwift = <String>[
   'ios/Runner/AppDelegate.swift',
   'ios/Runner/ConduitSceneDelegate.swift',
   'ios/Runner/DisplayBoostBridge.swift',
-  'ios/Runner/FloatingTabBarPlatformView.swift',
   'ios/Runner/FlutterConduitBridgeHost.swift',
   'ios/Runner/NativeKeyboardAttachmentBridge.swift',
   'ios/Runner/NativePasteBridge.swift',

@@ -33,7 +33,15 @@ final class _HermesDesktopAdministration {
       descriptions[command['name']?.toString() ?? ''] =
           command['description']?.toString() ?? '';
     }
-    final rows = installed['skills'];
+    // Hermes lists installed skills by category (`{category: [names]}`);
+    // a plain list is read as well.
+    final listed = installed['skills'];
+    final rows = listed is Map
+        ? [
+            for (final names in listed.values)
+              if (names is List) ...names,
+          ]
+        : listed;
     if (rows is! List) return const [];
     return rows
         .take(256)
@@ -81,13 +89,35 @@ final class _HermesDesktopAdministration {
 
   Future<Map<String, dynamic>> reloadSkills() async {
     await _owner._ensureConnected();
+    if (_owner._canonical) {
+      // A session authority rescans skills for a chat it serves, which
+      // refreshes the command map every chat reads. With no chat open there
+      // is no map to refresh: the next chat reads the skills afresh.
+      final storedId = _owner._bindings.values.firstOrNull?.storedId;
+      if (storedId == null) return const {};
+      final binding = await _owner._resume(storedId);
+      return _owner._object(
+        await _owner._rpc.request<Object?>(
+          'skills.reload',
+          params: {
+            'session_id': binding.runtimeId,
+            ..._owner._sessionScope(binding.storedId),
+          },
+        ),
+      );
+    }
     return _owner._object(await _owner._rpc.request<Object?>('skills.reload'));
   }
 
+  /// `tools.list` takes no `profile` (Hermes 0.23 refuses one with 4000);
+  /// it lists the gateway's own profile's toolsets.
   Future<List<Map<String, dynamic>>> listToolsets() async {
     await _owner._ensureConnected();
     final result = _owner._object(
-      await _owner._rpc.request<Object?>('tools.list'),
+      await _owner._rpc.request<Object?>(
+        'tools.list',
+        includeDefaultParams: false,
+      ),
     );
     return _owner._objects(result['sections'] ?? result['toolsets']);
   }
@@ -109,12 +139,34 @@ final class _HermesDesktopAdministration {
       .where((server) => server.name.isNotEmpty)
       .toList(growable: false);
 
+  /// The catalog servers not yet added. Read from Hermes' dashboard, whose
+  /// catalog says what each one asks for and whose install takes those
+  /// values. The gateway's catalog does neither: read from it, an entry that
+  /// asks for anything cannot be added from the app.
   Future<List<HermesMcpCatalogEntry>> mcpCatalog() async {
-    final rows = (await mcpRequest('mcp.catalog'))['servers'];
+    Object? rows;
+    try {
+      rows = _owner._object(
+        await _owner._requestJson('GET', '/api/mcp/catalog'),
+      )['entries'];
+    } catch (error) {
+      DebugLogger.warning(
+        'mcp-dashboard-catalog-failed',
+        scope: 'hermes/mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    final fromDashboard = rows is List;
+    if (!fromDashboard) {
+      rows = (await mcpRequest('mcp.catalog'))['servers'];
+    }
     if (rows is! List) return const [];
     return rows
         .whereType<Map>()
-        .map(HermesMcpCatalogEntry.fromJson)
+        .map(
+          (row) =>
+              HermesMcpCatalogEntry.fromJson(row, fromDashboard: fromDashboard),
+        )
         .where((entry) => entry.name.isNotEmpty && !entry.installed)
         .toList(growable: false);
   }
@@ -143,9 +195,42 @@ final class _HermesDesktopAdministration {
     await reloadMcp();
   }
 
-  Future<void> addMcpPreset(String name) async {
-    await mcpRequest('mcp.servers.add', params: {'name': name, 'preset': name});
+  /// Adds catalog [entry], and says whether Hermes is still installing it
+  /// in the background (an entry it clones and builds first). An entry
+  /// from the dashboard's catalog goes to the dashboard's install, which
+  /// runs its own setup and takes its [credentials] (variable name to
+  /// value) once: secrets go to the profile's `.env`, and a name the entry
+  /// does not declare is refused. The app keeps none of them. An entry from
+  /// the gateway's catalog, which can ask for nothing, the gateway adds.
+  Future<bool> addMcpCatalogEntry(
+    HermesMcpCatalogEntry entry, {
+    Map<String, String> credentials = const {},
+  }) async {
+    var stillInstalling = false;
+    if (entry.fromDashboard) {
+      final result = _owner._object(
+        await _owner._requestJson(
+          'POST',
+          '/api/mcp/catalog/install',
+          body: {'name': entry.name, 'enable': true, 'env': credentials},
+        ),
+      );
+      stillInstalling = result['background'] == true;
+    } else {
+      if (credentials.isNotEmpty) {
+        throw ArgumentError.value(
+          credentials.keys.toList(),
+          'credentials',
+          "the gateway's add takes no values",
+        );
+      }
+      await mcpRequest(
+        'mcp.servers.add',
+        params: {'name': entry.name, 'preset': entry.name},
+      );
+    }
     await reloadMcp();
+    return stillInstalling;
   }
 
   Future<HermesMcpTestResult> testMcpServer(String name) async =>
@@ -319,14 +404,12 @@ final class _HermesDesktopAdministration {
       }
     }
     for (final id in runtimeIds) {
+      // Takes no `profile` (Hermes 0.23 refuses one with 4000): the session
+      // id scopes it, bot chats in another profile included.
       await _owner._rpc.request<Object?>(
         'reload.mcp',
-        // Bound sessions can include bot chats, which live in another profile.
-        params: {
-          'confirm': true,
-          'session_id': id,
-          ..._owner._runtimeScope(id),
-        },
+        params: {'confirm': true, 'session_id': id},
+        includeDefaultParams: false,
       );
     }
   }
@@ -355,7 +438,12 @@ final class _HermesDesktopAdministration {
           params: const {'action': 'list'},
         ),
       ),
-      supported(() => _owner._rpc.request<Object?>('tools.list')),
+      supported(
+        () => _owner._rpc.request<Object?>(
+          'tools.list',
+          includeDefaultParams: false,
+        ),
+      ),
       supported(
         () => _owner._requestJson('GET', '/api/cron/jobs', query: {'limit': 1}),
       ),
@@ -374,13 +462,26 @@ final class _HermesDesktopAdministration {
     };
   }
 
-  Future<List<Map<String, dynamic>>> listJobs() async =>
-      _owner._objects(await _owner._requestJson('GET', '/api/cron/jobs'));
+  /// A [live] read (the page watching runs) skips a dashboard sign-in's
+  /// request queue, where a Run now waits until its run ends: a read's
+  /// order does not matter, and a job started elsewhere shows its Stop.
+  Future<List<Map<String, dynamic>>> listJobs({bool live = false}) async =>
+      _owner._objects(
+        await _owner._requestJson(
+          'GET',
+          '/api/cron/jobs',
+          dashboardUrgent: live,
+        ),
+      );
 
+  /// [catchUp] is sent only for an explicit choice: a dashboard older than
+  /// Hermes 0.22.6 knows no `catch_up`.
   Future<Map<String, dynamic>> createJob({
     required String name,
     required String prompt,
     required String schedule,
+    String deliver = kHermesLocalDeliveryTarget,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async => _owner._object(
     await _owner._requestJson(
       'POST',
@@ -389,17 +490,23 @@ final class _HermesDesktopAdministration {
         'name': name,
         'prompt': prompt,
         'schedule': schedule,
-        'deliver': 'local',
+        'deliver': deliver,
+        if (catchUp != HermesJobCatchUp.hermesDefault)
+          'catch_up': catchUp.value,
       },
     ),
   );
 
+  /// A null [deliver] or [catchUp] leaves the stored value untouched;
+  /// [HermesJobCatchUp.hermesDefault] clears the job's own policy.
   Future<void> updateJob(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
   }) async {
     await _owner._requestJson(
       'PUT',
@@ -410,9 +517,134 @@ final class _HermesDesktopAdministration {
           'prompt': ?prompt,
           'schedule': ?schedule,
           'enabled': ?enabled,
+          'deliver': ?deliver,
+          if (catchUp != null) 'catch_up': catchUp.value,
         },
       },
     );
+  }
+
+  /// Stops the job's live run; its schedule is untouched. A dashboard older
+  /// than Hermes 0.22.6 has no cancel route and answers 404 or 405 (its
+  /// catch-all only serves GET), unlike a missing job's 404 "Job not found".
+  ///
+  /// Urgent on a dashboard sign-in: a Run now of the same job holds that
+  /// queue until its run ends, so a queued Stop would wait for the very run
+  /// it stops.
+  ///
+  /// Every Run now of this job still queued behind another request is
+  /// withdrawn first, so none can start after the Stop: Hermes, which never
+  /// saw them, would answer that nothing runs.
+  Future<HermesJobStopResult> cancelJobRun(String id) async {
+    var withdrew = false;
+    for (final trigger in [...?_owner._jobTriggers[id]]) {
+      if (trigger.withdraw()) withdrew = true;
+    }
+    try {
+      final result = HermesJobStopResult.fromJson(
+        await _owner._requestJson(
+          'POST',
+          '/api/cron/jobs/${Uri.encodeComponent(id)}/cancel',
+          readErrorDetail: true,
+          dashboardUrgent: true,
+        ),
+      );
+      return withdrew && !result.cancelled
+          ? const HermesJobStopResult(cancelled: true, beforeStart: true)
+          : result;
+    } on HermesDesktopHttpException catch (error) {
+      if (withdrew) {
+        return const HermesJobStopResult(cancelled: true, beforeStart: true);
+      }
+      if (error.status == 405 ||
+          (error.status == 404 && error.detail != 'Job not found')) {
+        throw const HermesJobStopUnsupportedException();
+      }
+      rethrow;
+    } catch (_) {
+      // Withdrawn before it went out, the job will not run, however the
+      // cancel itself failed (a timeout, an expired sign-in).
+      if (withdrew) {
+        return const HermesJobStopResult(cancelled: true, beforeStart: true);
+      }
+      rethrow;
+    }
+  }
+
+  /// `local` plus the gateway's configured platforms and Bot Chats; a
+  /// platform without a home channel has `home_target_set: false`.
+  Future<List<Map<String, dynamic>>> listJobDeliveryTargets() async =>
+      _owner._objects(
+        await _owner._requestJson('GET', '/api/cron/delivery-targets'),
+        'targets',
+      );
+
+  /// Group Chats hosted by this gateway, most recently changed first. Empty
+  /// on a gateway without rooms.
+  Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) async {
+    await _owner._ensureConnected();
+    const pageSize = 100;
+    final rooms = <HermesRoom>[];
+    var offset = 0;
+    for (var page = 0; page < 5; page++) {
+      final Map<String, dynamic> result;
+      try {
+        result = _owner._object(
+          await _owner._rpc.request<Object?>(
+            'groups.list',
+            params: {
+              'include_disbanded': includeDisbanded,
+              'limit': pageSize,
+              'offset': offset,
+            },
+          ),
+        );
+      } on HermesDesktopRpcException catch (error) {
+        if (error.code == -32601 || error.code == 4000) return rooms;
+        rethrow;
+      }
+      final rows = result['rooms'];
+      if (rows is! List) break;
+      for (final row in rows.take(pageSize)) {
+        final room = HermesRoom.fromJson(row);
+        if (room != null) rooms.add(room);
+      }
+      final next = result['next_offset'];
+      if (next is! int || next <= offset) break;
+      offset = next;
+    }
+    return rooms;
+  }
+
+  /// Starts the job now (`POST /api/cron/jobs/{id}/trigger`). Hermes answers
+  /// once the run ends.
+  Future<void> runJob(String id) async {
+    final path = '/api/cron/jobs/${Uri.encodeComponent(id)}/trigger';
+    // Only a dashboard sign-in queues requests; elsewhere the trigger goes
+    // out at once, and a Stop cannot withdraw it.
+    if (_owner.config.desktopAuthKind !=
+        HermesDesktopAuthKind.dashboardCookie) {
+      await _owner._requestJson('POST', path);
+      return;
+    }
+    final trigger = _QueuedJobTrigger();
+    final triggers = _owner._jobTriggers.putIfAbsent(id, () => {})
+      ..add(trigger);
+    try {
+      // A Stop that withdraws it ends this at once: the request still waits
+      // its turn in the queue, only to be dropped there unsent.
+      await Future.any([
+        _owner._requestJson('POST', path, dashboardBeforeSend: trigger.send),
+        trigger.withdrawal.then<Object?>(
+          (_) => throw const HermesDashboardRequestWithdrawn(),
+        ),
+      ]);
+    } finally {
+      triggers.remove(trigger);
+      if (triggers.isEmpty && identical(_owner._jobTriggers[id], triggers)) {
+        _owner._jobTriggers.remove(id);
+      }
+    }
   }
 
   Future<void> mutateJob(String id, String method, String suffix) async {
@@ -431,76 +663,122 @@ final class _HermesDesktopAdministration {
         ),
         'runs',
       );
-  Future<void> respondToMcpSetup({
+  /// Approves or skips one target of a connection operation (the
+  /// `manage_connections` card). Hermes does the work itself once a target
+  /// is approved: it installs, enables, or starts the authorization, whose
+  /// browser link arrives in a later `connection.update`.
+  ///
+  /// A target whose sign-in Hermes started before sending the card (an MCP
+  /// authorization, a hosted connector) waits on its link alone: approving
+  /// it opens the link.
+  Future<void> respondToConnection({
     required String runtimeId,
-    required String requestId,
+    required String cardId,
     required bool approved,
-    required String? server,
-    required String? action,
   }) async {
-    final safeServer = validateHermesBoundedString(server, maxCharacters: 128);
-    final safeAction = const {'authorize', 'enable', 'install'}.contains(action)
-        ? action
-        : null;
-    if (safeServer == null || safeAction == null) {
-      throw StateError('Hermes returned an invalid MCP setup request.');
+    final card = parseHermesConnectionCardId(cardId);
+    final target = _owner._rpc.connectionCardTarget(cardId);
+    if (card == null || target == null) {
+      throw StateError('Hermes returned an invalid connection request.');
     }
-    Map<String, dynamic> outcome = {'server': safeServer, 'status': 'declined'};
-    if (approved) {
-      try {
-        switch (safeAction) {
-          case 'install':
-            await mcpRequest(
-              'mcp.servers.add',
-              params: {'name': safeServer, 'preset': safeServer},
-            );
-            outcome = {'server': safeServer, 'status': 'installed'};
-          case 'enable':
-            await setMcpServerEnabled(safeServer, true);
-            outcome = {'server': safeServer, 'status': 'enabled'};
-          case 'authorize':
-            final approvedResult = await _completeMcpOAuth(safeServer);
-            if (approvedResult == null) {
-              throw TimeoutException('MCP authorization timed out.');
-            }
-            outcome = {
-              'server': safeServer,
-              'status': 'authorized',
-              if (approvedResult['tools'] is List)
-                'tools': (approvedResult['tools'] as List)
-                    .take(1000)
-                    .map((tool) => tool.toString())
-                    .toList(growable: false),
-            };
-        }
-        await reloadMcp(runtimeId: runtimeId);
-      } catch (error) {
-        DebugLogger.warning(
-          'mcp-setup-failed',
-          scope: 'hermes/mcp',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-        outcome = {
-          'server': safeServer,
-          'status': 'error',
-          'detail': 'MCP setup failed. Open Hermes MCP settings to retry.',
-        };
+    final link = approved ? _owner._rpc.connectionLink(cardId) : null;
+    if (link != null) {
+      if (!await _owner._openExternalUrl.open(link)) {
+        throw StateError('Could not open the sign-in link.');
       }
+      return;
     }
+    if (approved) _owner._approvedConnectionTargets.add(cardId);
     await _owner._rpc.request<Object?>(
-      'mcp.setup.respond',
+      'connection.respond',
       params: {
-        'session_id': runtimeId,
-        'request_id': requestId,
-        'result': jsonEncode(outcome),
+        'owner': {'type': 'session', 'session_id': runtimeId},
+        'op_id': card.operationId,
+        'result': {
+          'targets': [
+            {'name': target, 'status': approved ? 'approved' : 'skipped'},
+          ],
+        },
         ..._owner._runtimeScope(runtimeId),
       },
     );
-    await HermesPendingDecisionStore.resolve(
-      origin: _owner._origin,
-      connectionId: _owner.config.connectionId,
-      runtimeId: runtimeId,
-      requestId: requestId,
-    );
+  }
+
+  /// Opens the authorization link of a target the user approved here, once:
+  /// a connection update carries it when the target's sign-in starts.
+  ///
+  /// An approved install Hermes keeps waiting instead names the credentials
+  /// it still lacks (`required_env`), which only the Hermes host can supply:
+  /// its card comes back, so the user can set them there and approve again,
+  /// or skip it. That update is the target's own refresh, still `pending`.
+  void openApprovedConnectionLink(Map<String, dynamic> update) {
+    final operationId = update['op_id']?.toString();
+    final targets = update['targets'];
+    if (operationId == null || targets is! List) return;
+    for (final target in targets.whereType<Map>()) {
+      final cardId = hermesConnectionCardId(operationId, '${target['name']}');
+      if (target['state'] == 'pending' &&
+          update['target'] == target['name'] &&
+          update['from'] == 'pending' &&
+          update['to'] == 'pending' &&
+          _needsCredentials(target['required_env']) &&
+          _owner._approvedConnectionTargets.remove(cardId)) {
+        _owner._rpc.offerConnectionTargetAgain(cardId, update);
+        continue;
+      }
+      final link = parseHermesOAuthUrl(target['connect_url']);
+      if (link == null ||
+          target['state'] != 'initiated' ||
+          !_owner._approvedConnectionTargets.remove(cardId)) {
+        continue;
+      }
+      unawaited(_openApprovedLink(cardId, link, update));
+    }
+  }
+
+  /// Whether a target's `required_env` names a credential the install
+  /// cannot run without.
+  bool _needsCredentials(Object? fields) =>
+      fields is List &&
+      fields.whereType<Map>().any((field) => field['required'] != false);
+
+  /// Opens [link]; when the device refuses it, [cardId]'s card comes back,
+  /// and approving it again opens the link from there.
+  Future<void> _openApprovedLink(
+    String cardId,
+    Uri link,
+    Map<String, dynamic> update,
+  ) async {
+    var opened = false;
+    try {
+      opened = await _owner._openExternalUrl.open(link);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened) _owner._rpc.offerConnectionTargetAgain(cardId, update);
+  }
+}
+
+/// A Run now trigger on its way: sent, or withdrawn by a Stop first. Both
+/// happen in one isolate turn each, so exactly one of them wins.
+final class _QueuedJobTrigger {
+  bool _sent = false;
+  final Completer<void> _withdrawal = Completer<void>();
+
+  /// Completes when the trigger is withdrawn.
+  Future<void> get withdrawal => _withdrawal.future;
+
+  /// Whether the trigger may go out now; false once withdrawn.
+  bool send() {
+    if (_withdrawal.isCompleted) return false;
+    _sent = true;
+    return true;
+  }
+
+  /// Withdraws a trigger not sent yet; false when it already went out.
+  bool withdraw() {
+    if (_sent) return false;
+    if (!_withdrawal.isCompleted) _withdrawal.complete();
+    return true;
   }
 }

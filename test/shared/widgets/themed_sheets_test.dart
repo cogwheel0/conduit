@@ -6,7 +6,6 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/adaptive_glass.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
-import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
@@ -46,9 +45,12 @@ void main() {
       ),
     );
 
-    final label = tester.widget<MiddleEllipsisText>(
-      find.byType(MiddleEllipsisText),
+    final label = tester.widget<Text>(
+      find.text('A model with a long standard title'),
     );
+    // Truncated at its end, as iOS truncates titles.
+    check(label.overflow).equals(TextOverflow.ellipsis);
+    check(label.maxLines).equals(1);
     check(label.style?.fontSize).equals(17);
     check(label.style?.fontWeight).equals(FontWeight.w400);
     final chevron = tester.widget<ConduitSystemAdaptiveIcon>(
@@ -136,6 +138,9 @@ void main() {
     check(shortLabel).equals('Inkling');
     expect(shortWidth, lessThan(400));
     check(longLabel).contains('…');
+    // Kept from its start, never cut through the middle.
+    check(longLabel).startsWith('google/');
+    check(longLabel).endsWith('…');
     check(longLabel.contains('\n')).isFalse();
     check(longLabel.length).isLessThan('google/gemma-4-31b-it'.length);
     check(conduitNativeModelSelectorSymbol(showChevron: true))
@@ -725,7 +730,8 @@ void main() {
       check(resolveConduitSystemControlScale(TextScaler.noScaling)).equals(1);
       check(resolveConduitSystemControlScale(systemTextScaler))
           .equals(kConduitMaximumSystemControlScale);
-      check(navigationBar.preferredSize.height).equals(72);
+      // The iOS bar's 44 pt row, scaled with the controls.
+      check(navigationBar.preferredSize.height).equals(66);
       check(observedTextSize).equals(51);
       check(observedBoldText).isTrue();
       check(

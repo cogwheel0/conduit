@@ -32,7 +32,7 @@ class _QuietTextToSpeechService extends Fake implements TextToSpeechService {
   Future<void> updateSettings({
     Object? voice,
     Object? serverVoice,
-    double? speechRate,
+    double? speed,
     double? pitch,
     double? volume,
     TtsEngine? engine,
@@ -143,14 +143,77 @@ void main() {
     check(appearance.last.title).equals(spanish.settingsAppearance);
     check(appearance.last.title)
         .not((it) => it.equals(english.settingsAppearance));
-    final citationBackground = [
-      for (final section in appearance.last.sections) ...section.items,
-    ].singleWhere((row) => row.id == 'citation-background');
+    final themeGroup = appearance.last.sections.singleWhere(
+      (section) => section.items.any((row) => row.id == 'citation-background'),
+    );
+    final citationBackground = themeGroup.items.singleWhere(
+      (row) => row.id == 'citation-background',
+    );
     check(citationBackground.title).equals(spanish.citationBackground);
-    check(citationBackground.subtitle)
-        .equals(spanish.citationBackgroundDescription);
+    // Explained in its group's footer, as Settings does, not under its title.
+    check(citationBackground.subtitle).isNull();
+    check(themeGroup.footer).equals(spanish.citationBackgroundDescription);
     check(citationBackground.kind).equals(PlatformNativeSheetItemKind.toggle);
     check(citationBackground.value).equals(true);
+  });
+
+  testWidgets('a language picked on the Settings root rebuilds the root in '
+      'that language', (tester) async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    final patches = <PlatformNativeSheetApplyDetailPatchRequest>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          patches.add(
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetApplyDetailPatchRequest,
+          );
+          return <Object?>[true];
+        });
+
+    final storage = _MockOptimizedStorageService();
+    when(storage.getThemeMode).thenReturn(null);
+    when(storage.getThemePaletteId).thenReturn(null);
+    when(storage.getLocaleCode).thenReturn(null);
+    when(storage.getReviewerMode).thenAnswer((_) async => false);
+    when(() => storage.setLocaleCode(any())).thenAnswer((_) async {});
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        modelsProvider.overrideWith(_NoModels.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _LocalizedRoot(),
+      ),
+    );
+    await tester.pump();
+
+    // The root is up, and Appearance was never opened.
+    final service = container.read(nativeSheetHydrationServiceProvider);
+    service.rememberProfileRoot(null);
+
+    await container
+        .read(appLocaleProvider.notifier)
+        .setLocale(const Locale('es'));
+    await tester.pump();
+    await tester.pump();
+
+    final spanish = AppLocalizations.of(NavigationService.context!)!;
+    check(patches.where((p) => p.detailId == 'appearance')).isEmpty();
+    final root = patches.lastWhere(
+      (p) => p.detailId == NativeSheetRoutes.profileMenu,
+    );
+    final language = root.sections
+        .expand((section) => section.items)
+        .singleWhere((row) => row.id == 'language');
+    check(language.title).equals(spanish.appLanguage);
+    check(language.value).equals('es');
   });
 
   testWidgets('the Voice provider page is patched alone, without the voices', (
@@ -250,21 +313,68 @@ void main() {
 
     final appearance = patches.where((p) => p.detailId == 'appearance');
     check(appearance).length.equals(1);
-    final notes = appearance.single.sections
-        .expand((section) => section.items)
-        .singleWhere((item) => item.id == 'composer-notes-button');
-    check(notes.value).equals(false);
-    check(notes.title).equals('Show Notes button');
     final ids = [
       for (final section in appearance.single.sections)
         for (final item in section.items) item.id,
     ];
-    check(ids).containsEqualInOrder(['theme-light', 'theme-palette']);
-    check(ids).contains('language');
-    final sidebar = appearance.single.sections
-        .expand((s) => s.items)
-        .singleWhere((item) => item.id == 'sliding-sidebar');
-    check(sidebar.value).equals(false);
+    // The color scheme as tiles on its own, palette and citation shading in
+    // the next group, the sidebar in the last. The Notes button lives in
+    // Chats, and the language is a row of the Settings root.
+    check(ids).deepEquals([
+      'theme-light',
+      'theme-palette',
+      'citation-background',
+      'sliding-sidebar',
+    ]);
+    check([
+      for (final section in appearance.single.sections) section.items.length,
+    ]).deepEquals([1, 2, 1]);
+    // Each scheme previews itself in the palette in use -- background, ink,
+    // fill and border -- and System shows the light and the dark screen.
+    final scheme = appearance.single.sections.first.items.single;
+    check(scheme.kind).equals(PlatformNativeSheetItemKind.appearanceTiles);
+    check([for (final o in scheme.options) o.id])
+        .deepEquals(['system', 'light', 'dark']);
+    for (final option in scheme.options) {
+      check(option.swatchesArgb).isNotNull().length.equals(4);
+    }
+    final [system, light, dark] = scheme.options;
+    check(system.darkSwatchesArgb).isNotNull().length.equals(4);
+    check(light.darkSwatchesArgb).isNull();
+    check(dark.darkSwatchesArgb).isNull();
+    check(light.swatchesArgb).isNotNull().deepEquals(system.swatchesArgb!);
+    check(dark.swatchesArgb).isNotNull().deepEquals(system.darkSwatchesArgb!);
+    // Conduit's light screen is white with black ink; its dark one the
+    // reverse.
+    check(Color(light.swatchesArgb!.first)).equals(const Color(0xFFFFFFFF));
+    check(Color(dark.swatchesArgb!.first)).equals(const Color(0xFF000000));
+    final sidebarGroup = appearance.single.sections.singleWhere(
+      (section) => section.items.any((item) => item.id == 'sliding-sidebar'),
+    );
+    check(sidebarGroup.items.single.value).equals(false);
+    check(sidebarGroup.items.single.subtitle).isNull();
+    check(sidebarGroup.footer).isNotNull();
+    // Every palette previews itself as one swatch, its primary, in both
+    // appearances, and Conduit's reads as the monochrome palette it is.
+    final palette = appearance.single.sections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'theme-palette');
+    check(palette.options).isNotEmpty();
+    for (final option in palette.options) {
+      check(option.swatchesArgb).isNotNull().length.equals(1);
+      check(option.darkSwatchesArgb).isNotNull().length.equals(1);
+    }
+    final conduit = palette.options.singleWhere(
+      (option) => option.id == 'conduit',
+    );
+    for (final argb in [
+      ...conduit.swatchesArgb!,
+      ...conduit.darkSwatchesArgb!,
+    ]) {
+      final color = Color(argb);
+      check(color.r).equals(color.g);
+      check(color.g).equals(color.b);
+    }
     // The pages that do need the server show the error instead.
     check(patches.where((p) => p.detailId == 'chats')).isNotEmpty();
   });
@@ -341,6 +451,31 @@ void main() {
     List<PlatformNativeSheetItem> rows(
       PlatformNativeSheetApplyDetailPatchRequest patch,
     ) => [for (final section in patch.sections) ...section.items];
+
+    testWidgets('Chat reflects the saved Computer preference', (tester) async {
+      final native = await openNativeSettings(tester, models: _NoModels.new);
+      await native.container
+          .read(appSettingsProvider.notifier)
+          .setComputerEnabled(false);
+      final chats = await reopenChats(tester, native.service, native.patches);
+      final row = rows(chats)
+          .singleWhere((row) => row.id == 'computer-enabled');
+      check(row.value).equals(false);
+      check(row.title).equals('Computer');
+      // The outline display, as the rows around it are outline glyphs.
+      check(row.sfSymbol).equals('display');
+      await native.container
+          .read(appSettingsProvider.notifier)
+          .setComputerEnabled(true);
+      final reopened = await reopenChats(
+        tester,
+        native.service,
+        native.patches,
+      );
+      check(
+        rows(reopened).singleWhere((row) => row.id == 'computer-enabled').value,
+      ).equals(true);
+    });
 
     testWidgets('Appearance reflects the saved citation background', (
       tester,
@@ -419,17 +554,38 @@ void main() {
       check(citation.title).equals(l10n.citationShowTitles);
       check(citation.kind).equals(PlatformNativeSheetItemKind.toggle);
       check(citation.value).equals(false);
+      // Message actions is a page, so it sits with the other pages; the
+      // toggles follow, the message field's first.
+      check(
+        chats.sections
+            .firstWhere((s) => s.items.any((r) => r.id == 'message-actions'))
+            .items
+            .last
+            .id,
+      ).equals('message-actions');
       check(
         chats.sections
             .firstWhere((s) => s.items.any((r) => r.id == 'send-on-enter'))
             .items
             .map((r) => r.id),
+      ).deepEquals(['send-on-enter', 'composer-notes-button']);
+      check(
+        chats.sections
+            .firstWhere(
+              (s) => s.items.any((r) => r.id == 'temporary-chat-default'),
+            )
+            .items
+            .map((r) => r.id),
       ).deepEquals([
-        'message-actions',
-        'send-on-enter',
+        'computer-enabled',
         'temporary-chat-default',
         'citation-show-titles',
+        'disable-haptics-streaming',
       ]);
+      final notes = rows(chats)
+          .singleWhere((r) => r.id == 'composer-notes-button');
+      check(notes.title).equals(l10n.showComposerNotesButton);
+      check(notes.kind).equals(PlatformNativeSheetItemKind.toggle);
     });
 
     testWidgets('stays available when the models request fails', (

@@ -111,6 +111,7 @@ later, and skip any sign-in you don't need.
 | | | |
 | --- | --- | --- |
 | **Open WebUI** | Your self-hosted server | Full feature set: chats, folders, notes, channels, workspace, tools, web search, image generation |
+| **LibreChat** (beta) | Your self-hosted server | Synced chats, agents and model specs, web search, code, MCP tools with approvals, prompts, memories, shared links |
 | **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
 | **Apple On-Device** | Apple Intelligence | Run Apple's local model offline on eligible iOS 26 devices without an API key |
 | **Apple PCC** | Apple Private Cloud Compute | Use Apple's private cloud model on eligible iOS 27 devices without an API key |
@@ -135,6 +136,14 @@ Apple's managed PCC entitlement. It supports image input, reasoning levels,
 sampling and output limits, JSON-schema responses, live quota/context status,
 and an optional on-device fallback for PCC network failures. Tool calling is
 not enabled.
+
+**LibreChat** (beta) signs in to your own LibreChat server, v0.8.8 or newer,
+with a password, LDAP, two-step verification or single sign-on (Google sign-in
+is not supported inside apps). Your chats sync to the device for offline reading
+and search, and replies keep generating on the server while the app is closed.
+Agents, model specs and the server's chat endpoints (not its Assistants ones)
+appear in the model picker; web search, code, file search and MCP tools follow what your server and
+role allow. A LibreChat account sits alongside Open WebUI accounts in Accounts.
 
 **Hermes Agent** connects to your own Hermes server. You watch its tools work
 live, approve sensitive steps before they run, and let scheduled agents run

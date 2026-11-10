@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/services/haptic_service.dart';
+import '../../../../core/services/ios_native_dropdown_bridge.dart';
 import 'platform_ui_capabilities.dart';
 import 'sf_symbols.dart';
 
@@ -34,7 +35,13 @@ IconData? cupertinoIconForSFSymbol(String symbol) => switch (symbol) {
   'xmark' => CupertinoIcons.xmark,
   'plus' => CupertinoIcons.plus,
   'mic' => CupertinoIcons.mic,
+  'camera' => CupertinoIcons.camera,
+  'photo.on.rectangle' => CupertinoIcons.photo_on_rectangle,
   'paperplane.fill' => CupertinoIcons.arrow_up_circle_fill,
+  'eye' => CupertinoIcons.eye,
+  'hand.tap' => Icons.touch_app_outlined,
+  'arrow.up.left.and.arrow.down.right' =>
+    CupertinoIcons.arrow_up_left_arrow_down_right,
   _ => null,
 };
 
@@ -58,9 +65,20 @@ enum AdaptiveButtonStyle {
   plain,
   glass,
   prominentGlass,
+
+  /// Clear Liquid Glass for controls over photos and video: it lets the media
+  /// through instead of frosting it. Elsewhere it looks like [glass].
+  clearGlass,
 }
 
 enum AdaptiveButtonSize { small, medium, large }
+
+/// Whether [context] sits in a Material [AlertDialog]. Its body is sized with
+/// IntrinsicWidth, and the native iOS 26 controls lay out through a
+/// LayoutBuilder, which cannot report intrinsic sizes: inside one, the
+/// dialog fails layout and leaves only its barrier.
+bool isInsideMaterialAlertDialog(BuildContext context) =>
+    context.findAncestorWidgetOfExactType<AlertDialog>() != null;
 
 class AdaptiveButton extends StatelessWidget {
   const AdaptiveButton({
@@ -171,14 +189,11 @@ class AdaptiveButton extends StatelessWidget {
   final bool useSmoothRectangleBorder;
   final bool useNative;
 
-  // Material's AlertDialog sizes its body with IntrinsicWidth, and the native
-  // button lays out through a LayoutBuilder, which cannot report intrinsic
-  // sizes. Inside one, the dialog fails layout and leaves only its barrier.
   bool _canUseNative(BuildContext context) =>
       useNative &&
       PlatformUiCapabilities.usesNativeIOS26 &&
       child == null &&
-      context.findAncestorWidgetOfExactType<AlertDialog>() == null;
+      !isInsideMaterialAlertDialog(context);
 
   double get _defaultHeight => switch (size) {
     AdaptiveButtonSize.small => 28,
@@ -194,6 +209,7 @@ class AdaptiveButton extends StatelessWidget {
     AdaptiveButtonStyle.plain => CNButtonStyle.plain,
     AdaptiveButtonStyle.glass => CNButtonStyle.glass,
     AdaptiveButtonStyle.prominentGlass => CNButtonStyle.prominentGlass,
+    AdaptiveButtonStyle.clearGlass => CNButtonStyle.clearGlass,
   };
 
   @override
@@ -274,6 +290,11 @@ class AdaptiveButton extends StatelessWidget {
           config: config,
         );
       }
+      // UIKit buttons otherwise remain above a Flutter dialog's barrier.
+      button = Offstage(
+        offstage: ModalRoute.of(context)?.isCurrent == false,
+        child: button,
+      );
       if (minSize case final minimum?) {
         return ConstrainedBox(
           constraints: BoxConstraints(
@@ -350,7 +371,8 @@ class AdaptiveButton extends StatelessWidget {
         useNative &&
         PlatformUiCapabilities.usesNativeIOS26 &&
         (style == AdaptiveButtonStyle.glass ||
-            style == AdaptiveButtonStyle.prominentGlass);
+            style == AdaptiveButtonStyle.prominentGlass ||
+            style == AdaptiveButtonStyle.clearGlass);
     final background = switch (style) {
       AdaptiveButtonStyle.filled => primary,
       AdaptiveButtonStyle.gray =>
@@ -358,7 +380,8 @@ class AdaptiveButton extends StatelessWidget {
       AdaptiveButtonStyle.bordered => null,
       AdaptiveButtonStyle.tinted ||
       AdaptiveButtonStyle.glass ||
-      AdaptiveButtonStyle.prominentGlass => primary.withValues(alpha: 0.15),
+      AdaptiveButtonStyle.prominentGlass ||
+      AdaptiveButtonStyle.clearGlass => primary.withValues(alpha: 0.15),
       AdaptiveButtonStyle.plain => null,
     };
     final button = CupertinoButton(
@@ -384,9 +407,11 @@ class AdaptiveButton extends StatelessWidget {
     Widget result = customGlass
         ? LiquidGlassContainer(
             config: LiquidGlassConfig(
-              effect: style == AdaptiveButtonStyle.prominentGlass
-                  ? CNGlassEffect.prominent
-                  : CNGlassEffect.regular,
+              effect: switch (style) {
+                AdaptiveButtonStyle.prominentGlass => CNGlassEffect.prominent,
+                AdaptiveButtonStyle.clearGlass => CNGlassEffect.clear,
+                _ => CNGlassEffect.regular,
+              },
               shape: CNGlassEffectShape.rect,
               cornerRadius: resolvedRadius
                   .resolve(Directionality.of(context))
@@ -460,8 +485,8 @@ class AdaptiveButton extends StatelessWidget {
       AdaptiveButtonStyle.filled => ElevatedButton(
         onPressed: callback,
         style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: textColor,
+          backgroundColor: color ?? colorScheme.primary,
+          foregroundColor: textColor ?? colorScheme.onPrimary,
           padding: padding,
           minimumSize: minSize,
           shape: shape,
@@ -537,6 +562,34 @@ class AdaptivePopupMenuDivider extends AdaptivePopupMenuEntry {
   const AdaptivePopupMenuDivider();
 }
 
+/// How an [AdaptivePopupMenuSection] lays out its items.
+enum AdaptivePopupMenuSectionStyle {
+  /// A group of rows, set apart from the entries around it.
+  inline,
+
+  /// One row of icons at the size of a single row, in the native menu of
+  /// iOS 26 and later. VoiceOver reads each by its label. Give every item an
+  /// icon. Elsewhere the items are rows, as in [inline].
+  palette,
+}
+
+/// Items an [AdaptivePopupMenuButton] menu shows together, set apart from
+/// the entries around them.
+///
+/// The native menu of iOS 26 and later draws a section in place; the
+/// Flutter menus list its items between dividers. A menu with sections keeps
+/// its order when it opens upward, so a palette stays on top and the last
+/// section stays last.
+class AdaptivePopupMenuSection<T> extends AdaptivePopupMenuEntry {
+  const AdaptivePopupMenuSection({
+    required this.items,
+    this.style = AdaptivePopupMenuSectionStyle.inline,
+  });
+
+  final List<AdaptivePopupMenuItem<T>> items;
+  final AdaptivePopupMenuSectionStyle style;
+}
+
 enum PopupButtonStyle {
   plain,
   gray,
@@ -548,6 +601,12 @@ enum PopupButtonStyle {
   prominentGlass,
 }
 
+/// A button that opens a menu of [AdaptivePopupMenuEntry]s: the native menu
+/// on iOS 26 and later, a Cupertino action sheet on earlier iOS, a Material
+/// menu elsewhere.
+///
+/// `onSelected` gets the chosen item and its index in `items`; for an item
+/// in an [AdaptivePopupMenuSection], the index is the section's.
 class AdaptivePopupMenuButton<T> {
   AdaptivePopupMenuButton._();
 
@@ -567,8 +626,13 @@ class AdaptivePopupMenuButton<T> {
         key: key,
         buttonLabel: label,
         items: _nativeItems<T>(items),
-        onSelected: (index) =>
-            _dispatch<T>(items, index, onSelected, haptic: false),
+        onSelected: _hasSections(items)
+            ? null
+            : (index) => _dispatchPath<T>(items, [index], onSelected),
+        onPathSelected: _hasSections(items)
+            ? (path) => _dispatchPath<T>(items, path, onSelected)
+            : null,
+        preserveTopToBottomOrder: _hasSections(items),
         tint: tint,
         height: height,
         shrinkWrap: shrinkWrap,
@@ -612,11 +676,17 @@ class AdaptivePopupMenuButton<T> {
         buttonCustomIcon: icon is IconData ? icon : null,
         buttonCustomIconColor: icon is IconData ? iconColor : null,
         items: _nativeItems<T>(items),
-        onSelected: (index) {
-          if (enabled) {
-            _dispatch<T>(items, index, onSelected, haptic: false);
-          }
-        },
+        onSelected: _hasSections(items)
+            ? null
+            : (index) {
+                if (enabled) _dispatchPath<T>(items, [index], onSelected);
+              },
+        onPathSelected: _hasSections(items)
+            ? (path) {
+                if (enabled) _dispatchPath<T>(items, path, onSelected);
+              }
+            : null,
+        preserveTopToBottomOrder: _hasSections(items),
         tint: tint,
         size: size,
         buttonStyle: _nativeButtonStyle(buttonStyle),
@@ -654,47 +724,192 @@ class AdaptivePopupMenuButton<T> {
             ? onTap
             : () {
                 onTap?.call();
-                _showFlutterMenu<T>(context, null, items, onSelected);
+                _showWidgetMenu<T>(context, items, onSelected);
               },
         onLongPress: triggerOnLongPress
-            ? () => _showFlutterMenu<T>(context, null, items, onSelected)
+            ? () => _showWidgetMenu<T>(context, items, onSelected)
             : null,
         child: child,
       ),
     );
   }
 
+  /// From iOS 26 the menu is the system's, anchored to [context]. A menu
+  /// with an item the system one cannot show, such as an image, or one the
+  /// system fails to present, opens the Flutter menu instead.
+  static Future<void> _showWidgetMenu<T>(
+    BuildContext context,
+    List<AdaptivePopupMenuEntry> items,
+    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
+  ) async {
+    final flat = _flatEntries<T>(items);
+    final options = PlatformUiCapabilities.usesNativeIOS26
+        ? _dropdownOptions<T>(flat)
+        : null;
+    if (options != null) {
+      final String? selected;
+      try {
+        selected = await IosNativeDropdownBridge.instance.showFromContext(
+          context: context,
+          options: options,
+          cancelLabel: CupertinoLocalizations.of(context).cancelButtonLabel,
+          rethrowErrors: true,
+        );
+      } catch (_) {
+        // Only a failed presentation falls back. An error from the chosen
+        // item's handler, below, is the feature's to report.
+        if (context.mounted) {
+          await _showFlutterMenu<T>(context, null, items, onSelected);
+        }
+        return;
+      }
+      final position = int.tryParse(selected ?? '');
+      if (position != null) _dispatch<T>(flat, position, onSelected);
+      return;
+    }
+    return _showFlutterMenu<T>(context, null, items, onSelected);
+  }
+
+  /// [flat] as system menu options identified by their position in [flat],
+  /// or null when one cannot be shown there. A checked item sends the check
+  /// mark in place of its icon. The bridge's sheet draws the label, the check
+  /// mark, the destructive red and the disabled state; a `UIAlertAction` has
+  /// no image or subtitle, so it leaves out icons and subtitles.
+  static List<IosNativeDropdownOption>? _dropdownOptions<T>(
+    List<({int index, AdaptivePopupMenuItem<T>? item})> flat,
+  ) {
+    final options = <IosNativeDropdownOption>[];
+    for (final (position, (index: _, item: entry)) in flat.indexed) {
+      if (entry == null) continue;
+      if (entry.imageBytes != null || entry.label.isEmpty) return null;
+      final subtitle = entry.subtitle;
+      options.add(
+        IosNativeDropdownOption(
+          id: '$position',
+          label: entry.label,
+          subtitle: subtitle == null || subtitle.isEmpty ? null : subtitle,
+          sfSymbol: entry.checked
+              ? 'checkmark'
+              : switch (entry.icon) {
+                  final String symbol => symbol,
+                  final IconData icon => conduitSfSymbolForIcon(icon),
+                  _ => null,
+                },
+          enabled: entry.enabled,
+          destructive: entry.isDestructive,
+        ),
+      );
+    }
+    return options.isEmpty ? null : options;
+  }
+
   static bool _canUseNative<T>(List<AdaptivePopupMenuEntry> items) {
     if (!PlatformUiCapabilities.usesNativeIOS26 || items.isEmpty) return false;
-    return items.every((entry) {
-      // UIKit reports original entry indices, including separator slots.
-      if (entry is AdaptivePopupMenuDivider) return true;
-      if (entry is! AdaptivePopupMenuItem<T>) return false;
-      return entry.subtitle?.isNotEmpty != true &&
-          entry.imageBytes == null &&
-          (entry.icon == null ||
-              entry.icon is String ||
-              entry.icon is IconData);
-    });
+    bool nativeItem(AdaptivePopupMenuItem<T> item) =>
+        item.imageBytes == null &&
+        (item.icon == null || item.icon is String || item.icon is IconData);
+    return items.every(
+      (entry) => switch (entry) {
+        // UIKit reports original entry indices, including separator slots.
+        AdaptivePopupMenuDivider() => true,
+        AdaptivePopupMenuItem<T>() => nativeItem(entry),
+        AdaptivePopupMenuSection<T>(:final items) => items.every(nativeItem),
+        _ => false,
+      },
+    );
   }
+
+  /// Whether [items] hold a section. A menu without one reports a choice by
+  /// its index (`onSelected`), as it always has; a menu with one, by its
+  /// path (`onPathSelected`), which the package requires for submenus.
+  static bool _hasSections(List<AdaptivePopupMenuEntry> items) =>
+      items.any((entry) => entry is AdaptivePopupMenuSection);
 
   static List<CNPopupMenuEntry> _nativeItems<T>(
     List<AdaptivePopupMenuEntry> items,
   ) {
+    CNPopupMenuItem nativeItem(AdaptivePopupMenuItem<T> entry) =>
+        CNPopupMenuItem(
+          label: entry.label,
+          subtitle: entry.subtitle?.isNotEmpty == true ? entry.subtitle : null,
+          icon: entry.icon is String ? CNSymbol(entry.icon as String) : null,
+          customIcon: entry.icon is IconData ? entry.icon as IconData : null,
+          enabled: entry.enabled,
+          checked: entry.checked,
+          isDestructive: entry.isDestructive,
+        );
     return [
       for (final entry in items)
         if (entry is AdaptivePopupMenuDivider)
           const CNPopupMenuDivider()
         else if (entry is AdaptivePopupMenuItem<T>)
-          CNPopupMenuItem(
-            label: entry.label,
-            icon: entry.icon is String ? CNSymbol(entry.icon as String) : null,
-            customIcon: entry.icon is IconData ? entry.icon as IconData : null,
-            enabled: entry.enabled,
-            checked: entry.checked,
-            isDestructive: entry.isDestructive,
+          nativeItem(entry)
+        else if (entry is AdaptivePopupMenuSection<T>)
+          // Untitled, so the native menu draws no header over it.
+          CNPopupMenuSubmenu(
+            label: '',
+            items: [for (final item in entry.items) nativeItem(item)],
+            style: switch (entry.style) {
+              AdaptivePopupMenuSectionStyle.inline =>
+                CNPopupMenuSubmenuStyle.inline,
+              AdaptivePopupMenuSectionStyle.palette =>
+                CNPopupMenuSubmenuStyle.palette,
+            },
           ),
     ];
+  }
+
+  /// Reports the item the native menu chose at [path]: `[i]` for `items[i]`,
+  /// `[i, j]` for the `j`th item of the section at `items[i]`.
+  static void _dispatchPath<T>(
+    List<AdaptivePopupMenuEntry> items,
+    List<int> path,
+    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
+  ) {
+    if (path.isEmpty || path.first < 0 || path.first >= items.length) return;
+    final entry = items[path.first];
+    final item = switch (entry) {
+      AdaptivePopupMenuItem<T>() when path.length == 1 => entry,
+      AdaptivePopupMenuSection<T>(:final items)
+          when path.length == 2 && path[1] >= 0 && path[1] < items.length =>
+        items[path[1]],
+      _ => null,
+    };
+    if (item != null && item.enabled) onSelected(path.first, item);
+  }
+
+  /// [items] as the Flutter menus list them, each with the index
+  /// `onSelected` reports: a section's items in place, set apart by a
+  /// divider (a null item) from the entries around them.
+  static List<({int index, AdaptivePopupMenuItem<T>? item})> _flatEntries<T>(
+    List<AdaptivePopupMenuEntry> items,
+  ) {
+    final flat = <({int index, AdaptivePopupMenuItem<T>? item})>[];
+    var afterSection = false;
+    void separate(int index) {
+      if (flat.isNotEmpty && flat.last.item != null) {
+        flat.add((index: index, item: null));
+      }
+    }
+
+    for (final (index, entry) in items.indexed) {
+      switch (entry) {
+        case AdaptivePopupMenuDivider():
+          flat.add((index: index, item: null));
+          afterSection = false;
+        case AdaptivePopupMenuItem<T>():
+          if (afterSection) separate(index);
+          flat.add((index: index, item: entry));
+          afterSection = false;
+        case AdaptivePopupMenuSection<T>(:final items) when items.isNotEmpty:
+          separate(index);
+          for (final item in items) {
+            flat.add((index: index, item: item));
+          }
+          afterSection = true;
+      }
+    }
+    return flat;
   }
 
   static CNButtonStyle _nativeButtonStyle(PopupButtonStyle style) =>
@@ -709,24 +924,21 @@ class AdaptivePopupMenuButton<T> {
         PopupButtonStyle.prominentGlass => CNButtonStyle.prominentGlass,
       };
 
+  /// Reports the item a Flutter menu chose at [position] in [flat].
   static void _dispatch<T>(
-    List<AdaptivePopupMenuEntry> items,
-    int index,
-    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected, {
-    bool haptic = true,
-  }) {
-    if (index < 0 || index >= items.length) return;
-    final entry = items[index];
-    if (entry is AdaptivePopupMenuItem<T> && entry.enabled) {
-      if (haptic) {
-        if (entry.isDestructive) {
-          ConduitHaptics.mediumImpact();
-        } else {
-          ConduitHaptics.selectionClick();
-        }
-      }
-      onSelected(index, entry);
+    List<({int index, AdaptivePopupMenuItem<T>? item})> flat,
+    int position,
+    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
+  ) {
+    if (position < 0 || position >= flat.length) return;
+    final (:index, :item) = flat[position];
+    if (item == null || !item.enabled) return;
+    if (item.isDestructive) {
+      ConduitHaptics.mediumImpact();
+    } else {
+      ConduitHaptics.selectionClick();
     }
+    onSelected(index, item);
   }
 
   static Widget _flutterMenu<T>({
@@ -763,27 +975,15 @@ class AdaptivePopupMenuButton<T> {
         ),
       );
     }
+    final flat = _flatEntries<T>(items);
     return PopupMenuButton<int>(
       key: key,
       tooltip: semanticLabel ?? label,
-      onSelected: (index) => _dispatch<T>(items, index, onSelected),
-      itemBuilder: (context) => [
-        for (var index = 0; index < items.length; index++)
-          if (items[index] is AdaptivePopupMenuDivider)
-            const PopupMenuDivider()
-          else
-            PopupMenuItem<int>(
-              key: (items[index] as AdaptivePopupMenuItem<T>).key,
-              value: index,
-              enabled: (items[index] as AdaptivePopupMenuItem<T>).enabled,
-              child: _menuItemContent(
-                items[index] as AdaptivePopupMenuItem<T>,
-                material: true,
-              ),
-            ),
-      ],
+      onSelected: (position) => _dispatch<T>(flat, position, onSelected),
+      itemBuilder: (context) => _materialMenuEntries<T>(flat),
       child: SizedBox(
         height: height,
+        width: icon == null ? null : height,
         child: icon == null
             ? Center(
                 child: Text(label ?? '', style: TextStyle(color: tint)),
@@ -799,20 +999,17 @@ class AdaptivePopupMenuButton<T> {
     List<AdaptivePopupMenuEntry> items,
     void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
   ) async {
+    final flat = _flatEntries<T>(items);
     final selected = await showCupertinoModalPopup<int>(
       context: context,
       builder: (sheetContext) => CupertinoActionSheet(
         title: title == null ? null : Text(title),
         actions: [
-          for (var index = 0; index < items.length; index++)
-            if (items[index] is AdaptivePopupMenuDivider)
+          for (final (position, (index: _, :item)) in flat.indexed)
+            if (item == null)
               const SizedBox(height: 8)
             else
-              _cupertinoActionSheetItem<T>(
-                sheetContext,
-                index,
-                items[index] as AdaptivePopupMenuItem<T>,
-              ),
+              _cupertinoActionSheetItem<T>(sheetContext, position, item),
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(sheetContext).pop(),
@@ -823,7 +1020,7 @@ class AdaptivePopupMenuButton<T> {
         ),
       ),
     );
-    if (selected != null) _dispatch<T>(items, selected, onSelected);
+    if (selected != null) _dispatch<T>(flat, selected, onSelected);
   }
 
   static Widget _cupertinoActionSheetItem<T>(
@@ -876,29 +1073,33 @@ class AdaptivePopupMenuButton<T> {
       button.size.bottomRight(Offset.zero),
       ancestor: overlay,
     );
+    final flat = _flatEntries<T>(items);
     final selected = await showMenu<int>(
       context: context,
       position: RelativeRect.fromRect(
         Rect.fromPoints(topLeft, bottomRight),
         Offset.zero & overlay.size,
       ),
-      items: [
-        for (var index = 0; index < items.length; index++)
-          if (items[index] is AdaptivePopupMenuDivider)
-            const PopupMenuDivider()
-          else
-            PopupMenuItem<int>(
-              value: index,
-              enabled: (items[index] as AdaptivePopupMenuItem<T>).enabled,
-              child: _menuItemContent(
-                items[index] as AdaptivePopupMenuItem<T>,
-                material: true,
-              ),
-            ),
-      ],
+      items: _materialMenuEntries<T>(flat),
     );
-    if (selected != null) _dispatch<T>(items, selected, onSelected);
+    if (selected != null) _dispatch<T>(flat, selected, onSelected);
   }
+
+  /// The Material menu rows of [flat], each valued by its position there.
+  static List<PopupMenuEntry<int>> _materialMenuEntries<T>(
+    List<({int index, AdaptivePopupMenuItem<T>? item})> flat,
+  ) => [
+    for (final (position, (index: _, :item)) in flat.indexed)
+      if (item == null)
+        const PopupMenuDivider()
+      else
+        PopupMenuItem<int>(
+          key: item.key,
+          value: position,
+          enabled: item.enabled,
+          child: _menuItemContent(item, material: true),
+        ),
+  ];
 
   static Widget _menuItemContent<T>(
     AdaptivePopupMenuItem<T> item, {

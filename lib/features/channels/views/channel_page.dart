@@ -1,4 +1,5 @@
 import '../../chat/providers/composer_draft_provider.dart';
+
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
@@ -422,25 +423,39 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
   /// Builds the overflow (+) button as an [AdaptivePopupMenuButton]
   /// with file, photo, and camera actions.
+  ///
+  /// They are named as the chat's attach panel names them -- Files and
+  /// Photos for the pickers they open, as iOS names those apps -- and drawn
+  /// with outline symbols, as menu items are.
   Widget _buildAttachmentButton(double size, {String? parentMessageId}) {
     final l10n = AppLocalizations.of(context);
 
-    return AdaptivePopupMenuButton.widget<String>(
+    // The trigger is only an icon, so VoiceOver needs its name here.
+    final menu = AdaptivePopupMenuButton.widget<String>(
       items: [
         AdaptivePopupMenuItem<String>(
           value: 'file',
-          label: l10n?.file ?? 'File',
-          icon: Platform.isIOS ? CupertinoIcons.doc : Icons.attach_file,
+          label: l10n?.files ?? 'Files',
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'folder',
+            materialIcon: Icons.attach_file,
+          ),
         ),
         AdaptivePopupMenuItem<String>(
           value: 'photo',
-          label: l10n?.photo ?? 'Photo',
-          icon: Platform.isIOS ? CupertinoIcons.photo : Icons.image,
+          label: l10n?.composerAttachPhotos ?? 'Photos',
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'photo.on.rectangle',
+            materialIcon: Icons.image,
+          ),
         ),
         AdaptivePopupMenuItem<String>(
           value: 'camera',
           label: l10n?.camera ?? 'Camera',
-          icon: Platform.isIOS ? CupertinoIcons.camera : Icons.camera_alt,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'camera',
+            materialIcon: Icons.camera_alt,
+          ),
         ),
       ],
       onSelected: (index, entry) => _handleAttachmentAction(
@@ -457,6 +472,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           ),
         ),
       ),
+    );
+    return Semantics(
+      button: true,
+      label: l10n?.attach ?? 'Attach',
+      child: menu,
     );
   }
 
@@ -2017,9 +2037,7 @@ class _MessageBubble extends StatelessWidget {
                           Text(
                             // A card-only app message has text only in its
                             // cards.
-                            stripMentions(
-                              message.replyToMessage!.previewText,
-                            ),
+                            stripMentions(message.replyToMessage!.previewText),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.bodySmallStyle.copyWith(

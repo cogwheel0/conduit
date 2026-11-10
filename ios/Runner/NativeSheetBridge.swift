@@ -159,6 +159,15 @@ private struct NativeSheetOption {
     let ancestorHasMoreSiblings: [Bool]
     let showBranch: Bool
     let hasMoreSiblings: Bool
+    /// The option's colours in light and in dark appearance, for a palette
+    /// that previews itself as swatches; empty for any other option.
+    let swatches: [UIColor]
+    let darkSwatches: [UIColor]
+
+    /// The swatches for the appearance the sheet shows.
+    var currentSwatches: [UIColor] {
+        NativeSheetTheme.shared.isDark && !darkSwatches.isEmpty ? darkSwatches : swatches
+    }
 
     init?(_ payload: [String: Any]) {
         guard
@@ -179,6 +188,13 @@ private struct NativeSheetOption {
         ancestorHasMoreSiblings = (payload["ancestorHasMoreSiblings"] as? [Bool]) ?? []
         showBranch = payload["showBranch"] as? Bool ?? false
         hasMoreSiblings = payload["hasMoreSiblings"] as? Bool ?? false
+        swatches = Self.colors(payload["swatches"])
+        darkSwatches = Self.colors(payload["darkSwatches"])
+    }
+
+    private static func colors(_ raw: Any?) -> [UIColor] {
+        guard let values = raw as? [NSNumber] else { return [] }
+        return values.map { nativeSheetColor($0.int64Value) }
     }
 }
 
@@ -326,8 +342,12 @@ private extension NativeSheetItem {
     }
 
     var selectedOptionLabel: String? {
+        selectedOption?.label
+    }
+
+    var selectedOption: NativeSheetOption? {
         guard let selectedOptionId else { return nil }
-        return options.first(where: { $0.id == selectedOptionId })?.label
+        return options.first(where: { $0.id == selectedOptionId })
     }
 
     var sourceDisplayUrl: String? {
@@ -675,7 +695,7 @@ private struct NativeResultSheetConfiguration {
         switch item.kind {
         case "textField", "secureTextField", "multilineTextField":
             return (item.value as? String) ?? ""
-        case "dropdown", "searchablePicker", "segment":
+        case "dropdown", "searchablePicker", "segment", "appearanceTiles":
             return item.selectedOptionId ?? item.options.first?.id
         case "toggle":
             return item.value as? Bool ?? false
@@ -997,6 +1017,7 @@ private extension PlatformNativeSheetItemKind {
         case .readOnlyText: "readOnlyText"
         case .source: "source"
         case .statusUpdate: "statusUpdate"
+        case .appearanceTiles: "appearanceTiles"
         }
     }
 }
@@ -1015,6 +1036,8 @@ private extension PlatformNativeSheetOption {
         payload["subtitle"] = subtitle
         payload["sfSymbol"] = sfSymbol
         payload["filterGroup"] = filterGroup
+        payload["swatches"] = swatchesArgb?.map { NSNumber(value: $0) }
+        payload["darkSwatches"] = darkSwatchesArgb?.map { NSNumber(value: $0) }
         return payload
     }
 }
@@ -1183,6 +1206,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-direct-edit"
+        || actionId == "account-librechat-use"
+        || actionId == "account-librechat-sign-out"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
@@ -1208,6 +1233,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private var activeSheetMode: ActiveSheetMode = .profileMenu
     private var pendingModelSelectorResult: PendingStringResult?
     private var pendingOptionsSelectorResult: PendingStringResult?
+    private var pendingDatePickerResult: PendingStringResult?
     private var pendingTextEditorResult: PendingActionResult?
     private var pendingResultSheetResult: PendingActionResult?
     private var resultSheetValues: [String: Any] = [:]
@@ -1303,12 +1329,18 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
+    /// Presents Settings once; an already-open profile menu also counts as
+    /// success, without adding another navigation stack.
     func presentProfileMenu(
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
+            if self.activeProfileMenuController != nil {
+                completion(.success(true))
+                return
+            }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
                 completion(.failure(PigeonError(
@@ -1356,7 +1388,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetModelSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeModelSelectorConfiguration(request.asPayload())
             else {
@@ -1419,7 +1451,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetOptionsSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeOptionsSelectorConfiguration(request.asPayload())
             else {
@@ -1438,7 +1470,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetDatePickerRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeDatePickerConfiguration(request.asPayload())
             else {
@@ -1457,7 +1489,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetTextEditorRequest,
         completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeTextEditorConfiguration(request.asPayload())
             else {
@@ -1476,7 +1508,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetResultRequest,
         completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeResultSheetConfiguration(request.asPayload())
             else {
@@ -1545,6 +1577,17 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         var applied = false
         DispatchQueue.main.sync { applied = apply() }
         return applied
+    }
+
+    /// Runs [work] on main once no sheet above Flutter is still animating
+    /// in or out, so a sheet Flutter asks for straight after another closed
+    /// (New Folder chosen in Move to Folder) is presented rather than
+    /// refused by UIKit.
+    private func whenModalChainIdle(_ work: @escaping () -> Void) {
+        nativeWhenModalChainIdle(
+            from: { [weak self] in self?.host?.presentingViewController },
+            work
+        )
     }
 
     private func presentProfileMenu(_ configuration: NativeSheetConfiguration) -> Bool {
@@ -1718,11 +1761,13 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
 
     private func presentInlineOptionsSelector(for item: NativeSheetItem) {
         guard let navigation = activeNavigationController else { return }
+        // A short list (five palettes) is read at a glance, so only a long
+        // one (languages, voices) gets a search field.
         let configuration = NativeOptionsSelectorConfiguration(
             title: item.title,
             subtitle: item.subtitle,
             selectedOptionId: item.selectedOptionId,
-            searchable: true,
+            searchable: item.options.count > nativeInlinePickerSearchThreshold,
             options: item.options,
             filterAllLabel: item.filterAllLabel
         )
@@ -1883,7 +1928,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private func present(
         _ controller: UIViewController,
         initialDetent: UISheetPresentationController.Detent.Identifier? = nil,
-        maxHeightFraction: CGFloat? = nil
+        maxHeightFraction: CGFloat? = nil,
+        configureSheet: ((UISheetPresentationController) -> Void)? = nil
     ) -> Bool {
         guard let presenter = topViewController() else { return false }
         activeController = controller
@@ -1898,6 +1944,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 }
                 if let pending = self?.pendingOptionsSelectorResult {
                     self?.pendingOptionsSelectorResult = nil
+                    pending(.success(nil))
+                }
+                if let pending = self?.pendingDatePickerResult {
+                    self?.pendingDatePickerResult = nil
                     pending(.success(nil))
                 }
                 if let pending = self?.pendingTextEditorResult {
@@ -1936,7 +1986,21 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             initialDetent: initialDetent,
             maxHeightFraction: maxHeightFraction
         )
+        if let configureSheet, let sheet = controller.sheetPresentationController {
+            configureSheet(sheet)
+        }
         presenter.present(controller, animated: true)
+        // UIKit refuses a presentation it cannot make (the presenter is
+        // already presenting, or is mid-transition) with only a console
+        // warning. Say so, so the caller's future fails instead of waiting
+        // for a sheet that never appears.
+        guard controller.presentingViewController != nil else {
+            if activeController === controller {
+                activeController = nil
+                presentationDelegate = nil
+            }
+            return false
+        }
         return true
     }
 
@@ -1980,8 +2044,34 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         activeModelSelectorController = controller
         activeModelSelectorPresentationId = configuration.presentationId
         let navigation = NativeSheetNavigationController(rootViewController: controller)
+        // A short list opens in a sheet that ends just under its last row,
+        // with no taller size to drag it to: a larger one would only add
+        // empty space. A long one opens tall, with search.
+        let fittedDetent = UISheetPresentationController.Detent.Identifier(
+            "conduit.modelSelectorFitted"
+        )
+        let configureSheet: ((UISheetPresentationController) -> Void)? =
+            controller.listsAllModelsInline
+            ? { [weak controller] sheet in
+                sheet.detents = [
+                    .custom(identifier: fittedDetent) { context in
+                        let fitted = controller?.fittedDetentHeight
+                            ?? context.maximumDetentValue * 0.5
+                        let value = min(fitted, context.maximumDetentValue)
+                        controller?.resolvedDetentHeight = value
+                        return value
+                    },
+                ]
+                sheet.selectedDetentIdentifier = fittedDetent
+                sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            }
+            : nil
 
-        if !present(navigation, initialDetent: .large) {
+        if !present(
+            navigation,
+            initialDetent: .large,
+            configureSheet: configureSheet
+        ) {
             pendingModelSelectorResult = nil
             activeModelSelectorController = nil
             activeModelSelectorPresentationId = nil
@@ -2064,20 +2154,35 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         _ configuration: NativeDatePickerConfiguration,
         result: @escaping PendingStringResult
     ) {
+        if pendingDatePickerResult != nil {
+            result(.failure(PigeonError(
+                code: "ALREADY_PRESENTING",
+                message: "A native date picker is already open",
+                details: nil
+            )))
+            return
+        }
+
         activeSheetMode = .resultSheet
+        // Held like the other pickers' results, so swiping the sheet away
+        // answers nil instead of leaving the call waiting forever.
+        pendingDatePickerResult = result
         let controller = NativeDatePickerViewController(
             configuration: configuration,
             onConfirm: { [weak self] date in
-                result(.success(nativeSheetFormatDate(date)))
-                self?.dismissActive()
+                guard let self else { return }
+                let pending = self.pendingDatePickerResult
+                self.pendingDatePickerResult = nil
+                pending?(.success(nativeSheetFormatDate(date)))
+                self.dismissActive()
             },
             onClose: { [weak self] in
-                result(.success(nil))
                 self?.dismissActive()
             }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
         if !present(navigation, initialDetent: .large) {
+            pendingDatePickerResult = nil
             activeSheetMode = .profileMenu
             result(.failure(PigeonError(
                 code: "PRESENTATION_FAILED",
@@ -2357,6 +2462,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             pendingOptionsSelectorResult = nil
             pending(.success(nil))
         }
+        if let pending = pendingDatePickerResult {
+            pendingDatePickerResult = nil
+            pending(.success(nil))
+        }
         if let pending = pendingTextEditorResult {
             pendingTextEditorResult = nil
             pending(.success(actionResult(
@@ -2468,6 +2577,54 @@ private func nativeInitialsAvatarUIImage(name: String, diameter: CGFloat = 250) 
             height: bounds.height
         )
         text.draw(in: drawRect, withAttributes: attrs)
+    }
+}
+
+/// [initials] on a neutral grey disc, as iOS draws a contact without a
+/// photo and as the sidebar's profile button does: grey in both appearances,
+/// never a hue. The greys are dark enough that the white initials reach
+/// 4.5:1 across the whole gradient (SidebarMonogramColors in Dart matches).
+/// For display only; an avatar saved to the server is drawn by
+/// `nativeInitialsAvatarUIImage`, which Open WebUI's own clients match.
+func nativeMonogramUIImage(initials: String, diameter: CGFloat) -> UIImage {
+    let isDark = NativeSheetTheme.shared.isDark
+    let top = isDark
+        ? UIColor(red: 0x6A / 255, green: 0x6A / 255, blue: 0x6F / 255, alpha: 1)
+        : UIColor(red: 0x73 / 255, green: 0x73 / 255, blue: 0x78 / 255, alpha: 1)
+    let bottom = isDark
+        ? UIColor(red: 0x4E / 255, green: 0x4E / 255, blue: 0x53 / 255, alpha: 1)
+        : UIColor(red: 0x5A / 255, green: 0x5A / 255, blue: 0x5F / 255, alpha: 1)
+    let size = CGSize(width: diameter, height: diameter)
+    return UIGraphicsImageRenderer(size: size).image { ctx in
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.cgContext.addEllipse(in: rect)
+        ctx.cgContext.clip()
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [top.cgColor, bottom.cgColor] as CFArray,
+            locations: [0, 1]
+        ) {
+            ctx.cgContext.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: rect.midX, y: rect.minY),
+                end: CGPoint(x: rect.midX, y: rect.maxY),
+                options: []
+            )
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: diameter * 0.4, weight: .semibold),
+            .foregroundColor: UIColor.white,
+            .kern: diameter * 0.01,
+        ]
+        let text = NSString(string: initials)
+        let bounds = text.size(withAttributes: attrs)
+        text.draw(
+            at: CGPoint(
+                x: (diameter - bounds.width) / 2,
+                y: (diameter - bounds.height) / 2
+            ),
+            withAttributes: attrs
+        )
     }
 }
 
@@ -3458,7 +3615,10 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         cell.selectionStyle = .default
         NativeSheetSettingsStyle.applyCellStyle(cell)
 
-        let avatar = NativeAvatarView(profile: configuration.profile, diameter: 56)
+        let avatar = NativeAvatarView(
+            profile: configuration.profile,
+            diameter: profileAvatarDiameter
+        )
 
         let titleLabel = UILabel()
         titleLabel.text = item.title
@@ -3494,6 +3654,15 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
             row.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 11),
             row.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -11),
         ])
+        // The line under the card starts at the name, past the picture, and
+        // ends at the trailing margin, as the rows under it do.
+        cell.separatorInset = UIEdgeInsets(
+            top: 0,
+            left: NativeSheetSettingsStyle.horizontalMargin + profileAvatarDiameter
+                + NativeSheetSettingsStyle.iconSpacing,
+            bottom: 0,
+            right: NativeSheetSettingsStyle.horizontalMargin
+        )
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -3504,47 +3673,238 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 }
 
-private final class NativeSheetSegmentTableViewCell: UITableViewCell {
-    static let reuseId = "NativeSheetSegmentTableViewCell"
+/// The Settings card's picture.
+private let profileAvatarDiameter: CGFloat = 56
 
-    private let stack = UIStackView()
+/// A row that picks one of a few values, as a Settings form's menu picker
+/// does: its symbol and title on one line with the value at the trailing
+/// edge, in the secondary tone of every value cell, over the up-and-down
+/// chevrons that say it opens a menu. A description, when there is one, runs
+/// under the title across the row, so it never squeezes into the space left
+/// by the value.
+///
+/// The value is a pop-up button: its menu ticks the current choice and the
+/// button takes the new one's name as it is picked. VoiceOver reads the row
+/// as that button, named by the title, with the value and the description.
+private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetChoiceMenuTableViewCell"
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
+
+    private let iconView = UIImageView()
+    private let textStack = UIStackView()
+    /// Holds the title in the stack, so the title can stop short of the
+    /// value while the description under it runs the row's full width.
+    private let titleRow = UIView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let segmentedControl = UISegmentedControl()
-    private var boundOptions: [NativeSheetOption] = []
+    private let valueButton = UIButton(type: .system)
     private var valueChanged: ((String) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
         NativeSheetSettingsStyle.applyCellStyle(self)
-        stack.axis = .vertical
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        iconView.contentMode = .center
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.isAccessibilityElement = false
+
+        textStack.axis = .vertical
+        textStack.spacing = 2
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
+        titleLabel.isAccessibilityElement = false
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
-        applyNativeSheetSegmentedControlTheme(segmentedControl)
-        contentView.addSubview(stack)
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(subtitleLabel)
-        stack.addArrangedSubview(segmentedControl)
+        subtitleLabel.isAccessibilityElement = false
+
+        // A pop-up button: UIKit draws its up-and-down chevrons and names it
+        // after the ticked choice.
+        valueButton.showsMenuAsPrimaryAction = true
+        valueButton.changesSelectionAsPrimaryAction = true
+        valueButton.translatesAutoresizingMaskIntoConstraints = false
+        valueButton.setContentHuggingPriority(.required, for: .horizontal)
+        valueButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        contentView.addSubview(iconView)
+        contentView.addSubview(textStack)
+        // Beside the title, outside the stack: its tap padding reaches above
+        // and below the title's line without pushing the description down.
+        contentView.addSubview(valueButton)
+        textStack.addArrangedSubview(titleRow)
+        textStack.addArrangedSubview(subtitleLabel)
+        titleRow.addSubview(titleLabel)
+        // VoiceOver stops on the row once, on its button: the title names
+        // it, the value is its value and the description its hint.
+        isAccessibilityElement = false
+        accessibilityElements = [valueButton]
+
+        let minimumHeight = contentView.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: NativeSheetChoiceMenuTableViewCell.minimumRowHeight
+        )
+        minimumHeight.priority = .defaultHigh
+        let centered = textStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        centered.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
+            iconView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
+            // The symbol sits on the title's line, not the middle of a row
+            // that a description makes taller.
+            iconView.centerYAnchor.constraint(equalTo: titleRow.centerYAnchor),
+            textStack.leadingAnchor.constraint(
+                equalTo: iconView.trailingAnchor,
+                constant: NativeSheetSettingsStyle.iconSpacing
+            ),
+            textStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 11),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -11),
+            centered,
+            minimumHeight,
+            titleLabel.leadingAnchor.constraint(equalTo: titleRow.leadingAnchor),
+            titleLabel.topAnchor.constraint(equalTo: titleRow.topAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: titleRow.bottomAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: titleRow.trailingAnchor),
+            titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: valueButton.leadingAnchor,
+                constant: -8
+            ),
+            valueButton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            valueButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            valueButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor),
+            valueButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
-        segmentedControl.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            let idx = self.segmentedControl.selectedSegmentIndex
-            guard idx >= 0, idx < self.boundOptions.count else { return }
-            self.valueChanged?(self.boundOptions[idx].id)
-        }, for: .valueChanged)
+    }
+
+    /// The height of a one-line value row in the inset-grouped lists.
+    static let minimumRowHeight: CGFloat = 52
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        valueChanged = nil
+        valueButton.menu = nil
+    }
+
+    func configure(
+        item: NativeSheetItem,
+        selectedId chosenId: String?,
+        onValueChanged: @escaping (String) -> Void
+    ) {
+        // Re-read the theme on every bind: reused cells otherwise keep the
+        // palette that was active when they were first created.
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        let theme = NativeSheetTheme.shared
+        titleLabel.textColor = theme.foreground
+        subtitleLabel.textColor = theme.secondaryForeground
+        // The symbol at the size, weight and tint of every row's.
+        iconView.tintColor = NativeSheetSettingsStyle.iconForeground
+        iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
+            UIImage.SymbolConfiguration(
+                pointSize: NativeSheetSettingsStyle.symbolPointSize(for: item.sfSymbol),
+                weight: .regular,
+                scale: .medium
+            )
+        )
+        titleLabel.text = item.title
+        let subtitle = item.subtitle ?? ""
+        subtitleLabel.text = subtitle
+        subtitleLabel.isHidden = subtitle.isEmpty
+
+        valueChanged = onValueChanged
+        let options = item.options
+        let selectedId = chosenId
+            ?? (item.value as? String).flatMap { id in options.contains { $0.id == id } ? id : nil }
+            ?? options.first?.id
+        valueButton.configuration = Self.buttonConfiguration(theme: theme)
+        valueButton.menu = UIMenu(children: options.map { option in
+            UIAction(
+                title: option.label,
+                state: option.id == selectedId ? .on : .off
+            ) { [weak self] _ in
+                guard let self else { return }
+                NativeSheetHaptics.selection()
+                self.updateAccessibility(title: item.title, subtitle: subtitle, value: option.label)
+                self.valueChanged?(option.id)
+            }
+        })
+        let selectedLabel = options.first { $0.id == selectedId }?.label ?? ""
+        updateAccessibility(title: item.title, subtitle: subtitle, value: selectedLabel)
+    }
+
+    private func updateAccessibility(title: String, subtitle: String, value: String) {
+        valueButton.accessibilityLabel = title
+        valueButton.accessibilityValue = value
+        valueButton.accessibilityHint = subtitle.isEmpty ? nil : subtitle
+    }
+
+    /// The value in the body size and secondary tone of a value cell, with
+    /// the pop-up chevrons UIKit adds after it, and no padding at the
+    /// trailing edge, so the value ends on the row's margin as other values
+    /// do. The padding above and below makes the target as tall as the row.
+    private static func buttonConfiguration(theme: NativeSheetTheme) -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.plain()
+        configuration.baseForegroundColor = theme.secondaryForeground
+        configuration.titleLineBreakMode = .byTruncatingTail
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .preferredFont(forTextStyle: .body)
+            return outgoing
+        }
+        configuration.indicator = .popup
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 8, bottom: 10, trailing: 0)
+        return configuration
+    }
+}
+
+/// A choice among a few looks, drawn as Display & Brightness draws Light and
+/// Dark: a small preview of each, its name under it and a round selection
+/// mark under the name, so the row shows what each choice looks like rather
+/// than naming it in a segmented control under a separate title.
+///
+/// Each tile is one button for VoiceOver ("Dark, selected, button"), and the
+/// row is a group named by the item's title, so the choice keeps its name
+/// although no title is drawn.
+private final class NativeSheetAppearanceTilesTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetAppearanceTilesTableViewCell"
+
+    private let tilesStack = UIStackView()
+    private var tiles: [NativeSheetAppearanceTile] = []
+    private var valueChanged: ((String) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        tilesStack.axis = .horizontal
+        tilesStack.alignment = .top
+        tilesStack.distribution = .fillEqually
+        tilesStack.spacing = 8
+        tilesStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(tilesStack)
+        NSLayoutConstraint.activate([
+            tilesStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            tilesStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            tilesStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
+            tilesStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+        ])
+        // The tiles' row is a group VoiceOver names on entering it, and the
+        // tiles inside read in their visual order.
+        tilesStack.accessibilityContainerType = .semanticGroup
     }
 
     required init?(coder: NSCoder) {
@@ -3554,42 +3914,280 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         valueChanged = nil
-        boundOptions = []
     }
 
-    func configure(item: NativeSheetItem, onValueChanged: @escaping (String) -> Void) {
+    func configure(
+        item: NativeSheetItem,
+        selectedId: String?,
+        onValueChanged: @escaping (String) -> Void
+    ) {
         // Re-read the theme on every bind: reused cells otherwise keep the
         // palette that was active when they were first created.
         NativeSheetSettingsStyle.applyCellStyle(self)
-        applyNativeSheetSegmentedControlTheme(segmentedControl)
-        titleLabel.textColor = NativeSheetTheme.shared.foreground
-        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
-        titleLabel.text = item.title
-        if let subtitle = item.subtitle, !subtitle.isEmpty {
-            subtitleLabel.text = subtitle
-            subtitleLabel.isHidden = false
-        } else {
-            subtitleLabel.isHidden = true
-        }
-        boundOptions = item.options
-        while segmentedControl.numberOfSegments > 0 {
-            segmentedControl.removeSegment(at: 0, animated: false)
-        }
-        for (idx, opt) in item.options.enumerated() {
-            segmentedControl.insertSegment(withTitle: opt.label, at: idx, animated: false)
-        }
-        let selectedId = item.value as? String
-        if let ix = item.options.firstIndex(where: { $0.id == selectedId }) {
-            segmentedControl.selectedSegmentIndex = ix
-        } else if !item.options.isEmpty {
-            segmentedControl.selectedSegmentIndex = 0
-        }
         valueChanged = onValueChanged
+        if tiles.map(\.optionId) != item.options.map(\.id) {
+            tiles.forEach { $0.removeFromSuperview() }
+            tiles = item.options.map { option in
+                let tile = NativeSheetAppearanceTile(optionId: option.id)
+                tile.addAction(UIAction { [weak self, weak tile] _ in
+                    guard let self, let tile else { return }
+                    self.choose(tile)
+                }, for: .touchUpInside)
+                tilesStack.addArrangedSubview(tile)
+                return tile
+            }
+        }
+        let selectedId = selectedId ?? item.options.first?.id
+        for (tile, option) in zip(tiles, item.options) {
+            tile.configure(option: option, isSelected: option.id == selectedId)
+        }
+        tilesStack.accessibilityLabel = item.title
+    }
+
+    private func choose(_ tile: NativeSheetAppearanceTile) {
+        guard !tile.isChosen else { return }
+        NativeSheetHaptics.selection()
+        for other in tiles {
+            other.setChosen(other === tile, animated: true)
+        }
+        valueChanged?(tile.optionId)
+    }
+}
+
+/// One choice of [NativeSheetAppearanceTilesTableViewCell]: its preview,
+/// name and selection mark.
+private final class NativeSheetAppearanceTile: UIControl {
+    let optionId: String
+    private(set) var isChosen = false
+    private let preview = NativeSheetAppearancePreviewView()
+    private let titleLabel = UILabel()
+    private let markView = UIImageView()
+    private let stack = UIStackView()
+
+    /// The size of the preview: a phone screen's proportions, small enough
+    /// that three sit side by side on the narrowest phone.
+    static let previewSize = CGSize(width: 62, height: 118)
+
+    init(optionId: String) {
+        self.optionId = optionId
+        super.init(frame: .zero)
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 8
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        stack.addArrangedSubview(preview)
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(markView)
+        stack.setCustomSpacing(10, after: preview)
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 2
+        markView.contentMode = .center
+        markView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 22,
+            weight: .regular,
+            scale: .medium
+        )
+        markView.setContentHuggingPriority(.required, for: .vertical)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            preview.widthAnchor.constraint(equalToConstant: Self.previewSize.width),
+            preview.heightAnchor.constraint(equalToConstant: Self.previewSize.height),
+            titleLabel.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+        ])
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(option: NativeSheetOption, isSelected: Bool) {
+        titleLabel.text = option.label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
+        preview.configure(swatches: option.swatches, darkSwatches: option.darkSwatches)
+        isEnabled = option.enabled
+        alpha = option.enabled ? 1 : 0.45
+        accessibilityLabel = option.label
+        setChosen(isSelected, animated: false)
+    }
+
+    func setChosen(_ chosen: Bool, animated: Bool) {
+        let changed = chosen != isChosen || markView.image == nil
+        isChosen = chosen
+        accessibilityTraits = chosen ? [.button, .selected] : .button
+        guard changed else {
+            applyMarkTint()
+            return
+        }
+        let update = {
+            // A filled check in the ink for the choice in use, an empty ring
+            // for the others, as Display & Brightness marks Light and Dark.
+            self.markView.image = UIImage(
+                systemName: chosen ? "checkmark.circle.fill" : "circle"
+            )
+            self.applyMarkTint()
+        }
+        if animated {
+            UIView.transition(
+                with: markView,
+                duration: 0.2,
+                options: [.transitionCrossDissolve, .allowUserInteraction],
+                animations: update
+            )
+        } else {
+            update()
+        }
+    }
+
+    private func applyMarkTint() {
+        let theme = NativeSheetTheme.shared
+        markView.tintColor = isChosen
+            ? theme.foreground
+            : theme.secondaryForeground.withAlphaComponent(0.55)
+        preview.setNeedsDisplay()
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            guard isHighlighted != oldValue else { return }
+            UIView.animate(
+                withDuration: isHighlighted ? 0.08 : 0.2,
+                delay: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.stack.alpha = self.isHighlighted ? 0.55 : 1
+            }
+        }
+    }
+}
+
+/// A miniature Conduit screen in one appearance -- header pill, a sent
+/// message, reply lines and the composer -- painted from a palette's
+/// background, ink, fill and border. Given dark swatches too, the trailing
+/// half shows the dark screen, for a look that follows the system.
+private final class NativeSheetAppearancePreviewView: UIView {
+    private var swatches: [UIColor] = []
+    private var darkSwatches: [UIColor] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        contentMode = .redraw
+        isUserInteractionEnabled = false
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(swatches: [UIColor], darkSwatches: [UIColor]) {
+        self.swatches = swatches
+        self.darkSwatches = darkSwatches
+        setNeedsDisplay()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let bounds = self.bounds
+        let radius: CGFloat = 11
+        let screen = UIBezierPath(roundedRect: bounds, cornerRadius: radius)
+        context.saveGState()
+        screen.addClip()
+        drawScreen(in: bounds, swatches: swatches)
+        if !darkSwatches.isEmpty {
+            // The trailing half, as the half-filled circle of a look that
+            // follows the system.
+            let isRTL = effectiveUserInterfaceLayoutDirection == .rightToLeft
+            UIRectClip(CGRect(
+                x: isRTL ? bounds.minX : bounds.midX,
+                y: bounds.minY,
+                width: bounds.width / 2,
+                height: bounds.height
+            ))
+            drawScreen(in: bounds, swatches: darkSwatches)
+        }
+        context.restoreGState()
+        // An edge a little stronger than a separator, so a screen the
+        // colour of the card keeps its outline.
+        let theme = NativeSheetTheme.shared
+        let lineWidth: CGFloat = 0.75
+        let edge = UIBezierPath(
+            roundedRect: bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
+            cornerRadius: radius
+        )
+        edge.lineWidth = lineWidth
+        theme.foreground.withAlphaComponent(theme.isDark ? 0.28 : 0.16).setStroke()
+        edge.stroke()
+    }
+
+    /// [swatches]: background, ink, fill, border.
+    private func drawScreen(in bounds: CGRect, swatches: [UIColor]) {
+        func color(_ index: Int, _ fallback: UIColor) -> UIColor {
+            index < swatches.count ? swatches[index] : fallback
+        }
+        let background = color(0, .systemBackground)
+        let ink = color(1, .label)
+        let fill = color(2, .secondarySystemBackground)
+        let border = color(3, .separator)
+        background.setFill()
+        UIRectFill(bounds)
+
+        let inset: CGFloat = 7
+        func capsule(_ frame: CGRect) -> UIBezierPath {
+            UIBezierPath(roundedRect: frame, cornerRadius: frame.height / 2)
+        }
+        // The header's model pill.
+        fill.setFill()
+        capsule(CGRect(x: bounds.midX - 12, y: bounds.minY + 9, width: 24, height: 7)).fill()
+        // A sent message.
+        UIBezierPath(
+            roundedRect: CGRect(x: bounds.maxX - inset - 30, y: bounds.minY + 25, width: 30, height: 12),
+            cornerRadius: 6
+        ).fill()
+        // The reply's lines, in the ink at reading strength.
+        ink.withAlphaComponent(0.72).setFill()
+        let widths: [CGFloat] = [0.92, 0.84, 0.66, 0.88, 0.48]
+        let available = bounds.width - inset * 2
+        var y = bounds.minY + 46
+        for fraction in widths {
+            capsule(CGRect(x: bounds.minX + inset, y: y, width: available * fraction, height: 3.5)).fill()
+            y += 7.5
+        }
+        // The composer.
+        let composer = capsule(CGRect(
+            x: bounds.minX + 5,
+            y: bounds.maxY - 5 - 14,
+            width: bounds.width - 10,
+            height: 14
+        ))
+        fill.setFill()
+        composer.fill()
+        composer.lineWidth = 0.75
+        border.setStroke()
+        composer.stroke()
     }
 }
 
 private final class NativeSheetDropdownTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetDropdownTableViewCell"
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
 
     private let rootStack = UIStackView()
     private let headerStack = UIStackView()
@@ -3653,8 +4251,8 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
             rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
             rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
-            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
+            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
             button.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
         ])
     }
@@ -3674,10 +4272,12 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         titleLabel.text = item.title
         subtitleLabel.text = item.subtitle
         subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
-        iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
+        iconView.contentMode = .center
+        iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
-                pointSize: NativeSheetSettingsStyle.iconSize,
-                weight: .regular
+                pointSize: NativeSheetSettingsStyle.symbolPointSize(for: item.sfSymbol),
+                weight: .regular,
+                scale: .medium
             )
         )
 
@@ -4007,15 +4607,13 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
         }
         slider.value = Float(current)
         refreshValueLabel(for: item, value: current)
-        valueLabel.textAlignment = item.id == "tts-speech-rate" ? .natural : .right
+        valueLabel.textAlignment = .right
     }
 
     private func refreshValueLabel(for item: NativeSheetItem, value: Double) {
         switch item.id {
         case "stt-silence-duration":
             valueLabel.text = String(format: "%.1fs", value / 1000)
-        case "tts-speech-rate":
-            valueLabel.text = "\(Int(round(value * 100)))%"
         default:
             valueLabel.text = String(format: "%.2f", value)
         }
@@ -4240,6 +4838,11 @@ private final class NativeSheetLinkChipButton: UIButton {
 private final class NativeSheetSourceTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetSourceTableViewCell"
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
+
     private let rootStack = UIStackView()
     private let headerStack = UIStackView()
     private let indexLabel = UILabel()
@@ -4341,6 +4944,11 @@ private final class NativeSheetSourceTableViewCell: UITableViewCell {
 
 private final class NativeSheetStatusTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetStatusTableViewCell"
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: contentStack)
+    }
 
     private let rootStack = UIStackView()
     private let headerStack = UIStackView()
@@ -4473,6 +5081,11 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let onClose: () -> Void
     private var pendingTextValues: [String: String] = [:]
     private var committedTextValues: [String: String] = [:]
+    /// Choices made in tiles and menu rows since Dart last sent the page. A
+    /// choice such as Dark re-themes the sheet, which reloads its rows before
+    /// any new rows arrive, and a speed is not sent back at all, so the rows
+    /// draw this rather than the value they came with.
+    private var chosenOptionValues: [String: String] = [:]
 
     var detailId: String { detail.id }
 
@@ -4523,14 +5136,31 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
+        let previousSectionCount = tableSections.count
         detail = newDetail
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
+        chosenOptionValues.removeAll()
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
         tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
-        tableView.reloadData()
+        // Groups that come or go with a switch (Notifications' options, say)
+        // fade in and out rather than popping. A cross-fade moves nothing,
+        // so it suits Reduce Motion as well.
+        guard isViewLoaded,
+              view.window != nil,
+              previousSectionCount != tableSections.count
+        else {
+            tableView.reloadData()
+            return
+        }
+        UIView.transition(
+            with: tableView,
+            duration: 0.25,
+            options: [.transitionCrossDissolve, .allowUserInteraction],
+            animations: { self.tableView.reloadData() }
+        )
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -4546,8 +5176,12 @@ private final class NativeDetailTableViewController: UITableViewController {
         refreshNavigationAction()
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(
-            NativeSheetSegmentTableViewCell.self,
-            forCellReuseIdentifier: NativeSheetSegmentTableViewCell.reuseId
+            NativeSheetChoiceMenuTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetChoiceMenuTableViewCell.reuseId
+        )
+        tableView.register(
+            NativeSheetAppearanceTilesTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetAppearanceTilesTableViewCell.reuseId
         )
         tableView.register(
             NativeSheetDropdownTableViewCell.self,
@@ -4651,6 +5285,14 @@ private final class NativeDetailTableViewController: UITableViewController {
         NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
     }
 
+    override func tableView(
+        _ tableView: UITableView,
+        willDisplayHeaderView view: UIView,
+        forSection section: Int
+    ) {
+        NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
+    }
+
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         tableSections[section].items.count
     }
@@ -4667,10 +5309,27 @@ private final class NativeDetailTableViewController: UITableViewController {
         switch item.kind {
         case "segment":
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: NativeSheetSegmentTableViewCell.reuseId,
+                withIdentifier: NativeSheetChoiceMenuTableViewCell.reuseId,
                 for: indexPath
-            ) as! NativeSheetSegmentTableViewCell
-            cell.configure(item: item) { [weak self] newValue in
+            ) as! NativeSheetChoiceMenuTableViewCell
+            cell.configure(
+                item: item,
+                selectedId: chosenOptionValues[item.id]
+            ) { [weak self] newValue in
+                self?.chosenOptionValues[item.id] = newValue
+                self?.onControlChanged(item, newValue)
+            }
+            return cell
+        case "appearanceTiles":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetAppearanceTilesTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetAppearanceTilesTableViewCell
+            cell.configure(
+                item: item,
+                selectedId: chosenOptionValues[item.id] ?? item.selectedOptionId
+            ) { [weak self] newValue in
+                self?.chosenOptionValues[item.id] = newValue
                 self?.onControlChanged(item, newValue)
             }
             return cell
@@ -4761,7 +5420,8 @@ private final class NativeDetailTableViewController: UITableViewController {
                 onControlChanged(item, !(item.value as? Bool ?? false))
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
-             "multilineTextField", "slider", "readOnlyText", "statusUpdate":
+             "appearanceTiles", "multilineTextField", "slider", "readOnlyText",
+             "statusUpdate":
             break
         case "source":
             guard item.url != nil || canNavigate(item) else { break }
@@ -4963,7 +5623,17 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 }
 
-private final class NativeModelSelectorTableViewController: UITableViewController {
+private final class NativeModelSelectorTableViewController: UITableViewController, UISearchResultsUpdating {
+    /// Lists this short show every model inline, in a sheet sized to fit,
+    /// rather than behind a "More models" page.
+    static let inlineModelLimit = 8
+
+    private enum Section {
+        case models
+        case effort
+        case more
+    }
+
     private let configuration: NativeModelSelectorConfiguration
     private let onSelect: (String) -> Void
     private let onTogglePin: (String) -> Void
@@ -4978,6 +5648,53 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     private var reasoningEffortOptions: [String]
     private var allowsCustomReasoningEffort: Bool
     private weak var moreModelsController: NativeMoreModelsTableViewController?
+    /// Only the sections that have rows, so an empty one (no effort to
+    /// pick) leaves no gap between the models and "More models".
+    private var sections: [Section] = []
+    private var searchQuery = ""
+    private var searchResults: [NativeModelSelectorOption] = []
+    private var lastFittedHeight: CGFloat = 0
+
+    /// Whether every model shows inline.
+    var listsAllModelsInline: Bool { models.count <= Self.inlineModelLimit }
+
+    private var isSearching: Bool { !searchQuery.isEmpty }
+
+    /// The models the first section shows: search matches while searching.
+    private var visibleModels: [NativeModelSelectorOption] {
+        isSearching ? searchResults : featuredModels
+    }
+
+    /// Space the sheet keeps under the short list's last group: the inset
+    /// the groups keep from the sheet's sides, so the list sits evenly in
+    /// its sheet rather than over an empty band.
+    static let fittedBottomInset: CGFloat = 20
+
+    /// The fitted detent's height: measured from the laid-out sheet once
+    /// there is one ([viewDidLayoutSubviews]), else an estimate from the rows.
+    var fittedDetentHeight: CGFloat {
+        if let measuredDetentHeight { return measuredDetentHeight }
+        let barHeight = navigationController?.navigationBar.frame.height ?? 0
+        let chrome = max(barHeight, 56)
+        let rows = CGFloat(featuredModels.count + (effortSelectionEnabled ? 1 : 0))
+        let groups = CGFloat(sections.count)
+        return chrome + rows * 64 + groups * 36
+    }
+
+    /// The value the detent resolver last returned, which UIKit turned into
+    /// the sheet height the view now has.
+    var resolvedDetentHeight: CGFloat?
+
+    /// The detent that ends the sheet [fittedBottomInset] under the last row,
+    /// found by measuring rather than by assuming how UIKit pads a detent.
+    private var measuredDetentHeight: CGFloat?
+
+    private var lastRowIndexPath: IndexPath? {
+        guard let section = sections.indices.last else { return nil }
+        let rows = tableView.numberOfRows(inSection: section)
+        guard rows > 0 else { return nil }
+        return IndexPath(row: rows - 1, section: section)
+    }
 
     init(
         configuration: NativeModelSelectorConfiguration,
@@ -5014,19 +5731,53 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             forCellReuseIdentifier: "modelCell"
         )
         NativeSheetSettingsStyle.apply(to: tableView)
+        if !listsAllModelsInline {
+            // A long list is searched from the top, across every model.
+            let search = UISearchController(searchResultsController: nil)
+            search.searchResultsUpdater = self
+            search.searchBar.placeholder = configuration.searchModelsTitle
+            search.obscuresBackgroundDuringPresentation = false
+            navigationItem.searchController = search
+            navigationItem.hidesSearchBarWhenScrolling = false
+            definesPresentationContext = true
+        }
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int { 3 }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The fitted detent was estimated before the rows were measured. Now
+        // that they are, see where the last row ends in the sheet -- with the
+        // list resting at its top -- and move the detent by however far the
+        // sheet's bottom is from [fittedBottomInset] under it. Whatever UIKit
+        // adds to a detent (the bottom safe area) carries through unchanged,
+        // so the next pass measures no difference and stops.
+        guard listsAllModelsInline,
+              let sheet = navigationController?.sheetPresentationController,
+              let container = navigationController?.view,
+              let resolved = resolvedDetentHeight,
+              tableView.contentSize.height > 0,
+              let last = lastRowIndexPath
+        else { return }
+        let tableTop = tableView.convert(tableView.bounds, to: container).minY
+        let restingOffset = -tableView.adjustedContentInset.top
+        let rowBottom = tableTop
+            + tableView.rectForRow(at: last).maxY - restingOffset
+        let target = resolved
+            + (rowBottom + Self.fittedBottomInset - container.bounds.height)
+        guard abs(target - lastFittedHeight) > 1 else { return }
+        lastFittedHeight = target
+        measuredDetentHeight = target
+        if #available(iOS 16.0, *) {
+            sheet.animateChanges { sheet.invalidateDetents() }
+        }
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int { sections.count }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch section {
-        case 0: featuredModels.count
-        // Like the Flutter sheet, offer the row only when the selected model
-        // has an effort to choose; a disabled row looks tappable but does
-        // nothing. A late hydration update reloads this section.
-        case 1: effortSelectionEnabled ? 1 : 0
-        case 2: moreModels.isEmpty ? 0 : 1
-        default: 0
+        switch sections[section] {
+        case .models: visibleModels.count
+        case .effort, .more: 1
         }
     }
 
@@ -5034,8 +5785,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        if indexPath.section == 0 {
-            let model = featuredModels[indexPath.row]
+        let section = sections[indexPath.section]
+        if section == .models {
+            let model = visibleModels[indexPath.row]
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: "modelCell",
                 for: indexPath
@@ -5051,7 +5803,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         var content = cell.defaultContentConfiguration()
-        if indexPath.section == 1 {
+        if section == .effort {
             content.image = UIImage(systemName: "clock")
             content.text = configuration.reasoningEffortTitle
             content.secondaryText = effortLabel(reasoningEffortValue)
@@ -5069,14 +5821,14 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        switch indexPath.section {
-        case 0:
+        switch sections[indexPath.section] {
+        case .models:
             NativeSheetHaptics.selection()
-            onSelect(featuredModels[indexPath.row].id)
-        case 1:
+            onSelect(visibleModels[indexPath.row].id)
+        case .effort:
             guard effortSelectionEnabled else { return }
             presentEffortSelector(sourceView: tableView.cellForRow(at: indexPath))
-        case 2:
+        case .more:
             let controller = NativeMoreModelsTableViewController(
                 title: configuration.moreModelsTitle,
                 searchPlaceholder: configuration.searchModelsTitle,
@@ -5095,8 +5847,6 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             )
             moreModelsController = controller
             navigationController?.pushViewController(controller, animated: true)
-        default:
-            break
         }
     }
 
@@ -5106,8 +5856,8 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
         guard configuration.allowsPinning else { return nil }
-        guard indexPath.section == 0 else { return nil }
-        let model = featuredModels[indexPath.row]
+        guard sections[indexPath.section] == .models else { return nil }
+        let model = visibleModels[indexPath.row]
         let isPinned = pinnedModelIdSet.contains(model.id)
         let title = isPinned ? configuration.unpinTitle : configuration.pinTitle
         let image = UIImage(systemName: isPinned ? "pin.slash" : "pin")
@@ -5163,9 +5913,49 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         reasoningEffortValue = normalized
         reasoningEffortOptions = options
         allowsCustomReasoningEffort = allowsCustom
-        if isViewLoaded {
-            tableView.reloadSections(IndexSet(integer: 1), with: .none)
+        // The effort row may have just become available.
+        rebuildSections()
+        if isViewLoaded { tableView.reloadData() }
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        searchQuery = searchController.searchBar.text?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        applySearch()
+        rebuildSections()
+        if isViewLoaded { tableView.reloadData() }
+    }
+
+    private func applySearch() {
+        guard isSearching else {
+            searchResults = []
+            return
         }
+        func matches(_ text: String?) -> Bool {
+            guard let text else { return false }
+            return text.range(
+                of: searchQuery,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) != nil
+        }
+        searchResults = models.filter { model in
+            matches(model.name) || matches(model.id) || matches(model.subtitle)
+                || model.tags.contains(where: matches)
+        }
+    }
+
+    private func rebuildSections() {
+        if isSearching {
+            sections = [.models]
+            return
+        }
+        var next: [Section] = [.models]
+        // Like the Flutter sheet, offer the row only when the selected model
+        // has an effort to choose; a disabled row looks tappable but does
+        // nothing.
+        if effortSelectionEnabled { next.append(.effort) }
+        if !moreModels.isEmpty { next.append(.more) }
+        sections = next
     }
 
     private func refreshModelPartitions() {
@@ -5180,7 +5970,16 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         )
         featuredModels = ids.compactMap { byId[$0] }
         let featuredIds = Set(featuredModels.map(\.id))
-        moreModels = models.filter { !featuredIds.contains($0.id) }
+        let others = models.filter { !featuredIds.contains($0.id) }
+        if listsAllModelsInline {
+            // Pinned and featured first, then the rest, in one group.
+            featuredModels += others
+            moreModels = []
+        } else {
+            moreModels = others
+        }
+        applySearch()
+        rebuildSections()
     }
 
     private func effortLabel(_ value: String) -> String {
@@ -5257,7 +6056,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         guard let normalized = normalizedEffort(value) else { return }
         NativeSheetHaptics.selection()
         reasoningEffortValue = normalized
-        tableView.reloadSections(IndexSet(integer: 1), with: .none)
+        if let effortSection = sections.firstIndex(of: .effort) {
+            tableView.reloadSections(IndexSet(integer: effortSection), with: .none)
+        }
         onEffortChanged(normalized)
     }
 
@@ -5661,6 +6462,11 @@ extension NativeOptionsSelectorTableViewController: UISearchResultsUpdating {
 }
 
 private final class NativeModelSelectorTableViewCell: UITableViewCell {
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
     private let avatarView = NativeModelAvatarView(side: 32)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -5809,12 +6615,18 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
 }
 
 private final class NativeSheetOptionTableViewCell: UITableViewCell {
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
     private let hierarchyGuideView = NativeFolderHierarchyGuideView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let textStack = UIStackView()
     private var hierarchyWidthConstraint: NSLayoutConstraint?
+    private var iconWidthConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -5839,11 +6651,20 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = option.subtitle == nil || option.subtitle?.isEmpty == true
 
-        if let sfSymbol = option.sfSymbol, !sfSymbol.isEmpty {
+        // A palette's disc fills about as much of the column as a symbol.
+        let swatch = nativePaletteSwatchImage(option.currentSwatches, discDiameter: 20)
+        if let swatch {
+            iconView.image = swatch
+        } else if let sfSymbol = option.sfSymbol, !sfSymbol.isEmpty {
             iconView.image = UIImage(systemName: sfSymbol)
         } else {
             iconView.image = nil
         }
+        // A swatch wider than the column takes its own width; a symbol keeps
+        // the symbol column.
+        iconWidthConstraint?.constant = swatch.map { max($0.size.width, NativeSheetSettingsStyle.iconSize) }
+            ?? NativeSheetSettingsStyle.iconSize
+        iconView.contentMode = swatch == nil ? .scaleAspectFit : .center
         iconView.tintColor = tintColor
 
         hierarchyGuideView.configure(
@@ -5898,6 +6719,10 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
 
         hierarchyWidthConstraint = hierarchyGuideView.widthAnchor.constraint(equalToConstant: 0)
         hierarchyWidthConstraint?.isActive = true
+        iconWidthConstraint = iconView.widthAnchor.constraint(
+            equalToConstant: NativeSheetSettingsStyle.iconSize
+        )
+        iconWidthConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
             hierarchyGuideView.leadingAnchor.constraint(
@@ -5908,7 +6733,6 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
 
             iconView.leadingAnchor.constraint(equalTo: hierarchyGuideView.trailingAnchor),
             iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
 
             textStack.leadingAnchor.constraint(
@@ -6781,10 +7605,14 @@ private final class NativeModelAvatarView: UIView {
         addSubview(initialsLabel)
 
         symbolView.translatesAutoresizingMaskIntoConstraints = false
-        symbolView.contentMode = .scaleAspectFit
+        // A system symbol (Apple's models: a phone, a cloud) at the optical
+        // size and weight of the solid brand logos beside it -- about 19 pt
+        // across -- drawn unscaled, so a line glyph is not thinned into a
+        // smaller box.
+        symbolView.contentMode = .center
         symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 16,
-            weight: .medium
+            pointSize: 18,
+            weight: .semibold
         )
         symbolView.isHidden = true
         addSubview(symbolView)
@@ -6802,8 +7630,8 @@ private final class NativeModelAvatarView: UIView {
 
             symbolView.centerXAnchor.constraint(equalTo: centerXAnchor),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 18),
-            symbolView.heightAnchor.constraint(equalToConstant: 18),
+            symbolView.widthAnchor.constraint(equalToConstant: 26),
+            symbolView.heightAnchor.constraint(equalToConstant: 26),
         ])
     }
 
@@ -6841,13 +7669,19 @@ private final class NativeModelAvatarView: UIView {
         imageView.contentMode = .scaleAspectFill
         imageView.isHidden = true
 
-        let accentColor = nativeAvatarAccentColor(seed: name)
-        backgroundColor = accentColor.withAlphaComponent(0.12)
-        layer.borderColor = accentColor.withAlphaComponent(0.24).cgColor
+        // One neutral plate for every model, like Settings' icon tiles: the
+        // logo tells models apart, not an arbitrary colour per name.
+        let ink = NativeSheetTheme.shared.secondaryForeground
+        backgroundColor = NativeSheetTheme.shared.input
+        layer.borderColor = NativeSheetTheme.shared.border
+            .resolvedColor(with: traitCollection)
+            .withAlphaComponent(0.35)
+            .cgColor
 
         if let sfSymbol, !sfSymbol.isEmpty {
             symbolView.image = UIImage(systemName: sfSymbol)
-            symbolView.tintColor = accentColor
+            // The full ink the logos are rendered in, not the initials' grey.
+            symbolView.tintColor = NativeSheetTheme.shared.foreground
             symbolView.isHidden = false
             initialsLabel.isHidden = true
         } else {
@@ -6856,7 +7690,7 @@ private final class NativeModelAvatarView: UIView {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .prefix(1)
                 .uppercased()
-            initialsLabel.textColor = accentColor
+            initialsLabel.textColor = ink
             initialsLabel.isHidden = false
         }
 
@@ -7105,9 +7939,20 @@ private func configureNavigationCell(
     item: NativeSheetItem,
     showsDisclosure: Bool = true
 ) {
-    var content = cell.defaultContentConfiguration()
+    // A picker shows what is chosen on the right, as Settings does
+    // ("Language   English >"), and drops below the title only when the two
+    // do not fit side by side.
+    // A read-only fact ("Version   4.3.0") reads the same way. A person or
+    // a checked choice keeps its detail under its name.
+    let isFact = item.kind == "info" && !showsDisclosure && !item.checked
+        && item.avatarName == nil && item.avatarData == nil
+    let showsValue = item.kind == "searchablePicker"
+        || (isFact && nativeRowValueFits(item.subtitle))
+    var content = showsValue
+        ? UIListContentConfiguration.valueCell()
+        : cell.defaultContentConfiguration()
     content.text = item.title
-    content.secondaryText = item.kind == "searchablePicker"
+    content.secondaryText = showsValue
         ? (item.selectedOptionLabel ?? item.subtitle)
         : item.subtitle
     let avatar = nativeRowAvatarImage(for: item)
@@ -7116,11 +7961,11 @@ private func configureNavigationCell(
     } else if let iconAsset = item.iconAsset {
         content.image = loadFlutterAssetImage(iconAsset)?
             .withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: item.sfSymbol)
+            ?? nativeSettingsSymbolImage(item.sfSymbol)
     } else {
-        content.image = UIImage(systemName: item.sfSymbol)
+        content.image = nativeSettingsSymbolImage(item.sfSymbol)
     }
-    NativeSheetSettingsStyle.applyContentStyle(&content)
+    NativeSheetSettingsStyle.applyContentStyle(&content, symbol: item.sfSymbol)
     if avatar != nil {
         // A picture keeps its own colors, at the size a symbol takes.
         content.imageProperties.tintColor = nil
@@ -7139,22 +7984,51 @@ private func configureNavigationCell(
             height: assetSize
         )
     }
+    content.textProperties.font = .preferredFont(forTextStyle: .body)
     if item.destructive {
         content.textProperties.color = NativeSheetTheme.shared.destructive
         content.imageProperties.tintColor = NativeSheetTheme.shared.destructive
     } else if item.accent {
+        // An action row (Add Account) takes the accent but every row's
+        // weight, as Settings sets its Add rows; its plus symbol and the
+        // missing chevron say it acts rather than opens a page.
         content.textProperties.color = NativeSheetTheme.shared.accent
-        content.imageProperties.tintColor = NativeSheetTheme.shared.accent
     }
-    content.textProperties.font = .preferredFont(forTextStyle: .body)
-    if item.kind == "info" && !showsDisclosure {
+    if showsValue {
+        content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)
+        content.secondaryTextProperties.numberOfLines = 1
+        content.prefersSideBySideTextAndSecondaryText = true
+    }
+    if item.kind == "toggle" {
+        // A switch's explanation is never cut short.
+        content.secondaryTextProperties.numberOfLines = 0
+    }
+    if item.kind == "info" && !showsDisclosure && !showsValue {
         content.textProperties.numberOfLines = 0
         content.textProperties.lineBreakMode = .byWordWrapping
         content.secondaryTextProperties.numberOfLines = 0
         content.secondaryTextProperties.lineBreakMode = .byWordWrapping
     }
+    // A palette shows its colour beside its name, as Calendar shows a
+    // calendar's, so the row says what the palette looks like, not only what
+    // it is called.
+    var swatchedValue: String?
+    if showsValue,
+       let selected = item.selectedOption,
+       let swatch = nativePaletteSwatchImage(selected.currentSwatches) {
+        swatchedValue = selected.label
+        content.secondaryAttributedText = nativeSwatchedText(
+            swatch,
+            selected.label,
+            font: content.secondaryTextProperties.font,
+            color: content.secondaryTextProperties.color
+        )
+    }
     cell.contentConfiguration = content
     applyTextAccessibilityLabel(to: cell, from: content)
+    if let swatchedValue {
+        cell.accessibilityLabel = [item.title, swatchedValue].joined(separator: ", ")
+    }
     if item.checked {
         // The check takes the accent the sheet tints its views with.
         cell.accessoryType = .checkmark
@@ -7166,7 +8040,19 @@ private func configureNavigationCell(
     NativeSheetSettingsStyle.applyCellStyle(cell)
 }
 
-private let nativeRowAvatarDiameter: CGFloat = 32
+/// The most options an inline picker lists without a search field.
+private let nativeInlinePickerSearchThreshold = 8
+
+/// Whether [value] is short enough to sit on the right of its row, as a
+/// value does in Settings, rather than under the title.
+private func nativeRowValueFits(_ value: String?) -> Bool {
+    guard let value, !value.isEmpty else { return false }
+    return value.count <= 32 && !value.contains("\n")
+}
+
+/// A row's round picture fills the symbol column exactly, so its title lines
+/// up with the titles of the symbol rows around it.
+private let nativeRowAvatarDiameter: CGFloat = NativeSheetSettingsStyle.iconColumnWidth
 
 /// A row's round picture: its bytes, cut to a circle, else its name's
 /// initials; nil for a row that has neither.
@@ -7190,8 +8076,11 @@ private func nativeRowAvatarImage(for item: NativeSheetItem) -> UIImage? {
         }.withRenderingMode(.alwaysOriginal)
     }
     guard let name = item.avatarName else { return nil }
-    return nativeInitialsAvatarUIImage(name: name, diameter: nativeRowAvatarDiameter)?
-        .withRenderingMode(.alwaysOriginal)
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return nativeMonogramUIImage(
+        initials: nativeExtractInitials(from: trimmed.isEmpty ? "User" : trimmed),
+        diameter: nativeRowAvatarDiameter
+    ).withRenderingMode(.alwaysOriginal)
 }
 
 /// VoiceOver otherwise leads with the SF Symbol's generated description
@@ -7232,7 +8121,14 @@ private final class NativeAvatarView: UIView {
 
         imageView.contentMode = .scaleAspectFill
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true
+        // Until (unless) a photo loads, the initials sit on a grey disc, as
+        // a contact without a photo does; the card's own colour would leave
+        // them floating with no disc at all.
+        imageView.image = nativeMonogramUIImage(
+            initials: profile.initials,
+            diameter: diameter
+        )
+        initialsLabel.isHidden = true
         addSubview(imageView)
 
         NSLayoutConstraint.activate([

@@ -27,6 +27,9 @@ import 'package:conduit_core/features/hermes/services/hermes_connection_service.
 import 'hermes_desktop_connection_section.dart';
 import 'hermes_settings_sections.dart';
 
+/// Heading of the backend mode section, also the mode selector's name.
+const _connectionModeTitle = 'Hermes connection mode';
+
 /// Editor for one saved Hermes connection: name, server URL, credentials, and
 /// a connection test. For the active connection it also shows the server's
 /// capabilities and management sections.
@@ -192,8 +195,26 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         activationFailed: l10n.hermesOnboardingFailed,
       );
 
+  /// Asks before the draft's credentials would go unencrypted to a server
+  /// the user has not agreed to send them to. True when they may go.
+  Future<bool> _confirmPlainHttp() async {
+    if (!_controller.needsPlainHttpConsent(_saved())) return true;
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.directMcpInsecureCredentialsTitle,
+      message: l10n.hermesInsecureCredentialsMessage,
+      confirmText: l10n.directMcpInsecureCredentialsConfirm,
+      barrierDismissible: false,
+    );
+    if (!confirmed || !mounted) return false;
+    _controller.grantPlainHttpConsent();
+    return true;
+  }
+
   Future<void> _finishOnboarding() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!await _confirmPlainHttp() || !mounted) return;
     final l10n = AppLocalizations.of(context)!;
     final result = await _controller.finishOnboarding(
       saved: _saved(),
@@ -218,7 +239,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<bool> _saveSettings() async {
-    if (!_baselineReady) return false;
+    if (!_baselineReady || !await _confirmPlainHttp() || !mounted) {
+      return false;
+    }
     final l10n = AppLocalizations.of(context)!;
     final saved = await _controller.save(_saved(), messages: _messages(l10n));
     // A save still completes after the page closes; there is nothing to reload.
@@ -362,6 +385,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   /// puts it in use, turning Hermes on.
   Future<void> _connectInSheet() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!await _confirmPlainHttp() || !mounted) return;
     final reachable = await _controller.testConnection(
       saved: _saved(),
       messages: _messages(AppLocalizations.of(context)!),
@@ -402,6 +426,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
+    if (!await _confirmPlainHttp() || !mounted) return;
     await _controller.testConnection(
       saved: _saved(),
       messages: _messages(AppLocalizations.of(context)!),
@@ -554,11 +579,12 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         gap,
       ],
       InsetGroupedSection(
-        title: 'Hermes connection mode',
+        title: _connectionModeTitle,
         flat: true,
         padding: EdgeInsets.zero,
         child: AdaptiveSegmentedControl(
           key: const ValueKey<String>('hermes-backend-mode-selector'),
+          semanticLabel: _connectionModeTitle,
           labels: const ['Responses API', 'Desktop Gateway'],
           selectedIndex: controller.mode == HermesBackendMode.responsesApi
               ? 0

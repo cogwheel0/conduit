@@ -141,6 +141,7 @@ final class WorkspacePromptContentEditor extends StatelessWidget {
               width: 200,
               child: AdaptiveSegmentedControl(
                 key: const Key('workspace-prompt-preview-toggle'),
+                semanticLabel: l10n.workspacePromptContent,
                 shrinkWrap: true,
                 labels: [
                   l10n.workspacePromptWriteTab,

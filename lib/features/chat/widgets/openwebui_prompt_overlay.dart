@@ -261,7 +261,9 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${option.label}. ${option.description}',
+      label: option.description.isEmpty
+          ? option.label
+          : '${option.label}. ${option.description}',
       child: InkWell(
         key: ValueKey('openwebui-option-${question.id}-$index'),
         onTap: _busy ? null : () => _selectOption(question, option, index),
@@ -288,12 +290,14 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    Text(
-                      option.description,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.textSecondary,
+                    // A coding agent's choices can come without one.
+                    if (option.description.isNotEmpty)
+                      Text(
+                        option.description,
+                        style: AppTypography.bodySmallStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
