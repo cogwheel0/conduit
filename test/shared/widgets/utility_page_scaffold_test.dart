@@ -55,9 +55,12 @@ void main() {
     );
     expect(find.byKey(const ValueKey('utility-route-back-button')), findsOne);
     expect(find.byType(CNButton), findsOneWidget);
-    // A scroll edge under the bar, and one above the home indicator that
-    // stays clear while nothing scrolls under it.
-    expect(find.byType(ConduitChromeGradientFade), findsNWidgets(2));
+    // No scroll edge under the bar; only one above the home indicator,
+    // which stays clear while nothing scrolls under it.
+    final fade = tester.widget<ConduitChromeGradientFade>(
+      find.byType(ConduitChromeGradientFade),
+    );
+    expect(fade.edge, ConduitChromeFadeEdge.bottom);
     expect(
       tester
           .widget<AnimatedOpacity>(
