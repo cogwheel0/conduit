@@ -634,13 +634,24 @@ void main() {
       check(surface.severityAt(_now)).equals(HermesErrorSeverity.degraded);
     });
 
+    // The card and the sentence under it are chosen apart: every refusal
+    // of a restarting Hermes must get both.
     test('while Hermes restarts retries', () {
-      final surface = hermesApiErrorSurface(
-        refusal(503, code: 'gateway_draining'),
-      )!;
+      for (final code in [
+        HermesApiErrorCode.runtimeDraining,
+        HermesApiErrorCode.gatewayDraining,
+        HermesApiErrorCode.storageUnavailable,
+        HermesApiErrorCode.chainMoved,
+      ]) {
+        final error = refusal(503, code: code);
+        final surface = hermesApiErrorSurface(error)!;
 
-      check(surface.kind).equals(HermesErrorKind.busy);
-      check(surface.actionAt(_now)).equals(HermesErrorAction.retry);
+        check(surface.kind).equals(HermesErrorKind.busy);
+        check(surface.actionAt(_now)).equals(HermesErrorAction.retry);
+        check(
+          hermesApiRefusalMessage(error),
+        ).equals('Hermes is restarting or busy. Try again in a moment.');
+      }
     });
 
     test('for too many requests says when to retry', () {

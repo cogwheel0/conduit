@@ -2396,10 +2396,10 @@ HermesErrorSurface? hermesApiErrorSurface(Object error) {
         layer: HermesErrorLayer.gateway,
         code: 'SESSION_OWNER_BUSY',
       );
-    case 'runtime_draining':
-    case 'gateway_draining':
-    case 'storage_unavailable':
-    case 'chain_moved':
+    case HermesApiErrorCode.runtimeDraining:
+    case HermesApiErrorCode.gatewayDraining:
+    case HermesApiErrorCode.storageUnavailable:
+    case HermesApiErrorCode.chainMoved:
       return const HermesErrorSurface(
         layer: HermesErrorLayer.gateway,
         code: 'gateway_draining',
@@ -2456,10 +2456,10 @@ String? hermesApiRefusalMessage(HermesApiException error) {
     case HermesApiErrorCode.admissionQueued:
       return 'Hermes saved your message and will run it when it is back. '
           'Don\'t send it again.';
-    case 'runtime_draining':
-    case 'gateway_draining':
-    case 'storage_unavailable':
-    case 'chain_moved':
+    case HermesApiErrorCode.runtimeDraining:
+    case HermesApiErrorCode.gatewayDraining:
+    case HermesApiErrorCode.storageUnavailable:
+    case HermesApiErrorCode.chainMoved:
       return 'Hermes is restarting or busy. Try again in a moment.';
   }
   if (error.statusCode == 429) {
