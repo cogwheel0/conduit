@@ -6122,7 +6122,8 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         else { return }
         NativeSheetHaptics.selection()
         modelControls[index].value = value
-        if let section = sections.firstIndex(of: .controls) {
+        if let section = sections.firstIndex(of: .controls),
+           index < tableView.numberOfRows(inSection: section) {
             tableView.reloadRows(
                 at: [IndexPath(row: index, section: section)],
                 with: .none

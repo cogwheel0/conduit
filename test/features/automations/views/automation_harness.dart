@@ -101,6 +101,10 @@ final class AutomationWire implements HttpClientAdapter {
 
   /// Whether `/api/v1/terminals/` fails, as when the server is unreachable.
   bool terminalsFail = false;
+
+  /// What `/api/v1/automations/models` lists for a terminal, or null for a
+  /// terminal that cannot be asked.
+  List<Map<String, dynamic>>? agents = const [];
   int pageSize = 30;
   bool channelWrite = true;
   ({int status, String detail})? rejectWrites;
@@ -149,6 +153,12 @@ final class AutomationWire implements HttpClientAdapter {
     }
     if (path.contains('/channels/')) {
       return _json({'id': 'c', 'write_access': channelWrite});
+    }
+    if (path.endsWith('/automations/models')) {
+      final listed = agents;
+      return listed == null
+          ? _json({'detail': 'Terminal unreachable'}, 502)
+          : _json(listed);
     }
     if (path.endsWith('/terminals/')) {
       return terminalsFail
@@ -387,6 +397,7 @@ Future<AutomationSession> pumpAutomations(
     'features': {'automations': true, 'channels': true},
   },
   bool serverEnabled = true,
+  String? serverVersion,
   String role = 'user',
   List<Map<String, dynamic>>? tasks,
   List<Model>? models,
@@ -487,6 +498,7 @@ Future<AutomationSession> pumpAutomations(
           BackendConfig(
             serverId: automationTestServer.id,
             enableAutomations: serverEnabled,
+            version: serverVersion,
           ),
         ),
       ),

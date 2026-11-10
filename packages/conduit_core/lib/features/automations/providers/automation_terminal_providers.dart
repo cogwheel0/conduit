@@ -51,9 +51,10 @@ typedef AutomationAgentQuery = ({
 
 /// The coding agents [AutomationAgentQuery.terminalId] offers a scheduled
 /// task (Open WebUI 0.13.3 and later); empty on an older server, which runs
-/// no agent as a task.
+/// no agent as a task. Null when the terminal could not be asked: whether
+/// a task's agent is still offered is then unknown, not refused.
 final automationAgentModelsProvider = FutureProvider.autoDispose
-    .family<List<Model>, AutomationAgentQuery>((ref, query) async {
+    .family<List<Model>?, AutomationAgentQuery>((ref, query) async {
       if (!ref.watch(automationAgentsSupportedProvider)) {
         return const <Model>[];
       }
@@ -68,13 +69,11 @@ final automationAgentModelsProvider = FutureProvider.autoDispose
           automationId: query.automationId,
         );
       } catch (error) {
-        // An unreachable terminal offers no agents; a saved one then shows
-        // as no longer available, as a removed model does.
         DebugLogger.warning(
           'automation-agents-failed',
           scope: 'automations/terminal',
           data: {'error': error.runtimeType.toString()},
         );
-        return const <Model>[];
+        return null;
       }
     });

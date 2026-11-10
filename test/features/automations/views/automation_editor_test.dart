@@ -1016,6 +1016,52 @@ void main() {
       expect(data['terminal'], {'server_id': 'term-1'});
     });
 
+    testWidgets('an agent task whose terminal cannot be asked still saves', (
+      tester,
+    ) async {
+      final session = await pumpAutomations(
+        tester,
+        location: _editA,
+        serverVersion: '0.13.3',
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Morning digest',
+            model: 'agent:term-1:codex:gpt-5.1',
+            terminal: {'server_id': 'term-1'},
+          ),
+        ],
+        configureWire: (wire) => wire
+          ..terminals.add({
+            'id': 'term-1',
+            'name': 'Build box',
+            'url': '',
+            'contexts': <String, dynamic>{},
+          })
+          ..agents = null,
+      );
+      await _reveal(tester, find.byKey(const Key('scheduled-task-model')));
+      expect(find.text('Codex · gpt-5.1'), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-name')),
+          matching: find.byType(EditableText),
+        ),
+        'Evening digest',
+      );
+      await _save(tester);
+
+      final data = _body(session.wire, '/update')['data'] as Map;
+      expect(data['model_id'], 'agent:term-1:codex:gpt-5.1');
+      expect(
+        session.wire.requests.where(
+          (r) => r.uri.path.endsWith('/automations/models'),
+        ),
+        isNotEmpty,
+      );
+    });
+
     testWidgets('only the account\'s own folders are offered', (tester) async {
       await _edit(
         tester,

@@ -285,11 +285,12 @@ class _EditorState extends ConsumerState<_Editor> {
       agents = const <Model>[];
     } else if (channel || terminals == null) {
       agents = null;
-    } else if (terminal == null || agentsAsync!.hasError) {
+    } else if (terminal == null) {
       // The server lists its terminals and this one is not among them.
       agents = const <Model>[];
     } else {
-      agents = agentsAsync.asData?.value;
+      // Null while loading, and when the terminal could not be asked.
+      agents = agentsAsync!.asData?.value;
     }
     final runsAgent = draft?.runsAgent ?? false;
     final serverModels = ref
