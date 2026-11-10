@@ -172,6 +172,8 @@ import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.d
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 import 'package:conduit_core/models/model_controls.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart'
+    show TerminalServerInfo;
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/features/integrations/personal_connection_client.dart';

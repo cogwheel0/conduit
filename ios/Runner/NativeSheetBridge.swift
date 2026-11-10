@@ -1493,6 +1493,24 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         )
     }
 
+    func updateModelSelectorModelControls(
+        presentationId: String,
+        controls: [PlatformNativeSheetModelControl]
+    ) throws {
+        let normalizedPresentationId = presentationId.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedPresentationId.isEmpty else { return }
+        let options = controls.compactMap { NativeModelControlOption($0.asPayload()) }
+        applyNativeSheetModelUpdateSynchronouslyOnMain(
+            presentationId: normalizedPresentationId,
+            activePresentationId: { self.activeModelSelectorPresentationId },
+            update: {
+                self.activeModelSelectorController?.updateModelControls(options)
+            }
+        )
+    }
+
     func presentOptionsSelector(
         request: PlatformNativeSheetOptionsSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
@@ -6062,6 +6080,14 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     private var effortSelectionEnabled: Bool {
         !reasoningEffortOptions.isEmpty || allowsCustomReasoningEffort
+    }
+
+    /// Shows [controls] as the account holds them, as after a pick Flutter
+    /// could not save.
+    func updateModelControls(_ controls: [NativeModelControlOption]) {
+        modelControls = controls
+        rebuildSections()
+        if isViewLoaded { tableView.reloadData() }
     }
 
     /// Offers the options of the control in row [index], as the effort row

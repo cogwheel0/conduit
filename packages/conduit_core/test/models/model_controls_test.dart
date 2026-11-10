@@ -1,9 +1,52 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show modelControlStates;
+    show modelControlChoicesProvider, modelControlStates;
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/model_controls.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+
+/// A settings endpoint that stores what is posted to it.
+class _SettingsServer implements HttpClientAdapter {
+  _SettingsServer(this.settings);
+
+  Map<String, dynamic> settings;
+  final updates = <Map<String, dynamic>>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    if (options.method == 'POST') {
+      final body = await requestStream!.fold<List<int>>(
+        <int>[],
+        (bytes, chunk) => bytes..addAll(chunk),
+      );
+      settings = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+      updates.add(settings);
+    }
+    return ResponseBody.fromBytes(
+      utf8.encode(jsonEncode(settings)),
+      200,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 /// Controls as Open WebUI 0.13.3 builds them for a Codex model
 /// (`utils/agents/discovery.py`, `model_controls`).
@@ -62,6 +105,63 @@ void main() {
     check(modelHasReasoningEffortControl(_codex())).isTrue();
     check(modelHasReasoningEffortControl(const Model(id: 'm', name: 'm')))
         .isFalse();
+  });
+
+  test('a saved pick the selected model no longer offers is cleared on '
+      'load', () async {
+    // Open WebUI refuses a turn whose saved pick is not an option.
+    final server = _SettingsServer({
+      'ui': {
+        'params': {
+          'model_controls': {
+            'agent:t1:codex:gpt-5.1': {
+              'reasoning_effort': 'gone',
+              'service_tier': 'flex',
+            },
+          },
+        },
+      },
+    });
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'test',
+        name: 'Test Server',
+        url: 'http://localhost:9999',
+      ),
+      workerManager: WorkerManager(),
+    );
+    api.dio.httpClientAdapter = server;
+    api.dio.interceptors.clear();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        openWebUiAccountAvailableProvider.overrideWithValue(true),
+        openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(_codex());
+
+    final subscription = container.listen(
+      modelControlChoicesProvider,
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    await container.read(modelControlChoicesProvider.future);
+    for (var i = 0; i < 10 && server.updates.isEmpty; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    await Future<void>.delayed(Duration.zero);
+
+    check(server.updates).length.equals(1);
+    check(modelControlChoicesFromSettings(server.settings)).deepEquals({
+      'agent:t1:codex:gpt-5.1': {'service_tier': 'flex'},
+    });
+    check(container.read(modelControlChoicesProvider).value)
+        .isNotNull()
+        .deepEquals({
+          'agent:t1:codex:gpt-5.1': {'service_tier': 'flex'},
+        });
   });
 
   test('a pick applies, a stale one falls back to the default', () {

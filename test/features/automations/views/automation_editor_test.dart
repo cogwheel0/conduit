@@ -940,6 +940,82 @@ void main() {
       expect(_body(session.wire, '/update')['folder_id'], isNull);
     });
 
+    testWidgets('a terminal cleared and chosen again starts from its own '
+        'folder', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        location: _editA,
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Morning digest',
+            terminal: {'server_id': 'term-1', 'cwd': '/work'},
+          ),
+        ],
+        configureWire: (wire) => wire.terminals.add({
+          'id': 'term-1',
+          'name': 'Build box',
+          'url': '',
+          'contexts': <String, dynamic>{},
+        }),
+      );
+      final folder = find.descendant(
+        of: find.byKey(const Key('scheduled-task-working-folder')),
+        matching: find.byType(EditableText),
+      );
+      await _reveal(tester, folder);
+      expect(tester.widget<EditableText>(folder).controller.text, '/work');
+
+      for (final option in ['', 'term-1']) {
+        await _reveal(tester, find.byKey(const Key('scheduled-task-terminal')));
+        await tester.tap(find.byKey(const Key('scheduled-task-terminal')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key('scheduled-task-option-$option')));
+        await tester.pumpAndSettle();
+      }
+      await _reveal(tester, folder);
+      expect(tester.widget<EditableText>(folder).controller.text, isEmpty);
+
+      await _save(tester);
+      expect((_body(session.wire, '/update')['data'] as Map)['terminal'], {
+        'server_id': 'term-1',
+      });
+    });
+
+    testWidgets('an agent task whose terminals cannot be read still saves', (
+      tester,
+    ) async {
+      // Whether the agent is still offered is unknown, so the server decides.
+      final session = await pumpAutomations(
+        tester,
+        location: _editA,
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Morning digest',
+            model: 'agent:term-1:codex:gpt-5.1',
+            terminal: {'server_id': 'term-1'},
+          ),
+        ],
+        configureWire: (wire) => wire.terminalsFail = true,
+      );
+      await _reveal(tester, find.byKey(const Key('scheduled-task-model')));
+      expect(find.text('Codex · gpt-5.1'), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-name')),
+          matching: find.byType(EditableText),
+        ),
+        'Evening digest',
+      );
+      await _save(tester);
+
+      final data = _body(session.wire, '/update')['data'] as Map;
+      expect(data['model_id'], 'agent:term-1:codex:gpt-5.1');
+      expect(data['terminal'], {'server_id': 'term-1'});
+    });
+
     testWidgets('only the account\'s own folders are offered', (tester) async {
       await _edit(
         tester,

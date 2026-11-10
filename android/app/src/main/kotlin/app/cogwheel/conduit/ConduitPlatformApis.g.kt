@@ -4744,6 +4744,11 @@ interface NativeSheetHostApi {
   fun presentModelSelector(request: PlatformNativeSheetModelSelectorRequest, callback: (Result<String?>) -> Unit)
   fun updateModelSelectorModels(presentationId: String, models: List<PlatformNativeSheetModelOption>)
   fun updateModelSelectorReasoningEffort(presentationId: String, value: String, options: List<String>, allowsCustom: Boolean)
+  /**
+   * Shows [controls] as the open selector's control rows again, as the
+   * account holds them (after a pick that could not be saved).
+   */
+  fun updateModelSelectorModelControls(presentationId: String, controls: List<PlatformNativeSheetModelControl>)
   fun presentOptionsSelector(request: PlatformNativeSheetOptionsSelectorRequest, callback: (Result<String?>) -> Unit)
   fun presentDatePicker(request: PlatformNativeSheetDatePickerRequest, callback: (Result<String?>) -> Unit)
   fun presentTextEditor(request: PlatformNativeSheetTextEditorRequest, callback: (Result<PlatformNativeSheetActionResult?>) -> Unit)
@@ -4877,6 +4882,25 @@ interface NativeSheetHostApi {
             val allowsCustomArg = args[3] as Boolean
             val wrapped: List<Any?> = try {
               api.updateModelSelectorReasoningEffort(presentationIdArg, valueArg, optionsArg, allowsCustomArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModelControls$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val presentationIdArg = args[0] as String
+            val controlsArg = args[1] as List<PlatformNativeSheetModelControl>
+            val wrapped: List<Any?> = try {
+              api.updateModelSelectorModelControls(presentationIdArg, controlsArg)
               listOf(null)
             } catch (exception: Throwable) {
               ConduitPlatformApisPigeonUtils.wrapError(exception)

@@ -1121,6 +1121,13 @@ abstract class NativeSheetHostApi {
     bool allowsCustom,
   );
 
+  /// Shows [controls] as the open selector's control rows again, as the
+  /// account holds them (after a pick that could not be saved).
+  void updateModelSelectorModelControls(
+    String presentationId,
+    List<PlatformNativeSheetModelControl> controls,
+  );
+
   @async
   String? presentOptionsSelector(
     PlatformNativeSheetOptionsSelectorRequest request,

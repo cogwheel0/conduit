@@ -446,6 +446,29 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
   }
 
+  /// Shows [controls] as the selector [presentationId]'s control rows again,
+  /// as the account holds them.
+  Future<void> updateModelSelectorModelControls({
+    required String presentationId,
+    required List<PlatformNativeSheetModelControl> controls,
+  }) async {
+    final normalizedPresentationId = presentationId.trim();
+    if (!_isIOS || normalizedPresentationId.isEmpty) return;
+    try {
+      await _api.updateModelSelectorModelControls(
+        normalizedPresentationId,
+        controls,
+      );
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'updateModelSelectorModelControls',
+        error,
+        stackTrace,
+        data: {'controlCount': controls.length},
+      );
+    }
+  }
+
   void _restorePreviousModelPinToggleHandler({
     required Object owner,
     required Future<void> Function(String modelId)? previousHandler,

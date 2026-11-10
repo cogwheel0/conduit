@@ -26,6 +26,8 @@ import '../../shared/theme/tweakcn_themes.dart';
 
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/model_controls.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show isTerminalAgentModel;
 import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/models/tool.dart';
 
@@ -399,9 +401,25 @@ class NativeSheetHydrationService {
       choices = await _ref
           .read(modelControlChoicesProvider.future)
           .timeout(const Duration(seconds: 1));
-    } catch (_) {
+    } catch (error) {
+      // A slow or failed read shows each control's default, or what was
+      // last read; the sheet does not wait on it.
+      DebugLogger.warning(
+        'model-control-choices-unread',
+        scope: 'native-sheet/model-controls',
+        data: {'error': error.runtimeType.toString()},
+      );
       choices = _ref.read(modelControlChoicesProvider).asData?.value ?? choices;
     }
+    return _nativeModelControls(model, choices, l10n);
+  }
+
+  /// [model]'s control rows for the native selector under [choices].
+  List<PlatformNativeSheetModelControl> _nativeModelControls(
+    Model model,
+    ModelControlChoices choices,
+    AppLocalizations l10n,
+  ) {
     return [
       for (final state in modelControlStates(model, choices))
         PlatformNativeSheetModelControl(
@@ -465,6 +483,8 @@ class NativeSheetHydrationService {
         models: orderedModels,
         pinnedModelIds: pinnedModelIds,
         defaultModelId: defaultModelId,
+        // A coding agent leads the list only when pinned or selected.
+        fillsFallback: (model) => !isTerminalAgentModel(model),
       );
       final effortModel = orderedModels
           .where((model) => model.id == selectedModelId)
@@ -642,11 +662,30 @@ class NativeSheetHydrationService {
             l10n?.customReasoningEffortHint ?? 'Enter effort',
         modelControls: modelControls,
         modelControlDefaultTitle: l10n?.defaultLabel ?? 'Default',
-        onModelControlChanged: controlModel == null || modelControls.isEmpty
+        onModelControlChanged:
+            controlModel == null || modelControls.isEmpty || l10n == null
             ? null
-            : (key, value) => _ref
-                  .read(modelControlChoicesProvider.notifier)
-                  .choose(controlModel, key, value),
+            : (key, value) async {
+                try {
+                  await _ref
+                      .read(modelControlChoicesProvider.notifier)
+                      .choose(controlModel, key, value);
+                } catch (_) {
+                  // The row already shows the pick; put back what the
+                  // account holds, so the sheet does not claim a setting
+                  // that was never saved.
+                  await bridge.updateModelSelectorModelControls(
+                    presentationId: presentationId,
+                    controls: _nativeModelControls(
+                      controlModel,
+                      _ref.read(modelControlChoicesProvider).asData?.value ??
+                          const <String, Map<String, String>>{},
+                      l10n,
+                    ),
+                  );
+                  rethrow;
+                }
+              },
         onTogglePinned: canTogglePinnedModels
             ? (modelId) => _ref
                   .read(personalizationSettingsProvider.notifier)

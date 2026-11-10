@@ -48,6 +48,11 @@ typedef _Options = ({
 
   /// Whether the chosen terminal's coding agents are still loading.
   bool agentsLoading,
+
+  /// Whether the task's agent cannot be told available or gone yet: its
+  /// terminal or their list is loading, or could not be read. The server then
+  /// decides, rather than a guess here.
+  bool agentsUnknown,
   List<Channel>? channels,
   Map<String, AutomationChannelAccess> access,
   List<({String id, String name})>? folders,
@@ -223,6 +228,13 @@ class _EditorState extends ConsumerState<_Editor> {
     if (draft == null || draft.terminalId == id) return;
     final agentTerminal = parseTerminalAgentModelId(draft.modelId.trim())
         ?.terminalId;
+    if (id == null) {
+      // The folder belonged to the terminal: a terminal chosen later starts
+      // from its own default, in the field and in what it is asked.
+      _cwdDebounce?.cancel();
+      _cwd.clear();
+      _agentCwd = null;
+    }
     final next = id == null
         ? draft.copyWith(clearTerminal: true)
         : draft.copyWith(terminalId: id);
@@ -248,16 +260,16 @@ class _EditorState extends ConsumerState<_Editor> {
   _Options _options() {
     final draft = _draft;
     final terminalsAsync = ref.watch(automationTerminalsProvider);
-    final terminals = terminalsAsync.hasError
-        ? const <TerminalServerInfo>[]
-        : terminalsAsync.asData?.value;
+    // Null while loading, or when the list cannot be read.
+    final terminals = terminalsAsync.asData?.value;
     final terminalId = draft?.terminalId;
     final terminal = terminals
         ?.where((server) => server.selectionId == terminalId)
         .firstOrNull;
     // A coding agent posts only to a chat, so its terminal is asked for them
     // only then.
-    final agentsAsync = terminal == null || (draft?.target.isChannel ?? true)
+    final channel = draft?.target.isChannel ?? false;
+    final agentsAsync = terminal == null || channel
         ? null
         : ref.watch(
             automationAgentModelsProvider((
@@ -267,20 +279,26 @@ class _EditorState extends ConsumerState<_Editor> {
               automationId: draft?.original?.id,
             )),
           );
-    final agents = agentsAsync == null || agentsAsync.hasError
-        ? const <Model>[]
-        : agentsAsync.asData?.value;
+    // The task terminal's agents, or null while they cannot be known.
+    final List<Model>? agents;
+    if (terminalId == null) {
+      agents = const <Model>[];
+    } else if (channel || terminals == null) {
+      agents = null;
+    } else if (terminal == null || agentsAsync!.hasError) {
+      // The server lists its terminals and this one is not among them.
+      agents = const <Model>[];
+    } else {
+      agents = agentsAsync.asData?.value;
+    }
+    final runsAgent = draft?.runsAgent ?? false;
     final serverModels = ref
         .watch(modelsProvider)
         .asData
         ?.value
         .where(automationModelSelectable)
         .toList();
-    // While the agents load, a saved agent is not yet known to be gone.
-    final models =
-        serverModels == null || (agents == null && (draft?.runsAgent ?? false))
-        ? null
-        : [...serverModels, ...?agents];
+    final models = serverModels == null ? null : [...serverModels, ...?agents];
     final channelList = ref.watch(channelsListProvider).asData?.value;
     final user = ref.watch(currentUserProvider2);
     final permissions =
@@ -300,7 +318,10 @@ class _EditorState extends ConsumerState<_Editor> {
     return (
       models: models,
       terminals: terminals,
-      agentsLoading: agentsAsync?.isLoading ?? false,
+      agentsLoading:
+          runsAgent &&
+          (terminalsAsync.isLoading || (agentsAsync?.isLoading ?? false)),
+      agentsUnknown: runsAgent && agents == null,
       channels: channelList
           ?.where((c) => access[c.id] != AutomationChannelAccess.unavailable)
           .toList(),
@@ -316,7 +337,7 @@ class _EditorState extends ConsumerState<_Editor> {
 
   List<AutomationDraftIssue> _issues(AutomationDraft draft, _Options options) =>
       draft.issues(
-        modelIds: options.models == null
+        modelIds: options.models == null || options.agentsUnknown
             ? null
             : {for (final m in options.models!) m.id},
         folderIds: options.folders == null
@@ -331,6 +352,11 @@ class _EditorState extends ConsumerState<_Editor> {
     final draft = _draft;
     if (draft == null || _saving) return;
     FocusManager.instance.primaryFocus?.unfocus();
+    // A folder typed just now is the one its agents are checked against.
+    if (_cwdDebounce?.isActive ?? false) {
+      _cwdDebounce!.cancel();
+      _agentCwd = _cwd.text.trim();
+    }
     final l10n = AppLocalizations.of(context)!;
     final issues = _issues(draft, _options());
     if (issues.isNotEmpty) {
@@ -850,9 +876,13 @@ class _EditorState extends ConsumerState<_Editor> {
                 titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
                 subtitle:
                     modelIssue ??
-                    (options.agentsLoading && draft.runsAgent
+                    (options.agentsLoading
                         ? l10n.scheduledTaskAgentsLoading
-                        : _modelLabel(l10n, draft, options.models)),
+                        : _modelLabel(
+                            l10n,
+                            draft,
+                            options.agentsUnknown ? null : options.models,
+                          )),
                 foregroundColor: modelIssue == null ? null : theme.error,
                 showChevron: true,
                 onTap: _saving || options.models == null

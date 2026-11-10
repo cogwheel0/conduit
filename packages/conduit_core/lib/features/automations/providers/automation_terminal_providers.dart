@@ -18,12 +18,12 @@ bool terminalAvailableForAutomations(TerminalServerInfo server) {
 /// user added by address lives in their browser or this app, and the
 /// server's scheduler cannot reach it.
 ///
-/// A list that cannot be read is empty: the editor then offers no terminal
-/// to pick, and a task's saved one is kept as it is.
+/// Null when the list cannot be read: the editor then offers no terminal to
+/// pick, and keeps a task's saved one as it is, neither found nor gone.
 final automationTerminalsProvider =
-    FutureProvider.autoDispose<List<TerminalServerInfo>>((ref) async {
+    FutureProvider.autoDispose<List<TerminalServerInfo>?>((ref) async {
       final service = ref.watch(terminalServiceProvider);
-      if (service == null) return const <TerminalServerInfo>[];
+      if (service == null) return null;
       try {
         final servers = await service.getSystemTerminalServers();
         return List.unmodifiable(
@@ -35,7 +35,7 @@ final automationTerminalsProvider =
           scope: 'automations/terminal',
           data: {'error': error.runtimeType.toString()},
         );
-        return const <TerminalServerInfo>[];
+        return null;
       }
     });
 

@@ -53,8 +53,12 @@ class ModelControlChoicesNotifier extends AsyncNotifier<ModelControlChoices> {
     final choices = modelControlChoicesFromSettings(settings);
     final selected = ref.read(selectedModelProvider);
     if (selected != null) {
+      // The choices become this notifier's state only after build returns,
+      // so the check reads them as loaded.
       Future.microtask(() {
-        if (ref.mounted) unawaited(_clearStalePicks(selected));
+        if (ref.mounted) {
+          unawaited(_clearStalePicks(selected, loaded: choices));
+        }
       });
     }
     return choices;
@@ -63,13 +67,21 @@ class ModelControlChoicesNotifier extends AsyncNotifier<ModelControlChoices> {
   /// Saves [value] as the pick for [model]'s [controlKey], or clears the
   /// pick when [value] is null. The pick shows at once and is taken back if
   /// the server refuses it; the error is rethrown for the caller to report.
-  Future<void> choose(Model model, String controlKey, String? value) async {
+  ///
+  /// [loaded] stands in for the state while the first read has not become
+  /// it yet.
+  Future<void> choose(
+    Model model,
+    String controlKey,
+    String? value, {
+    ModelControlChoices? loaded,
+  }) async {
     final api = ref.read(apiServiceProvider);
     if (api == null) {
       throw StateError('No Open WebUI account to save the choice to.');
     }
     final previous =
-        state.asData?.value ?? const <String, Map<String, String>>{};
+        state.asData?.value ?? loaded ?? const <String, Map<String, String>>{};
     state = AsyncData(_withChoice(previous, model.id, controlKey, value));
     try {
       final stored = await api.updateUserModelControlChoice(
@@ -84,16 +96,19 @@ class ModelControlChoicesNotifier extends AsyncNotifier<ModelControlChoices> {
     }
   }
 
-  Future<void> _clearStalePicks(Model model) async {
+  Future<void> _clearStalePicks(
+    Model model, {
+    ModelControlChoices? loaded,
+  }) async {
     final controls = modelControlsOf(model);
     if (controls.isEmpty) return;
-    final picked = state.asData?.value[model.id];
+    final picked = (state.asData?.value ?? loaded)?[model.id];
     if (picked == null) return;
     for (final control in controls) {
       final value = picked[control.key];
       if (value == null || control.optionFor(value) != null) continue;
       try {
-        await choose(model, control.key, null);
+        await choose(model, control.key, null, loaded: loaded);
       } catch (error) {
         DebugLogger.warning(
           'model-control-clear-failed',

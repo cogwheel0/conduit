@@ -661,8 +661,9 @@ class Models extends _$Models {
       final freshModels = currentState.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
-        // A coding agent is listed by its terminal, never in this list; the
-        // terminal guard drops it when its terminal goes.
+        // A coding agent is listed by its terminal, never in this list.
+        // terminalAgentSelectionGuardProvider drops it when its terminal is
+        // switched or the server stops offering it.
         if (currentSelected.isHidden || isTerminalAgentModel(currentSelected)) {
           return;
         }

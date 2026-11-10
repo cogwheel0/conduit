@@ -130,8 +130,31 @@ Future<Model?> resolveTerminalAgentModel(
 
 /// Puts the default model back when the terminal under a selected coding
 /// agent is switched off or changed, as Open WebUI does: the agent runs only
-/// on its own terminal.
+/// on its own terminal. A terminal the server no longer offers this chat
+/// counts as gone once a list is read without it; a list that is loading or
+/// could not be read changes nothing.
 final terminalAgentSelectionGuardProvider = Provider<void>((ref) {
+  ref.listen<AsyncValue<List<TerminalServerInfo>>>(
+    terminalAvailableServersProvider,
+    (previous, next) {
+      if (next is! AsyncData<List<TerminalServerInfo>>) return;
+      final selected = ref.read(selectedModelProvider);
+      final agentTerminal = terminalAgentTerminalId(selected);
+      if (agentTerminal == null) return;
+      final offered = next.value.any(
+        (server) => server.isSystem && server.selectionId == agentTerminal,
+      );
+      if (offered) return;
+      DebugLogger.log('agent-terminal-gone', scope: 'chat/agents');
+      Future.microtask(() {
+        if (!ref.mounted) return;
+        if (!identical(ref.read(selectedModelProvider), selected)) return;
+        unawaited(restoreDefaultModel(ref));
+      });
+    },
+    // A list already read counts too, not only the next one.
+    fireImmediately: true,
+  );
   ref.listen<String?>(selectedTerminalIdProvider, (previous, next) {
     final selected = ref.read(selectedModelProvider);
     final agentTerminal = terminalAgentTerminalId(selected);

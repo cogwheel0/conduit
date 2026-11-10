@@ -37,6 +37,10 @@ String? _decode(String value) {
   try {
     return Uri.decodeComponent(value);
   } on ArgumentError {
+    // A `%` not followed by two hex digits.
+    return null;
+  } on FormatException {
+    // Escapes that are not UTF-8, such as `%FF`.
     return null;
   }
 }

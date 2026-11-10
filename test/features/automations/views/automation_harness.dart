@@ -95,6 +95,12 @@ final class AutomationWire implements HttpClientAdapter {
   final List<Map<String, dynamic>> tasks;
   final Map<String, List<Map<String, dynamic>>> runs = {};
   final requests = <RequestOptions>[];
+
+  /// The server terminals `/api/v1/terminals/` lists.
+  final terminals = <Map<String, dynamic>>[];
+
+  /// Whether `/api/v1/terminals/` fails, as when the server is unreachable.
+  bool terminalsFail = false;
   int pageSize = 30;
   bool channelWrite = true;
   ({int status, String detail})? rejectWrites;
@@ -143,6 +149,11 @@ final class AutomationWire implements HttpClientAdapter {
     }
     if (path.contains('/channels/')) {
       return _json({'id': 'c', 'write_access': channelWrite});
+    }
+    if (path.endsWith('/terminals/')) {
+      return terminalsFail
+          ? _json({'detail': 'Terminals unavailable'}, 503)
+          : _json(terminals);
     }
     if (path.endsWith('/list')) {
       final query = options.uri.queryParameters;

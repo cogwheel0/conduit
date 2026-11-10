@@ -47,12 +47,16 @@ class ModelSelectorSection {
 /// [sectionOf] groups the models past the featured ones; a model it gives
 /// no section stays in [ModelSelectorLayout.more]. Sections sort by order,
 /// then by where their first model was.
+///
+/// [fillsFallback] says which models may fill the first slots when nothing
+/// is pinned; a model it refuses is featured only when pinned or selected.
 ModelSelectorLayout buildModelSelectorLayout({
   required Iterable<Model> models,
   required Iterable<String> pinnedModelIds,
   String? defaultModelId,
   String? selectedModelId,
   ModelSelectorSectionKey? Function(Model model)? sectionOf,
+  bool Function(Model model)? fillsFallback,
 }) {
   final all = List<Model>.unmodifiable(models);
   final byId = <String, Model>{for (final model in all) model.id: model};
@@ -63,7 +67,8 @@ ModelSelectorLayout buildModelSelectorLayout({
   final featuredIds = <String>{for (final model in featured) model.id};
 
   if (featured.isEmpty) {
-    for (final model in all.take(kModelSelectorFallbackCount)) {
+    final candidates = fillsFallback == null ? all : all.where(fillsFallback);
+    for (final model in candidates.take(kModelSelectorFallbackCount)) {
       if (featuredIds.add(model.id)) featured.add(model);
     }
     final defaultModel = byId[defaultModelId];

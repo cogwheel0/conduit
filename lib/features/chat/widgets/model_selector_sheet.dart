@@ -249,6 +249,9 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
           (isTerminalAgentModel(model)
               ? (label: codingAgents, order: 1 << 20)
               : null),
+      // An agent leads the list only when pinned or selected, so a short
+      // account list does not lift the agents out from under their heading.
+      fillsFallback: (model) => !isTerminalAgentModel(model),
     );
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     final moreModels = layout.more

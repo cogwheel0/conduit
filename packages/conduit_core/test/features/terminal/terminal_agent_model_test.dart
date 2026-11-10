@@ -96,8 +96,10 @@ void main() {
         // Other backends' agents keep their own namespace.
         'librechat:agent:abc',
         'hermes:agent:default',
-        // Not URL-decodable.
+        // Not URL-decodable: a broken escape, and one that is not UTF-8.
         'agent:%E0%A4%A:codex:gpt',
+        'agent:%FF:codex:gpt',
+        'agent:term:codex:%C3',
       ]) {
         check(because: '$id', parseTerminalAgentModelId(id)).isNull();
       }

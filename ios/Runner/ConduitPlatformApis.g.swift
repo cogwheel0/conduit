@@ -4598,6 +4598,9 @@ protocol NativeSheetHostApi {
   func presentModelSelector(request: PlatformNativeSheetModelSelectorRequest, completion: @escaping (Result<String?, Error>) -> Void)
   func updateModelSelectorModels(presentationId: String, models: [PlatformNativeSheetModelOption]) throws
   func updateModelSelectorReasoningEffort(presentationId: String, value: String, options: [String], allowsCustom: Bool) throws
+  /// Shows [controls] as the open selector's control rows again, as the
+  /// account holds them (after a pick that could not be saved).
+  func updateModelSelectorModelControls(presentationId: String, controls: [PlatformNativeSheetModelControl]) throws
   func presentOptionsSelector(request: PlatformNativeSheetOptionsSelectorRequest, completion: @escaping (Result<String?, Error>) -> Void)
   func presentDatePicker(request: PlatformNativeSheetDatePickerRequest, completion: @escaping (Result<String?, Error>) -> Void)
   func presentTextEditor(request: PlatformNativeSheetTextEditorRequest, completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void)
@@ -4719,6 +4722,24 @@ class NativeSheetHostApiSetup {
       }
     } else {
       updateModelSelectorReasoningEffortChannel.setMessageHandler(nil)
+    }
+    /// Shows [controls] as the open selector's control rows again, as the
+    /// account holds them (after a pick that could not be saved).
+    let updateModelSelectorModelControlsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModelControls\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      updateModelSelectorModelControlsChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let presentationIdArg = args[0] as! String
+        let controlsArg = args[1] as! [PlatformNativeSheetModelControl]
+        do {
+          try api.updateModelSelectorModelControls(presentationId: presentationIdArg, controls: controlsArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      updateModelSelectorModelControlsChannel.setMessageHandler(nil)
     }
     let presentOptionsSelectorChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeSheetHostApi.presentOptionsSelector\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
