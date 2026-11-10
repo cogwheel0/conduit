@@ -2171,6 +2171,28 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         }
       },
       onSessionRefused: markSessionRefused,
+      // Saved during a restart with no response to follow: a Hermes chat
+      // looks for the answer in its session. An OpenWebUI chat keeps the
+      // note; its Hermes reply is stored only when a turn ends.
+      onQueued: () {
+        final followed = sessionId;
+        if (service is! HermesResponsesTurnService ||
+            owner.usesOpenWebUiBackend ||
+            followed == null ||
+            followed.isEmpty) {
+          return;
+        }
+        unawaited(
+          _followQueuedHermesAnswer(
+            ref,
+            service: service,
+            sessionId: followed,
+            owner: owner,
+            notifier: notifier,
+            assistantMessageId: assistantMessageId,
+          ),
+        );
+      },
       onCompletedSuccessfully: () async {
         final committedSessionId = sessionId;
         final committedBaselineMessageIds = baselineServerMessageIds;
@@ -2323,6 +2345,107 @@ String? _lastFailedHermesRunId(List<ChatMessage> messages) {
     return runId;
   }
   return null;
+}
+
+/// Waits in the background for the answer of the message Hermes saved in
+/// [sessionId] during a restart, and shows it in [assistantMessageId] once
+/// it is there: the turn had no response to follow, and the message is
+/// never sent again. Stops when the chat is left or something else is
+/// sent; when the time allowed runs out, says to look again later.
+Future<void> _followQueuedHermesAnswer(
+  dynamic ref, {
+  required HermesBackendService service,
+  required String sessionId,
+  required _HermesConversationOwner owner,
+  required ChatMessagesNotifier notifier,
+  required String assistantMessageId,
+}) async {
+  List<ChatMessage> messages() => ref.read(chatMessagesProvider);
+  bool current() =>
+      owner.isActive(ref) && messages().lastOrNull?.id == assistantMessageId;
+  void update(ChatMessage Function(ChatMessage message) updater) {
+    if (owner.isActive(ref)) {
+      notifier.updateMessageById(assistantMessageId, updater);
+    }
+  }
+
+  List<ChatStatusUpdate> settled(
+    List<ChatStatusUpdate> history,
+    String description,
+  ) => [
+    for (final status in history)
+      if (status.action == kHermesQueuedAnswerAction)
+        status.copyWith(description: description, done: true)
+      else
+        status,
+  ];
+
+  update(
+    (message) => message.copyWith(
+      statusHistory: [
+        ...message.statusHistory,
+        const ChatStatusUpdate(
+          action: kHermesQueuedAnswerAction,
+          description: kHermesQueuedAnswerWaitingMessage,
+          done: false,
+        ),
+      ],
+    ),
+  );
+  HermesQueuedAnswer outcome;
+  try {
+    int? baseline;
+    try {
+      baseline = (await service.getSessionMessages(sessionId)).length;
+    } catch (_) {
+      // Taken from the first read that works instead.
+    }
+    outcome = await awaitHermesQueuedAnswer(
+      readTranscript: () => service.getSessionMessages(sessionId),
+      isCurrent: current,
+      baseline: baseline,
+    );
+  } catch (error) {
+    DebugLogger.warning(
+      'queued-answer-follow-failed',
+      scope: 'hermes/transport',
+      data: <String, Object?>{'errorType': error.runtimeType.toString()},
+    );
+    outcome = const HermesQueuedAnswerPending();
+  }
+  switch (outcome) {
+    case HermesQueuedAnswerArrived(:final rows):
+      final placeholder = messages()
+          .where((message) => message.id == assistantMessageId)
+          .firstOrNull;
+      final reply = hermesMessagesToChatMessages(
+        rows,
+        modelId: placeholder?.model,
+        sensitiveValues: service.config.sensitiveValues,
+      ).lastWhere((message) => message.role == 'assistant');
+      update(
+        (message) => message.copyWith(
+          content: reply.content,
+          statusHistory: [
+            ...settled(
+              message.statusHistory,
+              kHermesQueuedAnswerArrivedMessage,
+            ),
+            ...reply.statusHistory,
+          ],
+        ),
+      );
+    case HermesQueuedAnswerPending():
+    case HermesQueuedAnswerAbandoned():
+      update(
+        (message) => message.copyWith(
+          statusHistory: settled(
+            message.statusHistory,
+            kHermesQueuedAnswerLateMessage,
+          ),
+        ),
+      );
+  }
 }
 
 @visibleForTesting

@@ -182,6 +182,7 @@ Future<bool> dispatchHermesTurn({
   FutureOr<void> Function()? onCompletedSuccessfully,
   void Function(String code)? onSessionRefused,
   void Function(HermesModelSwitchDeclined declined)? onModelSwitchDeclined,
+  void Function()? onQueued,
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -244,6 +245,7 @@ Future<bool> dispatchHermesTurn({
         updateMessage: updateMessage,
         onSessionRefused: onSessionRefused,
         onModelSwitchDeclined: onModelSwitchDeclined,
+        onQueued: onQueued,
       );
     }
     finishStreaming();
@@ -993,6 +995,7 @@ void _reportHermesStartFailure(
   updateMessage,
   void Function(String code)? onSessionRefused,
   void Function(HermesModelSwitchDeclined declined)? onModelSwitchDeclined,
+  void Function()? onQueued,
 }) {
   // The user's own choice, not a failure: a note on the turn, and the chat
   // gets its message and its model back.
@@ -1023,6 +1026,13 @@ void _reportHermesStartFailure(
         done: true,
       ),
     );
+    // Saved with no run or response to follow: the chat may look for the
+    // answer in its session.
+    try {
+      onQueued?.call();
+    } catch (_) {
+      DebugLogger.error('queued-callback-failed', scope: 'hermes/transport');
+    }
     return;
   }
   updateMessage((m) => _hermesFailure(m, error));

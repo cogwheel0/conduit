@@ -3027,6 +3027,40 @@ void main() {
     check(declined).deepEquals([kept]);
   });
 
+  // A Responses turn Hermes saved during a restart carries no response to
+  // follow: the chat hears so, to look for the answer in its session.
+  test('a turn saved during a restart lets the chat follow it', () async {
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+    final statuses = <ChatStatusUpdate>[];
+    var queued = 0;
+
+    await dispatchHermesTurn(
+      startTurn: (_) async => throw HermesApiException(
+        requestOptions: RequestOptions(path: '/v1/responses'),
+        statusCode: 503,
+        code: HermesApiErrorCode.admissionQueued,
+      ),
+      sensitiveValues: const [],
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      onQueued: () => queued++,
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error).isNull();
+    check(statuses.single.action).equals('hermes_run_queued');
+    check(queued).equals(1);
+  });
+
   test('a gateway that keeps restarting says so', () async {
     var message = ChatMessage(
       id: 'm',
