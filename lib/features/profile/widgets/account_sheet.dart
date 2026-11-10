@@ -208,12 +208,20 @@ class _AccountSheetState extends State<AccountSheet> {
                     child: NavigatorPopHandler(
                       onPopWithResult: (_) =>
                           _navigator.currentState?.maybePop(),
-                      child: Navigator(
-                        key: _navigator,
-                        observers: [_expandOnPush],
-                        onGenerateRoute: (_) => PageRouteBuilder<void>(
-                          pageBuilder: (_, _, _) =>
-                              _AccountSheetRoot(request: widget.request),
+                      // The sheet already stands on the keyboard: a page
+                      // inside it that made room for the keyboard again
+                      // would lose its height twice, and a web sign-in
+                      // page all of it.
+                      child: MediaQuery.removeViewInsets(
+                        context: context,
+                        removeBottom: true,
+                        child: Navigator(
+                          key: _navigator,
+                          observers: [_expandOnPush],
+                          onGenerateRoute: (_) => PageRouteBuilder<void>(
+                            pageBuilder: (_, _, _) =>
+                                _AccountSheetRoot(request: widget.request),
+                          ),
                         ),
                       ),
                     ),
