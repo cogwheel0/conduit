@@ -350,33 +350,36 @@ void main() {
     await _tearDown(tester);
   });
 
-  testWidgets('a tap on the Temporary Chat glyph explains it before it '
-      'changes anything', (tester) async {
+  testWidgets('a tap on the Temporary Chat glyph turns it on and off at once', (
+    tester,
+  ) async {
     final container = await _pumpChatPage(tester);
-    final toggle = tester
+    ConduitToolbarClusterItem toggle() => tester
         .widget<ConduitToolbarActionCluster>(
           find.byType(ConduitToolbarActionCluster),
         )
         .items
         .single;
-    expect(toggle.id, 'temporary-chat');
-
-    toggle.action.onPressed!();
-    await tester.pumpAndSettle();
-    // The popover names the setting and says what it does; the tap alone
-    // leaves the chat as it was.
-    expect(find.text('Temporary Chat'), findsOneWidget);
-    expect(find.text("This chat won't appear in history"), findsOneWidget);
+    expect(toggle().id, 'temporary-chat');
     expect(container.read(temporaryChatEnabledProvider), isFalse);
 
-    // The popover's switch (Flutter's own where there is no native side).
-    await tester.tap(
+    toggle().action.onPressed!();
+    await tester.pumpAndSettle();
+    // No popover stands between the tap and the setting: it is on, and the
+    // empty chat says so.
+    expect(container.read(temporaryChatEnabledProvider), isTrue);
+    expect(
       find.byWidgetPredicate(
         (widget) => widget.runtimeType.toString() == 'CupertinoSwitch',
       ),
+      findsNothing,
     );
+    expect(find.text("This chat won't appear in history"), findsOneWidget);
+
+    toggle().action.onPressed!();
     await tester.pumpAndSettle();
-    expect(container.read(temporaryChatEnabledProvider), isTrue);
+    expect(container.read(temporaryChatEnabledProvider), isFalse);
+    expect(find.text("This chat won't appear in history"), findsNothing);
     await _tearDown(tester);
   });
 }

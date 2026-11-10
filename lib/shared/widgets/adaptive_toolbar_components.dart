@@ -3,8 +3,6 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show CNPopover, CNPopoverContent, CNPopoverToggle;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
@@ -1008,46 +1006,6 @@ const double kConduitCenteredTitleClearance = 12;
 /// and the controls beside it.
 const double kConduitBarTitleGap = Spacing.sm;
 
-/// Explains a bar toggle whose glyph has no label: the system popover of iOS
-/// 26 and later, pointing at the toggle, with the setting as a labelled
-/// switch and a line on what it does.
-///
-/// Completes with false right away, having shown nothing, where there is no
-/// native popover or the anchor is not laid out.
-Future<bool> showConduitToolbarTogglePopover({
-  required BuildContext context,
-  required GlobalKey anchorKey,
-  required String label,
-  required bool value,
-  required ValueChanged<bool> onChanged,
-  String? detail,
-  String? symbol,
-  Color? tint,
-}) async {
-  if (!PlatformUiCapabilities.usesNativeIOS26) return false;
-  final box = anchorKey.currentContext?.findRenderObject();
-  if (box is! RenderBox || !box.attached || !box.hasSize) return false;
-  await CNPopover.show(
-    context: context,
-    anchorKey: anchorKey,
-    content: CNPopoverContent(
-      toggles: [
-        CNPopoverToggle(
-          id: 'toggle',
-          label: label,
-          subtitle: detail,
-          value: value,
-          symbol: symbol == null ? null : CNSymbol(symbol),
-        ),
-      ],
-    ),
-    // The app's switches are monochrome, not the system green.
-    tint: tint ?? context.conduitTheme.buttonPrimary,
-    onToggleChanged: (_, newValue) => onChanged(newValue),
-  );
-  return true;
-}
-
 /// One action of a [ConduitToolbarActionCluster].
 @immutable
 class ConduitToolbarClusterItem {
@@ -1055,8 +1013,6 @@ class ConduitToolbarClusterItem {
     required this.id,
     required this.action,
     this.fallbackIcon,
-    this.onLongPress,
-    this.anchorKey,
   });
 
   /// Identifies the action across rebuilds, so a change of the cluster's
@@ -1068,12 +1024,6 @@ class ConduitToolbarClusterItem {
 
   /// Glyph drawn where the platform has no native glass controls.
   final IconData? fallbackIcon;
-
-  /// Invoked on a long press, for example to explain an unlabeled glyph.
-  final VoidCallback? onLongPress;
-
-  /// Attached to the action's slot, for a popover pointing at it.
-  final GlobalKey? anchorKey;
 }
 
 /// The critically damped spring every bar reshape rides (the trailing glass
@@ -1551,16 +1501,7 @@ class _ConduitToolbarActionClusterState
     for (final entry in _entries.values) {
       final opacity = entry.opacity.clamp(0.0, 1.0).toDouble();
       if (opacity <= 0 && entry.leaving) continue;
-      // The same wrappers whether or not there is a long press or anchor,
-      // so a change of either never rebuilds the native control (a blank
-      // frame).
-      final child = KeyedSubtree(
-        key: entry.item.anchorKey,
-        child: GestureDetector(
-          onLongPress: entry.item.onLongPress,
-          child: _buildAction(entry.item, height, usesNativeGlass),
-        ),
-      );
+      final child = _buildAction(entry.item, height, usesNativeGlass);
       children.add(
         Positioned(
           key: ValueKey<Object>(entry.item.id),

@@ -178,8 +178,6 @@ class _ChatToolbarActionDescriptor {
     required this.widget,
     required this.nativeAction,
     this.icon,
-    this.onLongPress,
-    this.anchorKey,
   });
 
   /// Stable identity of the action, so the bar's grouped actions fade only
@@ -188,15 +186,11 @@ class _ChatToolbarActionDescriptor {
   final Widget widget;
   final ConduitNativeToolbarAction nativeAction;
   final IconData? icon;
-  final VoidCallback? onLongPress;
-  final GlobalKey? anchorKey;
 
   ConduitToolbarClusterItem get clusterItem => ConduitToolbarClusterItem(
     id: id,
     action: nativeAction,
     fallbackIcon: icon,
-    onLongPress: onLongPress,
-    anchorKey: anchorKey,
   );
 }
 
@@ -594,10 +588,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Timer? _newChatActionsHoldTimer;
   bool _newChatActionsHoldExpired = false;
 
-  /// The Temporary Chat toggle, for the popover that explains it.
-  final GlobalKey _temporaryChatToggleKey = GlobalKey(
-    debugLabel: 'temporary-chat-toggle',
-  );
   bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _scrollToBottomPrewarmPending = false;
   bool _hasUserScrolled = false;
@@ -5076,8 +5066,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required Color tintColor,
     required VoidCallback? onPressed,
     String? iosSymbol,
-    VoidCallback? onLongPress,
-    GlobalKey? anchorKey,
     Key? key,
     bool labelFlutterButton = false,
   }) {
@@ -5086,8 +5074,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return _ChatToolbarActionDescriptor(
       id: id,
       icon: icon,
-      onLongPress: onLongPress,
-      anchorKey: anchorKey,
       widget: ConduitAdaptiveAppBarIconButton(
         key: key,
         icon: icon,
@@ -5189,24 +5175,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
 
-    // The glyph has no label, so a tap names it first: a popover from the
-    // button with the setting as a labelled switch and a line on what it
-    // does. Where there is no such popover, a tap flips it.
-    Future<void> presentToggle() async {
-      final shown = await showConduitToolbarTogglePopover(
-        context: context,
-        anchorKey: _temporaryChatToggleKey,
-        label: l10n.temporaryChat,
-        detail: l10n.temporaryChatTooltip,
-        symbol: temporaryChatToolbarSymbol(isTemporary: false),
-        value: ref.read(temporaryChatEnabledProvider),
-        onChanged: setTemporary,
-      );
-      if (!shown && mounted) {
-        setTemporary(!ref.read(temporaryChatEnabledProvider));
-      }
-    }
-
     return _buildChatToolbarIconAction(
       id: 'temporary-chat',
       icon: isTemporary
@@ -5220,17 +5188,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ? '${l10n.temporaryChat}, ${l10n.enabled}'
           : l10n.temporaryChat,
       tintColor: tintColor,
-      // While the first message is on its way the toggle stays in place but
-      // no longer changes the chat (it keeps looking enabled, so the bar
-      // does not flicker before it changes to the chat's actions).
-      onPressed: held ? () {} : () => unawaited(presentToggle()),
-      anchorKey: _temporaryChatToggleKey,
-      onLongPress: held
-          ? null
-          : () {
-              ConduitHaptics.lightImpact();
-              unawaited(presentToggle());
-            },
+      // A tap turns it on or off at once. While the first message is on its
+      // way the toggle stays in place but no longer changes the chat (it
+      // keeps looking enabled, so the bar does not flicker before it
+      // changes to the chat's actions).
+      onPressed: held
+          ? () {}
+          : () => setTemporary(!ref.read(temporaryChatEnabledProvider)),
     );
   }
 
