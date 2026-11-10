@@ -113,6 +113,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           (event.type == 'tool.complete' && event.payload['todos'] is List)) {
         _adoptTodoState(event.sessionId, event.payload);
       }
+      _observeBackgroundWorkEvent(event);
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
           event.type == 'clarify.expire' ||

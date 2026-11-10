@@ -16,6 +16,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/network/external_link.dart';
 import 'package:conduit_core/network/upload_timeout.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_background_work.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
@@ -45,6 +46,7 @@ part 'hermes_desktop_administration.dart';
 part 'hermes_desktop_audio.dart';
 part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
+part 'hermes_desktop_background_work.dart';
 part 'hermes_desktop_canonical.dart';
 part 'hermes_desktop_context.dart';
 part 'hermes_desktop_event_projection.dart';
@@ -361,6 +363,9 @@ final class HermesDesktopApiService
   /// The agent's task list per chat (stored id), and which chat's changed.
   final Map<String, HermesTodoState> _todoStates = {};
   final _todoChanges = StreamController<String>.broadcast();
+
+  /// Chats whose subagents or background processes may have changed.
+  final _backgroundWorkHints = StreamController<String>.broadcast();
   final _desktopContractChanges = StreamController<int>.broadcast();
 
   Map<String, dynamic>? _status;
@@ -897,6 +902,7 @@ final class HermesDesktopApiService
     unawaited(_sessionTurnStateChanges.close());
     unawaited(_transcriptChanges.close());
     unawaited(_todoChanges.close());
+    unawaited(_backgroundWorkHints.close());
     unawaited(_desktopContractChanges.close());
     _eventBuffer.clear();
     _bindings.clear();

@@ -8911,5 +8911,144 @@
   },
   "hermesErrorOpenBilling": "Otwórz rozliczenia",
   "hermesErrorUseCredits": "Użyj środków",
-  "hermesErrorActionFailed": "Nie udało się. Spróbuj ponownie."
+  "hermesErrorActionFailed": "Nie udało się. Spróbuj ponownie.",
+  "hermesBackgroundAgentCount": "{count, plural, =1{1 agent} few{{count} agenty} many{{count} agentów} other{{count} agenta}}",
+  "@hermesBackgroundAgentCount": {
+    "description": "How many subagents the agent of a Hermes chat has running, on the chip above the composer.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesBackgroundProcessCount": "{count, plural, =1{1 proces} few{{count} procesy} many{{count} procesów} other{{count} procesu}}",
+  "@hermesBackgroundProcessCount": {
+    "description": "How many background processes the agent of a Hermes chat has running, on the chip above the composer.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesBackgroundWorkShow": "Pokaż pracę w tle",
+  "@hermesBackgroundWorkShow": {
+    "description": "Screen reader hint of the chip above a Hermes chat's composer: opens the list of its running subagents and background processes."
+  },
+  "hermesBackgroundWorkTitle": "Praca w tle",
+  "@hermesBackgroundWorkTitle": {
+    "description": "Title of the sheet listing a Hermes chat's running subagents and background processes."
+  },
+  "hermesBackgroundWorkEmpty": "Nic nie działa w tle.",
+  "@hermesBackgroundWorkEmpty": {
+    "description": "Shown in the background work sheet when no subagent or process runs any more."
+  },
+  "hermesBackgroundAgents": "Agenci",
+  "@hermesBackgroundAgents": {
+    "description": "Section label of the background work sheet: the subagents the chat's agent delegated tasks to."
+  },
+  "hermesBackgroundProcesses": "Procesy",
+  "@hermesBackgroundProcesses": {
+    "description": "Section label of the background work sheet: commands the agent left running in the background."
+  },
+  "hermesSubagentQueued": "w kolejce",
+  "@hermesSubagentQueued": {
+    "description": "Short status of a subagent that waits for its turn to start, after its model name."
+  },
+  "hermesSubagentLastTool": "ostatnie narzędzie: {tool}",
+  "@hermesSubagentLastTool": {
+    "description": "The tool a subagent called last, after its model and running time.",
+    "placeholders": {
+      "tool": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesSubagentFinished": "Ten agent zakończył pracę.",
+  "@hermesSubagentFinished": {
+    "description": "Shown on a subagent once it has finished: it can no longer be steered or stopped."
+  },
+  "hermesSubagentOutput": "Wyjście na żywo",
+  "@hermesSubagentOutput": {
+    "description": "Label above the end of a running subagent's transcript, read live."
+  },
+  "hermesSubagentNoOutput": "Brak wyjścia.",
+  "@hermesSubagentNoOutput": {
+    "description": "Shown in place of a subagent's output before it has written any."
+  },
+  "hermesSubagentOutputTruncated": "Wyświetlana jest najnowsza część wyjścia.",
+  "@hermesSubagentOutputTruncated": {
+    "description": "Shown above a subagent's output when earlier output was left out."
+  },
+  "hermesSubagentOutputFailed": "Nie udało się wczytać wyjścia.",
+  "@hermesSubagentOutputFailed": {
+    "description": "Shown in place of a subagent's output when reading it failed."
+  },
+  "hermesSubagentSteerHint": "Napisz coś temu agentowi",
+  "@hermesSubagentSteerHint": {
+    "description": "Placeholder of the field for a message to a running subagent."
+  },
+  "hermesSubagentSteer": "Pokieruj",
+  "@hermesSubagentSteer": {
+    "description": "Button that sends the typed message to a running subagent, to change its course."
+  },
+  "hermesSubagentSteerQueued": "W kolejce. Agent przeczyta to tylko wtedy, gdy wykona kolejny krok.",
+  "@hermesSubagentSteerQueued": {
+    "description": "Shown after a message to a subagent was queued: the subagent reads it only if it takes another step."
+  },
+  "hermesSubagentSteerRejected": "Ten agent nie przyjmuje już poleceń.",
+  "@hermesSubagentSteerRejected": {
+    "description": "Shown when a subagent no longer accepts messages, usually because it is about to finish."
+  },
+  "hermesSubagentStop": "Zatrzymaj agenta",
+  "@hermesSubagentStop": {
+    "description": "Button that stops a running subagent."
+  },
+  "hermesSubagentStopped": "Poproszono agenta o zatrzymanie.",
+  "@hermesSubagentStopped": {
+    "description": "Shown after the user stopped a subagent."
+  },
+  "hermesBackgroundActionFailed": "Nie udało się. Spróbuj ponownie.",
+  "@hermesBackgroundActionFailed": {
+    "description": "Shown when steering, stopping or killing background work failed."
+  },
+  "hermesProcessKill": "Zakończ",
+  "@hermesProcessKill": {
+    "description": "Confirm button of the dialog that kills a background process."
+  },
+  "hermesProcessKillLabel": "Zakończ proces",
+  "@hermesProcessKillLabel": {
+    "description": "Tooltip and screen reader label of the button that kills a background process."
+  },
+  "hermesProcessKillTitle": "Zakończyć ten proces?",
+  "@hermesProcessKillTitle": {
+    "description": "Title of the dialog confirming that a background process should be killed."
+  },
+  "hermesProcessKillMessage": "Hermes spróbuje zatrzymać to polecenie i wszystko, co uruchomiło:\n{command}\nNiektóre procesy mogą nadal działać.",
+  "@hermesProcessKillMessage": {
+    "description": "Body of the dialog confirming that a background process should be killed: its command, then a note that some processes may keep running.",
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesProcessKilled": "Proces zakończony.",
+  "@hermesProcessKilled": {
+    "description": "Shown after a background process was killed."
+  },
+  "hermesProcessAlreadyStopped": "Był już zatrzymany.",
+  "@hermesProcessAlreadyStopped": {
+    "description": "Shown when a background process the user tried to kill had already stopped."
+  },
+  "hermesProcessKillFailed": "Nie udało się go zakończyć: {error}",
+  "@hermesProcessKillFailed": {
+    "description": "Shown when killing a background process failed, with Hermes' reason.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
 }

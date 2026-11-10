@@ -59,6 +59,7 @@ import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
@@ -71,6 +72,7 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
 
+import '../../hermes/widgets/hermes_background_work_chip.dart';
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_context_usage_sheet.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
@@ -4062,6 +4064,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       .watch(hermesActiveTodoProvider)
                       .asData
                       ?.value;
+                  // Running subagents and processes; only their counts
+                  // rebuild the composer. Listed only while this chat is
+                  // in sight: the router keeps a hidden destination's page
+                  // mounted with its tickers muted. The work sheet watches
+                  // the list itself.
+                  final hermesWork =
+                      TickerMode.valuesOf(context).enabled
+                      ? composerRef.watch(
+                          hermesBackgroundWorkProvider.select(
+                            (work) => (
+                              agents: work?.runningSubagents ?? 0,
+                              processes: work?.runningProcesses ?? 0,
+                            ),
+                          ),
+                        )
+                      : (agents: 0, processes: 0);
                   final pendingDirectMcpMetadata = composerRef.watch(
                     chatMessagesProvider.select(
                       findPendingDirectMcpComposerPrompt,
@@ -4200,11 +4218,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         PlatformUiCapabilities.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
-                    // The agent's plan sits above any prompt card.
-                    attachedOverlay: withHermesPlan(
-                      attachedOverlay,
-                      plan: hermesPlan,
-                      chatKey: activeConversationId,
+                    // The agent's plan sits above any prompt card, and
+                    // its background work above both.
+                    attachedOverlay: withHermesBackgroundWork(
+                      withHermesPlan(
+                        attachedOverlay,
+                        plan: hermesPlan,
+                        chatKey: activeConversationId,
+                      ),
+                      agents: hermesWork.agents,
+                      processes: hermesWork.processes,
                     ),
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
