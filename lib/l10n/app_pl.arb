@@ -7267,6 +7267,7 @@
   "directModelToolsUnsupported": "Ten model nie może używać narzędzi, więc nie może przeszukiwać sieci. Wyłącz wyszukiwanie w sieci i wszystkie narzędzia, a następnie spróbuj ponownie.",
   "directImagesPerRequest": "Obrazy na żądanie",
   "directImagesPerRequestFooter": "Każda wiadomość wysyła najnowsze obrazy z tego czatu, maksymalnie tyle. Starsze obrazy są pomijane. Zmniejsz tę wartość, jeśli model odrzuca żądania ze zbyt wieloma obrazami.",
+  "directImagesPerRequestSaveFailed": "Nie udało się zapisać ustawienia Obrazy na żądanie. Spróbuj ponownie.",
   "directModelTooManyImages": "Ten model przyjmuje mniej obrazów na żądanie, niż wysłał ten czat. Zmniejsz Obrazy na żądanie w ustawieniach Połączeń bezpośrednich, a następnie spróbuj ponownie. Jeśli już sama ta wiadomość ma więcej obrazów, niż model przyjmuje, wyślij ją ponownie z mniejszą liczbą obrazów.",
   "directToolLoopNoAnswer": "Model wciąż używał narzędzi, nie udzielając odpowiedzi. Spróbuj ponownie lub wyłącz wyszukiwanie w sieci i narzędzia.",
   "directContextLimitOllamaNote": "W przypadku modeli Ollama na własnym serwerze wybrany tutaj limit jest też rozmiarem okna kontekstu, z jakim Ollama ładuje model. Większe okno zużywa więcej pamięci.",

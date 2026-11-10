@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/models/model.dart';
@@ -569,6 +571,45 @@ void main() {
     );
   });
 
+  testWidgets('a failed Images per request save says so', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => DirectTestStaticDirectProfiles(const []),
+          ),
+          directHistoryPolicyProvider.overrideWith(
+            DirectTestStaticHistoryPolicy.new,
+          ),
+          directMaxImagesPerRequestProvider.overrideWith(
+            _FailingMaxImagesPerRequest.new,
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('direct-images-per-request'));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Images per request could not be saved. Try again.'),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
+  });
+
   testWidgets('management refreshes server connections on entry and resume', (
     tester,
   ) async {
@@ -617,6 +658,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(remoteController.reloadCount, 2);
   });
+}
+
+final class _FailingMaxImagesPerRequest
+    extends DirectMaxImagesPerRequestController {
+  @override
+  int build() => kDefaultDirectMaxImagesPerRequest;
+
+  @override
+  Future<void> set(int count) =>
+      Future<void>.error(const FileSystemException('disk full'));
 }
 
 final class _FixedDiscovery extends DirectModelDiscoveryController {

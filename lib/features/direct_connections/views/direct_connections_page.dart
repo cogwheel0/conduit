@@ -212,7 +212,22 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         webSearchSettings: const OnDeviceWebSearchSettingsSection(),
         maxImagesPerRequest: maxImagesPerRequest,
         onMaxImagesPerRequestChanged: (count) => unawaited(
-          ref.read(directMaxImagesPerRequestProvider.notifier).set(count),
+          ref
+              .read(directMaxImagesPerRequestProvider.notifier)
+              .set(count)
+              .then<void>(
+                (_) {},
+                // The row keeps showing the stored value; say why it didn't
+                // change.
+                onError: (Object _, StackTrace _) {
+                  if (context.mounted) {
+                    UiUtils.showMessage(
+                      context,
+                      l10n.directImagesPerRequestSaveFailed,
+                    );
+                  }
+                },
+              ),
         ),
         modelsWithoutContextLimit: modelsWithoutContextLimit,
         contextLengthOverrides: contextLengthOverrides,
