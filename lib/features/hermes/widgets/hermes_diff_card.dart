@@ -7,6 +7,7 @@ import 'package:conduit_core/models/chat_message.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 
@@ -15,11 +16,20 @@ const int _kMaxListedFiles = 6;
 
 /// The files a Hermes reply changed, with their added and removed line
 /// counts, from the diffs its tools reported. Tapping a file opens its
-/// coloured lines. Nothing shows when no tool reported a diff.
+/// coloured lines under its full path. Nothing shows when no tool reported
+/// a diff.
 class HermesChangedFilesCard extends StatefulWidget {
-  const HermesChangedFilesCard({super.key, required this.statuses});
+  const HermesChangedFilesCard({
+    super.key,
+    required this.statuses,
+    this.workingDirectory,
+  });
 
   final List<ChatStatusUpdate> statuses;
+
+  /// The directory the chat runs its tools in, when Hermes reported it: a
+  /// file inside it is listed under its path from there.
+  final String? workingDirectory;
 
   @override
   State<HermesChangedFilesCard> createState() => _HermesChangedFilesCardState();
@@ -92,6 +102,7 @@ class _HermesChangedFilesCardState extends State<HermesChangedFilesCard> {
               _FileRow(
                 key: ValueKey('hermes-changed-file-$index'),
                 file: file,
+                workingDirectory: widget.workingDirectory,
                 onTap: () => showHermesDiffSheet(
                   context,
                   files: files,
@@ -116,9 +127,15 @@ class _HermesChangedFilesCardState extends State<HermesChangedFilesCard> {
 }
 
 class _FileRow extends StatelessWidget {
-  const _FileRow({super.key, required this.file, required this.onTap});
+  const _FileRow({
+    super.key,
+    required this.file,
+    required this.workingDirectory,
+    required this.onTap,
+  });
 
   final HermesDiffFile file;
+  final String? workingDirectory;
   final VoidCallback onTap;
 
   @override
@@ -126,8 +143,12 @@ class _FileRow extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final name = file.path.isEmpty ? l10n.hermesDiffUnnamedFile : file.name;
-    final folder = file.path.length > file.name.length
-        ? file.path.substring(0, file.path.length - file.name.length)
+    final path = hermesDiffDisplayPath(
+      file.path,
+      workingDirectory: workingDirectory,
+    );
+    final folder = path.length > file.name.length
+        ? path.substring(0, path.length - file.name.length)
         : '';
     return Semantics(
       button: true,
@@ -149,31 +170,43 @@ class _FileRow extends StatelessWidget {
                 color: theme.iconSecondary,
               ),
               const SizedBox(width: Spacing.sm),
-              Flexible(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w500,
+              // The name takes what it needs, up to most of the row; its
+              // folder gets the rest.
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Row(
+                    children: [
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: constraints.maxWidth * 0.6,
+                        ),
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.bodySmallStyle.copyWith(
+                            color: theme.textPrimary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      if (folder.isNotEmpty) ...[
+                        const SizedBox(width: Spacing.xs),
+                        Expanded(
+                          // Cut in the middle: the start names the
+                          // project, the end the folders nearest the file.
+                          child: MiddleEllipsisText(
+                            folder,
+                            style: AppTypography.labelSmallStyle.copyWith(
+                              color: theme.textTertiary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
-              if (folder.isNotEmpty) ...[
-                const SizedBox(width: Spacing.xs),
-                Expanded(
-                  child: Text(
-                    folder,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.labelSmallStyle.copyWith(
-                      color: theme.textTertiary,
-                    ),
-                  ),
-                ),
-              ] else
-                const Spacer(),
               const SizedBox(width: Spacing.sm),
               _LineCounts(added: file.added, removed: file.removed),
               Icon(

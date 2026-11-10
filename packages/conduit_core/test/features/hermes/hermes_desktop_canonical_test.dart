@@ -12,6 +12,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatMessagesNotifier,
@@ -107,6 +108,7 @@ final class _Authority {
   int generation = 2;
   List<Map<String, Object?>> prompts = const [];
   Map<String, Object?>? todoState;
+  String? cwd;
 
   Map<String, Object?> snapshot(String id) => {
     'session_id': id,
@@ -123,7 +125,7 @@ final class _Authority {
     'pending': const <Object?>[],
     'prompts': prompts,
     'todo_state': ?todoState,
-    'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol},
+    'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol, 'cwd': ?cwd},
   };
 
   Object? defaults(String method, Map<String, dynamic> params) =>
@@ -1904,6 +1906,72 @@ void main() {
       await _settle();
 
       check(service.todoStateFor('local-1')!.isEmpty).isTrue();
+    });
+  });
+
+  group('working directory', () {
+    test('comes from the chat\'s resume and its live infos', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      final seen = <String?>[];
+      final sub = service.workingDirectoriesFor('local-1').listen(seen.add);
+      addTearDown(sub.cancel);
+
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      gateway.event('session.info', {'cwd': '/home/dev/other-app'});
+      // A partial info, or one without a directory, changes nothing.
+      gateway.event('session.info', {'service_tier': 'fast'});
+      gateway.event('session.info', {'cwd': ''});
+      // Another chat's directory stays with that chat.
+      gateway.event(
+        'session.info',
+        {'cwd': '/srv/elsewhere'},
+        session: 'local-other',
+      );
+      await _settle();
+
+      check(
+        seen,
+      ).deepEquals([null, '/home/dev/sample-app', '/home/dev/other-app']);
+    });
+
+    test('a new chat has the directory it was created in', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+
+      await service.createDesktopSession();
+
+      check(
+        await service.workingDirectoriesFor('local-1').first,
+      ).equals('/home/dev/sample-app');
+    });
+
+    test('the open chat\'s directory is provided live', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_OpenHermesChat.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final seen = <String?>[];
+      container.listen(
+        hermesActiveWorkingDirectoryProvider,
+        (_, next) => seen.add(next.asData?.value),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      gateway.event('session.info', {'cwd': '/home/dev/other-app'});
+      await _settle();
+
+      check(
+        seen.whereType<String>(),
+      ).deepEquals(['/home/dev/sample-app', '/home/dev/other-app']);
     });
   });
 

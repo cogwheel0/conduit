@@ -54,6 +54,7 @@ part 'hermes_desktop_live_runtime.dart';
 part 'hermes_desktop_rooms.dart';
 part 'hermes_desktop_todos.dart';
 part 'hermes_desktop_turn_runtime.dart';
+part 'hermes_desktop_working_directories.dart';
 
 typedef HermesDesktopCredentialsWriter = Future<void> Function(
   HermesDesktopCredentials credentials,
@@ -364,6 +365,11 @@ final class HermesDesktopApiService
   final Map<String, HermesTodoState> _todoStates = {};
   final _todoChanges = StreamController<String>.broadcast();
 
+  /// The working directory each chat (stored id) runs its tools in, and
+  /// which chat's changed.
+  final Map<String, String> _workingDirectories = {};
+  final _workingDirectoryChanges = StreamController<String>.broadcast();
+
   /// Chats whose subagents or background processes may have changed.
   final _backgroundWorkHints = StreamController<String>.broadcast();
   final _desktopContractChanges = StreamController<int>.broadcast();
@@ -449,6 +455,12 @@ final class HermesDesktopApiService
 
   /// The agent's task list for the chat [storedId], when one was reported.
   HermesTodoState? todoStateFor(String storedId) => _todoStateFor(storedId);
+
+  /// The working directory the chat [storedId] runs its tools in, then
+  /// every change to it. Null until Hermes has reported one: a session's
+  /// info gives it when the chat is opened or created.
+  Stream<String?> workingDirectoriesFor(String storedId) =>
+      _workingDirectoriesFor(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(
@@ -902,6 +914,7 @@ final class HermesDesktopApiService
     unawaited(_sessionTurnStateChanges.close());
     unawaited(_transcriptChanges.close());
     unawaited(_todoChanges.close());
+    unawaited(_workingDirectoryChanges.close());
     unawaited(_backgroundWorkHints.close());
     unawaited(_desktopContractChanges.close());
     _eventBuffer.clear();

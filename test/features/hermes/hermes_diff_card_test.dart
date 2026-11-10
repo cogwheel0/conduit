@@ -1,3 +1,5 @@
+import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
+import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/features/hermes/widgets/hermes_diff_card.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -5,7 +7,11 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -29,6 +35,11 @@ ChatStatusUpdate _patch(String diff) => ChatStatusUpdate(
   done: true,
   items: [hermesInlineDiffItem(diff)],
 );
+
+class _InactiveTts extends TextToSpeechController {
+  @override
+  TextToSpeechState build() => const TextToSpeechState();
+}
 
 Widget _app(Widget child) => MaterialApp(
   localizationsDelegates: conduitLocalizationsDelegates,
@@ -101,6 +112,104 @@ void main() {
     expect(find.text('8 files changed'), findsOneWidget);
     expect(find.text('2 more files'), findsOneWidget);
     expect(find.text('f6.txt'), findsNothing);
+  });
+
+  // Absolute paths repeated the project's folder on every row, and the
+  // folders nearest the file were cut off.
+  testWidgets('lists files from the working directory, in full on open', (
+    tester,
+  ) async {
+    const root = '/home/dev/projects/sample-app';
+    const file = '$root/lib/src/widgets/card.dart';
+    // Hermes writes a path outside its own folder in full: `a//home/…`.
+    const diff = 'a/$file → b/$file\n@@ -1 +1 @@\n-old\n+new';
+    await tester.pumpWidget(
+      _app(
+        HermesChangedFilesCard(
+          statuses: [_patch(diff)],
+          workingDirectory: root,
+        ),
+      ),
+    );
+
+    expect(find.text('card.dart'), findsOneWidget);
+    expect(find.text('lib/src/widgets/'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('hermes-changed-file-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('$root/lib/src/widgets/card.dart'), findsOneWidget);
+  });
+
+  testWidgets('a reply lists its files from the open chat\'s directory', (
+    tester,
+  ) async {
+    const root = '/home/dev/projects/sample-app';
+    const file = '$root/lib/main.dart';
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          textToSpeechControllerProvider.overrideWith(_InactiveTts.new),
+          streamingHapticsEnabledProvider.overrideWithValue(false),
+          hermesActiveWorkingDirectoryProvider.overrideWith(
+            (ref) => Stream.value(root),
+          ),
+        ],
+        child: _app(
+          AssistantMessageWidget(
+            message: ChatMessage(
+              id: 'reply-1',
+              role: 'assistant',
+              content: 'Done.',
+              timestamp: DateTime.utc(2030),
+              isStreaming: false,
+              metadata: const {'responseDone': true},
+              statusHistory: [_patch('a/$file → b/$file\n+x')],
+            ),
+            isStreaming: false,
+            showFollowUps: false,
+            animateOnMount: false,
+            onCopy: () {},
+            onRegenerate: () {},
+            onDelete: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('main.dart'), findsOneWidget);
+    expect(find.text('lib/'), findsOneWidget);
+  });
+
+  testWidgets('cuts a long folder in the middle, keeping its end', (
+    tester,
+  ) async {
+    // Longer than the row, even at the test screen's 800 points.
+    const folder = '/home/dev/projects/sample-app/packages/client/lib/src/'
+        'features/settings/sections/appearance/widgets/';
+    await tester.pumpWidget(
+      _app(
+        HermesChangedFilesCard(
+          statuses: [
+            _patch('a/${folder}card.dart → b/${folder}card.dart\n+x'),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text('card.dart'), findsOneWidget);
+    final shown = tester
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(const ValueKey('hermes-changed-file-0')),
+            matching: find.textContaining('…'),
+          ),
+        )
+        .data!;
+    expect(shown, startsWith('/home'));
+    expect(shown, endsWith('widgets/'));
+    expect(shown.length, lessThan(folder.length));
   });
 
   testWidgets('the tool timeline no longer prints the raw diff', (

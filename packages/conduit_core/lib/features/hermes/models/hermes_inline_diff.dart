@@ -167,6 +167,21 @@ final class HermesDiffFile {
   }
 }
 
+/// [path] as a diff card shows it: relative to [workingDirectory], the
+/// directory the session runs its tools in, when the file is inside it, and
+/// as Hermes reported it otherwise. For display only: the file is [path].
+String hermesDiffDisplayPath(String path, {String? workingDirectory}) {
+  final directory = workingDirectory?.trim().replaceAll('\\', '/') ?? '';
+  // Relative to the root, every path would only lose its first slash.
+  if (directory.isEmpty || directory == '/') return path;
+  final root = directory.endsWith('/') ? directory : '$directory/';
+  final normalized = path.replaceAll('\\', '/');
+  if (normalized.length <= root.length || !normalized.startsWith(root)) {
+    return path;
+  }
+  return normalized.substring(root.length);
+}
+
 /// An edit's diff, file by file.
 final class HermesInlineDiff {
   const HermesInlineDiff({
