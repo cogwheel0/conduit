@@ -665,6 +665,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   @override
   void dispose() {
+    if (_userDragging) {
+      // Removed mid-drag (the transcript emptied, say): the parent still
+      // needs the end that releases its interaction hold, after this frame.
+      final onUserDragEnd = widget.onUserDragEnd;
+      WidgetsBinding.instance.addPostFrameCallback((_) => onUserDragEnd());
+    }
     WidgetsBinding.instance.removeObserver(this);
     widget.controller._detach(this);
     _metricsSnapshot = null;

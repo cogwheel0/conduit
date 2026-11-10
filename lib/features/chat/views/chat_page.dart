@@ -3292,6 +3292,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         } catch (_) {}
       },
       onUserDragEnd: () {
+        // A viewport removed mid-drag ends it after the frame, possibly
+        // after this page has gone or already released the hold.
+        if (!mounted || !_isUserInteractingWithScroll) return;
         InteractionActivity.instance.endInteraction();
         _endScrollProfile(reason: 'idle');
         _isUserInteractingWithScroll = false;

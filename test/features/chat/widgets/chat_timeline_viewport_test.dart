@@ -405,6 +405,53 @@ void main() {
     expect(ends, 1);
   });
 
+  _viewportTest('a viewport removed mid-drag still ends the drag', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    var starts = 0;
+    var ends = 0;
+    var showViewport = true;
+    late StateSetter rebuild;
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          rebuild = setState;
+          return _viewportHost(
+            showViewport
+                ? _viewport(
+                    controller: controller,
+                    ids: List.generate(40, (i) => 'synthetic-$i'),
+                    followLatest: false,
+                    onUserDragStart: () => starts++,
+                    onUserDragEnd: () => ends++,
+                  )
+                : const SizedBox.expand(),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    final gesture = await _startTrackedGesture(
+      tester,
+      tester.getCenter(find.byType(CustomScrollView)),
+    );
+    for (var step = 0; step < 3; step++) {
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(starts, 1);
+
+    // The transcript empties while the finger is still down.
+    rebuild(() => showViewport = false);
+    await tester.pump();
+    await tester.pump();
+    expect(ends, 1);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(ends, 1);
+  });
+
   _viewportTest('Android track taps page the mapped scrollbar', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
