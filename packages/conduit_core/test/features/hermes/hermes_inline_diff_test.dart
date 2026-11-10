@@ -403,6 +403,56 @@ void main() {
     });
   });
 
+  group('shown paths', () {
+    test('are relative to the working directory inside it', () {
+      String shown(String path, String? cwd) =>
+          hermesDiffDisplayPath(path, workingDirectory: cwd);
+
+      const root = '/home/dev/projects/sample-app';
+      check(
+        shown('$root/lib/src/widgets/card.dart', root),
+      ).equals('lib/src/widgets/card.dart');
+      check(shown('$root/lib/main.dart', '$root/')).equals('lib/main.dart');
+      check(
+        shown(r'C:\dev\sample-app\lib\main.dart', r'C:\dev\sample-app'),
+      ).equals('lib/main.dart');
+      // Outside it, or only sharing the start of its name, a path stays.
+      check(
+        shown('/home/dev/notes/todo.md', root),
+      ).equals('/home/dev/notes/todo.md');
+      check(
+        shown('$root-old/lib/main.dart', root),
+      ).equals('$root-old/lib/main.dart');
+      check(shown(root, root)).equals(root);
+      check(shown('src/tide.py', root)).equals('src/tide.py');
+      // Unknown, or the root, it changes nothing.
+      check(shown('$root/lib/main.dart', null)).equals('$root/lib/main.dart');
+      check(shown('$root/lib/main.dart', ' ')).equals('$root/lib/main.dart');
+      check(shown('/etc/hosts', '/')).equals('/etc/hosts');
+      check(shown(r'C:\src\main.dart', r'C:\')).equals(r'C:\src\main.dart');
+    });
+
+    // A textual prefix took `/app/../secret.txt` for a file inside `/app`,
+    // and `C:\Dev\x` for one outside `c:\dev`.
+    test('are relative only once the path is resolved', () {
+      String shown(String path, String cwd) =>
+          hermesDiffDisplayPath(path, workingDirectory: cwd);
+
+      const root = '/home/dev/app';
+      check(
+        shown('$root/../secrets/key.txt', root),
+      ).equals('$root/../secrets/key.txt');
+      check(shown('$root/lib/../src/./a.dart', root)).equals('src/a.dart');
+      check(shown('$root//lib/a.dart', '$root/./')).equals('lib/a.dart');
+      check(shown('/../etc/hosts', '/home')).equals('/../etc/hosts');
+      check(
+        shown(r'C:\Dev\App\lib\a.dart', r'c:\dev\app'),
+      ).equals('lib/a.dart');
+      // Case still counts outside Windows.
+      check(shown('/Home/Dev/App/a.dart', root)).equals('/Home/Dev/App/a.dart');
+    });
+  });
+
   group('changed files of a reply', () {
     test('merge every edit of a file in first-changed order', () {
       final files = hermesChangedFiles([

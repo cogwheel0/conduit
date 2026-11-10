@@ -167,6 +167,55 @@ final class HermesDiffFile {
   }
 }
 
+/// [path] as a diff card shows it: relative to [workingDirectory], the
+/// directory the session runs its tools in, when the file is inside it, and
+/// as Hermes reported it otherwise. `.` and `..` are resolved first, so a
+/// path that only starts with the directory's name is not taken for inside
+/// it; Windows drive paths compare without case. For display only: the file
+/// is [path].
+String hermesDiffDisplayPath(String path, {String? workingDirectory}) {
+  final directory = _resolvedPath(workingDirectory?.trim() ?? '');
+  final file = _resolvedPath(path);
+  // Relative to a root (`/`, `C:/`), a path would only lose its first slash
+  // or its drive.
+  if (directory == null || file == null || directory.endsWith('/')) {
+    return path;
+  }
+  final root = directory.endsWith('/') ? directory : '$directory/';
+  final inside = _windowsDrive.hasMatch(directory)
+      ? file.toLowerCase().startsWith(root.toLowerCase())
+      : file.startsWith(root);
+  return inside ? file.substring(root.length) : path;
+}
+
+final RegExp _windowsDrive = RegExp(r'^[A-Za-z]:/');
+
+/// [value] with `\` as `/` and its empty, `.` and `..` segments resolved;
+/// null unless it is absolute (`/…` or `C:/…`) and stays under its root.
+String? _resolvedPath(String value) {
+  final slashed = value.replaceAll('\\', '/');
+  final String prefix;
+  if (slashed.startsWith('/')) {
+    prefix = '/';
+  } else if (_windowsDrive.hasMatch(slashed)) {
+    prefix = slashed.substring(0, 3);
+  } else {
+    return null;
+  }
+  final segments = <String>[];
+  for (final segment in slashed.substring(prefix.length).split('/')) {
+    if (segment.isEmpty || segment == '.') continue;
+    if (segment != '..') {
+      segments.add(segment);
+    } else if (segments.isEmpty) {
+      return null;
+    } else {
+      segments.removeLast();
+    }
+  }
+  return '$prefix${segments.join('/')}';
+}
+
 /// An edit's diff, file by file.
 final class HermesInlineDiff {
   const HermesInlineDiff({

@@ -10,8 +10,10 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatMessagesNotifier,
@@ -107,6 +109,7 @@ final class _Authority {
   int generation = 2;
   List<Map<String, Object?>> prompts = const [];
   Map<String, Object?>? todoState;
+  String? cwd;
 
   Map<String, Object?> snapshot(String id) => {
     'session_id': id,
@@ -123,7 +126,7 @@ final class _Authority {
     'pending': const <Object?>[],
     'prompts': prompts,
     'todo_state': ?todoState,
-    'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol},
+    'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol, 'cwd': ?cwd},
   };
 
   Object? defaults(String method, Map<String, dynamic> params) =>
@@ -251,6 +254,20 @@ final class _OpenHermesChat extends ActiveConversationNotifier {
     createdAt: DateTime.utc(2030),
     updatedAt: DateTime.utc(2030),
     metadata: const {'hermesSessionId': 'local-1'},
+  );
+}
+
+/// [_OpenHermesChat] as this app marks the Hermes chats it opens.
+final class _NativeHermesChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => markNativeHermesConversation(
+    Conversation(
+      id: 'local:hermes_local-1',
+      title: 'Tides',
+      createdAt: DateTime.utc(2030),
+      updatedAt: DateTime.utc(2030),
+      metadata: const {'hermesSessionId': 'local-1'},
+    ),
   );
 }
 
@@ -1904,6 +1921,184 @@ void main() {
       await _settle();
 
       check(service.todoStateFor('local-1')!.isEmpty).isTrue();
+    });
+  });
+
+  group('working directory', () {
+    test('comes from the chat\'s resume and its live infos', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      final seen = <String?>[];
+      final sub = service.workingDirectoriesFor('local-1').listen(seen.add);
+      addTearDown(sub.cancel);
+
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      gateway.event('session.info', {'cwd': '/home/dev/other-app'});
+      // A partial info, or one without a directory, changes nothing.
+      gateway.event('session.info', {'service_tier': 'fast'});
+      gateway.event('session.info', {'cwd': ''});
+      // Another chat's directory stays with that chat.
+      gateway.event(
+        'session.info',
+        {'cwd': '/srv/elsewhere'},
+        session: 'local-other',
+      );
+      await _settle();
+
+      check(
+        seen,
+      ).deepEquals([null, '/home/dev/sample-app', '/home/dev/other-app']);
+    });
+
+    test('a new chat has the directory it was created in', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+
+      await service.createDesktopSession();
+
+      check(
+        await service.workingDirectoriesFor('local-1').first,
+      ).equals('/home/dev/sample-app');
+    });
+
+    test('the open chat\'s directory is provided live', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_OpenHermesChat.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final seen = <String?>[];
+      container.listen(
+        hermesActiveWorkingDirectoryProvider,
+        (_, next) => seen.add(next.asData?.value),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      gateway.event('session.info', {'cwd': '/home/dev/other-app'});
+      await _settle();
+
+      check(
+        seen.whereType<String>(),
+      ).deepEquals(['/home/dev/sample-app', '/home/dev/other-app']);
+    });
+
+    // Deleted chats kept their directories, and the oldest kept one was
+    // dropped for a new one without telling the chat that showed it.
+    test('is forgotten with its chat, and when it makes room', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final rest = _Rest({
+        'GET /api/sessions/local-1/mutation-snapshot': (_) => (
+          200,
+          {
+            'session_id': 'local-1',
+            'exists': true,
+            'runtime_revision': 3,
+            'runtime_generation': 2,
+          },
+        ),
+        'DELETE /api/sessions/local-1': (_) => (200, {'ok': true}),
+      });
+      final service = _service(gateway, rest: rest);
+      await service.createDesktopSession();
+      final seen = <String?>[];
+      final sub = service.workingDirectoriesFor('local-1').listen(seen.add);
+      addTearDown(sub.cancel);
+      await _settle();
+
+      await service.deleteSession('local-1');
+      await _settle();
+      check(seen).deepEquals(['/home/dev/sample-app', null]);
+
+      // Of 65 chats, the one used longest ago makes room, and is told. A
+      // chat whose directory was read since (reopened) keeps it.
+      void report(int chat, [String? cwd]) => gateway.event(
+        'session.info',
+        {'cwd': cwd ?? '/srv/chat-$chat'},
+        session: 'chat-$chat',
+      );
+      final pushedOut = <String?>[];
+      final pushedOutSub = service
+          .workingDirectoriesFor('chat-1')
+          .listen(pushedOut.add);
+      addTearDown(pushedOutSub.cancel);
+      for (var chat = 0; chat < 64; chat++) {
+        report(chat);
+      }
+      await _settle();
+      check(
+        await service.workingDirectoriesFor('chat-0').first,
+      ).equals('/srv/chat-0');
+      report(64);
+      await _settle();
+      check(pushedOut).deepEquals([null, '/srv/chat-1', null]);
+      check(
+        await service.workingDirectoriesFor('chat-0').first,
+      ).equals('/srv/chat-0');
+
+      // Reported again, even unchanged, a directory is kept anew, and its
+      // chat hears nothing new.
+      final again = <String?>[];
+      final againSub = service
+          .workingDirectoriesFor('chat-2')
+          .listen(again.add);
+      addTearDown(againSub.cancel);
+      report(2);
+      report(3);
+      report(65);
+      await _settle();
+      check(again).deepEquals(['/srv/chat-2']);
+      check(
+        await service.workingDirectoriesFor('chat-3').first,
+      ).equals('/srv/chat-3');
+      check(await service.workingDirectoriesFor('chat-4').first).isNull();
+    });
+
+    test('is given only to the replies of the open chat\'s session', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      ProviderContainer open(ActiveConversationNotifier Function() chat) {
+        final container = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWithValue(service),
+            activeConversationProvider.overrideWith(chat),
+            chatMessagesProvider.overrideWith(_MixedMessages.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+          ..listen(hermesReplyWorkingDirectoryProvider('local-1'), (_, _) {})
+          ..listen(hermesReplyWorkingDirectoryProvider('local-9'), (_, _) {})
+          ..listen(hermesReplyWorkingDirectoryProvider(null), (_, _) {});
+        return container;
+      }
+
+      // A native Hermes chat runs every reply in its one session.
+      final native = open(_NativeHermesChat.new);
+      await _settle();
+      for (final reply in ['local-1', 'local-9', null]) {
+        check(
+          because: '$reply',
+          native.read(hermesReplyWorkingDirectoryProvider(reply)),
+        ).equals('/home/dev/sample-app');
+      }
+
+      // An OpenWebUI chat's Hermes turns can run in different sessions.
+      final mixed = open(_MixedChat.new);
+      mixed.read(hermesActiveSessionProvider.notifier).set('local-1');
+      await _settle();
+      check(
+        mixed.read(hermesReplyWorkingDirectoryProvider('local-1')),
+      ).equals('/home/dev/sample-app');
+      check(mixed.read(hermesReplyWorkingDirectoryProvider('local-9'))).isNull();
+      check(mixed.read(hermesReplyWorkingDirectoryProvider(null))).isNull();
     });
   });
 

@@ -113,6 +113,9 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           (event.type == 'tool.complete' && event.payload['todos'] is List)) {
         _adoptTodoState(event.sessionId, event.payload);
       }
+      if (event.type == 'session.info') {
+        _adoptWorkingDirectory(event.sessionId, event.payload['cwd']);
+      }
       _observeBackgroundWorkEvent(event);
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
@@ -308,6 +311,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final running = result['running'] ?? info['running'];
     _recordDesktopContract(info);
     final binding = HermesSessionBinding(storedId: stored, runtimeId: runtime);
+    _adoptWorkingDirectory(stored, info['cwd']);
     final profile = _sessionProfiles[storedId];
     if (profile != null) _sessionProfiles[stored] = profile;
     _bindings[storedId] = binding;
@@ -452,6 +456,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _appliedSessionOptions[stored] = normalized.fingerprint;
     final info = _object(result['info']);
     _recordDesktopContract(info);
+    _adoptWorkingDirectory(stored, info['cwd']);
     if (_canonical) _adoptCanonicalSnapshot(runtime, result);
     final running = result['running'] ?? info['running'];
     if (running is bool) {
@@ -699,6 +704,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _lastTranscripts.remove(id);
     _sessionProfiles.remove(id);
     _canonicalSessions.remove(id);
+    _forgetWorkingDirectory([binding?.storedId, binding?.runtimeId, id]);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
       connectionId: config.connectionId,

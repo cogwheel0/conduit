@@ -21,6 +21,9 @@ import 'package:conduit_core/features/direct_connections/services/model_logo_cat
     show installedModelLogoCatalog;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart'
+    show isHermesInlineDiffItem;
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
     show hermesErrorSurfaceOf;
 import 'package:conduit_core/models/message_voice.dart';
@@ -1543,9 +1546,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 // Files a Hermes reply's tools edited, as a diff card. An
                 // earlier version keeps no record of what its tools did.
                 if (!showingVersion)
-                  HermesChangedFilesCard(
-                    statuses: widget.message.statusHistory,
-                  ),
+                  _hasHermesDiff(widget.message.statusHistory)
+                      ? Consumer(
+                          builder: (context, ref, _) => HermesChangedFilesCard(
+                            statuses: widget.message.statusHistory,
+                            workingDirectory: ref.watch(
+                              hermesReplyWorkingDirectoryProvider(
+                                _hermesSessionOf(widget.message),
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
 
                 // Version switcher moved inline with action buttons below
               ],
@@ -3360,4 +3372,14 @@ String _buildTtsPlainTextFromRaw(String raw) {
   final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
   final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
   return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
+}
+
+/// Whether any of [statuses] carries the diff of a Hermes edit.
+bool _hasHermesDiff(List<ChatStatusUpdate> statuses) =>
+    statuses.any((status) => status.items.any(isHermesInlineDiffItem));
+
+/// The Hermes session [message] ran in, when it says.
+String? _hermesSessionOf(ChatMessage message) {
+  final session = message.metadata?['hermesSessionId'];
+  return session is String ? session : null;
 }
