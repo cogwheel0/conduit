@@ -80,6 +80,9 @@ final class _Hermes implements HttpClientAdapter {
   /// Names whose added server signs in with OAuth.
   final oauth = <String>{};
 
+  /// Names the dashboard installs in the background, listed only later.
+  final background = <String>{};
+
   Map<String, Object?> _added(String name) {
     servers.add({
       'name': name,
@@ -130,8 +133,9 @@ final class _Hermes implements HttpClientAdapter {
       'POST /api/mcp/catalog/install' => () {
         installs.add(options.data);
         final name = (options.data as Map)['name'] as String;
-        _added(name);
-        return (200, {'ok': true, 'name': name, 'background': false});
+        final later = background.contains(name);
+        if (!later) _added(name);
+        return (200, {'ok': true, 'name': name, 'background': later});
       }(),
       _ => (404, {'detail': 'Not Found'}),
     };
@@ -291,6 +295,56 @@ void main() {
     await hermes.dispose();
   });
 
+  // Added through the gateway, an entry skipped the setup the dashboard's
+  // install runs for it.
+  testWidgets('an entry from the dashboard is installed by it', (tester) async {
+    final hermes = _Hermes(
+      dashboardCatalog: [
+        {'name': 'tide-notes', 'installed': false, 'required_env': <Object?>[]},
+      ],
+    );
+    await openCatalog(tester, hermes);
+    await tester.tap(find.text('tide-notes'));
+    await tester.pumpAndSettle();
+
+    check(hermes.installs).deepEquals([
+      {'name': 'tide-notes', 'enable': true, 'env': <String, String>{}},
+    ]);
+    check(hermes.calls('mcp.servers.add')).isEmpty();
+    await hermes.dispose();
+  });
+
+  testWidgets('one still installing says so, and when to sign in', (
+    tester,
+  ) async {
+    final hermes =
+        _Hermes(
+            dashboardCatalog: [
+              {
+                'name': 'tide-calendar',
+                'installed': false,
+                'auth_type': 'oauth',
+                'required_env': <Object?>[],
+              },
+            ],
+          )
+          ..oauth.add('tide-calendar')
+          ..background.add('tide-calendar');
+    await openCatalog(tester, hermes);
+    await tester.tap(find.text('tide-calendar'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(
+        'Hermes is still installing tide-calendar. Once it '
+        'is listed, sign in with Authenticate',
+      ),
+      findsOneWidget,
+    );
+    check(hermes.calls('mcp.servers.oauth.start')).isEmpty();
+    await hermes.dispose();
+  });
+
   testWidgets('a server that signs in with OAuth goes on to sign in', (
     tester,
   ) async {
@@ -310,6 +364,15 @@ void main() {
 
     check(hermes.calls('mcp.servers.oauth.start').map((it) => it['name']))
         .deepEquals(['tide-calendar']);
+    // The fake starts no sign-in, so it does not finish: the server is still
+    // added, and the page says where to sign in again.
+    expect(
+      find.text(
+        "Added tide-calendar, but signing in didn't finish. Use "
+        'Authenticate from its menu to try again.',
+      ),
+      findsOneWidget,
+    );
     await hermes.dispose();
   });
 }

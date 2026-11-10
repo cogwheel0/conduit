@@ -199,15 +199,47 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     if (name.isEmpty) return;
     final credentials = await _askCatalogCredentials(selected);
     if (credentials == null) return;
-    await _service.addMcpPreset(name, credentials: credentials);
+    final stillInstalling = await _service.addMcpCatalogEntry(
+      selected,
+      credentials: credentials,
+    );
     _refresh();
-    // A server that signs in with OAuth goes straight on to signing in. A
-    // list that failed to load says so itself.
+    if (stillInstalling) {
+      // Listed, and ready to sign in to, only once Hermes has built it.
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: selected.usesOAuth
+            ? 'Hermes is still installing $name. Once it is listed, sign in '
+                  'with Authenticate from its menu.'
+            : 'Hermes is still installing $name. It is listed once done.',
+      );
+      return;
+    }
+    // A server Hermes set up to sign in with OAuth goes straight on to
+    // signing in. A list that failed to load says so itself.
     final servers = await _servers.catchError(
       (Object _) => const <HermesMcpServer>[],
     );
     final added = servers.where((server) => server.name == name);
-    if (mounted && added.firstOrNull?.auth == 'oauth') await _oauth(name);
+    if (!mounted || added.firstOrNull?.auth != 'oauth') return;
+    try {
+      await _oauth(name);
+    } catch (error) {
+      // Added all the same: say so, and where to sign in again.
+      DebugLogger.warning(
+        'mcp-oauth-after-add-failed',
+        scope: 'hermes/mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message:
+            "Added $name, but signing in didn't finish. Use Authenticate "
+            'from its menu to try again.',
+      );
+    }
   }
 
   String _catalogSubtitle(HermesMcpCatalogEntry entry) => [

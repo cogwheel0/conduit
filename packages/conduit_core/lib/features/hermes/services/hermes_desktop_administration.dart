@@ -156,18 +156,16 @@ final class _HermesDesktopAdministration {
         data: {'errorType': error.runtimeType.toString()},
       );
     }
-    final takesCredentials = rows is List;
-    if (!takesCredentials) {
+    final fromDashboard = rows is List;
+    if (!fromDashboard) {
       rows = (await mcpRequest('mcp.catalog'))['servers'];
     }
     if (rows is! List) return const [];
     return rows
         .whereType<Map>()
         .map(
-          (row) => HermesMcpCatalogEntry.fromJson(
-            row,
-            takesCredentials: takesCredentials,
-          ),
+          (row) =>
+              HermesMcpCatalogEntry.fromJson(row, fromDashboard: fromDashboard),
         )
         .where((entry) => entry.name.isNotEmpty && !entry.installed)
         .toList(growable: false);
@@ -197,27 +195,42 @@ final class _HermesDesktopAdministration {
     await reloadMcp();
   }
 
-  /// Adds catalog server [name]. Its [credentials] (variable name to value)
-  /// go once to Hermes' dashboard install, which keeps secrets in the
-  /// profile's `.env` and refuses a name the entry does not declare; the
-  /// app keeps none of them. Without any, the gateway adds it as before.
-  Future<void> addMcpPreset(
-    String name, {
+  /// Adds catalog [entry], and says whether Hermes is still installing it
+  /// in the background (an entry it clones and builds first). An entry
+  /// from the dashboard's catalog goes to the dashboard's install, which
+  /// runs its own setup and takes its [credentials] (variable name to
+  /// value) once: secrets go to the profile's `.env`, and a name the entry
+  /// does not declare is refused. The app keeps none of them. An entry from
+  /// the gateway's catalog, which can ask for nothing, the gateway adds.
+  Future<bool> addMcpCatalogEntry(
+    HermesMcpCatalogEntry entry, {
     Map<String, String> credentials = const {},
   }) async {
-    if (credentials.isEmpty) {
+    var stillInstalling = false;
+    if (entry.fromDashboard) {
+      final result = _owner._object(
+        await _owner._requestJson(
+          'POST',
+          '/api/mcp/catalog/install',
+          body: {'name': entry.name, 'enable': true, 'env': credentials},
+        ),
+      );
+      stillInstalling = result['background'] == true;
+    } else {
+      if (credentials.isNotEmpty) {
+        throw ArgumentError.value(
+          credentials.keys.toList(),
+          'credentials',
+          "the gateway's add takes no values",
+        );
+      }
       await mcpRequest(
         'mcp.servers.add',
-        params: {'name': name, 'preset': name},
-      );
-    } else {
-      await _owner._requestJson(
-        'POST',
-        '/api/mcp/catalog/install',
-        body: {'name': name, 'enable': true, 'env': credentials},
+        params: {'name': entry.name, 'preset': entry.name},
       );
     }
     await reloadMcp();
+    return stillInstalling;
   }
 
   Future<HermesMcpTestResult> testMcpServer(String name) async =>

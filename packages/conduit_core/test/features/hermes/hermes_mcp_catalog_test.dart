@@ -19,7 +19,7 @@ void main() {
           {'name': 'TIDE_API_KEY', 'prompt': 'Again'},
           'TIDE_STRAY',
         ],
-      }, takesCredentials: true);
+      }, fromDashboard: true);
 
       check(entry.credentials.map((it) => (it.name, it.prompt, it.required)))
           .deepEquals([
@@ -27,6 +27,48 @@ void main() {
             ('TIDE_REGION', 'Coast region', false),
           ]);
       check(entry.canAdd).isTrue();
+    });
+
+    test('from the dashboard, says how Hermes signs in to it', () {
+      HermesMcpCatalogEntry entry(Object? authType) =>
+          HermesMcpCatalogEntry.fromJson({
+            'name': 'tide-calendar',
+            'auth_type': authType,
+          }, fromDashboard: true);
+
+      check(entry('oauth'))
+        ..has((it) => it.authType, 'authType').equals('oauth')
+        ..has((it) => it.usesOAuth, 'usesOAuth').isTrue();
+      check(entry('api_key').usesOAuth).isFalse();
+      check(entry(null).authType).isNull();
+    });
+
+    // Sixteen specs were read before their names were checked, so names
+    // that were not variables could push real ones out.
+    test('keeps every valid value past ones that are not', () {
+      final entry = HermesMcpCatalogEntry.fromJson({
+        'name': 'tide-tables',
+        'required_env': [
+          for (var i = 0; i < 20; i++) {'name': 'NOT A NAME $i'},
+          {'name': 'TIDE_API_KEY'},
+        ],
+      }, fromDashboard: true);
+
+      check(entry.credentials.map((it) => it.name))
+          .deepEquals(['TIDE_API_KEY']);
+      check(entry.canAdd).isTrue();
+    });
+
+    test('asking for more than the app asks for, is not offered', () {
+      final entry = HermesMcpCatalogEntry.fromJson({
+        'name': 'tide-tables',
+        'required_env': [
+          for (var i = 0; i < 33; i++) {'name': 'TIDE_VALUE_$i'},
+        ],
+      }, fromDashboard: true);
+
+      check(entry.credentialsComplete).isFalse();
+      check(entry.canAdd).isFalse();
     });
 
     test('from the gateway, names them only and cannot send them', () {
@@ -53,7 +95,7 @@ void main() {
         {'name': 'TIDE_API_KEY', 'required': true},
         {'name': 'TIDE_REGION', 'required': false},
       ],
-    }, takesCredentials: true);
+    }, fromDashboard: true);
 
     test('are trimmed, without empty or undeclared ones', () {
       check(
