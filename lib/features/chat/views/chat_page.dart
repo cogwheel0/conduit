@@ -2469,12 +2469,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _saveCurrentScrollAnchor({String? conversationId}) {
     final id = conversationId ?? _lastConversationId;
     if (id == null) return;
-    final messages = ref.read(chatMessagesProvider);
-    final visibleCount = messages.length;
-    if (visibleCount == 0) return;
-    final anchor = _timelineViewportController.captureTopVisibleAnchor(
-      loadedCount: visibleCount,
-    );
+    if (ref.read(chatMessagesProvider).isEmpty) return;
+    final anchor = _timelineViewportController.captureTopVisibleAnchor();
     if (anchor == null) return;
     _savedScrollAnchors.remove(id);
     _savedScrollAnchors[id] = anchor;

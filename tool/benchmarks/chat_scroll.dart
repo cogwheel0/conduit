@@ -190,7 +190,6 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
             : ChatScrollAnchor(
                 messageId: _ids[_ids.length ~/ 2],
                 offsetWithinMessage: 0,
-                loadedCount: _ids.length,
               ),
         estimateRowExtent: (index) {
           _estimates++;
@@ -216,7 +215,6 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
         horizontalPadding: 16,
         cacheExtent: 600,
         physics: const ClampingScrollPhysics(),
-        isLoadingOlder: false,
         maintainVisibleAnchor: false,
         followLatest: false,
         pinAutomatic: false,
@@ -225,7 +223,6 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
         onUserDragEnd: () {},
         onMetricsChanged: (_) {},
         onPinEndSpaceChanged: (_) {},
-        onOldestThresholdReached: () {},
         onTrailingRefresh: () async {},
         onNativeScrollToTop: () async {},
       ),

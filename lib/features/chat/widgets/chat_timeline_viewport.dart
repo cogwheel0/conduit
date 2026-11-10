@@ -202,11 +202,8 @@ class ChatTimelineViewportController {
   double? distanceFromMessageTop(String messageId) =>
       _state?._distanceFromMessageTop(messageId);
 
-  bool anyOldestLoadedRowVisible() =>
-      _state?._anyOldestLoadedRowVisible() ?? false;
-
-  ChatScrollAnchor? captureTopVisibleAnchor({required int loadedCount}) =>
-      _state?._captureTopVisibleAnchor(loadedCount: loadedCount);
+  ChatScrollAnchor? captureTopVisibleAnchor() =>
+      _state?._captureTopVisibleAnchor();
 
   double? resolveLatestOffset() => _state?._resolveLatestOffset();
 
@@ -294,7 +291,6 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.horizontalPadding,
     required this.cacheExtent,
     required this.physics,
-    this.isLoadingOlder = false,
     required this.maintainVisibleAnchor,
     required this.followLatest,
     required this.pinAutomatic,
@@ -303,7 +299,6 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onUserDragEnd,
     required this.onMetricsChanged,
     required this.onPinEndSpaceChanged,
-    this.onOldestThresholdReached,
     required this.onTrailingRefresh,
     required this.onNativeScrollToTop,
     this.initialAnchor,
@@ -348,7 +343,6 @@ class ChatTimelineViewport extends StatefulWidget {
   final double horizontalPadding;
   final double cacheExtent;
   final ScrollPhysics physics;
-  final bool isLoadingOlder;
   final bool maintainVisibleAnchor;
   final bool followLatest;
   final bool pinAutomatic;
@@ -358,7 +352,6 @@ class ChatTimelineViewport extends StatefulWidget {
   final VoidCallback onUserDragEnd;
   final ValueChanged<ChatTimelineViewportMetrics> onMetricsChanged;
   final ValueChanged<double> onPinEndSpaceChanged;
-  final VoidCallback? onOldestThresholdReached;
   final Future<void> Function() onTrailingRefresh;
   final Future<void> Function() onNativeScrollToTop;
 
@@ -385,7 +378,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   static const int _maxOldestSettleAttempts = 4;
   static const int _maxInitialPositionAttempts =
       debugChatTimelineInitialPositionMaxAttempts;
-  static const int _oldestRowProbeCount = 3;
   static const Key _liveFooterSliverKey = ValueKey<String>(
     'chat-timeline-live-footer-sliver',
   );
@@ -436,7 +428,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _initialPositionResolved = false;
   bool _initialPositionCallbackScheduled = false;
   bool _initialEmptyFallbackVisible = false;
-  bool _oldestThresholdVisible = false;
   bool _refreshTriggered = false;
   bool _refreshActive = false;
   ({String id, double fraction, bool alignToLatest, double viewportOffset})?
@@ -547,10 +538,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       _cachedPinnedMessageId = null;
       _cachedPinnedTargetOffset = null;
     }
-    if (oldWidget.isLoadingOlder && !widget.isLoadingOlder) {
-      _oldestThresholdVisible = false;
-    }
-
     if (oldWidget.ownerGeneration != widget.ownerGeneration) {
       _handleOwnerGenerationChange();
     } else {
@@ -589,7 +576,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
-    _oldestThresholdVisible = false;
     _initialPositionAttempts = 0;
     _pinEndSpace = 0;
     _pinSupportSpace.value = 0;
@@ -906,19 +892,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return List<String>.unmodifiable(visible.map((entry) => entry.id));
   }
 
-  bool _anyOldestLoadedRowVisible([Map<String, Rect>? rowRects]) {
-    final viewport = _viewportRect;
-    if (viewport == null) return false;
-    final top = viewport.top + widget.topContentInset;
-    final bottom = viewport.bottom;
-    final rects = rowRects ?? _mountedRowRectSnapshot();
-    for (final id in _messageIds.take(_oldestRowProbeCount)) {
-      final rect = rects[id];
-      if (rect != null && rect.bottom > top && rect.top < bottom) return true;
-    }
-    return false;
-  }
-
   ({String id, Rect rect})? _topVisibleRow([Map<String, Rect>? rowRects]) {
     final viewport = _viewportRect;
     if (viewport == null) return null;
@@ -940,7 +913,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return intersecting ?? nearestBelow;
   }
 
-  ChatScrollAnchor? _captureTopVisibleAnchor({required int loadedCount}) {
+  ChatScrollAnchor? _captureTopVisibleAnchor() {
     final viewport = _viewportRect;
     if (viewport == null) return null;
     final insetY = viewport.top + widget.topContentInset;
@@ -949,7 +922,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return ChatScrollAnchor(
       messageId: best.id,
       offsetWithinMessage: best.rect.top - insetY,
-      loadedCount: loadedCount,
     );
   }
 
@@ -1097,13 +1069,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       final rowRects = _frameRowRectSnapshot();
       final centerRecoveryOwnedFrame = _maintainVisibleContent(rowRects);
       _updatePinGeometry();
-      final oldestThresholdVisible = _anyOldestLoadedRowVisible(rowRects);
-      if (!oldestThresholdVisible) {
-        _oldestThresholdVisible = false;
-      } else if (!widget.isLoadingOlder && !_oldestThresholdVisible) {
-        _oldestThresholdVisible = true;
-        widget.onOldestThresholdReached?.call();
-      }
       if (!centerRecoveryOwnedFrame &&
           widget.followLatest &&
           !widget.pinAutomatic &&
@@ -1843,7 +1808,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   void _handleTrailingOverscroll(OverscrollNotification notification) {
-    if (!_userDragging || widget.isLoadingOlder || _refreshActive) {
+    if (!_userDragging || _refreshActive) {
       _trailingOverscroll = 0;
       return;
     }
@@ -2161,14 +2126,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   height: math.max(0, widget.topContentInset),
                 ),
               ),
-              if (widget.isLoadingOlder)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    key: ValueKey<String>('older-messages-loading'),
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: CircularProgressIndicator.adaptive()),
-                  ),
-                ),
               SliverPadding(
                 padding: EdgeInsets.symmetric(
                   horizontal: widget.horizontalPadding,

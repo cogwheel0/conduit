@@ -245,7 +245,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'synthetic-tall',
             offsetWithinMessage: 0,
-            loadedCount: 1,
           ),
           rowBuilder: (_, _) => const SizedBox(height: 10000),
         ),
@@ -296,7 +295,6 @@ void main() {
           initialAnchor: ChatScrollAnchor(
             messageId: ids[20],
             offsetWithinMessage: 0,
-            loadedCount: ids.length,
           ),
           rowBuilder: (_, index) => SizedBox(height: height(index)),
           onUserDragStart: () => starts++,
@@ -313,9 +311,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     double contentOffset() {
-      final anchor = controller.captureTopVisibleAnchor(
-        loadedCount: ids.length,
-      )!;
+      final anchor = controller.captureTopVisibleAnchor()!;
       final index = ids.indexOf(anchor.messageId);
       return List.generate(index, height).fold(0.0, (a, b) => a + b) -
           anchor.offsetWithinMessage;
@@ -528,7 +524,6 @@ void main() {
               initialAnchor: const ChatScrollAnchor(
                 messageId: 'synthetic-tall',
                 offsetWithinMessage: 0,
-                loadedCount: 1,
               ),
               rowBuilder: (_, _) => const SizedBox(height: 10000),
             ),
@@ -583,7 +578,6 @@ void main() {
               initialAnchor: const ChatScrollAnchor(
                 messageId: 'synthetic-1000',
                 offsetWithinMessage: 0,
-                loadedCount: 10000,
               ),
               estimateRowExtent: (_) => 100,
               rowBuilder: (_, index) {
@@ -621,9 +615,7 @@ void main() {
         expect(_paintedThumb(tester).top - thumb.top, closeTo(200, 24));
         await gesture.up();
         await tester.pumpAndSettle();
-        final anchor = controller.captureTopVisibleAnchor(
-          loadedCount: ids.length,
-        )!;
+        final anchor = controller.captureTopVisibleAnchor()!;
         final index = int.parse(anchor.messageId.split('-').last);
         expect(index, greaterThan(3000));
         expect(index, lessThan(8000));
@@ -650,7 +642,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'synthetic-5000',
             offsetWithinMessage: 0,
-            loadedCount: 10000,
           ),
           estimateRowExtent: (_) {
             estimates++;
@@ -686,7 +677,6 @@ void main() {
               initialAnchor: const ChatScrollAnchor(
                 messageId: 'synthetic-100',
                 offsetWithinMessage: 0,
-                loadedCount: 300,
               ),
               followLatest: false,
               estimateRowExtent: (_) => 100,
@@ -824,7 +814,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'message-59',
             offsetWithinMessage: 0,
-            loadedCount: 60,
           ),
           estimateRowExtent: (index) => heightOf(ids[index]),
           rowBuilder: (context, index) {
@@ -1077,7 +1066,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     check(controller.distanceFromLatest).isGreaterThan(0);
-    final anchor = controller.captureTopVisibleAnchor(loadedCount: ids.length);
+    final anchor = controller.captureTopVisibleAnchor();
     check(anchor).isNotNull();
     final anchorId = anchor!.messageId;
     final before = controller.rowRect(anchorId)!.top;
@@ -1127,9 +1116,7 @@ void main() {
         900,
       );
       await tester.pumpAndSettle();
-      final anchor = controller.captureTopVisibleAnchor(
-        loadedCount: ids.length,
-      );
+      final anchor = controller.captureTopVisibleAnchor();
       check(anchor).isNotNull();
       final anchorId = anchor!.messageId;
       final before = controller.rowRect(anchorId)!.top;
@@ -1178,7 +1165,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'message-15',
             offsetWithinMessage: 0,
-            loadedCount: 30,
           ),
           followLatest: false,
           rowHeight: (_) => 64,
@@ -1213,7 +1199,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'latest-user',
             offsetWithinMessage: 0,
-            loadedCount: 3,
           ),
           followLatest: false,
           rowHeight: (id) => id == 'very-tall-assistant' ? 20000 : 64,
@@ -1717,51 +1702,6 @@ void main() {
     check(callbacks).equals(settledCallbacks);
   });
 
-  _viewportTest('oldest threshold fires once per visibility edge', (
-    tester,
-  ) async {
-    final controller = _controller(tester);
-    var ids = List<String>.generate(4, (index) => 'message-$index');
-    var thresholdCalls = 0;
-    late StateSetter rebuild;
-
-    await tester.pumpWidget(
-      _viewportHost(
-        StatefulBuilder(
-          builder: (context, setState) {
-            rebuild = setState;
-            return _viewport(
-              controller: controller,
-              ids: ids,
-              onOldestThresholdReached: () => thresholdCalls += 1,
-            );
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    check(thresholdCalls).equals(1);
-
-    controller.requestLayoutMaintenance();
-    controller.requestLayoutMaintenance();
-    await tester.pump();
-    await tester.pump();
-    check(thresholdCalls).equals(1);
-
-    rebuild(() {
-      ids = [...List<String>.generate(20, (index) => 'older-$index'), ...ids];
-    });
-    await tester.pump();
-    await tester.pump();
-    check(thresholdCalls).equals(1);
-    rebuild(() {
-      ids = ids.skip(20).toList(growable: false);
-    });
-    await tester.pumpAndSettle();
-
-    check(thresholdCalls).equals(2);
-  });
-
   _viewportTest('growing live tail leaves a detached marker pixel-stable', (
     tester,
   ) async {
@@ -1815,7 +1755,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'message-8',
             offsetWithinMessage: -600,
-            loadedCount: 16,
           ),
           followLatest: false,
           rowHeight: (id) => id == 'message-8' ? 720 : 52,
@@ -1824,7 +1763,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final anchor = controller.captureTopVisibleAnchor(loadedCount: ids.length);
+    final anchor = controller.captureTopVisibleAnchor();
     final anchorChecks = check(anchor).isNotNull();
     anchorChecks
         .has((value) => value.messageId, 'messageId')
@@ -2450,7 +2389,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'message-4',
             offsetWithinMessage: 0,
-            loadedCount: 80,
           ),
           followLatest: false,
         ),
@@ -2480,7 +2418,6 @@ void main() {
           initialAnchor: const ChatScrollAnchor(
             messageId: 'message-10',
             offsetWithinMessage: -23,
-            loadedCount: 20,
           ),
           followLatest: false,
           rowHeight: (_) => 96,
@@ -2513,7 +2450,6 @@ void main() {
                 initialAnchor: const ChatScrollAnchor(
                   messageId: 'message-10',
                   offsetWithinMessage: -18,
-                  loadedCount: 20,
                 ),
                 followLatest: false,
                 rowHeight: (_) => 96,
@@ -2557,7 +2493,6 @@ void main() {
             initialAnchor: const ChatScrollAnchor(
               messageId: 'missing',
               offsetWithinMessage: 0,
-              loadedCount: 50,
             ),
             followLatest: false,
           ),
@@ -2615,7 +2550,6 @@ void main() {
               initialAnchor: const ChatScrollAnchor(
                 messageId: 'message-10',
                 offsetWithinMessage: 0,
-                loadedCount: 20,
               ),
               followLatest: false,
             );
@@ -3088,63 +3022,6 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  _viewportTest('older loading clears stale trailing overscroll', (
-    tester,
-  ) async {
-    final controller = _controller(tester);
-    var loadingOlder = false;
-    var refreshes = 0;
-    late StateSetter rebuild;
-
-    await tester.pumpWidget(
-      _viewportHost(
-        StatefulBuilder(
-          builder: (context, setState) {
-            rebuild = setState;
-            return _viewport(
-              controller: controller,
-              ids: const ['message'],
-              isLoadingOlder: loadingOlder,
-              onTrailingRefresh: () async {
-                refreshes += 1;
-              },
-            );
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final gesture = await _startTrackedGesture(
-      tester,
-      tester.getCenter(find.byType(CustomScrollView)),
-    );
-    const partialDrag = debugChatTimelineTrailingRefreshThreshold - 12;
-    await gesture.moveBy(const Offset(0, -partialDrag));
-    await tester.pump();
-    check(refreshes).equals(0);
-
-    rebuild(() => loadingOlder = true);
-    await tester.pump();
-    await gesture.moveBy(const Offset(0, -20));
-    await tester.pump();
-    check(refreshes).equals(0);
-
-    rebuild(() => loadingOlder = false);
-    await tester.pump();
-    await gesture.moveBy(const Offset(0, -20));
-    await tester.pump();
-    check(refreshes).equals(0);
-
-    await gesture.moveBy(
-      const Offset(0, -(debugChatTimelineTrailingRefreshThreshold - 20 + 4)),
-    );
-    await tester.pump();
-    check(refreshes).equals(1);
-    await gesture.up();
-    await tester.pumpAndSettle();
-  });
-
   _viewportTest('refresh completion cannot re-arm the active drag', (
     tester,
   ) async {
@@ -3414,7 +3291,6 @@ Widget _viewport({
   ChatScrollAnchor? initialAnchor,
   String? pinnedUserMessageId,
   bool pinAutomatic = false,
-  bool isLoadingOlder = false,
   bool maintainVisibleAnchor = false,
   // Defaults to the inverse so free-scroll anchor maintenance and automatic
   // latest ownership remain mutually exclusive in tests, as in ChatPage.
@@ -3429,7 +3305,6 @@ Widget _viewport({
   List<Object?> rowRebuildKeys = const <Object?>[],
   ValueChanged<ChatTimelineViewportMetrics>? onMetricsChanged,
   ValueChanged<double>? onPinEndSpaceChanged,
-  VoidCallback? onOldestThresholdReached,
   Future<void> Function()? onTrailingRefresh,
   Future<void> Function()? onNativeScrollToTop,
   VoidCallback? onPointerDown,
@@ -3452,7 +3327,6 @@ Widget _viewport({
     horizontalPadding: 16,
     cacheExtent: 600,
     physics: const AlwaysScrollableScrollPhysics(),
-    isLoadingOlder: isLoadingOlder,
     maintainVisibleAnchor: maintainVisibleAnchor,
     followLatest: followLatest ?? !maintainVisibleAnchor,
     pinAutomatic: pinAutomatic,
@@ -3462,7 +3336,6 @@ Widget _viewport({
     onUserDragEnd: onUserDragEnd ?? () {},
     onMetricsChanged: onMetricsChanged ?? (_) {},
     onPinEndSpaceChanged: onPinEndSpaceChanged ?? (_) {},
-    onOldestThresholdReached: onOldestThresholdReached ?? () {},
     onTrailingRefresh: onTrailingRefresh ?? () async {},
     onNativeScrollToTop: onNativeScrollToTop ?? () async {},
     rowBuilder:
