@@ -531,22 +531,26 @@ void main() {
       addTearDown(PlatformUiCapabilities.resetDebugOverrides);
       final controller = _controller(tester);
       var ends = 0;
-      Widget host(int owner) => _viewportHost(
-        _viewport(
-          controller: controller,
-          ownerGeneration: owner,
-          ids: List.generate(
-            owner == 1 ? 500 : 4,
-            (i) => 'synthetic-$owner-$i',
+      // Like ChatPage, the parent rebuilds when a drag ends, which it may not
+      // do while the switch is still building.
+      Widget host(int owner) => StatefulBuilder(
+        builder: (context, setState) => _viewportHost(
+          _viewport(
+            controller: controller,
+            ownerGeneration: owner,
+            ids: List.generate(
+              owner == 1 ? 500 : 4,
+              (i) => 'synthetic-$owner-$i',
+            ),
+            followLatest: false,
+            rowHeight: (_) => 100,
+            onUserDragEnd: () => setState(() => ends++),
           ),
-          followLatest: false,
-          rowHeight: (_) => 100,
-          onUserDragEnd: () => ends++,
-        ),
-        theme: ThemeData(
-          scrollbarTheme: const ScrollbarThemeData(
-            thumbVisibility: WidgetStatePropertyAll(true),
-            thickness: WidgetStatePropertyAll(8),
+          theme: ThemeData(
+            scrollbarTheme: const ScrollbarThemeData(
+              thumbVisibility: WidgetStatePropertyAll(true),
+              thickness: WidgetStatePropertyAll(8),
+            ),
           ),
         ),
       );

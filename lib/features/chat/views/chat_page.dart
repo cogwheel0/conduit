@@ -601,6 +601,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
   int _conversationOwnerGeneration = 0;
+  // The conversation a transcript drag started in.
+  int _dragOwnerGeneration = 0;
   int? _timelineHistoryIndexDesyncLogGeneration;
   int? _timelineTailMetadataDesyncLogGeneration;
   final LinkedHashMap<String, ChatScrollAnchor> _savedScrollAnchors =
@@ -3268,6 +3270,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       },
       onUserDragStart: () {
+        _dragOwnerGeneration = _conversationOwnerGeneration;
         InteractionActivity.instance.beginInteraction();
         final pinnedTurnWasActive = _wantsPinToTop;
         if (!_isUserInteractingWithScroll) {
@@ -3292,6 +3295,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         InteractionActivity.instance.endInteraction();
         _endScrollProfile(reason: 'idle');
         _isUserInteractingWithScroll = false;
+        // A drag cut short by switching chats says nothing about where the
+        // new chat should rest.
+        if (_dragOwnerGeneration != _conversationOwnerGeneration) return;
         _updateBottomAnchorTracking();
         _scheduleScrollToBottomVisibilitySync(prewarm: true);
         final naturallyReturnedToLatest = _wantsPinToTop

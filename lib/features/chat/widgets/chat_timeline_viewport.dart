@@ -581,6 +581,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   void _handleOwnerGenerationChange() {
     _cancelProgrammaticNavigation();
+    if (_userDragging) {
+      // The drag belonged to the previous conversation. End it now so the
+      // scroll end that cancelling it sends during this build is ignored,
+      // and tell the parent once the frame is done.
+      _userDragging = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onUserDragEnd();
+      });
+    }
     _invalidateInitialPositionCallback();
     _setCenterMessageId(_resolveInitialCenter());
     _freeAnchor = null;
