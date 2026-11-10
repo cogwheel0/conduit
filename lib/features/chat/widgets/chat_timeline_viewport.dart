@@ -2116,6 +2116,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if (seek == null) return null;
     if (seek.alignToLatest) {
       _pendingRecenter = null;
+      _recoverStrandedTail(metrics);
       return _contentLatestOffset(metrics) +
           seek.viewportOffset * metrics.viewportDimension;
     }
@@ -2123,8 +2124,37 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final box = key == null ? null : _renderBoxFor(key);
     if (box is! _RenderTimelineRowLayout) return null;
     _pendingRecenter = null;
+    _recoverStrandedTail(metrics);
     return seek.fraction * box.extent +
         seek.viewportOffset * metrics.viewportDimension;
+  }
+
+  /// A recenter chooses its center from estimated heights. If less than a
+  /// screen of content follows that center, the viewport (which cannot scroll
+  /// before it) leaves the chat's end short of the composer. This layout has
+  /// measured the tail, so recenter on the latest once more from far enough
+  /// back. It runs at most once per stranded center.
+  void _recoverStrandedTail(ScrollMetrics metrics) {
+    if (metrics.maxScrollExtent > _geometryEpsilon ||
+        metrics.minScrollExtent >= -_geometryEpsilon) {
+      return;
+    }
+    final strandedCenter = _centerIndex;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final position = _dimensionedPosition;
+      if (!mounted ||
+          position == null ||
+          _pendingRecenter != null ||
+          _centerIndex != strandedCenter ||
+          position.maxScrollExtent > _geometryEpsilon) {
+        return;
+      }
+      final center = _latestRecenterCenterId(position.viewportDimension);
+      if ((_messageIndexById[center] ?? strandedCenter) >= strandedCenter) {
+        return;
+      }
+      _recenterForSeek(_messageIds.last, 0, alignToLatest: true);
+    });
   }
 
   void _endScrollbarDrag() {

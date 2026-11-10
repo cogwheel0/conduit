@@ -251,10 +251,15 @@ void main() {
     },
   );
 
-  for (final animated in [false, true]) {
+  for (final (animated, estimate) in [
+    (false, 100.0),
+    (true, 100.0),
+    // Estimates five times too tall pick a center too close to the end.
+    (false, 300.0),
+  ]) {
     _viewportTest(
       'returning to the latest from far away rests a short reply on the '
-      'composer (animated: $animated)',
+      'composer (animated: $animated, estimate: $estimate)',
       (tester) async {
         final controller = _controller(tester);
         final ids = List.generate(2000, (i) => 'synthetic-$i');
@@ -264,7 +269,7 @@ void main() {
               controller: controller,
               ids: ids,
               followLatest: false,
-              estimateRowExtent: (_) => 100,
+              estimateRowExtent: (_) => estimate,
               rowBuilder: (_, i) => SizedBox(height: i % 10 == 5 ? 300 : 60),
             ),
           ),
@@ -299,6 +304,57 @@ void main() {
       },
     );
   }
+
+  _viewportTest(
+    'dragging the thumb to the bottom rests a short reply on the composer',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final controller = _controller(tester);
+      final ids = List.generate(500, (i) => 'synthetic-$i');
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: ids,
+            followLatest: false,
+            initialAnchor: const ChatScrollAnchor(
+              messageId: 'synthetic-0',
+              offsetWithinMessage: 0,
+            ),
+            // Overestimates keep the tail's real height unknown until it is
+            // laid out.
+            estimateRowExtent: (_) => 300,
+            rowBuilder: (_, i) => SizedBox(height: i % 10 == 5 ? 300 : 60),
+          ),
+          theme: ThemeData(
+            scrollbarTheme: const ScrollbarThemeData(
+              thumbVisibility: WidgetStatePropertyAll(true),
+              thickness: WidgetStatePropertyAll(8),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _revealScrollbarByScrolling(tester, -60);
+      final gesture = await _startTrackedGesture(
+        tester,
+        _paintedThumb(tester).center,
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      for (var step = 0; step < 12; step++) {
+        await gesture.moveBy(const Offset(0, 60));
+        await tester.pump(const Duration(milliseconds: 32));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      final viewport = tester.getRect(find.byType(CustomScrollView));
+      final last = controller.rowRect(ids.last);
+      expect(last, isNotNull);
+      expect(last!.bottom, closeTo(viewport.bottom - 80, 1));
+    },
+  );
 
   _viewportTest('Android track taps page the mapped scrollbar', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
