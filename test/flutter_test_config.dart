@@ -13,6 +13,7 @@ import 'package:conduit/platform/wakelock_plus_port.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:cupertino_native_better/cupertino_native_better.dart'
     show PlatformVersion, PlatformViewGuard;
+import 'package:fake_async/fake_async.dart';
 
 /// Runs before every `flutter test` file.
 ///
@@ -58,8 +59,11 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // second after the first one is built. Its timer would otherwise start
   // inside whichever test builds that one first, and fail the test for a
   // pending timer if it ends sooner; that test changes with the files run
-  // before it. Let it run out once, before any test.
-  PlatformViewGuard.ensureScheduled();
-  await Future<void>.delayed(const Duration(milliseconds: 600));
+  // before it. Let it run out once, before any test, on a fake clock.
+  fakeAsync((async) {
+    PlatformViewGuard.ensureScheduled();
+    async.elapse(const Duration(seconds: 1));
+  });
+  assert(PlatformViewGuard.isReady, 'The platform-view guard did not open.');
   await testMain();
 }

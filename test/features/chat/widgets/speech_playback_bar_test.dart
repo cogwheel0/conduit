@@ -199,6 +199,51 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
+  testWidgets(
+    'a drag along the track before iOS 26 seeks once, where the finger lifts',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final actions = <String>[];
+      await tester.pumpWidget(
+        _harness(
+          _Playback(
+            actions.add,
+            elapsed: const Duration(seconds: 30),
+            duration: const Duration(minutes: 1),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final slider = find.byType(CupertinoSlider);
+      final track = tester.getRect(slider);
+
+      // From the thumb, halfway along, a quarter of the track to the right.
+      final finger = await tester.startGesture(track.center);
+      await finger.moveBy(Offset(track.width / 8, 0));
+      await tester.pump();
+      await finger.moveBy(Offset(track.width / 8, 0));
+      await tester.pump(const Duration(milliseconds: 300));
+      final dragged = tester.widget<CupertinoSlider>(slider).value;
+      expect(dragged, greaterThan(.6));
+      // Nothing while the finger is down, however long it rests.
+      expect(actions, isEmpty);
+
+      await finger.up();
+      await tester.pump();
+      expect(actions, [
+        'seek:${(const Duration(minutes: 1) * dragged).inSeconds}',
+      ]);
+      // And no second seek once the drag has rested.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(actions, hasLength(1));
+      await tester.pumpAndSettle();
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
   testWidgets('the bar\'s speed menu sets the speed it shows', (tester) async {
     await tester.pumpWidget(_harness(_Playback((_) {}), textScale: 1));
     await tester.pumpAndSettle();
