@@ -125,8 +125,7 @@ final class MathTokenizer {
   /// `/`, `|` and `(` are deliberately absent. Each turns realistic prose
   /// into math: `5$/kg and 10$/kg`, a compact table row `|5$|Pears|10$|`, and
   /// `echo $PREFIX$(date)`.
-  static const _closerAfterPlainStart =
-      '*_\'\u2019\\-"\u201D~$_cjk';
+  static const _closerAfterPlainStart = '*_\'\u2019\\-"\u201D~$_cjk';
 
   /// Han (with the supplementary planes' high surrogates), kana, Hangul, CJK
   /// symbols and punctuation, and the fullwidth and halfwidth forms other
@@ -160,9 +159,13 @@ final class MathTokenizer {
     '(?=[$_anyCloser$_closerAfterPlainStart]|\$)',
   );
 
-  static final _anyToken = RegExp(
-    '${RegExp.escape('​​LATEX_')}(?:BLOCK|INLINE)_\\d+'
-    '${RegExp.escape(tokenSuffix)}',
+  /// A display token with the blank lines that may wrap it (groups 1–3), or
+  /// an inline token alone (group 4).
+  static final _wrappedToken = RegExp(
+    '(\n\n)?(${RegExp.escape(blockTokenPrefix)}\\d+'
+    '${RegExp.escape(tokenSuffix)})(\n\n)?'
+    '|(${RegExp.escape(inlineTokenPrefix)}\\d+'
+    '${RegExp.escape(tokenSuffix)})',
   );
 
   int _next;
@@ -251,9 +254,10 @@ final class MathTokenizer {
     replace,
   ) {
     if (!containsToken(text)) return text;
-    final pattern = RegExp('(\n\n)?(${_anyToken.pattern})(\n\n)?');
-    return text.replaceAllMapped(pattern, (match) {
-      final token = match[2]!;
+    return text.replaceAllMapped(_wrappedToken, (match) {
+      // Only a display token takes the blank lines around it; an inline
+      // token must not take those of a display token next to it.
+      final token = match[2] ?? match[4]!;
       final span = _spans[token];
       if (span == null) return match[0]!;
       final wrapped = span.isDisplay && match[1] != null && match[3] != null;

@@ -92,6 +92,9 @@ void main() {
         // `$$` matches across the `\[…\]` token the first pass left.
         r'$$ a \[x\] b $$',
         '\$\$\n\nspans a blank line\n\n\$\$',
+        // Inline math right against display math, on either side.
+        r'\(x\)$$y$$ tail',
+        r'\(x\)\[y\]\(z\)',
       ];
       for (final sample in samples) {
         final tokenizer = MathTokenizer();
