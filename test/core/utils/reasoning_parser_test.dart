@@ -438,6 +438,22 @@ void main() {
         check(joined(characters(text))).deepEquals(expected);
       });
 
+      test('reads a backslash-escaped backtick outside code as text', () {
+        const text =
+            r'Type \` for a tick. <think>real</think>'
+            r'A \\`<think>` span, and `a\`<think>also real</think>';
+        const expected = [
+          r'text:Type \` for a tick. ',
+          'reason:real',
+          'end',
+          r'text:A \\`<think>` span, and `a\`',
+          'reason:also real',
+          'end',
+        ];
+        check(joined([text])).deepEquals(expected);
+        check(joined(characters(text))).deepEquals(expected);
+      });
+
       test('ends an unclosed inline span at a blank line', () {
         final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
         final events = splitter.feed('a stray ` tick\n\n<think>real</think>');

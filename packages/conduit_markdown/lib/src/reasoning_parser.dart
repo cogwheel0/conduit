@@ -850,6 +850,8 @@ class StreamingReasoningTagSplitter {
 /// inline span also ends at a blank line, since a span cannot cross
 /// paragraphs. A backtick or tilde run is only complete once a different
 /// character follows, so a run split across chunks is still read as one run.
+/// Outside code a backslash escapes the next character, so `` \` `` is a
+/// literal backtick; inside code a backslash is literal.
 final class _MarkdownCodeState {
   String? _fenceChar;
   int _fenceLength = 0;
@@ -861,13 +863,14 @@ final class _MarkdownCodeState {
   String? _runChar;
   int _runLength = 0;
   bool _runStartsLine = false;
+  bool _escaped = false;
 
   /// Whether a tag that follows [text] would sit inside code. The tag's first
   /// character ends any backtick run [text] closes with.
   bool isInsideCodeAfter(String text) {
     final probe = _copy()..advance(text);
     probe._endRun();
-    return probe._fenceChar != null || probe._inlineTicks > 0;
+    return probe._isInsideCode;
   }
 
   void advance(String text) {
@@ -887,6 +890,7 @@ final class _MarkdownCodeState {
     _runChar = null;
     _runLength = 0;
     _runStartsLine = false;
+    _escaped = false;
   }
 
   _MarkdownCodeState _copy() => _MarkdownCodeState()
@@ -899,9 +903,12 @@ final class _MarkdownCodeState {
     .._lineIsBlank = _lineIsBlank
     .._runChar = _runChar
     .._runLength = _runLength
-    .._runStartsLine = _runStartsLine;
+    .._runStartsLine = _runStartsLine
+    .._escaped = _escaped;
 
   bool get _canStartFence => !_lineHasText && _indent <= 3;
+
+  bool get _isInsideCode => _fenceChar != null || _inlineTicks > 0;
 
   void _push(String char) {
     if (_runChar != null) {
@@ -922,8 +929,10 @@ final class _MarkdownCodeState {
         _closePending = false;
       }
     }
+    final escaped = _escaped;
+    _escaped = false;
     switch (char) {
-      case '`':
+      case '`' when !escaped:
         _startRun(char);
       case '~' when _canStartFence:
         _startRun(char);
@@ -935,6 +944,7 @@ final class _MarkdownCodeState {
       case ' ' || '\t' || '\r':
         if (!_lineHasText) _indent += char == '\t' ? 4 : 1;
       default:
+        if (char == '\\' && !escaped && !_isInsideCode) _escaped = true;
         _lineHasText = true;
         _lineIsBlank = false;
     }
