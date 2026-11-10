@@ -15,10 +15,20 @@ extension _HermesDesktopWorkingDirectories on HermesDesktopApiService {
     if (_workingDirectories[key] == cwd) return;
     if (!_workingDirectories.containsKey(key) &&
         _workingDirectories.length >= _kMaxHermesWorkingDirectorySessions) {
-      _workingDirectories.remove(_workingDirectories.keys.first);
+      // The chat that loses its directory hears so, not only the new one.
+      _forgetWorkingDirectory([_workingDirectories.keys.first]);
     }
     _workingDirectories[key] = cwd;
     if (!_closed) _workingDirectoryChanges.add(key);
+  }
+
+  /// Drops the working directory kept under any of [ids], as for a deleted
+  /// session, and tells the chats that showed it.
+  void _forgetWorkingDirectory(Iterable<String?> ids) {
+    for (final id in ids) {
+      if (id == null || _workingDirectories.remove(id) == null) continue;
+      if (!_closed) _workingDirectoryChanges.add(id);
+    }
   }
 
   /// The working directory of [storedId], under its stored or its runtime

@@ -1490,9 +1490,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                       ? Consumer(
                           builder: (context, ref, _) => HermesChangedFilesCard(
                             statuses: widget.message.statusHistory,
-                            workingDirectory: ref
-                                .watch(hermesActiveWorkingDirectoryProvider)
-                                .value,
+                            workingDirectory: ref.watch(
+                              hermesReplyWorkingDirectoryProvider(
+                                _hermesSessionOf(widget.message),
+                              ),
+                            ),
                           ),
                         )
                       : const SizedBox.shrink(),
@@ -3230,3 +3232,9 @@ String _buildTtsPlainTextFromRaw(String raw) {
 /// Whether any of [statuses] carries the diff of a Hermes edit.
 bool _hasHermesDiff(List<ChatStatusUpdate> statuses) =>
     statuses.any((status) => status.items.any(isHermesInlineDiffItem));
+
+/// The Hermes session [message] ran in, when it says.
+String? _hermesSessionOf(ChatMessage message) {
+  final session = message.metadata?['hermesSessionId'];
+  return session is String ? session : null;
+}

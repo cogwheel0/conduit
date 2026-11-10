@@ -10,6 +10,7 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
@@ -253,6 +254,20 @@ final class _OpenHermesChat extends ActiveConversationNotifier {
     createdAt: DateTime.utc(2030),
     updatedAt: DateTime.utc(2030),
     metadata: const {'hermesSessionId': 'local-1'},
+  );
+}
+
+/// [_OpenHermesChat] as this app marks the Hermes chats it opens.
+final class _NativeHermesChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => markNativeHermesConversation(
+    Conversation(
+      id: 'local:hermes_local-1',
+      title: 'Tides',
+      createdAt: DateTime.utc(2030),
+      updatedAt: DateTime.utc(2030),
+      metadata: const {'hermesSessionId': 'local-1'},
+    ),
   );
 }
 
@@ -1972,6 +1987,90 @@ void main() {
       check(
         seen.whereType<String>(),
       ).deepEquals(['/home/dev/sample-app', '/home/dev/other-app']);
+    });
+
+    // Deleted chats kept their directories, and the oldest kept one was
+    // dropped for a new one without telling the chat that showed it.
+    test('is forgotten with its chat, and when it makes room', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final rest = _Rest({
+        'GET /api/sessions/local-1/mutation-snapshot': (_) => (
+          200,
+          {
+            'session_id': 'local-1',
+            'exists': true,
+            'runtime_revision': 3,
+            'runtime_generation': 2,
+          },
+        ),
+        'DELETE /api/sessions/local-1': (_) => (200, {'ok': true}),
+      });
+      final service = _service(gateway, rest: rest);
+      await service.createDesktopSession();
+      final seen = <String?>[];
+      final sub = service.workingDirectoriesFor('local-1').listen(seen.add);
+      addTearDown(sub.cancel);
+      await _settle();
+
+      await service.deleteSession('local-1');
+      await _settle();
+      check(seen).deepEquals(['/home/dev/sample-app', null]);
+
+      final kept = <String?>[];
+      final keptSub = service
+          .workingDirectoriesFor('chat-0')
+          .listen(kept.add);
+      addTearDown(keptSub.cancel);
+      for (var chat = 0; chat <= 64; chat++) {
+        gateway.event(
+          'session.info',
+          {'cwd': '/srv/chat-$chat'},
+          session: 'chat-$chat',
+        );
+      }
+      await _settle();
+      check(kept).deepEquals([null, '/srv/chat-0', null]);
+    });
+
+    test('is given only to the replies of the open chat\'s session', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      ProviderContainer open(ActiveConversationNotifier Function() chat) {
+        final container = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWithValue(service),
+            activeConversationProvider.overrideWith(chat),
+            chatMessagesProvider.overrideWith(_MixedMessages.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+          ..listen(hermesReplyWorkingDirectoryProvider('local-1'), (_, _) {})
+          ..listen(hermesReplyWorkingDirectoryProvider('local-9'), (_, _) {})
+          ..listen(hermesReplyWorkingDirectoryProvider(null), (_, _) {});
+        return container;
+      }
+
+      // A native Hermes chat runs every reply in its one session.
+      final native = open(_NativeHermesChat.new);
+      await _settle();
+      for (final reply in ['local-1', 'local-9', null]) {
+        check(
+          because: '$reply',
+          native.read(hermesReplyWorkingDirectoryProvider(reply)),
+        ).equals('/home/dev/sample-app');
+      }
+
+      // An OpenWebUI chat's Hermes turns can run in different sessions.
+      final mixed = open(_MixedChat.new);
+      mixed.read(hermesActiveSessionProvider.notifier).set('local-1');
+      await _settle();
+      check(
+        mixed.read(hermesReplyWorkingDirectoryProvider('local-1')),
+      ).equals('/home/dev/sample-app');
+      check(mixed.read(hermesReplyWorkingDirectoryProvider('local-9'))).isNull();
+      check(mixed.read(hermesReplyWorkingDirectoryProvider(null))).isNull();
     });
   });
 

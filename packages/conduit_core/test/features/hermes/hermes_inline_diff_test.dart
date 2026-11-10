@@ -429,6 +429,27 @@ void main() {
       check(shown('$root/lib/main.dart', null)).equals('$root/lib/main.dart');
       check(shown('$root/lib/main.dart', ' ')).equals('$root/lib/main.dart');
       check(shown('/etc/hosts', '/')).equals('/etc/hosts');
+      check(shown(r'C:\src\main.dart', r'C:\')).equals(r'C:\src\main.dart');
+    });
+
+    // A textual prefix took `/app/../secret.txt` for a file inside `/app`,
+    // and `C:\Dev\x` for one outside `c:\dev`.
+    test('are relative only once the path is resolved', () {
+      String shown(String path, String cwd) =>
+          hermesDiffDisplayPath(path, workingDirectory: cwd);
+
+      const root = '/home/dev/app';
+      check(
+        shown('$root/../secrets/key.txt', root),
+      ).equals('$root/../secrets/key.txt');
+      check(shown('$root/lib/../src/./a.dart', root)).equals('src/a.dart');
+      check(shown('$root//lib/a.dart', '$root/./')).equals('lib/a.dart');
+      check(shown('/../etc/hosts', '/home')).equals('/../etc/hosts');
+      check(
+        shown(r'C:\Dev\App\lib\a.dart', r'c:\dev\app'),
+      ).equals('lib/a.dart');
+      // Case still counts outside Windows.
+      check(shown('/Home/Dev/App/a.dart', root)).equals('/Home/Dev/App/a.dart');
     });
   });
 

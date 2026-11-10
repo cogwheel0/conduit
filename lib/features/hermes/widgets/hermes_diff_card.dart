@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -147,9 +149,8 @@ class _FileRow extends StatelessWidget {
       file.path,
       workingDirectory: workingDirectory,
     );
-    final folder = path.length > file.name.length
-        ? path.substring(0, path.length - file.name.length)
-        : '';
+    final separator = math.max(path.lastIndexOf('/'), path.lastIndexOf(r'\'));
+    final folder = path.substring(0, separator + 1);
     return Semantics(
       button: true,
       label: '$name, ${l10n.hermesDiffLineCounts(file.added, file.removed)}',
@@ -178,12 +179,13 @@ class _FileRow extends StatelessWidget {
                     children: [
                       ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxWidth: constraints.maxWidth * 0.6,
+                          maxWidth: folder.isEmpty
+                              ? constraints.maxWidth
+                              : constraints.maxWidth * 0.6,
                         ),
-                        child: Text(
+                        // Cut in the middle too: its extension stays.
+                        child: MiddleEllipsisText(
                           name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: AppTypography.bodySmallStyle.copyWith(
                             color: theme.textPrimary,
                             fontWeight: FontWeight.w500,

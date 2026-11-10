@@ -151,8 +151,8 @@ void main() {
           apiServiceProvider.overrideWithValue(null),
           textToSpeechControllerProvider.overrideWith(_InactiveTts.new),
           streamingHapticsEnabledProvider.overrideWithValue(false),
-          hermesActiveWorkingDirectoryProvider.overrideWith(
-            (ref) => Stream.value(root),
+          hermesReplyWorkingDirectoryProvider.overrideWith(
+            (ref, session) => session == 'session-1' ? root : null,
           ),
         ],
         child: _app(
@@ -163,7 +163,10 @@ void main() {
               content: 'Done.',
               timestamp: DateTime.utc(2030),
               isStreaming: false,
-              metadata: const {'responseDone': true},
+              metadata: const {
+                'responseDone': true,
+                'hermesSessionId': 'session-1',
+              },
               statusHistory: [_patch('a/$file → b/$file\n+x')],
             ),
             isStreaming: false,
@@ -210,6 +213,37 @@ void main() {
     expect(shown, startsWith('/home'));
     expect(shown, endsWith('widgets/'));
     expect(shown.length, lessThan(folder.length));
+  });
+
+  // The name was held to 60% of the row even with no folder beside it,
+  // and a long one lost its end, extension included.
+  testWidgets('gives a name the row it needs, keeping its extension', (
+    tester,
+  ) async {
+    const alone = 'a_settings_section_widget_for_tides.dart';
+    final long = '${'appearance_' * 8}card.dart';
+    await tester.pumpWidget(
+      _app(
+        HermesChangedFilesCard(
+          statuses: [
+            _patch('a/$alone → b/$alone\n+x'),
+            _patch('a/lib/$long → b/lib/$long\n+x'),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text(alone), findsOneWidget);
+    final cut = tester
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(const ValueKey('hermes-changed-file-1')),
+            matching: find.textContaining('…'),
+          ),
+        )
+        .data!;
+    expect(cut, startsWith('appearance_'));
+    expect(cut, endsWith('.dart'));
   });
 
   testWidgets('the tool timeline no longer prints the raw diff', (

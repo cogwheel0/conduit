@@ -704,6 +704,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _lastTranscripts.remove(id);
     _sessionProfiles.remove(id);
     _canonicalSessions.remove(id);
+    _forgetWorkingDirectory([binding?.storedId, binding?.runtimeId, id]);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
       connectionId: config.connectionId,
