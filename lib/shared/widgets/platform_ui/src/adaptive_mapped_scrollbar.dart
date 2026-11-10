@@ -26,8 +26,11 @@ class AdaptiveMappedScrollbar extends StatefulWidget {
   final VoidCallback onDragEnd;
   final Widget child;
 
-  /// Which mapped notifications show the native scrollbar, as on
-  /// [RawScrollbar.notificationPredicate].
+  /// Which content scroll notifications reveal the native scrollbar. It is
+  /// asked as each one arrives, while the caller's interaction state still
+  /// describes it. Rejected notifications only keep the thumb's geometry
+  /// current, so an indicator already on screen stays accurate and a later
+  /// drag can grab it.
   final ScrollNotificationPredicate notificationPredicate;
 
   @override
@@ -105,7 +108,11 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
       notification.dispatch(context);
       return true;
     }
-    _notifications.add(notification);
+    if (widget.notificationPredicate(notification)) {
+      _notifications.add(notification);
+    } else {
+      _metricsChanged = true;
+    }
     _scheduleUpdate();
     return true;
   }
@@ -177,17 +184,8 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
       },
     );
     return PlatformInfo.isIOS
-        ? CupertinoScrollbar(
-            controller: _controller,
-            notificationPredicate: widget.notificationPredicate,
-            child: content,
-          )
-        : Scrollbar(
-            controller: _controller,
-            interactive: true,
-            notificationPredicate: widget.notificationPredicate,
-            child: content,
-          );
+        ? CupertinoScrollbar(controller: _controller, child: content)
+        : Scrollbar(controller: _controller, interactive: true, child: content);
   }
 
   @override

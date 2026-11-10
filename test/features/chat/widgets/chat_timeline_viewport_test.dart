@@ -164,6 +164,25 @@ Future<_TrackedGesture> _startTrackedGesture(
   return tracked;
 }
 
+/// Shows the platform scrollbar the way a person does, by scrolling the
+/// transcript; the app's own position changes leave it hidden. The finger
+/// rests before lifting so the release starts no fling.
+Future<void> _revealScrollbarByScrolling(WidgetTester tester, double dy) async {
+  final gesture = await _startTrackedGesture(
+    tester,
+    tester.getCenter(find.byType(CustomScrollView)),
+  );
+  for (var step = 0; step < 4; step++) {
+    await gesture.moveBy(Offset(0, dy / 4));
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  await tester.pump(const Duration(milliseconds: 100));
+  await gesture.up();
+  for (var frame = 0; frame < 3; frame++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
 /// Advances bounded zero-duration frames used by initial-position retry tests.
 Future<void> _pumpSettleFrames(
   WidgetTester tester, {
@@ -439,10 +458,8 @@ void main() {
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable))
           .position;
-      position.jumpTo(position.pixels - 1);
-      for (var i = 0; i < 3; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+      await _revealScrollbarByScrolling(tester, 60);
+      ends = 0;
       final gesture = await _startTrackedGesture(
         tester,
         _paintedThumb(tester).center,
@@ -539,10 +556,7 @@ void main() {
         final position = tester
             .state<ScrollableState>(find.byType(Scrollable))
             .position;
-        position.jumpTo(1);
-        for (var i = 0; i < 3; i++) {
-          await tester.pump(const Duration(milliseconds: 100));
-        }
+        await _revealScrollbarByScrolling(tester, -60);
         final thumb = _paintedThumb(tester);
         final gesture = await _startTrackedGesture(tester, thumb.center);
         await tester.pump(const Duration(milliseconds: 150));
@@ -596,13 +610,9 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final position = tester
-            .state<ScrollableState>(find.byType(Scrollable))
-            .position;
-        position.jumpTo(position.pixels + 1);
-        await tester.pump(const Duration(milliseconds: 100));
-        await tester.pump(const Duration(milliseconds: 100));
-        await tester.pump(const Duration(milliseconds: 100));
+        await _revealScrollbarByScrolling(tester, -60);
+        starts = 0;
+        ends = 0;
         final thumb = _paintedThumb(tester);
         final initialBuilds = builds;
         final gesture = await _startTrackedGesture(tester, thumb.center);
@@ -783,14 +793,17 @@ void main() {
         .state<ScrollableState>(find.byType(Scrollable))
         .position;
 
-    // The app's own move (pinning, following a reply) shows nothing.
+    // The app's own move (pinning, following a reply) shows nothing. The
+    // mapped scrollbar hears of content scrolling after layout, a frame late.
     position.jumpTo(position.pixels - 400);
+    await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(indicator, isNot(paints..rrect()));
 
     // A drag does, and the indicator fades once the scroll is at rest.
     await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+    await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(indicator, paints..rrect());
