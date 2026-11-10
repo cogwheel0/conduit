@@ -4511,5 +4511,19 @@
   "hermesContinueInCopyFailed": "Impossible de copier cette conversation. Réessayez.",
   "hermesContinueHere": "Continuer ici",
   "hermesContinueHereFailed": "Impossible de continuer cette conversation ici. Réessayez.",
-  "hermesContinueChoiceExplanation": "Continuer ici met fin à cette conversation dans l'autre app, qui en commencera une nouvelle à son prochain message. Une copie laisse cette conversation intacte, mais conserve les messages précédents uniquement sur cet appareil. Elle conserve jusqu'aux 1 000 messages les plus récents (1 Mo), pour les 32 copies ouvertes le plus récemment."
+  "hermesContinueChoiceExplanation": "Continuer ici met fin à cette conversation dans l'autre app, qui en commencera une nouvelle à son prochain message. Une copie laisse cette conversation intacte, mais conserve les messages précédents uniquement sur cet appareil. Elle conserve jusqu'aux 1 000 messages les plus récents (1 Mo), pour les 32 copies ouvertes le plus récemment.",
+  "hermesSessionHide": "Masquer",
+  "hermesSessionUnhide": "Afficher",
+  "hermesSessionUpdateFailed": "Impossible de mettre à jour cette conversation. Réessayez.",
+  "hermesSessionHiddenNotice": "Conversation masquée. Retrouvez-la dans Conversations masquées, dans les réglages Hermes.",
+  "hermesHiddenChatsTitle": "Conversations masquées",
+  "hermesHiddenChatsDescription": "Conversations masquées de la liste Hermes sur cet appareil. Touchez-en une pour l’ouvrir, ou affichez-la pour qu’elle revienne dans la liste.",
+  "hermesHiddenChatsEmpty": "Aucune conversation masquée sur cet appareil.",
+  "hermesHiddenChatsLoadError": "Impossible de charger les conversations masquées.",
+  "hermesBranchFromHere": "Créer une branche ici",
+  "hermesBranchFailed": "Impossible de créer une branche de cette conversation. Réessayez.",
+  "hermesUndoLastTurn": "Annuler le dernier échange",
+  "hermesUndoLastTurnDone": "Dernier échange annulé.",
+  "hermesUndoLastTurnFailed": "Impossible d’annuler le dernier échange. Réessayez.",
+  "hermesArchivedLoadError": "Impossible de charger les conversations archivées."
 }

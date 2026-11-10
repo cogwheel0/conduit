@@ -31,6 +31,8 @@ import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.da
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 
@@ -136,6 +138,7 @@ Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
   int maximum = 10000,
   int pageSize = kHermesDesktopTranscriptPageSize,
   int minimumPageSize = kHermesDesktopTranscriptMinimumPageSize,
+  bool complete = false,
 }) async {
   assert(pageSize > 0 && minimumPageSize > 0);
   final messages = <Map<String, dynamic>>[];
@@ -160,7 +163,15 @@ Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
       continue;
     }
     messages.addAll(page.take(limit));
-    if (page.length < limit) break;
+    if (page.length < limit) return messages;
+  }
+  // A [complete] read is for changing the history (an edit's cut, an undo,
+  // a branch): a row past the bound could be the very turn it targets.
+  if (complete && (await loadPage(messages.length, 1)).isNotEmpty) {
+    throw StateError(
+      'This Hermes chat is too long to change from here: it has more than '
+      '$maximum messages.',
+    );
   }
   return messages;
 }
@@ -288,6 +299,9 @@ final class HermesDesktopApiService
   final Map<String, int> _bindingSocketGenerations = {};
   final Set<String> _freshSessionIds = {};
   final Map<String, List<Map<String, dynamic>>> _lastTranscripts = {};
+
+  /// Chats whose next transcript may be shorter than the one shown.
+  final Set<String> _shortenedTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
 
   /// Connection targets (operation/target card ids) the user approved on
@@ -373,6 +387,23 @@ final class HermesDesktopApiService
   }
 
   Stream<String> get transcriptChanges => _transcriptChanges.stream;
+
+  /// Asks the open chat of [storedId] to read its transcript again.
+  void refreshTranscript(String storedId) => _emitTranscriptChange(storedId);
+
+  /// Asks the open chat of [storedId] to read its transcript again after a
+  /// change that shortened it (an undo the chat did not see): the read is
+  /// taken as it is, not refused as an incomplete one.
+  void refreshShortenedTranscript(String storedId) {
+    _lastTranscripts.remove(storedId);
+    _shortenedTranscripts.add(storedId);
+    _emitTranscriptChange(storedId);
+  }
+
+  /// Whether [storedId]'s next transcript may be shorter than the one shown
+  /// ([refreshShortenedTranscript]); asking consumes it.
+  bool takeShortenedTranscript(String storedId) =>
+      _shortenedTranscripts.remove(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(
@@ -440,6 +471,9 @@ final class HermesDesktopApiService
     String id, {
     CancelToken? cancelToken,
   }) => _runtimeGetSessionMessages(id, cancelToken: cancelToken);
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(String id) =>
+      _runtimeGetSessionMessages(id, current: true);
   Future<List<HermesPendingDesktopDecision>> pendingDecisionsForSession(
     String storedId,
   ) => _runtimePendingDecisionsForSession(storedId);
@@ -447,12 +481,44 @@ final class HermesDesktopApiService
   Future<void> renameSession(String id, String title) =>
       _runtimeRenameSession(id, title);
   @override
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) => _runtimeSetSessionFlags(
+    id,
+    pinned: pinned,
+    archived: archived,
+    hidden: hidden,
+  );
+  @override
+  Future<List<Map<String, dynamic>>?> listArchivedSessions() =>
+      _runtimeListArchivedSessions();
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) => _runtimeGetSession(id);
+  @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) =>
       _runtimeDeleteSession(id, cancelToken: cancelToken);
   bool sessionIdsReferToSameBinding(String left, String right) =>
       _runtimeSessionIdsReferToSameBinding(left, right);
   @override
   Future<String> forkSession(String id) => _runtimeForkSession(id);
+
+  /// Branches session [id] from a message: the legacy wire keeps its first
+  /// [count] user and assistant rows with text, a session authority the
+  /// rows through [throughRowId]. Returns the branch's stored id.
+  Future<String> branchSession(String id, {int? count, int? throughRowId}) =>
+      _runtimeForkSession(id, count: count, throughRowId: throughRowId);
+
+  /// Drops session [id]'s last user turn and everything after it, on the
+  /// server. False when there was no turn to drop.
+  ///
+  /// [rowId] is that turn's row as the caller read it: a session authority
+  /// rewinds to exactly that row. The legacy wire drops whatever turn is
+  /// last, and refuses while a turn runs.
+  Future<bool> undoLastTurn(String id, {int? rowId}) =>
+      _runtimeUndoLastTurn(id, rowId: rowId);
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.
@@ -627,12 +693,16 @@ final class HermesDesktopApiService
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   }) => _runtimeStreamDesktopResponse(
     input,
     sessionId: sessionId,
     options: options,
     cancelToken: cancelToken,
     voiceContext: voiceContext,
+    truncateBeforeRowId: truncateBeforeRowId,
+    truncateSeenThroughRowId: truncateSeenThroughRowId,
   );
   Future<void> interrupt(String storedId) => _runtimeInterrupt(storedId);
   Future<bool> steer(String storedId, String text) =>

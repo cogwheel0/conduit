@@ -4283,5 +4283,19 @@
   "hermesContinueInCopyFailed": "이 채팅을 복사할 수 없습니다. 다시 시도하세요.",
   "hermesContinueHere": "여기서 계속하기",
   "hermesContinueHereFailed": "이 채팅을 여기서 계속할 수 없습니다. 다시 시도하세요.",
-  "hermesContinueChoiceExplanation": "여기서 계속하면 다른 앱의 이 채팅이 종료되고, 그 앱은 다음 메시지에서 새 채팅을 시작합니다. 사본은 그 채팅을 그대로 두지만 이전 메시지는 이 기기에만 저장됩니다. 최근 메시지를 최대 1,000개(1MB)까지 보관하며, 최근에 연 사본 32개에만 해당됩니다."
+  "hermesContinueChoiceExplanation": "여기서 계속하면 다른 앱의 이 채팅이 종료되고, 그 앱은 다음 메시지에서 새 채팅을 시작합니다. 사본은 그 채팅을 그대로 두지만 이전 메시지는 이 기기에만 저장됩니다. 최근 메시지를 최대 1,000개(1MB)까지 보관하며, 최근에 연 사본 32개에만 해당됩니다.",
+  "hermesSessionHide": "숨기기",
+  "hermesSessionUnhide": "숨기기 해제",
+  "hermesSessionUpdateFailed": "이 채팅을 업데이트할 수 없습니다. 다시 시도하세요.",
+  "hermesSessionHiddenNotice": "채팅을 숨겼습니다. Hermes 설정의 숨긴 채팅에서 찾을 수 있습니다.",
+  "hermesHiddenChatsTitle": "숨긴 채팅",
+  "hermesHiddenChatsDescription": "이 기기에서 Hermes 목록에서 숨긴 채팅입니다. 탭하여 열거나 숨기기를 해제해 목록에 다시 표시하세요.",
+  "hermesHiddenChatsEmpty": "이 기기에서 숨긴 채팅이 없습니다.",
+  "hermesHiddenChatsLoadError": "숨긴 채팅을 불러올 수 없습니다.",
+  "hermesBranchFromHere": "여기서 분기",
+  "hermesBranchFailed": "이 채팅을 분기할 수 없습니다. 다시 시도하세요.",
+  "hermesUndoLastTurn": "마지막 주고받은 메시지 취소",
+  "hermesUndoLastTurnDone": "마지막으로 주고받은 메시지를 취소했습니다.",
+  "hermesUndoLastTurnFailed": "마지막으로 주고받은 메시지를 취소할 수 없습니다. 다시 시도하세요.",
+  "hermesArchivedLoadError": "보관된 채팅을 불러올 수 없습니다."
 }

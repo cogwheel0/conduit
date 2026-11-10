@@ -47,6 +47,7 @@ import 'enhanced_attachment.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 
 import '../../../shared/widgets/model_avatar.dart';
+import '../../hermes/widgets/hermes_history_actions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/web_content_embed.dart';
 
@@ -2336,11 +2337,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       'stop-merge' => 'merge',
       _ => action.id,
     };
+    // Share, Delete and the Hermes history actions live in the overflow.
+    bool overflowOnly(_AssistantFooterAction action) =>
+        action.id == 'share' ||
+        action.id == 'delete' ||
+        action.id.startsWith('hermes-');
     final forcedOverflowActions = actions
-        .where((action) => action.id == 'share' || action.id == 'delete')
+        .where(overflowOnly)
         .toList(growable: false);
     final inlineCandidateActions = actions
-        .where((action) => action.id != 'share' && action.id != 'delete')
+        .where((action) => !overflowOnly(action))
         .toList(growable: false);
     final visibleActions = preferred == null
         ? inlineCandidateActions.take(maxInlineActions).toList(growable: false)
@@ -2823,6 +2829,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final branchControls = messageId.isNotEmpty && branchChatId != null;
     final previewingVersion = _activeVersionIndex >= 0;
     final continueFromId = _continueFromVersionId();
+    // A Hermes chat branches and undoes on its server session instead.
+    final hermesHistory = widget.readOnly
+        ? (branch: false, undo: false)
+        : watchHermesReplyHistoryActions(ref, messageId);
     // A LibreChat reply the server never accepted has nothing there to copy.
     final bool canFork =
         branchControls &&
@@ -2961,6 +2971,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ),
           ),
           sfSymbol: 'arrow.triangle.branch',
+        ),
+      // Hermes branches from the reply it stores, not an older version
+      // shown in its place.
+      if (hermesHistory.branch && !previewingVersion)
+        _AssistantFooterAction(
+          id: 'hermes-branch',
+          icon: Platform.isIOS ? CupertinoIcons.arrow_branch : Icons.call_split,
+          label: l10n.hermesBranchFromHere,
+          onTap: () =>
+              unawaited(branchHermesChatFromMessage(context, ref, messageId)),
+          sfSymbol: 'arrow.triangle.branch',
+        ),
+      if (hermesHistory.undo)
+        _AssistantFooterAction(
+          id: 'hermes-undo',
+          icon: Platform.isIOS
+              ? CupertinoIcons.arrow_uturn_left
+              : Icons.undo_rounded,
+          label: l10n.hermesUndoLastTurn,
+          onTap: () => unawaited(undoLastHermesTurnInChat(context, ref)),
+          sfSymbol: 'arrow.uturn.backward',
         ),
       if (_shareableResponseText().isNotEmpty)
         _AssistantFooterAction(

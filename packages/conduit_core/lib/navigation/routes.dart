@@ -52,6 +52,7 @@ class Routes {
   static const String hermesNewConnectionId = 'new';
   static const String hermesJobs = '/profile/hermes/jobs';
   static const String hermesMcp = '/profile/hermes/mcp';
+  static const String hermesHiddenSessions = '/profile/hermes/hidden-chats';
   static const String about = '/profile/about';
   static const String notes = '/notes';
   static const String terminal = '/terminal';
@@ -111,6 +112,7 @@ class RouteNames {
   static const String hermesConnectionEditor = 'hermes-connection-editor';
   static const String hermesJobs = 'hermes-jobs';
   static const String hermesMcp = 'hermes-mcp';
+  static const String hermesHiddenSessions = 'hermes-hidden-chats';
   static const String about = 'about';
   static const String notes = 'notes';
   static const String channels = 'channels';

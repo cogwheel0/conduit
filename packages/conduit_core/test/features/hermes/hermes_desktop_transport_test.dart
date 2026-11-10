@@ -265,6 +265,44 @@ void main() {
     ]);
   });
 
+  test('a read for changing history refuses one past its bound', () async {
+    Future<List<Map<String, dynamic>>> rows(
+      int total,
+      int offset,
+      int limit,
+    ) async => [
+      for (var index = offset; index < offset + limit && index < total; index++)
+        {'id': index + 1},
+    ];
+
+    // Exactly at the bound: complete.
+    check(
+      await loadHermesDesktopTranscriptPages(
+        (offset, limit) => rows(40, offset, limit),
+        maximum: 40,
+        pageSize: 20,
+        complete: true,
+      ),
+    ).length.equals(40);
+    // Past it: a display read keeps the first rows ...
+    check(
+      await loadHermesDesktopTranscriptPages(
+        (offset, limit) => rows(41, offset, limit),
+        maximum: 40,
+        pageSize: 20,
+      ),
+    ).length.equals(40);
+    // ... and a read for an edit, an undo or a branch refuses.
+    await check(
+      loadHermesDesktopTranscriptPages(
+        (offset, limit) => rows(41, offset, limit),
+        maximum: 40,
+        pageSize: 20,
+        complete: true,
+      ),
+    ).throws<StateError>();
+  });
+
   test('loads the complete compacted Desktop transcript in pages', () async {
     final offsets = <int>[];
     final messages = await loadHermesDesktopTranscriptPages((
