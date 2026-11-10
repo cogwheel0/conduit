@@ -155,10 +155,11 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
   /// a drag.
   Offset? _pressedAt;
 
-  /// The value a touch on the iOS 26 slider started from, until the touch
-  /// changes it. UIKit reports the start and the end of every touch, even
-  /// one that moves nothing, such as a tap; only a touch that changes the
-  /// value is reported, as the other sliders do.
+  /// The value a touch on an iOS slider started from, until the touch
+  /// changes it. Both report the start and the end of a touch that moves
+  /// nothing: UIKit's slider for every touch, such as a tap, and the
+  /// Cupertino one for a press on its thumb. Only a touch that changes the
+  /// value is reported, as the Material slider does.
   double? _touchStartValue;
   bool _touchChanged = false;
 
@@ -209,24 +210,26 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
           );
   }
 
-  void _onNativeChangeStart(double value) {
+  void _onTouchStart(double value) {
     _touchStartValue = value;
     _touchChanged = false;
   }
 
-  void _onNativeChanged(double value) {
-    // A press the native slider moves the value for is its drag, never a
-    // tap, whether its end arrives before or after the pointer lifts.
-    _pressedAt = null;
+  void _onTouchChanged(double value) {
     final start = _touchStartValue;
     if (start != null && !_touchChanged) {
+      // The Cupertino slider reports the value it starts from.
+      if (value == start) return;
       _touchChanged = true;
       widget.onChangeStart?.call(start);
     }
+    // A press the slider moves the value for is its drag, never a tap,
+    // whether its end arrives before or after the pointer lifts.
+    _pressedAt = null;
     _handleChanged(value);
   }
 
-  void _onNativeChangeEnd(double value) {
+  void _onTouchEnd(double value) {
     final changed = _touchChanged;
     _touchStartValue = null;
     _touchChanged = false;
@@ -290,9 +293,9 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         min: widget.min,
         max: widget.max,
         enabled: widget.onChanged != null,
-        onChanged: widget.onChanged == null ? (_) {} : _onNativeChanged,
-        onChangeStart: _onNativeChangeStart,
-        onChangeEnd: _onNativeChangeEnd,
+        onChanged: widget.onChanged == null ? (_) {} : _onTouchChanged,
+        onChangeStart: _onTouchStart,
+        onChangeEnd: _onTouchEnd,
         // Not the package's own tap to seek: on a thumbless slider it maps a
         // tap between the centres of the thumb it does not draw, so a tap
         // near either end of the track lands on the end
@@ -321,9 +324,9 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         value: widget.value.clamp(widget.min, widget.max),
         min: widget.min,
         max: widget.max,
-        onChanged: widget.onChanged == null ? null : _handleChanged,
-        onChangeStart: widget.onChangeStart,
-        onChangeEnd: widget.onChangeEnd,
+        onChanged: widget.onChanged == null ? null : _onTouchChanged,
+        onChangeStart: _onTouchStart,
+        onChangeEnd: _onTouchEnd,
         activeColor: widget.activeColor,
         thumbColor: widget.thumbColor ?? CupertinoColors.white,
         divisions: widget.divisions,

@@ -401,6 +401,62 @@ void main() {
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   }
 
+  testWidgets('before iOS 26 a press on the thumb that does not move ends '
+      'once, as a tap', (tester) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.5,
+            seekOnTap: true,
+            onChangeStart: (value) => reports.add('start:$value'),
+            onChanged: (value) => reports.add('change:$value'),
+            onChangeEnd: (value) => reports.add('end:$value'),
+          ),
+        ),
+      ),
+    );
+    // The Cupertino slider takes a press on its thumb as a drag at once,
+    // and ends it with the value it started from.
+    await tester.tapAt(tester.getCenter(find.byType(AdaptiveSlider)));
+    expect(reports, ['start:0.5', 'change:0.5', 'end:0.5']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('before iOS 26 a short mouse drag is the slider\'s, not also a '
+      'tap', (tester) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final changes = <double>[];
+    final ends = <double>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.5,
+            seekOnTap: true,
+            onChanged: changes.add,
+            onChangeEnd: ends.add,
+          ),
+        ),
+      ),
+    );
+    // A mouse drags sooner than a finger: well within a touch's slop.
+    final pointer = await tester.startGesture(
+      tester.getCenter(find.byType(AdaptiveSlider)),
+      kind: PointerDeviceKind.mouse,
+    );
+    await pointer.moveBy(const Offset(8, 0));
+    await tester.pump();
+    await pointer.up();
+    expect(changes, isNotEmpty);
+    expect(ends, [changes.last]);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('before iOS 26 a drag that comes back near its start is not '
       'also a tap', (tester) async {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
