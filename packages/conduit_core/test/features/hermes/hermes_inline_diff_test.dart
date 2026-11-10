@@ -63,6 +63,31 @@ void main() {
       check(diff.truncated).isFalse();
     });
 
+    // A hunk heading with an arrow was read as a file header, opening a
+    // file named after the heading's end.
+    test('read a hunk heading with an arrow as a hunk', () {
+      final diff = parseHermesInlineDiff(
+        [
+          'a/docs/tides.md → b/docs/tides.md',
+          '@@ -4,2 +4,2 @@ ## Tide → Moon',
+          '-Low at four.',
+          '+Low at five.',
+          ' Bring boots.',
+        ].join('\n'),
+      )!;
+
+      final file = diff.files.single;
+      check(file.path).equals('docs/tides.md');
+      check(
+        file.lines.map((l) => '${l.kind.name} ${l.oldNumber} ${l.newNumber}'),
+      ).deepEquals([
+        'hunk null null',
+        'removed 4 null',
+        'added null 4',
+        'context 5 5',
+      ]);
+    });
+
     test('keep what Hermes says it left out', () {
       final text = [
         _ansi('38;2;218;165;32', 'a/big.txt → b/big.txt'),

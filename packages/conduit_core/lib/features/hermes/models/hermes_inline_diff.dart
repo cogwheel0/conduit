@@ -325,8 +325,13 @@ HermesInlineDiff? parseHermesInlineDiff(
 }
 
 /// The file a `from → to` header names, or null when [line] is not one.
+/// A hunk header is not, even when the heading after its `@@` holds an
+/// arrow (`@@ -1 +1 @@ ## Tide → Moon`).
 String? _fileHeader(String line) {
-  if (line.startsWith(' ') || line.startsWith('+') || line.startsWith('-')) {
+  if (line.startsWith(' ') ||
+      line.startsWith('+') ||
+      line.startsWith('-') ||
+      line.startsWith('@@')) {
     return null;
   }
   final arrow = line.indexOf(' → ');
