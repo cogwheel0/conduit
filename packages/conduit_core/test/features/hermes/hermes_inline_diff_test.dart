@@ -398,6 +398,41 @@ void main() {
       ).length.equals(1);
     });
 
+    // The file bound was checked only after a whole edit, and later edits
+    // of a file were added to it without a bound.
+    test('stay within their bounds however many edits a reply makes', () {
+      String files(int from, int count) => [
+        for (var file = from; file < from + count; file++) ...[
+          'a/f$file.txt → b/f$file.txt',
+          '+line',
+        ],
+      ].join('\n');
+      final many = hermesChangedFiles([
+        _tool(files(0, kMaxHermesInlineDiffFiles - 1)),
+        _tool(files(1000, kMaxHermesInlineDiffFiles)),
+      ]);
+      check(many).length.equals(kMaxHermesInlineDiffFiles);
+
+      // Four edits of 600 lines: the last fits only in part, its removed
+      // lines first.
+      final edit = [
+        'a/src/tide.py → b/src/tide.py',
+        for (var line = 0; line < 300; line++) '-old $line',
+        for (var line = 0; line < 300; line++) '+new $line',
+      ].join('\n');
+      final file = hermesChangedFiles([
+        for (var i = 0; i < 4; i++) _tool(edit),
+      ]).single;
+      check(file.lines.length).equals(kMaxHermesInlineDiffLines);
+      check(file.added).isLessThan(file.removed);
+      check(file.added).equals(
+        file.lines.where((l) => l.kind == HermesDiffLineKind.added).length,
+      );
+      check(file.removed).equals(
+        file.lines.where((l) => l.kind == HermesDiffLineKind.removed).length,
+      );
+    });
+
     test('come from a live tool completion', () {
       final message = applyHermesRunEventForTest(
         ChatMessage(

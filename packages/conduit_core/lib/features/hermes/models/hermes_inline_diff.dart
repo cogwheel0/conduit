@@ -348,7 +348,8 @@ String _diffPath(String? from, String to) {
 }
 
 /// Every diff a reply's tools reported, merged by file in the order they
-/// were first changed.
+/// were first changed: at most [kMaxHermesInlineDiffFiles] files, each of at
+/// most [kMaxHermesInlineDiffLines] lines however often it was edited.
 List<HermesDiffFile> hermesChangedFiles(Iterable<ChatStatusUpdate> statuses) {
   final byPath = <String, HermesDiffFile>{};
   final unnamed = <HermesDiffFile>[];
@@ -358,25 +359,34 @@ List<HermesDiffFile> hermesChangedFiles(Iterable<ChatStatusUpdate> statuses) {
       final diff = parseHermesInlineDiff(item.snippet!);
       if (diff == null) continue;
       for (final file in diff.files) {
-        if (file.path.isEmpty) {
+        final merged = file.path.isEmpty ? null : byPath[file.path];
+        if (merged != null) {
+          _appendEdit(merged, file);
+        } else if (file.path.isEmpty) {
           unnamed.add(file);
-          continue;
-        }
-        final merged = byPath[file.path];
-        if (merged == null) {
+        } else {
           byPath[file.path] = file;
-          continue;
         }
-        merged.lines
-          ..add(const HermesDiffLine(HermesDiffLineKind.note, ''))
-          ..addAll(file.lines);
-        merged.added += file.added;
-        merged.removed += file.removed;
-      }
-      if (byPath.length + unnamed.length >= kMaxHermesInlineDiffFiles) {
-        return [...byPath.values, ...unnamed];
+        // Counted file by file: one edit can bring many.
+        if (byPath.length + unnamed.length >= kMaxHermesInlineDiffFiles) {
+          return [...byPath.values, ...unnamed];
+        }
       }
     }
   }
   return [...byPath.values, ...unnamed];
+}
+
+/// Adds a later edit of [file] to [merged], after a blank note, keeping
+/// [kMaxHermesInlineDiffLines] lines at most. The counts are those of the
+/// lines kept.
+void _appendEdit(HermesDiffFile merged, HermesDiffFile file) {
+  final room = kMaxHermesInlineDiffLines - merged.lines.length - 1;
+  if (room <= 0 || file.lines.isEmpty) return;
+  merged.lines.add(const HermesDiffLine(HermesDiffLineKind.note, ''));
+  for (final line in file.lines.take(room)) {
+    merged.lines.add(line);
+    if (line.kind == HermesDiffLineKind.added) merged.added++;
+    if (line.kind == HermesDiffLineKind.removed) merged.removed++;
+  }
 }
