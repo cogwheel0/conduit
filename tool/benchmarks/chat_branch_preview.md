@@ -21,8 +21,8 @@ that baseline and the PR base `ceda30aed6d4d966855e72d92fb28701a54be8e0`.
 These freshly generated synthetic fixtures contain eight messages each. Five
 warmups precede 100 measured graph constructions per fixture, with output checks
 outside the timer. Four sequential runs used baseline/candidate/candidate/baseline
-order, without concurrent builds. [All 6,000 raw samples](chat_branch_preview_results.json)
-include outliers. Nearest-rank p50/p95/p99 use sorted indices 49/94/98.
+order, without concurrent builds. The harness prints all 6,000 raw samples as
+JSON, outliers included. Nearest-rank p50/p95/p99 use sorted indices 49/94/98.
 
 Dart 3.13.7 native AOT on macOS arm64. Ranges below span both runs of each
 variant, in **milliseconds per eight-message graph**:
