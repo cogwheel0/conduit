@@ -164,6 +164,8 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
     } catch (error, stack) {
       // ignore: avoid_print
       print('CHAT_SCROLL_ERROR $error\n$stack');
+      // A runner that only waits for the process must see the failure too.
+      exit(1);
     }
   }
 
