@@ -1,6 +1,6 @@
 import 'dart:io' show Platform;
 import 'dart:math' as math;
-import 'dart:ui' show lerpDouble;
+import 'dart:ui' show ImageFilter, lerpDouble;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
@@ -154,6 +154,7 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
     this.trailing,
     this.centerMiddle = true,
     this.systemOverlayStyle,
+    this.blurWhenScrolledUnder = false,
   });
 
   final TextScaler textScaler;
@@ -162,6 +163,12 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
   final Widget? trailing;
   final bool centerMiddle;
   final SystemUiOverlayStyle? systemOverlayStyle;
+
+  /// Clear while nothing is under the bar, then a translucent, blurred
+  /// background in the page's own tone with a hairline under it once
+  /// content scrolls under it, as [CupertinoNavigationBar] does. Off by
+  /// default: chat and the sidebar draw their own scroll edges.
+  final bool blurWhenScrolledUnder;
 
   double get _controlScale => resolveConduitSystemControlScale(textScaler);
 
@@ -219,6 +226,9 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
       ),
     );
 
+    if (blurWhenScrolledUnder) {
+      bar = _ConduitScrolledUnderBarBackground(child: bar);
+    }
     if (systemOverlayStyle != null) {
       bar = AnnotatedRegion<SystemUiOverlayStyle>(
         value: systemOverlayStyle!,
@@ -226,6 +236,121 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
       );
     }
     return bar;
+  }
+}
+
+/// How far content scrolls under the bar before its background is fully
+/// in, as in [CupertinoNavigationBar].
+const double _kScrolledUnderBackgroundExtent = 10;
+
+/// The background's opacity once fully in: the page's tone, translucent
+/// enough that rows under the bar read as a blur rather than being covered.
+const double _kScrolledUnderBackgroundAlpha = 0.6;
+
+/// The background's blur once fully in, as in [CupertinoNavigationBar].
+const double _kScrolledUnderBackgroundBlurSigma = 10;
+
+/// The background of a [ConduitAdaptiveCupertinoNavigationBar] with
+/// [ConduitAdaptiveCupertinoNavigationBar.blurWhenScrolledUnder]. It follows
+/// the page's outermost vertical scrolling through the
+/// [CupertinoPageScaffold]'s [ScrollNotificationObserver], as
+/// [CupertinoNavigationBar] does. The bar's contents keep one place in the
+/// tree whether or not the background shows, so native glass buttons are
+/// never recreated by a scroll.
+class _ConduitScrolledUnderBarBackground extends StatefulWidget {
+  const _ConduitScrolledUnderBarBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ConduitScrolledUnderBarBackground> createState() =>
+      _ConduitScrolledUnderBarBackgroundState();
+}
+
+class _ConduitScrolledUnderBarBackgroundState
+    extends State<_ConduitScrolledUnderBarBackground> {
+  ScrollNotificationObserverState? _observer;
+
+  /// 0 while nothing is under the bar, 1 once content is
+  /// [_kScrolledUnderBackgroundExtent] under it.
+  double _progress = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final observer = ScrollNotificationObserver.maybeOf(context);
+    if (identical(observer, _observer)) return;
+    _observer?.removeListener(_handleScrollNotification);
+    _observer = observer?..addListener(_handleScrollNotification);
+  }
+
+  @override
+  void dispose() {
+    _observer?.removeListener(_handleScrollNotification);
+    super.dispose();
+  }
+
+  void _handleScrollNotification(ScrollNotification notification) {
+    if (notification is! ScrollUpdateNotification || notification.depth != 0) {
+      return;
+    }
+    final metrics = notification.metrics;
+    final scrolledUnder = switch (metrics.axisDirection) {
+      AxisDirection.down => metrics.extentBefore,
+      AxisDirection.up => metrics.extentAfter,
+      // Horizontal rows inside the page (chips, carousels) say nothing
+      // about what is under the bar.
+      AxisDirection.left || AxisDirection.right => null,
+    };
+    if (scrolledUnder == null) return;
+    final progress = (scrolledUnder / _kScrolledUnderBackgroundExtent)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    if (progress != _progress) setState(() => _progress = progress);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pageColor =
+        CupertinoPageScaffoldBackgroundColor.maybeOf(context) ??
+        CupertinoTheme.of(context).scaffoldBackgroundColor;
+    final hairline = CupertinoColors.separator.resolveFrom(context);
+    final sigma = _kScrolledUnderBackgroundBlurSigma * _progress;
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ClipRect(
+              child: BackdropFilter(
+                enabled: _progress > 0,
+                filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: pageColor.withValues(
+                      alpha:
+                          pageColor.a *
+                          _kScrolledUnderBackgroundAlpha *
+                          _progress,
+                    ),
+                    // One device pixel, as UIKit draws a bar's shadow line.
+                    border: Border(
+                      bottom: BorderSide(
+                        color: hairline.withValues(
+                          alpha: hairline.a * _progress,
+                        ),
+                        width: 1 / MediaQuery.devicePixelRatioOf(context),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        widget.child,
+      ],
+    );
   }
 }
 

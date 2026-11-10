@@ -61,7 +61,7 @@ void main() {
       shell.appBar!.cupertinoNavigationBar,
       isA<ConduitAdaptiveCupertinoNavigationBar>(),
     );
-    expect(find.byType(ConduitChromeGradientFade), findsOneWidget);
+    expect(find.byType(ConduitChromeGradientFade), findsNothing);
     expect(find.text('Tool'), findsOneWidget);
   });
 

@@ -24,7 +24,6 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
-import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 
@@ -114,31 +113,17 @@ class _WorkspaceGateState extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final usesCupertinoChrome = context.usesCupertinoChrome;
     final pageBackground = theme.groupedBackground;
-    final topInset = usesCupertinoChrome
+    final topInset = context.usesCupertinoChrome
         ? MediaQuery.paddingOf(context).top +
               conduitAdaptiveToolbarHeightOf(context)
         : 0.0;
     return AdaptiveRouteShell(
       backgroundColor: pageBackground,
       appBar: _workspaceSimpleAppBar(context, title: l10n.workspaceTitle),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Padding(
-              padding: EdgeInsets.only(top: topInset),
-              child: _WorkspaceStatusContent(kind: kind, onRetry: onRetry),
-            ),
-          ),
-          if (usesCupertinoChrome)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: ConduitChromeGradientFade.top(contentHeight: topInset),
-            ),
-        ],
+      body: Padding(
+        padding: EdgeInsets.only(top: topInset),
+        child: _WorkspaceStatusContent(kind: kind, onRetry: onRetry),
       ),
     );
   }
@@ -406,6 +391,7 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
       trailing: canCreate
           ? createButton(activePlatform: isIos)
           : const SizedBox.shrink(),
+      blurWhenScrolledUnder: true,
     ),
     appBar: AppBar(
       automaticallyImplyLeading: false,

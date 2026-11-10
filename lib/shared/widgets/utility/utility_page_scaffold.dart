@@ -144,11 +144,6 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
   double _largeTitleTop = 0;
   bool _inlineTitleShown = false;
 
-  /// Whether content has scrolled under the bar. A large-title page shows
-  /// its scroll-edge fade only then, as iOS does, so the fade never washes
-  /// over the large title at rest.
-  bool _scrolledUnderBar = false;
-
   /// Whether content continues below the bottom edge. A page with nothing
   /// pinned under its list fades its rows out above the home indicator
   /// then, as iOS's scroll edge does, instead of cutting them off under it.
@@ -194,12 +189,8 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
         position.maxScrollExtent > _largeTitleTop + height * 0.25 &&
         position.pixels >= position.maxScrollExtent - 0.5;
     final shown = _controller.offset > threshold || atEnd;
-    final scrolled = _controller.offset > 0.5;
-    if (shown != _inlineTitleShown || scrolled != _scrolledUnderBar) {
-      setState(() {
-        _inlineTitleShown = shown;
-        _scrolledUnderBar = scrolled;
-      });
+    if (shown != _inlineTitleShown) {
+      setState(() => _inlineTitleShown = shown);
     }
   }
 
@@ -389,6 +380,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               leading: leading ?? const SizedBox.shrink(),
               middle: title,
               trailing: widget.trailing,
+              blurWhenScrolledUnder: true,
               systemOverlayStyle: Theme.of(context)
                   .appBarTheme
                   .systemOverlayStyle,
@@ -450,30 +442,6 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                 child: ConduitChromeGradientFade.bottom(
                   contentHeight: mediaQuery.viewPadding.bottom,
                   fadeHeight: _bottomScrollEdgeFadeHeight,
-                  backgroundColor:
-                      widget.backgroundColor ??
-                      context.conduitTheme.groupedBackground,
-                ),
-              ),
-            ),
-          if (context.usesCupertinoChrome)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: AnimatedOpacity(
-                opacity: !largeTitleActive || _scrolledUnderBar ? 1 : 0,
-                duration: context.motionDuration(AnimationDuration.fast),
-                curve: Curves.easeOut,
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      mediaQuery.viewPadding.top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                  // Settings titles sit over scrolling rows; keep them
-                  // legible.
-                  solidBehindChrome: true,
-                  // The page's own tone, so the bar never reads as a band
-                  // of another colour over a grouped page.
                   backgroundColor:
                       widget.backgroundColor ??
                       context.conduitTheme.groupedBackground,

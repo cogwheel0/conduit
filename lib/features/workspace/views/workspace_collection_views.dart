@@ -376,27 +376,12 @@ class _WorkspaceIosCollectionShellState
         permitted: widget.permitted,
         canCreate: canCreate,
       ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Material(
-              color: Colors.transparent,
-              child: CustomScrollView(
-                controller: _scrollController,
-                slivers: slivers,
-              ),
-            ),
-          ),
-          if (PlatformInfo.isIOS)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: ConduitChromeGradientFade.top(
-                contentHeight: nativeTopInset,
-              ),
-            ),
-        ],
+      body: Material(
+        color: Colors.transparent,
+        child: CustomScrollView(
+          controller: _scrollController,
+          slivers: slivers,
+        ),
       ),
     );
   }

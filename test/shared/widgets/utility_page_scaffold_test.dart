@@ -55,9 +55,12 @@ void main() {
     );
     expect(find.byKey(const ValueKey('utility-route-back-button')), findsOne);
     expect(find.byType(CNButton), findsOneWidget);
-    // A scroll edge under the bar, and one above the home indicator that
-    // stays clear while nothing scrolls under it.
-    expect(find.byType(ConduitChromeGradientFade), findsNWidgets(2));
+    // No scroll edge under the bar; only one above the home indicator,
+    // which stays clear while nothing scrolls under it.
+    final fade = tester.widget<ConduitChromeGradientFade>(
+      find.byType(ConduitChromeGradientFade),
+    );
+    expect(fade.edge, ConduitChromeFadeEdge.bottom);
     expect(
       tester
           .widget<AnimatedOpacity>(
@@ -66,7 +69,18 @@ void main() {
           .opacity,
       0,
     );
-    expect(find.byType(BackdropFilter), findsNothing);
+    // Nothing is under the bar yet, so it has no background.
+    expect(
+      tester
+          .widget<BackdropFilter>(
+            find.descendant(
+              of: find.byType(ConduitAdaptiveCupertinoNavigationBar),
+              matching: find.byType(BackdropFilter),
+            ),
+          )
+          .enabled,
+      isFalse,
+    );
 
     final list = tester.widget<ListView>(find.byType(ListView));
     expect(
@@ -81,6 +95,68 @@ void main() {
       ),
     );
   });
+
+  testWidgets(
+    'the iOS bar frosts, with a hairline, only while content is under it',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat)
+              .copyWith(platform: TargetPlatform.iOS),
+          home: UtilityPageScaffold.settings(
+            title: 'Scheduled Tasks',
+            children: const <Widget>[SizedBox(height: 2000)],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final barBlur = find.descendant(
+        of: find.byType(ConduitAdaptiveCupertinoNavigationBar),
+        matching: find.byType(BackdropFilter),
+      );
+      BoxDecoration barBackground() =>
+          tester
+                  .widget<DecoratedBox>(
+                    find.descendant(
+                      of: barBlur,
+                      matching: find.byType(DecoratedBox),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      Color barFill() => barBackground().color!;
+      BorderSide barHairline() => (barBackground().border! as Border).bottom;
+      final pageColor = tester
+          .element(find.byType(UtilityPageScaffold))
+          .conduitTheme
+          .groupedBackground;
+
+      expect(tester.widget<BackdropFilter>(barBlur).enabled, isFalse);
+      expect(barFill().a, 0);
+      expect(barHairline().color.a, 0);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(tester.widget<BackdropFilter>(barBlur).enabled, isTrue);
+      // The page's own tone, translucent, never a band of another colour.
+      expect(barFill().withValues(alpha: 1), pageColor.withValues(alpha: 1));
+      expect(barFill().a, closeTo(pageColor.a * 0.6, 0.01));
+      // One device pixel of the system separator under it.
+      expect(barHairline().color.a, greaterThan(0));
+      expect(barHairline().width, 1 / tester.view.devicePixelRatio);
+
+      await tester.drag(find.byType(ListView), const Offset(0, 400));
+      await tester.pumpAndSettle();
+      expect(tester.widget<BackdropFilter>(barBlur).enabled, isFalse);
+      expect(barFill().a, 0);
+      expect(barHairline().color.a, 0);
+    },
+  );
 
   testWidgets('Material utility routes retain their trailing action', (
     tester,
