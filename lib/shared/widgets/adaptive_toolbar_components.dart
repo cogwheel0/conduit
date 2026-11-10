@@ -165,9 +165,9 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
   final SystemUiOverlayStyle? systemOverlayStyle;
 
   /// Clear while nothing is under the bar, then a translucent, blurred
-  /// background in the page's own tone once content scrolls under it, as
-  /// [CupertinoNavigationBar] does. Off by default: chat and the sidebar
-  /// draw their own scroll edges.
+  /// background in the page's own tone with a hairline under it once
+  /// content scrolls under it, as [CupertinoNavigationBar] does. Off by
+  /// default: chat and the sidebar draw their own scroll edges.
   final bool blurWhenScrolledUnder;
 
   double get _controlScale => resolveConduitSystemControlScale(textScaler);
@@ -243,8 +243,9 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
 /// in, as in [CupertinoNavigationBar].
 const double _kScrolledUnderBackgroundExtent = 10;
 
-/// The background's opacity once fully in: the page's tone, translucent.
-const double _kScrolledUnderBackgroundAlpha = 0.8;
+/// The background's opacity once fully in: the page's tone, translucent
+/// enough that rows under the bar read as a blur rather than being covered.
+const double _kScrolledUnderBackgroundAlpha = 0.6;
 
 /// The background's blur once fully in, as in [CupertinoNavigationBar].
 const double _kScrolledUnderBackgroundBlurSigma = 10;
@@ -313,6 +314,7 @@ class _ConduitScrolledUnderBarBackgroundState
     final pageColor =
         CupertinoPageScaffoldBackgroundColor.maybeOf(context) ??
         CupertinoTheme.of(context).scaffoldBackgroundColor;
+    final hairline = CupertinoColors.separator.resolveFrom(context);
     final sigma = _kScrolledUnderBackgroundBlurSigma * _progress;
     return Stack(
       fit: StackFit.passthrough,
@@ -323,12 +325,23 @@ class _ConduitScrolledUnderBarBackgroundState
               child: BackdropFilter(
                 enabled: _progress > 0,
                 filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-                child: ColoredBox(
-                  color: pageColor.withValues(
-                    alpha:
-                        pageColor.a *
-                        _kScrolledUnderBackgroundAlpha *
-                        _progress,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: pageColor.withValues(
+                      alpha:
+                          pageColor.a *
+                          _kScrolledUnderBackgroundAlpha *
+                          _progress,
+                    ),
+                    // One device pixel, as UIKit draws a bar's shadow line.
+                    border: Border(
+                      bottom: BorderSide(
+                        color: hairline.withValues(
+                          alpha: hairline.a * _progress,
+                        ),
+                        width: 1 / MediaQuery.devicePixelRatioOf(context),
+                      ),
+                    ),
                   ),
                 ),
               ),
