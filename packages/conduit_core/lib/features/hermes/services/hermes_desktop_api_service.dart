@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 
