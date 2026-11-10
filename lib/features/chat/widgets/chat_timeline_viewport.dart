@@ -2196,7 +2196,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   void _endScrollbarDrag() {
     _scrollbarDragging = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // A thumb grabbed again before this frame owns a new drag.
       if (mounted &&
+          !_scrollbarDragging &&
           !(_dimensionedPosition?.isScrollingNotifier.value ?? false)) {
         _handleUserDragEnd();
       }
