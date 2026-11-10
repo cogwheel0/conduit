@@ -609,6 +609,37 @@ void main() {
       check(dropped).isEmpty();
     });
 
+    test('when a rollback that cannot finish ends the live sign-in', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+      final ownership = await storage.captureSavedServerSessionOwnership('a');
+      // The renewal fails, and so does putting back the sign-in it replaced.
+      secure.refuseWhen = (key, value) =>
+          key == 'user_credentials_v2' &&
+          (value?.contains('"password":"jwt-a"') ?? false);
+
+      final dropped = await droppedBy(
+        () => check(
+          storage.commitExistingServerSession(
+            ownership: ownership!,
+            token: 'token-renewed',
+            canCommit: () => true,
+            publish: () => throw StateError('publication failed'),
+            rememberedCredentials: {
+              ...browserSignIn('a'),
+              'password': 'jwt-renewed',
+            },
+            browserSession: BrowserSessionCommit.keep,
+          ),
+        ).throws<ServerConfigSessionRollbackException>(),
+      );
+
+      secure.refuseWhen = null;
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check(await storedSession('a')).isNull();
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+    });
+
     test('when the saved sign-in it renews is deleted', () async {
       await saveAccounts(['a']);
       final session = await signInWithBrowser('a');
@@ -1065,7 +1096,7 @@ void main() {
     });
 
     test('that cannot be undone ends the live session with its own', () async {
-      await signedInAsNewOverExisting();
+      final session = await signedInAsNewOverExisting();
       final existing = await storedSession('existing');
       // The registry write fails, and so does putting back the saved
       // sign-in it renamed: the live session's owner can't be told.
@@ -1074,17 +1105,21 @@ void main() {
           (key == 'user_credentials_v2' &&
               (value?.contains('"serverId":"new"') ?? false));
 
-      await check(
-        storage.mergeActiveAccountInto(
-          'existing',
-          expectedSourceAccountId: 'new',
-        ),
-      ).throws<ServerConfigSessionRollbackException>();
+      final dropped = await droppedBy(
+        () => check(
+          storage.mergeActiveAccountInto(
+            'existing',
+            expectedSourceAccountId: 'new',
+          ),
+        ).throws<ServerConfigSessionRollbackException>(),
+      );
 
       secure.refuseWhen = null;
       check(await storage.getSavedCredentialsStrict()).isNull();
       check(await storedSession('new')).isNull();
       check(await storedSession('existing')).equals(existing);
+      // Its refresh token is gone from the device, so it can be revoked.
+      check(dropped).deepEquals([(accountId: 'new', session: session)]);
     });
   });
 
