@@ -226,7 +226,7 @@ class ConduitMarkdownPreprocessor {
     // answer text. Put it on a Markdown block boundary without rewriting
     // literal examples inside code spans or fences.
     if (_attachedToolCallDetailsOpen.hasMatch(output)) {
-      output = _replaceMatchesOutsideCode(
+      output = _replaceMarkupOutsideCode(
         output,
         _attachedToolCallDetailsOpen,
         (match) => '${match[1]}\n\n${match[2]}',
@@ -260,10 +260,34 @@ class ConduitMarkdownPreprocessor {
         .transform(_stripLinkReferenceDefinitions)
         .transform(
           (content) =>
-              _replaceMatchesOutsideCode(content, _reasoningBlocks, (_) => ''),
+              _replaceMarkupOutsideCode(content, _reasoningBlocks, (_) => ''),
         )
         .replaceAll(_multipleNewlines, '\n\n')
         .trim();
+  }
+
+  /// Whether clipboard sanitization leaves any text.
+  ///
+  /// Ordinary leading text survives every clipboard rule. Only markup,
+  /// reference definitions and entities can remove or decode that prefix.
+  /// A plain final line also survives when no block can close after it. A
+  /// final `)` can close a reference definition whose parenthesized title
+  /// started on an earlier line, so that line takes the full check.
+  static bool hasClipboardText(String input) {
+    final leadingText = input.trimLeft();
+    if (leadingText.isEmpty) return false;
+    if (!'<◁[&'.contains(leadingText[0])) return true;
+    final trailingText = leadingText.trimRight();
+    final lastLine = trailingText
+        .substring(trailingText.lastIndexOf('\n') + 1)
+        .trimLeft();
+    if (!'<◁[&'.contains(lastLine[0]) &&
+        !lastLine.contains('<') &&
+        !lastLine.contains('◁') &&
+        !lastLine.endsWith(')')) {
+      return true;
+    }
+    return sanitizeForClipboard(input).isNotEmpty;
   }
 
   /// Sanitizes message content for copying while omitting internal tool calls.
@@ -275,7 +299,7 @@ class ConduitMarkdownPreprocessor {
     if (input.isEmpty) return input;
 
     final sanitized = sanitize(input);
-    return _replaceMatchesOutsideCode(sanitized, _toolCallBlocks, (_) => '')
+    return _replaceMarkupOutsideCode(sanitized, _toolCallBlocks, (_) => '')
         // Stored assistant content is HTML-escaped for the renderer; the
         // clipboard needs the literal text back (`"` not `&quot;`). API
         // replay deliberately does NOT decode — it cannot distinguish
@@ -331,7 +355,7 @@ class ConduitMarkdownPreprocessor {
   static String removeAllDetails(String input) {
     if (input.isEmpty) return input;
 
-    return _replaceMatchesOutsideCode(input, _allDetailsBlocks, (_) => '');
+    return _replaceMarkupOutsideCode(input, _allDetailsBlocks, (_) => '');
   }
 
   /// Breaks long inline code spans for better wrapping.
@@ -565,10 +589,9 @@ class ConduitMarkdownPreprocessor {
   static String _stripLinkReferenceDefinitions(String input) {
     if (!hasLinkReferenceDefinitionLine(input)) return input;
 
-    final stripped = _replaceMatchesOutsideCode(
+    final stripped = _maskCodeAndTransform(
       input,
-      _linkReferenceDefinition,
-      (_) => '',
+      (content) => content.replaceAll(_linkReferenceDefinition, ''),
     );
     return stripped.replaceAll(_multipleNewlines, '\n\n').trim();
   }
@@ -577,14 +600,19 @@ class ConduitMarkdownPreprocessor {
     return _openWebUiRemoveFormattings(_removeEmojis(input.trim()));
   }
 
-  static String _replaceMatchesOutsideCode(
+  static String _replaceMarkupOutsideCode(
     String input,
     RegExp pattern,
     String Function(Match) replace,
-  ) => _maskCodeAndTransform(
-    input,
-    (content) => content.replaceAllMapped(pattern, replace),
-  );
+  ) {
+    // These rules require a markup opener. Probe only for its marker: matching
+    // a full block before masking would also scan literal tags inside code.
+    if (!input.contains('<') && !input.contains('◁')) return input;
+    return _maskCodeAndTransform(
+      input,
+      (content) => content.replaceAllMapped(pattern, replace),
+    );
+  }
 
   /// Case-insensitive `String.indexOf` for `<details` starting at [start].
   /// Returns -1 when not found.

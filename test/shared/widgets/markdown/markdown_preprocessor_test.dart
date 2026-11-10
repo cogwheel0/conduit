@@ -3,6 +3,76 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('clipboard eligibility matches cleaned text at special prefixes', () {
+    const inputs = [
+      '',
+      ' \t\r\n\u0085',
+      'A blue square.',
+      '🟦',
+      '\u0085blue',
+      '<think>Compare shapes.</think>',
+      '<think>Compare shapes.</think> Blue square.',
+      '<think>Compare shapes.</think>\nBlue square.\n\n',
+      '<think>\nBlue square.</think>',
+      '<think>\nBlue square.\n</think>',
+      '<think>\n`</think>`\nBlue square.\n</think>',
+      '<think>Compare shapes.</think>\n&nbsp;',
+      '<think>Compare shapes.</think>\n[shape]: https://example.com',
+      '[shape]: https://example.com\nBlue square.',
+      '<details type="tool_calls">Count shapes.</details>\nBlue square.',
+      '<details type="tool_calls">\nBlue square.</details>',
+      '◁think▷Compare shapes.◁/think▷',
+      '◁think▷Compare shapes.◁/think▷\nBlue square.',
+      '◁think▷\nBlue square.◁/think▷',
+      '<details type="tool_calls">Count shapes.</details>',
+      '`<think>literal</think>`',
+      '[shape]: https://example.com',
+      '    [shape]: https://example.com',
+      '[shape](https://example.com)',
+      '[shape]: https://example.com (Blue\nsquare)',
+      '[shape]: https://example.com (Blue\r\nsquare)',
+      '[shape]: https://example.com (Blue\n\nsquare)',
+      '<think>Compare shapes.</think>\n[shape]: https://example.com (Blue\nsquare)',
+      '[shape]: https://example.com (Blue\nsquare) and circle',
+      '[shape]: https://example.com\nBlue square (and circle)',
+      '&nbsp;',
+      '&#32;',
+      '&amp;',
+      '&lt;think&gt;',
+      '\u0000conduit-code-span-0\u0000',
+    ];
+    for (final input in inputs) {
+      check(
+        because: input,
+        ConduitMarkdownPreprocessor.hasClipboardText(input),
+      ).equals(
+        ConduitMarkdownPreprocessor.sanitizeForClipboard(input).isNotEmpty,
+      );
+    }
+  });
+
+  test('clipboard sanitization reuses unchanged code-rich text', () {
+    final content = List.generate(
+      200,
+      (index) =>
+          'Use `sample[$index]` for the blue square.\n\n'
+          '```text\nsample[$index] = blue\n```',
+    ).join('\n\n');
+
+    check(
+      identical(
+        ConduitMarkdownPreprocessor.sanitizeForClipboard(content),
+        content,
+      ),
+    ).isTrue();
+  });
+
+  test('clipboard sanitization preserves repeated literal openers in code', () {
+    final content = '```html\n${'<think>\n' * 2048}```';
+    check(ConduitMarkdownPreprocessor.sanitizeForClipboard(content))
+        .equals(content);
+  });
+
   group('ConduitMarkdownPreprocessor.normalize', () {
     test('empty string returns empty', () {
       check(ConduitMarkdownPreprocessor.normalize('')).equals('');
