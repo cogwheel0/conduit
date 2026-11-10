@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:clock/clock.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
@@ -654,18 +655,35 @@ void main() {
       }
     });
 
+    // Read with HermesApiException.retryAfter, the one parser of the header
+    // and its bound of an hour.
     test('for too many requests says when to retry', () {
-      final surface = hermesApiErrorSurface(
-        refusal(
-          429,
-          headers: {
-            'retry-after': ['90'],
-          },
-        ),
-      )!;
+      DateTime? resetsAt(String? retryAfter) => withClock(
+        Clock.fixed(_now),
+        () => hermesApiErrorSurface(
+          refusal(
+            429,
+            headers: {
+              if (retryAfter != null) 'retry-after': [retryAfter],
+            },
+          ),
+        )!,
+      ).resetsAt;
 
-      check(surface.kind).equals(HermesErrorKind.rateLimit);
-      check(surface.resetsAt).isNotNull();
+      check(resetsAt('90')).equals(_now.add(const Duration(seconds: 90)));
+      check(resetsAt('3600')).equals(_now.add(const Duration(hours: 1)));
+      for (final unusable in [
+        null,
+        '0',
+        '-5',
+        '3601',
+        'Sat, 07 Nov 2026 13:00:00 GMT',
+      ]) {
+        check(because: '$unusable', resetsAt(unusable)).isNull();
+      }
+      check(
+        hermesApiErrorSurface(refusal(429))!.kind,
+      ).equals(HermesErrorKind.rateLimit);
     });
 
     test('for a foreign session keeps the read-only explanation', () {

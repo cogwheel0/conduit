@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
@@ -2406,15 +2407,13 @@ HermesErrorSurface? hermesApiErrorSurface(Object error) {
       );
   }
   if (error.statusCode != 429) return null;
-  final retryAfter = int.tryParse(
-    error.response?.headers.value('retry-after')?.trim() ?? '',
-  );
+  final retryAfter = error.retryAfter;
   return HermesErrorSurface(
     layer: HermesErrorLayer.gateway,
     code: 'rate_limit',
-    resetsAt: retryAfter == null || retryAfter <= 0 || retryAfter > 86400
+    resetsAt: retryAfter == null || retryAfter <= Duration.zero
         ? null
-        : DateTime.now().toUtc().add(Duration(seconds: retryAfter)),
+        : clock.now().toUtc().add(retryAfter),
   );
 }
 
