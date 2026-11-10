@@ -437,6 +437,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   ChatTimelineViewportMetrics? _metricsSnapshot;
   ChatTimelineViewportMetrics? _lastReportedMetrics;
   bool _userDragging = false;
+  // The scrollbar's thumb or track holds the current interaction.
+  bool _scrollbarDragging = false;
   bool _programmaticNavigationActive = false;
   double? _seekEntryOffset;
   int? _seekEntryGeneration;
@@ -581,6 +583,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   void _handleOwnerGenerationChange() {
     _cancelProgrammaticNavigation();
+    _scrollbarDragging = false;
     if (_userDragging) {
       // The drag belonged to the previous conversation. End it now so the
       // scroll end that cancelling it sends during this build is ignored,
@@ -1931,7 +1934,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     } else if (notification is OverscrollNotification) {
       _handleTrailingOverscroll(notification);
     } else if (notification is ScrollEndNotification) {
-      _handleUserDragEnd();
+      // A seek recenters, which stops a fling still running underneath a
+      // held thumb; that end is not the end of the person's drag.
+      if (!_scrollbarDragging) _handleUserDragEnd();
     } else if (notification is UserScrollNotification) {
       // Pointer-signal scrolling (mouse wheels and trackpads) has no
       // dragDetails, but it does publish a non-idle user direction. Driven
@@ -2183,7 +2188,13 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     });
   }
 
+  void _beginScrollbarDrag() {
+    _scrollbarDragging = true;
+    _handleUserDragStart();
+  }
+
   void _endScrollbarDrag() {
+    _scrollbarDragging = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted &&
           !(_dimensionedPosition?.isScrollingNotifier.value ?? false)) {
@@ -2378,7 +2389,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         ownerGeneration: widget.ownerGeneration,
         metrics: _scrollbarMetrics,
         onSeek: _seekFromScrollbar,
-        onDragStart: _handleUserDragStart,
+        onDragStart: _beginScrollbarDrag,
         onDragEnd: _endScrollbarDrag,
         notificationPredicate: _scrollbarFollows,
         child: insetTranscript,

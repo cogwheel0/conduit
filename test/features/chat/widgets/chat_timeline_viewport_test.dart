@@ -348,6 +348,63 @@ void main() {
     },
   );
 
+  _viewportTest('a mouse thumb drag during a fling holds until release', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final controller = _controller(tester);
+    var ends = 0;
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: List.generate(500, (i) => 'synthetic-$i'),
+          followLatest: false,
+          rowHeight: (_) => 100,
+          onUserDragEnd: () => ends++,
+        ),
+        theme: ThemeData(
+          scrollbarTheme: const ScrollbarThemeData(
+            thumbVisibility: WidgetStatePropertyAll(true),
+            thickness: WidgetStatePropertyAll(8),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 300),
+      3000,
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(ends, 0, reason: 'the fling is still running');
+
+    // A mouse does not stop the content's fling the way a touch does, so
+    // the thumb's first seek is what stops it.
+    final mouse = await tester.startGesture(
+      _paintedThumb(tester).center,
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(() async {
+      try {
+        await mouse.cancel();
+      } catch (_) {}
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+    for (var step = 0; step < 3; step++) {
+      await mouse.moveBy(const Offset(0, -40));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(ends, 0, reason: 'the thumb is still held');
+
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(ends, 1);
+  });
+
   _viewportTest('Android track taps page the mapped scrollbar', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
