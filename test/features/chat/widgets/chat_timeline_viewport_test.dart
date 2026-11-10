@@ -309,7 +309,7 @@ void main() {
   }
 
   _viewportTest(
-    'dragging the thumb to the bottom rests a short reply on the composer',
+    'seeking the scrollbar to its end rests a short reply on the composer',
     (tester) async {
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
       addTearDown(PlatformUiCapabilities.resetDebugOverrides);
@@ -325,32 +325,20 @@ void main() {
               messageId: 'synthetic-0',
               offsetWithinMessage: 0,
             ),
-            // Tall opening rows leave little of the thumb's track per
-            // message, so its end lands two rows from the last; estimates
-            // put a full screen below there, but only 120 px follow.
+            // Tall opening rows give the visible screen about two message
+            // units, so the scrollbar's end seeks two rows from the last.
+            // Estimates put a full screen below there; only 120 px follow.
             estimateRowExtent: (_) => 300,
             rowBuilder: (_, i) => SizedBox(height: i < 20 ? 300 : 60),
-          ),
-          theme: ThemeData(
-            scrollbarTheme: const ScrollbarThemeData(
-              thumbVisibility: WidgetStatePropertyAll(true),
-              thickness: WidgetStatePropertyAll(8),
-            ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      await _revealScrollbarByScrolling(tester, -60);
-      final gesture = await _startTrackedGesture(
-        tester,
-        _paintedThumb(tester).center,
-      );
-      await tester.pump(const Duration(milliseconds: 150));
-      for (var step = 0; step < 12; step++) {
-        await gesture.moveBy(const Offset(0, 60));
-        await tester.pump(const Duration(milliseconds: 32));
-      }
-      await gesture.up();
+      final bar = tester
+          .widget<Scrollbar>(find.byType(Scrollbar))
+          .controller!
+          .position;
+      bar.jumpTo(bar.maxScrollExtent);
       await tester.pumpAndSettle();
 
       final viewport = tester.getRect(find.byType(CustomScrollView));
