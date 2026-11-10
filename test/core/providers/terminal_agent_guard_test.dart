@@ -4,6 +4,10 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -25,14 +29,38 @@ TerminalServerInfo _system(String id) => TerminalServerInfo(
   baseUrl: Uri.parse('https://owui.example/api/v1/terminals/$id'),
 );
 
-/// A selected agent, the guard listening, and a terminal list the test
-/// answers. Returns whether the default model was put back.
+/// The server's own terminal list, as [read] answers it.
+class _Terminals extends TerminalService {
+  _Terminals(this.read)
+    : super(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'guard-test',
+            name: 'Guard test',
+            url: 'https://owui.example',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+
+  final FutureOr<List<TerminalServerInfo>> Function() read;
+
+  @override
+  Future<List<TerminalServerInfo>> getSystemTerminalServers() async => read();
+}
+
+/// A selected agent, the guard listening, the chat's terminal list [servers]
+/// and the server's own list [system]. Returns whether the default model was
+/// put back.
 Future<bool> _restoredAfter(
-  FutureOr<List<TerminalServerInfo>> Function() servers,
-) async {
+  FutureOr<List<TerminalServerInfo>> Function() servers, {
+  FutureOr<List<TerminalServerInfo>> Function()? system,
+}) async {
   final container = ProviderContainer(
     overrides: [
       terminalAvailableServersProvider.overrideWith((ref) => servers()),
+      terminalServiceProvider.overrideWithValue(_Terminals(system ?? servers)),
+      terminalSessionScopeIdProvider.overrideWithValue('chat-1'),
       selectedModelProvider.overrideWith(_SelectedAgent.new),
       // A named default keeps the restore off device storage.
       appSettingsProvider.overrideWithValue(
@@ -73,5 +101,17 @@ void main() {
   test('a terminal list that cannot be read changes nothing', () async {
     check(await _restoredAfter(() => Future.error(StateError('offline'))))
         .isFalse();
+  });
+
+  test('a list without the server\'s terminals, from a failed read of them, '
+      'changes nothing', () async {
+    // getAvailableServers keeps a user's own terminals when the server's
+    // list fails, so the combined list arrives without the agent's.
+    check(
+      await _restoredAfter(
+        () => const <TerminalServerInfo>[],
+        system: () => Future.error(StateError('offline')),
+      ),
+    ).isFalse();
   });
 }
