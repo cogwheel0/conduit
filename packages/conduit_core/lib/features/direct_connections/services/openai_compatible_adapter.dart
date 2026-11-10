@@ -9,6 +9,7 @@ import 'package:conduit_core/services/openai_responses_codec.dart';
 import 'package:conduit_core/services/sse_frame_scanner.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/json_normalization.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -1941,8 +1942,10 @@ Iterable<DirectContentPart> _providerInputParts(DirectChatMessage message) {
 }
 
 Map<String, dynamic> _normalizeChatPayload(Map<String, dynamic> payload) {
-  final normalized = Map<String, dynamic>.from(payload);
-  final choices = payload['choices'];
+  // Compatible servers send unset optional fields as nulls (`"audio": null`
+  // in every delta), which openai_dart rejects.
+  final normalized = withoutNullJsonEntries(payload);
+  final choices = normalized['choices'];
   if (choices is! List) return normalized;
   normalized['choices'] = [
     for (final rawChoice in choices)
