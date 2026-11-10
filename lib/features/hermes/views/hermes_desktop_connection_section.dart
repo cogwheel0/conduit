@@ -151,6 +151,16 @@ class _HermesDesktopConnectionSectionState
       setState(() => _profilesError = 'Enter the Hermes server URL first.');
       return;
     }
+    // Listing profiles sends the draft's credentials, which go unencrypted
+    // only once Test, Save or sign-in has asked.
+    if (!draft.config.mayUsePlainHttp) {
+      if (!mounted) return;
+      setState(() {
+        _profiles = const [];
+        _profilesError = 'Test the connection, then refresh the profile list.';
+      });
+      return;
+    }
     final identity = _authDraftIdentity(draft.config);
     final editsActive = widget.editsActiveConnection();
     // A token refresh while listing profiles must land with the connection it
@@ -231,6 +241,8 @@ class _HermesDesktopConnectionSectionState
     if (!force && saved.mode == HermesBackendMode.desktopGateway) return;
     final draft = _controller.buildDraft(saved).config.copyWith(enabled: true);
     if (HermesConfig.connectionOrigin(draft.baseUrl) == null) return;
+    // Not unencrypted unasked: the access headers go with the probe.
+    if (!draft.mayUsePlainHttp) return;
     final identity = _authDraftIdentity(draft);
     final epoch = ++_recommendationEpoch;
     try {

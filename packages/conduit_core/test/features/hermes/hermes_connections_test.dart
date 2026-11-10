@@ -995,11 +995,16 @@ void main() {
       check(
         HermesConfig.plainHttpOrigin('http://hermes.lan/v1'),
       ).equals('http://hermes.lan:80');
+      // Mapped, an address elsewhere is still elsewhere.
+      check(
+        HermesConfig.plainHttpOrigin('http://[::ffff:10.0.0.1]:8642'),
+      ).isNotNull();
       for (final unasked in [
         'http://localhost:8642',
         'http://127.0.0.1:8642',
         'http://127.1.2.3',
         'http://[::1]:8642',
+        'http://[::ffff:127.0.0.1]:8642',
         'https://192.168.1.20:8642',
         'not a url',
       ]) {

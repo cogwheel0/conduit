@@ -652,6 +652,33 @@ void main() {
     expect(find.byType(AccountSheet), findsNothing);
   });
 
+  // The Desktop Gateway section lists the server's profiles as a URL is
+  // typed, sending the draft's token and access headers: over plain HTTP
+  // it waits until Test, Save or sign-in has asked.
+  testWidgets('Desktop Gateway lists no profiles over plain HTTP unasked', (
+    tester,
+  ) async {
+    await pumpSheet(tester, const AddAccountRequest(AccountKind.hermes));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('hermes-backend-mode-selector')),
+        matching: find.text('Desktop Gateway'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-server-url-field')),
+      'http://192.0.2.10:8642',
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Test the connection, then refresh the profile list.'),
+      findsOne,
+    );
+  });
+
   // Connect saved the connection and then failed to turn Hermes on; the
   // button became Save, which only saved again and never turned it on.
   testWidgets('Connect stays Connect after it saved but could not finish', (

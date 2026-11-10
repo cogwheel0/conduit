@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import 'package:conduit_core/utils/loopback_host.dart';
+
 /// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
 /// explicit `null` (which clears a secret).
 const Object _unset = Object();
@@ -208,14 +210,11 @@ class HermesConfig {
     if (origin == null ||
         uri == null ||
         uri.scheme.toLowerCase() != 'http' ||
-        isHermesLoopbackHost(uri.host)) {
+        isLoopbackHost(uri.host)) {
       return null;
     }
     return origin;
   }
-
-  /// Whether this connection's credentials travel unencrypted.
-  bool get sendsCredentialsUnencrypted => plainHttpOrigin(baseUrl) != null;
 
   /// Whether this connection may send its credentials: they are encrypted,
   /// stay on this device, or the user agreed for this origin.
@@ -405,24 +404,6 @@ final class HermesPlainHttpConsentRequired implements Exception {
   String toString() =>
       'HermesPlainHttpConsentRequired: sending credentials over plain HTTP '
       'needs consent for this server.';
-}
-
-/// Whether [host] is this device: `localhost`, an address in `127.0.0.0/8`,
-/// or `::1`. Pure Dart, so the model needs no `dart:io`.
-bool isHermesLoopbackHost(String host) {
-  final normalized = host.toLowerCase();
-  if (normalized == 'localhost') return true;
-  try {
-    return Uri.parseIPv4Address(normalized).first == 127;
-  } on FormatException {
-    // Not an IPv4 address.
-  }
-  try {
-    final bytes = Uri.parseIPv6Address(normalized);
-    return bytes.last == 1 && bytes.take(15).every((byte) => byte == 0);
-  } on FormatException {
-    return false;
-  }
 }
 
 bool _mapsEqual(Map<String, String> left, Map<String, String> right) {
