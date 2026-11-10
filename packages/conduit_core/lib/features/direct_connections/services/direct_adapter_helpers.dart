@@ -94,8 +94,79 @@ const int kMaxDirectSuccessDrainBytes = 256 * 1024;
 const int kMaxDirectStreamCharacters = 8 * 1024 * 1024;
 const int kMaxDirectStreamEvents = 100000;
 const int kMaxDirectStreamWorkUnits = 1024 * 1024;
-const int kDirectMaxToolRounds = 8;
+
+/// Tool calls one model response may request. A larger response is
+/// malformed; this does not limit how many rounds a reply runs.
 const int kDirectMaxToolCalls = 16;
+
+/// Internal backstop for a Direct tool loop. There is no user-facing round
+/// limit: past this many rounds Conduit stops offering tools and asks the
+/// model to answer.
+const int kDirectToolRoundBackstop = 100;
+
+/// Failed tool calls in a row after which Conduit stops offering tools and
+/// asks the model to answer, so a blocked web search can't loop.
+const int kDirectMaxConsecutiveToolFailures = 3;
+
+/// Appended to the last tool result the model sees before its final request,
+/// which offers no tools.
+const String kDirectFinalAnswerToolNote =
+    'Tool use for this reply has ended. Do not call any more tools. Answer '
+    'the user now with the information gathered so far, and say briefly if '
+    'anything could not be found.';
+
+/// Stored as the reply's error when a model asked for tools again instead of
+/// answering after tools were turned off.
+const String kDirectToolLoopNoAnswerMessage =
+    'The model kept calling tools without giving an answer.';
+
+/// Whether a stored Direct error is [kDirectToolLoopNoAnswerMessage].
+bool isDirectToolLoopNoAnswerError(String? message) =>
+    message?.trim() == kDirectToolLoopNoAnswerMessage;
+
+/// [result] with [kDirectFinalAnswerToolNote] after it.
+String withDirectFinalAnswerNote(String result) => result.trim().isEmpty
+    ? kDirectFinalAnswerToolNote
+    : '$result\n\n$kDirectFinalAnswerToolNote';
+
+/// Follows one Direct tool loop and says when it must end with an answer.
+///
+/// Shared by the OpenAI-compatible, Ollama and Apple adapters so MCP tools,
+/// on-device web search and Ollama Cloud search end the same way: after
+/// [maxConsecutiveFailures] failed calls in a row, or after [maxRounds]
+/// rounds, the model gets one final request with tools turned off.
+final class DirectToolLoopGuard {
+  DirectToolLoopGuard({
+    this.maxRounds = kDirectToolRoundBackstop,
+    this.maxConsecutiveFailures = kDirectMaxConsecutiveToolFailures,
+  }) {
+    if (maxRounds < 1) throw ArgumentError.value(maxRounds, 'maxRounds');
+    if (maxConsecutiveFailures < 1) {
+      throw ArgumentError.value(
+        maxConsecutiveFailures,
+        'maxConsecutiveFailures',
+      );
+    }
+  }
+
+  final int maxRounds;
+  final int maxConsecutiveFailures;
+  int _rounds = 0;
+  int _consecutiveFailures = 0;
+
+  /// Records one tool call's outcome. A denied call counts as failed.
+  void recordResult({required bool isError}) {
+    _consecutiveFailures = isError ? _consecutiveFailures + 1 : 0;
+  }
+
+  /// Records a finished round of tool calls.
+  void completeRound() => _rounds++;
+
+  /// Whether the next model request must be the final one, with no tools.
+  bool get mustAnswer =>
+      _rounds >= maxRounds || _consecutiveFailures >= maxConsecutiveFailures;
+}
+
 const int kDirectMaxToolArgumentBytes = 64 * 1024;
 
 /// Provider-independent limits for normalized direct stream events.

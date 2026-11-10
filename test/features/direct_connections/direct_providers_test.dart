@@ -10,6 +10,7 @@ import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -156,6 +157,42 @@ void main() {
       secondModelId: 8192,
     });
   });
+
+  test('images per request defaults to ten and persists a choice', () async {
+    final container = ProviderContainer();
+    expect(
+      container.read(directMaxImagesPerRequestProvider),
+      kDefaultDirectMaxImagesPerRequest,
+    );
+
+    await container.read(directMaxImagesPerRequestProvider.notifier).set(20);
+    expect(container.read(directMaxImagesPerRequestProvider), 20);
+    container.dispose();
+
+    final restored = ProviderContainer();
+    addTearDown(restored.dispose);
+    expect(restored.read(directMaxImagesPerRequestProvider), 20);
+    expect(
+      () => restored
+          .read(directMaxImagesPerRequestProvider.notifier)
+          .set(kMaxDirectMaxImagesPerRequest + 1),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+    'an out-of-range stored image count falls back to the default',
+    () async {
+      await PreferencesStore.put(PreferenceKeys.directMaxImagesPerRequest, 0);
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      expect(
+        container.read(directMaxImagesPerRequestProvider),
+        kDefaultDirectMaxImagesPerRequest,
+      );
+    },
+  );
 
   test('concurrent Apple preferences apply the latest invocation', () async {
     final container = ProviderContainer();

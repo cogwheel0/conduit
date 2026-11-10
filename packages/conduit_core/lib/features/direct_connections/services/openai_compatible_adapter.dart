@@ -803,11 +803,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final conversation = (requestBody['messages'] as List)
         .map((message) => Map<String, dynamic>.from(message as Map))
         .toList(growable: true);
-    var totalCalls = 0;
+    final guard = DirectToolLoopGuard();
     Map<String, dynamic>? combinedUsage;
 
-    for (var round = 0; round < kDirectMaxToolRounds; round++) {
+    while (true) {
       if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
+      final finalAnswer = guard.mustAnswer;
       final roundCancelToken = CancelToken();
       unawaited(
         cancelToken.whenCancel.then<void>((error) {
@@ -819,7 +820,14 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       final response = await dio.post<ResponseBody>(
         _completionEndpoint(profile),
         cancelToken: roundCancelToken,
-        data: <String, dynamic>{...requestBody, 'messages': conversation},
+        data: <String, dynamic>{
+          ...requestBody,
+          'messages': conversation,
+          // The final request keeps the tool definitions, which some providers
+          // require while history holds tool calls, but lets the model use
+          // none of them.
+          if (finalAnswer) 'tool_choice': 'none',
+        },
         options: Options(
           responseType: ResponseType.stream,
           receiveTimeout: streamIdleTimeout,
@@ -845,7 +853,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         combinedUsage,
         result.usage,
       );
-      if (result.calls.isEmpty) {
+      if (finalAnswer &&
+          result.calls.isNotEmpty &&
+          result.content.trim().isEmpty) {
+        throw const DirectProviderException(kDirectToolLoopNoAnswerMessage);
+      }
+      if (result.calls.isEmpty || finalAnswer) {
         if (!result.hasCompletion) {
           throw const FormatException(
             'OpenAI-compatible response has no usable completion content.',
@@ -854,17 +867,6 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         if (combinedUsage != null) emitter.usage(combinedUsage);
         emitter.done();
         return;
-      }
-      totalCalls += result.calls.length;
-      if (totalCalls > kDirectMaxToolCalls) {
-        throw const DirectProviderException(
-          'The provider exceeded Conduit\'s tool-call limit.',
-        );
-      }
-      if (round + 1 >= kDirectMaxToolRounds) {
-        throw const DirectProviderException(
-          'The provider exceeded Conduit\'s tool round limit.',
-        );
       }
       conversation.add(<String, dynamic>{
         'role': 'assistant',
@@ -917,11 +919,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           }
         }
         emitter.toolCompleted(call.id, call.name, arguments, toolResult);
+        guard.recordResult(isError: toolResult.isError);
         conversation.add(<String, dynamic>{
           'role': 'tool',
           'tool_call_id': call.id,
           'content': toolResult.text,
         });
+      }
+      guard.completeRound();
+      if (guard.mustAnswer) {
+        final last = conversation.last;
+        last['content'] = withDirectFinalAnswerNote(last['content'] as String);
       }
     }
   }
@@ -1057,11 +1065,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       throw const FormatException('Responses API input is invalid.');
     }
 
-    var totalCalls = 0;
+    final guard = DirectToolLoopGuard();
     final replayBudget = _ResponsesReplayBudget();
     Map<String, dynamic>? combinedUsage;
-    for (var round = 0; round < kDirectMaxToolRounds; round++) {
+    while (true) {
       if (runCancelToken.isCancelled || cancelToken.isCancelled) return;
+      final finalAnswer = guard.mustAnswer;
       emitter.beginResponsesRound();
       final roundCancelToken = CancelToken();
       unawaited(
@@ -1074,7 +1083,13 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       final response = await dio.post<ResponseBody>(
         _completionEndpoint(profile),
         cancelToken: roundCancelToken,
-        data: <String, dynamic>{...requestBody, 'input': input},
+        data: <String, dynamic>{
+          ...requestBody,
+          'input': input,
+          // As for Chat Completions: keep the definitions the history refers
+          // to, but let the final request use none of them.
+          if (finalAnswer) 'tool_choice': 'none',
+        },
         options: Options(
           responseType: ResponseType.stream,
           receiveTimeout: streamIdleTimeout,
@@ -1100,7 +1115,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         combinedUsage,
         result.usage,
       );
-      if (result.calls.isEmpty) {
+      if (finalAnswer &&
+          result.calls.isNotEmpty &&
+          emitter.contentText.trim().isEmpty) {
+        throw const DirectProviderException(kDirectToolLoopNoAnswerMessage);
+      }
+      if (result.calls.isEmpty || finalAnswer) {
         if (!result.hasCompletion) {
           throw const FormatException(
             'Responses API response has no usable completion content.',
@@ -1113,17 +1133,6 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       if (runtime == null) {
         throw const DirectProviderException(
           kDirectToolCallingUnsupportedMessage,
-        );
-      }
-      totalCalls += result.calls.length;
-      if (totalCalls > kDirectMaxToolCalls) {
-        throw const DirectProviderException(
-          'The provider exceeded Conduit\'s tool-call limit.',
-        );
-      }
-      if (round + 1 >= kDirectMaxToolRounds) {
-        throw const DirectProviderException(
-          'The provider exceeded Conduit\'s tool round limit.',
         );
       }
       for (final item in result.replayItems) {
@@ -1175,6 +1184,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           }
         }
         emitter.toolCompleted(call.callId, call.name, arguments, toolResult);
+        guard.recordResult(isError: toolResult.isError);
         final output = <String, dynamic>{
           'type': 'function_call_output',
           'call_id': call.callId,
@@ -1182,6 +1192,11 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         };
         replayBudget.add(output);
         input.add(output);
+      }
+      guard.completeRound();
+      if (guard.mustAnswer) {
+        final last = input.last;
+        last['output'] = withDirectFinalAnswerNote(last['output'] as String);
       }
     }
   }
@@ -2153,7 +2168,7 @@ void _appendChatToolCallFragments(
     final builder = calls.putIfAbsent(index, () {
       if (calls.length >= kDirectMaxToolCalls) {
         throw const DirectProviderException(
-          'The provider exceeded Conduit\'s tool-call limit.',
+          'The provider requested too many tool calls in one response.',
         );
       }
       return _ChatToolCallBuilder();
@@ -2406,7 +2421,7 @@ final class _ResponsesToolCallCollector {
     return _builders.putIfAbsent(outputIndex, () {
       if (_builders.length >= kDirectMaxToolCalls) {
         throw const DirectProviderException(
-          'The provider exceeded Conduit\'s tool-call limit.',
+          'The provider requested too many tool calls in one response.',
         );
       }
       return _ResponsesToolCallBuilder();

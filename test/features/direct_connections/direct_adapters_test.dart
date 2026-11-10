@@ -5310,58 +5310,99 @@ void main() {
     );
   });
 
-  test('OpenAI Responses enforces the shared tool round limit', () async {
-    final http = _QueuedAdapter([
-      for (var round = 0; round < kDirectMaxToolRounds; round++)
+  test(
+    'OpenAI Responses asks for a final answer at the round backstop',
+    () async {
+      final http = _QueuedAdapter([
+        for (var round = 0; round < kDirectToolRoundBackstop; round++)
+          _Reply.json(
+            _responsesPayload(
+              id: 'resp-$round',
+              output: [
+                _responsesFunctionCall(id: 'fc-$round', callId: 'call-$round'),
+              ],
+            ),
+          ),
         _Reply.json(
           _responsesPayload(
-            id: 'resp-$round',
-            output: [
-              _responsesFunctionCall(id: 'fc-$round', callId: 'call-$round'),
-            ],
+            id: 'resp-final',
+            output: [_responsesMessage('msg-final', 'Here is what I found.')],
           ),
         ),
-    ]);
+      ]);
 
-    final events =
-        await OpenAiCompatibleAdapter(
-              dioFactory: (_) => _dio(http),
-              closeClients: false,
-            )
-            .startCompletion(
-              _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
-              DirectCompletionRequest(
-                remoteModelId: 'model',
-                messages: [
-                  DirectChatMessage.text(role: 'user', text: 'weather'),
-                ],
-                tools: _localToolRuntime(),
-              ),
-            )
-            .events
-            .toList();
+      final events =
+          await OpenAiCompatibleAdapter(
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              )
+              .startCompletion(
+                _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: _localToolRuntime(),
+                ),
+              )
+              .events
+              .toList();
 
-    expect(http.requests, hasLength(kDirectMaxToolRounds));
-    expect(
-      events.whereType<DirectStreamError>().single.message,
-      contains('tool round limit'),
-    );
-    expect(events.whereType<DirectStreamDone>(), isEmpty);
-  });
+      expect(http.requests, hasLength(kDirectToolRoundBackstop + 1));
+      final bodies = [
+        for (final request in http.requests)
+          request.data as Map<String, dynamic>,
+      ];
+      expect(
+        bodies
+            .take(kDirectToolRoundBackstop)
+            .map((body) => body['tool_choice']),
+        everyElement(isNull),
+      );
+      expect(bodies.last['tool_choice'], 'none');
+      expect(bodies.last['tools'], isNotEmpty);
+      final lastOutput = (bodies.last['input'] as List).last as Map;
+      expect(lastOutput['type'], 'function_call_output');
+      expect(
+        lastOutput['output'] as String,
+        endsWith(kDirectFinalAnswerToolNote),
+      );
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(
+        events
+            .whereType<DirectContentDelta>()
+            .map((event) => event.content)
+            .join(),
+        'Here is what I found.',
+      );
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
 
-  test('OpenAI Responses enforces the shared total call limit', () async {
-    final firstCalls = [
-      for (var index = 0; index < kDirectMaxToolCalls; index++)
-        _responsesFunctionCall(id: 'fc-$index', callId: 'call-$index'),
-    ];
+  test('OpenAI Responses runs calls past the old total call limit', () async {
     final http = _QueuedAdapter([
-      _Reply.json(_responsesPayload(id: 'resp-many', output: firstCalls)),
       _Reply.json(
         _responsesPayload(
-          id: 'resp-one-too-many',
+          id: 'resp-many',
+          output: [
+            for (var index = 0; index < kDirectMaxToolCalls; index++)
+              _responsesFunctionCall(id: 'fc-$index', callId: 'call-$index'),
+          ],
+        ),
+      ),
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-one-more',
           output: [
             _responsesFunctionCall(id: 'fc-extra', callId: 'call-extra'),
           ],
+        ),
+      ),
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp-final',
+          output: [_responsesMessage('msg-final', 'All done.')],
         ),
       ),
     ]);
@@ -5390,13 +5431,169 @@ void main() {
             .events
             .toList();
 
-    expect(executions, kDirectMaxToolCalls);
-    expect(http.requests, hasLength(2));
+    expect(executions, kDirectMaxToolCalls + 1);
+    expect(http.requests, hasLength(3));
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test(
+    'OpenAI Chat asks for a final answer after repeated tool failures',
+    () async {
+      final http = _QueuedAdapter([
+        for (var round = 0; round < kDirectMaxConsecutiveToolFailures; round++)
+          _Reply.json(_chatToolCallPayload('call-$round')),
+        _Reply.json(_chatAnswerPayload('Search is unavailable right now.')),
+      ]);
+      var executions = 0;
+
+      final events =
+          await OpenAiCompatibleAdapter(
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              )
+              .startCompletion(
+                _openAiProfile(),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: _localToolRuntime(
+                    execute: (_) async {
+                      executions += 1;
+                      return const DirectToolResult(
+                        text: '{"error":"blocked"}',
+                        isError: true,
+                      );
+                    },
+                  ),
+                ),
+              )
+              .events
+              .toList();
+
+      expect(executions, kDirectMaxConsecutiveToolFailures);
+      expect(http.requests, hasLength(kDirectMaxConsecutiveToolFailures + 1));
+      final bodies = [
+        for (final request in http.requests)
+          request.data as Map<String, dynamic>,
+      ];
+      expect(
+        bodies
+            .take(kDirectMaxConsecutiveToolFailures)
+            .map((body) => body['tool_choice']),
+        everyElement(isNull),
+      );
+      expect(bodies.last['tool_choice'], 'none');
+      final lastMessage = (bodies.last['messages'] as List).last as Map;
+      expect(lastMessage['role'], 'tool');
+      expect(
+        lastMessage['content'],
+        '{"error":"blocked"}\n\n$kDirectFinalAnswerToolNote',
+      );
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(
+        events
+            .whereType<DirectContentDelta>()
+            .map((event) => event.content)
+            .join(),
+        'Search is unavailable right now.',
+      );
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test(
+    'OpenAI Chat reports a model that keeps calling tools at the final answer',
+    () async {
+      final http = _QueuedAdapter([
+        for (var round = 0; round <= kDirectMaxConsecutiveToolFailures; round++)
+          _Reply.json(_chatToolCallPayload('call-$round')),
+      ]);
+      var executions = 0;
+
+      final events =
+          await OpenAiCompatibleAdapter(
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              )
+              .startCompletion(
+                _openAiProfile(),
+                DirectCompletionRequest(
+                  remoteModelId: 'model',
+                  messages: [
+                    DirectChatMessage.text(role: 'user', text: 'weather'),
+                  ],
+                  tools: _localToolRuntime(
+                    execute: (_) async {
+                      executions += 1;
+                      return const DirectToolResult(
+                        text: 'failed',
+                        isError: true,
+                      );
+                    },
+                  ),
+                ),
+              )
+              .events
+              .toList();
+
+      // The call in the final response is not run.
+      expect(executions, kDirectMaxConsecutiveToolFailures);
+      expect(
+        events.whereType<DirectToolCallCompleted>(),
+        hasLength(kDirectMaxConsecutiveToolFailures),
+      );
+      expect(
+        events.whereType<DirectStreamError>().single.message,
+        kDirectToolLoopNoAnswerMessage,
+      );
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+    },
+  );
+
+  test('Ollama leaves tools out of the final answer request', () async {
+    final http = _QueuedAdapter([
+      for (var round = 0; round < kDirectMaxConsecutiveToolFailures; round++)
+        _ollamaToolCallReply(),
+      _ollamaAnswerReply('I could not look that up.'),
+    ]);
+
+    final events =
+        await OllamaAdapter(dioFactory: (_) => _dio(http), closeClients: false)
+            .startCompletion(
+              _ollamaProfile(),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(
+                  execute: (_) async =>
+                      const DirectToolResult(text: 'failed', isError: true),
+                ),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(http.requests, hasLength(kDirectMaxConsecutiveToolFailures + 1));
+    final bodies = [
+      for (final request in http.requests) request.data as Map<String, dynamic>,
+    ];
     expect(
-      events.whereType<DirectStreamError>().single.message,
-      contains('tool-call limit'),
+      bodies
+          .take(kDirectMaxConsecutiveToolFailures)
+          .map((body) => body['tools']),
+      everyElement(isNotEmpty),
     );
-    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(bodies.last.containsKey('tools'), isFalse);
+    final lastMessage = (bodies.last['messages'] as List).last as Map;
+    expect(lastMessage['role'], 'tool');
+    expect(lastMessage['content'], 'failed\n\n$kDirectFinalAnswerToolNote');
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 
   test('OpenAI Responses enforces the response replay byte limit', () async {
@@ -6845,6 +7042,60 @@ Map<String, dynamic> _responsesMessage(String id, String text) =>
         {'type': 'output_text', 'text': text},
       ],
     };
+
+Map<String, dynamic> _chatToolCallPayload(String callId) => {
+  'choices': [
+    {
+      'message': {
+        'role': 'assistant',
+        'content': '',
+        'tool_calls': [
+          {
+            'id': callId,
+            'type': 'function',
+            'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{}'},
+          },
+        ],
+      },
+    },
+  ],
+};
+
+Map<String, dynamic> _chatAnswerPayload(String text) => {
+  'choices': [
+    {
+      'message': {'role': 'assistant', 'content': text},
+    },
+  ],
+};
+
+_Reply _ollamaToolCallReply() => _Reply.stream([
+  utf8.encode(
+    '${jsonEncode({
+      'model': 'model',
+      'message': {
+        'role': 'assistant',
+        'content': '',
+        'tool_calls': [
+          {
+            'function': {'name': 'mcp_deadbeef_weather', 'arguments': <String, dynamic>{}},
+          },
+        ],
+      },
+      'done': true,
+    })}\n',
+  ),
+], contentType: 'application/x-ndjson');
+
+_Reply _ollamaAnswerReply(String text) => _Reply.stream([
+  utf8.encode(
+    '${jsonEncode({
+      'model': 'model',
+      'message': {'role': 'assistant', 'content': text},
+      'done': true,
+    })}\n',
+  ),
+], contentType: 'application/x-ndjson');
 
 _Reply _responsesStream(Iterable<Map<String, dynamic>> events) => _Reply.stream(
   [utf8.encode(events.map((event) => 'data: ${jsonEncode(event)}\n\n').join())],

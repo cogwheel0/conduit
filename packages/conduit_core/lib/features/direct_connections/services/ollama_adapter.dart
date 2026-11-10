@@ -589,10 +589,11 @@ final class OllamaAdapter
             for (final message in messages) _ollamaMessage(message).toJson(),
           ];
           final webToolSession = OllamaCloudToolSession();
-          var totalToolCalls = 0;
+          final guard = DirectToolLoopGuard();
 
           rounds:
-          for (var round = 0; round < kDirectMaxToolRounds; round++) {
+          for (var round = 0; ; round++) {
+            final finalAnswer = guard.mustAnswer;
             final roundContent = StringBuffer();
             final roundThinking = StringBuffer();
             final roundToolCalls = <_OllamaToolCall>[];
@@ -615,7 +616,9 @@ final class OllamaAdapter
                 ...sdkRequest.toJson(),
                 'messages': conversation,
                 if (thinking != null) 'think': thinking.apiValue,
-                if (webToolsEnabled || localToolsEnabled)
+                // Ollama has no tool_choice, so the final request, which must
+                // be answered without tools, leaves them out.
+                if ((webToolsEnabled || localToolsEnabled) && !finalAnswer)
                   'tools': <Map<String, dynamic>>[
                     if (webToolsEnabled) ...kOllamaCloudWebToolDefinitions,
                     if (localTools != null)
@@ -709,7 +712,14 @@ final class OllamaAdapter
                 'The Ollama stream ended before its done marker.',
               );
             }
-            if (roundToolCalls.isEmpty) {
+            if (finalAnswer &&
+                roundToolCalls.isNotEmpty &&
+                roundContent.toString().trim().isEmpty) {
+              throw const DirectProviderException(
+                kDirectToolLoopNoAnswerMessage,
+              );
+            }
+            if (roundToolCalls.isEmpty || finalAnswer) {
               if (!hasCompletion) {
                 throw const DirectProviderException(
                   'The Ollama stream has no usable completion content.',
@@ -726,18 +736,6 @@ final class OllamaAdapter
                 kDirectToolCallingUnsupportedMessage,
               );
             }
-            totalToolCalls += roundToolCalls.length;
-            if (totalToolCalls > kDirectMaxToolCalls) {
-              throw const DirectProviderException(
-                'The Ollama agent exceeded Conduit\'s tool-call limit.',
-              );
-            }
-            if (round + 1 >= kDirectMaxToolRounds) {
-              throw const DirectProviderException(
-                'The Ollama agent exceeded Conduit\'s round limit.',
-              );
-            }
-
             conversation.add({
               'role': 'assistant',
               'content': roundContent.toString(),
@@ -853,6 +851,7 @@ final class OllamaAdapter
                 );
                 eventResult = webResult.value;
               }
+              guard.recordResult(isError: result.isError);
               final serialized = result.text;
               budget.add(serialized);
               controller.add(
@@ -869,6 +868,13 @@ final class OllamaAdapter
                 'tool_name': call.name,
                 'content': serialized,
               });
+            }
+            guard.completeRound();
+            if (guard.mustAnswer) {
+              final last = conversation.last;
+              last['content'] = withDirectFinalAnswerNote(
+                last['content'] as String,
+              );
             }
           }
           if (!terminalSent && !cancelToken.isCancelled) {

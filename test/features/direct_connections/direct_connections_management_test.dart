@@ -324,6 +324,55 @@ void main() {
     expect(changedContextLength, 8192);
   });
 
+  testWidgets('images per request opens a picker outside onboarding', (
+    tester,
+  ) async {
+    int? changed;
+    Widget content({required bool isOnboarding}) => ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectConnectionsContent(
+          profiles: const [],
+          syncWithOpenWebUi: false,
+          isOnboarding: isOnboarding,
+          maxImagesPerRequest: kDefaultDirectMaxImagesPerRequest,
+          onMaxImagesPerRequestChanged: (count) => changed = count,
+          onSyncChanged: (_) {},
+          onAdd: () {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(content(isOnboarding: true));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('direct-images-per-request')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(content(isOnboarding: false));
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('direct-images-per-request'));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: row, matching: find.text('Images per request')),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4'));
+    await tester.pumpAndSettle();
+
+    expect(changed, 4);
+  });
+
   testWidgets('a long context fallback list moves to its own page', (
     tester,
   ) async {

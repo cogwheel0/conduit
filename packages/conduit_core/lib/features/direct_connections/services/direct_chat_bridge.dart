@@ -26,8 +26,76 @@ const String kDirectContextSummaryMetadataKey = 'directContextSummaryV1';
 const int kDefaultDirectContextLength = 4096;
 const String kDirectGeneratedImageReplayText =
     'The requested image was generated and displayed to the user.';
-const int kDirectMaxImages = 4;
+
+/// Images one Direct request carries unless the user picks another number.
+///
+/// Requests are stateless, so every turn resends the images it replays. The
+/// newest images within this count are sent; older ones are left out.
+const int kDefaultDirectMaxImagesPerRequest = 10;
+const int kMinDirectMaxImagesPerRequest = 1;
+const int kMaxDirectMaxImagesPerRequest = 50;
+
+/// The choices the Images per request setting offers, smallest first.
+const List<int> kDirectMaxImagesPerRequestOptions = <int>[
+  1,
+  2,
+  3,
+  4,
+  5,
+  8,
+  10,
+  16,
+  20,
+  30,
+  50,
+];
+
+/// Tells the model that a replayed message had attachments it no longer
+/// receives, so it doesn't answer as if it could still see them.
+const String kDirectOmittedAttachmentsReplayText =
+    '[Older attachments from this message were left out of this request.]';
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
+
+/// The image count a request to [adapterKey] can carry for the user's
+/// [configured] Images per request setting.
+int effectiveDirectMaxImagesPerRequest({
+  required String adapterKey,
+  required int configured,
+}) {
+  final value = configured.clamp(
+    kMinDirectMaxImagesPerRequest,
+    kMaxDirectMaxImagesPerRequest,
+  );
+  if (adapterKey == kApplePccAdapterKey && value > kApplePccMaxImages) {
+    return kApplePccMaxImages;
+  }
+  return value;
+}
+
+/// Whether a stored Direct error says the provider refused the request for
+/// carrying too many images.
+///
+/// Matches the wording of OpenAI-style gateways, vLLM, Ollama and hosted
+/// vision APIs. Only provider HTTP failures count: Conduit's own preflight
+/// messages never carry a status, so they keep their own wording.
+bool isDirectTooManyImagesError(String? message) {
+  if (message == null || !_directProviderHttpFailurePattern.hasMatch(message)) {
+    return false;
+  }
+  return _directTooManyImagesPattern.hasMatch(message);
+}
+
+final RegExp _directProviderHttpFailurePattern = RegExp(r'\bHTTP [45]\d\d\b');
+
+final RegExp _directTooManyImagesPattern = RegExp(
+  r'too many images'
+  r'|at most \d+ images?'
+  r'|(maximum|max|limit)( number)?( of| is)? \d+ images?'
+  r'|images? per (request|message|prompt)'
+  r'|only supports? (one|1|a single) image'
+  r'|more than (one|\d+) images?',
+  caseSensitive: false,
+);
 const String _kDirectGeneratedImageLimitMessage =
     'The generated images exceed the Direct image limit.';
 const int _kDirectMaxWebSources = kOllamaCloudMaxSearchResults;
@@ -482,13 +550,19 @@ List<Map<String, dynamic>>? directProviderReplayOutput({
 /// Open WebUI file ids are resolved by the caller through an authenticated API
 /// client and returned as data URLs. Direct adapters never receive Open WebUI
 /// credentials and never fetch those protected URLs themselves.
+///
+/// One request carries at most [maxImages] images, [maxDecodedImageBytes] of
+/// image data and the local-document budget. The prompt being answered (the
+/// last user message) must fit whole. Earlier user messages are replayed
+/// newest first while the budget lasts, and attachments that no longer fit
+/// are left out of the request instead of failing the turn.
 Future<List<DirectChatMessage>> buildDirectChatMessages({
   required Iterable<ChatMessage> messages,
   DirectImageResolver? resolveImage,
   List<int>? directDocumentVerificationKey,
   DirectConnectionProfile? openRouterProfile,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
-  int maxImages = kDirectMaxImages,
+  int maxImages = kDefaultDirectMaxImagesPerRequest,
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) async {
   final sourceMessages = messages.toList(growable: false);
@@ -554,11 +628,18 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     }
   }
 
-  Future<void> addImage(
-    List<DirectContentPart> parts,
+  final imageBytesLimitMessage =
+      'Direct chat images must be '
+      '${_formatDirectByteLimit(maxDecodedImageBytes)} or less in total.';
+
+  // Returns the image to send, or null when it repeats one already in this
+  // message or, for replayed history, no longer fits the request budget.
+  Future<String?> claimImage(
     String candidate, {
+    required bool required,
     required Set<String> seenImages,
     required Set<String> seenImageReferences,
+    required void Function() omit,
   }) async {
     var value = _normalizeDirectFileReference(candidate);
     // Every caller has already classified this value as an image. Missing or
@@ -568,7 +649,25 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
         'This direct model does not support this attachment.',
       );
     }
-    if (!seenImageReferences.add(value)) return;
+    if (!seenImageReferences.add(value)) return null;
+    if (imageCount >= maxImages) {
+      if (!required) {
+        omit();
+        return null;
+      }
+      throw DirectChatInputException(
+        'Direct chats support up to $maxImages '
+        '${maxImages == 1 ? 'image' : 'images'} per request.',
+      );
+    }
+    final remainingBytes = maxDecodedImageBytes - decodedImageBytes;
+    if (remainingBytes <= 0) {
+      if (!required) {
+        omit();
+        return null;
+      }
+      throw DirectChatInputException(imageBytesLimitMessage);
+    }
     if (!value.startsWith('data:image/')) {
       final resolver = resolveImage;
       if (resolver == null) {
@@ -576,44 +675,146 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
           'This direct model does not support this attachment.',
         );
       }
-      final remainingBytes = maxDecodedImageBytes - decodedImageBytes;
-      if (remainingBytes <= 0) {
-        throw DirectChatInputException(
-          'Direct chat images must be '
-          '${_formatDirectByteLimit(maxDecodedImageBytes)} or less in total.',
-        );
-      }
-      value = (await resolver(value, remainingBytes))?.trim() ?? '';
+      // A replayed image is fetched against the whole image budget, so a
+      // missing result still means the image is gone rather than that it
+      // was larger than what this request had left.
+      value =
+          (await resolver(
+            value,
+            required ? remainingBytes : maxDecodedImageBytes,
+          ))?.trim() ??
+          '';
       if (value.isEmpty || !value.startsWith('data:image/')) {
         throw const DirectChatInputException(
           'This direct model does not support this attachment.',
         );
       }
     }
-    if (!seenImages.add(value)) return;
+    if (!seenImages.add(value)) return null;
 
-    final bytes = decodedImageByteLength(
-      value,
-      maxDecodedBytes: maxDecodedImageBytes - decodedImageBytes,
-      tooLargeMessage:
-          'Direct chat images must be '
-          '${_formatDirectByteLimit(maxDecodedImageBytes)} or less in total.',
-    );
+    final int bytes;
+    try {
+      bytes = decodedImageByteLength(
+        value,
+        maxDecodedBytes: required ? remainingBytes : maxDecodedImageBytes,
+        tooLargeMessage: imageBytesLimitMessage,
+      );
+    } on DirectChatInputException catch (error) {
+      if (required || error.message != imageBytesLimitMessage) rethrow;
+      omit();
+      return null;
+    }
+    if (bytes > remainingBytes) {
+      omit();
+      return null;
+    }
     imageCount++;
     decodedImageBytes += bytes;
-    if (imageCount > maxImages) {
-      throw DirectChatInputException(
-        'Direct chats support up to $maxImages '
-        '${maxImages == 1 ? 'image' : 'images'} per request.',
-      );
+    return value;
+  }
+
+  // The prompt being answered is the last user message, and all of its
+  // attachments must be sent. Earlier user messages claim what is left,
+  // newest first, so a long conversation leaves out its oldest attachments
+  // instead of becoming unsendable.
+  final attachmentPartsByMessageIndex = <int, List<DirectContentPart>>{};
+  final documentsByMessageIndex = <int, List<DirectPreparedDocument>>{};
+  final messagesWithOmittedAttachments = <int>{};
+  var promptIndex = -1;
+  for (var index = sourceMessages.length - 1; index >= 0; index--) {
+    final message = sourceMessages[index];
+    if (message.metadata?['archivedVariant'] == true ||
+        message.role.trim().toLowerCase() != 'user' ||
+        voiceReplayFor(message).spokenOnly) {
+      continue;
     }
-    if (decodedImageBytes > maxDecodedImageBytes) {
-      throw DirectChatInputException(
-        'Direct chat images must be '
-        '${_formatDirectByteLimit(maxDecodedImageBytes)} or less in total.',
-      );
+    if (promptIndex < 0) promptIndex = index;
+    final required = index == promptIndex;
+    void omit() => messagesWithOmittedAttachments.add(index);
+
+    if (directDocumentVerificationKey != null) {
+      final documents = <DirectPreparedDocument>[];
+      for (final file in message.files ?? const <Map<String, dynamic>>[]) {
+        final document = trustedDirectDocumentFromDescriptor(
+          file,
+          verificationKey: directDocumentVerificationKey,
+        );
+        if (document == null) continue;
+        if (documentCount >= kDirectMaxLocalDocuments) {
+          if (!required) {
+            omit();
+            continue;
+          }
+          throw const DirectChatInputException(
+            'Direct chats support up to 4 local documents per request.',
+          );
+        }
+        final characters = document.extractedText.runes.length;
+        if (characters >
+            kDirectMaxLocalDocumentCharacters - documentCharacters) {
+          if (!required) {
+            omit();
+            continue;
+          }
+          throw const DirectChatInputException(
+            'The local document text exceeds the Direct prompt limit.',
+          );
+        }
+        documentCount++;
+        documentCharacters += characters;
+        documents.add(document);
+      }
+      documentsByMessageIndex[index] = documents;
     }
-    parts.add(DirectImagePart(value));
+
+    final files = message.files ?? const <Map<String, dynamic>>[];
+    final explicitNonImageReferences = <String>{};
+    for (final file in files) {
+      if (!_isExplicitNonImageFile(file)) continue;
+      for (final key in const ['url', 'id', 'data']) {
+        final reference = _normalizeDirectFileReference(
+          file[key]?.toString() ?? '',
+        );
+        if (reference.isNotEmpty) explicitNonImageReferences.add(reference);
+      }
+    }
+    final parts = <DirectContentPart>[];
+    final seenImages = <String>{};
+    final seenImageReferences = <String>{};
+    final seenAttachmentIds = <String>{};
+    for (final attachment in message.attachmentIds ?? const <String>[]) {
+      if (!seenAttachmentIds.add(attachment)) continue;
+      final filePart = ephemeralFilePartsByAttachmentId[attachment];
+      if (filePart != null) {
+        parts.add(filePart);
+        continue;
+      }
+      if (explicitNonImageReferences.contains(
+        _normalizeDirectFileReference(attachment),
+      )) {
+        continue;
+      }
+      final image = await claimImage(
+        attachment,
+        required: required,
+        seenImages: seenImages,
+        seenImageReferences: seenImageReferences,
+        omit: omit,
+      );
+      if (image != null) parts.add(DirectImagePart(image));
+    }
+    for (final file in files) {
+      if (!_isDirectImageFile(file)) continue;
+      final image = await claimImage(
+        _firstDirectFileReference(file),
+        required: required,
+        seenImages: seenImages,
+        seenImageReferences: seenImageReferences,
+        omit: omit,
+      );
+      if (image != null) parts.add(DirectImagePart(image));
+    }
+    attachmentPartsByMessageIndex[index] = parts;
   }
 
   for (
@@ -643,38 +844,21 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
         ? trustedAnnotationEnvelopesByMessageIndex[messageIndex]?.annotations ??
               const <Map<String, dynamic>>[]
         : const <Map<String, dynamic>>[];
-    final seenImages = <String>{};
-    final seenImageReferences = <String>{};
     var text = outboundProviderReplayText(message);
-    if (role == 'user' && directDocumentVerificationKey != null) {
-      final documents = <DirectPreparedDocument>[];
-      for (final file in message.files ?? const <Map<String, dynamic>>[]) {
-        final document = trustedDirectDocumentFromDescriptor(
-          file,
-          verificationKey: directDocumentVerificationKey,
-        );
-        if (document != null) documents.add(document);
-      }
-      documentCount += documents.length;
-      if (documentCount > kDirectMaxLocalDocuments) {
-        throw const DirectChatInputException(
-          'Direct chats support up to 4 local documents per request.',
-        );
-      }
-      documentCharacters += documents.fold<int>(
-        0,
-        (total, document) => total + document.extractedText.runes.length,
-      );
-      if (documentCharacters > kDirectMaxLocalDocumentCharacters) {
-        throw const DirectChatInputException(
-          'The local document text exceeds the Direct prompt limit.',
-        );
-      }
+    if (role == 'user') {
+      final documents =
+          documentsByMessageIndex[messageIndex] ??
+          const <DirectPreparedDocument>[];
       if (documents.isNotEmpty) {
         final references = documents
             .map((document) => document.renderForPrompt())
             .join('\n\n');
         text = text.trim().isEmpty ? references : '$text\n\n$references';
+      }
+      if (messagesWithOmittedAttachments.contains(messageIndex)) {
+        text = text.trim().isEmpty
+            ? kDirectOmittedAttachmentsReplayText
+            : '$text\n\n$kDirectOmittedAttachmentsReplayText';
       }
     }
     if (text.trim().isNotEmpty) parts.add(DirectTextPart(text));
@@ -684,8 +868,7 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     // metadata, but replaying that metadata as model input produces invalid
     // Chat Completions, Responses, and Ollama request shapes.
     if (role == 'user') {
-      final files = message.files ?? const <Map<String, dynamic>>[];
-      for (final file in files) {
+      for (final file in message.files ?? const <Map<String, dynamic>>[]) {
         if (file['source'] != 'direct_openrouter_pdf') continue;
         final attachmentId = file['url']?.toString() ?? '';
         if (!ephemeralFilePartsByAttachmentId.containsKey(attachmentId) &&
@@ -697,46 +880,10 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
           );
         }
       }
-      final explicitNonImageReferences = <String>{};
-      for (final file in files) {
-        if (!_isExplicitNonImageFile(file)) continue;
-        for (final key in const ['url', 'id', 'data']) {
-          final reference = _normalizeDirectFileReference(
-            file[key]?.toString() ?? '',
-          );
-          if (reference.isNotEmpty) explicitNonImageReferences.add(reference);
-        }
-      }
-      final seenAttachmentIds = <String>{};
-      for (final attachment in message.attachmentIds ?? const <String>[]) {
-        if (!seenAttachmentIds.add(attachment)) continue;
-        final filePart = ephemeralFilePartsByAttachmentId[attachment];
-        if (filePart != null) {
-          parts.add(filePart);
-          continue;
-        }
-        if (explicitNonImageReferences.contains(
-          _normalizeDirectFileReference(attachment),
-        )) {
-          continue;
-        }
-        await addImage(
-          parts,
-          attachment,
-          seenImages: seenImages,
-          seenImageReferences: seenImageReferences,
-        );
-      }
-      for (final file in files) {
-        if (!_isDirectImageFile(file)) continue;
-        final value = _firstDirectFileReference(file);
-        await addImage(
-          parts,
-          value,
-          seenImages: seenImages,
-          seenImageReferences: seenImageReferences,
-        );
-      }
+      parts.addAll(
+        attachmentPartsByMessageIndex[messageIndex] ??
+            const <DirectContentPart>[],
+      );
     }
 
     if (parts.isNotEmpty || annotations.isNotEmpty) {

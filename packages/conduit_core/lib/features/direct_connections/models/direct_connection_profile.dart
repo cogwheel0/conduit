@@ -19,6 +19,9 @@ const String kApplePccProfileId = 'apple-pcc';
 const String kApplePccBaseUrl = 'pcc://apple';
 const String kApplePccRemoteModelId = 'private-cloud-compute';
 
+/// Images Apple's Foundation Models bridge accepts in one request.
+const int kApplePccMaxImages = 4;
+
 /// Reasoning levels Apple's Private Cloud Compute model accepts, in the
 /// order the picker lists them.
 const List<String> kApplePccReasoningEfforts = <String>[
