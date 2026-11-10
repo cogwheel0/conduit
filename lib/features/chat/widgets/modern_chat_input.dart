@@ -3847,28 +3847,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !isDirectComposer ||
         (visionCapableModelIds.contains(selectedComposerModel.id) &&
             (attachmentAvailability.photo || attachmentAvailability.camera));
-    final showOverflowButton = shouldShowComposerOverflowButton(
-      isHermesComposer: isHermesComposer,
-      isDirectComposer: isDirectComposer,
-      directSupportsImages: directSupportsImages,
-      directHasOverflowActions:
-          attachmentAvailability.file ||
-          attachmentAvailability.mcpContent ||
-          webSearchAvailable ||
-          imageGenAvailable ||
-          (isDirectComposer && availableTools.isNotEmpty),
-      hermesHasLocalAttachmentActions:
-          attachmentAvailability.file ||
-          attachmentAvailability.photo ||
-          attachmentAvailability.camera,
-      isLibreChatComposer: isLibreChatComposer,
-      libreChatHasOverflowActions:
-          attachmentAvailability.file ||
-          attachmentAvailability.photo ||
-          attachmentAvailability.camera ||
-          availableTools.isNotEmpty,
-      draftNoteAvailable: draftNoteAvailable,
+    bool overflowButtonShows({required bool draftNote}) =>
+        shouldShowComposerOverflowButton(
+          isHermesComposer: isHermesComposer,
+          isDirectComposer: isDirectComposer,
+          directSupportsImages: directSupportsImages,
+          directHasOverflowActions:
+              attachmentAvailability.file ||
+              attachmentAvailability.mcpContent ||
+              webSearchAvailable ||
+              imageGenAvailable ||
+              (isDirectComposer && availableTools.isNotEmpty),
+          hermesHasLocalAttachmentActions:
+              attachmentAvailability.file ||
+              attachmentAvailability.photo ||
+              attachmentAvailability.camera,
+          isLibreChatComposer: isLibreChatComposer,
+          libreChatHasOverflowActions:
+              attachmentAvailability.file ||
+              attachmentAvailability.photo ||
+              attachmentAvailability.camera ||
+              availableTools.isNotEmpty,
+          draftNoteAvailable: draftNote,
+        );
+    final showOverflowButton = overflowButtonShows(
+      draftNote: draftNoteAvailable,
     );
+    // When Save as Note is all the panel offers, the button says so rather
+    // than offering an attachment.
+    final overflowButtonLabel = overflowButtonShows(draftNote: false)
+        ? l10n.composerAddAttachment
+        : l10n.composerSaveDraftAsNote;
     final compactControls = _compactComposerControls(
       showOverflowButton: showOverflowButton,
       voiceAvailable: voiceAvailable,
@@ -4188,7 +4197,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 const SizedBox(width: Spacing.xs),
               ] else if (showOverflowButton) ...[
                 _buildOverflowButton(
-                  tooltip: l10n.composerAddAttachment,
+                  tooltip: overflowButtonLabel,
                   dense: true,
                   nativeActions: nativeAttachmentActions,
                 ),
@@ -4325,7 +4334,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   const SizedBox(width: Spacing.xs),
                 ] else if (compactControls.showLeading) ...[
                   _buildOverflowButton(
-                    tooltip: l10n.composerAddAttachment,
+                    tooltip: overflowButtonLabel,
                     dense: true,
                     nativeActions: nativeAttachmentActions,
                   ),
@@ -4977,11 +4986,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : _materialComposerOverflowIconExtent,
     );
 
-    // Named for what it does now: open the attachment panel, or, while the
-    // panel stands in for the keyboard, bring the keyboard back.
-    final label = attachmentPanelVisible
-        ? AppLocalizations.of(context)!.composerShowKeyboard
-        : tooltip;
+    // Named for what it does now: open the attachment panel; while the
+    // panel stands in for the keyboard, bring the keyboard back; or close a
+    // panel that opened without one. The native panel always takes the
+    // keyboard's place.
+    final bool panelRestoresKeyboard =
+        (!kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible) ||
+        (_isFallbackAttachmentPanelVisible && _fallbackPanelReplacedKeyboard);
+    final l10n = AppLocalizations.of(context)!;
+    final label = !attachmentPanelVisible
+        ? tooltip
+        : panelRestoresKeyboard
+        ? l10n.composerShowKeyboard
+        : l10n.close;
 
     return Focus(
       key: const ValueKey('composer-overflow-button'),

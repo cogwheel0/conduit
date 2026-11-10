@@ -132,6 +132,11 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.byIcon(Icons.add), findsOneWidget);
+    // With nothing to attach, the button names what it offers.
+    final handle = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Save as Note'), findsOneWidget);
+    expect(find.bySemanticsLabel('Add Attachment'), findsNothing);
+    handle.dispose();
 
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();

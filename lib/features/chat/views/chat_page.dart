@@ -4762,14 +4762,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
+    final hasSettledConversation = chatHeaderConversationSettled(
+      conversation: activeConversation,
+      temporaryChatEnabled: isTemporary,
+    );
     // Through a first send the bar keeps the new chat's actions until the
     // conversation exists, then changes once to the chat's own.
     final holdsNewChatActions = _syncNewChatActionsHold(
       hasMessages: hasMessages,
-      hasSettledConversation: chatHeaderConversationSettled(
-        conversation: activeConversation,
-        temporaryChatEnabled: isTemporary,
-      ),
+      hasSettledConversation: hasSettledConversation,
     );
     // While held, the actions are a new chat's: no conversation, no messages.
     final actionsConversation = holdsNewChatActions ? null : activeConversation;
@@ -4793,7 +4794,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           isTemporary: isTemporary,
           hasMessages: actionsSeeMessages,
           showNewChatAction: showNewChatAction,
-          newChatActionsHeld: holdsNewChatActions,
+          // The send has read the setting already, so the toggle stays
+          // inert until its chat exists, however long that takes, even
+          // after the bar's hold has ended.
+          temporaryToggleLocked: hasMessages && !hasSettledConversation,
           compact: compact,
           overflowModel: overflowModel,
         );
@@ -5042,7 +5046,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
-    bool newChatActionsHeld = false,
+    bool temporaryToggleLocked = false,
     bool compact = false,
     ({String label, bool enabled})? overflowModel,
   }) {
@@ -5056,7 +5060,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isTemporary: isTemporary,
       hasMessages: hasMessages,
       tintColor: defaultTint,
-      held: newChatActionsHeld,
+      locked: temporaryToggleLocked,
     );
     if (temporaryAction != null) {
       actions.add(temporaryAction);
@@ -5172,7 +5176,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required Color tintColor,
-    bool held = false,
+    bool locked = false,
   }) {
     final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
@@ -5227,11 +5231,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ? '${l10n.temporaryChat}, ${l10n.enabled}'
           : l10n.temporaryChat,
       tintColor: tintColor,
-      // A tap turns it on or off at once. While the first message is on its
-      // way the toggle stays in place but no longer changes the chat (it
-      // keeps looking enabled, so the bar does not flicker before it
-      // changes to the chat's actions).
-      onPressed: held
+      // A tap turns it on or off at once. Until the first message's chat
+      // exists the toggle stays in place but no longer changes the chat,
+      // whose send has already read it (it keeps looking enabled, so the
+      // bar does not flicker before it changes to the chat's actions).
+      onPressed: locked
           ? () {}
           : () => setTemporary(!ref.read(temporaryChatEnabledProvider)),
     );

@@ -842,6 +842,19 @@ void main() {
       expect(tile, findsOneWidget, reason: label);
       expect(tester.getRect(tile).right, lessThanOrEqualTo(320), reason: label);
     }
+    // Opened without the keyboard, the panel's button just closes it.
+    expect(find.bySemanticsLabel('Close'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show Keyboard'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('Add Attachment'), findsOneWidget);
+
+    // Opened from the keyboard, it brings the keyboard back.
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
     expect(find.bySemanticsLabel('Show Keyboard'), findsOneWidget);
     handle.dispose();
   });

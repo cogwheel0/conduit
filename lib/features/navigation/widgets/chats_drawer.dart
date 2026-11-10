@@ -889,6 +889,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             ..._recentSectionSlivers(
               regular,
               sections: sections,
+              showRecent: showRecent,
               foldersEnabled: foldersEnabled,
               folders: folders,
             ),
@@ -1000,6 +1001,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
         final showPinned = ref.watch(showPinnedProvider);
         final showFolders = ref.watch(showFoldersProvider);
+        final showRecent = ref.watch(showRecentProvider);
         final hasVisibleFolders = foldersEnabled && folders.isNotEmpty;
 
         final sections = _SectionSequence(context);
@@ -1036,6 +1038,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ..._recentSectionSlivers(
             regular,
             sections: sections,
+            showRecent: showRecent,
             foldersEnabled: foldersEnabled,
             folders: folders,
           ),
@@ -1127,11 +1130,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   List<Widget> _recentSectionSlivers(
     List<Conversation> conversations, {
     required _SectionSequence sections,
+    required bool showRecent,
     required bool foldersEnabled,
     required List<Folder> folders,
   }) {
     if (conversations.isEmpty) return const <Widget>[];
-    final showRecent = ref.watch(showRecentProvider);
     return [
       SliverToBoxAdapter(
         child: SidebarSectionHeader(

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 
@@ -96,8 +98,12 @@ class SidebarSectionHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Main's icon column, wider should the chevron outgrow it.
           SizedBox(
-            width: MediaQuery.textScalerOf(context).scale(IconSize.listItem),
+            width: math.max(
+              MediaQuery.textScalerOf(context).scale(IconSize.listItem),
+              _sectionChevronExtent(context),
+            ),
             child: expanded == null
                 ? null
                 : Center(
@@ -184,10 +190,8 @@ class _SectionChevron extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final style = sidebarSectionHeaderStyle(theme);
-    // Scales with the title under Dynamic Type, as a symbol in text would.
-    final fontSize = MediaQuery.textScalerOf(context)
-        .scale(style.fontSize ?? 16);
-    final extent = fontSize * _kSectionChevronWidthPerPoint;
+    final fontSize = _sectionChevronFontSize(context);
+    final extent = _sectionChevronExtent(context);
     final closedTurns = Directionality.of(context) == TextDirection.rtl
         ? 0.25
         : -0.25;
@@ -206,6 +210,16 @@ class _SectionChevron extends StatelessWidget {
     );
   }
 }
+
+/// The header title's font size under the current text scale: the chevron
+/// scales with the title under Dynamic Type, as a symbol in text would.
+double _sectionChevronFontSize(BuildContext context) =>
+    MediaQuery.textScalerOf(context)
+        .scale(sidebarSectionHeaderStyle(context.conduitTheme).fontSize ?? 16);
+
+/// The side of the chevron's square.
+double _sectionChevronExtent(BuildContext context) =>
+    _sectionChevronFontSize(context) * _kSectionChevronWidthPerPoint;
 
 /// Ink width of SF chevron.down per point of its font size, at semibold:
 /// 14.7 pt at 16 pt.

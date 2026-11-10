@@ -62,6 +62,16 @@ void main() {
         moreOrLessEquals(kSidebarSectionHeaderInset + column / 2),
         reason: 'scale $scale',
       );
+      expect(
+        chevron.left,
+        greaterThanOrEqualTo(kSidebarSectionHeaderInset),
+        reason: 'scale $scale',
+      );
+      expect(
+        chevron.right,
+        lessThanOrEqualTo(kSidebarSectionHeaderInset + column),
+        reason: 'scale $scale',
+      );
       expect(chevron.right, lessThan(title.left), reason: 'scale $scale');
       expect(
         chevron.center.dy,
