@@ -208,23 +208,116 @@ Map<String, Object?> hermesMcpServerConfig({
   if (toolFilter != null) 'tools': toolFilter.toJson(),
 };
 
+/// A value a catalog server asks for when it is added (one of its manifest's
+/// `auth.env` specs): the environment variable Hermes keeps it under, what to
+/// ask for, and whether the server can start without it.
+final class HermesMcpCatalogCredential {
+  const HermesMcpCatalogCredential({
+    required this.name,
+    this.prompt,
+    this.required = true,
+  });
+
+  final String name;
+  final String? prompt;
+  final bool required;
+}
+
 final class HermesMcpCatalogEntry {
   const HermesMcpCatalogEntry({
     required this.name,
     required this.description,
     required this.installed,
+    this.credentials = const [],
+    this.takesCredentials = false,
   });
 
-  factory HermesMcpCatalogEntry.fromJson(Map<dynamic, dynamic> json) =>
-      HermesMcpCatalogEntry(
-        name: json['name']?.toString() ?? '',
-        description: json['description']?.toString() ?? '',
-        installed: json['installed'] == true,
-      );
+  /// An entry of the dashboard's catalog (`required_env`: what to ask and
+  /// whether it is required) or the gateway's (`requires`: the variable
+  /// names only). [takesCredentials] says whether the Hermes it came from
+  /// takes their values from the app when adding it.
+  factory HermesMcpCatalogEntry.fromJson(
+    Map<dynamic, dynamic> json, {
+    bool takesCredentials = false,
+  }) => HermesMcpCatalogEntry(
+    name: json['name']?.toString() ?? '',
+    description: json['description']?.toString() ?? '',
+    installed: json['installed'] == true,
+    credentials: _catalogCredentials(json),
+    takesCredentials: takesCredentials,
+  );
 
   final String name;
   final String description;
   final bool installed;
+
+  /// What adding it asks for; empty when nothing.
+  final List<HermesMcpCatalogCredential> credentials;
+
+  /// Whether its Hermes takes [credentials] from the app when adding it.
+  final bool takesCredentials;
+
+  /// Whether the app can add it with what it needs: it asks for nothing, or
+  /// its values can be sent with the add.
+  bool get canAdd => credentials.isEmpty || takesCredentials;
+}
+
+/// The values to send when adding [entry] from [answers] (variable name to
+/// what the user typed): trimmed, the empty ones left out, and only the
+/// variables [entry] asks for. Null while a required one has no value.
+Map<String, String>? hermesMcpCatalogCredentialValues(
+  HermesMcpCatalogEntry entry,
+  Map<String, String> answers,
+) {
+  final values = <String, String>{};
+  for (final credential in entry.credentials) {
+    final value = answers[credential.name]?.trim() ?? '';
+    if (value.isNotEmpty) {
+      values[credential.name] = value;
+    } else if (credential.required) {
+      return null;
+    }
+  }
+  return values;
+}
+
+final RegExp _environmentVariableName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+List<HermesMcpCatalogCredential> _catalogCredentials(
+  Map<dynamic, dynamic> json,
+) {
+  final credentials = <HermesMcpCatalogCredential>[];
+  final seen = <String>{};
+  void add(Object? rawName, {Object? prompt, Object? required}) {
+    final name = validateHermesBoundedString(rawName, maxCharacters: 128);
+    if (name == null ||
+        !_environmentVariableName.hasMatch(name) ||
+        !seen.add(name)) {
+      return;
+    }
+    credentials.add(
+      HermesMcpCatalogCredential(
+        name: name,
+        prompt: validateHermesBoundedString(prompt, maxCharacters: 200),
+        required: required != false,
+      ),
+    );
+  }
+
+  final specs = json['required_env'];
+  final names = json['requires'];
+  if (specs is List) {
+    for (final spec in specs.take(16)) {
+      if (spec is Map) {
+        add(spec['name'], prompt: spec['prompt'], required: spec['required']);
+      }
+    }
+  } else if (names is List) {
+    for (final name in names.take(16)) {
+      add(name);
+    }
+  }
+  return List.unmodifiable(credentials);
 }
 
 final class HermesMcpTestResult {

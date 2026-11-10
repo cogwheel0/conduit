@@ -51,7 +51,12 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   }
 
   void _refresh() {
-    if (mounted) setState(() => _servers = _load());
+    if (!mounted) return;
+    // A block: setState refuses a callback that returns a Future.
+    final servers = _load();
+    setState(() {
+      _servers = servers;
+    });
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -176,10 +181,14 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
         children: [
           for (final entry in entries)
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, entry),
+              // Offered only when what it needs can be sent with it.
+              onPressed: entry.canAdd
+                  ? () => Navigator.pop(context, entry)
+                  : null,
               child: ListTile(
+                enabled: entry.canAdd,
                 title: Text(entry.name),
-                subtitle: Text(entry.description),
+                subtitle: Text(_catalogSubtitle(entry)),
               ),
             ),
         ],
@@ -188,8 +197,72 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     if (selected == null) return;
     final name = selected.name;
     if (name.isEmpty) return;
-    await _service.addMcpPreset(name);
+    final credentials = await _askCatalogCredentials(selected);
+    if (credentials == null) return;
+    await _service.addMcpPreset(name, credentials: credentials);
     _refresh();
+    // A server that signs in with OAuth goes straight on to signing in. A
+    // list that failed to load says so itself.
+    final servers = await _servers.catchError(
+      (Object _) => const <HermesMcpServer>[],
+    );
+    final added = servers.where((server) => server.name == name);
+    if (mounted && added.firstOrNull?.auth == 'oauth') await _oauth(name);
+  }
+
+  String _catalogSubtitle(HermesMcpCatalogEntry entry) => [
+    if (entry.description.isNotEmpty) entry.description,
+    if (entry.credentials.isNotEmpty)
+      entry.canAdd
+          ? 'Asks for ${entry.credentials.map((it) => it.name).join(', ')}'
+          : 'Needs ${entry.credentials.map((it) => it.name).join(', ')}, '
+                'which this connection cannot send. Add it from Hermes on '
+                'your computer.',
+  ].join('\n');
+
+  /// Asks for each value [entry] needs, one at a time and hidden as typed,
+  /// as the catalog does not say which are secret. Null when cancelled.
+  /// The values are only passed on to the add, never kept.
+  Future<Map<String, String>?> _askCatalogCredentials(
+    HermesMcpCatalogEntry entry,
+  ) async {
+    final answers = <String, String>{};
+    final credentials = entry.credentials;
+    for (var index = 0; index < credentials.length; index++) {
+      final credential = credentials[index];
+      String? value;
+      // A required value is asked for again until it is given.
+      while (value == null || (credential.required && value.trim().isEmpty)) {
+        if (!mounted) return null;
+        value = await AdaptiveAlertDialog.inputShow(
+          context: context,
+          title: credential.prompt ?? credential.name,
+          message: 'Hermes keeps it as ${credential.name} for ${entry.name}.',
+          input: AdaptiveAlertDialogInput(
+            placeholder: credential.required
+                ? '${credential.name} (required)'
+                : '${credential.name} (optional)',
+            obscureText: true,
+            autocorrect: false,
+          ),
+          actions: [
+            AlertAction(
+              title: 'Cancel',
+              style: AlertActionStyle.cancel,
+              onPressed: () {},
+            ),
+            AlertAction(
+              title: index == credentials.length - 1 ? 'Add' : 'Next',
+              style: AlertActionStyle.primary,
+              onPressed: () {},
+            ),
+          ],
+        );
+        if (value == null) return null;
+      }
+      answers[credential.name] = value;
+    }
+    return hermesMcpCatalogCredentialValues(entry, answers);
   }
 
   Future<void> _setApiKey(String name) async {

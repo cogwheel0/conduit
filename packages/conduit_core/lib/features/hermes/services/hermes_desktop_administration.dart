@@ -139,12 +139,36 @@ final class _HermesDesktopAdministration {
       .where((server) => server.name.isNotEmpty)
       .toList(growable: false);
 
+  /// The catalog servers not yet added. Read from Hermes' dashboard, whose
+  /// catalog says what each one asks for and whose install takes those
+  /// values. The gateway's catalog does neither: read from it, an entry that
+  /// asks for anything cannot be added from the app.
   Future<List<HermesMcpCatalogEntry>> mcpCatalog() async {
-    final rows = (await mcpRequest('mcp.catalog'))['servers'];
+    Object? rows;
+    try {
+      rows = _owner._object(
+        await _owner._requestJson('GET', '/api/mcp/catalog'),
+      )['entries'];
+    } catch (error) {
+      DebugLogger.warning(
+        'mcp-dashboard-catalog-failed',
+        scope: 'hermes/mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    final takesCredentials = rows is List;
+    if (!takesCredentials) {
+      rows = (await mcpRequest('mcp.catalog'))['servers'];
+    }
     if (rows is! List) return const [];
     return rows
         .whereType<Map>()
-        .map(HermesMcpCatalogEntry.fromJson)
+        .map(
+          (row) => HermesMcpCatalogEntry.fromJson(
+            row,
+            takesCredentials: takesCredentials,
+          ),
+        )
         .where((entry) => entry.name.isNotEmpty && !entry.installed)
         .toList(growable: false);
   }
@@ -173,8 +197,26 @@ final class _HermesDesktopAdministration {
     await reloadMcp();
   }
 
-  Future<void> addMcpPreset(String name) async {
-    await mcpRequest('mcp.servers.add', params: {'name': name, 'preset': name});
+  /// Adds catalog server [name]. Its [credentials] (variable name to value)
+  /// go once to Hermes' dashboard install, which keeps secrets in the
+  /// profile's `.env` and refuses a name the entry does not declare; the
+  /// app keeps none of them. Without any, the gateway adds it as before.
+  Future<void> addMcpPreset(
+    String name, {
+    Map<String, String> credentials = const {},
+  }) async {
+    if (credentials.isEmpty) {
+      await mcpRequest(
+        'mcp.servers.add',
+        params: {'name': name, 'preset': name},
+      );
+    } else {
+      await _owner._requestJson(
+        'POST',
+        '/api/mcp/catalog/install',
+        body: {'name': name, 'enable': true, 'env': credentials},
+      );
+    }
     await reloadMcp();
   }
 
