@@ -29,6 +29,12 @@ void main() {
       '[shape]: https://example.com',
       '    [shape]: https://example.com',
       '[shape](https://example.com)',
+      '[shape]: https://example.com (Blue\nsquare)',
+      '[shape]: https://example.com (Blue\r\nsquare)',
+      '[shape]: https://example.com (Blue\n\nsquare)',
+      '<think>Compare shapes.</think>\n[shape]: https://example.com (Blue\nsquare)',
+      '[shape]: https://example.com (Blue\nsquare) and circle',
+      '[shape]: https://example.com\nBlue square (and circle)',
       '&nbsp;',
       '&#32;',
       '&amp;',
@@ -36,7 +42,10 @@ void main() {
       '\u0000conduit-code-span-0\u0000',
     ];
     for (final input in inputs) {
-      check(ConduitMarkdownPreprocessor.hasClipboardText(input)).equals(
+      check(
+        because: input,
+        ConduitMarkdownPreprocessor.hasClipboardText(input),
+      ).equals(
         ConduitMarkdownPreprocessor.sanitizeForClipboard(input).isNotEmpty,
       );
     }

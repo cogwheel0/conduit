@@ -267,7 +267,9 @@ class ConduitMarkdownPreprocessor {
   ///
   /// Ordinary leading text survives every clipboard rule. Only markup,
   /// reference definitions and entities can remove or decode that prefix.
-  /// A plain final line also survives when no block can close after it.
+  /// A plain final line also survives when no block can close after it. A
+  /// final `)` can close a reference definition whose parenthesized title
+  /// started on an earlier line, so that line takes the full check.
   static bool hasClipboardText(String input) {
     final leadingText = input.trimLeft();
     if (leadingText.isEmpty) return false;
@@ -278,7 +280,8 @@ class ConduitMarkdownPreprocessor {
         .trimLeft();
     if (!'<◁[&'.contains(lastLine[0]) &&
         !lastLine.contains('<') &&
-        !lastLine.contains('◁')) {
+        !lastLine.contains('◁') &&
+        !lastLine.endsWith(')')) {
       return true;
     }
     return sanitizeForClipboard(input).isNotEmpty;
