@@ -128,6 +128,37 @@ void main() {
       },
     );
 
+    // The single connection was in use over plain HTTP before connections
+    // asked, so it keeps working, like a saved connection from then.
+    test('keeps a plain HTTP connection working', () async {
+      PreferencesStore.debugOverride(
+        InMemoryKeyValueStore(<String, Object?>{
+          PreferenceKeys.hermesEnabled: true,
+          PreferenceKeys.hermesBaseUrl: 'http://192.168.1.20:8642/v1',
+          PreferenceKeys.hermesLocalDocumentTrustPrincipal: _legacyPrincipal,
+        }),
+      );
+      final secrets = _Secrets(legacySecrets());
+      final container = await _ready(secrets);
+      addTearDown(container.dispose);
+
+      const origin = 'http://192.168.1.20:8642';
+      check(
+        container.read(hermesConfigProvider).plainHttpConsentOrigin,
+      ).equals(origin);
+      check(
+        HermesConnectionStore.readDocument()!
+            .connections
+            .single
+            .plainHttpConsentOrigin,
+      ).equals(origin);
+      final restarted = await _ready(secrets);
+      addTearDown(restarted.dispose);
+      check(
+        restarted.read(hermesConfigProvider),
+      ).has((config) => config.mayUsePlainHttp, 'mayUsePlainHttp').isTrue();
+    });
+
     test('keeps a server URL longer than a new one may be', () async {
       final longUrl = 'https://legacy.example/${'a' * 2100}';
       PreferencesStore.debugOverride(
