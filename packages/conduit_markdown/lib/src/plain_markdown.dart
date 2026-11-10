@@ -1,4 +1,5 @@
 import 'package:html_unescape/html_unescape.dart';
+import 'package:markdown/markdown.dart' as md;
 
 import 'markdown_code_regions.dart';
 import 'math_spans.dart';
@@ -52,7 +53,8 @@ final _newlineRun = RegExp(r'[ \t]*\n[ \t]*');
 ///   become links such as `[1,2](conduit-cite:1,2)`, following
 ///   [CitationParser]: not footnotes (`[^1]`, `^[1]`), not a link's own text
 ///   (`[1](…)`), not inside a link's or image's destination or title, not in
-///   a reference definition (`[1]: …`). With [sourceCount],
+///   a reference definition (`[1]: …`), not a label a definition left in the
+///   text names (`[1]` or `[text][1]` link to it). With [sourceCount],
 ///   a marker naming a source past it stays text, as the mobile renderer
 ///   draws a chip only when every number it names has a source.
 ///
@@ -176,6 +178,7 @@ String _linkCitations(String prose, int? sourceCount) {
     for (final match in _referenceDefinition.allMatches(prose))
       SourceRange(match.start, match.end),
   ];
+  final defined = _definedLabels(prose);
   final out = StringBuffer();
   var cursor = 0;
   for (final match in _citationPattern.allMatches(prose)) {
@@ -191,6 +194,16 @@ String _linkCitations(String prose, int? sourceCount) {
         .allMatches(raw)
         .map((group) => group[0]!)
         .toList();
+    // A defined label is a link's (`[1]`, `[text][1]`, `[1][2]`), so markdown
+    // shows link text there, not the brackets the mobile renderer cites.
+    if (defined.isNotEmpty &&
+        groups.any(
+          (group) => defined.contains(
+            group.substring(1, group.length - 1).trim().toLowerCase(),
+          ),
+        )) {
+      continue;
+    }
     // The last group of `[1][2](https://…)` is a link's text.
     final tail = after == '(' ? groups.removeLast() : '';
     final ids = <int>[
@@ -213,6 +226,16 @@ String _linkCitations(String prose, int? sourceCount) {
   if (cursor == 0) return prose;
   out.write(prose.substring(cursor));
   return out.toString();
+}
+
+/// The labels of the link reference definitions still in [prose], as
+/// markdown keys them. The preprocessor strips one-line definitions; one
+/// whose destination or title runs onto the next line stays, and markdown
+/// links the labels that name it.
+Set<String> _definedLabels(String prose) {
+  if (!prose.contains(']:')) return const <String>{};
+  final document = md.Document()..parseLines(prose.split('\n'));
+  return document.linkReferences.keys.toSet();
 }
 
 /// Whether the character at [index] is escaped by an odd run of

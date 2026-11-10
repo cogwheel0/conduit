@@ -237,6 +237,26 @@ void main() {
       );
     });
 
+    test('a label with a definition left in the text is a link', () {
+      // The preprocessor strips one-line definitions, so `[download][1]`
+      // with none left reads `[download]` and a chip, as on mobile.
+      expect(
+        plain('[download][1] is ready.', hasSources: true),
+        '[download][1](conduit-cite:1) is ready.',
+      );
+      // A definition whose destination is on the next line is not stripped,
+      // and markdown links the labels that name it.
+      const defined =
+          '[download][1] or [1] is ready, as [2] says.\n'
+          '\n'
+          '[1]:\n'
+          '  https://example.invalid/harbour-tides\n';
+      expect(
+        plain(defined, hasSources: true),
+        defined.replaceFirst('[2]', '[2](conduit-cite:2)'),
+      );
+    });
+
     test("a link's text is not a citation, the brackets before it are", () {
       expect(
         plain('[1][2](https://example.invalid)', hasSources: true),
