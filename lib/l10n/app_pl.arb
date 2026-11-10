@@ -7170,9 +7170,9 @@
   ,"directMcpContentTooLarge": "This content is too large to insert."
   ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
   ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpInsecureCredentialsTitle": "Wysłać dane uwierzytelniające bez szyfrowania?"
+  ,"directMcpInsecureCredentialsMessage": "Ten serwer używa nieszyfrowanego HTTP. Twój token bearer, token OAuth i niestandardowe nagłówki mogą zostać odczytane lub zmienione w sieci."
+  ,"directMcpInsecureCredentialsConfirm": "Wyślij bez szyfrowania"
   ,"hermesSessionTooLarge": "Ta rozmowa jest zbyt duża, aby wczytać ją na tym urządzeniu."
   ,"hermesSessionNotFound": "Ta rozmowa nie jest już dostępna na serwerze Hermes."
   ,"hermesSessionLoadFailedDetail": "Nie można wczytać tej rozmowy: {detail}"
@@ -8083,6 +8083,8 @@
     }
   },
   "hermesDeleteConnectionFailed": "Nie można usunąć tego połączenia.",
+  "hermesInsecureCredentialsMessage": "Ten serwer używa nieszyfrowanego HTTP. Twój klucz API, tokeny logowania i nagłówki dostępu mogą zostać odczytane lub zmienione w sieci.",
+  "hermesNotEncrypted": "Bez szyfrowania",
   "hermesSwitchConnectionFailed": "Nie można przełączyć na to połączenie.",
   "hermesSwitchConnectionTitle": "Przełącz połączenie",
   "hermesSwitchConnectionPromptTitle": "Przełączyć na „{name}”?",

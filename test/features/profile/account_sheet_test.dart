@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
@@ -44,6 +45,17 @@ final _homeServer = OpenWebUiServer(
   endpoints: [OpenWebUiEndpoint(id: 'home-lan', url: 'http://10.0.0.2:3000')],
 );
 
+/// An HTTP client whose requests never connect: a load through it stays in
+/// flight.
+final class _SilentHttpClient implements HttpClient {
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) =>
+      Completer<HttpClientRequest>().future;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
 /// Tests every draft as reachable, and saves through the real connections,
 /// as the app's gateway does.
 final class _ReachableGateway implements HermesConnectionGateway {
@@ -66,6 +78,7 @@ final class _ReachableGateway implements HermesConnectionGateway {
           name: config.name,
           nameSource: draft.nameSource,
           mode: config.mode,
+          plainHttpConsentOrigin: config.plainHttpConsentOrigin,
           apiKey: config.apiKey,
         );
   }
@@ -605,6 +618,115 @@ void main() {
     check(container.read(hermesActiveConnectionIdProvider)).equals(added.id);
     check(container.read(hermesEnabledProvider)).isTrue();
     expect(find.byType(AccountSheet), findsNothing);
+  });
+
+  // Plain HTTP to another machine carries the key unencrypted: Connect
+  // asks first, and nothing is sent or saved until the user agrees.
+  testWidgets('Hermes asks before sending credentials over plain HTTP', (
+    tester,
+  ) async {
+    final gateway = _ReachableGateway();
+    final container = await pumpSheet(
+      tester,
+      const AddAccountRequest(AccountKind.hermes),
+      overrides: [hermesConnectionGatewayProvider.overrideWithValue(gateway)],
+    );
+    gateway.container = container;
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-server-url-field')),
+      'http://192.0.2.10:8642/v1',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-api-key-field')),
+      'lab-key',
+    );
+    await tester.pump();
+    final submit = find.byKey(const ValueKey<String>('hermes-sheet-submit'));
+
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(find.text('Send credentials without encryption?'), findsOne);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    check(gateway.probes).equals(0);
+    check(container.read(hermesConnectionsProvider)).length.equals(1);
+
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Send Without Encryption'));
+    await tester.pumpAndSettle();
+
+    check(gateway.probes).equals(1);
+    final added = container
+        .read(hermesConnectionsProvider)
+        .singleWhere((connection) => connection.id != _home);
+    check(added.plainHttpConsentOrigin).equals('http://192.0.2.10:8642');
+    expect(find.byType(AccountSheet), findsNothing);
+  });
+
+  // The Desktop Gateway section lists the server's profiles as a URL is
+  // typed, sending the draft's token and access headers: over plain HTTP
+  // it waits until Test, Save or sign-in has asked.
+  testWidgets('Desktop Gateway lists no profiles over plain HTTP unasked', (
+    tester,
+  ) async {
+    await pumpSheet(tester, const AddAccountRequest(AccountKind.hermes));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('hermes-backend-mode-selector')),
+        matching: find.text('Desktop Gateway'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-server-url-field')),
+      'http://192.0.2.10:8642',
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Test the connection, then refresh the profile list.'),
+      findsOne,
+    );
+  });
+
+  // A load still in flight when the URL turned plain HTTP never reset its
+  // spinner, and the refresh the note asks for stayed disabled.
+  testWidgets('Desktop Gateway can refresh after a load the URL cut short', (
+    tester,
+  ) async {
+    await pumpSheet(tester, const AddAccountRequest(AccountKind.hermes));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('hermes-backend-mode-selector')),
+        matching: find.text('Desktop Gateway'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final url = find.byKey(const ValueKey<String>('hermes-server-url-field'));
+    // Found by its label, which a loading button does not show.
+    ConduitButton refresh() => tester.widget<ConduitButton>(
+      find.byWidgetPredicate(
+        (widget) => widget is ConduitButton && widget.text == 'Refresh Profiles',
+      ),
+    );
+
+    // A load starts for this device's address, its server never answering,
+    // and a plain HTTP address elsewhere cuts it short.
+    await HttpOverrides.runZoned(() async {
+      await tester.enterText(url, 'http://127.0.0.1:9');
+      await tester.pump();
+      expect(refresh().isLoading, isTrue);
+      await tester.enterText(url, 'http://192.0.2.10:8642');
+      await tester.pump();
+    }, createHttpClient: (_) => _SilentHttpClient());
+
+    expect(refresh().isLoading, isFalse);
+    expect(refresh().onPressed, isNotNull);
+    // The unanswered load's own timeout ends it.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(minutes: 5));
   });
 
   // Connect saved the connection and then failed to turn Hermes on; the

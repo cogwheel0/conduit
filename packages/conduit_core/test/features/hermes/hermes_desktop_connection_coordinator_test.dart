@@ -54,6 +54,31 @@ void main() {
     },
   );
 
+  // Every request from a draft carries its credentials, its access headers
+  // at least: from a plain HTTP draft to another machine, none leaves
+  // before the user has agreed, even the ones typing a URL fires.
+  test('sends nothing from a plain HTTP draft without consent', () async {
+    const coordinator = HermesDesktopConnectionCoordinator();
+    final draft = HermesConfig(
+      baseUrl: 'http://192.0.2.10:8642',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'lan-token',
+        accessHeaders: const {'X-Lab-Gate': 'lab'},
+      ),
+    );
+
+    await check(
+      coordinator.profiles(draft),
+    ).throws<HermesPlainHttpConsentRequired>();
+    await check(
+      coordinator.recommendedAuth(draft),
+    ).throws<HermesPlainHttpConsentRequired>();
+    await check(
+      coordinator.signInNative(draft, onCredentialsChanged: (_) async {}),
+    ).throws<HermesPlainHttpConsentRequired>();
+  });
+
   test('first-time dashboard setup connects the gateway WebSocket', () async {
     final gateway = await _Gateway.start();
     addTearDown(gateway.close);

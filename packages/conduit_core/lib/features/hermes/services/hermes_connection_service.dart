@@ -71,6 +71,8 @@ final class _RiverpodHermesConnectionGateway
 
   @override
   Future<bool> probe(HermesConfig draft) async {
+    // A probe sends the draft's credentials: never unencrypted unasked.
+    if (!draft.mayUsePlainHttp) throw const HermesPlainHttpConsentRequired();
     if (draft.mode != HermesBackendMode.desktopGateway) {
       return testHermesDraftConnection(draft);
     }
@@ -111,6 +113,7 @@ final class _RiverpodHermesConnectionGateway
   }
 
   Future<String?> _suggestDisplayName(HermesConfig draft) async {
+    if (!draft.mayUsePlainHttp) throw const HermesPlainHttpConsentRequired();
     if (draft.mode == HermesBackendMode.desktopGateway) {
       final live = _liveDesktopServiceFor(draft);
       if (live != null) {
@@ -153,6 +156,7 @@ final class _RiverpodHermesConnectionGateway
         desktopAuthKind: config.desktopAuthKind,
         desktopProfile: config.desktopProfile,
         allowSelfSignedCertificates: config.allowSelfSignedCertificates,
+        plainHttpConsentOrigin: config.plainHttpConsentOrigin,
         apiKey: config.apiKey,
         sessionKey: config.sessionKey,
         desktopCredentials: config.desktopCredentials,
@@ -167,6 +171,7 @@ final class _RiverpodHermesConnectionGateway
       desktopAuthKind: config.desktopAuthKind,
       desktopProfile: config.desktopProfile,
       allowSelfSignedCertificates: config.allowSelfSignedCertificates,
+      plainHttpConsentOrigin: config.plainHttpConsentOrigin,
       apiKeyChanged: draft.apiKeyChanged,
       apiKey: config.apiKey,
       sessionKeyChanged: draft.sessionKeyChanged,
@@ -218,6 +223,7 @@ final class _RiverpodHermesConnectionGateway
         desktopAuthKind: previousConfig.desktopAuthKind,
         desktopProfile: previousConfig.desktopProfile,
         allowSelfSignedCertificates: previousConfig.allowSelfSignedCertificates,
+        plainHttpConsentOrigin: previousConfig.plainHttpConsentOrigin,
         apiKeyChanged: true,
         apiKey: previousConfig.apiKey,
         sessionKeyChanged: true,

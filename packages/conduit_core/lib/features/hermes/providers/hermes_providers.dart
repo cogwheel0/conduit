@@ -248,6 +248,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     desktopAuthKind: profile.desktopAuthKind,
     desktopProfile: profile.desktopProfile,
     allowSelfSignedCertificates: profile.allowSelfSignedCertificates,
+    plainHttpConsentOrigin: profile.plainHttpConsentOrigin,
     apiKey: secrets.apiKey,
     sessionKey: secrets.sessionKey,
     desktopCredentials: secrets.desktop,
@@ -709,6 +710,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
     bool? allowSelfSignedCertificates,
+    String? plainHttpConsentOrigin,
     bool apiKeyChanged = false,
     String? apiKey,
     bool sessionKeyChanged = false,
@@ -758,6 +760,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         desktopAuthKind: desktopAuthKind,
         desktopProfile: desktopProfile,
         allowSelfSignedCertificates: allowSelfSignedCertificates,
+        plainHttpConsentOrigin: plainHttpConsentOrigin,
         apiKeyChanged: apiKeyChanged,
         apiKey: apiKey,
         sessionKeyChanged: sessionKeyChanged,
@@ -778,6 +781,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
     bool? allowSelfSignedCertificates,
+    String? plainHttpConsentOrigin,
     String? apiKey,
     String? sessionKey,
     HermesDesktopCredentials? desktopCredentials,
@@ -804,6 +808,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         desktopAuthKind: desktopAuthKind,
         desktopProfile: desktopProfile,
         allowSelfSignedCertificates: allowSelfSignedCertificates,
+        plainHttpConsentOrigin: plainHttpConsentOrigin,
         apiKeyChanged: true,
         apiKey: apiKey,
         sessionKeyChanged: true,
@@ -825,6 +830,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     required HermesDesktopAuthKind? desktopAuthKind,
     required String? desktopProfile,
     required bool? allowSelfSignedCertificates,
+    required String? plainHttpConsentOrigin,
     required bool apiKeyChanged,
     required String? apiKey,
     required bool sessionKeyChanged,
@@ -874,6 +880,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
     }
     final nextAllowSelfSigned =
         allowSelfSignedCertificates ?? previous.allowSelfSignedCertificates;
+    // Credentials go over plain HTTP only with the user's consent for this
+    // origin: the one given with this save, or one given before for it. A
+    // new host or port needs a new one.
+    final plainHttp = HermesConfig.plainHttpOrigin(trimmedUrl);
+    final nextPlainHttpConsent =
+        plainHttp != null &&
+            (plainHttpConsentOrigin == plainHttp ||
+                previous.plainHttpConsentOrigin == plainHttp)
+        ? plainHttp
+        : null;
+    if (plainHttp != null && nextPlainHttpConsent == null) {
+      throw const HermesPlainHttpConsentRequired();
+    }
     final modeChanged = nextMode != previous.mode;
     final authKindChanged = nextDesktopAuthKind != previous.desktopAuthKind;
     final profileChanged = nextDesktopProfile != previous.desktopProfile;
@@ -963,6 +982,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       desktopAuthKind: nextDesktopAuthKind,
       desktopProfile: nextDesktopProfile,
       allowSelfSignedCertificates: nextAllowSelfSigned,
+      plainHttpConsentOrigin: nextPlainHttpConsent,
       documentTrustPrincipalId: nextPrincipal,
       lastUsedAt: target.runtime
           ? DateTime.now().toUtc()
@@ -1786,6 +1806,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       desktopAuthKind: state.desktopAuthKind,
       desktopProfile: state.desktopProfile,
       allowSelfSignedCertificates: state.allowSelfSignedCertificates,
+      plainHttpConsentOrigin: state.plainHttpConsentOrigin,
     );
     _releaseRuntimeSession();
   }
@@ -1998,6 +2019,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       desktopAuthKind: desktopAuthKind ?? state.desktopAuthKind,
       desktopProfile: desktopProfile ?? state.desktopProfile,
       allowSelfSignedCertificates: state.allowSelfSignedCertificates,
+      plainHttpConsentOrigin: state.plainHttpConsentOrigin,
       apiKey: identical(apiKey, _keep) ? state.apiKey : apiKey,
       sessionKey: identical(sessionKey, _keep) ? state.sessionKey : sessionKey,
       desktopCredentials: identical(desktopCredentials, _keepObject)
@@ -2201,12 +2223,16 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         config.desktopAuthKind,
         config.desktopProfile,
         config.allowSelfSignedCertificates,
+        config.plainHttpConsentOrigin,
         config.isUsable,
       ),
     ),
   );
   final config = ref.read(hermesConfigProvider);
-  if (!config.isUsable) return null;
+  // Saves never store a plain HTTP connection without consent; one that
+  // reached storage another way still sends nothing (its status, access
+  // headers and all) until its consent is given.
+  if (!config.isUsable || !config.mayUsePlainHttp) return null;
   final HermesBackendService service;
   if (config.mode == HermesBackendMode.desktopGateway) {
     // Rotations land even after this client is replaced, as by a switch

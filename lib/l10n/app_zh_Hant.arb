@@ -3584,9 +3584,9 @@
   ,"directMcpContentTooLarge": "This content is too large to insert."
   ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
   ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpInsecureCredentialsTitle": "要在不加密的情況下傳送憑證嗎？"
+  ,"directMcpInsecureCredentialsMessage": "此伺服器使用未加密的 HTTP。你的 Bearer 權杖、OAuth 權杖和自訂標頭可能會在網路上被讀取或竄改。"
+  ,"directMcpInsecureCredentialsConfirm": "不加密傳送"
   ,"hermesSessionTooLarge": "此對話過大，無法在此裝置上載入。"
   ,"hermesSessionNotFound": "此對話在 Hermes 伺服器上已不可用。"
   ,"hermesSessionLoadFailedDetail": "無法載入此對話：{detail}"
@@ -4384,6 +4384,8 @@
   "hermesDeleteConnectionTitle": "刪除連線？",
   "hermesDeleteConnectionMessage": "這會從此裝置移除 {name} 及其憑證。",
   "hermesDeleteConnectionFailed": "無法刪除此連線。",
+  "hermesInsecureCredentialsMessage": "此伺服器使用未加密的 HTTP。你的 API 密鑰、登入權杖和存取標頭可能會在網路上被讀取或竄改。",
+  "hermesNotEncrypted": "未加密",
   "hermesSwitchConnectionFailed": "無法切換到此連線。",
   "hermesSwitchConnectionTitle": "切換連線",
   "hermesSwitchConnectionPromptTitle": "切換到 {name}？",

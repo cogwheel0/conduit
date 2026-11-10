@@ -244,8 +244,9 @@ class _ConnectionTile extends StatelessWidget {
       key: ValueKey<String>('hermes-connection-${connection.id}'),
       title: connection.name,
       subtitle: active
-          ? '${l10n.hermesActiveConnection} · ${hermesConnectionSummary(connection)}'
-          : hermesConnectionSummary(connection),
+          ? '${l10n.hermesActiveConnection} · '
+                '${hermesConnectionSummary(connection, l10n)}'
+          : hermesConnectionSummary(connection, l10n),
       subtitleMaxLines: 2,
       titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
       selected: active,
