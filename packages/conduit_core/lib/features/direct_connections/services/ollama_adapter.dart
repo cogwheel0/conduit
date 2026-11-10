@@ -702,6 +702,14 @@ final class OllamaAdapter
                       startingIndex: roundToolCalls.length,
                     ),
                   );
+                  // Rounds are unbounded, so one response must not run an
+                  // unbounded batch. The OpenAI adapters apply the same cap.
+                  if (roundToolCalls.length > kDirectMaxToolCalls) {
+                    throw const DirectProviderException(
+                      'The provider requested too many tool calls in one '
+                      'response.',
+                    );
+                  }
                 }
               }
               if (event.done == true) terminalEvent = event;

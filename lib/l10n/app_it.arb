@@ -3678,7 +3678,7 @@
   "directModelToolsUnsupported": "Questo modello non può usare strumenti, quindi non può cercare sul web. Disattiva la ricerca web e gli strumenti, poi riprova.",
   "directImagesPerRequest": "Immagini per richiesta",
   "directImagesPerRequestFooter": "Ogni messaggio invia le immagini più recenti di questa chat, fino a questo numero. Le immagini meno recenti vengono escluse. Riducilo se un modello rifiuta le richieste con troppe immagini.",
-  "directModelTooManyImages": "Questo modello accetta meno immagini per richiesta di quante ne abbia inviate questa chat. Riduci Immagini per richiesta nelle impostazioni di Connessioni dirette, poi riprova.",
+  "directModelTooManyImages": "Questo modello accetta meno immagini per richiesta di quante ne abbia inviate questa chat. Riduci Immagini per richiesta nelle impostazioni di Connessioni dirette, poi riprova. Se questo messaggio da solo contiene più immagini di quante il modello ne accetti, invialo di nuovo con meno immagini.",
   "directToolLoopNoAnswer": "Il modello ha continuato a usare strumenti senza dare una risposta. Riprova oppure disattiva la ricerca web e gli strumenti.",
   "directContextCompactionModelCount": "{count, plural, =1{1 modello} other{{count} modelli}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},

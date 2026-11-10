@@ -5553,6 +5553,40 @@ void main() {
     },
   );
 
+  test('Ollama rejects a response with too many tool calls', () async {
+    final http = _QueuedAdapter([
+      _ollamaToolCallReply(count: kDirectMaxToolCalls + 1),
+    ]);
+    var executions = 0;
+
+    final events =
+        await OllamaAdapter(dioFactory: (_) => _dio(http), closeClients: false)
+            .startCompletion(
+              _ollamaProfile(),
+              DirectCompletionRequest(
+                remoteModelId: 'model',
+                messages: [
+                  DirectChatMessage.text(role: 'user', text: 'weather'),
+                ],
+                tools: _localToolRuntime(
+                  execute: (_) async {
+                    executions += 1;
+                    return const DirectToolResult(text: 'sunny');
+                  },
+                ),
+              ),
+            )
+            .events
+            .toList();
+
+    expect(executions, 0);
+    expect(http.requests, hasLength(1));
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('too many tool calls in one response'),
+    );
+  });
+
   test('Ollama leaves tools out of the final answer request', () async {
     final http = _QueuedAdapter([
       for (var round = 0; round < kDirectMaxConsecutiveToolFailures; round++)
@@ -7069,7 +7103,7 @@ Map<String, dynamic> _chatAnswerPayload(String text) => {
   ],
 };
 
-_Reply _ollamaToolCallReply() => _Reply.stream([
+_Reply _ollamaToolCallReply({int count = 1}) => _Reply.stream([
   utf8.encode(
     '${jsonEncode({
       'model': 'model',
@@ -7077,9 +7111,9 @@ _Reply _ollamaToolCallReply() => _Reply.stream([
         'role': 'assistant',
         'content': '',
         'tool_calls': [
-          {
-            'function': {'name': 'mcp_deadbeef_weather', 'arguments': <String, dynamic>{}},
-          },
+          for (var index = 0; index < count; index++) {
+              'function': {'name': 'mcp_deadbeef_weather', 'arguments': <String, dynamic>{}},
+            },
         ],
       },
       'done': true,
