@@ -21,15 +21,11 @@ Baseline sanitizer:
 `6e51451ef4f4c2d34e8fedb85cb6b16384bb9980`. Both use the same benchmark logic and dependencies; the baseline import
 redirection is documented below. The production
 baseline file is unchanged between that baseline and PR base `ceda30ae`.
-Each result file records the source commit/hash, harness hash, dependency-lock
-hash, runtime, commands and explicit run indices. Build metadata is recorded
-once per file, outside timed code. Executable basenames are recorded; local
-artifact directories do not affect the commands' arguments.
 
 Dart 3.13.7 native AOT on macOS arm64. All fixtures are freshly generated
 synthetic text, without a server. No recording or concurrent builds ran during
-measurements. Correctness checks run outside the stopwatch. All outliers are
-retained. Tables show milliseconds per call, with ranges across two runs of
+measurements. Correctness checks run outside the stopwatch. Outliers are
+included. Tables show milliseconds per call, with ranges across two runs of
 each variant. These are CPU measurements, not phone frame-rate measurements.
 
 ## Footer eligibility
@@ -43,7 +39,7 @@ The harness executes full/predicate/predicate/full in one binary. Both paths use
 the final candidate sanitizer, isolating the incremental eligibility improvement.
 Five 1 MiB fixtures have five warmup calls and 100 timed samples per pass.
 The ordinary-code predicate uses 1,024 calls per timed batch; every other case
-times one call. [All 2,000 samples](clipboard_eligibility_results.json) record
+times one call. The harness prints all 2,000 samples as JSON, with
 `runIndex`, `callsPerSample`, `sampleKind` and p50/p95/p99. Percentiles use
 nearest rank based on the actual sample count (indices 49/94/98 for 100 samples).
 
@@ -72,8 +68,8 @@ The recorded baseline used a copy of the candidate harness with its package
 import changed to `import 'sanitizer-baseline/markdown_preprocessor.dart';`.
 That directory, beside the copied harness, contained `markdown_preprocessor.dart`
 and `semantic_details.dart` from the baseline commit. It was compiled with the
-candidate workspace package configuration; the result JSON records both harness
-hashes and the import recipe. For example, with those copies in `/path/to/build`:
+candidate workspace package configuration. For example, with those copies in
+`/path/to/build`:
 
 ```sh
 dart compile exe --packages=/path/to/checkout/.dart_tool/package_config.json /path/to/build/sanitize-marker-baseline-harness.dart -o /path/to/build/sanitize-marker-baseline
@@ -90,8 +86,8 @@ and SDK for both builds. The recorded run order and arguments were:
 ```
 
 Six fixtures at three sizes have five warmups and fifty measured calls per run.
-Whole units are repeated to keep fences intact. [All 3,600 samples](markdown_sanitize_results.json)
-include p50/p95/p99. Nearest-rank indices are 24/47/49, so p99 is the maximum
+Whole units are repeated to keep fences intact. The harness prints all 3,600
+samples as JSON, with p50/p95/p99. Nearest-rank indices are 24/47/49, so p99 is the maximum
 with fifty samples.
 
 | Fixture | Target size | Baseline p50 | Candidate p50 | Baseline p99 | Candidate p99 |
