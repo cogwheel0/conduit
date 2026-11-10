@@ -196,7 +196,7 @@ final class HermesModelSwitchDeclined implements Exception {
 
   String get message =>
       'Kept the current model instead of switching to $model. Nothing was '
-      'sent; your message is back in the composer.';
+      'sent; your message is still in the chat.';
 
   @override
   String toString() => message;
