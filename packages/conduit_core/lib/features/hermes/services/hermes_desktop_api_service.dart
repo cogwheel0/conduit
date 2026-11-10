@@ -18,6 +18,7 @@ import 'package:conduit_core/network/upload_timeout.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
@@ -26,6 +27,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/models/hermes_todo.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
@@ -45,6 +47,7 @@ part 'hermes_desktop_canonical.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
 part 'hermes_desktop_rooms.dart';
+part 'hermes_desktop_todos.dart';
 part 'hermes_desktop_turn_runtime.dart';
 
 typedef HermesDesktopCredentialsWriter = Future<void> Function(
@@ -331,6 +334,10 @@ final class HermesDesktopApiService
   final _sessionTurnStateChanges = StreamController<String>.broadcast();
   final Map<String, HermesDesktopTurnState> _sessionTurnStates = {};
   final _transcriptChanges = StreamController<String>.broadcast();
+
+  /// The agent's task list per chat (stored id), and which chat's changed.
+  final Map<String, HermesTodoState> _todoStates = {};
+  final _todoChanges = StreamController<String>.broadcast();
   final _desktopContractChanges = StreamController<int>.broadcast();
 
   Map<String, dynamic>? _status;
@@ -406,6 +413,14 @@ final class HermesDesktopApiService
   /// ([refreshShortenedTranscript]); asking consumes it.
   bool takeShortenedTranscript(String storedId) =>
       _shortenedTranscripts.remove(storedId);
+
+  /// The agent's task list for the chat [storedId], then every change to it
+  /// (`todo.updated`, the todo tool's results, a resume's `todo_state`).
+  Stream<HermesTodoState?> todoStatesFor(String storedId) =>
+      _todoStatesFor(storedId);
+
+  /// The agent's task list for the chat [storedId], when one was reported.
+  HermesTodoState? todoStateFor(String storedId) => _todoStateFor(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(
@@ -811,6 +826,20 @@ final class HermesDesktopApiService
     mcpServer: mcpServer,
     mcpAction: mcpAction,
   );
+
+  /// Answers a whole clarify form [requestId] at once: [answers] holds the
+  /// questions still open, by id, with null for a skipped one.
+  Future<void> respondToClarifyForm({
+    required String runtimeId,
+    String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
+  }) => _runtimeRespondToClarifyForm(
+    runtimeId: runtimeId,
+    storedSessionId: storedSessionId,
+    requestId: requestId,
+    answers: answers,
+  );
   @override
   void close() {
     if (_closed) return;
@@ -823,6 +852,7 @@ final class HermesDesktopApiService
     unawaited(_turnStates.close());
     unawaited(_sessionTurnStateChanges.close());
     unawaited(_transcriptChanges.close());
+    unawaited(_todoChanges.close());
     unawaited(_desktopContractChanges.close());
     _eventBuffer.clear();
     _bindings.clear();

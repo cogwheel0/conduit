@@ -1,9 +1,12 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/composer_prompt_surface.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import 'hermes_approval_cost_chip.dart';
 
 /// Resolution state of a Hermes approval gate, mirrored from the assistant
 /// message's `metadata['hermesApproval']['state']`.
@@ -21,6 +24,7 @@ class HermesApprovalCard extends StatelessWidget {
     this.summary,
     this.choices = const <String>[],
     this.onChoice,
+    this.cost,
   });
 
   final HermesApprovalState state;
@@ -29,6 +33,9 @@ class HermesApprovalCard extends StatelessWidget {
   final List<String> choices;
   final void Function(String choice)? onChoice;
 
+  /// A paid tool's price and the chat's spend, shown as chips.
+  final HermesApprovalCost? cost;
+
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
@@ -36,6 +43,10 @@ class HermesApprovalCard extends StatelessWidget {
     final resolved =
         state == HermesApprovalState.approved ||
         state == HermesApprovalState.denied;
+    // Past the spend limit Hermes takes an answer for this call only.
+    final offered = cost?.overLimit == true
+        ? choices.where(const {'once', 'deny'}.contains).toList()
+        : choices;
 
     return ComposerPromptSurface(
       semanticsLabel: l10n.hermesApprovalRequired,
@@ -66,6 +77,10 @@ class HermesApprovalCard extends StatelessWidget {
               color: theme.textSecondary,
             ),
           ),
+          if (cost case final cost? when cost.hasDetails) ...[
+            const SizedBox(height: Spacing.sm),
+            HermesApprovalCostChips(cost: cost),
+          ],
           const SizedBox(height: Spacing.md),
           if (resolved)
             Text(
@@ -78,12 +93,12 @@ class HermesApprovalCard extends StatelessWidget {
                     : theme.error,
               ),
             )
-          else if (choices.isNotEmpty && onChoice != null)
+          else if (offered.isNotEmpty && onChoice != null)
             Wrap(
               spacing: Spacing.sm,
               runSpacing: Spacing.sm,
               children: [
-                for (final choice in choices)
+                for (final choice in offered)
                   ConduitButton(
                     text: switch (choice) {
                       'once' => l10n.hermesApprovalAllowOnce,

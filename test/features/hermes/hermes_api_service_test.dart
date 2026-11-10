@@ -1485,6 +1485,29 @@ void main() {
       },
     );
 
+    test('answerClarify sends exactly the prompt identity and answer', () async {
+      final capture = _CaptureInterceptor({
+        'run_id': 'r1',
+        'status': 'resolved',
+        'prompt_id': 'prm_c1',
+      });
+      await _service(capture).answerClarify(
+        'r1',
+        promptId: 'prm_c1',
+        executionGeneration: 4,
+        answer: '["Small","Large"]',
+      );
+
+      final req = capture.requests.single;
+      check(req.method).equals('POST');
+      check(req.path).equals('http://host:8642/v1/runs/r1/clarify');
+      check(req.data as Map<String, dynamic>).deepEquals({
+        'request_id': 'prm_c1',
+        'execution_generation': 4,
+        'answer': '["Small","Large"]',
+      });
+    });
+
     test('refusals keep their error code across run endpoints', () async {
       final refused = _StatusInterceptor(
         409,

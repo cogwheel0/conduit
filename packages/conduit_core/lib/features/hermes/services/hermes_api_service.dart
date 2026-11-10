@@ -2194,6 +2194,27 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     );
   }
 
+  /// Answers a run's question (`POST /v1/runs/{id}/clarify`, v0.22.3+):
+  /// exactly the prompt's id, its execution generation, and the [answer]
+  /// (empty skips it; a multi-select answer is a JSON array string).
+  Future<void> answerClarify(
+    String runId, {
+    required String promptId,
+    required int executionGeneration,
+    required String answer,
+  }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
+    await _requestAndConsumeBounded(
+      'POST',
+      '$_root/v1/runs/$encodedRunId/clarify',
+      data: <String, dynamic>{
+        'request_id': promptId,
+        'execution_generation': executionGeneration,
+        'answer': answer,
+      },
+    );
+  }
+
   @override
   void close() => _dio.close(force: true);
 }

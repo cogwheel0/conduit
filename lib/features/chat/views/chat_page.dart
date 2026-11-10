@@ -60,6 +60,7 @@ import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -73,6 +74,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../hermes/widgets/hermes_read_only_session_notice.dart';
+import '../../hermes/widgets/hermes_todo_card.dart';
 import '../widgets/live_connection_button.dart';
 import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
@@ -1156,6 +1158,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             raw,
             modelId: model.id,
             trustedLocalDocumentKeys: trustedKeys,
+            sensitiveValues: service.config.sensitiveValues,
           )..addAll(
             hermesPendingDesktopDecisionMessages(pending, modelId: model.id),
           );
@@ -1482,11 +1485,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       } else {
         var admissionConfirmed = false;
+        final directBinding = ref
+            .read(directModelRegistryProvider)
+            .resolve(selectedModel);
+        // A Hermes or device Direct turn says when it goes to its run; an
+        // Open WebUI Direct one, sent through the server, does not.
+        final signalsTurnStart =
+            isHermesModel(selectedModel) ||
+            directBinding?.source == DirectModelSource.device;
+        // Every Direct binding is sent inline, with no outbox receipt.
         final usesOutbox =
             hasDurableOutbox &&
             !isHermesModel(selectedModel) &&
-            ref.read(directModelRegistryProvider).resolve(selectedModel) ==
-                null;
+            directBinding == null;
         await durableSend(
           ref,
           text,
@@ -1508,10 +1519,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   onDraftCommitted(pendingSend!);
                 }
               : null,
+          // A Hermes or Direct send lasts the whole turn: its words leave
+          // the composer once the turn is handed to its run, not when an
+          // approval or question that holds the turn open is answered.
+          onTurnStarted: () {
+            if (admissionConfirmed || pendingSend == null) return;
+            admissionConfirmed = true;
+            onDraftCommitted?.call(pendingSend!);
+          },
         );
         // Inline backends have no outbox receipt. Keep their draft until
-        // the existing send path has accepted it successfully.
-        if (!admissionConfirmed && pendingSend != null) {
+        // the existing send path has accepted it successfully. A Hermes or
+        // device Direct turn that never went to its run (a new session that
+        // could not be made) keeps it too.
+        if (!admissionConfirmed && pendingSend != null && !signalsTurnStart) {
           onDraftCommitted?.call(pendingSend!);
         }
       }
@@ -4028,6 +4049,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       findPendingHermesComposerPrompt,
                     ),
                   );
+                  final hermesPlan = composerRef
+                      .watch(hermesActiveTodoProvider)
+                      .asData
+                      ?.value;
                   final pendingDirectMcpMetadata = composerRef.watch(
                     chatMessagesProvider.select(
                       findPendingDirectMcpComposerPrompt,
@@ -4166,7 +4191,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         PlatformUiCapabilities.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
-                    attachedOverlay: attachedOverlay,
+                    // The agent's plan sits above any prompt card.
+                    attachedOverlay: withHermesPlan(
+                      attachedOverlay,
+                      plan: hermesPlan,
+                      chatKey: activeConversationId,
+                    ),
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,

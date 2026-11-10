@@ -9872,5 +9872,146 @@
   "hermesArchivedLoadError": "Couldn't load archived chats.",
   "@hermesArchivedLoadError": {
     "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
+  },
+  "hermesClarifyProgress": "{answered} of {total} done",
+  "@hermesClarifyProgress": {
+    "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
+    "placeholders": {
+      "answered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesClarifySendFailed": "Couldn't send your answers. Try again.",
+  "@hermesClarifySendFailed": {
+    "description": "Error on a Hermes question form when its answers could not be sent."
+  },
+  "hermesClarifyAlreadySettled": "This question was already answered elsewhere or has expired, so your answer wasn't sent.",
+  "@hermesClarifyAlreadySettled": {
+    "description": "Shown when a Hermes question form is answered after Hermes stopped listing it (answered on another surface, or expired); the form closes and the answer was not sent."
+  },
+  "hermesClarifyAnswerOrSkip": "Answer or skip each question.",
+  "@hermesClarifyAnswerOrSkip": {
+    "description": "Hint next to the disabled send button of a Hermes question form until every question has an answer or is skipped."
+  },
+  "hermesClarifyOtherAnswer": "Or type your own answer",
+  "@hermesClarifyOtherAnswer": {
+    "description": "Placeholder of the text field under a Hermes question's choices, for an answer that is not one of them."
+  },
+  "hermesClarifySkip": "Skip",
+  "@hermesClarifySkip": {
+    "description": "Toggle on one question of a Hermes question form that sends no answer for it."
+  },
+  "hermesClarifySkipped": "Skipped",
+  "@hermesClarifySkipped": {
+    "description": "Shown for a Hermes question that was skipped on another device."
+  },
+  "hermesClarifyRecommended": "Recommended",
+  "@hermesClarifyRecommended": {
+    "description": "Badge on the choice Hermes recommends in a question form."
+  },
+  "hermesChangedFiles": "{count, plural, =1{1 file changed} other{{count} files changed}}",
+  "@hermesChangedFiles": {
+    "description": "Title of the card under a Hermes reply listing the files its tools edited.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesChangedFilesMore": "{count, plural, =1{1 more file} other{{count} more files}}",
+  "@hermesChangedFilesMore": {
+    "description": "Last row of the changed-files card under a Hermes reply when it lists only some files; opens the rest.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesDiffUnnamedFile": "Changed file",
+  "@hermesDiffUnnamedFile": {
+    "description": "Name shown for an edited file when Hermes did not say which file it was."
+  },
+  "hermesDiffLineCounts": "Lines added: {added}, removed: {removed}",
+  "@hermesDiffLineCounts": {
+    "description": "Screen reader text for how many lines an edit added and removed in a file.",
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "removed": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesApprovalSpentOfLimit": "Used about {spent} of {limit}",
+  "@hermesApprovalSpentOfLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which Hermes gives as an estimate, and its spend limit there. spent includes the unit, for example 20 credits.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpent": "Used about {spent}",
+  "@hermesApprovalSpent": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which Hermes gives as an estimate; the server has no spend limit.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpendLimit": "Limit {limit}",
+  "@hermesApprovalSpendLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: this chat's spend limit on the tool's server, before anything was spent.",
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalOverLimit": "This call goes past this chat's spend limit. You can only allow it once.",
+  "@hermesApprovalOverLimit": {
+    "description": "Warning on a Hermes approval whose paid tool call would take the chat past its spend limit."
+  },
+  "hermesApprovalCost": "Estimated cost: {cost}",
+  "@hermesApprovalCost": {
+    "description": "Screen reader text for the price chip on a Hermes approval for a paid tool. cost is the price as Hermes states it, for example 5 credits.",
+    "placeholders": {
+      "cost": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesPlanTitle": "Plan",
+  "@hermesPlanTitle": {
+    "description": "Title of the agent's task list pinned above the composer of a Hermes chat."
+  },
+  "hermesPlanProgress": "{done} of {total} done",
+  "@hermesPlanProgress": {
+    "description": "How many items of the agent's task list are done, out of all of them.",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesPlanShow": "Show plan",
+  "@hermesPlanShow": {
+    "description": "Screen reader label of the folded task list header: unfolds the agent's plan."
+  },
+  "hermesPlanHide": "Hide plan",
+  "@hermesPlanHide": {
+    "description": "Screen reader label of the open task list header: folds the agent's plan to one line."
   }
 }
