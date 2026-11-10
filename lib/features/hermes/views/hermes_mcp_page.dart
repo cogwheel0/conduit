@@ -223,12 +223,18 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       return;
     }
     // A server Hermes set up to sign in with OAuth goes straight on to
-    // signing in. A list that failed to load says so itself.
-    final servers = await _servers.catchError(
-      (Object _) => const <HermesMcpServer>[],
-    );
-    final added = servers.where((server) => server.name == name);
-    if (!mounted || added.firstOrNull?.auth != 'oauth') return;
+    // signing in. When the list cannot be read (it says so itself), the
+    // catalog says whether it signs in that way.
+    List<HermesMcpServer>? servers;
+    try {
+      servers = await _servers;
+    } catch (_) {}
+    final signsIn = servers == null
+        ? selected.usesOAuth
+        : servers.any(
+            (server) => server.name == name && server.auth == 'oauth',
+          );
+    if (!mounted || !signsIn) return;
     try {
       await _oauth(name);
     } catch (error) {

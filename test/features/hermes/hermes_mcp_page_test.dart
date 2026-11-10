@@ -54,6 +54,20 @@ final class _Hermes implements HttpClientAdapter {
         (frame['params'] as Map?) ?? const {},
       );
       rpcs.add((method, params));
+      if (method == 'mcp.servers.list' &&
+          failListOnceAdded &&
+          servers.isNotEmpty) {
+        scheduleMicrotask(
+          () => incoming.add(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'id': id,
+              'error': {'code': -32000, 'message': 'Unavailable'},
+            }),
+          ),
+        );
+        return;
+      }
       final result = switch (method) {
         'mcp.servers.list' => {'servers': servers},
         'mcp.catalog' => {'servers': gatewayCatalog},
@@ -85,6 +99,9 @@ final class _Hermes implements HttpClientAdapter {
 
   /// Names the dashboard installs, then answers with an error.
   final failAfterInstall = <String>{};
+
+  /// Whether the server list cannot be read once a server is added.
+  var failListOnceAdded = false;
 
   Map<String, Object?> _added(String name) {
     servers.add({
@@ -335,6 +352,30 @@ void main() {
     expect(find.text('Hermes MCP action failed.'), findsOneWidget);
     expect(find.text('tide-notes'), findsOneWidget);
     expect(find.text('No MCP servers configured.'), findsNothing);
+    await hermes.dispose();
+  });
+
+  // With the list unreadable after the add, a server that signs in with
+  // OAuth was left without signing in, and nothing said so.
+  testWidgets('a list that cannot be read still goes on to sign in', (
+    tester,
+  ) async {
+    final hermes = _Hermes(
+      dashboardCatalog: [
+        {
+          'name': 'tide-calendar',
+          'installed': false,
+          'auth_type': 'oauth',
+          'required_env': <Object?>[],
+        },
+      ],
+    )..failListOnceAdded = true;
+    await openCatalog(tester, hermes);
+    await tester.tap(find.text('tide-calendar'));
+    await tester.pumpAndSettle();
+
+    check(hermes.calls('mcp.servers.oauth.start').map((it) => it['name']))
+        .deepEquals(['tide-calendar']);
     await hermes.dispose();
   });
 
