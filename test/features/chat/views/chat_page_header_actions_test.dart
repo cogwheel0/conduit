@@ -310,16 +310,16 @@ void main() {
     // What a chat without a conversation offers: the toggle and New Chat.
     expect(_barActions(tester), ['temporary-chat', 'new-chat']);
     // The send has read the setting, so until its chat exists the toggle
-    // changes nothing, even after the hold.
-    tester
+    // changes nothing; past the hold it shows as disabled.
+    final toggle = tester
         .widget<ConduitToolbarActionCluster>(
           find.byType(ConduitToolbarActionCluster),
         )
         .items
         .firstWhere((item) => item.id == 'temporary-chat')
-        .action
-        .onPressed!();
-    await tester.pump(const Duration(milliseconds: 16));
+        .action;
+    expect(toggle.onPressed, isNull);
+    expect(toggle.enabled, isFalse);
     expect(container.read(temporaryChatEnabledProvider), isFalse);
     await _tearDown(tester);
   });

@@ -4798,6 +4798,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           // inert until its chat exists, however long that takes, even
           // after the bar's hold has ended.
           temporaryToggleLocked: hasMessages && !hasSettledConversation,
+          newChatActionsHeld: holdsNewChatActions,
           compact: compact,
           overflowModel: overflowModel,
         );
@@ -5047,6 +5048,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool hasMessages,
     required bool showNewChatAction,
     bool temporaryToggleLocked = false,
+    bool newChatActionsHeld = false,
     bool compact = false,
     ({String label, bool enabled})? overflowModel,
   }) {
@@ -5061,6 +5063,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       hasMessages: hasMessages,
       tintColor: defaultTint,
       locked: temporaryToggleLocked,
+      held: newChatActionsHeld,
     );
     if (temporaryAction != null) {
       actions.add(temporaryAction);
@@ -5177,6 +5180,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool hasMessages,
     required Color tintColor,
     bool locked = false,
+    bool held = false,
   }) {
     final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
@@ -5232,12 +5236,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : l10n.temporaryChat,
       tintColor: tintColor,
       // A tap turns it on or off at once. Until the first message's chat
-      // exists the toggle stays in place but no longer changes the chat,
-      // whose send has already read it (it keeps looking enabled, so the
-      // bar does not flicker before it changes to the chat's actions).
-      onPressed: locked
+      // exists the toggle no longer changes the chat, whose send has already
+      // read it. Through the bar's hold it keeps looking enabled, so the bar
+      // does not flicker before it changes to the chat's actions; past the
+      // hold, while the chat is still on its way, it shows as disabled.
+      onPressed: !locked
+          ? () => setTemporary(!ref.read(temporaryChatEnabledProvider))
+          : held
           ? () {}
-          : () => setTemporary(!ref.read(temporaryChatEnabledProvider)),
+          : null,
     );
   }
 
