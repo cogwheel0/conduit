@@ -269,15 +269,18 @@ void main() {
               controller: controller,
               ids: ids,
               followLatest: false,
+              // Opening at the oldest message leaves the newest rows
+              // unmeasured, so only estimates describe them.
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-0',
+                offsetWithinMessage: 0,
+              ),
               estimateRowExtent: (_) => estimate,
               rowBuilder: (_, i) => SizedBox(height: i % 10 == 5 ? 300 : 60),
             ),
           ),
         );
         await tester.pumpAndSettle();
-        final oldest = controller.jumpToOldest();
-        await tester.pumpAndSettle();
-        expect(await oldest, isTrue);
         expect(controller.visibleMessageIds.first, ids.first);
 
         if (animated) {
@@ -322,10 +325,11 @@ void main() {
               messageId: 'synthetic-0',
               offsetWithinMessage: 0,
             ),
-            // Overestimates keep the tail's real height unknown until it is
-            // laid out.
+            // Tall opening rows leave little of the thumb's track per
+            // message, so its end lands two rows from the last; estimates
+            // put a full screen below there, but only 120 px follow.
             estimateRowExtent: (_) => 300,
-            rowBuilder: (_, i) => SizedBox(height: i % 10 == 5 ? 300 : 60),
+            rowBuilder: (_, i) => SizedBox(height: i < 20 ? 300 : 60),
           ),
           theme: ThemeData(
             scrollbarTheme: const ScrollbarThemeData(

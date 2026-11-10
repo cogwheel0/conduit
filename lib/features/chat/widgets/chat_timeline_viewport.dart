@@ -383,6 +383,9 @@ class _VisibleAnchor {
 class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     with WidgetsBindingObserver {
   static const double _geometryEpsilon = 0.5;
+
+  /// How many rows before the newest a freshly opened chat centers on.
+  static const int _initialCenterRowsBehindLatest = 50;
   static const double _refreshThreshold =
       debugChatTimelineTrailingRefreshThreshold;
   static const int _maxAnchorCorrectionAttempts = 8;
@@ -694,7 +697,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     }
     // Start near the tail without laying out the entire history. Earlier rows
     // remain available in the reverse sliver, built only as they come into view.
-    return _messageIds[math.max(0, _messageIds.length - 50)];
+    return _messageIds[math.max(
+      0,
+      _messageIds.length - _initialCenterRowsBehindLatest,
+    )];
   }
 
   String? _nearestSurvivingCenter(
@@ -2080,14 +2086,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     double fraction, {
     bool alignToLatest = false,
     double viewportOffset = 0,
+    String? centerId,
   }) {
     final position = _scrollController.position as _ChatTimelineScrollPosition;
-    final centerId = alignToLatest
-        ? _latestRecenterCenterId(position.viewportDimension)
-        : id;
+    final center =
+        centerId ??
+        (alignToLatest
+            ? _latestRecenterCenterId(position.viewportDimension)
+            : id);
     position.prepareForRecenter();
     setState(() {
-      _setCenterMessageId(centerId);
+      _setCenterMessageId(center);
       _pendingRecenter = (
         id: id,
         fraction: fraction,
@@ -2131,9 +2140,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   /// A recenter chooses its center from estimated heights. If less than a
   /// screen of content follows that center, the viewport (which cannot scroll
-  /// before it) leaves the chat's end short of the composer. This layout has
-  /// measured the tail, so recenter on the latest once more from far enough
-  /// back. It runs at most once per stranded center.
+  /// before it) leaves the chat's end short of the composer. Recenter on the
+  /// latest from at least as far back as a freshly opened chat starts,
+  /// doubling the distance each time so repeated shortfalls end at the
+  /// oldest message.
   void _recoverStrandedTail(ScrollMetrics metrics) {
     if (metrics.maxScrollExtent > _geometryEpsilon ||
         metrics.minScrollExtent >= -_geometryEpsilon) {
@@ -2146,14 +2156,21 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
           position == null ||
           _pendingRecenter != null ||
           _centerIndex != strandedCenter ||
+          strandedCenter == 0 ||
           position.maxScrollExtent > _geometryEpsilon) {
         return;
       }
-      final center = _latestRecenterCenterId(position.viewportDimension);
-      if ((_messageIndexById[center] ?? strandedCenter) >= strandedCenter) {
-        return;
-      }
-      _recenterForSeek(_messageIds.last, 0, alignToLatest: true);
+      final count = _messageIds.length;
+      final behind = math.max(
+        _initialCenterRowsBehindLatest,
+        2 * (count - strandedCenter),
+      );
+      _recenterForSeek(
+        _messageIds.last,
+        0,
+        alignToLatest: true,
+        centerId: _messageIds[math.max(0, count - behind)],
+      );
     });
   }
 
