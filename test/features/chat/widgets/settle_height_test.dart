@@ -129,8 +129,8 @@ void main() {
     );
   }
 
-  // The timeline swaps the typing-indicator footer (16 + 28 + 4) for the
-  // in-card action row (16 + 32) at settle. These cases must be
+  // The timeline swaps the typing-indicator footer (16 + a 44 pt row) for the
+  // in-card action row (16 + 44 pt targets) at settle. These cases must be
   // extent-neutral so the bottom-anchored viewport does not jump; growth
   // from settle-only UI (sources row, text-scaled chips) is animated by the
   // AnimatedSize around the footer slot instead.

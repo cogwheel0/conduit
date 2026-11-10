@@ -10,10 +10,23 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show
+        ChatMessagesNotifier,
+        chatMessagesProvider,
+        hermesTrustedMixedSessionProvider;
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:dio/dio.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -95,6 +108,8 @@ final class _Authority {
   int revision = 3;
   int generation = 2;
   List<Map<String, Object?>> prompts = const [];
+  Map<String, Object?>? todoState;
+  String? cwd;
 
   Map<String, Object?> snapshot(String id) => {
     'session_id': id,
@@ -110,7 +125,8 @@ final class _Authority {
     'execution_generation': generation,
     'pending': const <Object?>[],
     'prompts': prompts,
-    'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol},
+    'todo_state': ?todoState,
+    'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol, 'cwd': ?cwd},
   };
 
   Object? defaults(String method, Map<String, dynamic> params) =>
@@ -204,6 +220,57 @@ final class _Authority {
   Future<void> dispose() => incoming.close();
 }
 
+/// The open chat continues Hermes session `local-1`.
+/// An OpenWebUI chat whose latest reply came from Hermes session
+/// `local-1`.
+final class _MixedChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => Conversation(
+    id: 'owui-chat-1',
+    title: 'Tides',
+    createdAt: DateTime.utc(2030),
+    updatedAt: DateTime.utc(2030),
+  );
+}
+
+final class _MixedMessages extends ChatMessagesNotifier {
+  @override
+  List<ChatMessage> build() => [
+    ChatMessage(
+      id: 'reply-1',
+      role: 'assistant',
+      content: 'Working on it.',
+      timestamp: DateTime.utc(2030),
+      metadata: const {'hermesSessionId': 'local-1'},
+    ),
+  ];
+}
+
+final class _OpenHermesChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => Conversation(
+    id: 'local:hermes_local-1',
+    title: 'Tides',
+    createdAt: DateTime.utc(2030),
+    updatedAt: DateTime.utc(2030),
+    metadata: const {'hermesSessionId': 'local-1'},
+  );
+}
+
+/// [_OpenHermesChat] as this app marks the Hermes chats it opens.
+final class _NativeHermesChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => markNativeHermesConversation(
+    Conversation(
+      id: 'local:hermes_local-1',
+      title: 'Tides',
+      createdAt: DateTime.utc(2030),
+      updatedAt: DateTime.utc(2030),
+      metadata: const {'hermesSessionId': 'local-1'},
+    ),
+  );
+}
+
 /// Serves `/api/status` (auth off) and the routes given, recording each
 /// request with its Authorization header.
 final class _Rest implements HttpClientAdapter {
@@ -244,6 +311,8 @@ HermesDesktopApiService _service(
   _Rest? rest,
   HermesDesktopAuthKind authKind = HermesDesktopAuthKind.legacyToken,
   List<Duration> retryDelays = const [Duration.zero],
+  String legacyToken = 'session-token',
+  HermesModelSwitchPrompt? confirmModelSwitch,
 }) {
   final service = HermesDesktopApiService(
     config: HermesConfig(
@@ -252,7 +321,7 @@ HermesDesktopApiService _service(
       mode: HermesBackendMode.desktopGateway,
       desktopAuthKind: authKind,
       desktopCredentials: HermesDesktopCredentials(
-        legacyToken: 'session-token',
+        legacyToken: legacyToken,
       ),
     ),
     dio: Dio()..httpClientAdapter = rest ?? _Rest(),
@@ -261,6 +330,7 @@ HermesDesktopApiService _service(
     ),
     gatewayStartRetryDelays: retryDelays,
     receiptRetryDelays: const [Duration.zero, Duration.zero],
+    confirmModelSwitch: confirmModelSwitch,
   );
   addTearDown(() async {
     service.close();
@@ -409,6 +479,8 @@ void main() {
 
       final submit = gateway.calls('prompt.submit').single;
       check(submit['submission_id'] as String?).isNotNull().isNotEmpty();
+      // The authority said it asks a turn's questions as one form.
+      check(submit['clarify_batch']).equals(true);
       check(events.whereType<HermesTokenDelta>().map((e) => e.content).join())
           .equals('Hello there.');
       check(events.whereType<HermesRunError>()).isEmpty();
@@ -1029,6 +1101,198 @@ void main() {
     ).length.equals(2);
   });
 
+  group('a model switch held for a confirmation, asked', () {
+    /// Holds a switch to `pricier-model` until it carries the token, unless
+    /// [holdAgain] (the session changed before the confirmation landed).
+    /// With [failFast], setting the fast tier fails.
+    _Authority holding({bool holdAgain = false, bool failFast = false}) {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        if (failFast && method == 'config.set' && params['key'] == 'fast') {
+          throw const _Refusal(-32000, 'storage_unavailable');
+        }
+        final payload = params['payload'];
+        if (method == 'session.mutate' &&
+            params['operation'] == 'model' &&
+            payload is Map &&
+            payload['model'] == 'pricier-model' &&
+            (holdAgain || payload['confirm'] != 'confirm-token-1')) {
+          return {
+            'session_id': params['session_id'],
+            'operation': 'model',
+            'status': 'confirmation_required',
+            'confirm': 'confirm-token-1',
+            // Hermes' resolved name for it, which the question must not
+            // show: the confirmed resend names the chat's own choice.
+            'target_model': 'pricier-model-resolved',
+            'target_provider': 'synthetic-provider',
+            'confirm_message': 'This model costs more per message.',
+            'revision': gateway.revision,
+            'execution_generation': gateway.generation,
+          };
+        }
+        return gateway.defaults(method, params);
+      };
+      return gateway;
+    }
+
+    Future<HermesResponseStream> send(
+      HermesDesktopApiService service,
+      String model, {
+      bool? fast,
+      CancelToken? cancelToken,
+    }) => service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'local-1',
+      options: HermesDesktopSessionOptions(
+        model: model,
+        provider: 'synthetic-provider',
+        fast: fast,
+      ),
+      cancelToken: cancelToken,
+    );
+
+    test('switches once confirmed, then sends', () async {
+      final gateway = holding();
+      final asked = <HermesHeldModelSwitch>[];
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (held) async {
+          asked.add(held);
+          return true;
+        },
+      );
+      await service.createDesktopSession();
+
+      await send(service, 'pricier-model');
+
+      check(asked).length.equals(1);
+      check(asked.single.model).equals('pricier-model');
+      check(asked.single.provider).equals('synthetic-provider');
+      check(
+        asked.single.reason,
+      ).equals('This model costs more per message.');
+      final switches = gateway
+          .calls('session.mutate')
+          .where((params) => params['operation'] == 'model')
+          .map((params) => params['payload'] as Map)
+          .toList();
+      check(switches.last).deepEquals({
+        'model': 'pricier-model',
+        'provider': 'synthetic-provider',
+        'confirm': 'confirm-token-1',
+      });
+      check(gateway.calls('prompt.submit')).length.equals(1);
+    });
+
+    test('keeps the current model when declined, and sends nothing', () async {
+      final gateway = holding();
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async => false,
+      );
+      // The model the chat was made with: the chat returns to it.
+      await service.createDesktopSession(
+        options: const HermesDesktopSessionOptions(
+          model: 'other-model',
+          provider: 'synthetic-provider',
+        ),
+      );
+      final submitted = gateway.calls('prompt.submit').length;
+
+      await check(send(service, 'pricier-model')).throws<
+        HermesModelSwitchDeclined
+      >(
+        (it) => it
+          ..has((error) => error.model, 'model').equals('pricier-model')
+          ..has(
+            (error) => error.previousModel,
+            'previousModel',
+          ).equals('other-model')
+          ..has(
+            (error) => error.previousProvider,
+            'previousProvider',
+          ).equals('synthetic-provider'),
+      );
+
+      check(gateway.calls('prompt.submit')).length.equals(submitted);
+      check(
+        gateway
+            .calls('session.mutate')
+            .where((params) => (params['payload'] as Map?)?['confirm'] != null),
+      ).isEmpty();
+    });
+
+    // Kept once the switch applied: a later option that failed left the
+    // record on the model before.
+    test('returns to a model set before a later option failed', () async {
+      final gateway = holding(failFast: true);
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async => false,
+      );
+      await service.createDesktopSession();
+      await check(send(service, 'other-model', fast: true)).throws<Object>();
+
+      await check(send(service, 'pricier-model')).throws<
+        HermesModelSwitchDeclined
+      >(
+        (it) => it
+            .has((error) => error.previousModel, 'previousModel')
+            .equals('other-model'),
+      );
+    });
+
+    test('refuses as before when nobody could be asked', () async {
+      final gateway = holding();
+      final service = _service(gateway, confirmModelSwitch: (_) async => null);
+      await service.createDesktopSession();
+
+      await check(
+        send(service, 'pricier-model'),
+      ).throws<HermesModelSwitchHeld>();
+    });
+
+    // Stopped while the question was open, a send must not switch the chat
+    // to the held model when the answer comes.
+    test('switches nothing for a send stopped while asking', () async {
+      final gateway = holding();
+      final cancelToken = CancelToken();
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async {
+          cancelToken.cancel('stopped');
+          return true;
+        },
+      );
+      await service.createDesktopSession();
+
+      await check(
+        send(service, 'pricier-model', cancelToken: cancelToken),
+      ).throws<DioException>();
+      check(
+        gateway
+            .calls('session.mutate')
+            .where((params) => (params['payload'] as Map?)?['confirm'] != null),
+      ).isEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
+    test('refuses as before when held again once confirmed', () async {
+      final gateway = holding(holdAgain: true);
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async => true,
+      );
+      await service.createDesktopSession();
+
+      await check(
+        send(service, 'pricier-model'),
+      ).throws<HermesModelSwitchHeld>();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+  });
+
   test('a create that retries a lost one is that create alone', () async {
     final gateway = _Authority();
     var creates = 0;
@@ -1243,6 +1507,131 @@ void main() {
       check(gateway.calls('clarify.lock')).isEmpty();
     });
 
+    // The transport shortened the question before anything redacted it, so
+    // a configured secret cut by the limit was saved in part.
+    test('a saved question shows no part of a secret its limit cuts',
+        () async {
+      // Shown from character 505, past the card's limit, and cut by the
+      // parser's limit at 600.
+      final secret = 'synthetic-secret-${'0123456789' * 9}';
+      final gateway = _Authority();
+      final service = _service(gateway, legacyToken: secret);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-f7', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': '${'w' * 504} $secret?'},
+        ],
+      });
+      await _settle();
+
+      final saved = await service.pendingDecisionsForSession('local-1');
+      final record = saved.singleWhere((d) => d.requestId == 'srq-f7');
+      check(record.questions.single.text).not((it) => it.contains('synth'));
+      check(record.prompt ?? '').not((it) => it.contains('synth'));
+    });
+
+    test('answers a whole question form with its response frame', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-f1', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?', 'choices': ['Teal']},
+          {'qid': 'q1', 'question': 'Which sizes?', 'multi_select': true},
+          {'qid': 'q2', 'question': 'Anything else?'},
+        ],
+        'answers': {'q2': 'no'},
+      });
+      await _settle();
+
+      final form = shown.singleWhere((e) => e.type == 'clarify.request');
+      check(form.payload['request_id']).equals('srq-f1');
+      check(form.payload['questions'] as List).length.equals(3);
+      await service.respondToClarifyForm(
+        runtimeId: 'local-1',
+        storedSessionId: 'local-1',
+        requestId: 'srq-f1',
+        answers: const {'q0': 'Teal', 'q1': null},
+      );
+
+      check(gateway.sent.last).deepEquals({
+        'jsonrpc': '2.0',
+        'id': 'srq-f1',
+        'result': {
+          'answers': {'q0': 'Teal', 'q1': null},
+          'outcome': 'submitted',
+        },
+      });
+      check(gateway.calls('request.answer')).isEmpty();
+      check(gateway.calls('clarify.lock')).isEmpty();
+      check(gateway.calls('clarify.respond')).isEmpty();
+    });
+
+    test('a skipped lone question is answered empty', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          {
+            'kind': 'clarify',
+            'prompt_id': 'prompt-s',
+            'execution_generation': 2,
+            'question': 'Any notes?',
+          },
+        ];
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      await service.respondToClarifyForm(
+        runtimeId: 'local-1',
+        storedSessionId: 'local-1',
+        requestId: 'prompt-s',
+        answers: const {'q0': null},
+      );
+
+      check(gateway.calls('clarify.respond').single['answer']).equals('');
+    });
+
+    // Settled elsewhere before the answer: nothing was sent, yet the form
+    // reported success and closed without a word.
+    test('a lone question Hermes no longer lists says the answer went '
+        'nowhere', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          {
+            'kind': 'clarify',
+            'prompt_id': 'prompt-g',
+            'execution_generation': 2,
+            'question': 'Any notes?',
+          },
+        ];
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      // Answered on another device while the socket was down: the next
+      // snapshot no longer lists it.
+      gateway.prompts = const [];
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+
+      await check(
+        service.respondToClarifyForm(
+          runtimeId: 'local-1',
+          storedSessionId: 'local-1',
+          requestId: 'prompt-g',
+          answers: const {'q0': 'none'},
+        ),
+      ).throws<HermesDecisionAlreadySettled>();
+      check(gateway.calls('clarify.respond')).isEmpty();
+      final pending = await service.pendingDecisionsForSession('local-1');
+      check(
+        pending.map((d) => d.requestId),
+      ).not((it) => it.contains('prompt-g'));
+    });
+
     test('answers a password request with its response frame', () async {
       final gateway = _Authority();
       final service = _service(gateway);
@@ -1304,6 +1693,42 @@ void main() {
         ),
       ).throws<StateError>();
       check(gateway.sent.where((frame) => frame['id'] == 'srq-s2')).isEmpty();
+    });
+
+    test('a form the socket could not send stays open', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-c9', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?'},
+        ],
+      });
+      await _settle();
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          scheduleMicrotask(
+            () => scheduleMicrotask(
+              () => gateway.incoming.addError(StateError('gone again')),
+            ),
+          );
+        }
+        return gateway.defaults(method, params);
+      };
+
+      // Reported as sent, the card would close on answers Hermes never got.
+      await check(
+        service.respondToClarifyForm(
+          runtimeId: 'local-1',
+          storedSessionId: 'local-1',
+          requestId: 'srq-c9',
+          answers: const {'q0': 'Teal'},
+        ),
+      ).throws<StateError>();
+      check(gateway.sent.where((frame) => frame['id'] == 'srq-c9')).isEmpty();
     });
 
     test('one settled while the socket was down closes on resume', () async {
@@ -1391,6 +1816,41 @@ void main() {
 
       check(pending).isEmpty();
       check(shown.where((e) => e.type == 'clarify.request')).isEmpty();
+    });
+
+    test('a form settled elsewhere leaves when the snapshot drops it',
+        () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-f9', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?'},
+        ],
+      });
+      await _settle();
+      check(
+        (await service.pendingDecisionsForSession('local-1')).map(
+          (decision) => decision.requestId,
+        ),
+      ).contains('srq-f9');
+
+      // Answered on another device while this socket was down: the
+      // snapshot no longer lists it.
+      gateway.handler = (method, params) => method == 'session.resume'
+          ? {...gateway.snapshot('local-1'), 'open_requests': <Object>[]}
+          : gateway.defaults(method, params);
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      check(
+        (await service.pendingDecisionsForSession('local-1')).map(
+          (decision) => decision.requestId,
+        ),
+      ).not((it) => it.contains('srq-f9'));
     });
 
     test('one opened while its snapshot was read stays open', () async {
@@ -1488,6 +1948,354 @@ void main() {
     });
   });
 
+  group('plans', () {
+    Map<String, Object?> plan(int revision, List<String> statuses) => {
+      'revision': revision,
+      'todos': [
+        for (final (index, status) in statuses.indexed)
+          {'id': 't$index', 'content': 'Step $index', 'status': status},
+      ],
+    };
+
+    test('a resume restores the chat\'s plan', () async {
+      final gateway = _Authority()
+        ..todoState = plan(3, ['completed', 'in_progress', 'pending']);
+      final service = _service(gateway);
+
+      await service.pendingDecisionsForSession('local-1');
+
+      final restored = service.todoStateFor('local-1')!;
+      check(restored.revision).equals(3);
+      check(restored.done).equals(1);
+      check(restored.current!.content).equals('Step 1');
+    });
+
+    test('live updates replace the plan, never with an older one', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      final seen = <int?>[];
+      final sub = service
+          .todoStatesFor('local-1')
+          .listen((state) => seen.add(state?.revision));
+      addTearDown(sub.cancel);
+
+      gateway.event('tool.complete', {
+        'name': 'todo',
+        ...plan(1, ['in_progress', 'pending']),
+      });
+      gateway.event('todo.updated', plan(1, ['in_progress', 'pending']));
+      gateway.event('todo.updated', plan(2, ['completed', 'in_progress']));
+      // A late frame from before is not news.
+      gateway.event('todo.updated', plan(1, ['pending', 'pending']));
+      // Another chat's plan stays with that chat.
+      gateway.event(
+        'todo.updated',
+        plan(9, ['pending']),
+        session: 'local-other',
+      );
+      await _settle();
+
+      check(seen).deepEquals([null, 1, 1, 2]);
+      check(service.todoStateFor('local-1')!.done).equals(1);
+    });
+
+    test('the open chat\'s plan is provided live', () async {
+      final gateway = _Authority()..todoState = plan(1, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_OpenHermesChat.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final revisions = <int?>[];
+      container.listen(
+        hermesActiveTodoProvider,
+        (_, next) => revisions.add(next.asData?.value?.revision),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      gateway.event('todo.updated', plan(2, ['completed']));
+      await _settle();
+
+      check(revisions.whereType<int>()).deepEquals([1, 2]);
+    });
+
+    test('a Hermes turn inside an OpenWebUI chat shows its plan', () async {
+      final gateway = _Authority()..todoState = plan(3, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_MixedChat.new),
+          chatMessagesProvider.overrideWith(_MixedMessages.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final revisions = <int?>[];
+      container.listen(
+        hermesActiveTodoProvider,
+        (_, next) => revisions.add(next.asData?.value?.revision),
+        fireImmediately: true,
+      );
+      await _settle();
+      // The reply's metadata alone, which the server could have written,
+      // names no plan.
+      check(revisions.whereType<int>()).isEmpty();
+
+      // This app ran the chat's turn in that session.
+      container.read(hermesActiveSessionProvider.notifier).set('local-1');
+      await _settle();
+
+      check(revisions.whereType<int>()).deepEquals([3]);
+    });
+
+    // Reopened, the chat has no runtime binding (a new chat cleared it), so
+    // its plan was gone though this app ran its turn in that session.
+    test('a reopened OpenWebUI chat shows the plan of its bound session',
+        () async {
+      final gateway = _Authority()..todoState = plan(7, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_MixedChat.new),
+          chatMessagesProvider.overrideWith(_MixedMessages.new),
+          // The binding this app stored when it ran the chat's turn.
+          hermesTrustedMixedSessionProvider.overrideWith((ref) => 'local-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+      final revisions = <int?>[];
+      container.listen(
+        hermesActiveTodoProvider,
+        (_, next) => revisions.add(next.asData?.value?.revision),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      check(container.read(hermesActiveSessionProvider)).isNull();
+      check(revisions.whereType<int>()).deepEquals([7]);
+    });
+
+    // A resume can move a chat to a new stored id. The chat still asks by
+    // the id it had, and must not keep the plan cached from before.
+    test('a chat moved to a new stored id follows its new plan', () async {
+      final gateway = _Authority()..todoState = plan(5, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      check(service.todoStateFor('local-1')!.revision).equals(5);
+
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      gateway
+        ..todoState = plan(6, ['completed', 'in_progress'])
+        ..handler = (method, params) => method == 'session.resume'
+            ? {...gateway.snapshot('local-1'), 'stored_session_id': 'local-2'}
+            : gateway.defaults(method, params);
+      await service.pendingDecisionsForSession('local-1');
+
+      check(service.todoStateFor('local-1')!.revision).equals(6);
+      check(service.todoStateFor('local-1')!.done).equals(1);
+    });
+
+    test('a cleared plan is empty, not gone', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+
+      gateway.event('todo.updated', plan(4, ['pending']));
+      gateway.event('todo.updated', {'revision': 5, 'todos': <Object?>[]});
+      await _settle();
+
+      check(service.todoStateFor('local-1')!.isEmpty).isTrue();
+    });
+  });
+
+  group('working directory', () {
+    test('comes from the chat\'s resume and its live infos', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      final seen = <String?>[];
+      final sub = service.workingDirectoriesFor('local-1').listen(seen.add);
+      addTearDown(sub.cancel);
+
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      gateway.event('session.info', {'cwd': '/home/dev/other-app'});
+      // A partial info, or one without a directory, changes nothing.
+      gateway.event('session.info', {'service_tier': 'fast'});
+      gateway.event('session.info', {'cwd': ''});
+      // Another chat's directory stays with that chat.
+      gateway.event(
+        'session.info',
+        {'cwd': '/srv/elsewhere'},
+        session: 'local-other',
+      );
+      await _settle();
+
+      check(
+        seen,
+      ).deepEquals([null, '/home/dev/sample-app', '/home/dev/other-app']);
+    });
+
+    test('a new chat has the directory it was created in', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+
+      await service.createDesktopSession();
+
+      check(
+        await service.workingDirectoriesFor('local-1').first,
+      ).equals('/home/dev/sample-app');
+    });
+
+    test('the open chat\'s directory is provided live', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_OpenHermesChat.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final seen = <String?>[];
+      container.listen(
+        hermesActiveWorkingDirectoryProvider,
+        (_, next) => seen.add(next.asData?.value),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      gateway.event('session.info', {'cwd': '/home/dev/other-app'});
+      await _settle();
+
+      check(
+        seen.whereType<String>(),
+      ).deepEquals(['/home/dev/sample-app', '/home/dev/other-app']);
+    });
+
+    // Deleted chats kept their directories, and the oldest kept one was
+    // dropped for a new one without telling the chat that showed it.
+    test('is forgotten with its chat, and when it makes room', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final rest = _Rest({
+        'GET /api/sessions/local-1/mutation-snapshot': (_) => (
+          200,
+          {
+            'session_id': 'local-1',
+            'exists': true,
+            'runtime_revision': 3,
+            'runtime_generation': 2,
+          },
+        ),
+        'DELETE /api/sessions/local-1': (_) => (200, {'ok': true}),
+      });
+      final service = _service(gateway, rest: rest);
+      await service.createDesktopSession();
+      final seen = <String?>[];
+      final sub = service.workingDirectoriesFor('local-1').listen(seen.add);
+      addTearDown(sub.cancel);
+      await _settle();
+
+      await service.deleteSession('local-1');
+      await _settle();
+      check(seen).deepEquals(['/home/dev/sample-app', null]);
+
+      // Of 65 chats, the one used longest ago makes room, and is told. A
+      // chat whose directory was read since (reopened) keeps it.
+      void report(int chat, [String? cwd]) => gateway.event(
+        'session.info',
+        {'cwd': cwd ?? '/srv/chat-$chat'},
+        session: 'chat-$chat',
+      );
+      final pushedOut = <String?>[];
+      final pushedOutSub = service
+          .workingDirectoriesFor('chat-1')
+          .listen(pushedOut.add);
+      addTearDown(pushedOutSub.cancel);
+      for (var chat = 0; chat < 64; chat++) {
+        report(chat);
+      }
+      await _settle();
+      check(
+        await service.workingDirectoriesFor('chat-0').first,
+      ).equals('/srv/chat-0');
+      report(64);
+      await _settle();
+      check(pushedOut).deepEquals([null, '/srv/chat-1', null]);
+      check(
+        await service.workingDirectoriesFor('chat-0').first,
+      ).equals('/srv/chat-0');
+
+      // Reported again, even unchanged, a directory is kept anew, and its
+      // chat hears nothing new.
+      final again = <String?>[];
+      final againSub = service
+          .workingDirectoriesFor('chat-2')
+          .listen(again.add);
+      addTearDown(againSub.cancel);
+      report(2);
+      report(3);
+      report(65);
+      await _settle();
+      check(again).deepEquals(['/srv/chat-2']);
+      check(
+        await service.workingDirectoriesFor('chat-3').first,
+      ).equals('/srv/chat-3');
+      check(await service.workingDirectoriesFor('chat-4').first).isNull();
+    });
+
+    test('is given only to the replies of the open chat\'s session', () async {
+      final gateway = _Authority()..cwd = '/home/dev/sample-app';
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      ProviderContainer open(ActiveConversationNotifier Function() chat) {
+        final container = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWithValue(service),
+            activeConversationProvider.overrideWith(chat),
+            chatMessagesProvider.overrideWith(_MixedMessages.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+          ..listen(hermesReplyWorkingDirectoryProvider('local-1'), (_, _) {})
+          ..listen(hermesReplyWorkingDirectoryProvider('local-9'), (_, _) {})
+          ..listen(hermesReplyWorkingDirectoryProvider(null), (_, _) {});
+        return container;
+      }
+
+      // A native Hermes chat runs every reply in its one session.
+      final native = open(_NativeHermesChat.new);
+      await _settle();
+      for (final reply in ['local-1', 'local-9', null]) {
+        check(
+          because: '$reply',
+          native.read(hermesReplyWorkingDirectoryProvider(reply)),
+        ).equals('/home/dev/sample-app');
+      }
+
+      // An OpenWebUI chat's Hermes turns can run in different sessions.
+      final mixed = open(_MixedChat.new);
+      mixed.read(hermesActiveSessionProvider.notifier).set('local-1');
+      await _settle();
+      check(
+        mixed.read(hermesReplyWorkingDirectoryProvider('local-1')),
+      ).equals('/home/dev/sample-app');
+      check(mixed.read(hermesReplyWorkingDirectoryProvider('local-9'))).isNull();
+      check(mixed.read(hermesReplyWorkingDirectoryProvider(null))).isNull();
+    });
+  });
+
   test('a bot chat is looked up by its title', () async {
     final gateway = _Authority();
     final service = _service(gateway);
@@ -1500,6 +2308,65 @@ void main() {
     final resume = gateway.calls('session.resume').single;
     check(resume['title']).equals('Bot Chat');
     check(resume.containsKey('session_id')).isFalse();
+  });
+
+  test('an undo refused because the chat moved on is not sent again',
+      () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) {
+      if (method == 'session.mutate' && params['operation'] == 'rewind') {
+        // Another turn landed after the undo chose its row.
+        throw const _Refusal(4001, 'stale_generation', {
+          'reason': 'stale_generation',
+          'revision': 3,
+          'execution_generation': 3,
+        });
+      }
+      return gateway.defaults(method, params);
+    };
+    final service = _service(
+      gateway,
+      rest: _Rest({
+        'GET /api/sessions/local-1/messages': (_) => (
+          200,
+          {
+            'messages': [
+              {'id': 7, 'role': 'user', 'content': 'Plan the trip'},
+              {'id': 8, 'role': 'assistant', 'content': 'Done.'},
+            ],
+          },
+        ),
+      }),
+    );
+    await service.createDesktopSession();
+
+    await check(
+      service.undoLastTurn('local-1', rowId: 7),
+    ).throws<StateError>();
+    check(
+      gateway.calls('session.mutate').where((p) => p['operation'] == 'rewind'),
+    ).length.equals(1);
+  });
+
+  test('a bot chat too long to read whole refuses history changes',
+      () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) => method == 'session.history'
+        ? {
+            'messages': [
+              for (var n = 0; n <= 10000; n++)
+                {'id': n + 1, 'role': 'user', 'content': 'Turn $n'},
+            ],
+          }
+        : gateway.defaults(method, params);
+    final service = _service(gateway);
+    final stored = await service.openBotChat(
+      const HermesBot(name: 'default', title: 'Synthetic bot'),
+    );
+
+    await check(service.getCurrentSessionMessages(stored)).throws<StateError>();
+    // Shown, it keeps its bound.
+    check(await service.getSessionMessages(stored)).length.equals(10000);
   });
 
   group('a gateway that is starting', () {

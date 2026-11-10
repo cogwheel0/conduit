@@ -9,6 +9,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -496,6 +497,66 @@ void main() {
       check(fake.lastResponseInstructions).equals('Be concise');
       check(establishedSession).equals('session-from-header');
       check(completed).isTrue();
+    });
+
+    // A Desktop turn that streamed its error copy before failing showed the
+    // copy as a reply above the card that explains it.
+    test('a classified failure clears the copy streamed before it', () async {
+      Future<ChatMessage> run(HermesErrorSurface? surface) async {
+        final fake = _FakeHermesApiService(
+          const [],
+          responseEvents: [
+            const HermesTokenDelta('Synthetic copy'),
+            HermesRunError('Synthetic failure', surface: surface),
+            const HermesRunDone(),
+          ],
+        );
+        var message = ChatMessage(
+          id: 'm',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        await _dispatchFakeHermesResponse(
+          service: fake,
+          registry: HermesRunRegistry(),
+          assistantMessageId: message.id,
+          input: HermesChatInput.text('hi'),
+          appendContent: (text) =>
+              message = message.copyWith(content: message.content + text),
+          replaceContent: (text) => message = message.copyWith(content: text),
+          appendStatus: (_) {},
+          updateMessage: (updater) => message = updater(message),
+          finishStreaming: () {},
+          completeStreamingUi: () {},
+        );
+        return message;
+      }
+
+      final failed = await run(
+        const HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'context_overflow',
+          retryable: false,
+        ),
+      );
+      check(failed.content).isEmpty();
+      check(failed.error?.content).equals('Synthetic failure');
+      check(
+        hermesErrorSurfaceOf(failed)?.kind,
+      ).equals(HermesErrorKind.contextOverflow);
+
+      // A partial answer, and a failure without a card, keep their text.
+      final partial = await run(
+        const HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'truncated',
+          retryable: true,
+          partial: true,
+        ),
+      );
+      check(partial.content).equals('Synthetic copy');
+      check((await run(null)).content).equals('Synthetic copy');
     });
 
     test('pre-cancelled response reports no successful dispatch', () async {
@@ -1536,7 +1597,7 @@ void main() {
       final (message, _, refusals) = await dispatch(
         refusal(409, HermesApiErrorCode.permissionDenied),
       );
-      check(message.error?.content).isNotNull().contains('Continue in a copy');
+      check(message.error?.content).isNotNull().contains('Continue in a Copy');
       check(refusals).deepEquals(['permission_denied']);
     });
 
@@ -2183,6 +2244,42 @@ void main() {
     check(error).not((value) => value.contains('\u0000'));
     check(error).not((value) => value.contains('\n'));
     check(error.runes.length).isLessOrEqual(kMaxHermesProviderErrorCharacters);
+  });
+
+  test('a classified run error leaves its card on the message', () async {
+    final fake = _FakeHermesApiService(const [
+      HermesRunError(
+        'Synthetic overflow',
+        surface: HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'context_overflow',
+          retryable: false,
+        ),
+      ),
+    ]);
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error?.content).equals('Synthetic overflow');
+    check(
+      hermesErrorSurfaceOf(message)?.kind,
+    ).equals(HermesErrorKind.contextOverflow);
   });
 
   test('appends final output when no deltas streamed', () async {
@@ -2893,6 +2990,75 @@ void main() {
     );
 
     check(message.error?.content).equals('Synthetic held switch.');
+  });
+
+  // The user's own choice: a note on the turn, not a failure, and the chat
+  // hears so it can give the message and the model back.
+  test('a model switch the user declined is a note, not an error', () async {
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+    final statuses = <ChatStatusUpdate>[];
+    final declined = <HermesModelSwitchDeclined>[];
+    const kept = HermesModelSwitchDeclined(
+      model: 'pricier-model',
+      previousModel: 'other-model',
+    );
+
+    await dispatchHermesTurn(
+      startTurn: (_) async => throw kept,
+      sensitiveValues: const [],
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      onModelSwitchDeclined: declined.add,
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error).isNull();
+    check(statuses.single.action).equals(kHermesRunNoticeAction);
+    check(statuses.single.description).equals(kept.message);
+    check(declined).deepEquals([kept]);
+  });
+
+  // A Responses turn Hermes saved during a restart carries no response to
+  // follow: the chat hears so, to look for the answer in its session.
+  test('a turn saved during a restart lets the chat follow it', () async {
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+    final statuses = <ChatStatusUpdate>[];
+    var queued = 0;
+
+    await dispatchHermesTurn(
+      startTurn: (_) async => throw HermesApiException(
+        requestOptions: RequestOptions(path: '/v1/responses'),
+        statusCode: 503,
+        code: HermesApiErrorCode.admissionQueued,
+      ),
+      sensitiveValues: const [],
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      onQueued: () => queued++,
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error).isNull();
+    check(statuses.single.action).equals('hermes_run_queued');
+    check(queued).equals(1);
   });
 
   test('a gateway that keeps restarting says so', () async {
@@ -3756,6 +3922,130 @@ void main() {
 
       check(fake.lastEventIds).deepEquals(<int?>[null, 5, 5, 5]);
       check(fake.getRunCalls).equals(1);
+    });
+
+    test('a question asked while polling shows once from the run', () async {
+      const question = {
+        'kind': 'clarify',
+        'prompt_id': 'prm_q7',
+        'execution_generation': 5,
+        'question': 'Which branch?',
+        'choices': ['main', 'dev'],
+        'multi_select': false,
+      };
+      final fake = _FakeHermesApiService(
+        const [HermesTokenDelta('Partial')],
+        runResults: const [
+          {
+            'status': 'running',
+            'pending_controls': [question],
+          },
+          {
+            'status': 'running',
+            'pending_controls': [question],
+          },
+          {'status': 'completed', 'output': 'Partial answer'},
+        ],
+      );
+      var changes = 0;
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        recoveryPollInterval: Duration.zero,
+        streamResumeDelay: Duration.zero,
+        maxExtendedRecoveryPolls: 0,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) {
+          final next = updater(message);
+          if (next.metadata?[kHermesDecisionMeta] !=
+              message.metadata?[kHermesDecisionMeta]) {
+            changes++;
+          }
+          message = next;
+        },
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+
+      final decision = message.metadata![kHermesDecisionMeta] as Map;
+      check(decision['requestId']).equals('prm_q7');
+      check(decision['runtimeId']).equals('run-1');
+      check(decision['executionGeneration']).equals(5);
+      check(decision['prompt']).equals('Which branch?');
+      // A later poll listing the same question does not reopen its card;
+      // the run's end closes it.
+      check(changes).equals(2);
+      check(decision['state']).equals('resolved');
+    });
+
+    // With no stream, only the polls say a question was answered elsewhere
+    // or timed out. A reply holds one question card, so a second question
+    // waits for the first to close instead of replacing it.
+    test('polled questions close when settled, then the next shows', () async {
+      Map<String, Object?> question(String id) => {
+        'kind': 'clarify',
+        'prompt_id': id,
+        'execution_generation': 5,
+        'question': 'Synthetic question $id?',
+      };
+      final fake = _FakeHermesApiService(
+        const [HermesTokenDelta('Partial')],
+        runResults: [
+          {
+            'status': 'running',
+            'pending_controls': [question('prm_a'), question('prm_b')],
+          },
+          {
+            'status': 'running',
+            'pending_controls': [question('prm_b')],
+          },
+          {'status': 'completed', 'output': 'Partial answer'},
+        ],
+      );
+      final seen = <String>[];
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        recoveryPollInterval: Duration.zero,
+        streamResumeDelay: Duration.zero,
+        maxExtendedRecoveryPolls: 0,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) {
+          message = updater(message);
+          final decision = message.metadata?[kHermesDecisionMeta];
+          if (decision is Map) {
+            final step = '${decision['requestId']} ${decision['state']}';
+            if (seen.isEmpty || seen.last != step) seen.add(step);
+          }
+        },
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+
+      check(seen).deepEquals([
+        'prm_a pending',
+        'prm_a resolved',
+        'prm_b pending',
+        'prm_b resolved',
+      ]);
     });
 
     test('a forgotten stream falls back to polling', () async {

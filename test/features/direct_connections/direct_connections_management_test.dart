@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/models/model.dart';
@@ -58,7 +60,7 @@ void main() {
         .where((section) => section.useNativeSurface);
     expect(nativeSections.length, greaterThanOrEqualTo(2));
     final syncRow = tester.widget<UtilityRow>(
-      find.widgetWithText(UtilityRow, 'Open WebUI history'),
+      find.widgetWithText(UtilityRow, 'Open WebUI History'),
     );
     final profileRow = tester.widget<UtilityRow>(
       find.widgetWithText(UtilityRow, 'Native provider'),
@@ -103,10 +105,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Direct Connections'), findsAtLeastNWidgets(1));
-    expect(find.text('Open WebUI history'), findsAtLeastNWidgets(1));
+    expect(find.text('Open WebUI History'), findsAtLeastNWidgets(1));
     expect(find.text('Home Ollama'), findsOneWidget);
     expect(find.textContaining('http://192.168.1.5:11434'), findsOneWidget);
-    expect(find.text('Add connection'), findsOneWidget);
+    expect(find.text('Add Connection'), findsOneWidget);
 
     await tester.tap(find.byType(AdaptiveSwitch));
     await tester.pump();
@@ -162,8 +164,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open WebUI server'), findsOneWidget);
-    expect(find.text('On this device'), findsOneWidget);
+    expect(find.text('Open WebUI Server'), findsOneWidget);
+    expect(find.text('On This Device'), findsOneWidget);
     expect(find.text('server.example · 1'), findsOneWidget);
     expect(find.text('Device provider'), findsOneWidget);
     expect(find.text('Open WebUI'), findsOneWidget);
@@ -198,7 +200,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open WebUI history'), findsNothing);
+    expect(find.text('Open WebUI History'), findsNothing);
   });
 
   testWidgets('PCC settings show quota and fallback controls', (tester) async {
@@ -308,7 +310,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Context compaction'), findsOneWidget);
+    expect(find.text('Context Compaction'), findsOneWidget);
     expect(find.text('Unknown context model'), findsOneWidget);
     expect(find.text('Known context model'), findsNothing);
     expect(find.textContaining('Context limit: 4K'), findsOneWidget);
@@ -322,6 +324,93 @@ void main() {
 
     expect(changedModelId, missingId);
     expect(changedContextLength, 8192);
+  });
+
+  testWidgets('the context limit list explains Ollama memory use', (
+    tester,
+  ) async {
+    Widget content(Map<String, dynamic> metadata) => ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectConnectionsContent(
+          profiles: const [],
+          modelsWithoutContextLimit: [
+            Model(
+              id: DirectModelId.encode('local', 'model'),
+              name: 'Local model',
+              metadata: metadata,
+            ),
+          ],
+          syncWithOpenWebUi: false,
+          isOnboarding: false,
+          onContextLengthChanged: (_, _) {},
+          onSyncChanged: (_) {},
+          onAdd: () {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+    final note = find.textContaining('context window Ollama loads the model');
+
+    await tester.pumpWidget(content(const {'adapterKey': kOllamaAdapterKey}));
+    await tester.pumpAndSettle();
+    expect(note, findsOneWidget);
+
+    await tester.pumpWidget(
+      content(const {'adapterKey': kOpenAiCompatibleAdapterKey}),
+    );
+    await tester.pumpAndSettle();
+    expect(note, findsNothing);
+  });
+
+  testWidgets('images per request opens a picker outside onboarding', (
+    tester,
+  ) async {
+    int? changed;
+    Widget content({required bool isOnboarding}) => ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectConnectionsContent(
+          profiles: const [],
+          syncWithOpenWebUi: false,
+          isOnboarding: isOnboarding,
+          maxImagesPerRequest: kDefaultDirectMaxImagesPerRequest,
+          onMaxImagesPerRequestChanged: (count) => changed = count,
+          onSyncChanged: (_) {},
+          onAdd: () {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(content(isOnboarding: true));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('direct-images-per-request')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(content(isOnboarding: false));
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('direct-images-per-request'));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: row, matching: find.text('Images per request')),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4'));
+    await tester.pumpAndSettle();
+
+    expect(changed, 4);
   });
 
   testWidgets('a long context fallback list moves to its own page', (
@@ -423,14 +512,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Open WebUI server'), findsOneWidget);
+    expect(find.text('Open WebUI Server'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('On this device'),
+      find.text('On This Device'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('On this device'), findsOneWidget);
+    expect(find.text('On This Device'), findsOneWidget);
   });
 
   testWidgets('server reload failure is visible after an empty snapshot', (
@@ -475,11 +564,50 @@ void main() {
     controller.failRefresh();
     await tester.pump();
 
-    expect(find.text('No server connections yet'), findsOneWidget);
+    expect(find.text('No Server Connections Yet'), findsOneWidget);
     expect(
       find.text('Could not sync connections from Open WebUI.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a failed Images per request save says so', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => DirectTestStaticDirectProfiles(const []),
+          ),
+          directHistoryPolicyProvider.overrideWith(
+            DirectTestStaticHistoryPolicy.new,
+          ),
+          directMaxImagesPerRequestProvider.overrideWith(
+            _FailingMaxImagesPerRequest.new,
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('direct-images-per-request'));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Images per request could not be saved. Try again.'),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
   });
 
   testWidgets('management refreshes server connections on entry and resume', (
@@ -530,6 +658,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(remoteController.reloadCount, 2);
   });
+}
+
+final class _FailingMaxImagesPerRequest
+    extends DirectMaxImagesPerRequestController {
+  @override
+  int build() => kDefaultDirectMaxImagesPerRequest;
+
+  @override
+  Future<void> set(int count) =>
+      Future<void>.error(const FileSystemException('disk full'));
 }
 
 final class _FixedDiscovery extends DirectModelDiscoveryController {

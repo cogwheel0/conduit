@@ -116,7 +116,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('live-connection-retry')));
       await tester.pumpAndSettle();
       expect(socket.attempts, 0);
-      expect(find.text('Live updates'), findsOneWidget);
+      expect(find.text('Live Updates'), findsOneWidget);
       expect(find.textContaining('WebSocket transport'), findsOneWidget);
       expect(find.textContaining('Reconnects: 2'), findsOneWidget);
       expect(find.textContaining('Last heartbeat:'), findsOneWidget);
@@ -188,7 +188,7 @@ void main() {
     button.onPressed!();
     await tester.pump();
     expect(requests, hasLength(1));
-    expect(requests.single.root.title, 'Live updates');
+    expect(requests.single.root.title, 'Live Updates');
     expect(
       requests.single.root.sections.first.footer,
       contains('Replies and chat changes may be delayed'),
@@ -250,7 +250,7 @@ void main() {
     await tester.tap(find.text('Close'));
     await tester.pumpAndSettle();
     expect(socket.attempts, 0);
-    expect(find.text('Live updates'), findsNothing);
+    expect(find.text('Live Updates'), findsNothing);
   });
 
   testWidgets('native presentation failure keeps details available', (
@@ -274,7 +274,7 @@ void main() {
     button.onPressed!();
     PlatformUiCapabilities.debugNativeIOS26Override = false;
     await tester.pumpAndSettle();
-    expect(find.text('Live updates'), findsOneWidget);
+    expect(find.text('Live Updates'), findsOneWidget);
     expect(find.textContaining('Synthetic bridge'), findsNothing);
     expect(socket.attempts, 0);
     await tester.tap(find.text('Close'));

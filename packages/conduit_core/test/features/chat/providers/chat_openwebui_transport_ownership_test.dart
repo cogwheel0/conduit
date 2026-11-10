@@ -6235,6 +6235,28 @@ void main() {
         ).deepEquals(['Newer']);
         check(container.read(webSearchEnabledProvider)).isFalse();
       });
+
+      test('Temporary Chat switched on meanwhile refuses the turn before '
+          'anything is saved', () async {
+        final (:api, :container, :admitted, :navigated) = await begin();
+        container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+        api.holdFileInfo!.complete();
+        await check(admitted).throws<ComparisonAdmissionException>(
+          (it) => it
+              .has((e) => e.reason, 'reason')
+              .equals(ComparisonAdmissionFailure.unavailable),
+        );
+
+        // Nothing was written, sent or left on screen.
+        check(navigated).isEmpty();
+        check(await db.messagesDao.getForChat(chatId)).isEmpty();
+        check(await db.outboxDao.pendingForChat(chatId)).isEmpty();
+        check(api.requests).isEmpty();
+        check(
+          container.read(chatMessagesProvider).map((m) => m.id),
+        ).deepEquals(['u0']);
+      });
     });
 
     group('stopping one answer needs the server to accept it', () {

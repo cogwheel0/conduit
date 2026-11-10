@@ -79,7 +79,7 @@ void main() {
       expect(pill.mode, AdaptiveCompactDatePickerMode.date);
       expect(pill.minimumDate, kEarliestProfileBirthDate);
       expect(pill.maximumDate!.isAfter(DateTime.now()), isFalse);
-      expect(pill.semanticLabel, 'Date of birth');
+      expect(pill.semanticLabel, 'Date of Birth');
 
       // The pill answers with the picked wall clock in UTC.
       pill.onChanged!(DateTime.utc(1988, 2, 29));

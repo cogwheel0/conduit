@@ -152,6 +152,10 @@ final class PreferenceKeys {
   static const String hermesPendingDesktopDecisions =
       'hermes_pending_desktop_decisions_v1';
 
+  /// Hermes chats hidden (or, on the API server, archived) from Conduit,
+  /// which no Hermes session list returns.
+  static const String hermesSetAsideSessions = 'hermes_set_aside_sessions_v1';
+
   /// Keyed by origin, not by saved connection: the WebView cookie store is
   /// process-global, so two connections on one origin share dashboard cookies.
   static const String hermesDashboardCookieIdentities =
@@ -187,6 +191,8 @@ final class PreferenceKeys {
       'apple_pcc_on_device_fallback_v1';
   static const String directContextLengthOverrides =
       'direct_context_length_overrides_v1';
+  static const String directMaxImagesPerRequest =
+      'direct_max_images_per_request_v1';
   static const String reasoningEffortByModel = 'reasoning_effort_by_model_v1';
 
   /// Prefix for the per-server account owner marker that guards reopening an
@@ -206,6 +212,9 @@ final class PreferenceKeys {
 
   /// Bots section visibility in the sidebar Hermes tab.
   static const String hermesShowBots = 'hermes_show_bots';
+
+  /// Rooms section visibility in the sidebar Hermes tab.
+  static const String hermesShowRooms = 'hermes_show_rooms';
 
   static const String sidebarActiveTab = 'sidebar_active_tab';
   static const String sidebarTabletWidth = 'sidebar_tablet_width_v1';

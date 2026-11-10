@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/widgets.dart';
 
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
@@ -36,8 +35,9 @@ const double _glyphExtent = 20;
 /// forward and stop.
 const int _maxPanelActions = 4;
 
-/// How long a scrub rests before the reading seeks there. The native slider
-/// reports each move but not the release.
+/// How long a change made without a touch, such as VoiceOver adjusting the
+/// scrubber, rests before the reading seeks there. A drag or a tap seeks
+/// when the finger lifts.
 const Duration _scrubCommitDelay = Duration(milliseconds: 200);
 
 /// Controls the active read-aloud request without covering the transcript.
@@ -490,24 +490,28 @@ class _ReadAloudScrubber extends StatefulWidget {
 }
 
 class _ReadAloudScrubberState extends State<_ReadAloudScrubber> {
+  /// Where the reader's finger, or the seek it asked for, holds the reading.
   double? _held;
+
+  /// Whether a finger is on the slider: its change is seeked once it lifts.
+  bool _touching = false;
+
+  /// Seeks after a change made without a touch.
   Timer? _commit;
 
-  /// Where a press began, to tell a tap from a drag. UIKit's slider ignores
-  /// taps, so a tap seeks from here; drags stay with the slider.
-  Offset? _pressedAt;
-
-  /// The position the slider was last given. UIKit's slider reports it back
-  /// when a touch ends without moving it, which must not undo a tap.
-  double _shown = 0;
-
-  void _scrub(double value) {
+  void _onChanged(double value) {
     setState(() => _held = value);
     _commit?.cancel();
-    _commit = Timer(_scrubCommitDelay, () async {
-      await widget.onSeek(widget.duration * value);
-      if (mounted && _held == value) setState(() => _held = null);
-    });
+    if (!_touching) {
+      _commit = Timer(_scrubCommitDelay, () => unawaited(_seek(value)));
+    }
+  }
+
+  Future<void> _seek(double value) async {
+    _commit?.cancel();
+    setState(() => _held = value);
+    await widget.onSeek(widget.duration * value);
+    if (mounted && _held == value) setState(() => _held = null);
   }
 
   @override
@@ -518,41 +522,20 @@ class _ReadAloudScrubberState extends State<_ReadAloudScrubber> {
 
   @override
   Widget build(BuildContext context) {
-    final value = _shown = _held ?? widget.progress;
-    return Listener(
-      // Raw pointer events reach this listener even though the native
-      // slider claims the gesture. It takes them across the whole track:
-      // a Cupertino slider (before iOS 26, and the package's fallback)
-      // answers only near its thumb.
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (event) => _pressedAt = event.localPosition,
-      onPointerCancel: (_) => _pressedAt = null,
-      onPointerUp: (event) {
-        final pressedAt = _pressedAt;
-        _pressedAt = null;
-        // The slider's own width, which can be less than the room it is
-        // offered.
-        final width = context.size?.width ?? 0;
-        if (pressedAt == null ||
-            (event.localPosition - pressedAt).distance > kTouchSlop ||
-            width <= 0) {
-          return;
-        }
-        final along = (event.localPosition.dx / width).clamp(0.0, 1.0);
-        _scrub(
-          Directionality.of(context) == TextDirection.rtl ? 1 - along : along,
-        );
+    final value = _held ?? widget.progress;
+    return AdaptiveSlider(
+      value: value,
+      onChangeStart: (_) => _touching = true,
+      onChanged: _onChanged,
+      onChangeEnd: (released) {
+        _touching = false;
+        unawaited(_seek(released));
       },
-      child: AdaptiveSlider(
-        value: value,
-        onChanged: (reported) {
-          if ((reported - _shown).abs() > 1e-6) _scrub(reported);
-        },
-        thumbless: true,
-        activeColor: widget.color,
-        semanticLabel: widget.label,
-        semanticValue: '${(value * 100).round()}%',
-      ),
+      seekOnTap: true,
+      thumbless: true,
+      activeColor: widget.color,
+      semanticLabel: widget.label,
+      semanticValue: '${(value * 100).round()}%',
     );
   }
 }

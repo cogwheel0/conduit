@@ -488,7 +488,7 @@ void main() {
     );
     await tester.pump();
     check(find.text('Always allow').evaluate()).isEmpty();
-    await tester.tap(find.text('Allow for session'));
+    await tester.tap(find.text('Allow for Session'));
     await tester.pump();
     await tester.pump();
 

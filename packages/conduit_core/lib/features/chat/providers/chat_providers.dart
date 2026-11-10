@@ -82,7 +82,6 @@ import 'package:conduit_core/database/local_conversation_loader.dart';
 
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
-import 'package:conduit_core/database/models/chat_transcript_window.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
@@ -153,9 +152,11 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_queued_answer.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';

@@ -43,8 +43,15 @@ final class HermesCopiedHistoryStore {
   // zone alive.
   Future<void>? _writes;
 
+  // Key prefixes of the connection identities [forgetConnection] dropped,
+  // one per deleted or re-addressed connection until the app restarts. A
+  // save begun for one before then (an open still in flight) keeps nothing:
+  // no connection can reach it again.
+  final Set<String> _forgottenConnections = <String>{};
+
   /// Saves [messages] as the earlier messages of copy [sessionId], replacing
   /// any it had, and returns what was kept: the newest messages that fit.
+  /// Nothing is stored for a connection identity that has been forgotten.
   Future<List<Map<String, dynamic>>> save({
     required String connectionIdentity,
     required String sessionId,
@@ -52,9 +59,11 @@ final class HermesCopiedHistoryStore {
   }) async {
     final key = _key(connectionIdentity, sessionId);
     if (key == null) return List.unmodifiable(messages);
+    final connectionPrefix = _connectionPrefix(connectionIdentity.trim());
     final bounded = _bound(messages);
     await _serialize(() async {
       final dao = _database.appCacheDao;
+      if (_forgottenConnections.contains(connectionPrefix)) return;
       if (bounded.messages.isEmpty) {
         await dao.deleteKey(key);
         return;
@@ -114,12 +123,21 @@ final class HermesCopiedHistoryStore {
     await _serialize(() => _database.appCacheDao.deleteKey(key));
   }
 
-  /// Drops every copy's earlier messages for [connectionIdentity], e.g. when
-  /// its saved connection is deleted.
+  /// Drops every copy's earlier messages for [connectionIdentity] once no
+  /// saved connection has it: the connection was deleted, or edited to
+  /// another endpoint or principal. Unreachable, they would still count
+  /// toward [maxCopies] and push out copies a connection can still open.
+  ///
+  /// A save still in flight for this identity stores nothing afterwards.
+  /// That relies on identities never being reused: deleted connections'
+  /// ids are not, and an endpoint or principal change mints a new trust
+  /// principal (see `HermesConfigController.saveConnection`), so editing a
+  /// connection back to an earlier endpoint still gives a new identity.
   Future<void> forgetConnection(String connectionIdentity) async {
     final connection = connectionIdentity.trim();
     if (connection.isEmpty) return;
-    final prefix = '$_keyPrefix${_digest(connection)}:';
+    final prefix = _connectionPrefix(connection);
+    _forgottenConnections.add(prefix);
     await _serialize(() => _database.appCacheDao.deleteKeysWithPrefix(prefix));
   }
 
@@ -127,8 +145,11 @@ final class HermesCopiedHistoryStore {
     final connection = connectionIdentity.trim();
     final session = validateHermesOpaqueIdentifier(sessionId);
     if (connection.isEmpty || session == null) return null;
-    return '$_keyPrefix${_digest(connection)}:${_digest(session)}';
+    return '${_connectionPrefix(connection)}${_digest(session)}';
   }
+
+  static String _connectionPrefix(String connection) =>
+      '$_keyPrefix${_digest(connection)}:';
 
   static String _digest(String value) =>
       sha256.convert(utf8.encode(value)).toString();

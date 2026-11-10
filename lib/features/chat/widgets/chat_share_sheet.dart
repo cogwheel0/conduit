@@ -223,7 +223,7 @@ Future<void> _showNativeChatShareSheet({
                   title: hasExistingShare
                       ? l10n.updateAndCopyLink
                       : l10n.copyLink,
-                  sfSymbol: 'doc.on.doc',
+                  sfSymbol: 'square.on.square',
                 ),
                 NativeSheetItemConfig(
                   id: 'share-link',
@@ -524,7 +524,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
                     : l10n.copyLink,
                 onPressed: _isDeleting || _isLookingUp ? null : _copyLink,
                 isLoading: _isSharing || _isLookingUp,
-                icon: CupertinoIcons.doc_on_clipboard,
+                icon: CupertinoIcons.square_on_square,
                 isFullWidth: true,
               ),
               const SizedBox(height: Spacing.sm),

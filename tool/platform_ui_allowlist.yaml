@@ -488,12 +488,6 @@ exceptions:
     owner: chat
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/chat/widgets/follow_up_suggestions.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: chat
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/chat/widgets/mention_text_controller.dart
     package: "package:material_ui/material_ui.dart"
     count: 1

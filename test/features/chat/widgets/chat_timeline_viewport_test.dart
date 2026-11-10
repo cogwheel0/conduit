@@ -766,6 +766,40 @@ void main() {
     },
   );
 
+  _viewportTest('the scroll indicator shows for the user\'s scrolls only', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(30, (index) => 'message-$index');
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+
+    await tester.pumpWidget(
+      _viewportHost(_viewport(controller: controller, ids: ids)),
+    );
+    await tester.pumpAndSettle();
+    final indicator = find.byType(CupertinoScrollbar);
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+
+    // The app's own move (pinning, following a reply) shows nothing.
+    position.jumpTo(position.pixels - 400);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(indicator, isNot(paints..rrect()));
+
+    // A drag does, and the indicator fades once the scroll is at rest.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(indicator, paints..rrect());
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(indicator, isNot(paints..rrect()));
+  });
+
   _viewportTest('scrollbar track is inset by the toolbar and composer', (
     tester,
   ) async {

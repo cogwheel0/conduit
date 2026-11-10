@@ -102,6 +102,9 @@ final class HermesDesktopConnectionCoordinator {
     Future<T> Function(HermesDesktopApiService service) operation, {
     HermesDesktopCredentialsWriter? onCredentialsChanged,
   }) async {
+    // Every request from a draft sends its credentials (access headers at
+    // least): never unencrypted unasked.
+    if (!config.mayUsePlainHttp) throw const HermesPlainHttpConsentRequired();
     final service = HermesDesktopApiService(
       config: config,
       openExternalUrl: openExternalUrl,

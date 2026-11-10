@@ -1485,6 +1485,29 @@ void main() {
       },
     );
 
+    test('answerClarify sends exactly the prompt identity and answer', () async {
+      final capture = _CaptureInterceptor({
+        'run_id': 'r1',
+        'status': 'resolved',
+        'prompt_id': 'prm_c1',
+      });
+      await _service(capture).answerClarify(
+        'r1',
+        promptId: 'prm_c1',
+        executionGeneration: 4,
+        answer: '["Small","Large"]',
+      );
+
+      final req = capture.requests.single;
+      check(req.method).equals('POST');
+      check(req.path).equals('http://host:8642/v1/runs/r1/clarify');
+      check(req.data as Map<String, dynamic>).deepEquals({
+        'request_id': 'prm_c1',
+        'execution_generation': 4,
+        'answer': '["Small","Large"]',
+      });
+    });
+
     test('refusals keep their error code across run endpoints', () async {
       final refused = _StatusInterceptor(
         409,
@@ -1591,6 +1614,37 @@ void main() {
       check(error).isA<HermesApiException>()
         ..has((e) => e.statusCode, 'status').equals(409)
         ..has((e) => e.code, 'code').isNull();
+    });
+
+    test('a refusal read past the request deadline stays a refusal', () async {
+      const window = Duration(seconds: 30);
+      final clock = _MutableRecoveryClock();
+      final refusal = _LateRefusalInterceptor(
+        clock: clock,
+        advance: window - const Duration(seconds: 1),
+      );
+      // The whole envelope arrives, but reading it uses up the deadline.
+      refusal.body.onListen = () {
+        clock.advance(const Duration(seconds: 2));
+        refusal.body
+          ..add(utf8.encode(_hermesError('permission_denied')))
+          ..close();
+      };
+      final service = _service(
+        refusal,
+        streamLimits: const HermesStreamLimits(
+          idleTimeout: window,
+          maxDuration: window,
+        ),
+        recoveryClock: clock.call,
+      );
+
+      final error = await service
+          .stopRun('r1')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').equals('permission_denied');
     });
 
     test('resolveUnknownRun sends exactly the admission identity', () async {

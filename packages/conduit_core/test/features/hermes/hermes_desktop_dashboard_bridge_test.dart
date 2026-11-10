@@ -12,6 +12,8 @@ final class _FakeBridge implements HermesDashboardBridge {
     String method,
     Uri url, {
     String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     requests.add(url);
     return (status: 200, body: '{"profiles":[{"name":"default"}]}');
@@ -36,6 +38,8 @@ final class _RoutesBridge implements HermesDashboardBridge {
     String method,
     Uri url, {
     String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     requests.add('$method $url');
     return routes['$method ${url.path}'] ??

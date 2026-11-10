@@ -75,6 +75,15 @@ abstract final class HermesApiErrorCode {
 
   /// Accepted and saved; it runs once Hermes is back. Must not be resent.
   static const admissionQueued = 'admission_queued';
+
+  /// Refusals of a Hermes that is restarting or busy: its runtime or
+  /// gateway is draining, its session store is out of reach, or the
+  /// session's chain moved on. Conduit explains them alike and offers to
+  /// try again.
+  static const runtimeDraining = 'runtime_draining';
+  static const gatewayDraining = 'gateway_draining';
+  static const storageUnavailable = 'storage_unavailable';
+  static const chainMoved = 'chain_moved';
 }
 
 /// A non-2xx Hermes answer with its bounded, decoded error envelope.
@@ -1164,6 +1173,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     } on HermesStreamGuardException {
       _signalHermesStreamCancellation(cancelToken);
       rethrow;
+    } on HermesApiException {
+      // Hermes refused in time, even if reading why took the rest of the
+      // deadline: the refusal keeps its status, headers and code.
+      rethrow;
     } on DioException catch (error) {
       if (recoveryBudget.remainingDuration <= Duration.zero ||
           (deadlineConstrainsReceive &&
@@ -1922,6 +1935,44 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     );
   }
 
+  /// Sets sidebar flags (`PATCH /api/sessions/{id}`).
+  @override
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
+    await _requestAndConsumeBounded(
+      'PATCH',
+      '$_root/api/sessions/$encodedId',
+      data: {'pinned': ?pinned, 'archived': ?archived, 'hidden': ?hidden},
+    );
+  }
+
+  /// The API server lists only sessions that are not archived.
+  @override
+  Future<List<Map<String, dynamic>>?> listArchivedSessions() async => null;
+
+  /// One session (`GET /api/sessions/{id}`), or null once it is gone.
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) async {
+    final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
+    final Object? data;
+    try {
+      data = await _requestBoundedJson(
+        'GET',
+        '$_root/api/sessions/$encodedId',
+      );
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+    final session = data is Map ? (data['session'] ?? data) : null;
+    return session is Map ? session.cast<String, dynamic>() : null;
+  }
+
   /// Deletes a session (`DELETE /api/sessions/{id}`).
   @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
@@ -2149,6 +2200,27 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
               'approved': approved,
               'decision': approved ? 'approve' : 'deny',
             },
+    );
+  }
+
+  /// Answers a run's question (`POST /v1/runs/{id}/clarify`, v0.22.3+):
+  /// exactly the prompt's id, its execution generation, and the [answer]
+  /// (empty skips it; a multi-select answer is a JSON array string).
+  Future<void> answerClarify(
+    String runId, {
+    required String promptId,
+    required int executionGeneration,
+    required String answer,
+  }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
+    await _requestAndConsumeBounded(
+      'POST',
+      '$_root/v1/runs/$encodedRunId/clarify',
+      data: <String, dynamic>{
+        'request_id': promptId,
+        'execution_generation': executionGeneration,
+        'answer': answer,
+      },
     );
   }
 

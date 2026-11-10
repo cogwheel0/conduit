@@ -128,6 +128,37 @@ void main() {
       },
     );
 
+    // The single connection was in use over plain HTTP before connections
+    // asked, so it keeps working, like a saved connection from then.
+    test('keeps a plain HTTP connection working', () async {
+      PreferencesStore.debugOverride(
+        InMemoryKeyValueStore(<String, Object?>{
+          PreferenceKeys.hermesEnabled: true,
+          PreferenceKeys.hermesBaseUrl: 'http://192.168.1.20:8642/v1',
+          PreferenceKeys.hermesLocalDocumentTrustPrincipal: _legacyPrincipal,
+        }),
+      );
+      final secrets = _Secrets(legacySecrets());
+      final container = await _ready(secrets);
+      addTearDown(container.dispose);
+
+      const origin = 'http://192.168.1.20:8642';
+      check(
+        container.read(hermesConfigProvider).plainHttpConsentOrigin,
+      ).equals(origin);
+      check(
+        HermesConnectionStore.readDocument()!
+            .connections
+            .single
+            .plainHttpConsentOrigin,
+      ).equals(origin);
+      final restarted = await _ready(secrets);
+      addTearDown(restarted.dispose);
+      check(
+        restarted.read(hermesConfigProvider),
+      ).has((config) => config.mayUsePlainHttp, 'mayUsePlainHttp').isTrue();
+    });
+
     test('keeps a server URL longer than a new one may be', () async {
       final longUrl = 'https://legacy.example/${'a' * 2100}';
       PreferencesStore.debugOverride(
@@ -955,6 +986,169 @@ void main() {
     });
   });
 
+  group('plain HTTP', () {
+    const lan = 'http://192.168.1.20:8642/v1';
+    const origin = 'http://192.168.1.20:8642';
+
+    test('only plain HTTP to another device needs consent', () {
+      check(HermesConfig.plainHttpOrigin(lan)).equals(origin);
+      check(
+        HermesConfig.plainHttpOrigin('http://hermes.lan/v1'),
+      ).equals('http://hermes.lan:80');
+      // Mapped, an address elsewhere is still elsewhere.
+      check(
+        HermesConfig.plainHttpOrigin('http://[::ffff:10.0.0.1]:8642'),
+      ).isNotNull();
+      for (final unasked in [
+        'http://localhost:8642',
+        'http://127.0.0.1:8642',
+        'http://127.1.2.3',
+        'http://[::1]:8642',
+        'http://[::ffff:127.0.0.1]:8642',
+        'https://192.168.1.20:8642',
+        'not a url',
+      ]) {
+        check(because: unasked, HermesConfig.plainHttpOrigin(unasked)).isNull();
+      }
+      check(
+        const HermesConfig(baseUrl: lan, plainHttpConsentOrigin: origin),
+      ).has((config) => config.mayUsePlainHttp, 'mayUsePlainHttp').isTrue();
+      check(
+        const HermesConfig(baseUrl: 'http://192.168.1.21:8642/v1').copyWith(
+          plainHttpConsentOrigin: origin,
+        ),
+      ).has((config) => config.mayUsePlainHttp, 'mayUsePlainHttp').isFalse();
+    });
+
+    // Connections were in use over plain HTTP before any asked: stopping
+    // them now would break what the user set up.
+    test('a connection saved before connections asked keeps working', () {
+      final legacy = HermesConnectionProfile.fromJson({
+        'id': _a,
+        'name': 'Home',
+        'base_url': lan,
+        'document_trust_principal_id': _legacyPrincipal,
+      })!;
+      check(legacy.plainHttpConsentOrigin).equals(origin);
+      check(
+        HermesConnectionProfile.fromJson(
+          legacy.toJson(),
+        )!.plainHttpConsentOrigin,
+      ).equals(origin);
+      // Saved since, a row says whether it has consent.
+      check(
+        HermesConnectionProfile.fromJson({
+          ...legacy.toJson(),
+          'plain_http_consent_origin': null,
+        })!.plainHttpConsentOrigin,
+      ).isNull();
+    });
+
+    test('an unencrypted server is saved only with consent for it', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+
+      await check(
+        controller.createConnection(baseUrl: lan, apiKey: 'lan-key'),
+      ).throws<HermesPlainHttpConsentRequired>();
+      check(container.read(hermesConnectionsProvider)).length.equals(1);
+
+      final id = await controller.createConnection(
+        baseUrl: lan,
+        apiKey: 'lan-key',
+        plainHttpConsentOrigin: origin,
+      );
+      HermesConnectionProfile saved() => container
+          .read(hermesConnectionsProvider)
+          .singleWhere((profile) => profile.id == id);
+      check(saved().plainHttpConsentOrigin).equals(origin);
+      check(
+        (await controller.savedConnectionConfig(id)).plainHttpConsentOrigin,
+      ).equals(origin);
+
+      // Another path on that server keeps it; another host asks again.
+      await controller.saveConnection(
+        connectionId: id,
+        baseUrl: '$origin/custom/v1',
+      );
+      check(saved().plainHttpConsentOrigin).equals(origin);
+      await check(
+        controller.saveConnection(
+          connectionId: id,
+          baseUrl: 'http://192.168.1.21:8642/v1',
+          apiKeyChanged: true,
+          apiKey: 'lan-key',
+        ),
+      ).throws<HermesPlainHttpConsentRequired>();
+      check(saved().baseUrl).equals('$origin/custom/v1');
+
+      // Encrypted, or on this device, a connection needs none.
+      await controller.saveConnection(
+        connectionId: id,
+        baseUrl: 'https://alpha-two.example',
+        apiKeyChanged: true,
+        apiKey: 'lan-key',
+      );
+      check(saved().plainHttpConsentOrigin).isNull();
+      await controller.saveConnection(
+        connectionId: id,
+        baseUrl: 'http://127.0.0.1:8642/v1',
+        apiKeyChanged: true,
+        apiKey: 'lan-key',
+      );
+      check(saved().plainHttpConsentOrigin).isNull();
+    });
+
+    // Saves never store one, but a connection that reached storage another
+    // way must not send its status, access headers and all, unasked.
+    test('an active connection without consent gets no client', () async {
+      _seedConnections([_profile(_a, 'Lab', lan)], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'lan-key'}),
+      );
+      addTearDown(container.dispose);
+      check(container.read(hermesConfigProvider).isUsable).isTrue();
+
+      check(container.read(hermesApiServiceProvider)).isNull();
+      check(await container.read(hermesServerStatusProvider.future)).isEmpty();
+
+      await container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(
+            connectionId: _a,
+            baseUrl: lan,
+            plainHttpConsentOrigin: origin,
+          );
+      check(container.read(hermesApiServiceProvider)).isNotNull();
+    });
+
+    test('a draft is not probed unencrypted without consent', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final gateway = container.read(hermesConnectionGatewayProvider);
+
+      await check(
+        gateway.probe(const HermesConfig(baseUrl: lan, apiKey: 'lan-key')),
+      ).throws<HermesPlainHttpConsentRequired>();
+      check(
+        await gateway.suggestDisplayName(
+          const HermesConfig(baseUrl: lan, apiKey: 'lan-key'),
+        ),
+      ).isNull();
+    });
+  });
+
   group('inactive connections', () {
     test('are created and edited without touching the runtime', () async {
       _seedConnections([
@@ -1011,6 +1205,92 @@ void main() {
       check(container.read(hermesConnectionGenerationProvider))
           .equals(generation);
       check(HermesConnectionStore.readActiveId()).equals(_a);
+    });
+
+    // Copies saved under an edited connection's old address were left
+    // behind, unreachable, and still pushed live copies out of the store.
+    test('an address change drops copies saved under the old one', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        }),
+        database: database,
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final alphaIdentity = _identityFor(_a, 'https://alpha.example');
+      final betaIdentity = _identityFor(_b, 'https://beta.example');
+      for (final identity in [alphaIdentity, betaIdentity]) {
+        await _saveCopy(container, identity);
+      }
+
+      // A rename keeps the address and principal, and with them the copy.
+      await controller.saveConnection(
+        connectionId: _b,
+        baseUrl: 'https://beta.example',
+        name: 'Renamed',
+      );
+      check(await _hasCopy(container, betaIdentity)).isTrue();
+
+      await controller.saveConnection(
+        connectionId: _b,
+        baseUrl: 'https://gamma.example',
+        apiKeyChanged: true,
+        apiKey: 'gamma-key',
+      );
+
+      check(await _hasCopy(container, betaIdentity)).isFalse();
+      check(await _hasCopy(container, alphaIdentity)).isTrue();
+      // An open that began before the edit saves nothing back.
+      await _saveCopy(container, betaIdentity);
+      check(await _hasCopy(container, betaIdentity)).isFalse();
+    });
+
+    test('an address change that is undone keeps its copies', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        }),
+        // The old address's dashboard sign-in stays, so the edit is undone.
+        cookies: _RecordingCookieJar(clears: false),
+        database: database,
+      );
+      addTearDown(container.dispose);
+      final betaIdentity = _identityFor(_b, 'https://beta.example');
+      await _saveCopy(container, betaIdentity);
+
+      await check(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              connectionId: _b,
+              baseUrl: 'https://gamma.example',
+              apiKeyChanged: true,
+              apiKey: 'gamma-key',
+            ),
+      ).throws<StateError>();
+
+      check(
+        container
+            .read(hermesConnectionsProvider)
+            .singleWhere((profile) => profile.id == _b)
+            .baseUrl,
+      ).equals('https://beta.example');
+      check(await _hasCopy(container, betaIdentity)).isTrue();
     });
 
     test('a stale client cannot undo a token rotation', () async {
@@ -1686,6 +1966,23 @@ String _identityFor(String id, String baseUrl) =>
       endpointIdentity: HermesConfig.connectionEndpoint(baseUrl)!,
       principalId: _principalFor(id),
     );
+
+Future<void> _saveCopy(ProviderContainer container, String identity) =>
+    container
+        .read(hermesCopiedHistoryStoreProvider)
+        .save(
+          connectionIdentity: identity,
+          sessionId: 'copy',
+          messages: const [
+            <String, dynamic>{'role': 'user', 'content': 'Tide tables'},
+          ],
+        );
+
+Future<bool> _hasCopy(ProviderContainer container, String identity) async =>
+    await container
+        .read(hermesCopiedHistoryStoreProvider)
+        .load(connectionIdentity: identity, sessionId: 'copy') !=
+    null;
 
 const _envelope = '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_1>>>notes';
 

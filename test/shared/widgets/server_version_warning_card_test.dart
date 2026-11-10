@@ -79,7 +79,7 @@ void main() {
       check(
         find.byKey(const ValueKey('server-version-warning-card')).evaluate(),
       ).length.equals(1);
-      check(find.text('Server not supported').evaluate()).length.equals(1);
+      check(find.text('Server Not Supported').evaluate()).length.equals(1);
       check(find.textContaining('0.13.3').evaluate()).length.equals(1);
       check(find.textContaining('0.13.2').evaluate()).length.equals(1);
     });
@@ -93,7 +93,7 @@ void main() {
       );
       await tester.pump();
 
-      final title = tester.widget<Text>(find.text('Server not supported'));
+      final title = tester.widget<Text>(find.text('Server Not Supported'));
       final message = tester.widget<Text>(find.textContaining('0.13.3'));
       check(title.style?.decoration).equals(TextDecoration.none);
       check(message.style?.decoration).equals(TextDecoration.none);
@@ -185,7 +185,7 @@ void main() {
       );
       await tester.pump();
 
-      check(find.text('Server not supported').evaluate()).isEmpty();
+      check(find.text('Server Not Supported').evaluate()).isEmpty();
     });
 
     testWidgets('hides the warning for a stale server config', (tester) async {
@@ -197,7 +197,7 @@ void main() {
       );
       await tester.pump();
 
-      check(find.text('Server not supported').evaluate()).isEmpty();
+      check(find.text('Server Not Supported').evaluate()).isEmpty();
     });
 
     testWidgets('hides the warning before authentication completes', (
@@ -211,7 +211,7 @@ void main() {
       );
       await tester.pump();
 
-      check(find.text('Server not supported').evaluate()).isEmpty();
+      check(find.text('Server Not Supported').evaluate()).isEmpty();
     });
 
     testWidgets('close button hides the card and persists the token', (

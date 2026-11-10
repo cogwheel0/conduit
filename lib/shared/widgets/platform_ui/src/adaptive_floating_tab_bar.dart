@@ -84,8 +84,8 @@ class AdaptiveFloatingTab {
     required this.nativeAsset,
   });
 
-  /// Read by screen readers, as the value of the iOS 26 tab bar, whose tabs
-  /// show only their icons, and shown as the Material tooltip.
+  /// The tab's name: what screen readers read for it, on the iOS 26 tab bar
+  /// too, whose tabs show only their icons, and the Material tooltip.
   final String label;
 
   /// Drawn by Flutter, tinted through the ambient [IconTheme].
@@ -123,9 +123,8 @@ class AdaptiveFloatingBarAction {
 /// as tall, on an iPad; it keeps that size at every text size. Like the
 /// Flutter-drawn bar, both sit on the bottom safe area, or
 /// [minimumBottomInset] above the bottom of the window when that is less.
-/// Screen readers find the tabs as one adjustable control, named
-/// [tabsSemanticLabel], whose value is the selected tab's label. The action
-/// is a button of its own, so it never takes the selection. Elsewhere the
+/// Screen readers read each tab by its label, and the action as a button of
+/// its own, so it never takes the selection. Elsewhere the
 /// tabs are a Material navigation bar in a pill beside a floating action
 /// button of [controlExtent]. Fewer than two [tabs] leave only the action.
 class AdaptiveFloatingTabBar extends StatelessWidget {
@@ -144,7 +143,6 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
     this.borderColor,
     this.tabsKey,
     this.actionKey,
-    this.tabsSemanticLabel,
     this.controlExtent = kAdaptiveFloatingBarDefaultExtent,
     this.edgeInset = 16,
     this.minimumBottomInset = 16,
@@ -182,10 +180,6 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
   /// Keys for the tabs and the action.
   final Key? tabsKey;
   final Key? actionKey;
-
-  /// Name screen readers give the iOS 26 tab bar, before the selected tab's
-  /// label, such as "Backend".
-  final String? tabsSemanticLabel;
 
   /// Height of the Flutter-drawn tabs and the action's diameter: the size of
   /// the window's other toolbar buttons, so the bar matches them. The iOS 26
@@ -504,41 +498,30 @@ extension on _NativeFloatingTabBarState {
               offset: Offset(rtl ? -start : start, math.max(0, -lift)),
               child: SizedBox(
                 width: width,
-                child: _semantics(
-                  _SizeObserver(
-                    // A tab bar given its height reports only that height.
-                    onSize: height == null ? _onTabBarSize : null,
-                    // A tab bar measures itself only when it is created: one
-                    // that stops being given a height, or whose window lays it
-                    // out anew, is created again.
-                    child: KeyedSubtree(
-                      key: ValueKey<(double?, _NativeTabBarLayout)>((
-                        height,
-                        layout,
-                      )),
-                      child: CNTabBar(
-                        key: bar.tabsKey,
-                        items: [
-                          for (final tab in bar.tabs)
-                            CNTabBarItem(
-                              imageAsset: CNImageAsset(tab.nativeAsset),
-                              // The name of a tab that shows only its icon.
-                              // The package sets it on the tab bar item, which
-                              // the iOS 27.2 tab buttons do not read, so
-                              // [_semantics] names the tabs meanwhile.
-                              semanticLabel: tab.label,
-                            ),
-                        ],
-                        currentIndex: bar.selectedIndex,
-                        onTap: bar.onTap,
-                        tint: bar.selectedItemColor,
-                        shrinkCentered: false,
-                        iconSize: height == null
-                            ? _kTabIconSize
-                            : _kCompactTabIconSize,
-                        height: height,
-                      ),
-                    ),
+                child: _SizeObserver(
+                  // A tab bar given its height reports only that height. One
+                  // that stops being given it, as when the window lays it out
+                  // inline, measures itself again.
+                  onSize: height == null ? _onTabBarSize : null,
+                  child: CNTabBar(
+                    key: bar.tabsKey,
+                    items: [
+                      for (final tab in bar.tabs)
+                        CNTabBarItem(
+                          imageAsset: CNImageAsset(tab.nativeAsset),
+                          // The name screen readers give a tab that shows
+                          // only its icon.
+                          semanticLabel: tab.label,
+                        ),
+                    ],
+                    currentIndex: bar.selectedIndex,
+                    onTap: bar.onTap,
+                    tint: bar.selectedItemColor,
+                    shrinkCentered: false,
+                    iconSize: height == null
+                        ? _kTabIconSize
+                        : _kCompactTabIconSize,
+                    height: height,
                   ),
                 ),
               ),
@@ -546,27 +529,6 @@ extension on _NativeFloatingTabBarState {
           ),
         );
       },
-    );
-  }
-
-  /// The tabs as one adjustable control: the native tabs, which show only
-  /// their icons, have no names for screen readers. Adjusting it chooses a
-  /// tab as a tap does.
-  Widget _semantics(Widget tabBar) {
-    final bar = widget.bar;
-    final tabs = bar.tabs;
-    final index = bar.selectedIndex.clamp(0, tabs.length - 1);
-    final next = index + 1 < tabs.length ? index + 1 : null;
-    final previous = index > 0 ? index - 1 : null;
-    return Semantics(
-      container: true,
-      label: bar.tabsSemanticLabel,
-      value: tabs[index].label,
-      increasedValue: next == null ? null : tabs[next].label,
-      decreasedValue: previous == null ? null : tabs[previous].label,
-      onIncrease: next == null ? null : () => bar.onTap(next),
-      onDecrease: previous == null ? null : () => bar.onTap(previous),
-      child: ExcludeSemantics(child: tabBar),
     );
   }
 }

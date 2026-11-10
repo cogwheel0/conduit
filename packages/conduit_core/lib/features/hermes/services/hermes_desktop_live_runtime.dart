@@ -108,6 +108,15 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       if (event.type == 'connection.update') {
         _administration.openApprovedConnectionLink(event.payload);
       }
+      // The agent's task list: a full snapshot either way.
+      if (event.type == 'todo.updated' ||
+          (event.type == 'tool.complete' && event.payload['todos'] is List)) {
+        _adoptTodoState(event.sessionId, event.payload);
+      }
+      if (event.type == 'session.info') {
+        _adoptWorkingDirectory(event.sessionId, event.payload['cwd']);
+      }
+      _observeBackgroundWorkEvent(event);
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
           event.type == 'clarify.expire' ||
@@ -302,6 +311,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final running = result['running'] ?? info['running'];
     _recordDesktopContract(info);
     final binding = HermesSessionBinding(storedId: stored, runtimeId: runtime);
+    _adoptWorkingDirectory(stored, info['cwd']);
     final profile = _sessionProfiles[storedId];
     if (profile != null) _sessionProfiles[stored] = profile;
     _bindings[storedId] = binding;
@@ -331,10 +341,15 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       await _settleUnlistedCanonicalDecisions(
         binding,
         result['prompts'],
+        openRequests: result['open_requests'],
         settledSince: settleMark,
       );
     }
-    _rpc.replayOpenRequests(result['open_requests']);
+    _adoptTodoState(stored, result['todo_state']);
+    _rpc.replayOpenRequests(
+      result['open_requests'],
+      settledSince: settleMark,
+    );
     _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
   }
@@ -439,8 +454,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
     _bindingSocketGenerations[stored] = _rpc.socketGeneration;
     _appliedSessionOptions[stored] = normalized.fingerprint;
+    _recordAppliedModel(stored, selection);
     final info = _object(result['info']);
     _recordDesktopContract(info);
+    _adoptWorkingDirectory(stored, info['cwd']);
     if (_canonical) _adoptCanonicalSnapshot(runtime, result);
     final running = result['running'] ?? info['running'];
     if (running is bool) {
@@ -475,9 +492,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       error.status == 503 &&
       (error.detail?.startsWith('Session store is not initialized') ?? false);
 
+  /// [current] reads what Hermes stores now; otherwise a read shorter than
+  /// the last one gives way to it (a read can miss rows a turn is still
+  /// writing).
   Future<List<Map<String, dynamic>>> _runtimeGetSessionMessages(
     String id, {
     CancelToken? cancelToken,
+    bool current = false,
   }) async {
     // Hermes persists session.create lazily; resume fails until the first prompt.
     if (_freshSessionIds.contains(id) &&
@@ -520,13 +541,20 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     Future<List<Map<String, dynamic>>> load() async {
       if (isBotChat && runtimeId != null) {
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
-        final messages = _objects(
-          await _rpc.request<Object?>(
-            'session.history',
-            params: {'session_id': runtimeId, ..._sessionScope(storedId)},
-          ),
-          'messages',
+        final history = await _rpc.request<Object?>(
+          'session.history',
+          params: {'session_id': runtimeId, ..._sessionScope(storedId)},
         );
+        final rows = history is Map ? history['messages'] : null;
+        // A read for changing the history must hold every row, as the
+        // paged read does.
+        if (current && rows is List && rows.length > 10000) {
+          throw StateError(
+            'This Hermes chat is too long to change from here: it has more '
+            'than 10000 messages.',
+          );
+        }
+        final messages = _objects(history, 'messages');
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
         return messages;
       }
@@ -546,6 +574,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           ),
           'messages',
         ),
+        complete: current,
       );
     }
 
@@ -562,10 +591,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // A failed resume left the connection state at "synchronizing"; the
     // transcript is loaded, and no turn is known to be running.
     if (binding == null) _emitTurnState(HermesDesktopTurnState.idle);
-    final usable = preferLastUsableHermesTranscript(
-      _lastTranscripts[id] ?? const [],
-      messages,
-    );
+    final usable = current
+        ? messages
+        : preferLastUsableHermesTranscript(
+            _lastTranscripts[id] ?? const [],
+            messages,
+          );
     _lastTranscripts[id] = usable;
     return usable;
   }
@@ -674,6 +705,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _lastTranscripts.remove(id);
     _sessionProfiles.remove(id);
     _canonicalSessions.remove(id);
+    _forgetWorkingDirectory([binding?.storedId, binding?.runtimeId, id]);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
       connectionId: config.connectionId,
@@ -681,13 +713,93 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
   }
 
-  /// Deletes a stored session over REST. Hermes 0.22.3+ fences session
-  /// edits: the delete must name the revision and generation its
-  /// `mutation-snapshot` reports, under a request id a retry can repeat, or
-  /// it is refused with 409 `client_upgrade_required`. An older dashboard
-  /// has no snapshot route (404) and takes the plain delete.
+  /// Deletes a stored session over REST, fenced (see [_fencedSessionWrite]).
   Future<void> _deleteStoredSession(
     String storedId, {
+    CancelToken? cancelToken,
+  }) => _fencedSessionWrite(storedId, 'DELETE', cancelToken: cancelToken);
+
+  /// Sets a stored session's sidebar flags over REST, fenced like a delete.
+  /// The dashboard reads a PATCH's fences and profile from its body.
+  Future<void> _runtimeSetSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final flags = <String, Object?>{
+      'pinned': ?pinned,
+      'archived': ?archived,
+      'hidden': ?hidden,
+    };
+    if (flags.isEmpty) return;
+    await _fencedSessionWrite(
+      _bindings[id]?.storedId ?? id,
+      'PATCH',
+      body: flags,
+    );
+  }
+
+  /// Archived chats, newest first, page by page: archiving is how older
+  /// chats are tidied away, so they can be many more than one page.
+  Future<List<Map<String, dynamic>>> _runtimeListArchivedSessions() async {
+    const pageSize = 100;
+    // Paged until a short page: every archived chat can be reached. The
+    // bound only stops a server that never ends a listing.
+    const maxPages = 200;
+    final sessions = <Map<String, dynamic>>[];
+    for (var page = 0; page < maxPages; page++) {
+      final List<Map<String, dynamic>> rows;
+      try {
+        rows = _objects(
+          await _requestJson(
+            'GET',
+            '/api/sessions',
+            query: {
+              'limit': pageSize,
+              'offset': page * pageSize,
+              'order': 'recent',
+              'archived': 'only',
+            },
+            readErrorDetail: true,
+          ),
+          'sessions',
+        );
+      } on HermesDesktopHttpException catch (error) {
+        if (_hermesSessionStoreNotInitialized(error)) return sessions;
+        rethrow;
+      }
+      sessions.addAll(rows.take(pageSize));
+      if (rows.length < pageSize) break;
+    }
+    return sessions;
+  }
+
+  Future<Map<String, dynamic>?> _runtimeGetSession(String id) async {
+    final storedId = _bindings[id]?.storedId ?? id;
+    try {
+      final data = await _requestJson(
+        'GET',
+        '/api/sessions/${Uri.encodeComponent(storedId)}',
+        query: _sessionScope(storedId),
+      );
+      return data is Map ? Map<String, dynamic>.from(data) : null;
+    } catch (error) {
+      if (_hermesDesktopHttpStatus(error) == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// A session edit over REST ([method] `DELETE` or `PATCH` with [body]).
+  /// Hermes 0.22.3+ fences session edits: the edit must name the revision
+  /// and generation its `mutation-snapshot` reports, under a request id a
+  /// retry can repeat, or it is refused with 409 `client_upgrade_required`.
+  /// An older dashboard has no snapshot route (404) and takes the plain
+  /// edit. A session that no longer exists has nothing to edit.
+  Future<void> _fencedSessionWrite(
+    String storedId,
+    String method, {
+    Map<String, Object?>? body,
     CancelToken? cancelToken,
   }) async {
     final path = '/api/sessions/${Uri.encodeComponent(storedId)}';
@@ -708,17 +820,27 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (snapshot != null && snapshot['exists'] == false) return;
     final revision = snapshot?['runtime_revision'];
     final generation = snapshot?['runtime_generation'];
-    await _requestJson(
-      'DELETE',
-      path,
-      query: {
-        ...scope,
-        if (snapshot != null) ...{
-          'request_id': const Uuid().v4(),
-          if (revision is int) 'expected_revision': revision,
-          if (generation is int) 'expected_generation': generation,
-        },
+    final fences = <String, Object?>{
+      if (snapshot != null) ...{
+        'request_id': const Uuid().v4(),
+        if (revision is int) 'expected_revision': revision,
+        if (generation is int) 'expected_generation': generation,
       },
+    };
+    if (body == null) {
+      await _requestJson(
+        method,
+        path,
+        query: {...scope, ...fences},
+        cancelToken: cancelToken,
+      );
+      return;
+    }
+    await _requestJson(
+      method,
+      path,
+      query: scope,
+      body: {...body, ...scope, ...fences},
       cancelToken: cancelToken,
     );
   }
@@ -727,13 +849,22 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       left == right ||
       (_bindings[left] != null && identical(_bindings[left], _bindings[right]));
 
-  Future<String> _runtimeForkSession(String id) async {
+  /// Branches session [id]: all of it, or, from a message, the legacy
+  /// wire's first [count] user and assistant rows with text, or a session
+  /// authority's rows through [throughRowId].
+  Future<String> _runtimeForkSession(
+    String id, {
+    int? count,
+    int? throughRowId,
+  }) async {
     final binding = await _resume(id);
     final Map<String, dynamic> result;
     if (_canonical) {
       // A session authority branches as an edit of the parent, and attaches
       // the branch to this socket; its id names it on both sides.
-      final receipt = await _canonicalMutate(binding, 'branch', const {});
+      final receipt = await _canonicalMutate(binding, 'branch', {
+        'through_message_id': ?throughRowId,
+      });
       final branch = receipt['branched_session_id'];
       result = {'session_id': branch, 'stored_session_id': branch};
     } else {
@@ -742,6 +873,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           'session.branch',
           params: {
             'session_id': binding.runtimeId,
+            'count': ?count,
             ..._sessionScope(binding.storedId),
           },
         ),
@@ -765,5 +897,148 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // socket's subscription come from its own snapshot.
     if (_canonical) await _resumeSnapshot(stored, refresh: true);
     return stored;
+  }
+
+  /// Drops session [id]'s last user turn and everything after it. False
+  /// when there was no turn to drop.
+  /// [binding]'s fences as the session is now. With [lastRowId], the
+  /// transcript is read after them and must still end at that row: a turn
+  /// stored since then throws, and one stored after the read moves the
+  /// fences, which refuses an edit sent at them.
+  Future<({int revision, int generation})> _canonicalFencesThrough(
+    HermesSessionBinding binding, {
+    int? lastRowId,
+  }) async {
+    final fences = await _canonicalFences(binding, refresh: true);
+    final revision = fences.revision;
+    final generation = fences.generation;
+    if (revision == null || generation == null) {
+      throw StateError('Hermes did not report the chat\'s state.');
+    }
+    if (lastRowId != null) {
+      final transcript = await _runtimeGetSessionMessages(
+        binding.storedId,
+        current: true,
+      );
+      _lastTranscripts.remove(binding.storedId);
+      int? last;
+      for (final row in transcript.reversed) {
+        last = hermesTranscriptRowId(row);
+        if (last != null) break;
+      }
+      if (last != lastRowId) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+    }
+    return (revision: revision, generation: generation);
+  }
+
+  /// The row id of the last turn a user started in session [storedId], as
+  /// the session stores it now.
+  Future<int?> _lastUserRowId(String storedId) async {
+    final transcript = await _runtimeGetSessionMessages(
+      storedId,
+      current: true,
+    );
+    _lastTranscripts.remove(storedId);
+    for (final row in transcript.reversed) {
+      if (hermesTranscriptUserContent(row) != null) {
+        return hermesTranscriptRowId(row);
+      }
+    }
+    return null;
+  }
+
+  Future<bool> _runtimeUndoLastTurn(String id, {int? rowId}) async {
+    final binding = await _resume(id);
+    _lastTranscripts
+      ..remove(id)
+      ..remove(binding.storedId);
+    if (!_canonical) {
+      // The legacy undo names no turn: it drops whichever user turn is last
+      // when it runs, in a session every client attached to it shares.
+      // [rowId] must still be that turn just before the undo is sent, and
+      // gone after it: a turn stored in between was dropped instead.
+      if (rowId != null && await _lastUserRowId(binding.storedId) != rowId) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+      final result = _object(
+        await _rpc.request<Object?>(
+          'session.undo',
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
+        ),
+      );
+      final removed = result['removed'];
+      if (removed is! int || removed <= 0) return false;
+      if (rowId == null) return true;
+      final List<Map<String, dynamic>> after;
+      try {
+        after = await _runtimeGetSessionMessages(
+          binding.storedId,
+          current: true,
+        );
+      } catch (_) {
+        // Most likely the checked turn went. Reported as not undone, it
+        // would be undone again, and the turn before it dropped too.
+        return true;
+      } finally {
+        _lastTranscripts.remove(binding.storedId);
+      }
+      if (after.any((row) => hermesTranscriptRowId(row) == rowId)) {
+        throw StateError('Hermes undid a turn sent after the checked one.');
+      }
+      return true;
+    }
+    // A session authority has no undo: it rewinds to [rowId], else to the
+    // last turn a user started, a row of their own (not a marker Hermes
+    // added). The rewind is fenced at the session as it is now, and the
+    // transcript is read after the fences: a turn added since refuses it
+    // rather than being rewound too.
+    final fences = await _canonicalFences(binding, refresh: true);
+    final revision = fences.revision;
+    final generation = fences.generation;
+    if (revision == null || generation == null) {
+      throw StateError('Hermes did not report the chat\'s state.');
+    }
+    final transcript = await _runtimeGetSessionMessages(
+      binding.storedId,
+      current: true,
+    );
+    _lastTranscripts.remove(binding.storedId);
+    int? target = rowId;
+    if (target != null) {
+      // [rowId] was chosen from an earlier read: gone since, or followed by
+      // a user turn stored since, it is no longer the turn to undo.
+      final index = transcript.indexWhere(
+        (row) => hermesTranscriptRowId(row) == target,
+      );
+      if (index < 0 ||
+          transcript
+              .skip(index + 1)
+              .any((row) => hermesTranscriptUserContent(row) != null)) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+    } else {
+      for (final row in transcript.reversed) {
+        final kind = row['display_kind'];
+        if ((kind == null || kind == '' || kind == 'steer') &&
+            hermesTranscriptUserContent(row) != null) {
+          target = hermesTranscriptRowId(row);
+          if (target != null) break;
+        }
+      }
+    }
+    if (target == null) return false;
+    final receipt = await _canonicalMutate(
+      binding,
+      'rewind',
+      {'target_message_id': target},
+      pinned: (revision: revision, generation: generation),
+    );
+    final rewound = receipt['rewound_count'];
+    return rewound is! int || rewound > 0;
   }
 }

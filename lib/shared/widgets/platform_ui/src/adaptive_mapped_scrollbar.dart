@@ -15,6 +15,7 @@ class AdaptiveMappedScrollbar extends StatefulWidget {
     required this.onDragStart,
     required this.onDragEnd,
     required this.child,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
     super.key,
   });
 
@@ -24,6 +25,10 @@ class AdaptiveMappedScrollbar extends StatefulWidget {
   final VoidCallback onDragStart;
   final VoidCallback onDragEnd;
   final Widget child;
+
+  /// Which mapped notifications show the native scrollbar, as on
+  /// [RawScrollbar.notificationPredicate].
+  final ScrollNotificationPredicate notificationPredicate;
 
   @override
   State<AdaptiveMappedScrollbar> createState() =>
@@ -172,8 +177,17 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
       },
     );
     return PlatformInfo.isIOS
-        ? CupertinoScrollbar(controller: _controller, child: content)
-        : Scrollbar(controller: _controller, interactive: true, child: content);
+        ? CupertinoScrollbar(
+            controller: _controller,
+            notificationPredicate: widget.notificationPredicate,
+            child: content,
+          )
+        : Scrollbar(
+            controller: _controller,
+            interactive: true,
+            notificationPredicate: widget.notificationPredicate,
+            child: content,
+          );
   }
 
   @override

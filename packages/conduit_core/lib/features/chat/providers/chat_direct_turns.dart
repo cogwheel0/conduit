@@ -888,6 +888,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     )[route.model.id],
   );
   final compactionThreshold = contextLength * 70 ~/ 100;
+  final maxImagesPerRequest = effectiveDirectMaxImagesPerRequest(
+    adapterKey: route.binding.adapterKey,
+    configured: ref.read(directMaxImagesPerRequestProvider),
+  );
   final requiresReplayVerificationKey = requestMessages.any(
     (message) =>
         (message.files ?? const <Map<String, dynamic>>[]).any(
@@ -924,6 +928,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         directDocumentVerificationKey: verificationKey,
         openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
         ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+        maxImages: maxImagesPerRequest,
       );
     },
   );
@@ -990,6 +995,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           directDocumentVerificationKey: verificationKey,
           openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
           ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+          maxImages: maxImagesPerRequest,
         ),
       );
       summary = await _awaitDirectPreflightOrCancellation(
@@ -1073,6 +1079,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           directDocumentVerificationKey: verificationKey,
           openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
           ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+          maxImages: maxImagesPerRequest,
         ),
       );
       directMessages = fitDirectContextMessages(

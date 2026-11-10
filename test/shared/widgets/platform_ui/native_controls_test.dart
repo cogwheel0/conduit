@@ -66,7 +66,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         final tooltip = find.byWidgetPredicate(
           (widget) =>
-              widget is AdaptiveTooltip && widget.message == 'Add from catalog',
+              widget is AdaptiveTooltip && widget.message == 'Add from Catalog',
         );
         expect(tooltip, findsOneWidget);
         expect(
@@ -80,7 +80,7 @@ void main() {
             final node = tester.getSemantics(
               find.byType(ConduitAdaptiveAppBarIconButton),
             );
-            expect(node.label, 'Add from catalog');
+            expect(node.label, 'Add from Catalog');
             expect(node.tooltip, isEmpty);
           } finally {
             semantics.dispose();
@@ -90,7 +90,7 @@ void main() {
         await mouse.addPointer();
         await mouse.moveTo(tester.getCenter(tooltip));
         await tester.pump(const Duration(milliseconds: 600));
-        expect(find.text('Add from catalog'), findsOneWidget);
+        expect(find.text('Add from Catalog'), findsOneWidget);
         await mouse.removePointer();
         await tester.pumpAndSettle();
       },
@@ -106,13 +106,13 @@ void main() {
           ConduitAdaptiveAppBarIconButton(
             icon: Icons.auto_awesome_outlined,
             iosSymbol: 'sparkles',
-            semanticLabel: 'Add from catalog',
+            semanticLabel: 'Add from Catalog',
             onPressed: enabled ? () {} : null,
           ),
         ),
       );
       final button = tester.widget<CNButton>(find.byType(CNButton));
-      expect(button.semanticLabel, 'Add from catalog');
+      expect(button.semanticLabel, 'Add from Catalog');
       expect(button.enabled, enabled);
       expect(
         find.ancestor(
@@ -120,7 +120,7 @@ void main() {
           matching: find.byWidgetPredicate(
             (widget) =>
                 widget is Semantics &&
-                widget.properties.label == 'Add from catalog',
+                widget.properties.label == 'Add from Catalog',
           ),
         ),
         findsNothing,
@@ -267,6 +267,225 @@ void main() {
     }
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  testWidgets('an iOS 26 slider reports only a touch that changes its value', (
+    tester,
+  ) async {
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.3,
+            onChangeStart: (value) => reports.add('start:$value'),
+            onChanged: (value) => reports.add('change:$value'),
+            onChangeEnd: (value) => reports.add('end:$value'),
+          ),
+        ),
+      ),
+    );
+    CNSlider slider() => tester.widget<CNSlider>(find.byType(CNSlider));
+    // UIKit reports the start and end of a touch that moved nothing.
+    slider().onChangeStart!(0.3);
+    slider().onChangeEnd!(0.3);
+    expect(reports, isEmpty);
+
+    slider().onChangeStart!(0.3);
+    slider().onChanged(0.6);
+    slider().onChanged(0.7);
+    slider().onChangeEnd!(0.7);
+    expect(reports, ['start:0.3', 'change:0.6', 'change:0.7', 'end:0.7']);
+
+    // VoiceOver adjusts it without a touch.
+    reports.clear();
+    slider().onChanged(0.8);
+    expect(reports, ['change:0.8']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  for (final native in [true, false]) {
+    for (final direction in TextDirection.values) {
+      testWidgets('a tap anywhere on an iOS slider that seeks on tap moves it '
+          'there, onto a step (native: $native, ${direction.name})', (
+        tester,
+      ) async {
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = native ? 27 : 18;
+        PlatformUiCapabilities.debugNativeIOS26Override = native;
+        final reports = <String>[];
+        await tester.pumpWidget(
+          host(
+            Directionality(
+              textDirection: direction,
+              child: SizedBox(
+                width: 300,
+                child: AdaptiveSlider(
+                  value: 0,
+                  max: 10,
+                  divisions: 10,
+                  seekOnTap: true,
+                  onChangeStart: (value) => reports.add('start:$value'),
+                  onChanged: (value) => reports.add('change:$value'),
+                  onChangeEnd: (value) => reports.add('end:$value'),
+                ),
+              ),
+            ),
+          ),
+        );
+        // Far from the thumb, at the start, where a Cupertino slider would
+        // not answer and UIKit's would only follow a drag.
+        final track = tester.getRect(find.byType(AdaptiveSlider));
+        final along = direction == TextDirection.ltr ? .68 : .32;
+        await tester.tapAt(
+          Offset(track.left + track.width * along, track.center.dy),
+        );
+        expect(reports, ['start:0.0', 'change:7.0', 'end:7.0']);
+      }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    }
+  }
+
+  testWidgets('before iOS 26 a tap on the thumb at the maximum stays there', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 1,
+            seekOnTap: true,
+            onChanged: (value) => reports.add('change:$value'),
+          ),
+        ),
+      ),
+    );
+    // The thumb's centre stays 22 points in from the end of the slider.
+    final track = tester.getRect(find.byType(AdaptiveSlider));
+    await tester.tapAt(Offset(track.right - 22, track.center.dy));
+    expect(reports, ['change:1.0']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  for (final endsFirst in [false, true]) {
+    testWidgets('a short drag the iOS 26 slider follows ends once, not also '
+        'as a tap (its end ${endsFirst ? 'before' : 'after'} the lift)', (
+      tester,
+    ) async {
+      final reports = <String>[];
+      await tester.pumpWidget(
+        host(
+          SizedBox(
+            width: 300,
+            child: AdaptiveSlider(
+              value: 0.3,
+              seekOnTap: true,
+              onChangeStart: (value) => reports.add('start:$value'),
+              onChanged: (value) => reports.add('change:$value'),
+              onChangeEnd: (value) => reports.add('end:$value'),
+            ),
+          ),
+        ),
+      );
+      CNSlider slider() => tester.widget<CNSlider>(find.byType(CNSlider));
+      final track = tester.getRect(find.byType(AdaptiveSlider));
+      // UIKit moves the value while the finger moves less than a tap's
+      // slop, and reports the touch's end on its own channel.
+      final finger = await tester.startGesture(track.center);
+      slider().onChangeStart!(0.3);
+      await finger.moveBy(const Offset(4, 0));
+      slider().onChanged(0.32);
+      if (endsFirst) slider().onChangeEnd!(0.32);
+      await finger.up();
+      if (!endsFirst) slider().onChangeEnd!(0.32);
+      expect(reports, ['start:0.3', 'change:0.32', 'end:0.32']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
+
+  testWidgets('before iOS 26 a press on the thumb that does not move ends '
+      'once, as a tap', (tester) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.5,
+            seekOnTap: true,
+            onChangeStart: (value) => reports.add('start:$value'),
+            onChanged: (value) => reports.add('change:$value'),
+            onChangeEnd: (value) => reports.add('end:$value'),
+          ),
+        ),
+      ),
+    );
+    // The Cupertino slider takes a press on its thumb as a drag at once,
+    // and ends it with the value it started from.
+    await tester.tapAt(tester.getCenter(find.byType(AdaptiveSlider)));
+    expect(reports, ['start:0.5', 'change:0.5', 'end:0.5']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('before iOS 26 a short mouse drag is the slider\'s, not also a '
+      'tap', (tester) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final changes = <double>[];
+    final ends = <double>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.5,
+            seekOnTap: true,
+            onChanged: changes.add,
+            onChangeEnd: ends.add,
+          ),
+        ),
+      ),
+    );
+    // A mouse drags sooner than a finger: well within a touch's slop.
+    final pointer = await tester.startGesture(
+      tester.getCenter(find.byType(AdaptiveSlider)),
+      kind: PointerDeviceKind.mouse,
+    );
+    await pointer.moveBy(const Offset(8, 0));
+    await tester.pump();
+    await pointer.up();
+    expect(changes, isNotEmpty);
+    expect(ends, [changes.last]);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('before iOS 26 a drag that comes back near its start is not '
+      'also a tap', (tester) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final ends = <double>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.5,
+            seekOnTap: true,
+            onChanged: (_) {},
+            onChangeEnd: ends.add,
+          ),
+        ),
+      ),
+    );
+    // From the thumb, halfway along, out and nearly back.
+    final track = tester.getRect(find.byType(AdaptiveSlider));
+    final finger = await tester.startGesture(track.center);
+    await finger.moveBy(const Offset(60, 0));
+    await tester.pump();
+    await finger.moveBy(const Offset(-55, 0));
+    await tester.pump();
+    await finger.up();
+    expect(ends, hasLength(1));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   for (final native in [true, false]) {
     testWidgets('segmented controls carry their field name (native: $native)', (
       tester,
@@ -334,7 +553,7 @@ void main() {
         .widget<InteractiveViewer>(find.byType(InteractiveViewer))
         .transformationController!;
     final initial = Matrix4.copy(controller.value);
-    expect(action('Zoom in').style, AdaptiveButtonStyle.glass);
+    expect(action('Zoom In').style, AdaptiveButtonStyle.glass);
     expect(
       tester
           .widget<AdaptiveTooltip>(
@@ -342,7 +561,7 @@ void main() {
               of: find.byWidgetPredicate(
                 (widget) =>
                     widget is AdaptiveButton &&
-                    widget.semanticLabel == 'Zoom in',
+                    widget.semanticLabel == 'Zoom In',
               ),
               matching: find.byType(AdaptiveTooltip),
             ),
@@ -350,13 +569,13 @@ void main() {
           .excludeFromSemantics,
       isTrue,
     );
-    action('Zoom in').onPressed!();
+    action('Zoom In').onPressed!();
     await tester.pump();
     expect(
       controller.value.getMaxScaleOnAxis(),
       greaterThan(initial.getMaxScaleOnAxis()),
     );
-    action('Reset diagram position').onPressed!();
+    action('Reset Diagram Position').onPressed!();
     await tester.pump();
     expect(controller.value.storage, orderedEquals(initial.storage));
     expect(

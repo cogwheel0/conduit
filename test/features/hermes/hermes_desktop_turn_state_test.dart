@@ -6,6 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -665,12 +666,11 @@ void main() {
         approvalId: 'req-1',
         choice: 'once',
       );
-      await service.respondToDecision(
+      await service.respondToClarifyForm(
         storedSessionId: 'stored-bot',
         runtimeId: 'runtime-bot',
-        requestId: 'srq-2/q0',
-        kind: HermesDecisionKind.clarification,
-        value: 'answer',
+        requestId: 'srq-2',
+        answers: const {'q0': 'answer', 'q1': null},
       );
       await service.reloadMcp(runtimeId: 'runtime-bot');
       // A skipped connection target goes straight to connection.respond,
@@ -697,7 +697,7 @@ void main() {
       // The transport injects the CONNECTION profile as a default, so any bot
       // frame that fails to name its own profile silently travels as 'default'.
       // Answers carry no session id but act on the bot's session too.
-      const answers = {'request.answer', 'clarify.lock', 'connection.respond'};
+      const answers = {'request.answer', 'connection.respond'};
       final botFrames = harness.sent
           .where(
             (frame) =>
@@ -718,6 +718,23 @@ void main() {
               'profile: $params',
         ).equals('researcher');
       }
+      // The whole form is answered at once; nothing is locked per question.
+      final form = harness.sent.singleWhere(
+        (frame) =>
+            frame['method'] == 'request.answer' &&
+            (frame['params'] as Map)['id'] == 'srq-2',
+      );
+      check(form['params'] as Map<String, dynamic>).deepEquals({
+        'profile': 'researcher',
+        'id': 'srq-2',
+        'result': {
+          'answers': {'q0': 'answer', 'q1': null},
+          'outcome': 'submitted',
+        },
+      });
+      check(
+        harness.sent.where((frame) => frame['method'] == 'clarify.lock'),
+      ).isEmpty();
     },
   );
 
@@ -857,6 +874,135 @@ void main() {
       ),
     ).length.equals(2);
   });
+
+  group('a held model switch, asked,', () {
+    Future<(_GatewayHarness, HermesDesktopApiService)> start(
+      HermesModelSwitchPrompt prompt, {
+      bool failFast = false,
+    }) async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      final harness = _GatewayHarness();
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(),
+        rpc: HermesDesktopRpcClient(
+          channelFactory: (_, _, {httpClient}) => harness.channel,
+        ),
+        confirmModelSwitch: prompt,
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      harness.responder = (method) => switch (method) {
+        'session.resume' => {
+          'session_id': 'runtime-held',
+          'stored_session_id': 'stored-held',
+          'running': false,
+        },
+        'config.get' => {'value': 'medium'},
+        // A switch to `pricier-model` is held until it comes back
+        // confirmed; any other applies.
+        'config.set' => () {
+          final params = harness.sent.last['params'] as Map;
+          return '${params['value']}'.startsWith('pricier-model') &&
+                  params['confirm_expensive_model'] != true
+              ? {
+                  'confirm_required': true,
+                  'confirm_message': 'This model costs more per message.',
+                }
+              : {'value': params['value']};
+        }(),
+        'prompt.submit' => const {'status': 'streaming'},
+        _ => const {},
+      };
+      if (failFast) {
+        harness.errorResponder = (method) =>
+            method == 'config.set' &&
+                (harness.sent.last['params'] as Map)['key'] == 'fast'
+            ? {'code': -32000, 'message': 'storage_unavailable'}
+            : null;
+      }
+      return (harness, service);
+    }
+
+    Future<HermesResponseStream> send(
+      HermesDesktopApiService service, {
+      String model = 'pricier-model',
+      bool? fast,
+    }) => service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'stored-held',
+      options: HermesDesktopSessionOptions(model: model, fast: fast),
+    );
+
+    test('switches once confirmed, then sends', () async {
+      final asked = <HermesHeldModelSwitch>[];
+      final (harness, service) = await start((held) async {
+        asked.add(held);
+        return true;
+      });
+
+      await send(service);
+
+      check(asked.single.model).equals('pricier-model');
+      check(
+        asked.single.reason,
+      ).equals('This model costs more per message.');
+      final switches = harness.sent
+          .where(
+            (frame) =>
+                frame['method'] == 'config.set' &&
+                (frame['params'] as Map)['key'] == 'model',
+          )
+          .map((frame) => frame['params'] as Map)
+          .toList();
+      check(switches).length.equals(2);
+      check(switches.last['confirm_expensive_model']).equals(true);
+      check(
+        harness.sent.where((frame) => frame['method'] == 'prompt.submit'),
+      ).length.equals(1);
+    });
+
+    // Kept once the switch applied: a later option that failed left the
+    // record on the model before.
+    test('returns to a model set before a later option failed', () async {
+      final (_, service) = await start((_) async => false, failFast: true);
+      await check(
+        send(service, model: 'other-model', fast: true),
+      ).throws<Object>();
+
+      await check(send(service)).throws<HermesModelSwitchDeclined>(
+        (it) => it
+            .has((error) => error.previousModel, 'previousModel')
+            .equals('other-model'),
+      );
+    });
+
+    test('keeps the current model when declined, and sends nothing', () async {
+      final (harness, service) = await start((_) async => false);
+
+      await check(send(service)).throws<HermesModelSwitchDeclined>(
+        (it) => it.has((error) => error.model, 'model').equals('pricier-model'),
+      );
+
+      check(
+        harness.sent.where(
+          (frame) =>
+              (frame['params'] as Map?)?['confirm_expensive_model'] == true ||
+              frame['method'] == 'prompt.submit',
+        ),
+      ).isEmpty();
+    });
+  });
   // the gateway reports `session.info` asynchronously after a session is
   // created or resumed. An idle one that lands while `prompt.submit` is in
   // flight was replayed after the acknowledgement and ended the turn before
@@ -903,6 +1049,41 @@ void main() {
     check(
       turn.events.whereType<HermesTokenDelta>().map((e) => e.content).join(),
     ).equals('Hello there.');
+  });
+
+  // A reconnect replays an open form with the answers another device locked
+  // since. Keyed by its request alone, the replay was dropped as a repeat,
+  // so the locked questions stayed editable here.
+  test('a form replayed with new locks refreshes its card', () async {
+    String form([Map<String, Object?>? answers]) => jsonEncode({
+      'jsonrpc': '2.0',
+      'id': 'srq-r9',
+      'method': 'clarify',
+      'params': {
+        'session_id': 'runtime-race',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?'},
+          {'qid': 'q1', 'question': 'Which size?'},
+        ],
+        'answers': ?answers,
+      },
+    });
+    final turn = await _streamTurn((harness) {
+      harness.incoming
+        ..add(form())
+        // Shown again unchanged, it stays one card.
+        ..add(form())
+        ..add(form({'q0': 'Teal'}));
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+
+    final forms = turn.events.whereType<HermesDecisionRequested>().toList();
+    check(forms).length.equals(2);
+    final questions = hermesClarifyQuestionsFromPayload(forms.last.raw);
+    check(questions.first.locked).isTrue();
+    check(questions.first.lockedAnswer).equals('Teal');
+    check(questions.last.locked).isFalse();
   });
 
   test('a PDF Hermes cannot render is sent as a file', () async {
@@ -1217,39 +1398,6 @@ void main() {
   });
 
   group('decisions in a restored chat', () {
-    test('the next question skips ones answered elsewhere', () async {
-      final chat = await _restoredChat({
-        'open_requests': [
-          {
-            'id': 'srq-c1',
-            'method': 'clarify',
-            'params': {
-              'session_id': 'runtime-1',
-              'questions': [
-                for (final qid in ['q0', 'q1', 'q2'])
-                  {'qid': qid, 'question': 'Pick $qid?'},
-              ],
-            },
-          },
-        ],
-      }, lock: {'status': 'ok', 'remaining': ['q2']});
-
-      await chat.service.respondToDecision(
-        storedSessionId: 'stored-1',
-        runtimeId: 'runtime-1',
-        requestId: 'srq-c1/q0',
-        kind: HermesDecisionKind.clarification,
-        value: 'Teal',
-      );
-      await pumpEventQueue();
-
-      check(
-        chat.events
-            .where((event) => event.type == 'clarify.request')
-            .map((event) => event.payload['request_id']),
-      ).deepEquals(['srq-c1/q0', 'srq-c1/q2']);
-    });
-
     test('approving a started sign-in opens its link', () async {
       const link = 'https://auth.example/authorize?state=abc';
       final chat = await _restoredChat({
@@ -1560,8 +1708,7 @@ void main() {
 }
 
 /// A Desktop chat restored with no turn running: `session.resume` returns
-/// [snapshot]'s extras, `clarify.lock` returns [lock]. Collects the RPC
-/// events and the links opened.
+/// [snapshot]'s extras. Collects the RPC events and the links opened.
 Future<
   ({
     HermesDesktopApiService service,
@@ -1570,11 +1717,7 @@ Future<
     List<Uri> opened,
   })
 >
-_restoredChat(
-  Map<String, Object?> snapshot, {
-  Map<String, Object?> lock = const {'status': 'ok', 'remaining': <String>[]},
-  bool opens = true,
-}) async {
+_restoredChat(Map<String, Object?> snapshot, {bool opens = true}) async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   final harness = _GatewayHarness();
@@ -1608,7 +1751,6 @@ _restoredChat(
       'running': false,
       ...snapshot,
     },
-    'clarify.lock' => lock,
     _ => const {},
   };
   await service.pendingDecisionsForSession('stored-1');

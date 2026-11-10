@@ -7,11 +7,20 @@ const int _kMaxHermesVoiceContext = 6000;
 /// voice-live call handed over carries [voiceContext], the recent spoken
 /// conversation, which only the model reads; the session stores `text`.
 /// Context past the bound keeps its newest part.
+///
+/// [truncateBeforeRowId] cuts the transcript before that user row and
+/// everything after it (an edit or a regenerate on the legacy wire). Hermes
+/// drops history only for a submit that confirms it, a cut to an empty
+/// transcript only with its own consent, and, from v0.23, a cut of more
+/// than one turn only with [confirmDeepTruncate]; earlier versions refuse
+/// that key.
 @visibleForTesting
 Map<String, Object?> hermesPromptSubmitParams({
   required String runtimeId,
   required String text,
   String? voiceContext,
+  int? truncateBeforeRowId,
+  bool confirmDeepTruncate = true,
 }) => {
   'session_id': runtimeId,
   'text': text,
@@ -21,6 +30,12 @@ Map<String, Object?> hermesPromptSubmitParams({
         ? voiceContext.substring(voiceContext.length - _kMaxHermesVoiceContext)
         : voiceContext,
   },
+  if (truncateBeforeRowId != null) ...{
+    'truncate_before_row_id': truncateBeforeRowId,
+    'confirm_truncate': true,
+    'confirm_empty_truncate': true,
+    if (confirmDeepTruncate) 'confirm_deep_truncate': true,
+  },
 };
 
 /// A turn whose admission a restart cut off (receipt `unknown`): Hermes does
@@ -29,6 +44,13 @@ const String _kHermesUnknownAdmissionMessage =
     'Hermes restarted while this message ran and does not know how far it '
     'got. Check the chat for its reply.';
 
+/// Whether Hermes refused a submit only for `confirm_deep_truncate`, which
+/// gateways before v0.23 do not know.
+bool _hermesRefusedDeepTruncateConfirmation(Object error) =>
+    error is HermesDesktopRpcException &&
+    error.code == 4000 &&
+    error.message.contains('confirm_deep_truncate');
+
 extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
   Future<HermesResponseStream> _runtimeStreamDesktopResponse(
     HermesChatInput input, {
@@ -36,6 +58,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   }) async {
     final storedId =
         sessionId ??
@@ -54,7 +78,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       );
     }
     if (!_sessionProfiles.containsKey(binding.storedId)) {
-      await _applySessionOptions(binding, options);
+      await _applySessionOptions(binding, options, cancelToken: cancelToken);
     }
     final attached = await _attachInput(binding.runtimeId, input);
     var text = attached.text;
@@ -98,7 +122,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           state != HermesDesktopTurnState.unsupportedGateway;
     }
 
-    void finish({String? error, bool authoritativeIdle = false}) {
+    void finish({
+      String? error,
+      HermesErrorSurface? surface,
+      bool authoritativeIdle = false,
+    }) {
       if (terminal) return;
       terminal = true;
       _eventBuffer.deactivate(activeRuntimeId);
@@ -109,7 +137,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           runtimeId: binding.runtimeId,
         );
       }
-      if (error != null) controller.add(HermesRunError(error));
+      if (error != null) {
+        controller.add(HermesRunError(error, surface: surface));
+      }
       controller.add(const HermesRunDone());
       unawaited(subscription.cancel());
       unawaited(disconnectSubscription.cancel());
@@ -186,7 +216,24 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           final content = value('content').isNotEmpty
               ? value('content')
               : value('text');
-          if (content.isNotEmpty) controller.add(HermesFinalOutput(content));
+          if (payload['usage'] case final Map usage) {
+            _rememberTurnUsage(binding.storedId, usage);
+          }
+          final failed =
+              value('status').toLowerCase() == 'error' ||
+              value('error').isNotEmpty;
+          final surface = failed
+              ? HermesErrorSurface.fromCompletion(
+                  payload,
+                  sensitiveValues: config.sensitiveValues,
+                )
+              : null;
+          // A classified failure's text is its error copy, not an answer,
+          // unless Hermes marks it as the partial reply so far.
+          final errorCopy = surface != null && !surface.partial;
+          if (content.isNotEmpty && !errorCopy) {
+            controller.add(HermesFinalOutput(content));
+          }
           // A queued prompt Hermes settled before it ran (cancelled from
           // another app, or sent into the running turn as a steer) gets
           // only this completion: no idle follows while the turn ahead of
@@ -204,12 +251,14 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                   ? 'Hermes cancelled this message before running it.'
                   : null,
             );
-          } else if (value('status').toLowerCase() == 'error' ||
-              value('error').isNotEmpty) {
+          } else if (failed) {
             finish(
-              error: value('error').isEmpty
-                  ? 'Hermes failed to complete the response.'
-                  : value('error'),
+              error: value('error').isNotEmpty
+                  ? value('error')
+                  : errorCopy && content.isNotEmpty
+                  ? content
+                  : 'Hermes failed to complete the response.',
+              surface: surface,
             );
           } else if (forwarded) {
             // The owner wrote the reply to the stored transcript; read it.
@@ -291,6 +340,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 multiSelect:
                     kind == HermesDecisionKind.clarification &&
                     payload['multi_select'] == true,
+                questions: kind == HermesDecisionKind.clarification
+                    ? hermesClarifyQuestionsFromPayload(
+                        payload,
+                        redact: _redactClarifyText,
+                      )
+                    : const [],
               ),
             );
             controller.add(
@@ -320,6 +375,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 requestId: requestId,
               ),
             );
+            // Answered on another surface, timed out or withdrawn: the
+            // card closes now instead of on the next reload.
+            if (event.type != 'approval.responded') {
+              controller.add(
+                HermesPromptSettled(
+                  promptId: requestId,
+                  kind: event.type.substring(0, event.type.indexOf('.')),
+                ),
+              );
+            }
           }
         case 'session.info':
           // A partial info without `running` says nothing about the turn.
@@ -334,6 +399,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               error: value('message').isEmpty
                   ? 'Hermes failed.'
                   : value('message'),
+              surface: HermesErrorSurface.fromCompletion(
+                payload,
+                sensitiveValues: config.sensitiveValues,
+              ),
             );
           }
       }
@@ -428,20 +497,43 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       } catch (_) {}
     }
 
-    Future<Object?> submitPrompt() => _rpc.request<Object?>(
+    // A session authority cuts the transcript as an edit of its own, before
+    // the prompt; the legacy wire cuts it with the submit.
+    var confirmDeepTruncate = true;
+    Future<Object?> sendPrompt() => _rpc.request<Object?>(
       'prompt.submit',
       params: {
         ...hermesPromptSubmitParams(
           runtimeId: binding.runtimeId,
           text: text,
           voiceContext: voiceContext,
+          truncateBeforeRowId: canonical ? null : truncateBeforeRowId,
+          confirmDeepTruncate: confirmDeepTruncate,
         ),
         'submission_id': ?submissionId,
+        // Asks the turn's questions as one form (a session authority that
+        // said it can); otherwise they come one card at a time.
+        if (canonical && _rpc.canonicalClarifyBatch) 'clarify_batch': true,
         if (attached.attachments.isNotEmpty)
           'attachments': attached.attachments,
         ..._sessionScope(binding.storedId),
       },
     );
+    Future<Object?> submitPrompt() async {
+      try {
+        return await sendPrompt();
+      } catch (error) {
+        if (canonical ||
+            truncateBeforeRowId == null ||
+            !confirmDeepTruncate ||
+            !_hermesRefusedDeepTruncateConfirmation(error)) {
+          rethrow;
+        }
+        // The refusal ran no handler: nothing was cut yet.
+        confirmDeepTruncate = false;
+        return sendPrompt();
+      }
+    }
 
     void adoptAdmission(Object? submitted) {
       if (!canonical || submitted is! Map) return;
@@ -471,12 +563,108 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     });
 
     controller.add(HermesResponseCreated(binding.runtimeId));
+    if (truncateBeforeRowId != null) {
+      // The transcript is about to get shorter, and its rows new ids: the
+      // last one read must not stand in for it.
+      _lastTranscripts
+        ..remove(storedId)
+        ..remove(binding.storedId);
+    }
+    // A slash command is resolved before a cut: one that submits nothing
+    // (such as `/model`) must leave the history the edit would replace.
+    var slashResolved = false;
+    if (canonical &&
+        truncateBeforeRowId != null &&
+        text.trimLeft().startsWith('/')) {
+      try {
+        final slash = await _dispatchSlash(binding.runtimeId, text.trim());
+        if (slash.display != null && slash.display!.isNotEmpty) {
+          controller.add(HermesFinalOutput(slash.display!));
+        }
+        if (slash.prefill != null && slash.prefill!.isNotEmpty) {
+          controller.add(HermesComposerPrefill(slash.prefill!));
+        }
+        if (slash.submit == null) {
+          await _detachStaged(binding.runtimeId, stagedPaths);
+          finish();
+          return HermesResponseStream(
+            events: controller.stream,
+            sessionId: storedId,
+          );
+        }
+        text = slash.submit!;
+        slashResolved = true;
+      } catch (error) {
+        DebugLogger.error(
+          'slash-before-rewind-failed',
+          scope: 'hermes/desktop/ws',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish(error: error.toString());
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
+    }
+    if (canonical && truncateBeforeRowId != null) {
+      // Stopped meanwhile (while a slash command resolved): the edit is
+      // dropped, so the history it would replace stays whole.
+      if (terminal || cancelToken?.isCancelled == true) {
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish();
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
+      // Cut first, apart from the submit's recovery below: a lost answer to
+      // this edit must not be read as a lost prompt and sent again uncut.
+      // Fenced at the session as it is now, and only if it still ends where
+      // it did when the cut was chosen: a turn stored since then refuses the
+      // cut rather than being cut too.
+      try {
+        final fences = await _canonicalFencesThrough(
+          binding,
+          lastRowId: truncateSeenThroughRowId,
+        );
+        // Stopped while the fences or the transcript were read: nothing is
+        // cut yet, so the edit is dropped whole.
+        if (terminal || cancelToken?.isCancelled == true) {
+          await _detachStaged(binding.runtimeId, stagedPaths);
+          finish();
+          return HermesResponseStream(
+            events: controller.stream,
+            sessionId: storedId,
+          );
+        }
+        await _canonicalMutate(
+          binding,
+          'rewind',
+          {'target_message_id': truncateBeforeRowId},
+          pinned: fences,
+        );
+      } catch (error) {
+        DebugLogger.error(
+          'rewind-failed',
+          scope: 'hermes/desktop/ws',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish(error: error is StateError ? error.message : error.toString());
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
+    }
     Set<String> promptBaseline = const {};
     // Set once `prompt.submit` is sent; before it, an error is the slash
     // command's.
     var submitting = false;
     try {
-      if (text.trimLeft().startsWith('/')) {
+      if (!slashResolved && text.trimLeft().startsWith('/')) {
         final slash = await _dispatchSlash(binding.runtimeId, text.trim());
         if (slash.display != null && slash.display!.isNotEmpty) {
           controller.add(HermesFinalOutput(slash.display!));
@@ -675,10 +863,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     // from a snapshot).
     if (event.type.endsWith('.request')) {
       final request = payload['request_id'] ?? payload['id'];
-      // A connection card offered again is a new offer of the same card.
+      // A connection card offered again is a new offer of the same card. A
+      // form shown again with more answers locked elsewhere (a reconnect
+      // replay) is news, so its locked questions are part of the identity.
       final offer = payload['offer'];
       if (request != null) {
-        return '${event.type}:$request${offer is int ? '#$offer' : ''}';
+        return '${event.type}:$request${offer is int ? '#$offer' : ''}'
+            '${_lockedQuestionIds(payload)}';
       }
     }
     // A session authority numbers every event of a session's stream.
@@ -690,6 +881,18 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (message != null) return '${event.type}:$message';
     }
     return null;
+  }
+
+  /// The ids of a clarify form's locked questions, as `|q0,q2`; empty for
+  /// any other request.
+  static String _lockedQuestionIds(Map<String, dynamic> payload) {
+    final questions = payload['questions'];
+    if (questions is! List) return '';
+    final locked = [
+      for (final question in questions.whereType<Map>().take(16))
+        if (question['locked'] == true) '${question['qid']}',
+    ];
+    return locked.isEmpty ? '' : '|${locked.join(',')}';
   }
 
   String? _storedIdForRuntime(String? runtimeId) {
@@ -739,10 +942,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       mcpAction: event.payload['action']?.toString(),
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
+      questions: kind == HermesPendingDesktopDecisionKind.clarification
+          ? hermesClarifyQuestionsFromPayload(
+              event.payload,
+              redact: _redactClarifyText,
+            )
+          : const [],
       sensitiveValues: config.sensitiveValues,
       profile: _sessionProfiles[storedId],
     );
   }
+
+  /// A clarify question's text, or a locked answer, redacted whole before
+  /// the form is parsed, which shortens it.
+  String? _redactClarifyText(String text) =>
+      hermesRedactPendingDecisionText(text, config.sensitiveValues);
 
   Future<void> _rememberPendingDecision(
     HermesSessionBinding binding, {
@@ -753,6 +967,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Iterable<HermesClarifyQuestion> questions = const [],
   }) => HermesPendingDecisionStore.upsert(
     origin: _origin,
     connectionId: config.connectionId,
@@ -765,14 +980,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     mcpAction: mcpAction,
     choices: choices,
     multiSelect: multiSelect,
+    questions: questions,
     sensitiveValues: config.sensitiveValues,
     profile: _sessionProfiles[binding.storedId],
   );
 
   Future<void> _applySessionOptions(
     HermesSessionBinding binding,
-    HermesDesktopSessionOptions options,
-  ) async {
+    HermesDesktopSessionOptions options, {
+    CancelToken? cancelToken,
+  }) async {
     final selection = hermesDesktopSessionModelSelection(
       options.model,
       options.provider,
@@ -812,13 +1029,27 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     if (_canonical && selection.model != null) {
       // A session authority switches a session's model as a fenced edit;
       // it refuses `config.set model`.
-      _refuseHeldModelSwitch(
-        await _canonicalMutate(binding, 'model', {
-          'model': selection.model,
-          'provider': ?selection.provider,
-        }),
-        selection.model!,
-      );
+      final payload = <String, Object?>{
+        'model': selection.model,
+        'provider': ?selection.provider,
+      };
+      final result = await _canonicalMutate(binding, 'model', payload);
+      if (await _confirmHeldModelSwitch(
+        binding,
+        result,
+        selection,
+        cancelToken: cancelToken,
+      )) {
+        // The owner wrote nothing: the same edit again, with its token.
+        _refuseHeldModelSwitch(
+          await _canonicalMutate(binding, 'model', {
+            ...payload,
+            'confirm': result['confirm'],
+          }),
+          selection.model!,
+        );
+      }
+      _recordAppliedModel(binding.storedId, selection);
     }
     for (final option in <(String, Object?)>[
       if (!_canonical) ('model', modelSwitch),
@@ -838,22 +1069,98 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ...scope,
         },
       );
-      if (option.$1 == 'model') {
-        _refuseHeldModelSwitch(_object(set), selection.model ?? '');
+      if (option.$1 != 'model') continue;
+      if (await _confirmHeldModelSwitch(
+        binding,
+        _object(set),
+        selection,
+        cancelToken: cancelToken,
+      )) {
+        _refuseHeldModelSwitch(
+          _object(
+            await _rpc.request<Object?>(
+              'config.set',
+              params: {
+                'session_id': binding.runtimeId,
+                'key': option.$1,
+                'value': option.$2,
+                'confirm_expensive_model': true,
+                ...scope,
+              },
+            ),
+          ),
+          selection.model ?? '',
+        );
       }
+      // Kept as soon as it applies: a later option that fails does not
+      // leave the chat's record on the model before.
+      _recordAppliedModel(binding.storedId, selection);
     }
     _appliedSessionOptions[binding.storedId] = fingerprint;
   }
+
+  /// Notes [selection]'s model as the one session [storedId] is now on: as
+  /// it is created with it, or switched to it.
+  void _recordAppliedModel(
+    String storedId,
+    ({String? model, String? provider}) selection,
+  ) {
+    final model = selection.model;
+    if (model == null) return;
+    _appliedSessionModels[storedId] = (
+      model: model,
+      provider: selection.provider,
+    );
+  }
+
+  /// Whether Hermes held the switch to [selection] that [result] answers,
+  /// and the user, asked, confirmed it: the caller sends it again,
+  /// confirmed. Not held, it resolves false. Kept, it throws
+  /// [HermesModelSwitchDeclined]; with nobody to ask, the held switch is
+  /// refused as before. A send stopped meanwhile switches nothing.
+  Future<bool> _confirmHeldModelSwitch(
+    HermesSessionBinding binding,
+    Map<String, dynamic> result,
+    ({String? model, String? provider}) selection, {
+    CancelToken? cancelToken,
+  }) async {
+    if (!_isHeldModelSwitch(result)) return false;
+    final model = selection.model ?? '';
+    final prompt = _confirmModelSwitch;
+    if (prompt == null) _refuseHeldModelSwitch(result, model);
+    final reason = validateHermesBoundedString(
+      result['confirm_message'],
+      maxCharacters: 400,
+    )?.trim();
+    // The model asked about is the one that is sent again: the chat's own
+    // choice, not a name the gateway put in its answer.
+    final held = HermesHeldModelSwitch(
+      model: model,
+      provider: selection.provider,
+      reason: reason == null || reason.isEmpty ? null : reason,
+    );
+    final confirmed = await prompt!(held);
+    if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+    if (confirmed == null) _refuseHeldModelSwitch(result, model);
+    if (confirmed!) return true;
+    final previous = _appliedSessionModels[binding.storedId];
+    throw HermesModelSwitchDeclined(
+      model: model,
+      previousModel: previous?.model,
+      previousProvider: previous?.provider,
+    );
+  }
+
+  static bool _isHeldModelSwitch(Map<String, dynamic> result) =>
+      result['confirm_required'] == true ||
+      result['status'] == 'confirmation_required';
 
   /// Throws when Hermes held the switch to [model] for the user's
   /// confirmation (`confirm_required`, or a session authority's
   /// `confirmation_required`): the chat is still on its old model, so the
   /// options stay unapplied and nothing is sent on the wrong model.
   void _refuseHeldModelSwitch(Map<String, dynamic> result, String model) {
-    if (result['confirm_required'] != true &&
-        result['status'] != 'confirmation_required') {
-      return;
-    }
+    if (!_isHeldModelSwitch(result)) return;
     final reason = validateHermesBoundedString(
       result['confirm_message'],
       maxCharacters: 400,
@@ -1393,17 +1700,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         cardId: requestId,
         approved: value == 'approve',
       );
-    } else if (kind == HermesDecisionKind.clarification &&
-        _canonical &&
-        parseHermesClarifyCardId(requestId) == null) {
-      // A session authority asks single questions as events, by prompt id.
-      await _answerCanonicalPrompt(runtimeId, requestId, value: value);
     } else if (kind == HermesDecisionKind.clarification) {
-      await _lockClarifyAnswer(
+      await _answerClarify(
         runtimeId,
-        cardId: requestId,
-        answer: value,
-        storedSessionId: storedSessionId,
+        requestId,
+        answers: {kHermesSingleClarifyQuestionId: value},
       );
     } else if (_canonical) {
       // A session authority takes a sudo or secret answer only as the
@@ -1435,41 +1736,66 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     params: {'id': requestId, 'result': result, ..._runtimeScope(runtimeId)},
   );
 
-  /// Locks one clarify question's [answer]; the last question's lock answers
-  /// the whole request. Then shows the next question the lock's `remaining`
-  /// names (another surface may have answered some), which after a restart
-  /// only a fresh resume snapshot still lists.
-  Future<void> _lockClarifyAnswer(
-    String runtimeId, {
-    required String cardId,
-    required String answer,
+  /// Answers a whole clarify form: the questions still open, by id (null
+  /// skips one). Locked answers stand, as Hermes keeps them.
+  Future<void> _runtimeRespondToClarifyForm({
+    required String runtimeId,
     String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
   }) async {
-    final card = parseHermesClarifyCardId(cardId);
-    if (card == null) {
-      throw StateError('Hermes returned an invalid question.');
+    if (storedSessionId != null) {
+      runtimeId = (await _resume(storedSessionId)).runtimeId;
     }
-    final result = _object(
-      await _rpc.request<Object?>(
-        'clarify.lock',
-        params: {
-          'request_id': card.requestId,
-          'question_id': card.questionId,
-          'answer': answer,
-          ..._runtimeScope(runtimeId),
-        },
-      ),
+    await _ensureConnected();
+    // A form Hermes no longer lists throws HermesDecisionAlreadySettled; the
+    // snapshot that found it gone has already dropped its saved card.
+    await _answerClarify(runtimeId, requestId, answers: answers);
+    await HermesPendingDecisionStore.resolve(
+      origin: _origin,
+      connectionId: config.connectionId,
+      runtimeId: runtimeId,
+      requestId: requestId,
     );
-    final remaining = result['remaining'];
-    if (result['status'] != 'ok' || remaining is! List || remaining.isEmpty) {
+  }
+
+  /// A form (a `clarify` server request) is answered at once: by
+  /// `request.answer` on the legacy wire, or by its response frame from a
+  /// socket attached to the session on a session authority. A session
+  /// authority's lone question (a `clarify.request` prompt) takes its one
+  /// answer by `clarify.respond`; a skipped one is empty, as Hermes reads
+  /// it.
+  Future<void> _answerClarify(
+    String runtimeId,
+    String requestId, {
+    required Map<String, String?> answers,
+  }) async {
+    if (!_canonical) {
+      await _answerServerRequest(
+        runtimeId,
+        requestId,
+        hermesClarifySubmission(answers),
+      );
       return;
     }
-    if (!_rpc.showNextClarifyQuestion(
-      cardId,
-      remaining: remaining.map((questionId) => '$questionId'),
+    if (_rpc.canonicalPrompt(requestId) != null ||
+        !requestId.startsWith(kHermesServerRequestIdPrefix)) {
+      final sent = await _answerCanonicalPrompt(
+        runtimeId,
+        requestId,
+        value: answers.values.firstOrNull ?? '',
+      );
+      // Hermes lists it no more: answered elsewhere, or expired.
+      if (!sent) throw const HermesDecisionAlreadySettled();
+      return;
+    }
+    await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);
+    // A socket lost since the resume sent nothing: the form stays open.
+    if (!_rpc.answerServerRequest(
+      requestId,
+      hermesClarifySubmission(answers),
     )) {
-      final storedId = storedSessionId ?? _storedIdForRuntime(runtimeId);
-      if (storedId != null) await _resume(storedId, refresh: true);
+      throw StateError('Hermes gateway disconnected.');
     }
   }
 }

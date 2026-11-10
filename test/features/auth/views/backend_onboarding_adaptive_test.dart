@@ -6,6 +6,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
+import 'package:conduit/features/auth/widgets/auth_grouped_form.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -57,22 +58,39 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Choose how to connect'), findsOneWidget);
-      expect(find.text('Self-hosted services'), findsOneWidget);
+      // The app's identity leads: its icon, name and purpose. The bar's
+      // copy of the title stays hidden until the hero scrolls away.
+      expect(
+        find.byKey(const ValueKey<String>('welcome-app-icon')),
+        findsOneWidget,
+      );
+      expect(find.text('Welcome to Conduit'), findsWidgets);
+      expect(
+        find.text(
+          'Chat with AI on your own server, on this device, or through an API.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('You can add more connections later in Settings.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Choose'), findsNothing);
+      expect(find.text('Self-Hosted Services'), findsOneWidget);
       expect(find.text('Apple Intelligence'), findsOneWidget);
       expect(find.text('Model APIs'), findsOneWidget);
       expect(find.text('Open WebUI'), findsOneWidget);
-      expect(find.text('Connect directly'), findsOneWidget);
+      expect(find.text('Model Provider'), findsOneWidget);
       expect(find.text('Apple On-Device'), findsOneWidget);
       expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
       expect(find.text('Hermes Agent'), findsOneWidget);
       expect(find.byIcon(CupertinoIcons.link), findsOneWidget);
       expect(find.byIcon(CupertinoIcons.device_phone_portrait), findsOneWidget);
-      expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.cloud), findsOneWidget);
       expect(find.byIcon(Icons.hub), findsNothing);
-      expect(find.byType(Image), findsNWidgets(2));
+      expect(find.byType(Image), findsNWidgets(3));
       expect(
-        find.image(const AssetImage('assets/icons/open_webui.png')),
+        find.image(const AssetImage('assets/icons/open_webui_tab.png')),
         findsOneWidget,
       );
       expect(
@@ -88,6 +106,22 @@ void main() {
         openWebUiSemantics.getSemanticsData().hasAction(ui.SemanticsAction.tap),
         isTrue,
       );
+
+      // One tile size for brand marks and glyphs alike, and separators that
+      // run to the card's trailing edge.
+      check(
+        tester
+            .widgetList<AuthIconTile>(find.byType(AuthIconTile))
+            .map((tile) => tile.size)
+            .toSet(),
+      ).deepEquals({40.0});
+      final separator = find.byType(AuthGroupedSeparator).first;
+      final card = find.ancestor(
+        of: separator,
+        matching: find.byType(AuthGroupedCard),
+      );
+      check(tester.getTopRight(separator).dx)
+          .equals(tester.getTopRight(card).dx);
 
       await harness.unmount(tester);
     } finally {
@@ -113,7 +147,7 @@ void main() {
     expect(find.text('Apple On-Device'), findsOneWidget);
     expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
     expect(find.text('Open WebUI'), findsOneWidget);
-    expect(find.text('Connect directly'), findsOneWidget);
+    expect(find.text('Model Provider'), findsOneWidget);
 
     await harness.unmount(tester);
   });
@@ -139,7 +173,7 @@ void main() {
     expect(find.text('Apple On-Device'), findsNothing);
     expect(find.text('Apple Private Cloud Compute'), findsNothing);
     expect(find.text('Open WebUI'), findsOneWidget);
-    expect(find.text('Connect directly'), findsOneWidget);
+    expect(find.text('Model Provider'), findsOneWidget);
 
     await harness.unmount(tester);
   });
@@ -163,7 +197,16 @@ void main() {
 
     expect(tester.takeException(), isNull);
     final hermes = find.text('Hermes Agent');
-    await tester.ensureVisible(hermes);
+    await tester.scrollUntilVisible(
+      hermes,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(UtilityPageScaffold),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.pumpAndSettle();
     expect(hermes, findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -229,7 +272,7 @@ void main() {
       await tester.pumpAndSettle();
       check(tester.widget<UtilityDisclosureSection>(accessHeaders).expanded)
           .isTrue();
-      expect(find.text('Header name'), findsOneWidget);
+      expect(find.text('Header Name'), findsOneWidget);
 
       final container = ProviderScope.containerOf(
         tester.element(find.byType(HermesSettingsPage)),
@@ -266,10 +309,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      // Below the LibreChat row, out of the test viewport.
-      await tester.ensureVisible(find.text('Connect directly'));
+      // The welcome hero and the LibreChat row leave the last row below
+      // the fold here.
+      await tester.ensureVisible(find.text('Model Provider'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Connect directly'));
+      await tester.tap(find.text('Model Provider'));
       await tester.pumpAndSettle();
 
       final route = harness.router.routeInformationProvider.value.uri;
@@ -287,7 +331,7 @@ void main() {
         find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
         findsOneWidget,
       );
-      expect(find.text('No direct connections yet'), findsOneWidget);
+      expect(find.text('No Direct Connections Yet'), findsOneWidget);
       expect(find.text('Apple On-Device'), findsOneWidget);
       expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
       expect(find.text('Direct Connections'), findsNothing);
@@ -340,17 +384,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Below the LibreChat row, out of the test viewport.
-      await tester.ensureVisible(find.text('Connect directly'));
+      // The welcome hero and the LibreChat row leave the last row below
+      // the fold here.
+      await tester.ensureVisible(find.text('Model Provider'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Connect directly'));
+      await tester.tap(find.text('Model Provider'));
       await tester.pumpAndSettle();
 
       final route = harness.router.routeInformationProvider.value.uri;
       check(route.path).equals(Routes.directConnections);
       check(route.queryParameters['onboarding']).equals('true');
       expect(find.text('Retained Direct'), findsOneWidget);
-      expect(find.text('Connect a provider'), findsNothing);
+      expect(find.text('Connect a Provider'), findsNothing);
       await harness.unmount(tester);
     },
   );

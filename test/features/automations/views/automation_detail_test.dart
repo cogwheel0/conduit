@@ -551,7 +551,7 @@ void main() {
         find.descendant(of: failed, matching: find.text('Model not found')),
         findsOneWidget,
       );
-      expect(find.text('View chat'), findsOneWidget);
+      expect(find.text('View Chat'), findsOneWidget);
       // The last run on the definition shows its outcome too.
       expect(
         find.descendant(
