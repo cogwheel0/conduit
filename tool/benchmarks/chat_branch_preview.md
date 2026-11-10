@@ -26,8 +26,8 @@ argument (`a1` and `a2` baseline, `b1` and `b2` candidate), which every printed
 record carries as `revision`. The candidate `chat_branch_service.dart` is the one
 merged in #997 (`65036d89`, SHA-256
 `3400081ad232d180819466084b06da4aceadfaf58c68cfb5d4ff1ff6528a2c85`). The harness
-prints all 6,000 raw samples as JSON, outliers included. Nearest-rank
-p50/p95/p99 use sorted indices 49/94/98.
+prints each run's 1,500 raw samples (6,000 across the four runs) as JSON,
+outliers included. Nearest-rank p50/p95/p99 use sorted indices 49/94/98.
 
 Dart 3.13.7 native AOT on macOS arm64. Ranges below span both runs of each
 variant, in **milliseconds per eight-message graph**:
