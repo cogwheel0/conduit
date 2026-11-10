@@ -26,6 +26,8 @@ const int kMaxHermesBaseUrlCharacters = 2048;
 /// read synchronously by the router, so it must stay small.
 const int kMaxHermesConnections = 32;
 
+const Object _unset = Object();
+
 final RegExp _uuidV4Pattern = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
@@ -45,6 +47,7 @@ final class HermesConnectionProfile {
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
     this.allowSelfSignedCertificates = false,
+    this.plainHttpConsentOrigin,
     this.lastUsedAt,
   });
 
@@ -56,6 +59,10 @@ final class HermesConnectionProfile {
   final HermesDesktopAuthKind desktopAuthKind;
   final String desktopProfile;
   final bool allowSelfSignedCertificates;
+
+  /// The origin the user agreed to send credentials to without encryption
+  /// (`HermesConfig.plainHttpConsentOrigin`).
+  final String? plainHttpConsentOrigin;
 
   /// Random epoch binding local document trust and mixed-chat session reuse to
   /// this connection. Rotated whenever the endpoint or credential identity
@@ -115,6 +122,7 @@ final class HermesConnectionProfile {
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
     bool? allowSelfSignedCertificates,
+    Object? plainHttpConsentOrigin = _unset,
     String? documentTrustPrincipalId,
     DateTime? lastUsedAt,
   }) => HermesConnectionProfile(
@@ -127,6 +135,9 @@ final class HermesConnectionProfile {
     desktopProfile: desktopProfile ?? this.desktopProfile,
     allowSelfSignedCertificates:
         allowSelfSignedCertificates ?? this.allowSelfSignedCertificates,
+    plainHttpConsentOrigin: identical(plainHttpConsentOrigin, _unset)
+        ? this.plainHttpConsentOrigin
+        : plainHttpConsentOrigin as String?,
     documentTrustPrincipalId:
         documentTrustPrincipalId ?? this.documentTrustPrincipalId,
     lastUsedAt: lastUsedAt ?? this.lastUsedAt,
@@ -141,6 +152,9 @@ final class HermesConnectionProfile {
     'desktop_auth_kind': desktopAuthKind.name,
     'desktop_profile': desktopProfile,
     'allow_self_signed_certificates': allowSelfSignedCertificates,
+    // Written even when null: a row without it was saved before connections
+    // asked, and keeps working (see [fromJson]).
+    'plain_http_consent_origin': plainHttpConsentOrigin,
     'document_trust_principal_id': documentTrustPrincipalId,
     if (lastUsedAt != null)
       'last_used_at': lastUsedAt!.toUtc().toIso8601String(),
@@ -161,6 +175,7 @@ final class HermesConnectionProfile {
         ? rawProfile
         : 'default';
     final rawPrincipal = value['document_trust_principal_id'];
+    final rawConsent = value['plain_http_consent_origin'];
     return HermesConnectionProfile(
       id: id,
       name:
@@ -184,6 +199,13 @@ final class HermesConnectionProfile {
       desktopProfile: desktopProfile,
       allowSelfSignedCertificates:
           value['allow_self_signed_certificates'] == true,
+      // A connection saved before connections asked was already in use over
+      // its URL: it keeps that origin's consent rather than stopping.
+      plainHttpConsentOrigin: !value.containsKey('plain_http_consent_origin')
+          ? HermesConfig.plainHttpOrigin(baseUrl)
+          : rawConsent is String
+          ? rawConsent
+          : null,
       // A damaged principal cannot vouch for earlier bindings. A fresh epoch
       // fails closed: old trust simply stops matching.
       documentTrustPrincipalId:

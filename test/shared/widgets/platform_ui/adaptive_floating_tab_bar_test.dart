@@ -39,7 +39,6 @@ Widget _bar(
           tabs: tabs,
           selectedIndex: selectedIndex,
           selectedItemColor: tint,
-          tabsSemanticLabel: 'Backend',
           actionForegroundColor: actionForeground,
           actionBackgroundColor: actionBackground,
           onTap: onTap ?? (_) {},
@@ -241,7 +240,7 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
 
-    testWidgets('screen readers find the tabs as one adjustable control', (
+    testWidgets('screen readers reach each tab by its backend\'s name', (
       tester,
     ) async {
       _phoneWindow(tester);
@@ -250,34 +249,26 @@ void main() {
       await tester.pumpWidget(
         _bar(const [_openWebUi, _hermes], onTap: taps.add),
       );
-      final backend = find.semantics.byLabel('Backend');
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Backend')),
-        matchesSemantics(
-          label: 'Backend',
-          value: 'Open WebUI',
-          increasedValue: 'Hermes',
-          hasIncreaseAction: true,
-        ),
-      );
-      // Adjusting it chooses the next tab, as a tap does.
-      tester.semantics.increase(backend);
+      // The tab bar's own tabs, not a stand-in over them that would hide
+      // the native ones from VoiceOver.
+      expect(find.bySemanticsLabel('Open WebUI'), findsOneWidget);
+      expect(find.bySemanticsLabel('Hermes'), findsOneWidget);
+      expect(find.bySemanticsLabel('Backend'), findsNothing);
+      // Activating a tab chooses it, as a tap does. These are the package's
+      // Flutter tabs: the native ones are checked on a device.
+      tester.semantics.tap(find.semantics.byLabel('Hermes'));
       expect(taps, [1]);
-
       await tester.pumpWidget(
         _bar(const [_openWebUi, _hermes], selectedIndex: 1, onTap: taps.add),
       );
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Backend')),
-        matchesSemantics(
-          label: 'Backend',
-          value: 'Hermes',
-          decreasedValue: 'Open WebUI',
-          hasDecreaseAction: true,
-        ),
+        tester.getSemantics(find.bySemanticsLabel('Hermes')),
+        isSemantics(isSelected: true),
       );
-      tester.semantics.decrease(backend);
-      expect(taps, [1, 0]);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Open WebUI')),
+        isSemantics(isSelected: false),
+      );
       semantics.dispose();
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -471,9 +462,9 @@ void main() {
         ),
         44 + 20,
       );
-      // A new tab bar, which measures itself instead of keeping the box of
-      // one given a height.
-      expect(tester.state(find.byType(CNTabBar)), isNot(same(phoneTabBar)));
+      // The same tab bar, which measures itself again rather than being
+      // created anew and flashing.
+      expect(tester.state(find.byType(CNTabBar)), same(phoneTabBar));
 
       // And back.
       _phoneWindow(tester);
@@ -481,6 +472,7 @@ void main() {
       await tester.pump();
       expect(_tabBar(tester).height, 14 + 44 + 21);
       expect(_action(tester).dimension, 44);
+      expect(tester.state(find.byType(CNTabBar)), same(phoneTabBar));
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });

@@ -188,7 +188,11 @@ final class NativeDropdownBridge: ConduitBridge, NativeDropdownHostApi {
         request: PlatformDropdownRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        // A menu asked for as a sheet is still leaving would be refused by
+        // UIKit; wait for the sheet to finish first.
+        nativeWhenModalChainIdle(
+            from: { [weak self] in self?.host?.presentingViewController }
+        ) { [weak self] in
             guard let configuration = NativeDropdownConfiguration(request)
             else {
                 completion(.failure(PigeonError(

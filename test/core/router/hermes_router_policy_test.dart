@@ -164,6 +164,7 @@ void main() {
         Routes.hermesSettings,
         Routes.hermesSessions,
         Routes.hermesJobs,
+        Routes.hermesHiddenSessions,
         Routes.about,
       ]) {
         check(isHermesOnlyAppLocation(location)).isTrue();

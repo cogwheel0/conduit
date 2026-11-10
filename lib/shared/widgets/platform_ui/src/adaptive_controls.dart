@@ -35,6 +35,8 @@ IconData? cupertinoIconForSFSymbol(String symbol) => switch (symbol) {
   'xmark' => CupertinoIcons.xmark,
   'plus' => CupertinoIcons.plus,
   'mic' => CupertinoIcons.mic,
+  'camera' => CupertinoIcons.camera,
+  'photo.on.rectangle' => CupertinoIcons.photo_on_rectangle,
   'paperplane.fill' => CupertinoIcons.arrow_up_circle_fill,
   'eye' => CupertinoIcons.eye,
   'hand.tap' => Icons.touch_app_outlined,
@@ -70,6 +72,13 @@ enum AdaptiveButtonStyle {
 }
 
 enum AdaptiveButtonSize { small, medium, large }
+
+/// Whether [context] sits in a Material [AlertDialog]. Its body is sized with
+/// IntrinsicWidth, and the native iOS 26 controls lay out through a
+/// LayoutBuilder, which cannot report intrinsic sizes: inside one, the
+/// dialog fails layout and leaves only its barrier.
+bool isInsideMaterialAlertDialog(BuildContext context) =>
+    context.findAncestorWidgetOfExactType<AlertDialog>() != null;
 
 class AdaptiveButton extends StatelessWidget {
   const AdaptiveButton({
@@ -180,14 +189,11 @@ class AdaptiveButton extends StatelessWidget {
   final bool useSmoothRectangleBorder;
   final bool useNative;
 
-  // Material's AlertDialog sizes its body with IntrinsicWidth, and the native
-  // button lays out through a LayoutBuilder, which cannot report intrinsic
-  // sizes. Inside one, the dialog fails layout and leaves only its barrier.
   bool _canUseNative(BuildContext context) =>
       useNative &&
       PlatformUiCapabilities.usesNativeIOS26 &&
       child == null &&
-      context.findAncestorWidgetOfExactType<AlertDialog>() == null;
+      !isInsideMaterialAlertDialog(context);
 
   double get _defaultHeight => switch (size) {
     AdaptiveButtonSize.small => 28,

@@ -743,6 +743,58 @@ after''';
     });
   });
 
+  group('ConduitMarkdownPreprocessor.normalize list nesting', () {
+    String normalize(String input) =>
+        ConduitMarkdownPreprocessor.normalize(input);
+
+    test('nests unindented bullets under the numbered step above them', () {
+      const input =
+          '1) Prepare the soil\n'
+          '- Loosen the top layer.\n'
+          '- Mix in compost.\n'
+          '\n'
+          '2) Sow the seeds\n'
+          '- Keep rows short.';
+      check(normalize(input)).equals(
+        '1) Prepare the soil\n'
+        '   - Loosen the top layer.\n'
+        '   - Mix in compost.\n'
+        '\n'
+        '2) Sow the seeds\n'
+        '   - Keep rows short.',
+      );
+    });
+
+    test('indents to the content column of wider markers', () {
+      check(normalize('10. Water the bed\n* Early morning is best.'))
+          .equals('10. Water the bed\n    * Early morning is best.');
+    });
+
+    test('keeps deeper bullets nested inside the moved run', () {
+      check(normalize('1. Plan\n- Beds\n  - Raised\n- Paths'))
+          .equals('1. Plan\n   - Beds\n     - Raised\n   - Paths');
+    });
+
+    test('leaves already nested and blank-line separated lists alone', () {
+      const nested = '1. Plan\n   - Beds\n   - Paths';
+      check(normalize(nested)).equals(nested);
+      const separate = '1. Plan\n\n- Beds\n- Paths';
+      check(normalize(separate)).equals(separate);
+    });
+
+    test('a heading or quote between them ends the run', () {
+      const heading = '1. Plan\n## Notes\n- Beds';
+      check(normalize(heading)).equals(heading);
+      const quote = '1. Plan\n- Beds\n> Aside\n- Paths';
+      check(normalize(quote)).equals('1. Plan\n   - Beds\n> Aside\n- Paths');
+    });
+
+    test('leaves fenced code untouched', () {
+      const input = '```\n1) step\n- detail\n```';
+      check(normalize(input)).equals(input);
+    });
+  });
+
   group('ConduitMarkdownPreprocessor.softenInlineCode', () {
     test('short input returned unchanged', () {
       final result = ConduitMarkdownPreprocessor.softenInlineCode('short');

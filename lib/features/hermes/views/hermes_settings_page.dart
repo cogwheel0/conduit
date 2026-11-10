@@ -195,8 +195,26 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         activationFailed: l10n.hermesOnboardingFailed,
       );
 
+  /// Asks before the draft's credentials would go unencrypted to a server
+  /// the user has not agreed to send them to. True when they may go.
+  Future<bool> _confirmPlainHttp() async {
+    if (!_controller.needsPlainHttpConsent(_saved())) return true;
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.directMcpInsecureCredentialsTitle,
+      message: l10n.hermesInsecureCredentialsMessage,
+      confirmText: l10n.directMcpInsecureCredentialsConfirm,
+      barrierDismissible: false,
+    );
+    if (!confirmed || !mounted) return false;
+    _controller.grantPlainHttpConsent();
+    return true;
+  }
+
   Future<void> _finishOnboarding() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!await _confirmPlainHttp() || !mounted) return;
     final l10n = AppLocalizations.of(context)!;
     final result = await _controller.finishOnboarding(
       saved: _saved(),
@@ -221,7 +239,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<bool> _saveSettings() async {
-    if (!_baselineReady) return false;
+    if (!_baselineReady || !await _confirmPlainHttp() || !mounted) {
+      return false;
+    }
     final l10n = AppLocalizations.of(context)!;
     final saved = await _controller.save(_saved(), messages: _messages(l10n));
     // A save still completes after the page closes; there is nothing to reload.
@@ -365,6 +385,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   /// puts it in use, turning Hermes on.
   Future<void> _connectInSheet() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!await _confirmPlainHttp() || !mounted) return;
     final reachable = await _controller.testConnection(
       saved: _saved(),
       messages: _messages(AppLocalizations.of(context)!),
@@ -405,6 +426,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
+    if (!await _confirmPlainHttp() || !mounted) return;
     await _controller.testConnection(
       saved: _saved(),
       messages: _messages(AppLocalizations.of(context)!),

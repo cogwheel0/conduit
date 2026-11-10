@@ -304,8 +304,12 @@ void main() {
 
     expect(inCard('accounts-hermes', find.text('Hermes Agent')), findsOne);
     expect(inCard('accounts-hermes', find.text('Home agent')), findsOne);
+    // Plain HTTP to another machine: its credentials travel unencrypted.
     expect(
-      inCard('accounts-hermes', find.text('Desktop Gateway · 10.0.0.6')),
+      inCard(
+        'accounts-hermes',
+        find.text('Desktop Gateway · 10.0.0.6 · Not encrypted'),
+      ),
       findsOne,
     );
     expect(
@@ -449,6 +453,35 @@ void main() {
 
     // Its server is entered in the account sheet.
     await tester.tap(find.byKey(const Key('accounts-openwebui-add')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AccountSheet), findsOne);
+    expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);
+  });
+
+  testWidgets('the page ends on Add Account, which opens the account sheet', (
+    tester,
+  ) async {
+    await pumpAccounts(tester, [
+      _entry('alex-home', name: 'Alex', isActive: true),
+    ]);
+    final add = find.byKey(const Key('accounts-add'));
+    await tester.scrollUntilVisible(
+      add,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.descendant(of: add, matching: find.text('Add Account')),
+      findsOne,
+    );
+    // Below every card: nothing but Sign Out of All Accounts follows it.
+    final direct = find.byKey(const Key('accounts-direct'));
+    expect(
+      tester.getTopLeft(add).dy,
+      greaterThan(tester.getBottomLeft(direct).dy),
+    );
+
+    await tester.tap(add);
     await tester.pumpAndSettle();
     expect(find.byType(AccountSheet), findsOne);
     expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);

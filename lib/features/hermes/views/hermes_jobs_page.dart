@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +17,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 
+import '../widgets/hermes_job_delivery_field.dart';
 import '../widgets/hermes_job_editor.dart';
 import '../widgets/hermes_session_tile.dart' show openHermesSession;
 
@@ -51,14 +54,208 @@ class HermesJobsPage extends ConsumerStatefulWidget {
   ConsumerState<HermesJobsPage> createState() => _HermesJobsPageState();
 }
 
+/// How often the page re-reads the job list while a run is in flight or
+/// being stopped: a cancel lands at the run's next cancel check, about a
+/// second after it is asked for.
+const Duration _kLiveRunPollInterval = Duration(seconds: 2);
+
+/// How often an idle list is re-read, so a run the scheduler or another
+/// client starts shows up with its Stop.
+const Duration _kIdlePollInterval = Duration(seconds: 15);
+
 class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
   bool _creating = false;
+
+  /// Jobs with a Stop in progress, to the execution each Stop targeted:
+  /// null until the cancel is answered, so no list read before then settles
+  /// it, and empty when Hermes named no execution.
+  final Map<String, String?> _stopping = {};
+
+  /// Jobs whose Run now request is still waiting: Hermes answers it only once
+  /// the run ends, so the run counts as live meanwhile.
+  final Set<String> _runPending = {};
+
+  bool _stopUnsupported = false;
+  Timer? _pollTimer;
+  Duration? _pollInterval;
+
+  /// Jobs whose run was in flight in the previous list.
+  Set<String> _liveJobIds = const {};
+
+  bool get _desktop =>
+      ref.read(hermesConfigProvider).mode == HermesBackendMode.desktopGateway;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual<AsyncValue<List<HermesJob>>>(
+      hermesJobsProvider,
+      (_, next) => _onJobs(next.asData?.value),
+      fireImmediately: true,
+    );
+    // A Stop left behind by a connection switch can no longer be settled.
+    ref.listenManual(hermesApiServiceProvider, (previous, next) {
+      if (identical(previous, next) || !mounted) return;
+      setState(() {
+        _stopping.clear();
+        _runPending.clear();
+        _stopUnsupported = false;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onJobs(List<HermesJob>? jobs) {
+    if (jobs == null) return;
+    final live = {
+      for (final job in jobs)
+        if (job.runInFlight) job.id,
+    };
+    // A run that ended (or was stopped) now has its final title, such as the
+    // reason it was cancelled, in the run history.
+    for (final jobId in _liveJobIds.difference(live)) {
+      ref.invalidate(hermesJobRunsProvider(jobId));
+    }
+    _liveJobIds = live;
+    _settleStops(jobs);
+    _syncPolling(jobs);
+  }
+
+  void _settleStops(List<HermesJob> jobs) {
+    if (_stopping.isEmpty || !mounted) return;
+    final l10n = _l10n(context);
+    final settled = <String, HermesJobStopOutcome>{};
+    for (final MapEntry(key: jobId, value: executionId) in _stopping.entries) {
+      if (executionId == null) continue;
+      final job = jobs.where((candidate) => candidate.id == jobId).firstOrNull;
+      final outcome = hermesJobStopOutcome(job, executionId);
+      if (outcome != HermesJobStopOutcome.pending) settled[jobId] = outcome;
+    }
+    if (settled.isEmpty) return;
+    setState(() => settled.keys.forEach(_stopping.remove));
+    for (final outcome in settled.values) {
+      UiUtils.showMessage(
+        context,
+        outcome == HermesJobStopOutcome.cancelled
+            ? l10n.hermesJobStopped
+            : l10n.hermesJobFinishedBeforeStop,
+      );
+    }
+  }
+
+  /// Polls the Desktop Gateway's list while it is shown: quickly while there
+  /// is a run to watch, so "Stopping…" settles without a manual refresh, and
+  /// slowly otherwise, so a run started elsewhere shows up with its Stop.
+  void _syncPolling([List<HermesJob>? jobs]) {
+    // A Stop answered after the page closed still reaches its `finally`.
+    if (!mounted) {
+      _stopPolling();
+      return;
+    }
+    final current = jobs ?? ref.read(hermesJobsProvider).asData?.value;
+    if (!_desktop || current == null) {
+      _stopPolling();
+      return;
+    }
+    final watching =
+        _stopping.isNotEmpty ||
+        _runPending.isNotEmpty ||
+        current.any((job) => job.runInFlight);
+    final interval = watching ? _kLiveRunPollInterval : _kIdlePollInterval;
+    if (_pollTimer != null && _pollInterval == interval) return;
+    _pollTimer?.cancel();
+    _pollInterval = interval;
+    _pollTimer = Timer.periodic(interval, (_) => _poll());
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollInterval = null;
+  }
+
+  void _poll() {
+    if (!mounted) return;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    // Covered by the editor or a run's chat: nothing on screen to update.
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    unawaited(ref.read(hermesJobsProvider.notifier).refreshQuietly());
+  }
+
+  void _setRunPending(String jobId, bool pending) {
+    if (!mounted) return;
+    setState(() {
+      if (pending) {
+        _runPending.add(jobId);
+      } else {
+        _runPending.remove(jobId);
+      }
+    });
+    _syncPolling();
+  }
+
+  Future<void> _stop(HermesJob job) async {
+    if (_stopping.containsKey(job.id)) return;
+    final l10n = _l10n(context);
+    final notifier = ref.read(hermesJobsProvider.notifier);
+    final service = ref.read(hermesApiServiceProvider);
+    // A reply from a connection the user has since left says nothing about
+    // the one now shown. Read only while mounted.
+    bool switched() => !identical(ref.read(hermesApiServiceProvider), service);
+    setState(() => _stopping[job.id] = null);
+    _syncPolling();
+    try {
+      final result = await notifier.stopRun(job.id);
+      if (!mounted || switched()) return;
+      if (result.beforeStart) {
+        // Its Run now was withdrawn unsent: nothing ran to wait for.
+        setState(() => _stopping.remove(job.id));
+        UiUtils.showMessage(context, l10n.hermesJobStopped);
+        return;
+      }
+      if (!result.cancelled) {
+        setState(() => _stopping.remove(job.id));
+        UiUtils.showMessage(context, l10n.hermesJobNothingToStop);
+        return;
+      }
+      if (_stopping.containsKey(job.id)) {
+        _stopping[job.id] = result.executionId ?? '';
+      }
+      await notifier.refreshQuietly();
+    } on HermesJobStopUnsupportedException {
+      if (!mounted || switched()) return;
+      setState(() {
+        _stopping.remove(job.id);
+        _stopUnsupported = true;
+      });
+      UiUtils.showMessage(
+        context,
+        l10n.hermesJobStopUnsupported,
+        isError: true,
+      );
+    } catch (_) {
+      if (!mounted || switched()) return;
+      setState(() => _stopping.remove(job.id));
+      UiUtils.showMessage(context, l10n.hermesJobStopFailed, isError: true);
+    } finally {
+      _syncPolling();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final jobsAsync = ref.watch(hermesJobsProvider);
     final writable =
         ref.watch(hermesCapabilitiesProvider).asData?.value.jobsAdmin ?? true;
+    final desktop =
+        ref.watch(hermesConfigProvider.select((config) => config.mode)) ==
+        HermesBackendMode.desktopGateway;
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
 
@@ -105,6 +302,12 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
                     key: ValueKey<String>(job.id),
                     job: job,
                     writable: writable,
+                    canStop: desktop && writable && !_stopUnsupported,
+                    stopping: _stopping.containsKey(job.id),
+                    runPending: _runPending.contains(job.id),
+                    onStop: () => _stop(job),
+                    onRunPendingChanged: (pending) =>
+                        _setRunPending(job.id, pending),
                   ),
                   const SizedBox(height: Spacing.sm),
                 ],
@@ -134,7 +337,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 
   Future<void> _createJob() async {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
-    final result = await showHermesJobEditor(context);
+    final result = await showHermesJobEditor(context, scheduling: _desktop);
     if (result == null || !mounted || _creating) return;
     if (ref.read(hermesApiServiceProvider) == null) {
       UiUtils.showMessage(context, l10n.hermesJobCreateFailed, isError: true);
@@ -149,6 +352,8 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
             name: result.name,
             prompt: result.prompt,
             schedule: result.schedule,
+            deliver: result.deliver,
+            catchUp: result.catchUp ?? HermesJobCatchUp.hermesDefault,
           ),
       failureMessage: l10n.hermesJobCreateFailed,
       successMessage: l10n.hermesJobCreated,
@@ -160,10 +365,30 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 enum _JobMutation { toggle, run, edit, delete }
 
 class _JobCard extends ConsumerStatefulWidget {
-  const _JobCard({super.key, required this.job, this.writable = true});
+  const _JobCard({
+    super.key,
+    required this.job,
+    this.writable = true,
+    this.canStop = false,
+    this.stopping = false,
+    this.runPending = false,
+    this.onStop,
+    this.onRunPendingChanged,
+  });
 
   final HermesJob job;
   final bool writable;
+
+  /// Whether this connection can stop a running job.
+  final bool canStop;
+
+  /// Whether a Stop of this job's run is in progress.
+  final bool stopping;
+
+  /// Whether this job's Run now request is still waiting.
+  final bool runPending;
+  final VoidCallback? onStop;
+  final ValueChanged<bool>? onRunPendingChanged;
 
   @override
   ConsumerState<_JobCard> createState() => _JobCardState();
@@ -173,9 +398,16 @@ class _JobCardState extends ConsumerState<_JobCard> {
   _JobMutation? _mutation;
   bool _historyExpanded = false;
 
+  /// Set when Stop is pressed while this card's Run now is waiting, so the
+  /// trigger's late answer does not announce a started run.
+  bool _stopRequestedDuringRun = false;
+
   HermesJob get job => widget.job;
   bool get writable => widget.writable;
   bool get _busy => _mutation != null;
+
+  /// A run is in flight, or this card's Run now is still waiting for one.
+  bool get _runLive => job.runInFlight || widget.runPending;
 
   @override
   Widget build(BuildContext context) {
@@ -184,6 +416,15 @@ class _JobCardState extends ConsumerState<_JobCard> {
     final desktop =
         ref.watch(hermesConfigProvider.select((config) => config.mode)) ==
         HermesBackendMode.desktopGateway;
+    final deliveryOptions = desktop
+        ? ref.watch(hermesJobDeliveryOptionsProvider).asData?.value
+        : null;
+    final delivery = describeHermesJobDelivery(
+      l10n,
+      job.deliveryTarget,
+      options: deliveryOptions,
+    );
+    final cancelReason = _runLive ? null : job.lastCancelReason;
 
     return Container(
       padding: const EdgeInsets.all(Spacing.md),
@@ -288,7 +529,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   ),
                 ),
                 Text(
-                  '${l10n.hermesJobDeliveryLabel}: ${job.deliveryTarget ?? 'local'}',
+                  '${l10n.hermesJobDeliveryLabel}: $delivery',
                   style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                   ),
@@ -309,7 +550,26 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   ),
               ],
             ),
-            if (job.lastStatus?.isNotEmpty == true)
+            if (_runLive)
+              Text(
+                widget.stopping
+                    ? l10n.hermesJobStopping
+                    : l10n.hermesJobRunning,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.success,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            else if (cancelReason != null)
+              Text(
+                cancelReason.isEmpty
+                    ? l10n.hermesJobLastCancelledNoReason
+                    : l10n.hermesJobLastCancelled(cancelReason),
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
+              )
+            else if (job.lastStatus?.isNotEmpty == true)
               Text(
                 job.lastStatus!,
                 style: AppTypography.bodySmallStyle.copyWith(
@@ -349,15 +609,38 @@ class _JobCardState extends ConsumerState<_JobCard> {
           if (writable)
             Row(
               children: [
-                ConduitButton(
-                  key: ValueKey<String>('hermes-job-run-${job.id}'),
-                  text: l10n.hermesJobRunNow,
-                  isSecondary: true,
-                  isCompact: true,
-                  isLoading: _mutation == _JobMutation.run,
-                  onPressed: _busy ? null : _runNow,
+                // Run now and Stop wrap onto a second line when their labels
+                // (long in some languages) do not fit beside the icons.
+                Expanded(
+                  child: Wrap(
+                    spacing: Spacing.sm,
+                    runSpacing: Spacing.xs,
+                    children: [
+                      ConduitButton(
+                        key: ValueKey<String>('hermes-job-run-${job.id}'),
+                        text: l10n.hermesJobRunNow,
+                        isSecondary: true,
+                        isCompact: true,
+                        isLoading: _mutation == _JobMutation.run,
+                        onPressed: _busy || job.runInFlight ? null : _runNow,
+                      ),
+                      // Not gated on [_busy]: this card's own Run now holds
+                      // it for as long as the run lasts.
+                      if (widget.canStop && (_runLive || widget.stopping))
+                        ConduitButton(
+                          key: ValueKey<String>('hermes-job-stop-${job.id}'),
+                          text: widget.stopping
+                              ? l10n.hermesJobStopping
+                              : l10n.hermesJobStop,
+                          isSecondary: true,
+                          isDestructive: true,
+                          isCompact: true,
+                          isLoading: widget.stopping,
+                          onPressed: widget.stopping ? null : _stop,
+                        ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
                 ConduitIconButton(
                   icon: Icons.edit_outlined,
                   iconColor: theme.iconSecondary,
@@ -425,25 +708,26 @@ class _JobCardState extends ConsumerState<_JobCard> {
         '${material.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
   }
 
-  Future<void> _runMutation({
+  Future<bool> _runMutation({
     required _JobMutation mutation,
     required Future<void> Function() action,
     required String failureMessage,
     String? successMessage,
   }) async {
-    if (_busy) return;
+    if (_busy) return false;
     if (ref.read(hermesApiServiceProvider) == null) {
       UiUtils.showMessage(context, failureMessage, isError: true);
-      return;
+      return false;
     }
     setState(() => _mutation = mutation);
-    await runHermesJobMutation(
+    final succeeded = await runHermesJobMutation(
       context,
       action: action,
       failureMessage: failureMessage,
       successMessage: successMessage,
     );
     if (mounted) setState(() => _mutation = null);
+    return succeeded;
   }
 
   Future<void> _setEnabled(bool enabled) => _runMutation(
@@ -458,12 +742,30 @@ class _JobCardState extends ConsumerState<_JobCard> {
         : _l10n(context).hermesJobPausedSuccess,
   );
 
-  Future<void> _runNow() => _runMutation(
-    mutation: _JobMutation.run,
-    action: () => ref.read(hermesJobsProvider.notifier).runNow(job.id),
-    failureMessage: _l10n(context).hermesJobRunFailed,
-    successMessage: _l10n(context).hermesJobStarted,
-  );
+  Future<void> _runNow() async {
+    if (_busy) return;
+    final l10n = _l10n(context);
+    final onRunPendingChanged = widget.onRunPendingChanged;
+    _stopRequestedDuringRun = false;
+    onRunPendingChanged?.call(true);
+    try {
+      final started = await _runMutation(
+        mutation: _JobMutation.run,
+        action: () => ref.read(hermesJobsProvider.notifier).runNow(job.id),
+        failureMessage: l10n.hermesJobRunFailed,
+      );
+      if (started && mounted && !_stopRequestedDuringRun) {
+        UiUtils.showMessage(context, l10n.hermesJobStarted);
+      }
+    } finally {
+      onRunPendingChanged?.call(false);
+    }
+  }
+
+  void _stop() {
+    if (_mutation == _JobMutation.run) _stopRequestedDuringRun = true;
+    widget.onStop?.call();
+  }
 
   Future<void> _editJob() async {
     final result = await showHermesJobEditor(
@@ -471,6 +773,11 @@ class _JobCardState extends ConsumerState<_JobCard> {
       initialName: job.name ?? job.displayName,
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
+      initialDeliver: job.deliveryTarget,
+      initialCatchUp: job.catchUpChoice,
+      scheduling:
+          ref.read(hermesConfigProvider).mode ==
+          HermesBackendMode.desktopGateway,
     );
     if (result == null || !mounted) return;
     await _runMutation(
@@ -482,6 +789,8 @@ class _JobCardState extends ConsumerState<_JobCard> {
             name: result.name,
             prompt: result.prompt,
             schedule: result.schedule,
+            deliver: result.deliver,
+            catchUp: result.catchUp,
           ),
       failureMessage: _l10n(context).hermesJobUpdateFailed,
       successMessage: _l10n(context).hermesJobUpdated,

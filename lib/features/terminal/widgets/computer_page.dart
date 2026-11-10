@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
@@ -797,6 +798,23 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       keyboardButton,
       moreButton,
     ]);
+    // On iOS 26 Keyboard and More share one glass capsule, as an iOS bar
+    // groups them.
+    final nativeMenu = conduitSupportsNativeGlass()
+        ? ConduitNativeToolbarAction(
+            iosSymbol: 'ellipsis',
+            accessibilityLabel: MaterialLocalizations.of(context)
+                .moreButtonTooltip,
+            tintColor: tint,
+            // Its sections and palette row, as the separate button shows.
+            menuEntries: _menuItems(l10n),
+            onMenuEntrySelected: (entry) {
+              if (entry.value case final String action) {
+                unawaited(_onMenu(action));
+              }
+            },
+          )
+        : null;
 
     return AdaptiveScaffold(
       // The screen moves up above the keyboard; the browser keeps its
@@ -823,10 +841,25 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
           onSelected: _select,
         ),
         actions: actions,
-        cupertinoTrailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: actions,
-        ),
+        cupertinoTrailing: nativeMenu != null
+            ? ConduitNativeToolbarActionGroup(
+                key: const ValueKey('computer-toolbar-actions'),
+                actions: [
+                  ConduitNativeToolbarAction(
+                    iosSymbol: keyboardOpen
+                        ? 'keyboard.chevron.compact.down'
+                        : 'keyboard',
+                    accessibilityLabel: keyboardOpen
+                        ? l10n.computerHideKeyboard
+                        : l10n.computerShowKeyboard,
+                    tintColor: tint,
+                    onPressed: keyboardEnabled ? _toggleKeyboard : null,
+                    enabled: keyboardEnabled,
+                  ),
+                  nativeMenu,
+                ],
+              )
+            : Row(mainAxisSize: MainAxisSize.min, children: actions),
       ),
       body: SafeArea(
         bottom: !keyboardOpen,
@@ -1241,7 +1274,7 @@ class _ComputerTitle extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         AdaptiveSymbolIcon(
-          symbol: desktop ? 'desktopcomputer' : 'globe',
+          symbol: desktop ? 'display' : 'globe',
           fallbackIcon: desktop
               ? Icons.desktop_windows_outlined
               : Icons.public_rounded,
@@ -1295,7 +1328,7 @@ class _ComputerTitle extends StatelessWidget {
         value: ComputerSurface.desktop,
         label: l10n.computerDesktop,
         icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'desktopcomputer',
+          iosSymbol: 'display',
           materialIcon: Icons.desktop_windows_outlined,
         ),
         checked: desktop,

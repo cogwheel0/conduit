@@ -304,7 +304,7 @@ class ProfilePage extends ConsumerWidget {
 
   /// Who Settings is for -- the Open WebUI account signed in, else the
   /// Hermes connection in use, else Direct -- leading to every account and
-  /// connection, with the way to add another under it.
+  /// connection. Adding another is the last row of that page.
   Widget _buildAccountCard(
     BuildContext context,
     WidgetRef ref, {
@@ -372,17 +372,6 @@ class ProfilePage extends ConsumerWidget {
           subtitle: card.subtitle,
           showChevron: true,
           onTap: () => context.pushNamed(RouteNames.accounts),
-        ),
-        UtilityRow(
-          key: const Key('settings-add-account'),
-          title: l10n.accountsAddAccount,
-          foregroundColor: theme.buttonPrimary,
-          leading: _buildIconBadge(
-            context,
-            UiUtils.platformIcon(ios: CupertinoIcons.add, android: Icons.add),
-            color: theme.buttonPrimary,
-          ),
-          onTap: () => showAddAccountSheet(context, ref),
         ),
       ],
     );

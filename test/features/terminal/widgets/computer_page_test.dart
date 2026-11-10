@@ -18,6 +18,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+
+import '../../../support/native_platform_views.dart';
 import 'computer_test_platform.dart';
 
 class _Service extends Mock implements ComputerService {}
@@ -50,6 +54,7 @@ Widget _harness(
   bool Function()? enabled,
   ComputerCapabilities capabilities = _both,
   bool responding = false,
+  TargetPlatform platform = TargetPlatform.android,
 }) => ProviderScope(
   overrides: [
     computerEnabledProvider.overrideWith((ref) => enabled?.call() ?? true),
@@ -67,7 +72,7 @@ Widget _harness(
       computerTakeControlProvider.overrideWithValue(takeControl),
   ],
   child: MaterialApp(
-    theme: ThemeData(platform: TargetPlatform.android),
+    theme: ThemeData(platform: platform),
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     builder: (context, child) => MediaQuery(
@@ -209,9 +214,39 @@ void main() {
     );
   });
 
+  testWidgets('on iOS 26 Keyboard and More share one glass capsule', (
+    tester,
+  ) async {
+    stubNativePlatformViews();
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final service = _Service();
+    when(() => service.open(any()))
+        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+    await tester.pumpWidget(_harness(service, platform: TargetPlatform.iOS));
+    await _frames(tester);
+
+    final cluster = tester.widget<ConduitToolbarActionCluster>(
+      find.descendant(
+        of: find.byKey(const ValueKey('computer-toolbar-actions')),
+        matching: find.byType(ConduitToolbarActionCluster),
+      ),
+    );
+    expect(
+      [for (final item in cluster.items) item.action.iosSymbol],
+      ['keyboard', 'ellipsis'],
+    );
+    // More keeps its sections and palette row inside the capsule.
+    expect(cluster.items.last.action.menuEntries, isNotEmpty);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+  });
+
   for (final accepted in [true, false]) {
     testWidgets('the user drives while idle and watches a running response '
-        'until Take control stops it (accepted: $accepted)', (tester) async {
+        'until Take Control stops it (accepted: $accepted)', (tester) async {
       final service = _Service();
       when(() => service.open(any()))
           .thenAnswer((_) async => _connection(ComputerSurface.desktop));
@@ -246,7 +281,7 @@ void main() {
       await _frames(tester);
       expect(find.byKey(const ValueKey('computer-key-row')), findsNothing);
 
-      await tester.tap(find.text('Take control'));
+      await tester.tap(find.text('Take Control'));
       await _frames(tester);
       expect(gates, 1);
       if (accepted) {
@@ -356,7 +391,7 @@ void main() {
     await _live(tester);
     await tester.tap(find.byKey(const ValueKey('computer-keyboard-button')));
     await _frames(tester);
-    await tester.tap(find.bySemanticsLabel('Keyboard shortcut'));
+    await tester.tap(find.bySemanticsLabel('Keyboard Shortcut'));
     await _frames(tester);
     final input = tester.widget<EditableText>(
       find.descendant(
@@ -398,18 +433,18 @@ void main() {
       await _frames(tester);
       var web = await _live(tester);
       await _openMenu(tester);
-      expect(find.text('Recenter pointer'), findsNothing);
-      await tester.tap(find.text('Trackpad mode'));
+      expect(find.text('Recenter Pointer'), findsNothing);
+      await tester.tap(find.text('Trackpad Mode'));
       await _frames(tester);
       expect(web.scripts, contains('window.computer?.trackpad(true)'));
-      await _menu(tester, 'Recenter pointer');
+      await _menu(tester, 'Recenter Pointer');
       await _menu(tester, 'Paste');
-      await _menu(tester, 'Right-click');
-      await _menu(tester, 'Start drag');
+      await _menu(tester, 'Right-Click');
+      await _menu(tester, 'Start Drag');
       // The viewer reports the held drag; the same row now ends it.
       _view(tester).onState({'status': 'pointer', 'dragging': true});
       await _frames(tester);
-      await _menu(tester, 'End drag');
+      await _menu(tester, 'End Drag');
       expect(_commands(web), [
         {'type': 'recenter'},
         {'type': 'paste', 'text': 'Workshop plan'},
@@ -448,10 +483,10 @@ void main() {
     await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
     await _frames(tester);
     await _live(tester);
-    await _menu(tester, 'Browser tabs');
+    await _menu(tester, 'Browser Tabs');
     await _frames(tester);
     expect(find.byType(ComputerBrowserTabs), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('Close tab: Workshop'));
+    await tester.tap(find.bySemanticsLabel('Close Tab: Workshop'));
     await _frames(tester);
     verify(() => service.closeBrowserTab('one')).called(1);
     expect(find.byType(ComputerSurfaceView), findsNothing);
@@ -464,11 +499,11 @@ void main() {
     expect(find.text('No browser tabs'), findsOneWidget);
     verifyNever(service.createBrowserTab);
 
-    await tester.tap(find.text('New tab'));
+    await tester.tap(find.text('New Tab'));
     await _frames(tester);
     verify(service.createBrowserTab).called(1);
     await _live(tester);
-    await _menu(tester, 'Browser tabs');
+    await _menu(tester, 'Browser Tabs');
     expect(find.byType(ComputerBrowserTabs), findsOneWidget);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await _frames(tester);
@@ -539,11 +574,11 @@ void main() {
       }
       expect(find.byType(ComputerSurfaceView), findsNothing);
       expect(
-        find.text('Take control to start this tab’s live view.'),
+        find.text('Take Control to start this tab’s live view.'),
         findsOneWidget,
       );
       await tester.pump(const Duration(seconds: 3));
-      await tester.tap(find.text('Take control'));
+      await tester.tap(find.text('Take Control'));
       await tester.pump();
       verifyNever(() => service.selectBrowserTab('proxy-tab'));
       gate.complete(outcome == 'accepted');
@@ -683,9 +718,9 @@ void main() {
   });
 
   for (final overlay in [
-    'Browser tabs',
-    'Go to address',
-    'Keyboard shortcut',
+    'Browser Tabs',
+    'Go to Address',
+    'Keyboard Shortcut',
   ]) {
     testWidgets('a response invalidates $overlay without acting for the user', (
       tester,
@@ -697,7 +732,7 @@ void main() {
       await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
       await _frames(tester);
       final web = await _live(tester);
-      if (overlay == 'Keyboard shortcut') {
+      if (overlay == 'Keyboard Shortcut') {
         await tester.tap(
           find.byKey(const ValueKey('computer-keyboard-button')),
         );
@@ -707,12 +742,12 @@ void main() {
       } else {
         await _menu(tester, overlay);
       }
-      if (overlay != 'Browser tabs') {
+      if (overlay != 'Browser Tabs') {
         await tester.enterText(find.byType(TextField), 'synthetic');
       }
       _respond(tester, running: true);
       await _frames(tester);
-      if (overlay == 'Browser tabs') {
+      if (overlay == 'Browser Tabs') {
         expect(find.byType(ComputerBrowserTabs), findsNothing);
       } else {
         await tester.tap(find.text('Send'));
@@ -749,7 +784,7 @@ void main() {
       await _frames(tester);
       await _live(tester);
       await _openMenu(tester);
-      await tester.tap(find.text('Browser tabs').last);
+      await tester.tap(find.text('Browser Tabs').last);
       if (timing == 'pushed') await tester.pump();
       if (timing == 'covered') {
         await _frames(tester);

@@ -60,10 +60,10 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Tool settings'));
+      await tester.tap(find.text('Tool Settings'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Your settings'), findsOneWidget);
+      expect(find.text('Your Settings'), findsOneWidget);
       final field = find.byKey(const Key('workspace-tool-valve-input-region'));
       await tester.tap(field);
       tester.view.viewInsets = const FakeViewPadding(bottom: _keyboardHeight);
@@ -87,7 +87,7 @@ void main() {
         harness.valveRequests.map((r) => r.path),
         everyElement(contains('/valves/user')),
       );
-      expect(find.text('Your settings'), findsNothing);
+      expect(find.text('Your Settings'), findsNothing);
       expect(find.text(_en.personalToolSettingsSaved), findsOneWidget);
     },
   );
@@ -135,7 +135,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
 
-    expect(find.text('Tool settings'), findsNothing);
+    expect(find.text('Tool Settings'), findsNothing);
     expect(harness.valveRequests, isEmpty);
   });
 
@@ -155,11 +155,11 @@ void main() {
       harness.requests.map((r) => r.path),
       contains('/api/v1/functions/id/echo_pipe/valves/user/spec'),
     );
-    expect(find.text('Your settings'), findsOneWidget);
+    expect(find.text('Your Settings'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('personal-valves-back')));
     await tester.pumpAndSettle();
-    expect(find.text('Your settings'), findsNothing);
+    expect(find.text('Your Settings'), findsNothing);
     expect(
       find.byKey(const Key('personal-valves-target-tool-shared_tool')),
       findsOneWidget,
@@ -247,7 +247,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
-      expect(find.text('Your settings'), findsNothing);
+      expect(find.text('Your Settings'), findsNothing);
     });
 
     testWidgets('Close with edits asks; Keep Editing keeps them', (
@@ -264,7 +264,7 @@ void main() {
       expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
       await tester.tap(find.text(_en.workspaceEditorKeepEditing));
       await tester.pumpAndSettle();
-      expect(find.text('Your settings'), findsOneWidget);
+      expect(find.text('Your Settings'), findsOneWidget);
       expect(find.text('typed'), findsOneWidget);
 
       await tester.tap(find.byType(SheetCloseButton));
@@ -272,7 +272,7 @@ void main() {
       await tester.tap(find.text(_en.workspaceEditorDiscardConfirm));
       await tester.pumpAndSettle();
 
-      expect(find.text('Your settings'), findsNothing);
+      expect(find.text('Your Settings'), findsNothing);
       expect(harness.valveRequests.where((r) => r.method == 'POST'), isEmpty);
     });
 
@@ -288,7 +288,7 @@ void main() {
       expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
       await tester.tap(find.text(_en.workspaceEditorDiscardConfirm));
       await tester.pumpAndSettle();
-      expect(find.text('Your settings'), findsNothing);
+      expect(find.text('Your Settings'), findsNothing);
     });
 
     testWidgets('swiping the sheet down with edits asks instead of closing', (
@@ -305,7 +305,7 @@ void main() {
       expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
       await tester.tap(find.text(_en.workspaceEditorKeepEditing));
       await tester.pumpAndSettle();
-      expect(find.text('Your settings'), findsOneWidget);
+      expect(find.text('Your Settings'), findsOneWidget);
       expect(find.text('typed'), findsOneWidget);
     });
 
@@ -339,12 +339,12 @@ void main() {
       await tester.fling(find.text('Shared tool'), const Offset(0, 500), 2000);
       await tester.pumpAndSettle();
       expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
-      expect(find.text('Your settings'), findsOneWidget);
+      expect(find.text('Your Settings'), findsOneWidget);
 
       gate.complete();
       await tester.pumpAndSettle();
       expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
-      expect(find.text('Your settings'), findsNothing);
+      expect(find.text('Your Settings'), findsNothing);
       expect(find.text(_en.personalToolSettingsSaved), findsOneWidget);
       expect(
         harness.valveRequests.where((r) => r.method == 'POST'),

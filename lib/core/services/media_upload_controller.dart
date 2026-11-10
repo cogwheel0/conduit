@@ -1297,6 +1297,10 @@ class MediaUploadController {
             selectedModelSupportsImages: currentModel.isMultimodal == true,
             selectedModelSupportsOpenRouterPdf:
                 currentModel.capabilities?['pdf_input'] == true,
+            maxImages: effectiveDirectMaxImagesPerRequest(
+              adapterKey: directBinding.adapterKey,
+              configured: _ref.read(directMaxImagesPerRequestProvider),
+            ),
             inflight: inflight,
           );
           _throwIfOperationNotActive(filePath, inflight);
@@ -1782,6 +1786,7 @@ class MediaUploadController {
     required bool isImage,
     required bool selectedModelSupportsImages,
     required bool selectedModelSupportsOpenRouterPdf,
+    required int maxImages,
     required _InflightUpload inflight,
   }) async {
     if (!isImage) {
@@ -1862,9 +1867,10 @@ class MediaUploadController {
           attachment.file.path: attachment,
     };
     final imagePaths = <String>{...imagesByPath.keys, filePath};
-    if (imagePaths.length > kDirectMaxImages) {
-      throw const DirectChatInputException(
-        'Direct chats support up to 4 images per request.',
+    if (imagePaths.length > maxImages) {
+      throw DirectChatInputException(
+        'Direct chats support up to $maxImages '
+        '${maxImages == 1 ? 'image' : 'images'} per message.',
       );
     }
 
@@ -2110,7 +2116,8 @@ class MediaUploadController {
           !isHermesLocalDocumentFileNameSupported(fileName)) {
         throw HermesChatInputException(
           isHermesResponsesPdfFileNameSupported(fileName)
-              ? 'This Hermes server does not advertise Responses file input.'
+              ? "Hermes can't read PDF attachments over this connection. "
+                    'Attach text or DOCX files instead.'
               : 'Hermes supports local UTF-8 text and DOCX documents.',
         );
       }

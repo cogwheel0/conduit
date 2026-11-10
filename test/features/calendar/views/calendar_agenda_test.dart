@@ -61,7 +61,7 @@ void main() {
         expect(find.text(day), findsOneWidget);
       }
       expect(find.text('Offsite'), findsNWidgets(3));
-      expect(find.text('All day'), findsNWidgets(3));
+      expect(find.text('All Day'), findsNWidgets(3));
       expect(
         find.text("Times are shown in this device's time zone."),
         findsOneWidget,
@@ -98,13 +98,13 @@ void main() {
 
       expect(item('ev-night|'), findsNWidgets(3));
       expect(label('ev-night|', 0), 'Night shift. Starts 10:00 PM. Personal');
-      expect(label('ev-night|', 1), 'Night shift. All day. Personal');
+      expect(label('ev-night|', 1), 'Night shift. All Day. Personal');
       expect(label('ev-night|', 2), 'Night shift. Ends 2:00 AM. Personal');
       // The first day's time was once its whole span.
       expect(find.text('10:00 PM – 2:00 AM'), findsNothing);
       expect(item('ev-weekend|'), findsNWidgets(2));
       expect(label('ev-weekend|', 0), 'Weekend. Starts 10:00 PM. Personal');
-      expect(label('ev-weekend|', 1), 'Weekend. All day. Personal');
+      expect(label('ev-weekend|', 1), 'Weekend. All Day. Personal');
       // Ending at midnight leaves no row on the next day.
       expect(
         find.byKey(const Key('calendar-day-2026-10-12T00:00')),
@@ -173,7 +173,7 @@ void main() {
 
       expect(
         tester.getSemantics(item('ev-mine|')).label,
-        'Untitled event. 5:09 PM – 6:09 PM. Personal',
+        'Untitled Event. 5:09 PM – 6:09 PM. Personal',
       );
       expect(
         tester.getSemantics(item('ev-invite|')).label,
@@ -285,8 +285,8 @@ void main() {
 
       // Already at today, so there is nowhere to return to.
       expect(today().onPressed, isNull);
-      expect(find.byTooltip('Previous 14 days'), findsOneWidget);
-      expect(find.byTooltip('Next 14 days'), findsOneWidget);
+      expect(find.byTooltip('Previous 14 Days'), findsOneWidget);
+      expect(find.byTooltip('Next 14 Days'), findsOneWidget);
 
       final gate = Completer<void>();
       session.wire.holdAgenda = gate;
@@ -385,10 +385,10 @@ void main() {
     testWidgets('a new event starts from the navigation bar', (tester) async {
       await pumpCalendar(tester);
 
-      expect(find.byTooltip('New event'), findsOneWidget);
+      expect(find.byTooltip('New Event'), findsOneWidget);
       await tester.tap(find.byKey(const Key('calendar-add-event')));
       await tester.pumpAndSettle();
-      expect(find.text('New event'), findsWidgets);
+      expect(find.text('New Event'), findsWidgets);
       expect(find.byKey(const Key('calendar-editor-save')), findsOneWidget);
     });
   });
@@ -689,7 +689,7 @@ void main() {
 
       await tester.tap(item('ev-ro|'));
       await tester.pumpAndSettle();
-      await tester.tap(rsvp("Can't go"));
+      await tester.tap(rsvp("Can't Go"));
       await tester.pumpAndSettle();
 
       expect(session.wire.writes.single.uri.path, endsWith('/ev-ro/rsvp'));
@@ -829,7 +829,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Delete Untitled event? This cannot be undone.'),
+        find.text('Delete Untitled Event? This cannot be undone.'),
         findsOneWidget,
       );
     });
@@ -918,13 +918,13 @@ void main() {
       await tester.tap(item('series-1|series-1_1'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Edit series'), findsOneWidget);
-      expect(find.text('Delete series'), findsOneWidget);
+      expect(find.text('Edit Series'), findsOneWidget);
+      expect(find.text('Delete Series'), findsOneWidget);
       expect(find.byKey(const Key('calendar-event-repeat')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('calendar-event-delete')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ConduitTextButton, 'Delete series'));
+      await tester.tap(find.widgetWithText(ConduitTextButton, 'Delete Series'));
       await tester.pumpAndSettle();
 
       expect(

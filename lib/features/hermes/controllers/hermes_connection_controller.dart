@@ -132,6 +132,7 @@ final class HermesConnectionController extends ChangeNotifier {
        _desktopAuthKind = initialConfig.desktopAuthKind,
        _desktopProfile = initialConfig.desktopProfile,
        _allowSelfSignedCertificates = initialConfig.allowSelfSignedCertificates,
+       _plainHttpConsentOrigin = initialConfig.plainHttpConsentOrigin,
        _initialAccessHeaders = Map.of(initialConfig.accessHeaders),
        _accessHeaders = Map.of(initialConfig.accessHeaders);
 
@@ -151,6 +152,9 @@ final class HermesConnectionController extends ChangeNotifier {
   HermesDesktopAuthKind _desktopAuthKind;
   String _desktopProfile;
   bool _allowSelfSignedCertificates;
+
+  /// The origin the user agreed to send credentials to unencrypted.
+  String? _plainHttpConsentOrigin;
   Map<String, String> _initialAccessHeaders;
   Map<String, String> _accessHeaders;
 
@@ -188,6 +192,18 @@ final class HermesConnectionController extends ChangeNotifier {
   }
 
   bool draftIsUsable(HermesConfig saved) => _validate(saved) == null;
+
+  /// Whether the draft would send its credentials unencrypted to a server
+  /// the user has not agreed to: ask with [grantPlainHttpConsent] before
+  /// testing, saving or signing in.
+  bool needsPlainHttpConsent(HermesConfig saved) =>
+      !buildDraft(saved).config.mayUsePlainHttp;
+
+  /// Records the user's agreement to send credentials unencrypted to the
+  /// draft URL's origin; editing the URL to another one asks again.
+  void grantPlainHttpConsent() {
+    _plainHttpConsentOrigin = HermesConfig.plainHttpOrigin(url.text);
+  }
 
   HermesConnectionDraft buildDraft(HermesConfig saved) {
     final trimmedUrl = url.text.trim();
@@ -232,6 +248,8 @@ final class HermesConnectionController extends ChangeNotifier {
         desktopAuthKind: _desktopAuthKind,
         desktopProfile: _desktopProfile,
         allowSelfSignedCertificates: _allowSelfSignedCertificates,
+        plainHttpConsentOrigin:
+            _plainHttpConsentOrigin ?? saved.plainHttpConsentOrigin,
         apiKey: originChanged || apiKeyDirty
             ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
             : saved.apiKey,

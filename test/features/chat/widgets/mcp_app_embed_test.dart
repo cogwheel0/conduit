@@ -202,7 +202,7 @@ _WebViews _installWebViews() {
 Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
   final webViews = _installWebViews();
   await tester.pumpWidget(_harness(api));
-  await tester.tap(find.text('Open app'));
+  await tester.tap(find.text('Open App'));
   await tester.pump();
   await tester.pump();
   final app = _OpenApp(webViews);
@@ -334,7 +334,7 @@ void main() {
     final webViews = _installWebViews();
     await tester.pumpWidget(_harness(_ServingApi(csp: null)));
 
-    await tester.tap(find.text('Open app'));
+    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
 
     expect(
@@ -387,7 +387,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Open app'));
+    await tester.tap(find.text('Open App'));
     await tester.pump();
     await tester.pump();
 
@@ -454,7 +454,7 @@ void main() {
     await tester.pumpWidget(_harness(api));
 
     expect(find.text('show_map'), findsOneWidget);
-    expect(find.text('Open app'), findsOneWidget);
+    expect(find.text('Open App'), findsOneWidget);
     expect(api.requests, isEmpty);
   });
 
@@ -464,7 +464,7 @@ void main() {
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
 
-    await tester.tap(find.text('Open app'));
+    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
 
     expect(api.requests, ['ui/resource']);
@@ -486,7 +486,7 @@ void main() {
     // Two answers calling the same tool share its binding.
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
-    await tester.tap(find.text('Open app'));
+    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
 
@@ -503,7 +503,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open app'), findsOneWidget);
+    expect(find.text('Open App'), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
   });
 

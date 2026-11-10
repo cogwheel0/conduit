@@ -314,5 +314,158 @@ void main() {
         'text:end',
       ]);
     });
+
+    group('ignoreTagsInCode', () {
+      String answerOf(
+        StreamingReasoningTagSplitter splitter,
+        List<String> chunks,
+      ) {
+        final events = <RawReasoningTagEvent>[
+          for (final chunk in chunks) ...splitter.feed(chunk),
+          ...splitter.flush(),
+        ];
+        check(events.whereType<RawReasoningTagReasoning>()).isEmpty();
+        return events
+            .whereType<RawReasoningTagText>()
+            .map((event) => event.text)
+            .join();
+      }
+
+      /// [collect] for [chunks], with neighbouring text or reasoning pieces
+      /// joined, so one text gives the same list however it is cut.
+      List<String> joined(List<String> chunks) {
+        final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+        final pieces = <String>[];
+        for (final piece in collect([
+          for (final chunk in chunks) ...splitter.feed(chunk),
+          ...splitter.flush(),
+        ]).cast<String>()) {
+          final kind = piece.substring(0, piece.indexOf(':') + 1);
+          if (kind.isNotEmpty &&
+              pieces.isNotEmpty &&
+              pieces.last.startsWith(kind)) {
+            pieces.last += piece.substring(kind.length);
+          } else {
+            pieces.add(piece);
+          }
+        }
+        return pieces;
+      }
+
+      List<String> characters(String text) => [
+        for (var index = 0; index < text.length; index++) text[index],
+      ];
+
+      test('leaves tags in inline code spans as text', () {
+        const text = 'Use `<think>` or `` <thinking> `` there.';
+        check(
+          answerOf(StreamingReasoningTagSplitter(ignoreTagsInCode: true), [
+            text,
+          ]),
+        ).equals(text);
+      });
+
+      test('leaves tags in backtick and tilde fences as text', () {
+        const text =
+            'Example:\n'
+            '   ```xml\n'
+            '<think>draft</think>\n'
+            '```\n'
+            '~~~~\n'
+            '<thought>x</thought>\n'
+            '~~~\n'
+            '~~~~\n';
+        check(
+          answerOf(StreamingReasoningTagSplitter(ignoreTagsInCode: true), [
+            text,
+          ]),
+        ).equals(text);
+      });
+
+      test('reads backtick runs and tags cut across chunks', () {
+        const text = 'A ```` `` <think> ```` span, then\n``\n`<think>`';
+        final chunks = <String>[];
+        for (var index = 0; index < text.length; index++) {
+          chunks.add(text[index]);
+        }
+        check(
+          answerOf(
+            StreamingReasoningTagSplitter(ignoreTagsInCode: true),
+            chunks,
+          ),
+        ).equals(text);
+      });
+
+      test('splits tags outside code, before and after it', () {
+        final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+        final events = <RawReasoningTagEvent>[
+          ...splitter.feed('<think>first</think>`<think>` and\n'),
+          ...splitter.feed('```\n<think>\n```\n<think>second</think>end'),
+        ];
+        check(collect(events)).deepEquals([
+          'reason:first',
+          'end',
+          'text:`<think>',
+          'text:` and\n',
+          'text:```\n<think>',
+          'text:\n```\n',
+          'reason:second',
+          'end',
+          'text:end',
+        ]);
+      });
+
+      test('keeps a fence open past a marker line with text after it', () {
+        const text =
+            '```\n'
+            '```js\n'
+            '<think>sample</think>\n'
+            '```<think>\n'
+            '```\n'
+            '~~~\n'
+            '~~~xml\n'
+            '<thought>sample</thought>\n'
+            '~~~ \n'
+            '<think>real</think>after';
+        const expected = [
+          'text:```\n```js\n<think>sample</think>\n```<think>\n```\n'
+              '~~~\n~~~xml\n<thought>sample</thought>\n~~~ \n',
+          'reason:real',
+          'end',
+          'text:after',
+        ];
+        check(joined([text])).deepEquals(expected);
+        check(joined(characters(text))).deepEquals(expected);
+      });
+
+      test('reads a backslash-escaped backtick outside code as text', () {
+        const text =
+            r'Type \` for a tick. <think>real</think>'
+            r'A \\`<think>` span, and `a\`<think>also real</think>';
+        const expected = [
+          r'text:Type \` for a tick. ',
+          'reason:real',
+          'end',
+          r'text:A \\`<think>` span, and `a\`',
+          'reason:also real',
+          'end',
+        ];
+        check(joined([text])).deepEquals(expected);
+        check(joined(characters(text))).deepEquals(expected);
+      });
+
+      test('ends an unclosed inline span at a blank line', () {
+        final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+        final events = splitter.feed('a stray ` tick\n\n<think>real</think>');
+        check(collect(events))
+            .deepEquals(['text:a stray ` tick\n\n', 'reason:real', 'end']);
+      });
+
+      test('is off by default, as Open WebUI splits tags anywhere', () {
+        final splitter = StreamingReasoningTagSplitter();
+        check(collect(splitter.feed('`<think>x</think>`')))
+            .deepEquals(['text:`', 'reason:x', 'end', 'text:`']);
+      });
+    });
   });
 }

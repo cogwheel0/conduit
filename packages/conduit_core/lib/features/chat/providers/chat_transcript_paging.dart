@@ -40,8 +40,15 @@ class ChatTranscriptPagingNotifier extends Notifier<ChatTranscriptPagingState> {
     }
   }
 
-  void ensureTotal(int totalMessages) {
-    final loaded = math.min(state.loadedCount, totalMessages);
+  /// Fits the window to [totalMessages]. [minimumLoaded] is how many rows
+  /// the timeline already shows (a window that grew at its tail when
+  /// messages were appended), so paging never claims fewer than are on
+  /// screen.
+  void ensureTotal(int totalMessages, {int minimumLoaded = 0}) {
+    final loaded = math.min(
+      math.max(state.loadedCount, minimumLoaded),
+      totalMessages,
+    );
     final normalized = totalMessages == 0
         ? 0
         : math.max(math.min(kChatTranscriptPageSize, totalMessages), loaded);
