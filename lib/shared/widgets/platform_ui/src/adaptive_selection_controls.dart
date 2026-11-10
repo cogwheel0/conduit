@@ -277,7 +277,8 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         onChangeEnd: _onNativeChangeEnd,
         // Not the package's own tap to seek: on a thumbless slider it maps a
         // tap between the centres of the thumb it does not draw, so a tap
-        // near either end of the track lands on the end.
+        // near either end of the track lands on the end
+        // (gunumdogdu/cupertino_native_better#151).
         seekOnTap: false,
         trackColor: widget.activeColor,
         thumbColor: widget.thumbColor,
