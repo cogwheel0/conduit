@@ -2223,12 +2223,16 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         config.desktopAuthKind,
         config.desktopProfile,
         config.allowSelfSignedCertificates,
+        config.plainHttpConsentOrigin,
         config.isUsable,
       ),
     ),
   );
   final config = ref.read(hermesConfigProvider);
-  if (!config.isUsable) return null;
+  // Saves never store a plain HTTP connection without consent; one that
+  // reached storage another way still sends nothing (its status, access
+  // headers and all) until its consent is given.
+  if (!config.isUsable || !config.mayUsePlainHttp) return null;
   final HermesBackendService service;
   if (config.mode == HermesBackendMode.desktopGateway) {
     // Rotations land even after this client is replaced, as by a switch

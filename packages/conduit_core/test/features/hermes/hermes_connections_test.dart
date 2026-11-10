@@ -1105,6 +1105,29 @@ void main() {
       check(saved().plainHttpConsentOrigin).isNull();
     });
 
+    // Saves never store one, but a connection that reached storage another
+    // way must not send its status, access headers and all, unasked.
+    test('an active connection without consent gets no client', () async {
+      _seedConnections([_profile(_a, 'Lab', lan)], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'lan-key'}),
+      );
+      addTearDown(container.dispose);
+      check(container.read(hermesConfigProvider).isUsable).isTrue();
+
+      check(container.read(hermesApiServiceProvider)).isNull();
+      check(await container.read(hermesServerStatusProvider.future)).isEmpty();
+
+      await container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(
+            connectionId: _a,
+            baseUrl: lan,
+            plainHttpConsentOrigin: origin,
+          );
+      check(container.read(hermesApiServiceProvider)).isNotNull();
+    });
+
     test('a draft is not probed unencrypted without consent', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),
