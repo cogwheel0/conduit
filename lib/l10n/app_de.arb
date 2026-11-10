@@ -4463,5 +4463,19 @@
   "hermesContinueInCopyFailed": "Dieser Chat konnte nicht kopiert werden. Versuche es erneut.",
   "hermesContinueHere": "Hier fortsetzen",
   "hermesContinueHereFailed": "Dieser Chat konnte hier nicht fortgesetzt werden. Versuche es erneut.",
-  "hermesContinueChoiceExplanation": "Wenn du hier fortsetzt, endet dieser Chat in der anderen App, und sie beginnt bei der nächsten Nachricht einen neuen. Eine Kopie lässt den Chat unverändert, speichert die früheren Nachrichten aber nur auf diesem Gerät. Sie behält bis zu 1.000 der neuesten Nachrichten (1 MB), für die 32 zuletzt geöffneten Kopien."
+  "hermesContinueChoiceExplanation": "Wenn du hier fortsetzt, endet dieser Chat in der anderen App, und sie beginnt bei der nächsten Nachricht einen neuen. Eine Kopie lässt den Chat unverändert, speichert die früheren Nachrichten aber nur auf diesem Gerät. Sie behält bis zu 1.000 der neuesten Nachrichten (1 MB), für die 32 zuletzt geöffneten Kopien.",
+  "hermesSessionHide": "Ausblenden",
+  "hermesSessionUnhide": "Einblenden",
+  "hermesSessionUpdateFailed": "Dieser Chat konnte nicht aktualisiert werden. Versuche es erneut.",
+  "hermesSessionHiddenNotice": "Chat ausgeblendet. Du findest ihn in den Hermes-Einstellungen unter „Ausgeblendete Chats“.",
+  "hermesHiddenChatsTitle": "Ausgeblendete Chats",
+  "hermesHiddenChatsDescription": "Auf diesem Gerät aus der Hermes-Liste ausgeblendete Chats. Tippe auf einen, um ihn zu öffnen, oder blende ihn wieder ein, damit er wieder in der Liste erscheint.",
+  "hermesHiddenChatsEmpty": "Keine auf diesem Gerät ausgeblendeten Chats.",
+  "hermesHiddenChatsLoadError": "Ausgeblendete Chats konnten nicht geladen werden.",
+  "hermesBranchFromHere": "Ab hier abzweigen",
+  "hermesBranchFailed": "Von diesem Chat konnte nicht abgezweigt werden. Versuche es erneut.",
+  "hermesUndoLastTurn": "Letzten Nachrichtenaustausch rückgängig machen",
+  "hermesUndoLastTurnDone": "Letzter Nachrichtenaustausch rückgängig gemacht.",
+  "hermesUndoLastTurnFailed": "Der letzte Nachrichtenaustausch konnte nicht rückgängig gemacht werden. Versuche es erneut.",
+  "hermesArchivedLoadError": "Archivierte Chats konnten nicht geladen werden."
 }

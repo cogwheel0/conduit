@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -66,7 +67,7 @@ class HermesSessionTile extends ConsumerWidget {
       previewBuilder: buildConversationTileContextPreview,
       child: ConversationTile(
         title: _displayTitle(context),
-        pinned: false,
+        pinned: session.pinned,
         selected: selected,
         isLoading: false,
         isGenerating: isGenerating,
@@ -93,7 +94,50 @@ class HermesSessionTile extends ConsumerWidget {
     WidgetRef ref,
   ) {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    final pinned = session.pinned;
+    final archived = session.archived;
     return [
+      if (!archived)
+        ConduitContextMenuAction(
+          cupertinoIcon: pinned
+              ? CupertinoIcons.pin_slash
+              : CupertinoIcons.pin_fill,
+          sfSymbol: pinned ? 'pin.slash' : 'pin.fill',
+          materialIcon: pinned
+              ? Icons.push_pin_outlined
+              : Icons.push_pin_rounded,
+          label: pinned ? l10n.unpin : l10n.pin,
+          onBeforeClose: () => ConduitHaptics.lightImpact(),
+          onSelected: () => _setFlag(
+            context,
+            ref,
+            (sessions) => sessions.setPinned(session, !pinned),
+          ),
+        ),
+      ConduitContextMenuAction(
+        cupertinoIcon: archived
+            ? CupertinoIcons.archivebox_fill
+            : CupertinoIcons.archivebox,
+        sfSymbol: archived ? 'archivebox.fill' : 'archivebox',
+        materialIcon: archived
+            ? Icons.unarchive_rounded
+            : Icons.archive_rounded,
+        label: archived ? l10n.unarchive : l10n.archive,
+        onBeforeClose: () => ConduitHaptics.lightImpact(),
+        onSelected: () => _setFlag(
+          context,
+          ref,
+          (sessions) => sessions.setArchived(session, !archived),
+        ),
+      ),
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.eye_slash,
+        sfSymbol: 'eye.slash',
+        materialIcon: Icons.visibility_off_outlined,
+        label: l10n.hermesSessionHide,
+        onBeforeClose: () => ConduitHaptics.lightImpact(),
+        onSelected: () => _hide(context, ref),
+      ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.arrow_branch,
         sfSymbol: 'arrow.triangle.branch',
@@ -137,6 +181,36 @@ class HermesSessionTile extends ConsumerWidget {
       if (context.mounted) {
         UiUtils.showMessage(context, failureMessage, isError: true);
       }
+    }
+  }
+
+  /// Changes a sidebar flag. The notifier is read before anything is
+  /// awaited: the tile leaves the list as soon as its chat is archived.
+  Future<void> _setFlag(
+    BuildContext context,
+    WidgetRef ref,
+    Future<void> Function(HermesSessionsController sessions) change,
+  ) {
+    final sessions = ref.read(hermesSessionsProvider.notifier);
+    return _runSessionAction(
+      context,
+      (AppLocalizations.of(context) ?? AppLocalizationsEn())
+          .hermesSessionUpdateFailed,
+      () => change(sessions),
+    );
+  }
+
+  Future<void> _hide(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    final sessions = ref.read(hermesSessionsProvider.notifier);
+    final messenger = Navigator.of(context, rootNavigator: true).context;
+    var hidden = false;
+    await _runSessionAction(context, l10n.hermesSessionUpdateFailed, () async {
+      await sessions.setHidden(session, true);
+      hidden = true;
+    });
+    if (hidden && messenger.mounted) {
+      UiUtils.showMessage(messenger, l10n.hermesSessionHiddenNotice);
     }
   }
 

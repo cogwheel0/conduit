@@ -6080,5 +6080,19 @@
   "hermesContinueInCopyFailed": "このチャットをコピーできませんでした。もう一度お試しください。",
   "hermesContinueHere": "ここで続ける",
   "hermesContinueHereFailed": "このチャットをここで続けられませんでした。もう一度お試しください。",
-  "hermesContinueChoiceExplanation": "ここで続けると、もう一方のアプリではこのチャットが終了し、次のメッセージで新しいチャットが始まります。コピーではそのチャットはそのまま残りますが、以前のメッセージはこのデバイスにのみ保存されます。保持されるのは最新のメッセージ最大 1,000 件（1 MB）までで、最近開いた 32 件のコピーに限られます。"
+  "hermesContinueChoiceExplanation": "ここで続けると、もう一方のアプリではこのチャットが終了し、次のメッセージで新しいチャットが始まります。コピーではそのチャットはそのまま残りますが、以前のメッセージはこのデバイスにのみ保存されます。保持されるのは最新のメッセージ最大 1,000 件（1 MB）までで、最近開いた 32 件のコピーに限られます。",
+  "hermesSessionHide": "非表示",
+  "hermesSessionUnhide": "再表示",
+  "hermesSessionUpdateFailed": "このチャットを更新できませんでした。もう一度お試しください。",
+  "hermesSessionHiddenNotice": "チャットを非表示にしました。Hermes の設定の「非表示のチャット」にあります。",
+  "hermesHiddenChatsTitle": "非表示のチャット",
+  "hermesHiddenChatsDescription": "このデバイスで Hermes の一覧から非表示にしたチャットです。タップして開くか、再表示して一覧に戻します。",
+  "hermesHiddenChatsEmpty": "このデバイスで非表示にしたチャットはありません。",
+  "hermesHiddenChatsLoadError": "非表示のチャットを読み込めませんでした。",
+  "hermesBranchFromHere": "ここから分岐",
+  "hermesBranchFailed": "このチャットを分岐できませんでした。もう一度お試しください。",
+  "hermesUndoLastTurn": "最後のやり取りを取り消す",
+  "hermesUndoLastTurnDone": "最後のやり取りを取り消しました。",
+  "hermesUndoLastTurnFailed": "最後のやり取りを取り消せませんでした。もう一度お試しください。",
+  "hermesArchivedLoadError": "アーカイブ済みのチャットを読み込めませんでした。"
 }

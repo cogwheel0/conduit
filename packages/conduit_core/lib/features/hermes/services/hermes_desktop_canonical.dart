@@ -272,17 +272,32 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
   /// changed nothing and names the current ones, so it is sent once more
   /// at those. A request whose answer was lost is kept, so a retry of the
   /// same edit is the same request and Hermes applies it once.
+  ///
+  /// [pinned] fences an edit chosen from what the session held then (an
+  /// undo's rewind): it is sent at those fences only, never moved on to
+  /// newer ones, which could reach turns added since.
   Future<Map<String, dynamic>> _canonicalMutate(
     HermesSessionBinding binding,
     String operation,
     Map<String, Object?> payload, {
     bool fenceGeneration = true,
     bool retried = false,
+    ({int revision, int generation})? pinned,
   }) async {
     final sessionId = binding.runtimeId;
     final key = jsonEncode([sessionId, operation, payload]);
     _retireCanonicalMutations(sessionId, keep: key);
     var params = _canonicalMutations.remove(key);
+    if (params == null && pinned != null) {
+      params = {
+        'session_id': sessionId,
+        'request_id': const Uuid().v4(),
+        'expected_revision': pinned.revision,
+        if (fenceGeneration) 'expected_generation': pinned.generation,
+        'operation': operation,
+        'payload': payload,
+      };
+    }
     if (params == null) {
       final fences = await _canonicalFences(binding);
       params = {
@@ -322,6 +337,10 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
           revision: data['revision'],
           generation: data['execution_generation'],
         );
+      }
+      if (pinned != null &&
+          _kHermesCanonicalFenceRefusals.contains(error.reason)) {
+        throw StateError('The Hermes chat changed. Try again.');
       }
       if (retried || !_kHermesCanonicalFenceRefusals.contains(error.reason)) {
         rethrow;
