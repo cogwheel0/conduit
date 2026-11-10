@@ -45,8 +45,6 @@ final _homeServer = OpenWebUiServer(
   endpoints: [OpenWebUiEndpoint(id: 'home-lan', url: 'http://10.0.0.2:3000')],
 );
 
-/// Tests every draft as reachable, and saves through the real connections,
-/// as the app's gateway does.
 /// An HTTP client whose requests never connect: a load through it stays in
 /// flight.
 final class _SilentHttpClient implements HttpClient {
@@ -58,6 +56,8 @@ final class _SilentHttpClient implements HttpClient {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
+/// Tests every draft as reachable, and saves through the real connections,
+/// as the app's gateway does.
 final class _ReachableGateway implements HermesConnectionGateway {
   late ProviderContainer container;
   int probes = 0;
