@@ -156,6 +156,17 @@ void main() {
       expect(plain('A `two\nline \$x\$` span'), 'A `two\nline \$x\$` span');
     });
 
+    test('a backtick across a paragraph break does not hide a later span', () {
+      expect(
+        plain('`orphan \$4\n\nA `two\nline \$5` end'),
+        '`orphan \\\$4\n\nA `two\nline \$5` end',
+      );
+    });
+
+    test('a span inside a single-line span is not confirmed by it', () {
+      expect(plain('``a `b`` \$4\nc` \$5'), '``a `b`` \\\$4\nc` \\\$5');
+    });
+
     test(
       'a triple-backtick span mid-line is a span; at line start, a fence',
       () {

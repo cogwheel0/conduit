@@ -38,6 +38,7 @@ final _verbatimInline = RegExp(
   r'''(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*>''',
 );
 
+final _backtickRun = RegExp(r'(?<!`)`+');
 final _multilineCodeSpanCandidate = RegExp(
   r'(?<!`)(`+(?!`))((?:.|\n)*?[^`])\1(?!`)',
 );
@@ -237,7 +238,12 @@ final class _RecordingCodeSyntax extends md.CodeSyntax {
 
   @override
   bool onMatch(md.InlineParser parser, Match match) {
-    final marker = _marker.firstMatch(match.group(0)!);
+    // A candidate's marker sits right after its opening backticks. A marker
+    // further in belongs to a candidate that opens inside this span.
+    final marker = _marker.matchAsPrefix(
+      match.group(0)!,
+      match.group(1)!.length,
+    );
     final encodedIndex = marker?.group(1);
     if (encodedIndex != null) {
       matchedCandidates.add(int.parse(encodedIndex, radix: 36));
@@ -353,17 +359,23 @@ bool _opensFence(String value, int start) {
 /// Code spans that cross a line break, where the parser confirms the exact
 /// occurrence stays inside one inline-capable block.
 List<SourceRange> _parserConfirmedMultilineCodeSpans(String value) {
-  final candidates = _multilineCodeSpanCandidate
-      .allMatches(value)
-      .where(
-        (match) =>
-            match.group(0)!.contains('\n') && !_opensFence(value, match.start),
-      )
-      .toList(growable: false);
-  if (candidates.isEmpty ||
-      candidates.length > _maxMultilineCodeSpanCandidates) {
-    return const <SourceRange>[];
+  // Every backtick run is tried as an opener, including one an earlier
+  // candidate closes on: if the parser rejects that candidate (it crosses a
+  // paragraph break, say), the run can still open a span of its own.
+  final candidates = <Match>[];
+  for (final run in _backtickRun.allMatches(value)) {
+    final match = _multilineCodeSpanCandidate.matchAsPrefix(value, run.start);
+    if (match == null ||
+        !match.group(0)!.contains('\n') ||
+        _opensFence(value, match.start)) {
+      continue;
+    }
+    candidates.add(match);
+    if (candidates.length > _maxMultilineCodeSpanCandidates) {
+      return const <SourceRange>[];
+    }
   }
+  if (candidates.isEmpty) return const <SourceRange>[];
 
   final markers = _markers(value, 'code-span');
   final marked = StringBuffer();
