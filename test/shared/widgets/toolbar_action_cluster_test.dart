@@ -86,57 +86,9 @@ void main() {
     );
     expect(conduitToolbarClusterWidth(context, 0), 0);
     expect(conduitToolbarClusterWidth(context, 1), 44);
-    expect(conduitToolbarClusterWidth(context, 2), 80);
-    expect(conduitToolbarClusterWidth(context, 3), 120);
-  });
-
-  testWidgets('a bar title gets the same room on both sides of the centre '
-      'line', (tester) async {
-    tester.view.physicalSize = const Size(402, 874);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    late BuildContext context;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (c) {
-            context = c;
-            return const SizedBox();
-          },
-        ),
-      ),
-    );
-    // 2 * (201 - 16 - 80 - 12): the wider group sets the limit on both
-    // sides, so the title stays centred (not 222, all the room between the
-    // sidebar button and the group).
-    expect(
-      resolveConduitBarTitleMaxWidth(
-        context,
-        leadingWidth: 44,
-        trailingWidth: 80,
-        maxWidth: 320,
-      ),
-      186,
-    );
-    // Whichever side is wider.
-    expect(
-      resolveConduitBarTitleMaxWidth(
-        context,
-        leadingWidth: 66,
-        trailingWidth: 44,
-        maxWidth: 320,
-      ),
-      214,
-    );
-    expect(
-      resolveConduitBarTitleMaxWidth(
-        context,
-        leadingWidth: 44,
-        trailingWidth: 80,
-        maxWidth: 150,
-      ),
-      150,
-    );
+    // An iOS 26 bar button group's spacing: 51.5 pt per glyph.
+    expect(conduitToolbarClusterWidth(context, 2), 103);
+    expect(conduitToolbarClusterWidth(context, 3), 154.5);
   });
 
   testWidgets('a title as wide as its room stays on the centre line', (
@@ -272,7 +224,7 @@ void main() {
       await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
       await tester.pump();
 
-      expect(tester.getSize(find.byKey(const ValueKey('cluster'))).width, 80);
+      expect(tester.getSize(find.byKey(const ValueKey('cluster'))).width, 103);
       // One glass shape for the whole group, never per-button glass that
       // merges into a pinched "dumbbell".
       expect(find.byType(AdaptiveGlassBackdrop), findsOneWidget);
@@ -320,16 +272,16 @@ void main() {
       // target, the old glyph only fades out and the new ones only fade in.
       for (var i = 1; i < widths.length; i++) {
         expect(widths[i], greaterThanOrEqualTo(widths[i - 1]));
-        expect(widths[i], lessThanOrEqualTo(80));
+        expect(widths[i], lessThanOrEqualTo(103));
         expect(outgoing[i], lessThanOrEqualTo(outgoing[i - 1]));
         expect(incoming[i], greaterThanOrEqualTo(incoming[i - 1]));
       }
       // Done within a quarter of a second, to the eye: the width within a
       // point and a half of its target, settling on it soon after.
-      final nearlyAt = widths.indexWhere((width) => width >= 78.5);
+      final nearlyAt = widths.indexWhere((width) => width >= 101.5);
       expect(nearlyAt, isNonNegative);
       expect((nearlyAt + 1) * 16, lessThanOrEqualTo(250));
-      expect(widths.last, 80);
+      expect(widths.last, 103);
       expect(
         find.byKey(const ValueKey<Object>('temporary-chat')),
         findsNothing,
@@ -340,7 +292,7 @@ void main() {
       // circle's, so the change reads as one control reshaping.
       expect(
         tester.getCenter(find.byKey(const ValueKey<Object>('more'))).dx,
-        tester.getTopRight(cluster).dx - 20,
+        tester.getTopRight(cluster).dx - kConduitToolbarClusterSlotExtent / 2,
       );
     },
   );
@@ -489,7 +441,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 80));
     final midWidth = tester.getSize(cluster).width;
-    expect(midWidth, inExclusiveRange(44, 80));
+    expect(midWidth, inExclusiveRange(44, 103));
 
     await tester.pumpWidget(_host([_item('temporary-chat')]));
     await tester.pump(const Duration(milliseconds: 16));
@@ -516,7 +468,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
-    expect(tester.getSize(cluster).width, 80);
+    expect(tester.getSize(cluster).width, 103);
     // Still a dissolve, the old glyph out before the new ones in.
     var sawFadeIn = false;
     for (var i = 0; i < 20; i++) {

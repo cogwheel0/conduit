@@ -18,6 +18,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+
+import '../../../support/native_platform_views.dart';
 import 'computer_test_platform.dart';
 
 class _Service extends Mock implements ComputerService {}
@@ -50,6 +54,7 @@ Widget _harness(
   bool Function()? enabled,
   ComputerCapabilities capabilities = _both,
   bool responding = false,
+  TargetPlatform platform = TargetPlatform.android,
 }) => ProviderScope(
   overrides: [
     computerEnabledProvider.overrideWith((ref) => enabled?.call() ?? true),
@@ -67,7 +72,7 @@ Widget _harness(
       computerTakeControlProvider.overrideWithValue(takeControl),
   ],
   child: MaterialApp(
-    theme: ThemeData(platform: TargetPlatform.android),
+    theme: ThemeData(platform: platform),
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     builder: (context, child) => MediaQuery(
@@ -207,6 +212,36 @@ void main() {
       computerAddressUrl('example.com:8080/board'),
       'https://example.com:8080/board',
     );
+  });
+
+  testWidgets('on iOS 26 Keyboard and More share one glass capsule', (
+    tester,
+  ) async {
+    stubNativePlatformViews();
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final service = _Service();
+    when(() => service.open(any()))
+        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+    await tester.pumpWidget(_harness(service, platform: TargetPlatform.iOS));
+    await _frames(tester);
+
+    final cluster = tester.widget<ConduitToolbarActionCluster>(
+      find.descendant(
+        of: find.byKey(const ValueKey('computer-toolbar-actions')),
+        matching: find.byType(ConduitToolbarActionCluster),
+      ),
+    );
+    expect(
+      [for (final item in cluster.items) item.action.iosSymbol],
+      ['keyboard', 'ellipsis'],
+    );
+    // More keeps its sections and palette row inside the capsule.
+    expect(cluster.items.last.action.menuEntries, isNotEmpty);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
   });
 
   for (final accepted in [true, false]) {

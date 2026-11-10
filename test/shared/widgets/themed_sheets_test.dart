@@ -730,7 +730,8 @@ void main() {
       check(resolveConduitSystemControlScale(TextScaler.noScaling)).equals(1);
       check(resolveConduitSystemControlScale(systemTextScaler))
           .equals(kConduitMaximumSystemControlScale);
-      check(navigationBar.preferredSize.height).equals(72);
+      // The iOS bar's 44 pt row, scaled with the controls.
+      check(navigationBar.preferredSize.height).equals(66);
       check(observedTextSize).equals(51);
       check(observedBoldText).isTrue();
       check(

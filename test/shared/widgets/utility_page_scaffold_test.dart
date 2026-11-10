@@ -75,7 +75,7 @@ void main() {
         Spacing.screenPadding,
         Spacing.sm +
             tester.view.padding.top / tester.view.devicePixelRatio +
-            kTextTabBarHeight,
+            kConduitCupertinoToolbarHeight,
         Spacing.screenPadding,
         Spacing.lg + tester.view.padding.bottom / tester.view.devicePixelRatio,
       ),

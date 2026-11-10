@@ -4718,22 +4718,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return actionsWidth + connectionWidth;
     }
 
-    // On iOS the pill stays on the screen's centre line in every chat, as a
-    // UINavigationBar title does: it may be as wide as twice the room from
-    // the centre to the nearer control, 12 pt clear of it, and a longer
-    // title shortens. A bar too crowded even for that (large text on a
-    // narrow phone) falls back to the room the buttons leave rather than
-    // lose the picker; Material titles sit at the leading edge and always
-    // take that room.
+    // The pill sits at the leading edge, right after the sidebar button, so
+    // a chat's title has all the room up to the trailing actions rather
+    // than twice the room from the centre line to the nearer control. On
+    // iOS it keeps the bar's least gap from the controls on either side;
+    // Material sizes it from the number of actions.
     double modelWidth() {
       if (PlatformInfo.isIOS) {
-        final room = resolveConduitBarTitleMaxWidth(
-          context,
-          leadingWidth: controlExtent,
-          trailingWidth: trailingWidth(),
-          maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
-        );
-        if (room >= 2 * controlExtent) return room;
+        final room =
+            MediaQuery.sizeOf(context).width -
+            2 * Spacing.inputPadding -
+            controlExtent -
+            trailingWidth() -
+            2 * kConduitBarTitleGap;
+        return room
+            .clamp(0.0, kConduitAdaptiveToolbarMaxModelSelectorWidth)
+            .toDouble();
       }
       return resolveConduitAdaptiveLeadingPillWidth(
         context,
@@ -4810,8 +4810,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       title: title,
       actions: actionWidgets,
       cupertinoTrailing: cupertinoTrailing,
-      // iOS keeps the bar's identity on the screen's centre line.
-      centerTitle: PlatformInfo.isIOS,
+      // The pill starts beside the sidebar button, leaving the title room.
+      centerTitle: false,
     );
   }
 

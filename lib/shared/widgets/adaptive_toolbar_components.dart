@@ -73,8 +73,16 @@ double conduitScaledIconExtent(BuildContext _, double baseExtent) {
   return baseExtent;
 }
 
+/// The row an iOS 26 navigation bar's controls sit in: a 44 pt glass button
+/// starts right at the top safe-area inset and fills the row, as measured on
+/// iOS 27's Files, Calendar and Reminders. Material keeps its 48 pt toolbar.
+const double kConduitCupertinoToolbarHeight = 44;
+
 double conduitAdaptiveToolbarHeightOf(BuildContext context) {
-  return kTextTabBarHeight * conduitSystemControlScaleOf(context);
+  final base = context.usesCupertinoChrome
+      ? kConduitCupertinoToolbarHeight
+      : kTextTabBarHeight;
+  return base * conduitSystemControlScaleOf(context);
 }
 
 /// Icon glyph that follows the platform Bold Text accessibility setting.
@@ -160,7 +168,8 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
   double get _controlScale => resolveConduitSystemControlScale(textScaler);
 
   @override
-  Size get preferredSize => Size.fromHeight(kTextTabBarHeight * _controlScale);
+  Size get preferredSize =>
+      Size.fromHeight(kConduitCupertinoToolbarHeight * _controlScale);
 
   @override
   bool shouldFullyObstruct(BuildContext context) => false;
@@ -237,7 +246,7 @@ class _ConduitBarLayout extends MultiChildLayoutDelegate {
 
   /// The least space between the title and a control, as NavigationToolbar
   /// keeps.
-  static const double _minSpacing = Spacing.sm;
+  static const double _minSpacing = kConduitBarTitleGap;
 
   @override
   void performLayout(Size size) {
@@ -792,16 +801,68 @@ class ConduitNativeToolbarAction {
     required this.accessibilityLabel,
     this.onPressed,
     this.menuItems = const <ConduitNativeToolbarMenuItem>[],
+    this.menuEntries = const <AdaptivePopupMenuEntry>[],
+    this.onMenuEntrySelected,
     this.tintColor,
     this.enabled = true,
-  }) : assert(onPressed != null || menuItems.length > 0 || !enabled);
+  }) : assert(
+         onPressed != null ||
+             menuItems.length > 0 ||
+             menuEntries.length > 0 ||
+             !enabled,
+       );
 
   final String iosSymbol;
   final String accessibilityLabel;
   final VoidCallback? onPressed;
   final List<ConduitNativeToolbarMenuItem> menuItems;
+
+  /// A menu given as the popup's own entries, for one [menuItems] cannot
+  /// express (sections, a palette row). [onMenuEntrySelected] gets the
+  /// chosen entry.
+  final List<AdaptivePopupMenuEntry> menuEntries;
+  final ValueChanged<AdaptivePopupMenuItem<Object?>>? onMenuEntrySelected;
   final Color? tintColor;
   final bool enabled;
+
+  /// Whether the action opens a menu rather than acting at once.
+  bool get hasMenu => menuItems.isNotEmpty || menuEntries.isNotEmpty;
+}
+
+/// [action]'s menu as popup entries: its own [ConduitNativeToolbarAction.
+/// menuEntries], or one row per [ConduitNativeToolbarAction.menuItems],
+/// valued by its index.
+List<AdaptivePopupMenuEntry> _toolbarMenuEntries(
+  ConduitNativeToolbarAction action,
+) {
+  if (action.menuEntries.isNotEmpty) return action.menuEntries;
+  return [
+    for (var index = 0; index < action.menuItems.length; index++)
+      AdaptivePopupMenuItem<int>(
+        label: action.menuItems[index].label,
+        icon: action.menuItems[index].iosSymbol,
+        enabled: action.menuItems[index].enabled,
+        isDestructive: action.menuItems[index].isDestructive,
+        checked: action.menuItems[index].isChecked,
+        value: index,
+      ),
+  ];
+}
+
+/// Runs what the [entry] chosen from [action]'s menu does.
+void _onToolbarMenuSelected(
+  ConduitNativeToolbarAction action,
+  AdaptivePopupMenuItem<Object?> entry,
+) {
+  if (!action.enabled) return;
+  if (action.menuEntries.isNotEmpty) {
+    action.onMenuEntrySelected?.call(entry);
+    return;
+  }
+  final selected = entry.value;
+  if (selected is int && selected >= 0 && selected < action.menuItems.length) {
+    action.menuItems[selected].onSelected();
+  }
 }
 
 /// A cupertino_native_better toolbar surface for adjacent shared actions.
@@ -819,17 +880,36 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
       );
     }
     final controlExtent = conduitScaledControlExtent(context);
+    // Two or three actions share one glass capsule, as an iOS 26 bar groups
+    // them and as the chat header's and sidebar's actions do. The capsule is
+    // drawn once with plain glyphs in it: the package's merged
+    // CNGlassButtonGroup pinches adjacent buttons into a "dumbbell" on real
+    // devices (#686) and cannot express checked or disabled menu rows.
+    if (actions.length > 1 && conduitSupportsNativeGlass()) {
+      final symbols = <String>{};
+      final unique = actions.every((action) => symbols.add(action.iosSymbol));
+      final width = conduitToolbarClusterWidth(context, actions.length);
+      return _hideNativeToolbarChromeWhileSheetCovered(
+        size: Size(width, controlExtent),
+        child: ConduitToolbarActionCluster(
+          items: [
+            for (var index = 0; index < actions.length; index++)
+              ConduitToolbarClusterItem(
+                id: unique ? actions[index].iosSymbol : index,
+                action: actions[index],
+              ),
+          ],
+        ),
+      );
+    }
     final width = actions.length == 1
         ? controlExtent
         : (controlExtent * actions.length) +
               (Spacing.sm * (actions.length - 1));
     final size = Size(width, controlExtent);
 
-    // Each action is its own circular glass control. The package's merged
-    // CNGlassButtonGroup forces a wide glass-blend spacing on horizontal
-    // groups, which draws adjacent buttons as one pinched "dumbbell" pill on
-    // real iOS 26 devices (#686), and it cannot express checked or disabled
-    // menu rows. Separate controls match the leading toolbar buttons.
+    // Without native glass each action is its own control, matching the
+    // leading toolbar button.
     final controls = actions.length == 1
         ? _buildAction(actions.single, controlExtent)
         : Row(
@@ -859,7 +939,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
   }
 
   Widget _buildAction(ConduitNativeToolbarAction action, double extent) {
-    if (action.menuItems.isEmpty) {
+    if (!action.hasMenu) {
       return Semantics(
         label: action.accessibilityLabel,
         button: true,
@@ -889,7 +969,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
       label: action.accessibilityLabel,
       button: true,
       enabled: action.enabled,
-      child: AdaptivePopupMenuButton.icon<int>(
+      child: AdaptivePopupMenuButton.icon<Object?>(
         icon: action.iosSymbol,
         iconSize: kConduitNativeSingleActionSymbolExtent,
         iconColor: _symbolColor(action),
@@ -897,34 +977,18 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
         size: extent,
         enabled: action.enabled,
         buttonStyle: PopupButtonStyle.glass,
-        items: [
-          for (var index = 0; index < action.menuItems.length; index++)
-            AdaptivePopupMenuItem<int>(
-              label: action.menuItems[index].label,
-              icon: action.menuItems[index].iosSymbol,
-              enabled: action.menuItems[index].enabled,
-              isDestructive: action.menuItems[index].isDestructive,
-              checked: action.menuItems[index].isChecked,
-              value: index,
-            ),
-        ],
-        onSelected: (index, entry) {
-          if (!action.enabled) return;
-          final selected = entry.value;
-          if (selected != null &&
-              selected >= 0 &&
-              selected < action.menuItems.length) {
-            action.menuItems[selected].onSelected();
-          }
-        },
+        items: _toolbarMenuEntries(action),
+        onSelected: (index, entry) => _onToolbarMenuSelected(action, entry),
       ),
     );
   }
 }
 
-/// Width of one action inside a grouped toolbar capsule. Grouped glyphs sit
-/// a little closer than separate circles, as in an iOS 26 bar button group.
-const double kConduitToolbarClusterSlotExtent = 40;
+/// Width of one action inside a grouped toolbar capsule, as an iOS 26 bar
+/// button group spaces its glyphs: measured on iOS 27, Reminders' two-glyph
+/// group is 103 pt wide, its glyphs' centres about 24 pt in from the ends
+/// and 55 pt apart, and Calendar's three-glyph group is 164 pt.
+const double kConduitToolbarClusterSlotExtent = 51.5;
 
 /// Width of a toolbar cluster holding [count] actions: a single action is a
 /// circle the size of the leading button; more share one capsule.
@@ -940,29 +1004,9 @@ double conduitToolbarClusterWidth(BuildContext context, int count) {
 /// title capsule never crowds the glass next to it.
 const double kConduitCenteredTitleClearance = 12;
 
-/// The widest a centred bar title may be: twice the room between the
-/// screen's centre line and the nearer of the leading and trailing
-/// controls, less [gap] of clear space beside each.
-///
-/// As UINavigationBar sets a title, the title stays on the screen's centre
-/// line in every page, whatever the controls beside it, and one too long
-/// for that room is shortened rather than moved aside. A bar with a narrow
-/// button on one side and a wider group on the other therefore gives its
-/// title the wider side's limit on both.
-double resolveConduitBarTitleMaxWidth(
-  BuildContext context, {
-  required double leadingWidth,
-  required double trailingWidth,
-  required double maxWidth,
-  double gap = kConduitCenteredTitleClearance,
-}) {
-  final halfRoom =
-      MediaQuery.sizeOf(context).width / 2 -
-      Spacing.inputPadding -
-      math.max(leadingWidth, trailingWidth) -
-      gap;
-  return (2 * halfRoom).clamp(0.0, math.max(0.0, maxWidth)).toDouble();
-}
+/// The least space between a bar's title (at the leading edge or centred)
+/// and the controls beside it.
+const double kConduitBarTitleGap = Spacing.sm;
 
 /// Explains a bar toggle whose glyph has no label: the system popover of iOS
 /// 26 and later, pointing at the toggle, with the setting as a labelled
@@ -1556,7 +1600,7 @@ class _ConduitToolbarActionClusterState
     // The native controls carry the label themselves, as the leading button
     // does: VoiceOver reads it once, not alongside the symbol's own
     // generated name ("compose").
-    if (action.menuItems.isEmpty) {
+    if (!action.hasMenu) {
       return CNButton.icon(
         icon: CNSymbol(
           action.iosSymbol,
@@ -1575,7 +1619,7 @@ class _ConduitToolbarActionClusterState
         ),
       );
     }
-    return AdaptivePopupMenuButton.icon<int>(
+    return AdaptivePopupMenuButton.icon<Object?>(
       icon: action.iosSymbol,
       semanticLabel: action.accessibilityLabel,
       iconSize: kConduitNativeSingleActionSymbolExtent,
@@ -1584,36 +1628,9 @@ class _ConduitToolbarActionClusterState
       size: extent,
       enabled: action.enabled,
       buttonStyle: PopupButtonStyle.plain,
-      items: _menuEntries(action),
-      onSelected: (index, entry) => _onMenuSelected(action, entry),
+      items: _toolbarMenuEntries(action),
+      onSelected: (index, entry) => _onToolbarMenuSelected(action, entry),
     );
-  }
-
-  List<AdaptivePopupMenuEntry> _menuEntries(ConduitNativeToolbarAction action) {
-    return [
-      for (var index = 0; index < action.menuItems.length; index++)
-        AdaptivePopupMenuItem<int>(
-          label: action.menuItems[index].label,
-          icon: action.menuItems[index].iosSymbol,
-          enabled: action.menuItems[index].enabled,
-          isDestructive: action.menuItems[index].isDestructive,
-          checked: action.menuItems[index].isChecked,
-          value: index,
-        ),
-    ];
-  }
-
-  void _onMenuSelected(
-    ConduitNativeToolbarAction action,
-    AdaptivePopupMenuItem<int> entry,
-  ) {
-    if (!action.enabled) return;
-    final selected = entry.value;
-    if (selected != null &&
-        selected >= 0 &&
-        selected < action.menuItems.length) {
-      action.menuItems[selected].onSelected();
-    }
   }
 
   Widget _buildFallbackAction(ConduitToolbarClusterItem item, double extent) {
@@ -1631,7 +1648,7 @@ class _ConduitToolbarActionClusterState
         ),
       ),
     );
-    if (action.menuItems.isNotEmpty) {
+    if (action.hasMenu) {
       return Semantics(
         label: action.accessibilityLabel,
         button: true,
@@ -1639,9 +1656,9 @@ class _ConduitToolbarActionClusterState
         excludeSemantics: true,
         child: IgnorePointer(
           ignoring: !action.enabled,
-          child: AdaptivePopupMenuButton.widget<int>(
-            items: _menuEntries(action),
-            onSelected: (index, entry) => _onMenuSelected(action, entry),
+          child: AdaptivePopupMenuButton.widget<Object?>(
+            items: _toolbarMenuEntries(action),
+            onSelected: (index, entry) => _onToolbarMenuSelected(action, entry),
             child: glyph,
           ),
         ),

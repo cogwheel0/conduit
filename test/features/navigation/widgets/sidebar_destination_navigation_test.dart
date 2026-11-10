@@ -20,6 +20,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -32,6 +33,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'sidebar_page_test_support.dart';
+import '../../../support/native_platform_views.dart';
 
 Widget _chat() => Builder(
   builder: (context) => Scaffold(
@@ -716,6 +718,34 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('on iOS 26 a destination\'s Search and Create share one glass '
+      'capsule', (tester) async {
+    stubNativePlatformViews();
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        initialLocation: Routes.notes,
+        theme: ThemeData(platform: TargetPlatform.iOS),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final cluster = tester.widget<ConduitToolbarActionCluster>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('destination-toolbar-actions')),
+        matching: find.byType(ConduitToolbarActionCluster),
+      ),
+    );
+    expect(cluster.items, hasLength(2));
+    expect(cluster.items.first.action.iosSymbol, 'magnifyingglass');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
   });
 
   testWidgets('hiding a retained destination leaves the visible route alone', (

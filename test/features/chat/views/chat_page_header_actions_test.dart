@@ -312,12 +312,22 @@ void main() {
     await _tearDown(tester);
   });
 
-  testWidgets('the model pill keeps the centre line while it fits there', (
-    tester,
-  ) async {
+  testWidgets('the model pill starts beside the sidebar button and may take '
+      'the room up to the trailing actions', (tester) async {
     final container = await _pumpChatPage(tester);
     final pill = find.byType(ConduitAdaptiveAppBarModelSelector);
-    expect(tester.getCenter(pill).dx, closeTo(201, 0.5));
+    final sidebar = find.byKey(const ValueKey('chat-sidebar-toggle'));
+    // The bar's 8 pt gap after the sidebar button.
+    expect(
+      tester.getTopLeft(pill).dx - tester.getTopRight(sidebar).dx,
+      closeTo(kConduitBarTitleGap, 0.5),
+    );
+    // A new chat: everything between the sidebar button and the one
+    // trailing circle (402 - 2 * 16 - 44 - 44 - 2 * 8).
+    expect(
+      tester.widget<ConduitAdaptiveAppBarModelSelector>(pill).maxWidth,
+      266,
+    );
 
     container.read(activeConversationProvider.notifier).set(_conversation);
     (container.read(chatMessagesProvider.notifier) as _Messages).show(
@@ -326,14 +336,17 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(_barActions(tester), ['new-chat', 'more']);
-    expect(tester.getCenter(pill).dx, closeTo(201, 0.5));
-    // A longer title gets the room the wider group leaves it on both sides
-    // of the centre line, 12 pt clear (2 * (201 - 16 - 80 - 12)), and
-    // shortens beyond that, so it stays centred as UINavigationBar's does.
+    expect(
+      tester.getTopLeft(pill).dx - tester.getTopRight(sidebar).dx,
+      closeTo(kConduitBarTitleGap, 0.5),
+    );
+    // A chat's title may run up to the two-glyph group, 8 pt clear
+    // (402 - 2 * 16 - 44 - 103 - 2 * 8), rather than twice the room from
+    // the centre line to the nearer control.
     final maxWidth = tester
         .widget<ConduitAdaptiveAppBarModelSelector>(pill)
         .maxWidth;
-    expect(maxWidth, 186);
+    expect(maxWidth, 207);
     await _tearDown(tester);
   });
 
