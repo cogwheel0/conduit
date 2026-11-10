@@ -39,18 +39,20 @@ dependencies:
     path: packages/conduit_theme
 
   # State Management
-  flutter_riverpod: ^3.4.3
+  flutter_riverpod: ^3.5.0
   # Non-UI code imports the Flutter-free Riverpod directly, so that those
   # files can move into packages/conduit_core unchanged.
-  riverpod: ^3.4.3
+  riverpod: ^3.5.0
   
   # Navigation
-  go_router: ^18.0.1
+  # go_router 18.1.3 fails sidebar route transitions with a semantics geometry
+  # assertion. Keep the version covered by sidebar_page/workspace_tabs tests.
+  go_router: 18.0.1
   
   # Network & API
   dio: ^5.9.0
-  ollama_dart: ^2.4.0
-  openai_dart: ^8.1.0
+  ollama_dart: ^4.1.0
+  openai_dart: ^12.0.0
   mcp_dart: ^2.4.0
   http_parser: ^4.0.2
   
@@ -65,7 +67,7 @@ dependencies:
   # UI Components - Markdown Rendering
   markdown: ^7.3.0
   pdfrx: ^2.4.7
-  archive: ^4.0.9
+  archive: ^4.6.0
   xml: ^7.0.1
   flutter_inappwebview: ^6.2.0-beta.3
   flutter_svg: ^2.3.0
@@ -109,20 +111,20 @@ dependencies:
   intl: ^0.20.2
 
   # Icons & Theming
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
   json_annotation: ^4.12.0
   freezed_annotation: ^3.0.0
   wakelock_plus: ^1.7.0
   share_plus: ^13.3.1
   riverpod_annotation: ^4.0.7
-  flutter_local_notifications: ^22.1.0
+  flutter_local_notifications: ^23.0.0
   connectivity_plus: ^7.3.0
   flutter_cache_manager: ^3.4.1
   http: ^1.5.0
   flutter_callkit_incoming: ^3.1.6
   quick_actions: ^1.1.0
   html_unescape: ^2.0.0
-  home_widget: ^0.9.3
+  home_widget: ^0.10.0
   flutter_highlight: ^0.7.0
   just_audio: ^0.10.5
   cupertino_native_better: ^2.5.1
@@ -149,11 +151,6 @@ dependencies:
 dependency_overrides:
   mermaid_core:
     path: third_party/mermaid/packages/mermaid_core
-  # objective_c 9.6.1's build hook references Architecture.arm64e, which no
-  # published code_assets release defines, so native-assets compilation fails
-  # on macOS for every flutter test/run. Drop once a code_assets with arm64e
-  # ships (or objective_c stops referencing it).
-  objective_c: 9.6.0
 
 dev_dependencies:
   analyzer: ^13.3.0

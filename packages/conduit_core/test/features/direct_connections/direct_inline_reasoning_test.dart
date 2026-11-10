@@ -15,6 +15,42 @@ import 'package:test/test.dart';
 /// WebUI chats split it.
 void main() {
   group('OpenAI-compatible stream', () {
+    test('reads deltas whose unset optional fields are null', () async {
+      // Python-based compatible servers serialize every optional field, so
+      // unset ones arrive as nulls that openai_dart would otherwise reject.
+      final turn = await _openAiChunks(<Map<String, Object?>>[
+        for (final (content, finish) in [
+          ('High tide', null),
+          (' is at 14:05.', 'stop'),
+        ])
+          {
+            'id': 'chunk-1',
+            'object': 'chat.completion.chunk',
+            'created': 1,
+            'model': 'tide-model',
+            'system_fingerprint': null,
+            'obfuscation': null,
+            'choices': [
+              {
+                'index': 0,
+                'delta': {
+                  'role': 'assistant',
+                  'content': content,
+                  'function_call': null,
+                  'tool_calls': null,
+                  'audio': null,
+                  'refusal': null,
+                },
+                'logprobs': null,
+                'finish_reason': finish,
+              },
+            ],
+          },
+      ]);
+
+      expect(turn.answer, 'High tide is at 14:05.');
+    });
+
     test('splits an opening and a closing tag cut across deltas', () async {
       final turn = await _openAi(<Map<String, String>>[
         {'content': '<thi'},
@@ -212,14 +248,18 @@ int _reasoningSections(List<DirectStreamEvent> events) {
       .length;
 }
 
-Future<_Turn> _openAi(List<Map<String, String>> deltas) async {
+Future<_Turn> _openAi(List<Map<String, String>> deltas) => _openAiChunks([
+  for (final delta in deltas)
+    {
+      'choices': [
+        {'delta': delta},
+      ],
+    },
+]);
+
+Future<_Turn> _openAiChunks(List<Map<String, Object?>> chunks) async {
   final http = _StreamingHttp(<String>[
-    for (final delta in deltas)
-      'data: ${jsonEncode({
-        'choices': [
-          {'delta': delta},
-        ],
-      })}\n\n',
+    for (final chunk in chunks) 'data: ${jsonEncode(chunk)}\n\n',
     'data: [DONE]\n\n',
   ], contentType: 'text/event-stream');
   final adapter = OpenAiCompatibleAdapter(

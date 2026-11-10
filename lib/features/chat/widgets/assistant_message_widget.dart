@@ -501,7 +501,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final streamingContent =
         selectedVersionIndex < 0 &&
             widget.isStreaming &&
-            ref.exists(chatMessagesProvider)
+            ref.read(chatMessagesProvider.exists)
         ? ref
               .read(chatMessagesProvider.notifier)
               .contentForStreamingMessage(widget.message.id)

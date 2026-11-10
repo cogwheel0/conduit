@@ -13,19 +13,19 @@ environment:
 dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
-  archive: ^4.0.9
+  archive: ^4.6.0
   xml: ^7.0.1
   mcp_dart: ^2.4.0
   parchment: ^1.27.0
   http: ^1.5.0
   http_parser: ^4.0.2
-  ollama_dart: ^2.4.0
+  ollama_dart: ^4.1.0
   web_socket_channel: ^3.0.3
   clock: ^1.1.2
   collection: ^1.19.1
   hive_ce: ^2.14.0
   intl: ^0.20.2
-  openai_dart: ^8.1.0
+  openai_dart: ^12.0.0
   socket_io_client: ^3.1.2
   synchronized: ^3.4.1
   web_socket: ^1.0.1
@@ -33,7 +33,7 @@ dependencies:
   # and the workspace model avatar bounding
   # (features/workspace/services/workspace_model_avatar_bounds.dart), so the
   # core needs no widget raster path.
-  image: ^4.9.0
+  image: ^4.12.0
   conduit_markdown:
     path: ../conduit_markdown
   # On-device web search for Direct models (vendored `ddgs`, see its
@@ -57,7 +57,7 @@ dependencies:
   # `riverpod` is pure Dart -- no Flutter, no web restriction -- so this does
   # not weaken the portability the package exists for. `flutter_riverpod`
   # stays in the app.
-  riverpod: ^3.4.3
+  riverpod: ^3.5.0
   riverpod_annotation: ^4.0.7
   uuid: ^4.6.0
   # Chat tool servers may publish their OpenAPI spec as YAML.

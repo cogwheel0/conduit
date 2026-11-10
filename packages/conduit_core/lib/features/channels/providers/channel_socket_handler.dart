@@ -393,7 +393,7 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
       return;
     }
     final thread = threadMessagesProvider(channelId, parentId);
-    if (ref.exists(thread)) applyToThread(ref.read(thread.notifier));
+    if (ref.read(thread.exists)) applyToThread(ref.read(thread.notifier));
   }
 
   /// Handles a typing indicator event.
