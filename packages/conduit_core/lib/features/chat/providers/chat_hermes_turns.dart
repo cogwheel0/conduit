@@ -2190,7 +2190,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             owner: owner,
             notifier: notifier,
             assistantMessageId: assistantMessageId,
-          ),
+          ).catchError((Object error) {
+            // Minutes later the chat may be gone with its providers.
+            DebugLogger.warning(
+              'queued-answer-follow-failed',
+              scope: 'hermes/transport',
+              data: <String, Object?>{
+                'errorType': error.runtimeType.toString(),
+              },
+            );
+          }),
         );
       },
       onCompletedSuccessfully: () async {
@@ -2351,7 +2360,8 @@ String? _lastFailedHermesRunId(List<ChatMessage> messages) {
 /// [sessionId] during a restart, and shows it in [assistantMessageId] once
 /// it is there: the turn had no response to follow, and the message is
 /// never sent again. Stops when the chat is left or something else is
-/// sent; when the time allowed runs out, says to look again later.
+/// sent; when the time allowed runs out, says to look again later. Each
+/// change reaches the open conversation, as a finished reply's does.
 Future<void> _followQueuedHermesAnswer(
   dynamic ref, {
   required HermesBackendService service,
@@ -2364,9 +2374,10 @@ Future<void> _followQueuedHermesAnswer(
   bool current() =>
       owner.isActive(ref) && messages().lastOrNull?.id == assistantMessageId;
   void update(ChatMessage Function(ChatMessage message) updater) {
-    if (owner.isActive(ref)) {
-      notifier.updateMessageById(assistantMessageId, updater);
-    }
+    if (!owner.isActive(ref)) return;
+    notifier
+      ..updateMessageById(assistantMessageId, updater)
+      .._syncConversationStateAfterStreamingUpdate();
   }
 
   List<ChatStatusUpdate> settled(
@@ -2384,10 +2395,12 @@ Future<void> _followQueuedHermesAnswer(
     (message) => message.copyWith(
       statusHistory: [
         ...message.statusHistory,
+        // Done, as the turn has already settled: a settled turn shows only
+        // statuses that are. What comes of the wait replaces its words.
         const ChatStatusUpdate(
           action: kHermesQueuedAnswerAction,
           description: kHermesQueuedAnswerWaitingMessage,
-          done: false,
+          done: true,
         ),
       ],
     ),
@@ -2398,7 +2411,7 @@ Future<void> _followQueuedHermesAnswer(
     try {
       baseline = (await service.getSessionMessages(sessionId)).length;
     } catch (_) {
-      // Taken from the first read that works instead.
+      // Taken from the first read that works instead, looked for often.
     }
     outcome = await awaitHermesQueuedAnswer(
       readTranscript: () => service.getSessionMessages(sessionId),
@@ -2413,6 +2426,11 @@ Future<void> _followQueuedHermesAnswer(
     );
     outcome = const HermesQueuedAnswerPending();
   }
+  // Read again here: something else may have been sent while the last
+  // look was under way.
+  if (outcome is HermesQueuedAnswerArrived && !current()) {
+    outcome = const HermesQueuedAnswerAbandoned();
+  }
   switch (outcome) {
     case HermesQueuedAnswerArrived(:final rows):
       final placeholder = messages()
@@ -2426,6 +2444,10 @@ Future<void> _followQueuedHermesAnswer(
       update(
         (message) => message.copyWith(
           content: reply.content,
+          files: reply.files,
+          attachmentIds: reply.attachmentIds,
+          // The answer's response id, so the next turn continues from it.
+          metadata: {...?message.metadata, ...?reply.metadata},
           statusHistory: [
             ...settled(
               message.statusHistory,

@@ -50,7 +50,18 @@ const _before = <Map<String, dynamic>>[
 const _answered = <Map<String, dynamic>>[
   ..._before,
   {'id': 'row-3', 'role': 'user', 'content': 'And the high tide?'},
-  {'id': 'row-4', 'role': 'assistant', 'content': 'High tide is at ten.'},
+  {
+    'id': 'row-4',
+    'role': 'assistant',
+    'response_id': 'resp-2',
+    'content': [
+      {'type': 'text', 'text': 'High tide is at ten.'},
+      {
+        'type': 'image_url',
+        'image_url': {'url': 'https://hermes.example/tide-chart.png'},
+      },
+    ],
+  },
 ];
 
 /// A Hermes that saves the turn during a restart, then shows the session's
@@ -193,10 +204,14 @@ void main() {
       async.flushMicrotasks();
       ChatMessage reply() =>
           container.read(chatMessagesProvider).singleWhere((m) => m.id == id);
-      check(waiting(reply()))
-          .isNotNull()
-          .has((it) => it.done, 'done')
-          .equals(false);
+      // Shown on the settled turn while it waits, so marked done.
+      check(waiting(reply())).isNotNull()
+        ..has((it) => it.done, 'done').equals(true)
+        ..has(
+          (it) => it.description,
+          'description',
+        ).equals(kHermesQueuedAnswerWaitingMessage);
+      check(reply().isStreaming).isFalse();
 
       async.elapse(const Duration(minutes: 1));
 
@@ -207,6 +222,22 @@ void main() {
           (it) => it.description,
           'description',
         ).equals(kHermesQueuedAnswerArrivedMessage);
+      // With the answer's picture, and its response id for the next turn
+      // to continue from.
+      check(
+        reply().files,
+      ).isNotNull().has((it) => it.single['url'], 'url').equals(
+        'https://hermes.example/tide-chart.png',
+      );
+      check(reply().metadata?['hermesResponseId']).equals('resp-2');
+      // The open conversation shows it too.
+      check(
+        container
+            .read(activeConversationProvider)!
+            .messages
+            .singleWhere((m) => m.id == id)
+            .content,
+      ).equals('High tide is at ten.');
       // Saved, so never sent again.
       check(service.turns).equals(1);
       container.dispose();

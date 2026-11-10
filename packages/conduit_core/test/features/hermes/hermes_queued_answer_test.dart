@@ -95,6 +95,32 @@ void main() {
       },
     );
 
+    // Counting from the first read that worked missed an answer finished
+    // before it: looks that far apart could come only after the answer.
+    test('is seen when Hermes answers soon after it is back', () {
+      HermesQueuedAnswer? outcome;
+      fakeAsync((async) {
+        awaitHermesQueuedAnswer(
+          readTranscript: () async {
+            final now = async.elapsed;
+            if (now < const Duration(milliseconds: 10500)) {
+              throw Exception('restarting');
+            }
+            return now < const Duration(milliseconds: 12500)
+                ? _before
+                : [..._before, _saved, _answer];
+          },
+          isCurrent: () => true,
+        ).then((value) => outcome = value);
+        async.elapse(const Duration(minutes: 11));
+      });
+
+      check(outcome)
+          .isA<HermesQueuedAnswerArrived>()
+          .has((it) => it.rows, 'rows')
+          .deepEquals([_saved, _answer]);
+    });
+
     test('is given up on after the time allowed', () {
       final (outcome, reads) = _follow([_before], baseline: _before.length);
 

@@ -16,6 +16,11 @@ const List<Duration> kHermesQueuedAnswerDelays = [
   Duration(seconds: 30),
 ];
 
+/// How often it looks while it has no row count to start from (the first
+/// read failed, as while Hermes restarts): often, so the count is taken
+/// soon after Hermes is back, before the saved message can have run.
+const Duration kHermesQueuedAnswerBaselineRetry = Duration(seconds: 1);
+
 /// How long a chat waits for that answer before it stops looking.
 const Duration kHermesQueuedAnswerTimeout = Duration(minutes: 10);
 
@@ -57,20 +62,26 @@ final class HermesQueuedAnswerAbandoned extends HermesQueuedAnswer {
 /// (`admission_queued`), reading it with [readTranscript] until rows added
 /// after the first [baseline] end in an answer. Nothing is ever sent again.
 ///
-/// A null [baseline] is taken from the first read that succeeds. Reads that
-/// fail, as while Hermes restarts, are tried again at the next look. It
-/// stops as soon as [isCurrent] turns false, and gives up after [timeout].
+/// A null [baseline] is taken from the first read that succeeds, looking
+/// every [baselineRetry] until one does; [delays] start from there. Reads
+/// that fail, as while Hermes restarts, are tried again at the next look.
+/// It stops as soon as [isCurrent] turns false, and gives up after
+/// [timeout].
 Future<HermesQueuedAnswer> awaitHermesQueuedAnswer({
   required Future<List<Map<String, dynamic>>> Function() readTranscript,
   required bool Function() isCurrent,
   int? baseline,
   List<Duration> delays = kHermesQueuedAnswerDelays,
+  Duration baselineRetry = kHermesQueuedAnswerBaselineRetry,
   Duration timeout = kHermesQueuedAnswerTimeout,
 }) async {
   final deadline = clock.now().add(timeout);
   var known = baseline;
-  for (var attempt = 0; ; attempt++) {
-    final delay = delays[math.min(attempt, delays.length - 1)];
+  var looks = 0;
+  for (;;) {
+    final delay = known == null
+        ? baselineRetry
+        : delays[math.min(looks++, delays.length - 1)];
     if (clock.now().add(delay).isAfter(deadline)) {
       return const HermesQueuedAnswerPending();
     }
