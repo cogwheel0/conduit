@@ -845,14 +845,15 @@ class StreamingReasoningTagSplitter {
 ///
 /// Tracks fenced blocks (a run of three or more backticks or tildes that
 /// starts a line, indented at most three spaces, closed by a run of the same
-/// character at least as long) and inline code spans (a backtick run closed by
-/// a run of the same length). An inline span also ends at a blank line, since
-/// a span cannot cross paragraphs. A backtick or tilde run is only complete
-/// once a different character follows, so a run split across chunks is still
-/// read as one run.
+/// character at least as long with only whitespace after it on its line) and
+/// inline code spans (a backtick run closed by a run of the same length). An
+/// inline span also ends at a blank line, since a span cannot cross
+/// paragraphs. A backtick or tilde run is only complete once a different
+/// character follows, so a run split across chunks is still read as one run.
 final class _MarkdownCodeState {
   String? _fenceChar;
   int _fenceLength = 0;
+  bool _closePending = false;
   int _inlineTicks = 0;
   int _indent = 0;
   bool _lineHasText = false;
@@ -878,6 +879,7 @@ final class _MarkdownCodeState {
   void reset() {
     _fenceChar = null;
     _fenceLength = 0;
+    _closePending = false;
     _inlineTicks = 0;
     _indent = 0;
     _lineHasText = false;
@@ -890,6 +892,7 @@ final class _MarkdownCodeState {
   _MarkdownCodeState _copy() => _MarkdownCodeState()
     .._fenceChar = _fenceChar
     .._fenceLength = _fenceLength
+    .._closePending = _closePending
     .._inlineTicks = _inlineTicks
     .._indent = _indent
     .._lineHasText = _lineHasText
@@ -907,6 +910,17 @@ final class _MarkdownCodeState {
         return;
       }
       _endRun();
+    }
+    if (_closePending) {
+      // A closing marker closes the fence only once its line ends with
+      // nothing but whitespace after it (so `~~~xml` does not close `~~~`).
+      if (char == '\n') {
+        _fenceChar = null;
+        _fenceLength = 0;
+        _closePending = false;
+      } else if (char != ' ' && char != '\t' && char != '\r') {
+        _closePending = false;
+      }
     }
     switch (char) {
       case '`':
@@ -943,8 +957,7 @@ final class _MarkdownCodeState {
     _lineIsBlank = false;
     if (_fenceChar != null) {
       if (startsLine && char == _fenceChar && length >= _fenceLength) {
-        _fenceChar = null;
-        _fenceLength = 0;
+        _closePending = true;
       }
       return;
     }

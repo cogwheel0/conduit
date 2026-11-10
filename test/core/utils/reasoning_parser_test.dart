@@ -331,6 +331,31 @@ void main() {
             .join();
       }
 
+      /// [collect] for [chunks], with neighbouring text or reasoning pieces
+      /// joined, so one text gives the same list however it is cut.
+      List<String> joined(List<String> chunks) {
+        final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+        final pieces = <String>[];
+        for (final piece in collect([
+          for (final chunk in chunks) ...splitter.feed(chunk),
+          ...splitter.flush(),
+        ]).cast<String>()) {
+          final kind = piece.substring(0, piece.indexOf(':') + 1);
+          if (kind.isNotEmpty &&
+              pieces.isNotEmpty &&
+              pieces.last.startsWith(kind)) {
+            pieces.last += piece.substring(kind.length);
+          } else {
+            pieces.add(piece);
+          }
+        }
+        return pieces;
+      }
+
+      List<String> characters(String text) => [
+        for (var index = 0; index < text.length; index++) text[index],
+      ];
+
       test('leaves tags in inline code spans as text', () {
         const text = 'Use `<think>` or `` <thinking> `` there.';
         check(
@@ -388,6 +413,29 @@ void main() {
           'end',
           'text:end',
         ]);
+      });
+
+      test('keeps a fence open past a marker line with text after it', () {
+        const text =
+            '```\n'
+            '```js\n'
+            '<think>sample</think>\n'
+            '```<think>\n'
+            '```\n'
+            '~~~\n'
+            '~~~xml\n'
+            '<thought>sample</thought>\n'
+            '~~~ \n'
+            '<think>real</think>after';
+        const expected = [
+          'text:```\n```js\n<think>sample</think>\n```<think>\n```\n'
+              '~~~\n~~~xml\n<thought>sample</thought>\n~~~ \n',
+          'reason:real',
+          'end',
+          'text:after',
+        ];
+        check(joined([text])).deepEquals(expected);
+        check(joined(characters(text))).deepEquals(expected);
       });
 
       test('ends an unclosed inline span at a blank line', () {
