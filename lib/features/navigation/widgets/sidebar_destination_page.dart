@@ -159,9 +159,7 @@ class _SidebarDestinationPageState
     final contextualActions = _searchExpanded
         ? const <AdaptiveAppBarAction>[]
         : tab.behavior.contextualActions(context, color);
-    // On iOS 26 two or three glyph actions share one glass capsule, as an
-    // iOS bar groups them; a titled action keeps the separate buttons.
-    final groupsActions =
+    final glyphActionsOnly =
         conduitSupportsNativeGlass() &&
         contextualActions.every(
           (action) => action.iosSymbol != null && action.title == null,
@@ -176,7 +174,7 @@ class _SidebarDestinationPageState
           tintColor: color,
           onPressed: _toggleSearch,
         ),
-      if (groupsActions && !_searchExpanded) ...[
+      if (glyphActionsOnly && !_searchExpanded) ...[
         for (final action in contextualActions)
           ConduitNativeToolbarAction(
             iosSymbol: action.iosSymbol!,
@@ -194,6 +192,13 @@ class _SidebarDestinationPageState
           ),
       ],
     ];
+    // On iOS 26 two or three glyph actions share one glass capsule, as an
+    // iOS bar groups them; a titled action, or more than three, keep the
+    // separate buttons.
+    final groupsActions =
+        glyphActionsOnly &&
+        nativeActions.length > 1 &&
+        nativeActions.length <= 3;
     final page = AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
       appBar: buildConduitCenteredAdaptiveAppBar(
@@ -242,10 +247,7 @@ class _SidebarDestinationPageState
               ),
           ],
         ]),
-        cupertinoTrailing:
-            groupsActions &&
-                nativeActions.length > 1 &&
-                nativeActions.length <= 3
+        cupertinoTrailing: groupsActions
             ? ConduitNativeToolbarActionGroup(
                 key: const ValueKey<String>('destination-toolbar-actions'),
                 actions: nativeActions,
