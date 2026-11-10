@@ -7,7 +7,6 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 0,
-          hasOlderMessages: false,
           currentlyShowing: false,
         ),
         isFalse,
@@ -18,7 +17,6 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 24,
-          hasOlderMessages: false,
           currentlyShowing: false,
         ),
         isTrue,
@@ -30,7 +28,6 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 12,
-          hasOlderMessages: false,
           currentlyShowing: false,
         ),
         isFalse,
@@ -39,7 +36,6 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 12,
-          hasOlderMessages: false,
           currentlyShowing: true,
         ),
         isTrue,
@@ -52,7 +48,6 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 120,
-          hasOlderMessages: false,
           currentlyShowing: false,
           contentOverflowsViewport: false,
         ),
@@ -66,7 +61,6 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 754,
-          hasOlderMessages: false,
           currentlyShowing: true,
           contentOverflowsViewport: false,
         ),
@@ -75,22 +69,10 @@ void main() {
       expect(
         chatHeaderShowsTitle(
           scrolledFromTop: 4,
-          hasOlderMessages: false,
           currentlyShowing: true,
           contentOverflowsViewport: false,
         ),
         isFalse,
-      );
-    });
-
-    test('older messages still above always count as scrolled', () {
-      expect(
-        chatHeaderShowsTitle(
-          scrolledFromTop: 0,
-          hasOlderMessages: true,
-          currentlyShowing: false,
-        ),
-        isTrue,
       );
     });
   });

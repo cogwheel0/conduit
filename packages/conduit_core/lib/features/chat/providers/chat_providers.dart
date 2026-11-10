@@ -82,7 +82,6 @@ import 'package:conduit_core/database/local_conversation_loader.dart';
 
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
-import 'package:conduit_core/database/models/chat_transcript_window.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 

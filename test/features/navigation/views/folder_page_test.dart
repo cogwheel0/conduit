@@ -969,7 +969,7 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
-  testWidgets('chat page mount defers the initial transcript reset', (
+  testWidgets('chat page mounts loaded messages without a provider mutation', (
     tester,
   ) async {
     final timestamp = DateTime(2026, 1, 1);
@@ -1006,7 +1006,8 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(container.read(chatTranscriptPagingProvider).loadedCount, 1);
+    expect(container.read(chatMessagesProvider).single.id, message.id);
+    expect(find.text('Hi'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     container.dispose();
   });

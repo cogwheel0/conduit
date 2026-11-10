@@ -597,13 +597,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _scrollToBottomPrewarmPending = false;
-  bool _hasUserScrolled = false;
   bool _isDeactivated = false;
   double _inputHeight = 0;
   final _voiceOverlayKey = GlobalKey();
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
   int _conversationOwnerGeneration = 0;
+  // The conversation a transcript drag started in.
+  int _dragOwnerGeneration = 0;
   int? _timelineHistoryIndexDesyncLogGeneration;
   int? _timelineTailMetadataDesyncLogGeneration;
   final LinkedHashMap<String, ChatScrollAnchor> _savedScrollAnchors =
@@ -627,16 +628,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   _ChatTimelineScrollMode _timelineScrollMode =
       _ChatTimelineScrollMode.followingLatest;
   final _stableLayoutCache = _ChatListStableLayoutCache();
-  // Identity-stable transcript window, render model, and rowBuilder. The shell
+  // Identity-stable render model and rowBuilder. The shell
   // rebuilds far more often than the transcript changes (drag setState,
   // keyboard insets, pin transitions); keeping these identities stable lets
   // the viewport's sliver delegate skip rebuilding every mounted row, and lets
   // the stable-layout cache hit its identity fast path.
-  List<ChatMessage>? _transcriptWindowSource;
-  int _transcriptWindowRequestedCount = -1;
-  int _transcriptWindowPagingGeneration = -1;
-  int _transcriptWindowOwnerGeneration = -1;
-  List<ChatMessage> _transcriptWindowMemo = const <ChatMessage>[];
   List<ChatMessage>? _timelineModelSource;
   int _timelineModelGeneration = -1;
   ChatTimelineRenderModel? _timelineModelMemo;
@@ -748,10 +744,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _handleViewportMetricsChanged(ChatTimelineViewportMetrics metrics) {
     if (!mounted || _isDeactivated) return;
-    final hasOlderMessages = ref.read(chatTranscriptPagingProvider).hasOlder;
     _headerShowsTitle.value = chatHeaderShowsTitle(
       scrolledFromTop: metrics.pixels - metrics.minScrollExtent,
-      hasOlderMessages: hasOlderMessages,
       currentlyShowing: _headerShowsTitle.value,
       contentOverflowsViewport: metrics.hasRealContentOverflow,
     );
@@ -770,25 +764,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _lastVisibleMessageIds = visibleMessageIds;
     if (shouldPrewarm) _hasPrewarmedAttachedViewport = true;
     _scheduleScrollToBottomVisibilitySync(prewarm: shouldPrewarm);
-  }
-
-  void _maybeLoadOlderMessages() {
-    final paging = ref.read(chatTranscriptPagingProvider);
-    if (!debugShouldLoadOlderPageForTesting(
-      hasUserScrolled: _hasUserScrolled,
-      hasOlder: paging.hasOlder,
-      isLoadingOlder: paging.isLoadingOlder,
-      anyOldestLoadedRowVisible: _timelineViewportController
-          .anyOldestLoadedRowVisible(),
-    )) {
-      return;
-    }
-    final completeMessages = ref.read(chatMessagesProvider);
-    unawaited(
-      ref
-          .read(chatTranscriptPagingProvider.notifier)
-          .fetchOlder(totalMessages: completeMessages.length),
-    );
   }
 
   void _cancelExplicitLatestNavigation() {
@@ -825,7 +800,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_timelineViewportController.hasClients) {
       _timelineViewportController.jumpToLatest();
     }
-    ref.read(chatTranscriptPagingProvider.notifier).reset(totalMessages: 0);
     _cancelPendingViewportNavigation();
     _clearPinToTopAnchor();
     _invalidateChatListStableLayoutMetadata();
@@ -2313,9 +2287,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _prewarmVisibleMarkdownRows() {
     if (!mounted || _isDeactivated) return;
 
-    final completeMessages = ref.read(chatMessagesProvider);
-    final paging = ref.read(chatTranscriptPagingProvider);
-    final messages = _renderedTranscriptWindow(completeMessages, paging);
+    final messages = ref.read(chatMessagesProvider);
     if (messages.isEmpty) {
       return;
     }
@@ -2387,67 +2359,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scheduleScrollToBottomVisibilitySync();
   }
 
-  int _renderedTranscriptCount(
-    List<ChatMessage> completeMessages,
-    ChatTranscriptPagingState paging,
-  ) => renderedTranscriptCount(
-    total: completeMessages.length,
-    loadedCount: paging.loadedCount,
-  );
-
-  List<ChatMessage> _renderedTranscriptWindow(
-    List<ChatMessage> completeMessages,
-    ChatTranscriptPagingState paging,
-  ) {
-    final requested = _renderedTranscriptCount(completeMessages, paging);
-    final sameWindow =
-        paging.generation == _transcriptWindowPagingGeneration &&
-        _conversationOwnerGeneration == _transcriptWindowOwnerGeneration;
-    if (sameWindow &&
-        identical(_transcriptWindowSource, completeMessages) &&
-        requested == _transcriptWindowRequestedCount) {
-      return _transcriptWindowMemo;
-    }
-    // A send appends its turn before paging hears of the new total; keep the
-    // rows already on screen rather than sliding the window past them.
-    final count = transcriptCountKeepingOldestRow(
-      total: completeMessages.length,
-      requestedCount: requested,
-      previousOldestIndex: sameWindow
-          ? _indexOfWindowStart(completeMessages, _transcriptWindowMemo)
-          : null,
-    );
-    _transcriptWindowSource = completeMessages;
-    _transcriptWindowRequestedCount = requested;
-    _transcriptWindowPagingGeneration = paging.generation;
-    _transcriptWindowOwnerGeneration = _conversationOwnerGeneration;
-    _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
-    return _transcriptWindowMemo;
-  }
-
-  /// Where [window]'s oldest message now sits in [completeMessages], or null.
-  /// Appends leave it where it was, so that index is checked first.
-  static int? _indexOfWindowStart(
-    List<ChatMessage> completeMessages,
-    List<ChatMessage> window,
-  ) {
-    if (window.isEmpty) return null;
-    final oldestId = window.first.id;
-    // Where it would be if nothing before it changed.
-    final likely = completeMessages.length - window.length;
-    for (final index in [likely, likely - 1, likely - 2]) {
-      if (index >= 0 &&
-          index < completeMessages.length &&
-          completeMessages[index].id == oldestId) {
-        return index;
-      }
-    }
-    final index = completeMessages.indexWhere(
-      (message) => message.id == oldestId,
-    );
-    return index < 0 ? null : index;
-  }
-
   bool _hasScrollableTranscriptContent() {
     return _timelineViewportController.hasRealContentOverflow;
   }
@@ -2513,7 +2424,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _handleNativeScrollToTop() async {
     if (!mounted || !_timelineViewportController.hasClients) return;
     final ownerGeneration = _conversationOwnerGeneration;
-    _hasUserScrolled = true;
 
     // A status-bar tap is a direct user navigation command. Transfer scroll
     // ownership before moving so pin/latest maintenance cannot pull the
@@ -2738,8 +2648,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _lastVisibleMessageIds = const <String>{};
     _clearPinToTopAnchor();
     _invalidateChatListStableLayoutMetadata();
-    _hasUserScrolled = false;
-    final totalMessages = ref.read(chatMessagesProvider).length;
     final anchor = conversationId == null
         ? null
         : _savedScrollAnchors[conversationId];
@@ -2747,18 +2655,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _bottomAnchorController.detachByUser();
       _timelineScrollMode = _ChatTimelineScrollMode.freeScrolling;
       _initialScrollAnchor = anchor;
-      ref
-          .read(chatTranscriptPagingProvider.notifier)
-          .restoreLoadedCount(
-            totalMessages: totalMessages,
-            loadedCount: anchor.loadedCount,
-          );
     } else {
       _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
       _initialScrollAnchor = null;
-      ref
-          .read(chatTranscriptPagingProvider.notifier)
-          .reset(totalMessages: totalMessages);
       if (conversationId != null) {
         _bottomAnchorController.resetForDetachedScroll();
       }
@@ -2779,7 +2678,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _clearPinToTopAnchor();
       _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
       _showScrollToBottom = false;
-      _hasUserScrolled = false;
     });
   }
 
@@ -2798,14 +2696,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _saveCurrentScrollAnchor({String? conversationId}) {
     final id = conversationId ?? _lastConversationId;
     if (id == null) return;
-    final messages = ref.read(chatMessagesProvider);
-    final paging = ref.read(chatTranscriptPagingProvider);
-    final visible = _renderedTranscriptWindow(messages, paging);
-    final visibleCount = visible.length;
-    if (visibleCount == 0) return;
-    final anchor = _timelineViewportController.captureTopVisibleAnchor(
-      loadedCount: visibleCount,
-    );
+    if (ref.read(chatMessagesProvider).isEmpty) return;
+    final anchor = _timelineViewportController.captureTopVisibleAnchor();
     if (anchor == null) return;
     _savedScrollAnchors.remove(id);
     _savedScrollAnchors[id] = anchor;
@@ -3117,10 +3009,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Rebuild the list shell only when streaming starts or ends so pin-to-top
     // cleanup runs on completion without rebuilding on every streamed chunk.
     final isStreaming = watchRef.watch(isChatStreamingProvider);
-    final completeMessages = watchRef.read(chatMessagesProvider);
-    final paging = watchRef.watch(chatTranscriptPagingProvider);
-    final messages = _renderedTranscriptWindow(completeMessages, paging);
-    final requestedCount = messages.length;
+    // History is already in memory. Let the sliver lazily build the full list
+    // so revealing earlier messages cannot change the scrollbar's range.
+    final messages = watchRef.read(chatMessagesProvider);
     final pinnedAssistantId = _pinnedStreamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
@@ -3131,39 +3022,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ),
           );
     _schedulePinnedTurnLifecycleReconciliation(pinnedAssistantPhase);
-    if (paging.loadedCount != requestedCount ||
-        paging.hasOlder != (requestedCount < completeMessages.length)) {
-      final scheduledConversation = watchRef.read(activeConversationProvider);
-      final scheduledConversationId = scheduledConversation == null
-          ? null
-          : conversationScopedId(scheduledConversation);
-      final scheduledConversationGeneration = _conversationOwnerGeneration;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final activeConversation = ref.read(activeConversationProvider);
-        if (!debugShouldApplyDeferredConversationMutationForTesting(
-          isMounted: true,
-          scheduledConversationId: scheduledConversationId,
-          activeConversationId: activeConversation == null
-              ? null
-              : conversationScopedId(activeConversation),
-          scheduledGeneration: scheduledConversationGeneration,
-          activeGeneration: _conversationOwnerGeneration,
-        )) {
-          return;
-        }
-        final currentMessageCount = ref.read(chatMessagesProvider).length;
-        ref
-            .read(chatTranscriptPagingProvider.notifier)
-            .ensureTotal(
-              currentMessageCount,
-              minimumLoaded: _transcriptWindowMemo.length,
-            );
-      });
-    }
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
-    final showLoadingSkeleton =
-        isLoadingConversation && completeMessages.isEmpty;
+    final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
     if (showLoadingSkeleton) {
       return _buildLoadingMessagesList();
     }
@@ -3264,7 +3124,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final apiService = watchRef.watch(apiServiceProvider);
-    final paging = watchRef.watch(chatTranscriptPagingProvider);
 
     final topPadding =
         MediaQuery.paddingOf(context).top +
@@ -3396,7 +3255,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       horizontalPadding: Spacing.inputPadding,
       cacheExtent: _chatMessageScrollCachePixels,
       physics: platformAlwaysScrollablePhysics(context),
-      isLoadingOlder: paging.isLoadingOlder,
       maintainVisibleAnchor:
           _timelineScrollMode == _ChatTimelineScrollMode.freeScrolling,
       followLatest:
@@ -3414,9 +3272,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
       },
       onUserDragStart: () {
+        _dragOwnerGeneration = _conversationOwnerGeneration;
         InteractionActivity.instance.beginInteraction();
         final pinnedTurnWasActive = _wantsPinToTop;
-        _hasUserScrolled = true;
         if (!_isUserInteractingWithScroll) {
           _releasePinForUserDrag();
           _cancelPendingViewportNavigation();
@@ -3436,9 +3294,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         } catch (_) {}
       },
       onUserDragEnd: () {
+        // A viewport removed mid-drag ends it after the frame, possibly
+        // after this page has gone or already released the hold.
+        if (!mounted || !_isUserInteractingWithScroll) return;
         InteractionActivity.instance.endInteraction();
         _endScrollProfile(reason: 'idle');
         _isUserInteractingWithScroll = false;
+        // A drag cut short by switching chats says nothing about where the
+        // new chat should rest.
+        if (_dragOwnerGeneration != _conversationOwnerGeneration) return;
         _updateBottomAnchorTracking();
         _scheduleScrollToBottomVisibilitySync(prewarm: true);
         final naturallyReturnedToLatest = _wantsPinToTop
@@ -3449,12 +3313,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         if (naturallyReturnedToLatest) {
           _resumeLatestPresentation();
         }
-        _maybeLoadOlderMessages();
       },
       onMetricsChanged: _handleViewportMetricsChanged,
       onLatestDistanceChanged: _handleLatestDistanceChanged,
       onPinEndSpaceChanged: _handlePinEndSpaceChanged,
-      onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
       rowBuilder: rowBuilder,
@@ -3885,33 +3747,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> messages, {
     required _ChatListStableLayoutMetadata layoutMetadata,
   }) {
-    // Twelve rows is roughly the visible window plus one fling of history in
-    // each direction. Prewarm work runs on worker isolates in bounded
-    // batches, so the wider net costs background time, not frames.
+    // Prewarm at most twelve nearby rows in bounded worker batches.
     final candidateIndices = _selectMarkdownPrewarmCandidatesFromVisibleIds(
       messages: messages,
       layoutMetadata: layoutMetadata,
       visibleMessageIds: _timelineViewportController.visibleMessageIds,
       maxCount: 12,
     );
-    final filteredCandidateIndices = <int>[];
+    final rawContents = <String>[];
     final signatureParts = <String>[];
 
     for (final index in candidateIndices) {
       final message = messages[index];
       final content = message.content.trim();
-      if (message.isStreaming ||
-          content.isEmpty ||
-          content.contains('data:image/')) {
-        continue;
-      }
-      filteredCandidateIndices.add(index);
+      rawContents.add(content);
       signatureParts.add(
         '$index:${message.id}:${_cheapMarkdownPrewarmContentSignature(content)}',
       );
     }
 
-    if (filteredCandidateIndices.isEmpty) {
+    if (rawContents.isEmpty) {
       _markdownPrewarmThrottle.cancel();
       _lastMarkdownPrewarmSignature = null;
       return;
@@ -3922,9 +3777,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
-    final rawContents = filteredCandidateIndices
-        .map((index) => messages[index].content.trim())
-        .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
     _markdownPrewarmThrottle.schedule(rawContents, (pendingContents) {
       if (!mounted) return;
@@ -5602,11 +5454,9 @@ String? chatHeaderTitle(String? title) {
 @visibleForTesting
 bool chatHeaderShowsTitle({
   required double scrolledFromTop,
-  required bool hasOlderMessages,
   required bool currentlyShowing,
   bool contentOverflowsViewport = true,
 }) {
-  if (hasOlderMessages) return true;
   if (currentlyShowing) return scrolledFromTop > 8.0;
   if (!contentOverflowsViewport) return false;
   return scrolledFromTop > 20.0;
@@ -6335,33 +6185,6 @@ double debugChatEmptyStateOpticalLiftForTesting({
 }) => availableHeight <= 0 ? 0 : availableHeight * 0.04;
 
 @visibleForTesting
-bool debugShouldApplyDeferredConversationMutationForTesting({
-  required bool isMounted,
-  required String? scheduledConversationId,
-  required String? activeConversationId,
-  required int scheduledGeneration,
-  required int activeGeneration,
-}) {
-  return isMounted &&
-      scheduledConversationId != null &&
-      scheduledConversationId == activeConversationId &&
-      scheduledGeneration == activeGeneration;
-}
-
-@visibleForTesting
-bool debugShouldLoadOlderPageForTesting({
-  required bool hasUserScrolled,
-  required bool hasOlder,
-  required bool isLoadingOlder,
-  required bool anyOldestLoadedRowVisible,
-}) => shouldLoadOlderTranscriptPage(
-  hasUserScrolled: hasUserScrolled,
-  hasOlder: hasOlder,
-  isLoadingOlder: isLoadingOlder,
-  oldestLoadedRowVisible: anyOldestLoadedRowVisible,
-);
-
-@visibleForTesting
 bool debugCanSubmitChatMessageForTesting({
   required bool isLoadingConversation,
   required bool isSavingTemporary,
@@ -6684,6 +6507,21 @@ bool _visibleMessageIdsGained({
   return current.any((id) => !previousSet.contains(id));
 }
 
+final _markdownPrewarmEligibilityCache = MarkdownPrewarmEligibilityCache();
+
+class MarkdownPrewarmEligibilityCache {
+  // Weak identity keys avoid rescanning immutable messages without retaining
+  // trimmed copies that can double a loaded transcript's text heap.
+  final _eligible = Expando<bool>();
+
+  bool isEligible(ChatMessage message) =>
+      _eligible[message] ??=
+          message.role == 'assistant' &&
+          !message.isStreaming &&
+          message.content.trim().isNotEmpty &&
+          !message.content.contains('data:image/');
+}
+
 @visibleForTesting
 class MarkdownPrewarmThrottle {
   MarkdownPrewarmThrottle({this.delay = const Duration(milliseconds: 220)});
@@ -6749,15 +6587,7 @@ List<int> _selectMarkdownPrewarmCandidatesFromVisibleIds({
         layoutMetadata.rows[index].isArchivedVariant) {
       return;
     }
-    final message = messages[index];
-    if (message.role != 'assistant') {
-      return;
-    }
-    if (message.isStreaming) {
-      return;
-    }
-    final content = message.content.trim();
-    if (content.isEmpty || content.contains('data:image/')) {
+    if (!_markdownPrewarmEligibilityCache.isEligible(messages[index])) {
       return;
     }
     seen.add(index);
@@ -6786,8 +6616,14 @@ List<int> _selectMarkdownPrewarmCandidatesFromVisibleIds({
 
   var before = visibleIndices.first - 1;
   var after = visibleIndices.last + 1;
-  while (indices.length < maxCount &&
-      (before >= 0 || after < messages.length)) {
+  // Sparse eligible rows must not turn each scroll update into a history scan.
+  for (
+    var distance = 0;
+    distance < maxCount &&
+        indices.length < maxCount &&
+        (before >= 0 || after < messages.length);
+    distance += 1
+  ) {
     if (after < messages.length) addIndex(after++);
     if (indices.length >= maxCount) break;
     if (before >= 0) addIndex(before--);

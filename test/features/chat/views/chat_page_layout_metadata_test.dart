@@ -114,102 +114,6 @@ void main() {
     );
   });
 
-  test('older paging requires navigation, history, and an oldest row', () {
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isTrue();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: false,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: false,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: true,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: false,
-      ),
-    ).isFalse();
-  });
-
-  test('deferred chat mutations are fenced to the scheduled conversation', () {
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isTrue,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-b',
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: false,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: null,
-        activeConversationId: null,
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-        scheduledGeneration: 7,
-        activeGeneration: 9,
-      ),
-      isFalse,
-    );
-  });
-
   test('temporary-chat save blocks composer and send submission', () {
     expect(
       debugCanSubmitChatMessageForTesting(
@@ -1228,6 +1132,25 @@ void main() {
     expect(indices, <int>[4, 5, 3]);
   });
 
+  test('markdown prewarm stays near visible rows in a sparse long history', () {
+    final messages = List.generate(
+      10000,
+      (index) => ChatMessage(
+        id: 'synthetic-$index',
+        role: index == 4999 || index == 9000 ? 'assistant' : 'user',
+        content: 'A synthetic shape has four sides.',
+        timestamp: DateTime(2026),
+      ),
+    );
+    expect(
+      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+        messages,
+        visibleMessageIds: const ['synthetic-5000'],
+      ),
+      [4999],
+    );
+  });
+
   test('markdown prewarm returns no candidates without visible IDs', () {
     final messages = <ChatMessage>[
       ChatMessage(
@@ -1296,6 +1219,25 @@ void main() {
       ]);
       throttle.cancel();
     });
+  });
+
+  test('markdown prewarm caches eligibility across immutable edits', () {
+    final cache = MarkdownPrewarmEligibilityCache();
+    final message = ChatMessage(
+      id: 'synthetic-prewarm',
+      role: 'assistant',
+      content: '  ${List.filled(4096, 'synthetic paragraph ').join()}  ',
+      timestamp: DateTime(2026),
+    );
+    expect(cache.isEligible(message), isTrue);
+    expect(cache.isEligible(message), isTrue);
+    expect(cache.isEligible(message.copyWith(isStreaming: true)), isFalse);
+    expect(cache.isEligible(message.copyWith(role: 'user')), isFalse);
+    expect(cache.isEligible(message.copyWith(content: '  ')), isFalse);
+    final image = message.copyWith(content: 'data:image/png;base64,synthetic');
+    expect(cache.isEligible(image), isFalse);
+    expect(cache.isEligible(image.copyWith(content: 'edited')), isTrue);
+    expect(cache.isEligible(message), isTrue);
   });
 
   test('markdown prewarm skips still-streaming assistant messages', () {
