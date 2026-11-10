@@ -2374,7 +2374,12 @@ Future<void> _followQueuedHermesAnswer(
   bool current() =>
       owner.isActive(ref) && messages().lastOrNull?.id == assistantMessageId;
   void update(ChatMessage Function(ChatMessage message) updater) {
-    if (!owner.isActive(ref)) return;
+    // Nothing to change once the turn has left the chat, and then the
+    // conversation is not rewritten either.
+    if (!owner.isActive(ref) ||
+        !messages().any((message) => message.id == assistantMessageId)) {
+      return;
+    }
     notifier
       ..updateMessageById(assistantMessageId, updater)
       .._syncConversationStateAfterStreamingUpdate();

@@ -245,6 +245,25 @@ void main() {
     });
   });
 
+  // With its turn gone, settling the wait still rewrote the conversation
+  // and its summary, moving it in the chat list.
+  test('a turn gone from the chat leaves the conversation as it is', () {
+    fakeAsync((async) {
+      final service = _RestartingHermesApi([_before]);
+      final (container, id) = send(service);
+      async.elapse(const Duration(seconds: 3));
+      container.read(chatMessagesProvider.notifier).removeMessageById(id);
+      final before = container.read(activeConversationProvider);
+
+      async.elapse(const Duration(minutes: 11));
+
+      check(identical(container.read(activeConversationProvider), before))
+          .isTrue();
+      container.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
   test('a chat that sends something else stops waiting for the answer', () {
     fakeAsync((async) {
       final service = _RestartingHermesApi([_before]);
