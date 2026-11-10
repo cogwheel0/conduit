@@ -391,6 +391,7 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
       trailing: canCreate
           ? createButton(activePlatform: isIos)
           : const SizedBox.shrink(),
+      blurWhenScrolledUnder: true,
     ),
     appBar: AppBar(
       automaticallyImplyLeading: false,

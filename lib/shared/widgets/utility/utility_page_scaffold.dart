@@ -380,6 +380,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               leading: leading ?? const SizedBox.shrink(),
               middle: title,
               trailing: widget.trailing,
+              blurWhenScrolledUnder: true,
               systemOverlayStyle: Theme.of(context)
                   .appBarTheme
                   .systemOverlayStyle,
