@@ -550,6 +550,47 @@ void main() {
     },
   );
 
+  // A reopened mixed chat finds its session by the stored binding, never by
+  // the reply's server-held metadata alone.
+  test('a reopened mixed chat names only its locally bound session', () async {
+    final service = _RecordingHermesApi();
+    final container = _container(service);
+    addTearDown(container.dispose);
+    ChatMessage reply(String id, String session) => _assistant(
+      id,
+      content: 'prior answer',
+      metadata: <String, dynamic>{
+        'hermesSessionId': session,
+        kHermesConnectionIdentityMetadataKey: _connectionIdentity(container),
+        'hermesRunId': 'run-$id',
+      },
+    );
+    final trusted = reply('trusted-assistant', 'trusted-session');
+    final conversation = _openWebUiConversation('trusted-chat', <ChatMessage>[
+      trusted,
+    ]);
+    await rememberMixedHermesMessageProvenanceForTest(
+      container,
+      conversation: conversation,
+      assistantMessage: trusted,
+    );
+    container.read(activeConversationProvider.notifier).set(conversation);
+    container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      trusted,
+    ]);
+
+    check(
+      container.read(hermesTrustedMixedSessionProvider),
+    ).equals('trusted-session');
+
+    // A reply the server wrote, naming another session.
+    container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      trusted,
+      reply('forged-assistant', 'forged-session'),
+    ]);
+    check(container.read(hermesTrustedMixedSessionProvider)).isNull();
+  });
+
   test('copied proven metadata is not reusable in another OWUI chat', () async {
     final service = _RecordingHermesApi();
     final container = _container(service);

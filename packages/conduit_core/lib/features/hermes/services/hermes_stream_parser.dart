@@ -298,15 +298,16 @@ HermesToolProgress? _sdkToolProgress(
   );
 }
 
-/// The approvals a run still waits on (`GET /v1/runs/{id}`
+/// The approvals and questions a run still waits on (`GET /v1/runs/{id}`
 /// `pending_controls`, v0.22.3+), as the events that first showed them: a
-/// run whose stream cannot come back (saved during a restart) can still
+/// stream that dropped for good, or a run saved during a restart, can still
 /// show and answer them.
 List<HermesRunEvent> hermesPendingControlEvents(Object? controls) {
   if (controls is! List) return const [];
   final events = <HermesRunEvent>[];
   for (final control in controls.whereType<Map>().take(16)) {
-    if (control['kind'] != 'approval') continue;
+    final kind = control['kind'];
+    if (kind != 'approval' && kind != 'clarify') continue;
     final String data;
     try {
       data = jsonEncode(control);
@@ -314,7 +315,7 @@ List<HermesRunEvent> hermesPendingControlEvents(Object? controls) {
       continue;
     }
     events.addAll(
-      parseHermesRunFrame(SseFrame(event: 'approval.request', data: data)),
+      parseHermesRunFrame(SseFrame(event: '$kind.request', data: data)),
     );
   }
   return events;
@@ -525,8 +526,26 @@ Iterable<HermesRunEvent> parseHermesRunFrame(
     return;
   }
 
-  // Clarify prompts have no REST card yet; never mistake them for approvals.
-  if (eventType == 'clarify.request') return;
+  // A question for the user (Hermes v0.22.3+, when the operator enables
+  // clarify for the API server). Answered by prompt id and generation, like
+  // an approval; never mistaken for one.
+  if (eventType == 'clarify.request') {
+    final promptId = validateHermesOpaqueIdentifier(data['prompt_id']);
+    final generation = data['execution_generation'];
+    final question = _strictString(data['question']);
+    if (promptId != null &&
+        generation is int &&
+        generation >= 0 &&
+        question != null) {
+      yield HermesDecisionRequested(
+        kind: HermesDecisionKind.clarification,
+        requestId: promptId,
+        prompt: question,
+        raw: data,
+      );
+    }
+    return;
+  }
 
   // Human-approval gate.
   if ((eventType?.contains('approval') ?? false) ||

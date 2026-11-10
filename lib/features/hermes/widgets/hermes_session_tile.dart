@@ -572,6 +572,7 @@ Future<void> openHermesSession(
         raw,
         modelId: hermesModel.id,
         trustedLocalDocumentKeys: trustedDocuments,
+        sensitiveValues: service.config.sensitiveValues,
       )..addAll(
         hermesPendingDesktopDecisionMessages(
           pendingDecisions,

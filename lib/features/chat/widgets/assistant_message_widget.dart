@@ -21,6 +21,8 @@ import 'package:conduit_core/features/direct_connections/services/model_logo_cat
     show installedModelLogoCatalog;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show hermesErrorSurfaceOf;
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show directContextLengthOverridesProvider;
@@ -47,6 +49,8 @@ import 'enhanced_attachment.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 
 import '../../../shared/widgets/model_avatar.dart';
+import '../../hermes/widgets/hermes_diff_card.dart';
+import '../../hermes/widgets/hermes_error_card.dart';
 import '../../hermes/widgets/hermes_history_actions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/web_content_embed.dart';
@@ -1525,13 +1529,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 // Display error banner if message or active version has an error
                 if (_getActiveError() != null) ...[
                   const SizedBox(height: Spacing.sm),
-                  _buildErrorBanner(_getActiveError()!),
+                  _buildHermesErrorCard() ??
+                      _buildErrorBanner(_getActiveError()!),
                 ],
 
                 if (hasCodeExecutions) ...[
                   const SizedBox(height: Spacing.md),
                   CodeExecutionListView(executions: activeCodeExecutions),
                 ],
+
+                // Files a Hermes reply's tools edited, as a diff card. An
+                // earlier version keeps no record of what its tools did.
+                if (!showingVersion)
+                  HermesChangedFilesCard(
+                    statuses: widget.message.statusHistory,
+                  ),
 
                 // Version switcher moved inline with action buttons below
               ],
@@ -1828,6 +1840,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Otherwise return the main message's error
     return msg.error;
+  }
+
+  /// The card for a failed Hermes turn Hermes classified, or null for any
+  /// other error (shown as the banner).
+  Widget? _buildHermesErrorCard() {
+    final message = widget.message;
+    if (message is! ChatMessage || _activeVersionIndex >= 0) return null;
+    final surface = hermesErrorSurfaceOf(message);
+    if (surface == null) return null;
+    return HermesErrorCard(
+      surface: surface,
+      errorText: message.error?.content,
+      onRetry: widget.readOnly ? null : widget.onRegenerate,
+      onContinue: widget.readOnly
+          ? null
+          : () => _handleFollowUpTap('continue'),
+    );
   }
 
   /// Build an error banner matching OpenWebUI's error display style.

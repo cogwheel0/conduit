@@ -61,6 +61,7 @@ import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -72,8 +73,10 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/widgets/hermes_context_usage_sheet.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../hermes/widgets/hermes_read_only_session_notice.dart';
+import '../../hermes/widgets/hermes_todo_card.dart';
 import '../widgets/live_connection_button.dart';
 import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
@@ -649,7 +652,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<Object>? _authEpochSub;
   ProviderSubscription<ApiService?>? _apiOwnerSub;
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
-  ProviderSubscription<AsyncValue<String>>? _hermesTranscriptSub;
+  ProviderSubscription<AsyncValue<HermesTranscriptChange>>?
+  _hermesTranscriptSub;
   ProviderSubscription<bool>? _hermesStreamingSub;
   late final OpenWebUiLivePromptNotifier _livePromptNotifier;
   String? _pendingHermesTranscriptRefresh;
@@ -1017,7 +1021,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub = ref.listenManual(
       hermesDesktopTranscriptChangesProvider,
       (_, next) => next.whenData(
-        (storedId) => unawaited(_refreshDesktopHermesTranscript(storedId)),
+        (change) =>
+            unawaited(_refreshDesktopHermesTranscript(change.storedId)),
       ),
     );
     _hermesStreamingSub = ref.listenManual(isChatStreamingProvider, (
@@ -1223,6 +1228,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             raw,
             modelId: model.id,
             trustedLocalDocumentKeys: trustedKeys,
+            sensitiveValues: service.config.sensitiveValues,
           )..addAll(
             hermesPendingDesktopDecisionMessages(pending, modelId: model.id),
           );
@@ -1255,9 +1261,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         retried: retried,
         shownCount: currentAuthoritativeCount,
         readCount: candidateAuthoritativeCount,
-        // Used up by the read that is compared, longer or not: left for a
-        // later incomplete read, it would let that one shorten the chat.
-        shortened: () => service.takeShortenedTranscript(storedId),
+        // A change the user made may have shortened the chat: a compaction
+        // (a Bot Chat's history leaves compacted rows out), or an undo it
+        // did not see. Both marks are used up by the read that is compared,
+        // longer or not: left for a later incomplete read, they would let
+        // that one shorten the chat.
+        shortened: () => [
+          service.takeShortenedTranscript(storedId),
+          service.takeCompactedTranscript(storedId),
+        ].any((taken) => taken),
       );
       switch (step) {
         case HermesTranscriptRefreshStep.keep:
@@ -1549,11 +1561,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       } else {
         var admissionConfirmed = false;
+        final directBinding = ref
+            .read(directModelRegistryProvider)
+            .resolve(selectedModel);
+        // A Hermes or device Direct turn says when it goes to its run; an
+        // Open WebUI Direct one, sent through the server, does not.
+        final signalsTurnStart =
+            isHermesModel(selectedModel) ||
+            directBinding?.source == DirectModelSource.device;
+        // Every Direct binding is sent inline, with no outbox receipt.
         final usesOutbox =
             hasDurableOutbox &&
             !isHermesModel(selectedModel) &&
-            ref.read(directModelRegistryProvider).resolve(selectedModel) ==
-                null;
+            directBinding == null;
         await durableSend(
           ref,
           text,
@@ -1575,10 +1595,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   onDraftCommitted(pendingSend!);
                 }
               : null,
+          // A Hermes or Direct send lasts the whole turn: its words leave
+          // the composer once the turn is handed to its run, not when an
+          // approval or question that holds the turn open is answered.
+          onTurnStarted: () {
+            if (admissionConfirmed || pendingSend == null) return;
+            admissionConfirmed = true;
+            onDraftCommitted?.call(pendingSend!);
+          },
         );
         // Inline backends have no outbox receipt. Keep their draft until
-        // the existing send path has accepted it successfully.
-        if (!admissionConfirmed && pendingSend != null) {
+        // the existing send path has accepted it successfully. A Hermes or
+        // device Direct turn that never went to its run (a new session that
+        // could not be made) keeps it too.
+        if (!admissionConfirmed && pendingSend != null && !signalsTurnStart) {
           onDraftCommitted?.call(pendingSend!);
         }
       }
@@ -4245,6 +4275,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       findPendingHermesComposerPrompt,
                     ),
                   );
+                  final hermesPlan = composerRef
+                      .watch(hermesActiveTodoProvider)
+                      .asData
+                      ?.value;
                   final pendingDirectMcpMetadata = composerRef.watch(
                     chatMessagesProvider.select(
                       findPendingDirectMcpComposerPrompt,
@@ -4383,7 +4417,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         PlatformUiCapabilities.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
-                    attachedOverlay: attachedOverlay,
+                    // The agent's plan sits above any prompt card.
+                    attachedOverlay: withHermesPlan(
+                      attachedOverlay,
+                      plan: hermesPlan,
+                      chatKey: activeConversationId,
+                    ),
                     onVoiceInput: null,
                     onVoiceCall: _handleVoiceCall,
                     onFileAttachment: _handleFileAttachment,
@@ -5315,6 +5354,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onSelected: () async {
           if (!mounted) return;
           await showOpenWebUiChatSettings(context, ref);
+        },
+      );
+    }
+
+    // A Hermes chat's context window, token totals and plan usage, with
+    // Compact now.
+    final hermesSessionId = isNativeHermesConversation(activeConversation)
+        ? activeConversation?.metadata['hermesSessionId']?.toString()
+        : null;
+    if (hermesSessionId != null &&
+        hermesSessionId.isNotEmpty &&
+        ref.watch(hermesApiServiceProvider) != null) {
+      addItem(
+        label: AppLocalizations.of(context)!.hermesContextUsage,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'gauge.with.dots.needle.33percent',
+          materialIcon: Icons.data_usage_rounded,
+        ),
+        iosSymbol: 'gauge.with.dots.needle.33percent',
+        onSelected: () async {
+          if (!mounted) return;
+          await showHermesContextUsageSheet(
+            context,
+            sessionId: hermesSessionId,
+          );
         },
       );
     }

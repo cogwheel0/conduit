@@ -122,7 +122,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           state != HermesDesktopTurnState.unsupportedGateway;
     }
 
-    void finish({String? error, bool authoritativeIdle = false}) {
+    void finish({
+      String? error,
+      HermesErrorSurface? surface,
+      bool authoritativeIdle = false,
+    }) {
       if (terminal) return;
       terminal = true;
       _eventBuffer.deactivate(activeRuntimeId);
@@ -133,7 +137,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           runtimeId: binding.runtimeId,
         );
       }
-      if (error != null) controller.add(HermesRunError(error));
+      if (error != null) {
+        controller.add(HermesRunError(error, surface: surface));
+      }
       controller.add(const HermesRunDone());
       unawaited(subscription.cancel());
       unawaited(disconnectSubscription.cancel());
@@ -210,7 +216,24 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           final content = value('content').isNotEmpty
               ? value('content')
               : value('text');
-          if (content.isNotEmpty) controller.add(HermesFinalOutput(content));
+          if (payload['usage'] case final Map usage) {
+            _rememberTurnUsage(binding.storedId, usage);
+          }
+          final failed =
+              value('status').toLowerCase() == 'error' ||
+              value('error').isNotEmpty;
+          final surface = failed
+              ? HermesErrorSurface.fromCompletion(
+                  payload,
+                  sensitiveValues: config.sensitiveValues,
+                )
+              : null;
+          // A classified failure's text is its error copy, not an answer,
+          // unless Hermes marks it as the partial reply so far.
+          final errorCopy = surface != null && !surface.partial;
+          if (content.isNotEmpty && !errorCopy) {
+            controller.add(HermesFinalOutput(content));
+          }
           // A queued prompt Hermes settled before it ran (cancelled from
           // another app, or sent into the running turn as a steer) gets
           // only this completion: no idle follows while the turn ahead of
@@ -228,12 +251,14 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                   ? 'Hermes cancelled this message before running it.'
                   : null,
             );
-          } else if (value('status').toLowerCase() == 'error' ||
-              value('error').isNotEmpty) {
+          } else if (failed) {
             finish(
-              error: value('error').isEmpty
-                  ? 'Hermes failed to complete the response.'
-                  : value('error'),
+              error: value('error').isNotEmpty
+                  ? value('error')
+                  : errorCopy && content.isNotEmpty
+                  ? content
+                  : 'Hermes failed to complete the response.',
+              surface: surface,
             );
           } else if (forwarded) {
             // The owner wrote the reply to the stored transcript; read it.
@@ -315,6 +340,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 multiSelect:
                     kind == HermesDecisionKind.clarification &&
                     payload['multi_select'] == true,
+                questions: kind == HermesDecisionKind.clarification
+                    ? hermesClarifyQuestionsFromPayload(
+                        payload,
+                        redact: _redactClarifyText,
+                      )
+                    : const [],
               ),
             );
             controller.add(
@@ -344,6 +375,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 requestId: requestId,
               ),
             );
+            // Answered on another surface, timed out or withdrawn: the
+            // card closes now instead of on the next reload.
+            if (event.type != 'approval.responded') {
+              controller.add(
+                HermesPromptSettled(
+                  promptId: requestId,
+                  kind: event.type.substring(0, event.type.indexOf('.')),
+                ),
+              );
+            }
           }
         case 'session.info':
           // A partial info without `running` says nothing about the turn.
@@ -358,6 +399,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               error: value('message').isEmpty
                   ? 'Hermes failed.'
                   : value('message'),
+              surface: HermesErrorSurface.fromCompletion(
+                payload,
+                sensitiveValues: config.sensitiveValues,
+              ),
             );
           }
       }
@@ -466,6 +511,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           confirmDeepTruncate: confirmDeepTruncate,
         ),
         'submission_id': ?submissionId,
+        // Asks the turn's questions as one form (a session authority that
+        // said it can); otherwise they come one card at a time.
+        if (canonical && _rpc.canonicalClarifyBatch) 'clarify_batch': true,
         if (attached.attachments.isNotEmpty)
           'attachments': attached.attachments,
         ..._sessionScope(binding.storedId),
@@ -815,10 +863,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     // from a snapshot).
     if (event.type.endsWith('.request')) {
       final request = payload['request_id'] ?? payload['id'];
-      // A connection card offered again is a new offer of the same card.
+      // A connection card offered again is a new offer of the same card. A
+      // form shown again with more answers locked elsewhere (a reconnect
+      // replay) is news, so its locked questions are part of the identity.
       final offer = payload['offer'];
       if (request != null) {
-        return '${event.type}:$request${offer is int ? '#$offer' : ''}';
+        return '${event.type}:$request${offer is int ? '#$offer' : ''}'
+            '${_lockedQuestionIds(payload)}';
       }
     }
     // A session authority numbers every event of a session's stream.
@@ -830,6 +881,18 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (message != null) return '${event.type}:$message';
     }
     return null;
+  }
+
+  /// The ids of a clarify form's locked questions, as `|q0,q2`; empty for
+  /// any other request.
+  static String _lockedQuestionIds(Map<String, dynamic> payload) {
+    final questions = payload['questions'];
+    if (questions is! List) return '';
+    final locked = [
+      for (final question in questions.whereType<Map>().take(16))
+        if (question['locked'] == true) '${question['qid']}',
+    ];
+    return locked.isEmpty ? '' : '|${locked.join(',')}';
   }
 
   String? _storedIdForRuntime(String? runtimeId) {
@@ -879,10 +942,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       mcpAction: event.payload['action']?.toString(),
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
+      questions: kind == HermesPendingDesktopDecisionKind.clarification
+          ? hermesClarifyQuestionsFromPayload(
+              event.payload,
+              redact: _redactClarifyText,
+            )
+          : const [],
       sensitiveValues: config.sensitiveValues,
       profile: _sessionProfiles[storedId],
     );
   }
+
+  /// A clarify question's text, or a locked answer, redacted whole before
+  /// the form is parsed, which shortens it.
+  String? _redactClarifyText(String text) =>
+      hermesRedactPendingDecisionText(text, config.sensitiveValues);
 
   Future<void> _rememberPendingDecision(
     HermesSessionBinding binding, {
@@ -893,6 +967,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Iterable<HermesClarifyQuestion> questions = const [],
   }) => HermesPendingDecisionStore.upsert(
     origin: _origin,
     connectionId: config.connectionId,
@@ -905,6 +980,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     mcpAction: mcpAction,
     choices: choices,
     multiSelect: multiSelect,
+    questions: questions,
     sensitiveValues: config.sensitiveValues,
     profile: _sessionProfiles[binding.storedId],
   );
@@ -1533,17 +1609,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         cardId: requestId,
         approved: value == 'approve',
       );
-    } else if (kind == HermesDecisionKind.clarification &&
-        _canonical &&
-        parseHermesClarifyCardId(requestId) == null) {
-      // A session authority asks single questions as events, by prompt id.
-      await _answerCanonicalPrompt(runtimeId, requestId, value: value);
     } else if (kind == HermesDecisionKind.clarification) {
-      await _lockClarifyAnswer(
+      await _answerClarify(
         runtimeId,
-        cardId: requestId,
-        answer: value,
-        storedSessionId: storedSessionId,
+        requestId,
+        answers: {kHermesSingleClarifyQuestionId: value},
       );
     } else if (_canonical) {
       // A session authority takes a sudo or secret answer only as the
@@ -1575,41 +1645,66 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     params: {'id': requestId, 'result': result, ..._runtimeScope(runtimeId)},
   );
 
-  /// Locks one clarify question's [answer]; the last question's lock answers
-  /// the whole request. Then shows the next question the lock's `remaining`
-  /// names (another surface may have answered some), which after a restart
-  /// only a fresh resume snapshot still lists.
-  Future<void> _lockClarifyAnswer(
-    String runtimeId, {
-    required String cardId,
-    required String answer,
+  /// Answers a whole clarify form: the questions still open, by id (null
+  /// skips one). Locked answers stand, as Hermes keeps them.
+  Future<void> _runtimeRespondToClarifyForm({
+    required String runtimeId,
     String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
   }) async {
-    final card = parseHermesClarifyCardId(cardId);
-    if (card == null) {
-      throw StateError('Hermes returned an invalid question.');
+    if (storedSessionId != null) {
+      runtimeId = (await _resume(storedSessionId)).runtimeId;
     }
-    final result = _object(
-      await _rpc.request<Object?>(
-        'clarify.lock',
-        params: {
-          'request_id': card.requestId,
-          'question_id': card.questionId,
-          'answer': answer,
-          ..._runtimeScope(runtimeId),
-        },
-      ),
+    await _ensureConnected();
+    // A form Hermes no longer lists throws HermesDecisionAlreadySettled; the
+    // snapshot that found it gone has already dropped its saved card.
+    await _answerClarify(runtimeId, requestId, answers: answers);
+    await HermesPendingDecisionStore.resolve(
+      origin: _origin,
+      connectionId: config.connectionId,
+      runtimeId: runtimeId,
+      requestId: requestId,
     );
-    final remaining = result['remaining'];
-    if (result['status'] != 'ok' || remaining is! List || remaining.isEmpty) {
+  }
+
+  /// A form (a `clarify` server request) is answered at once: by
+  /// `request.answer` on the legacy wire, or by its response frame from a
+  /// socket attached to the session on a session authority. A session
+  /// authority's lone question (a `clarify.request` prompt) takes its one
+  /// answer by `clarify.respond`; a skipped one is empty, as Hermes reads
+  /// it.
+  Future<void> _answerClarify(
+    String runtimeId,
+    String requestId, {
+    required Map<String, String?> answers,
+  }) async {
+    if (!_canonical) {
+      await _answerServerRequest(
+        runtimeId,
+        requestId,
+        hermesClarifySubmission(answers),
+      );
       return;
     }
-    if (!_rpc.showNextClarifyQuestion(
-      cardId,
-      remaining: remaining.map((questionId) => '$questionId'),
+    if (_rpc.canonicalPrompt(requestId) != null ||
+        !requestId.startsWith(kHermesServerRequestIdPrefix)) {
+      final sent = await _answerCanonicalPrompt(
+        runtimeId,
+        requestId,
+        value: answers.values.firstOrNull ?? '',
+      );
+      // Hermes lists it no more: answered elsewhere, or expired.
+      if (!sent) throw const HermesDecisionAlreadySettled();
+      return;
+    }
+    await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);
+    // A socket lost since the resume sent nothing: the form stays open.
+    if (!_rpc.answerServerRequest(
+      requestId,
+      hermesClarifySubmission(answers),
     )) {
-      final storedId = storedSessionId ?? _storedIdForRuntime(runtimeId);
-      if (storedId != null) await _resume(storedId, refresh: true);
+      throw StateError('Hermes gateway disconnected.');
     }
   }
 }

@@ -75,6 +75,15 @@ abstract final class HermesApiErrorCode {
 
   /// Accepted and saved; it runs once Hermes is back. Must not be resent.
   static const admissionQueued = 'admission_queued';
+
+  /// Refusals of a Hermes that is restarting or busy: its runtime or
+  /// gateway is draining, its session store is out of reach, or the
+  /// session's chain moved on. Conduit explains them alike and offers to
+  /// try again.
+  static const runtimeDraining = 'runtime_draining';
+  static const gatewayDraining = 'gateway_draining';
+  static const storageUnavailable = 'storage_unavailable';
+  static const chainMoved = 'chain_moved';
 }
 
 /// A non-2xx Hermes answer with its bounded, decoded error envelope.
@@ -2191,6 +2200,27 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
               'approved': approved,
               'decision': approved ? 'approve' : 'deny',
             },
+    );
+  }
+
+  /// Answers a run's question (`POST /v1/runs/{id}/clarify`, v0.22.3+):
+  /// exactly the prompt's id, its execution generation, and the [answer]
+  /// (empty skips it; a multi-select answer is a JSON array string).
+  Future<void> answerClarify(
+    String runId, {
+    required String promptId,
+    required int executionGeneration,
+    required String answer,
+  }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
+    await _requestAndConsumeBounded(
+      'POST',
+      '$_root/v1/runs/$encodedRunId/clarify',
+      data: <String, dynamic>{
+        'request_id': promptId,
+        'execution_generation': executionGeneration,
+        'answer': answer,
+      },
     );
   }
 

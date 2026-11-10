@@ -2264,12 +2264,23 @@ final hermesDesktopTurnStateProvider =
       yield* service.turnStatesFor(storedId);
     });
 
-final hermesDesktopTranscriptChangesProvider = StreamProvider<String>((ref) {
-  final service = ref.watch(hermesApiServiceProvider);
-  return service is HermesDesktopApiService
-      ? service.transcriptChanges
-      : const Stream<String>.empty();
-});
+/// One change to a Desktop chat's stored transcript, by its stored id.
+/// Each change is its own event (no value equality): a provider drops a
+/// value equal to the last one, and a second change to the same chat must
+/// still reach its listeners.
+final class HermesTranscriptChange {
+  HermesTranscriptChange(this.storedId);
+
+  final String storedId;
+}
+
+final hermesDesktopTranscriptChangesProvider =
+    StreamProvider<HermesTranscriptChange>((ref) {
+      final service = ref.watch(hermesApiServiceProvider);
+      return service is HermesDesktopApiService
+          ? service.transcriptChanges.map(HermesTranscriptChange.new)
+          : const Stream<HermesTranscriptChange>.empty();
+    });
 
 final hermesDesktopModelsProvider = FutureProvider<List<Model>>((ref) async {
   final service = ref.watch(hermesApiServiceProvider);

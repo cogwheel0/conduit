@@ -211,6 +211,9 @@ final class PreferenceKeys {
   /// Bots section visibility in the sidebar Hermes tab.
   static const String hermesShowBots = 'hermes_show_bots';
 
+  /// Rooms section visibility in the sidebar Hermes tab.
+  static const String hermesShowRooms = 'hermes_show_rooms';
+
   static const String sidebarActiveTab = 'sidebar_active_tab';
   static const String sidebarTabletWidth = 'sidebar_tablet_width_v1';
   static const String serverFeatureAvailability =

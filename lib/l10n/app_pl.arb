@@ -6945,6 +6945,151 @@
   },
   "hermesJobDeliverNeedsHomeChannel": "Najpierw ustaw kanał domowy w Hermes.",
   "hermesJobDeliverRoomHint": "Czaty grupowe budzą tylko boty, które zadanie oznaczy przez @.",
+  "hermesRoomsTitle": "Pokoje",
+  "hermesRoomNew": "Nowy pokój",
+  "hermesRoomCreateHint": "Wybierz od 2 do 6 botów. Każdy odpowiada w pokoju jako on sam.",
+  "hermesRoomNameHint": "Nazwa pokoju",
+  "hermesRoomCreateFailed": "Nie można utworzyć pokoju.",
+  "hermesRoomNeedsBots": "Pokój wymaga co najmniej dwóch botów w tym połączeniu.",
+  "hermesRoomMessageHint": "Wiadomość do pokoju, @ wspomina bota",
+  "hermesRoomScheduled": "Zaplanowane",
+  "hermesRoomEveryone": "Wszyscy",
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} few{{count} boty} many{{count} botów} other{{count} bota}}",
+  "@hermesRoomBotCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomWorking": "pracuje",
+  "hermesRoomWaiting": "czeka",
+  "hermesRoomQuiet": "cisza od {elapsed}",
+  "@hermesRoomQuiet": {
+    "placeholders": {
+      "elapsed": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomNeedsYou": "Czeka na Twoją odpowiedź",
+  "hermesRoomTurnFailed": "Tura nieudana",
+  "hermesRoomTurnCancelled": "Tura anulowana",
+  "hermesRoomTurnDeferred": "Tura odłożona",
+  "hermesRoomMemberUnavailable": "Bot niedostępny",
+  "hermesRoomStopped": "Pokój zatrzymany",
+  "hermesRoomDisbanded": "Pokój rozwiązany",
+  "hermesRoomAuthorityLost": "Inna brama przejęła ten pokój",
+  "hermesRoomWorkLimit": "Osiągnięto limit tur",
+  "hermesRoomRoutedTo": "Przydzielono: {names}",
+  "@hermesRoomRoutedTo": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomRoutedEveryone": "Przydzielono wszystkim",
+  "hermesRoomRoutedFallback": "Nie udało się wybrać, kto odpowie, więc odpowiedzą wszyscy",
+  "hermesRoomAssigned": "{lead} przekazuje to: {names}",
+  "@hermesRoomAssigned": {
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLeadTaking": "{lead} się tym zajmie",
+  "@hermesRoomLeadTaking": {
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomContinued": "Wznowiono",
+  "hermesRoomHandoff": "{from} pyta {to}",
+  "@hermesRoomHandoff": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomPaused": "{count, plural, =1{Wstrzymano po 1 wiadomości} few{Wstrzymano po {count} wiadomościach} many{Wstrzymano po {count} wiadomościach} other{Wstrzymano po {count} wiadomości}}",
+  "@hermesRoomPaused": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRetryPrompt": "Tura bota {name} zakończyła się bez jasnego wyniku.",
+  "@hermesRoomRetryPrompt": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLoadFailed": "Nie można wczytać tego pokoju.",
+  "hermesRoomRefreshFailed": "Nie można odświeżyć pokoju.",
+  "hermesRoomGone": "Ten pokój nie jest już dostępny.",
+  "hermesRoomNotRunning": "Hermes nie obsługuje teraz tego pokoju, więc nie może przyjmować wiadomości.",
+  "hermesRoomSendUnclear": "Hermes nie potwierdził wiadomości. Wyślij ją ponownie; nie zostanie opublikowana dwa razy.",
+  "hermesRoomStoppedCount": "{count, plural, =0{Nic nie było uruchomione} =1{Zatrzymano 1 zadanie} few{Zatrzymano {count} zadania} many{Zatrzymano {count} zadań} other{Zatrzymano {count} zadania}}",
+  "@hermesRoomStoppedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRefused": "Hermes odmówił: {reason}",
+  "@hermesRoomRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomActionFailed": "To się nie udało. Spróbuj ponownie.",
+  "hermesRoomInfoTitle": "Informacje o pokoju",
+  "hermesRoomPurpose": "Cel",
+  "hermesRoomPurposeHint": "Do czego służy ten pokój, w jednym wierszu",
+  "hermesRoomNotes": "Wspólne notatki",
+  "hermesRoomNotesHint": "Fakty, o których każdy bot ma pamiętać",
+  "hermesRoomNotesTooLong": "Wspólne notatki są za długie.",
+  "hermesRoomWhoAnswers": "Kto odpowiada na wiadomość, która nikogo nie wymienia",
+  "hermesRoomRoutingEveryoneHint": "Każdy bot zabiera głos.",
+  "hermesRoomRoutingLead": "Bot prowadzący",
+  "hermesRoomRoutingLeadHint": "Prowadzący wybiera, kto się tym zajmie. @wzmianki nadal trafiają prosto do wskazanych botów.",
+  "hermesRoomRoutingAuto": "Automatycznie",
+  "hermesRoomRoutingAutoHint": "Szybkie wywołanie modelu wybiera, do kogo jest wiadomość. @wzmianki nadal trafiają prosto do wskazanych botów.",
+  "hermesRoomLead": "Prowadzący",
+  "hermesRoomMembers": "Boty",
+  "hermesRoomMembersFixed": "Po utworzeniu pokoju nie można dodawać ani usuwać botów.",
+  "hermesRoomStopWork": "Zatrzymaj całą pracę",
+  "hermesRoomDisband": "Rozwiąż pokój",
+  "hermesRoomDisbandTitle": "Rozwiązać „{name}”?",
+  "@hermesRoomDisbandTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomDisbandMessage": "Jego praca się zatrzyma, a pokój zniknie na zawsze.",
+  "hermesRoomRenameTitle": "Zmień nazwę pokoju",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",
@@ -8457,5 +8602,356 @@
   "hermesArchivedLoadError": "Nie można wczytać zarchiwizowanych czatów.",
   "@hermesArchivedLoadError": {
     "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
-  }
+  },
+  "hermesClarifyProgress": "Gotowe: {answered} z {total}",
+  "@hermesClarifyProgress": {
+    "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
+    "placeholders": {
+      "answered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesClarifySendFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "hermesClarifyAlreadySettled": "Na to pytanie już odpowiedziano gdzie indziej lub wygasło, więc Twoja odpowiedź nie została wysłana.",
+  "@hermesClarifySendFailed": {
+    "description": "Error on a Hermes question form when its answers could not be sent."
+  },
+  "hermesClarifyAnswerOrSkip": "Odpowiedz na każde pytanie lub je pomiń.",
+  "@hermesClarifyAnswerOrSkip": {
+    "description": "Hint next to the disabled send button of a Hermes question form until every question has an answer or is skipped."
+  },
+  "hermesClarifyOtherAnswer": "Lub wpisz własną odpowiedź",
+  "@hermesClarifyOtherAnswer": {
+    "description": "Placeholder of the text field under a Hermes question's choices, for an answer that is not one of them."
+  },
+  "hermesClarifySkip": "Pomiń",
+  "@hermesClarifySkip": {
+    "description": "Toggle on one question of a Hermes question form that sends no answer for it."
+  },
+  "hermesClarifySkipped": "Pominięto",
+  "@hermesClarifySkipped": {
+    "description": "Shown for a Hermes question that was skipped on another device."
+  },
+  "hermesClarifyRecommended": "Zalecane",
+  "@hermesClarifyRecommended": {
+    "description": "Badge on the choice Hermes recommends in a question form."
+  },
+  "hermesChangedFiles": "{count, plural, =1{Zmieniono 1 plik} few{Zmieniono {count} pliki} many{Zmieniono {count} plików} other{Zmieniono {count} pliku}}",
+  "@hermesChangedFiles": {
+    "description": "Title of the card under a Hermes reply listing the files its tools edited.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesChangedFilesMore": "{count, plural, =1{Jeszcze 1 plik} few{Jeszcze {count} pliki} many{Jeszcze {count} plików} other{Jeszcze {count} pliku}}",
+  "@hermesChangedFilesMore": {
+    "description": "Last row of the changed-files card under a Hermes reply when it lists only some files; opens the rest.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesDiffUnnamedFile": "Zmieniony plik",
+  "@hermesDiffUnnamedFile": {
+    "description": "Name shown for an edited file when Hermes did not say which file it was."
+  },
+  "hermesDiffLineCounts": "Dodane wiersze: {added}, usunięte: {removed}",
+  "@hermesDiffLineCounts": {
+    "description": "Screen reader text for how many lines an edit added and removed in a file.",
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "removed": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesApprovalSpentOfLimit": "Wykorzystano około {spent} z {limit}",
+  "@hermesApprovalSpentOfLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server and its spend limit there. spent includes the unit, for example 20 credits.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpent": "Wykorzystano około {spent}",
+  "@hermesApprovalSpent": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which has no spend limit.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpendLimit": "Limit {limit}",
+  "@hermesApprovalSpendLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: this chat's spend limit on the tool's server, before anything was spent.",
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalOverLimit": "To wywołanie przekracza limit wydatków tego czatu. Możesz zezwolić na nie tylko raz.",
+  "@hermesApprovalOverLimit": {
+    "description": "Warning on a Hermes approval whose paid tool call would take the chat past its spend limit."
+  },
+  "hermesApprovalCost": "Szacowany koszt: {cost}",
+  "@hermesApprovalCost": {
+    "description": "Screen reader text for the price chip on a Hermes approval for a paid tool. cost is the price as Hermes states it, for example 5 credits.",
+    "placeholders": {
+      "cost": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesPlanTitle": "Plan",
+  "@hermesPlanTitle": {
+    "description": "Title of the agent's task list pinned above the composer of a Hermes chat."
+  },
+  "hermesPlanProgress": "Ukończono {done} z {total}",
+  "@hermesPlanProgress": {
+    "description": "How many items of the agent's task list are done, out of all of them.",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesPlanShow": "Pokaż plan",
+  "@hermesPlanShow": {
+    "description": "Screen reader label of the folded task list header: unfolds the agent's plan."
+  },
+  "hermesPlanHide": "Ukryj plan",
+  "@hermesPlanHide": {
+    "description": "Screen reader label of the open task list header: folds the agent's plan to one line."
+  },
+  "hermesContextUsage": "Kontekst i użycie",
+  "hermesContextWindow": "Okno kontekstu",
+  "hermesContextUsed": "{used} z {max} tokenów",
+  "@hermesContextUsed": {
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "32,768"
+      },
+      "max": {
+        "type": "String",
+        "example": "131,072"
+      }
+    }
+  },
+  "hermesContextPercentFull": "zapełnione w {percent}%",
+  "@hermesContextPercentFull": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "25"
+      }
+    }
+  },
+  "hermesContextEstimatedNote": "Szacunkowo",
+  "hermesContextRequestEstimate": "Około {tokens} tokenów na żądanie",
+  "@hermesContextRequestEstimate": {
+    "placeholders": {
+      "tokens": {
+        "type": "String",
+        "example": "13,036"
+      }
+    }
+  },
+  "hermesContextNoWindow": "To połączenie nie podaje okna kontekstu.",
+  "hermesContextBreakdown": "Co je wypełnia",
+  "hermesContextSystemPrompt": "Prompt systemowy",
+  "hermesContextToolDefinitions": "Definicje narzędzi",
+  "hermesContextSubagentDefinitions": "Definicje podagentów",
+  "hermesContextConversation": "Rozmowa",
+  "hermesContextTotals": "Ten czat do tej pory",
+  "hermesContextInput": "Tokeny wejściowe",
+  "hermesContextOutput": "Tokeny wyjściowe",
+  "hermesContextReasoning": "Tokeny rozumowania",
+  "hermesContextCacheRead": "Odczytane z pamięci podręcznej",
+  "hermesContextCacheWrite": "Zapisane w pamięci podręcznej",
+  "hermesContextCacheHits": "Trafienia w pamięci podręcznej",
+  "hermesContextCalls": "Wywołania modelu",
+  "hermesContextCompactions": "Kompaktowania",
+  "hermesContextCost": "Koszt",
+  "hermesContextCostEstimated": "Koszt (szacunkowy)",
+  "hermesContextPlan": "Wykorzystanie planu",
+  "hermesContextGaugeDay": "Dzisiaj",
+  "hermesContextGaugeWeek": "W tym tygodniu",
+  "hermesContextGaugeMonth": "W tym miesiącu",
+  "hermesContextGaugeTopTier": "Modele najwyższej klasy",
+  "hermesContextUsedPercent": "wykorzystano {percent}%",
+  "@hermesContextUsedPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "63"
+      }
+    }
+  },
+  "hermesContextResets": "Odnowienie: {time}",
+  "@hermesContextResets": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextLeftOf": "Pozostało {remaining} z {total}",
+  "@hermesContextLeftOf": {
+    "placeholders": {
+      "remaining": {
+        "type": "String",
+        "example": "$12.00"
+      },
+      "total": {
+        "type": "String",
+        "example": "$20.00"
+      }
+    }
+  },
+  "hermesContextRenews": "Przedłużenie: {date}",
+  "@hermesContextRenews": {
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Dec 1"
+      }
+    }
+  },
+  "hermesContextTopUp": "Doładowane środki",
+  "hermesContextRateLimited": "Osiągnięto limit zapytań",
+  "hermesContextRateLimitedUntil": "Limit zapytań do {time}",
+  "@hermesContextRateLimitedUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextUsageLevel": "Zużycie tego modelu: {level}",
+  "@hermesContextUsageLevel": {
+    "placeholders": {
+      "level": {
+        "type": "String",
+        "example": "medium"
+      }
+    }
+  },
+  "hermesContextLevelFree": "bezpłatne",
+  "hermesContextLevelLow": "niskie",
+  "hermesContextLevelMedium": "średnie",
+  "hermesContextLevelTopTier": "najwyższe",
+  "hermesContextCompactSection": "Kompaktowanie",
+  "hermesContextCompactHint": "Hermes streszcza starsze wiadomości, aby zwolnić kontekst. Najnowsze wiadomości pozostają bez zmian.",
+  "hermesContextCompactFocus": "Skup się na (opcjonalnie)",
+  "hermesContextCompactNow": "Kompaktuj teraz",
+  "hermesContextCompacted": "Czat został skompaktowany.",
+  "hermesContextCompactedTokens": "Tokeny: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {
+    "placeholders": {
+      "before": {
+        "type": "String",
+        "example": "12,351"
+      },
+      "after": {
+        "type": "String",
+        "example": "4,020"
+      }
+    }
+  },
+  "hermesContextCompactedMessages": "Wiadomości: {before} → {after}",
+  "@hermesContextCompactedMessages": {
+    "placeholders": {
+      "before": {
+        "type": "int",
+        "example": "24"
+      },
+      "after": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "hermesContextCompactUnchanged": "Na razie nie ma czego kompaktować.",
+  "hermesContextCompactRefused": "Pozostawiono bez zmian: streszczenie byłoby dłuższe niż zastępowane wiadomości.",
+  "hermesContextCompactAborted": "Kompaktowanie nie powiodło się. Nie usunięto żadnych wiadomości.",
+  "hermesContextCompactPending": "Kompaktowanie trwa. Czat odświeży się po zakończeniu.",
+  "hermesContextCompactBusy": "Trwa inne kompaktowanie. Spróbuj ponownie za chwilę.",
+  "hermesContextCompactWait": "Poczekaj na zakończenie odpowiedzi, a potem kompaktuj.",
+  "hermesContextCompactFailed": "Nie udało się skompaktować tego czatu. Spróbuj ponownie.",
+  "hermesContextLoadFailed": "Nie udało się wczytać kontekstu i użycia.",
+  "hermesErrorProvider": "Dostawca modelu nie mógł odpowiedzieć",
+  "hermesErrorEndpoint": "Nie można połączyć się z serwerem modelu",
+  "hermesErrorConnection": "Strumień odpowiedzi został przerwany",
+  "hermesErrorAuth": "Dostawca odrzucił dane uwierzytelniające Hermesa",
+  "hermesErrorBilling": "Brak środków",
+  "hermesErrorUsageLimit": "Osiągnięto limit planu",
+  "hermesErrorFreeTier": "Plan bezpłatny nie może tego uruchomić",
+  "hermesErrorRateLimit": "Osiągnięto limit zapytań",
+  "hermesErrorContextOverflow": "Ten czat jest za długi dla modelu",
+  "hermesErrorModel": "Model jest niedostępny",
+  "hermesErrorPolicy": "Zablokowane przez zasady",
+  "hermesErrorTruncated": "Odpowiedź została ucięta",
+  "hermesErrorBadReply": "Model wysłał nieprzydatną odpowiedź",
+  "hermesErrorWorkspace": "Brakuje folderu roboczego czatu",
+  "hermesErrorSession": "Ten czat nie może być tutaj kontynuowany",
+  "hermesErrorBusy": "Hermes jest zajęty tym czatem",
+  "hermesErrorGateway": "Hermes napotkał problem",
+  "hermesErrorDisk": "Hermesowi skończyło się miejsce na dysku",
+  "hermesErrorUnknown": "Hermes nie mógł dokończyć tej odpowiedzi",
+  "hermesErrorBlocking": "Zablokowane do czasu rozwiązania problemu",
+  "hermesErrorDegraded": "Możesz kontynuować czat",
+  "hermesErrorResetsAt": "Odnowi się o {time}",
+  "@hermesErrorResetsAt": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesErrorPartialKept": "Dotychczasowa odpowiedź pozostaje powyżej.",
+  "hermesErrorContinue": "Kontynuuj",
+  "hermesErrorCompact": "Kompaktuj czat",
+  "hermesErrorSwitchModel": "Przełącz na {model}",
+  "@hermesErrorSwitchModel": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Hermes 4 70B"
+      }
+    }
+  },
+  "hermesErrorOpenProviderSettings": "Otwórz ustawienia {provider}",
+  "@hermesErrorOpenProviderSettings": {
+    "placeholders": {
+      "provider": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "hermesErrorOpenBilling": "Otwórz rozliczenia",
+  "hermesErrorUseCredits": "Użyj środków",
+  "hermesErrorActionFailed": "Nie udało się. Spróbuj ponownie."
 }
