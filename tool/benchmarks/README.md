@@ -56,13 +56,12 @@ Use baseline/candidate/candidate/baseline order on the same device, with no
 recording, builds, or tests running alongside the measurements. The presentation
 sampling procedure below runs separately from the FrameTiming comparison.
 
-The checked-in JSON contains per-run summaries. Historical raw frame timings
-and presentation timestamps were not retained, so its percentiles cannot be
-recomputed from that file; rerun the harness to collect a new comparison.
+Raw frame timings and presentation timestamps are not checked in; rerun the
+harness to collect a new comparison.
 
 ## Results
 
-[Full measurements](chat_scroll_results.json) compare upstream `0e2e000b`
+These measurements compare upstream `0e2e000b`
 with `66994833` on a 60 Hz Android arm64 emulator using hardware graphics and
 Impeller OpenGLES, Flutter 3.47.9 / Dart 3.13.7. Run order was baseline,
 candidate, candidate, baseline. No recording or other builds ran concurrently.
@@ -103,8 +102,8 @@ Separate SurfaceFlinger actual-presentation measurements found:
 Median and p99 presentation intervals overlap; candidate p95 is slightly higher
 and maximum intervals are mixed. These samples do not demonstrate a sustained
 frame-rate improvement. They are emulator measurements, not physical-device
-guarantees. The JSON includes every run's
-raster timings, maxima, and counts. The device was visually checked before the
+guarantees. Each run's `CHAT_SCROLL_RESULT` line also reports raster
+timings, maxima, and counts. The device was visually checked before the
 runs, and no Android ANR events occurred during any reported run.
 
 For presentation measurements, sample `adb shell dumpsys SurfaceFlinger --latency`
@@ -144,8 +143,7 @@ end. The cached path stores only eligibility and still trims selected content.
 `MARKDOWN_PREWARM_SAMPLES` emits the raw batches in chunks indexed by run and
 offset. `MARKDOWN_PREWARM_DONE` marks completion.
 
-[All 2,400 raw batch samples and summaries](markdown_prewarm_results.json) were
-collected on an Android arm64 emulator with Flutter 3.47.9 / Dart 3.13.7, with no
+The 2,400 batch samples behind this table were collected on an Android arm64 emulator with Flutter 3.47.9 / Dart 3.13.7, with no
 recording or concurrent builds. The ranges below span the two runs of each
 variant. All values are **microseconds per twelve-message batch**.
 
@@ -160,7 +158,7 @@ variant. All values are **microseconds per twelve-message batch**.
 
 The padded cases include temporary trimming allocations and GC. The second
 cached 8 KiB run had a 394.083 µs maximum, versus 70.542 µs in its first run;
-the raw samples retain these outliers. Percentiles use sorted sample indices
+the `MARKDOWN_PREWARM_SAMPLES` output keeps these outliers. Percentiles use sorted sample indices
 49, 94 and 98 for p50, p95 and p99 respectively.
 
 This isolates eligibility and trimming, not Markdown compilation, first-use
@@ -182,8 +180,7 @@ cover each combination of padding and cache behavior. The comparison wrapper
 reproduces the earlier cache's strong retention of trimmed strings under weak
 identity keys; both paths use the production eligibility checks.
 
-[Raw phase measurements](markdown_prewarm_memory_results.json) include unpadded
-controls and the heap after releasing the messages. Padded messages previously
+The measured phases include unpadded controls and the heap after releasing the messages. Padded messages previously
 retained approximately **64 MiB** of additional text after warming. The
 eligibility-only cache retains approximately **2.6 KiB** of metadata instead.
 Trimming may still allocate temporarily, as measured above. This benchmark
