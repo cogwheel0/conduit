@@ -432,7 +432,6 @@ Future<bool> _trySetJobNotify(
   String connectionId,
   HermesJob job, {
   required bool notify,
-  String? deliver,
 }) async {
   try {
     await container

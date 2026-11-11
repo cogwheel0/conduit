@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart'
+    show kMaxHermesJobDeliverCharacters;
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
@@ -1733,7 +1735,11 @@ void main() {
 
     test('notify me never rewrites delivery targets it cannot read', () async {
       h = await _Harness.start(targets: [_hermes]);
-      for (final deliver in <Object>['x' * 300, ['telegram', 'slack'], 7]) {
+      for (final deliver in <Object>[
+        'x' * (kMaxHermesJobDeliverCharacters + 1),
+        ['telegram', 'slack'],
+        7,
+      ]) {
         h.factory.jobs.stored['job-1'] = deliver;
         await check(
           h.coordinator.setHermesJobNotify(

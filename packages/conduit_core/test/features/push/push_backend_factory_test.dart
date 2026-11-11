@@ -180,9 +180,9 @@ void main() {
     await push;
 
     check(throwaway).equals(0);
+    // Both writes kept, under `ui` where Open WebUI keeps them.
     check(server.settings).deepEquals({
-      'notificationSound': false,
-      'notificationEnabled': true,
+      'ui': {'notificationSound': false, 'notificationEnabled': true},
     });
   });
 
@@ -201,15 +201,29 @@ void main() {
     );
     check(server.settings).deepEquals({'notificationEnabled': false});
 
-    server.settings = {'notificationSound': false};
+    // Turned off in Open WebUI's own settings, under `ui`.
+    server.settings = {
+      'ui': {'notificationEnabled': false},
+    };
     await factory.setOpenWebUiNotificationsEnabled(
       'acct-1',
       enabled: true,
       onlyIfUnset: true,
     );
     check(server.settings).deepEquals({
-      'notificationSound': false,
-      'notificationEnabled': true,
+      'ui': {'notificationEnabled': false},
+    });
+
+    server.settings = {
+      'ui': {'notificationSound': false},
+    };
+    await factory.setOpenWebUiNotificationsEnabled(
+      'acct-1',
+      enabled: true,
+      onlyIfUnset: true,
+    );
+    check(server.settings).deepEquals({
+      'ui': {'notificationSound': false, 'notificationEnabled': true},
     });
   });
 }

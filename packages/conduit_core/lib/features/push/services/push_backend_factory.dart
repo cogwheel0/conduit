@@ -16,6 +16,7 @@ import 'package:conduit_core/features/push/services/hermes_push_backend.dart';
 import 'package:conduit_core/features/push/services/openwebui_push_backend.dart';
 import 'package:conduit_core/features/push/services/push_backend.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -146,10 +147,18 @@ final class AppPushBackendFactory implements PushBackendFactory {
     final snapshot = api.captureAuthSnapshot();
     return api.serializeUserSettingsMutation(() async {
       final settings = await api.getUserSettings(authSnapshot: snapshot);
-      if (settings['notificationEnabled'] != null) return;
+      // Set either where Open WebUI keeps it, under `ui`, or at the top,
+      // where older versions of the app wrote it.
+      if (ServerUserSettings.fromJson(settings).notificationEnabled != null) {
+        return;
+      }
+      final ui = settings['ui'];
       await api.updateUserSettings({
         ...settings,
-        'notificationEnabled': enabled,
+        'ui': {
+          if (ui is Map) ...ui.cast<String, dynamic>(),
+          'notificationEnabled': enabled,
+        },
       }, authSnapshot: snapshot);
     });
   }

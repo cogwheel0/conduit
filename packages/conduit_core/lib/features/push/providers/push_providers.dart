@@ -157,7 +157,7 @@ final class PushCoordinatorStarted extends Notifier<bool> {
 final pushStateIfUsedProvider = Provider<PushState?>((ref) {
   final started = ref.watch(pushCoordinatorStartedProvider);
   if (!started &&
-      !ref.exists(pushCoordinatorProvider) &&
+      !ref.read(pushCoordinatorProvider.exists) &&
       PreferencesStore.getBool(PreferenceKeys.pushEnabled) != true) {
     return null;
   }
