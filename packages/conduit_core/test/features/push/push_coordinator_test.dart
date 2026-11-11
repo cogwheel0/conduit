@@ -712,6 +712,45 @@ void main() {
           .deepEquals(['org.unifiedpush.distributor.ntfy']);
     });
 
+    test('a new distributor registers every subscription again', () async {
+      h = await _Harness.start(targets: [_owui, _owui2], unifiedPush: true);
+      h.platform.distributors = const [
+        'org.unifiedpush.distributor.ntfy',
+        'org.unifiedpush.distributor.other',
+      ];
+      await h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+        distributor: 'org.unifiedpush.distributor.ntfy',
+      );
+      await h.coordinator.setEnabled(true);
+      check(h.allOn()).isTrue();
+      final before = {
+        for (final target in [_owui, _owui2])
+          target.scope: h.record(target.scope).endpoint,
+      };
+
+      // The connector keeps one distributor for the app, so the old one
+      // drops every registration, not just the first one made with the new.
+      h.log.clear();
+      await h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+        distributor: 'org.unifiedpush.distributor.other',
+      );
+      for (final target in [_owui, _owui2]) {
+        final record = h.record(target.scope);
+        check(h.log).contains(
+          'registerUp ${record.sid} org.unifiedpush.distributor.other',
+        );
+        check(record.endpoint).isNotNull().not(
+          (it) => it.equals(before[target.scope]!),
+        );
+        check(
+          h.server(target).subscriptions[record.sid]?.endpoint,
+        ).equals(record.endpoint);
+      }
+      check(h.allOn()).isTrue();
+    });
+
     test(
       'choosing UnifiedPush with no distributor still stops FCM',
       () async {
