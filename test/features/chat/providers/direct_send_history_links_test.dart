@@ -151,6 +151,17 @@ final class _SwitchableRemapSyncEngine extends SyncEngine {
   }
 }
 
+/// Direct model discovery that never settles. The tests using it seed the
+/// model registry themselves; a discovery run -- which starts once secure
+/// storage answers, as it does after an earlier test file in the isolate
+/// installed the storage mock -- would mint the profile's models anew and
+/// leave the seeded ones without a binding.
+final class _IdleDiscovery extends DirectModelDiscoveryController {
+  @override
+  Future<DirectModelDiscoveryState> build() =>
+      Completer<DirectModelDiscoveryState>().future;
+}
+
 final class _Profiles extends DirectConnectionProfilesController {
   _Profiles(this.profile);
 
@@ -1724,6 +1735,7 @@ void main() {
           appDatabaseProvider.overrideWithValue(null),
           directLocalDatabaseProvider.overrideWithValue(db),
           directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(_IdleDiscovery.new),
           directConnectionProfilesProvider.overrideWith(
             () => _Profiles(profile),
           ),
@@ -1899,6 +1911,7 @@ void main() {
           appDatabaseProvider.overrideWithValue(null),
           directLocalDatabaseProvider.overrideWithValue(db),
           directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(_IdleDiscovery.new),
           directConnectionProfilesProvider.overrideWith(
             () => _Profiles(profile),
           ),

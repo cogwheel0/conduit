@@ -11,10 +11,12 @@ import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 const drawerTestMobileSize = Size(390, 844);
 const drawerTestTabletSize = Size(1024, 1366);
 const drawerTestVibrateChannel = MethodChannel('vibrate');
+// Six columns of long cells: wider than an 800pt surface even with every
+// column squeezed to a readable width, so the table scrolls sideways.
 const drawerTestWideMarkdownTable = '''
-| Provider | Management experience | Deployment options | Access control |
-| --- | --- | --- | --- |
-| Example Identity Provider | Polished administrative interface | Docker Compose, Helm, and Kubernetes | OAuth, OIDC, SAML, and role-based access control |
+| Provider | Management experience | Deployment options | Access control | Audit logging | Support |
+| --- | --- | --- | --- | --- | --- |
+| Example Identity Provider | Polished administrative interface | Docker Compose, Helm, and Kubernetes | OAuth, OIDC, SAML, and role-based access control | Searchable audit trail with export to object storage | Community forum and commercial support contracts |
 ''';
 
 class DrawerTestRecordedPlatformCall {
@@ -81,13 +83,23 @@ Future<void> drawerTestRecordPlatformCallsDuring(
   }
 }
 
+/// The light taps the sliding sidebar's drawer plays when it settles.
+Iterable<DrawerTestRecordedPlatformCall> drawerTestLightSettleHapticCalls(
+  List<DrawerTestRecordedPlatformCall> calls,
+) => calls.where(
+  (call) =>
+      call.method == 'HapticFeedback.vibrate' &&
+      call.arguments == 'HapticFeedbackType.lightImpact',
+);
+
+/// Every haptic the drawer could play, of any strength, so a test expecting
+/// silence catches a tap however light.
 Iterable<DrawerTestRecordedPlatformCall> drawerTestSettleHapticCalls(
   List<DrawerTestRecordedPlatformCall> calls,
 ) => calls.where(
   (call) =>
-      (call.method == 'HapticFeedback.vibrate' &&
-          call.arguments == 'HapticFeedbackType.mediumImpact') ||
-      call.method == 'vibrate:medium',
+      call.method == 'HapticFeedback.vibrate' ||
+      call.method.startsWith('vibrate:'),
 );
 
 Widget drawerTestBuildHarness({
@@ -97,6 +109,7 @@ Widget drawerTestBuildHarness({
   Widget? drawer,
   double edgeFraction = 0.5,
   VoidCallback? onOpenStart,
+  bool settleHaptics = false,
   bool tabletDismissible = true,
   bool tabletInitiallyDocked = true,
   double tabletDrawerWidth = 320,
@@ -113,6 +126,7 @@ Widget drawerTestBuildHarness({
         key: layoutKey,
         edgeFraction: edgeFraction,
         onOpenStart: onOpenStart,
+        settleHaptics: settleHaptics,
         tabletDismissible: tabletDismissible,
         tabletInitiallyDocked: tabletInitiallyDocked,
         tabletDrawerWidth: tabletDrawerWidth,

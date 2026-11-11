@@ -888,6 +888,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     )[route.model.id],
   );
   final compactionThreshold = contextLength * 70 ~/ 100;
+  final maxImagesPerRequest = effectiveDirectMaxImagesPerRequest(
+    adapterKey: route.binding.adapterKey,
+    configured: ref.read(directMaxImagesPerRequestProvider),
+  );
   final requiresReplayVerificationKey = requestMessages.any(
     (message) =>
         (message.files ?? const <Map<String, dynamic>>[]).any(
@@ -924,6 +928,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         directDocumentVerificationKey: verificationKey,
         openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
         ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+        maxImages: maxImagesPerRequest,
       );
     },
   );
@@ -990,6 +995,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           directDocumentVerificationKey: verificationKey,
           openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
           ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+          maxImages: maxImagesPerRequest,
         ),
       );
       summary = await _awaitDirectPreflightOrCancellation(
@@ -1073,6 +1079,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           directDocumentVerificationKey: verificationKey,
           openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
           ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+          maxImages: maxImagesPerRequest,
         ),
       );
       directMessages = fitDirectContextMessages(
@@ -1229,11 +1236,18 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       route.profile.isOpenRouter &&
       enableImageGeneration &&
       ref.read(imageGenerationEnabledProvider);
+  // What the toggle followed before this use: the user's choice, or the
+  // model's default, put back as it was should the request not start.
+  bool? imageGenerationPickBefore;
   if (consumesImageGenerationAction) {
     // OpenRouter image generation is a one-shot composer action. Consume it
     // at the provider submission boundary so canceled preflight keeps the
     // user's intent, while send and regeneration share the same behavior.
-    ref.read(imageGenerationEnabledProvider.notifier).set(false);
+    final ImageGenerationEnabledNotifier imageGeneration = ref.read(
+      imageGenerationEnabledProvider.notifier,
+    );
+    imageGenerationPickBefore = imageGeneration.pick;
+    imageGeneration.set(false);
   }
   try {
     run = adapter.startCompletion(
@@ -1262,7 +1276,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     // normalized failure from this local boundary so downstream diagnostics
     // never persist or log provider-controlled stack text.
     if (consumesImageGenerationAction) {
-      ref.read(imageGenerationEnabledProvider.notifier).set(true);
+      final ImageGenerationEnabledNotifier imageGeneration = ref.read(
+        imageGenerationEnabledProvider.notifier,
+      );
+      imageGeneration.restorePick(imageGenerationPickBefore);
     }
     await closeMcpSessionBestEffort();
     throw _normalizeDirectDispatcherFailure(

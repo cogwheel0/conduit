@@ -125,7 +125,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('None (custom)'), findsNothing);
+    expect(find.text('None (Custom)'), findsNothing);
   });
 
   testWidgets('compact toolbar back confirms before discarding edits', (
@@ -147,7 +147,7 @@ void main() {
     await tester.pumpAndSettle();
 
     check(find.text('Discard changes?').evaluate()).length.equals(1);
-    await tester.tap(find.text('Keep editing'));
+    await tester.tap(find.text('Keep Editing'));
     await tester.pumpAndSettle();
     check(find.byKey(const Key('workspace-model-id')).evaluate()).length
         .equals(1);
@@ -322,12 +322,12 @@ void main() {
     await tester.pumpAndSettle();
 
     await _scrollTo(tester, const Key('workspace-model-access'));
-    check(find.text('Only you').evaluate()).isNotEmpty();
+    check(find.text('Only You').evaluate()).isNotEmpty();
     await tester.tap(find.byKey(const Key('workspace-model-access')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-access-general')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Everyone on this server').last);
+    await tester.tap(find.text('Everyone on This Server').last);
     await tester.pumpAndSettle();
 
     fake.failNext = true;
@@ -347,7 +347,7 @@ void main() {
     check(fake.accessSaves).length.equals(2);
     check(fake.accessSaves.last.single.principalId).equals('*');
     check(find.byKey(const Key('workspace-access-list')).evaluate()).isEmpty();
-    check(find.text('Everyone on this server').evaluate()).isNotEmpty();
+    check(find.text('Everyone on This Server').evaluate()).isNotEmpty();
   });
 
   testWidgets('create-mode access grants are retained until first save', (
@@ -367,11 +367,11 @@ void main() {
     check(find.text('Done').evaluate()).length.equals(1);
     await tester.tap(find.byKey(const Key('workspace-access-general')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Everyone on this server').last);
+    await tester.tap(find.text('Everyone on This Server').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-access-save')));
     await tester.pumpAndSettle();
-    check(find.text('Everyone on this server').evaluate()).isNotEmpty();
+    check(find.text('Everyone on This Server').evaluate()).isNotEmpty();
 
     await _scrollTo(tester, const Key('workspace-model-id'), delta: -300);
     await tester.enterText(
@@ -715,7 +715,7 @@ void main() {
     expect(fake.toggledIds, isEmpty);
 
     // Keeping the edits cancels the toggle.
-    await tester.tap(find.text('Keep editing'));
+    await tester.tap(find.text('Keep Editing'));
     await tester.pumpAndSettle();
     expect(fake.toggledIds, isEmpty);
 

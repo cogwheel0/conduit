@@ -80,6 +80,8 @@ final class _ScriptedHermesApi extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     final scripted = events;
     if (scripted != null) return Stream<HermesRunEvent>.fromIterable(scripted);

@@ -13,6 +13,8 @@ private let maxSharedGenericFileBytes: Int64 = 100 * 1024 * 1024
 private let maxSharedAggregateBytes: Int64 = 300 * 1024 * 1024
 private let maxSharedTextBytes = nativeShareMaximumTextBytes
 private let maxSharedUrlBytes = nativeShareMaximumURLBytes
+private let preferredFileNameTimeout: TimeInterval = 2
+private let linkedImageAddressTimeout: TimeInterval = 2
 final class ShareLoadDeadline {
   private let lock = NSLock()
   private var active = true
@@ -111,10 +113,20 @@ private struct SupportedShareType {
   let itemTypeIdentifier: String
 }
 
+/// A share that is only the address of an image, which is downloaded in
+/// place of the link.
+private struct SharedLinkedImage {
+  let provider: NSItemProvider
+  let url: URL
+  /// The address as the provider loaded it, sent as the link on failure.
+  let item: NSSecureCoding
+}
+
 private struct ShareLoadTask {
   let provider: NSItemProvider
   let supportedType: SupportedShareType
   let ordinal: Int
+  let linkedImage: SharedLinkedImage?
 }
 
 final class ShareViewController: UIViewController {
@@ -149,8 +161,10 @@ final class ShareViewController: UIViewController {
 
     guard !didBeginLoading else { return }
     didBeginLoading = true
-    loadSharedItems { [weak self] in
-      self?.completeShareLoading()
+    resolveLinkedImage { [weak self] linkedImage in
+      self?.loadSharedItems(linkedImage: linkedImage) { [weak self] in
+        self?.completeShareLoading()
+      }
     }
   }
 
@@ -186,7 +200,55 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  private func loadSharedItems(completion: @escaping () -> Void) {
+  /// Loads the address of a share that is a single web address, and keeps
+  /// it when it names an image to download instead of sending the link.
+  ///
+  /// This runs before the import is planned, so the download can be
+  /// counted as a pending file and the app can open straight away.
+  private func resolveLinkedImage(
+    completion: @escaping (SharedLinkedImage?) -> Void
+  ) {
+    let inputItems = extensionContext?.inputItems.compactMap {
+      $0 as? NSExtensionItem
+    } ?? []
+    guard let provider = nativeShareLoneLinkProvider(in: inputItems) else {
+      completion(nil)
+      return
+    }
+    // The sender already holds the address, so this is quick. A stalled
+    // provider falls through to the usual link path.
+    let lookup = ShareLoadDeadline()
+    provider.loadItem(
+      forTypeIdentifier: UTType.url.identifier
+    ) { item, _ in
+      guard lookup.finish() else { return }
+      var linkedImage: SharedLinkedImage?
+      if let item,
+         let url = (item as? URL)
+           ?? (item as? String).flatMap({ URL(string: $0) }),
+         nativeShareLinkedImageQualifies(url) {
+        linkedImage = SharedLinkedImage(
+          provider: provider,
+          url: url,
+          item: item
+        )
+      }
+      DispatchQueue.main.async {
+        completion(linkedImage)
+      }
+    }
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + linkedImageAddressTimeout
+    ) {
+      guard lookup.finish() else { return }
+      completion(nil)
+    }
+  }
+
+  private func loadSharedItems(
+    linkedImage: SharedLinkedImage?,
+    completion: @escaping () -> Void
+  ) {
     let inputItems = extensionContext?.inputItems.compactMap {
       $0 as? NSExtensionItem
     } ?? []
@@ -198,7 +260,13 @@ final class ShareViewController: UIViewController {
 
     for item in inputItems {
       for attachment in item.attachments ?? [] {
-        guard let supportedType = supportedType(for: attachment) else { continue }
+        let attachmentImage = linkedImage?.provider === attachment
+          ? linkedImage
+          : nil
+        guard let supportedType = supportedType(
+          for: attachment,
+          linkedImage: attachmentImage
+        ) else { continue }
         guard loadTasks.count < maxSharedItemCount else {
           skippedForItemLimit = true
           continue
@@ -215,7 +283,8 @@ final class ShareViewController: UIViewController {
         loadTasks.append(ShareLoadTask(
           provider: attachment,
           supportedType: supportedType,
-          ordinal: currentOrdinal
+          ordinal: currentOrdinal,
+          linkedImage: attachmentImage
         ))
       }
     }
@@ -291,35 +360,60 @@ final class ShareViewController: UIViewController {
       self.loadTask(tasks, at: index + 1, completion: completion)
     }
 
+    if let linkedImage = task.linkedImage {
+      loadLinkedImage(linkedImage, task: task, completion: done)
+      return
+    }
+
     if task.supportedType.mediaType.isFileBacked {
-      task.provider.loadFileRepresentation(
-        forTypeIdentifier: task.supportedType.itemTypeIdentifier
-      ) { [weak self] url, error in
-        guard let self else { return }
-        guard loadDeadline.isActive else { return }
-        if let url {
-          stageFile(
-            at: url,
-            type: task.supportedType.mediaType,
-            ordinal: task.ordinal
-          )
-          done()
-          return
-        }
-        loadInPlaceFileFallback(
-          task,
-          precedingError: error,
-          completion: done
-        )
-      }
+      loadFileBackedTask(task, completion: done)
       return
     }
 
     loadItemFallback(task, completion: done)
   }
 
+  private func loadFileBackedTask(
+    _ task: ShareLoadTask,
+    completion: @escaping () -> Void
+  ) {
+    let identifier = task.supportedType.itemTypeIdentifier
+    if UTType(identifier)?.conforms(to: .url) == true {
+      // The sender registered no content type, only the file's URL. Loading
+      // that type as a file stages the URL itself, so copy its target.
+      loadReferencedFile(task, completion: completion)
+      return
+    }
+    loadPreferredFileName(for: task.provider) { [weak self] preferredName in
+      guard let self else { return }
+      guard loadDeadline.isActive else { return }
+      task.provider.loadFileRepresentation(
+        forTypeIdentifier: identifier
+      ) { [weak self] url, error in
+        guard let self else { return }
+        guard loadDeadline.isActive else { return }
+        if let url {
+          stageLoadedFile(
+            at: url,
+            task: task,
+            preferredName: preferredName,
+            completion: completion
+          )
+          return
+        }
+        loadInPlaceFileFallback(
+          task,
+          preferredName: preferredName,
+          precedingError: error,
+          completion: completion
+        )
+      }
+    }
+  }
+
   private func loadInPlaceFileFallback(
     _ task: ShareLoadTask,
+    preferredName: String?,
     precedingError: Error?,
     completion: @escaping () -> Void
   ) {
@@ -332,17 +426,205 @@ final class ShareViewController: UIViewController {
       }
       guard loadDeadline.isActive else { return }
       if let url {
-        stageFile(
+        stageLoadedFile(
           at: url,
-          type: task.supportedType.mediaType,
-          ordinal: task.ordinal
+          task: task,
+          preferredName: preferredName,
+          completion: completion
         )
-        completion()
         return
       }
       recordFileBackedLoadError(error ?? precedingError)
       completion()
     }
+  }
+
+  /// Resolves the sender's file name when the item also references its file.
+  /// File representations are named after their type instead.
+  private func loadPreferredFileName(
+    for provider: NSItemProvider,
+    completion: @escaping (String?) -> Void
+  ) {
+    guard provider.hasItemConformingToTypeIdentifier(
+      UTType.fileURL.identifier
+    ) else {
+      completion(provider.suggestedName)
+      return
+    }
+    // The name is optional, so a slow lookup must not hold up the content
+    // of this attachment or the ones queued behind it.
+    let lookup = ShareLoadDeadline()
+    let progress = provider.loadObject(ofClass: URL.self) { url, _ in
+      guard lookup.finish() else { return }
+      if let url, url.isFileURL {
+        completion(url.lastPathComponent)
+      } else {
+        completion(provider.suggestedName)
+      }
+    }
+    DispatchQueue.global(qos: .userInitiated).asyncAfter(
+      deadline: .now() + preferredFileNameTimeout
+    ) {
+      guard lookup.finish() else { return }
+      progress.cancel()
+      completion(provider.suggestedName)
+    }
+  }
+
+  private func loadReferencedFile(
+    _ task: ShareLoadTask,
+    completion: @escaping () -> Void
+  ) {
+    _ = task.provider.loadObject(ofClass: URL.self) { [weak self] url, error in
+      guard let self else {
+        completion()
+        return
+      }
+      guard loadDeadline.isActive else { return }
+      guard let url, url.isFileURL else {
+        recordFileBackedLoadError(error)
+        completion()
+        return
+      }
+      stageFile(
+        at: url,
+        type: task.supportedType.mediaType,
+        ordinal: task.ordinal
+      )
+      completion()
+    }
+  }
+
+  private func loadLinkedImage(
+    _ linkedImage: SharedLinkedImage,
+    task: ShareLoadTask,
+    completion: @escaping () -> Void
+  ) {
+    let download = NativeShareLinkedImageDownload(
+      url: linkedImage.url,
+      allowedBytes: min(maxSharedImageBytes, remainingAggregateBytes())
+    )
+    download.start { [weak self] result in
+      defer {
+        download.removeFile()
+        completion()
+      }
+      guard let self else { return }
+      guard loadDeadline.isActive else { return }
+      guard let result else {
+        // Anything that isn't a readable image arrives as the link, as it
+        // did before images were downloaded.
+        handleLoadedItem(
+          linkedImage.item,
+          type: .url,
+          ordinal: task.ordinal
+        )
+        return
+      }
+      let fileExtension = result.type.preferredFilenameExtension ?? "png"
+      stageFile(
+        at: result.fileURL,
+        originalName: nativeShareSourceFileName(
+          loadedName: "Image.\(fileExtension)",
+          preferredName: linkedImage.url.lastPathComponent
+        ),
+        type: .image,
+        ordinal: task.ordinal
+      )
+    }
+  }
+
+  private func stageLoadedFile(
+    at url: URL,
+    task: ShareLoadTask,
+    preferredName: String?,
+    completion: @escaping () -> Void
+  ) {
+    if task.supportedType.mediaType == .image, isArchivedObject(at: url) {
+      // An in-memory UIImage, as the screenshot editor shares, comes back as
+      // a keyed archive under an image name. Its pixels need the item itself.
+      if let size = fileSize(url),
+         size > min(maxSharedImageBytes, remainingAggregateBytes()) {
+        recordImportError("The shared image exceeds the share import size limit.")
+        completion()
+        return
+      }
+      loadInMemoryImage(
+        task,
+        preferredName: preferredName,
+        completion: completion
+      )
+      return
+    }
+    stageFile(
+      at: url,
+      originalName: nativeShareSourceFileName(
+        loadedName: url.lastPathComponent,
+        preferredName: preferredName
+      ),
+      type: task.supportedType.mediaType,
+      ordinal: task.ordinal
+    )
+    completion()
+  }
+
+  private func loadInMemoryImage(
+    _ task: ShareLoadTask,
+    preferredName: String?,
+    completion: @escaping () -> Void
+  ) {
+    let identifier = task.supportedType.itemTypeIdentifier
+    task.provider.loadItem(
+      forTypeIdentifier: identifier
+    ) { [weak self] item, error in
+      defer { completion() }
+      guard let self else { return }
+      guard loadDeadline.isActive else { return }
+      if let url = item as? URL, url.isFileURL, !isArchivedObject(at: url) {
+        stageFile(at: url, type: .image, ordinal: task.ordinal)
+        return
+      }
+      let encoded: (data: Data, fileExtension: String)?
+      if let image = item as? UIImage {
+        guard let result = nativeShareEncodedImage(
+          image,
+          typeIdentifier: identifier
+        ) else {
+          recordImportError("The shared image is too large to import.")
+          return
+        }
+        encoded = result
+      } else if let data = item as? Data,
+                let type = nativeShareImageType(of: data) {
+        encoded = (data, type.preferredFilenameExtension ?? "png")
+      } else {
+        encoded = nil
+      }
+      guard let encoded else {
+        recordFileBackedLoadError(error)
+        return
+      }
+      stageData(
+        encoded.data,
+        originalName: nativeShareSourceFileName(
+          loadedName: "Image.\(encoded.fileExtension)",
+          preferredName: preferredName
+        ),
+        fileExtension: encoded.fileExtension,
+        type: .image,
+        ordinal: task.ordinal
+      )
+    }
+  }
+
+  private func isArchivedObject(at url: URL) -> Bool {
+    let didAccess = url.startAccessingSecurityScopedResource()
+    defer {
+      if didAccess {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
+    return nativeShareFileIsArchivedObject(at: url)
   }
 
   private func recordFileBackedLoadError(_ error: Error?) {
@@ -377,13 +659,32 @@ final class ShareViewController: UIViewController {
     }
   }
 
+  private func supportedType(
+    for attachment: NSItemProvider,
+    linkedImage: SharedLinkedImage?
+  ) -> SupportedShareType? {
+    guard linkedImage == nil else {
+      // Counted as a pending image, so the app opens with a placeholder
+      // while it downloads.
+      return SupportedShareType(
+        mediaType: .image,
+        itemTypeIdentifier: UTType.url.identifier
+      )
+    }
+    return supportedType(for: attachment)
+  }
+
   private func supportedType(for attachment: NSItemProvider) -> SupportedShareType? {
     for type in SharedMediaType.allCases {
       let identifier = type.toUTTypeIdentifier
       if attachment.hasItemConformingToTypeIdentifier(identifier) {
         return SupportedShareType(
           mediaType: type,
-          itemTypeIdentifier: identifier
+          itemTypeIdentifier: loadTypeIdentifier(
+            for: type,
+            matching: identifier,
+            in: attachment
+          )
         )
       }
     }
@@ -392,11 +693,39 @@ final class ShareViewController: UIViewController {
     if attachment.hasItemConformingToTypeIdentifier(dataIdentifier) {
       return SupportedShareType(
         mediaType: .file,
-        itemTypeIdentifier: dataIdentifier
+        itemTypeIdentifier: nativeShareContentTypeIdentifier(
+          registeredTypeIdentifiers: attachment.registeredTypeIdentifiers,
+          conformingTo: .data
+        ) ?? dataIdentifier
       )
     }
 
     return nil
+  }
+
+  /// File-backed items load the most specific content type the sender
+  /// registered. A file matched only through `public.file-url` keeps that
+  /// identifier and is copied from the file it points to.
+  private func loadTypeIdentifier(
+    for type: SharedMediaType,
+    matching identifier: String,
+    in attachment: NSItemProvider
+  ) -> String {
+    let category: UTType
+    switch type {
+    case .image:
+      category = .image
+    case .video:
+      category = .movie
+    case .file:
+      category = .data
+    case .text, .url:
+      return identifier
+    }
+    return nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: attachment.registeredTypeIdentifiers,
+      conformingTo: category
+    ) ?? identifier
   }
 
   private func handleLoadedItem(
@@ -451,7 +780,12 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  private func stageFile(at sourceURL: URL, type: SharedMediaType, ordinal: Int) {
+  private func stageFile(
+    at sourceURL: URL,
+    originalName: String? = nil,
+    type: SharedMediaType,
+    ordinal: Int
+  ) {
     guard loadDeadline.isActive else { return }
     let didAccess = sourceURL.startAccessingSecurityScopedResource()
     defer {
@@ -460,6 +794,7 @@ final class ShareViewController: UIViewController {
       }
     }
 
+    let name = originalName ?? sourceURL.lastPathComponent
     let maxBytes = maxSharedBytes(for: type, url: sourceURL)
     let remaining = remainingAggregateBytes()
     let allowedBytes = min(maxBytes, remaining)
@@ -468,11 +803,11 @@ final class ShareViewController: UIViewController {
       return
     }
     if let size = fileSize(sourceURL), size > allowedBytes {
-      recordImportError("\(sourceURL.lastPathComponent) exceeds the share import size limit.")
+      recordImportError("\(name) exceeds the share import size limit.")
       return
     }
     guard let destinationURL = destinationURL(
-      originalName: sourceURL.lastPathComponent,
+      originalName: name,
       fallbackExtension: fallbackExtension(for: type),
       ordinal: ordinal
     ) else { return }
@@ -485,7 +820,7 @@ final class ShareViewController: UIViewController {
       }
     ) else {
       guard loadDeadline.isActive else { return }
-      recordImportError("Could not import \(sourceURL.lastPathComponent).")
+      recordImportError("Could not import \(name).")
       return
     }
 
@@ -512,6 +847,42 @@ final class ShareViewController: UIViewController {
       try? FileManager.default.removeItem(at: destinationURL)
       return
     }
+  }
+
+  /// Stages in-memory bytes through the same limits and naming as a file.
+  private func stageData(
+    _ data: Data,
+    originalName: String,
+    fileExtension: String,
+    type: SharedMediaType,
+    ordinal: Int
+  ) {
+    guard loadDeadline.isActive else { return }
+    let allowedBytes = min(maxSharedBytes(for: type), remainingAggregateBytes())
+    guard Int64(data.count) <= allowedBytes else {
+      recordImportError("\(originalName) exceeds the share import size limit.")
+      return
+    }
+    let directoryURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directoryURL) }
+    let sourceURL = directoryURL.appendingPathComponent("item.\(fileExtension)")
+    do {
+      try FileManager.default.createDirectory(
+        at: directoryURL,
+        withIntermediateDirectories: true
+      )
+      try data.write(to: sourceURL)
+    } catch {
+      recordImportError("Could not import \(originalName).")
+      return
+    }
+    stageFile(
+      at: sourceURL,
+      originalName: originalName,
+      type: type,
+      ordinal: ordinal
+    )
   }
 
   @discardableResult

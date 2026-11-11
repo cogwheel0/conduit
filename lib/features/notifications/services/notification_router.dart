@@ -95,9 +95,14 @@ class NotificationRouter {
   /// [alreadyClaimed] is for a push the platform handed over in the
   /// foreground: the notification service extension claimed its key before
   /// the app saw it, so claiming again would always lose.
+  ///
+  /// [alert] is false for a message in a channel set to mentions only that
+  /// does not mention the user: it still counts as unread, but plays no sound
+  /// and shows no banner or system notification, as in Open WebUI.
   Future<NotificationSurface> route(
     AppNotification notification, {
     bool alreadyClaimed = false,
+    bool alert = true,
   }) async {
     final settings = _readSettings();
 
@@ -127,12 +132,14 @@ class NotificationRouter {
       return NotificationSurface.suppressed;
     }
 
-    // 5. Side effects for everything that passed gating.
-    if (settings.notificationSound && settings.notificationSoundAlways) {
-      await _sound.play();
-    }
+    // 5. Side effects for everything that passed gating. A muted channel
+    // still counts the message as unread.
     if (notification.kind == NotificationKind.channelMessage) {
       _onChannelUnread(notification);
+    }
+    if (!alert) return NotificationSurface.suppressed;
+    if (settings.notificationSound && settings.notificationSoundAlways) {
+      await _sound.play();
     }
 
     // 6. Exactly one primary surface, chosen by lifecycle. Unlike Open WebUI's

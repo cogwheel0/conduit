@@ -620,6 +620,70 @@ void main() {
       check(controller.name.text).isEmpty();
     });
 
+    // The editor shows a connection's name as text, the host its URL gave
+    // included. Saving names the connection after its new host, so the
+    // field follows the URL as it is edited, until the user edits the name.
+    test('a name the URL gave follows the URL until it is edited', () {
+      const saved = HermesConfig(
+        connectionId: 'saved',
+        name: 'beta.example',
+        baseUrl: 'https://beta.example',
+        apiKey: 'key',
+      );
+      final controller = HermesConnectionController(
+        initialConfig: saved,
+        initialNameSource: HermesConnectionNameSource.derived,
+        gateway: _FakeHermesConnectionGateway(),
+      );
+      addTearDown(controller.dispose);
+
+      for (final typed in ['https://', 'https://gamma.example/v1']) {
+        controller.url.text = typed;
+        controller.markUrlChanged();
+      }
+
+      check(controller.name.text).equals('gamma.example');
+      // Saved untouched, it is left to follow the URL there as well.
+      final draft = controller.buildDraft(saved);
+      check(draft.config.name).isNull();
+      check(draft.nameSource).isNull();
+
+      controller.name.text = 'gamma.example';
+      controller.markNameChanged();
+      controller.url.text = 'https://delta.example';
+      controller.markUrlChanged();
+
+      check(controller.name.text).equals('gamma.example');
+      check(
+        controller.buildDraft(saved).nameSource,
+      ).equals(HermesConnectionNameSource.user);
+    });
+
+    test('a name no URL gave does not follow it', () {
+      for (final (name, source) in [
+        ('beta.example', HermesConnectionNameSource.user),
+        ('research-agent', HermesConnectionNameSource.server),
+        (kHermesDefaultConnectionName, HermesConnectionNameSource.derived),
+      ]) {
+        final controller = HermesConnectionController(
+          initialConfig: HermesConfig(
+            connectionId: 'saved',
+            name: name,
+            baseUrl: 'https://beta.example',
+            apiKey: 'key',
+          ),
+          initialNameSource: source,
+          gateway: _FakeHermesConnectionGateway(),
+        );
+        addTearDown(controller.dispose);
+
+        controller.url.text = 'https://gamma.example';
+        controller.markUrlChanged();
+
+        check(controller.name.text).equals(name);
+      }
+    });
+
     test('an unchanged name keeps the saved one', () {
       final controller = HermesConnectionController(
         initialConfig: const HermesConfig(

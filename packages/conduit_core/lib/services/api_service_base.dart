@@ -98,6 +98,10 @@ abstract class _ApiServiceBase {
   );
   Future<ServerUserSettings> getServerUserSettingsModel();
   Future<bool> deleteChatRaw(String id);
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  });
 
   final Dio _dio;
   final ServerConfig serverConfig;
@@ -569,7 +573,7 @@ abstract class _ApiServiceBase {
   // Parse OpenWebUI message format to our ChatMessage format
   // Build ordered messages list from Open‑WebUI history using parent chain to currentId
   // ===== Helpers to synthesize tool-call details blocks for UI parsing =====
-  List<String>? _sanitizeEmbedsForWebUI(List<Map<String, dynamic>>? embeds) {
+  List<Object>? _sanitizeEmbedsForWebUI(List<Map<String, dynamic>>? embeds) {
     return sanitizeEmbedsForWebUi(embeds);
   }
 
@@ -1629,7 +1633,10 @@ abstract class _ApiServiceBase {
     void addRequestFiles(Iterable<Map<String, dynamic>> requestFiles) {
       for (final file in requestFiles) {
         final normalizedFile = Map<String, dynamic>.from(file);
-        if (isImageFile(normalizedFile)) {
+        // Generated videos are tool output like generated images, which
+        // were all typed `image` until videos got their own type. Uploaded
+        // videos are typed `file` and are still sent.
+        if (isImageFile(normalizedFile) || normalizedFile['type'] == 'video') {
           continue;
         }
 
@@ -1701,7 +1708,7 @@ abstract class _ApiServiceBase {
     final effort = params['reasoning_effort'];
     final isAutomaticEffort =
         effort is String && effort.trim().toLowerCase() == 'automatic';
-    final supportsReasoningEffort = modelSupportsReasoningEffort(
+    final advertisesEffort = modelAdvertisesReasoningEffort(
       modelId: model,
       supportedParameters: modelItem?['supported_parameters'],
       capabilities: _coerceJsonMap(modelItem?['capabilities']),
@@ -1713,7 +1720,34 @@ abstract class _ApiServiceBase {
             (openAiModel is Map ? openAiModel['id'] : null),
       },
     );
-    if (isAutomaticEffort || !supportsReasoningEffort) {
+    // An explicit refusal wins over everything: the server said this model
+    // cannot take the parameter. A model that does not advertise support gets
+    // only its own pick, the value its picker shows (issue #779); a chat-saved
+    // or global value, which may have been chosen for another model, never
+    // reaches it (issue #611). A default the chat saved (Automatic) still
+    // outranks the pick, as it does for every model: a comparison is admitted
+    // on it and sends this request's value to all of its answers.
+    final refusesEffort = modelExplicitlyRejectsReasoningEffort(
+      _coerceJsonMap(modelItem?['capabilities']),
+    );
+    final pick = reasoningEffort?.trim();
+    final hasOwnPick =
+        pick != null && pick.isNotEmpty && pick.toLowerCase() != 'automatic';
+    final saved = chatParams?[kChatParamReasoningEffort];
+    final chatSavedDefault =
+        (chatParams?.containsKey(kChatParamReasoningEffort) ?? false) &&
+        (saved is! String ||
+            saved.trim().isEmpty ||
+            saved.trim().toLowerCase() == 'automatic');
+    if (refusesEffort) {
+      params.remove('reasoning_effort');
+    } else if (!advertisesEffort) {
+      if (hasOwnPick && !chatSavedDefault) {
+        params['reasoning_effort'] = reasoningEffort;
+      } else {
+        params.remove('reasoning_effort');
+      }
+    } else if (isAutomaticEffort) {
       params.remove('reasoning_effort');
     }
     data['params'] = params;
@@ -1891,6 +1925,71 @@ abstract class _ApiServiceBase {
       byteStream: const Stream<List<int>>.empty(),
       abort: abort,
     );
+  }
+
+  /// Answers a failed completion request for a saved chat whose reply the
+  /// server already finished, or throws the failure.
+  ///
+  /// Sent without a socket session, Open WebUI 0.12 returns a provider's
+  /// error response with its status, or a 400 for any other failure, where
+  /// 0.11 returned a JSON null; either way it saves the error on the reply.
+  /// A request for a reply that already ran gets a 409 instead. In both
+  /// cases the saved reply is what the user should see, so the empty stream
+  /// of [_recoverJsonNullChatCompletion] lets the stream's recovery read it.
+  /// A failure that saved nothing, such as an unknown model, still throws.
+  Future<ChatCompletionSession> _recoverSavedReplyOrThrow({
+    required int status,
+    required String error,
+    required String messageId,
+    String? sessionId,
+    String? conversationId,
+    required Future<void> Function() abort,
+  }) async {
+    final chatId = conversationId?.trim();
+    if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
+      Map<String, dynamic>? reply;
+      try {
+        final chat = await getChatRaw(chatId);
+        final history = chat?['chat'] is Map ? chat!['chat']['history'] : null;
+        final messages = history is Map ? history['messages'] : null;
+        final candidate = messages is Map ? messages[messageId] : null;
+        if (candidate is Map) reply = Map<String, dynamic>.from(candidate);
+      } catch (e) {
+        DebugLogger.warning(
+          'error-status-reply-read-failed',
+          scope: 'api/chat',
+          data: {'chatId': chatId, 'status': status, 'error': e.toString()},
+        );
+      }
+      // Only a finished reply: one still running (a 409 can find it so)
+      // would be read once, mid-answer, and closed as if complete. The
+      // queued retry tries again instead, and finds it finished.
+      final replyFinished =
+          reply != null && (reply['done'] == true || reply['error'] != null);
+      if (replyFinished) {
+        DebugLogger.warning(
+          'error-status-recovery',
+          scope: 'api/chat',
+          data: {'chatId': chatId, 'messageId': messageId, 'status': status},
+        );
+        return _recoverJsonNullChatCompletion(
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
+      }
+    }
+    // Open WebUI 0.13 refuses a temporary chat sent without a socket session
+    // as one it does not hold. That one needs a connection, not a new chat.
+    if (status == 404 &&
+        sessionId == null &&
+        chatId != null &&
+        chatId.startsWith('local:') &&
+        error.trim() == TemporaryChatUnavailable.serverDetail) {
+      throw const TemporaryChatNeedsConnectionException();
+    }
+    throw ChatCompletionHttpException(status, error);
   }
 
   /// Classifies a fully-parsed JSON body as taskSocket or jsonCompletion.
@@ -2102,6 +2201,16 @@ abstract class _ApiServiceBase {
   /// Depending on the deployment's web fallback, the removed POST can surface
   /// as either status, so subsequent refreshes go straight to the list fallback.
   bool _activeChatsEndpointUnsupported = false;
+
+  /// When the server last answered a temporary chat resume as an unknown
+  /// route: servers before Open WebUI 0.13 have none. Asked again after
+  /// [_temporaryChatResumeRecheck], in case the server was upgraded.
+  DateTime? _temporaryChatResumeUnsupportedAt;
+  static const Duration _temporaryChatResumeRecheck = Duration(minutes: 15);
+
+  /// Set once the server answers a knowledge upload check as an unknown
+  /// route: servers before Open WebUI 0.13 have none, and no such limits.
+  bool _knowledgeUploadValidationUnsupported = false;
   // Keep the total fallback ceiling at 20 requests while reserving capacity
   // for archived chats instead of allowing the regular list to consume all of
   // it before the archived endpoint is attempted.
@@ -2112,15 +2221,19 @@ abstract class _ApiServiceBase {
   /// The regular list includes pinned and folder chats when requested. If an
   /// id is not found there, also scan archived pages. Older servers omit the
   /// additive `active` field, which naturally degrades to an empty set.
-  Future<Set<String>> _checkActiveChatsFromLists(List<String> chatIds) async {
+  Future<ChatActivity> _checkActiveChatsFromLists(List<String> chatIds) async {
     final remaining = chatIds.where((id) => id.isNotEmpty).toSet();
     final active = <String>{};
-    if (remaining.isEmpty) return active;
+    final pendingApproval = <String>{};
+    if (remaining.isEmpty) {
+      return (active: active, pendingApproval: pendingApproval);
+    }
 
     await _collectActiveChatsFromPagedList(
       endpoint: '/api/v1/chats/',
       remaining: remaining,
       active: active,
+      pendingApproval: pendingApproval,
       queryParameters: const {'include_pinned': true, 'include_folders': true},
       pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
     );
@@ -2129,17 +2242,19 @@ abstract class _ApiServiceBase {
         endpoint: '/api/v1/chats/archived',
         remaining: remaining,
         active: active,
+        pendingApproval: pendingApproval,
         queryParameters: const {'order_by': 'updated_at', 'direction': 'desc'},
         pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
       );
     }
-    return active;
+    return (active: active, pendingApproval: pendingApproval);
   }
 
   Future<int> _collectActiveChatsFromPagedList({
     required String endpoint,
     required Set<String> remaining,
     required Set<String> active,
+    required Set<String> pendingApproval,
     required Map<String, dynamic> queryParameters,
     required int pageBudget,
   }) async {
@@ -2150,6 +2265,8 @@ abstract class _ApiServiceBase {
         final id = row['id']?.toString();
         if (id == null || !remaining.remove(id)) continue;
         if (row['active'] == true) active.add(id);
+        // Open WebUI 0.13 marks a chat whose tool call waits for the user.
+        if (row['pending_approval'] == true) pendingApproval.add(id);
       }
     }
 

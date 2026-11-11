@@ -55,6 +55,11 @@ class _FixedPersonalization extends PersonalizationSettings {
   Future<ServerUserSettings> build() async => const ServerUserSettings();
 }
 
+class _EmptySelected extends SelectedModel {
+  @override
+  Model? build() => null;
+}
+
 class _NoProfiles extends DirectConnectionProfilesController {
   @override
   Future<List<DirectConnectionProfile>> build() async => const [];
@@ -105,6 +110,109 @@ void main() {
           rawExtra: Value(jsonEncode(<String, dynamic>{})),
         ),
       );
+
+  testWidgets('a model row records an explicit choice', (tester) async {
+    const chosen = Model(id: 'manual-model', name: 'Sample model');
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(_EmptySelected.new),
+        activeConversationProvider.overrideWith(() => _SeededActive(null)),
+        personalizationSettingsProvider.overrideWith(_FixedPersonalization.new),
+        directConnectionProfilesProvider.overrideWith(_NoProfiles.new),
+        isAuthenticatedProvider2.overrideWithValue(false),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: ModelSelectorSheet(models: [chosen]),
+                    ),
+                  ),
+                ),
+                child: const Text('Choose'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Choose'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(container.read(isManualModelSelectionProvider), false);
+    await tester.tap(find.text(chosen.name));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(container.read(selectedModelProvider)?.id, chosen.id);
+    expect(container.read(isManualModelSelectionProvider), true);
+  });
+
+  testWidgets('a model picked after another chat opens is not taken as a '
+      'choice', (tester) async {
+    const chosen = Model(id: 'manual-model', name: 'Sample model');
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(_EmptySelected.new),
+        activeConversationProvider.overrideWith(
+          () => _SeededActive(_conversation('opened-on')),
+        ),
+        personalizationSettingsProvider.overrideWith(_FixedPersonalization.new),
+        directConnectionProfilesProvider.overrideWith(_NoProfiles.new),
+        isAuthenticatedProvider2.overrideWithValue(false),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: ModelSelectorSheet(models: [chosen]),
+                    ),
+                  ),
+                ),
+                child: const Text('Choose'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Choose'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    // Another chat opens under the picker before the user chooses.
+    container
+        .read(activeConversationProvider.notifier)
+        .set(_conversation('moved-to'));
+    await tester.pump();
+    await tester.tap(find.text(chosen.name));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(container.read(selectedModelProvider), isNull);
+    expect(container.read(isManualModelSelectionProvider), false);
+  });
 
   testWidgets(
     'a pick made after moving to another chat is saved on the chat the '

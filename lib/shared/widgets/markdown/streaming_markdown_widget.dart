@@ -17,6 +17,7 @@ import 'markdown_render_gate.dart';
 import 'markdown_loading_skeleton.dart';
 
 import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'renderer/block_renderer.dart';
 import 'renderer/chunked_block_column.dart';
@@ -822,6 +823,7 @@ class _StreamingMarkdownWidgetState
 
     return HorizontalGestureExclusion(
       child: SelectionArea(
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         contextMenuBuilder: (context, selectableRegionState) {
           return buildAskConduitSelectionAreaContextMenu(
             selectableRegionState: selectableRegionState,
@@ -862,6 +864,7 @@ class _StreamingMarkdownWidgetState
         enableStreamingTextFade:
             widget.isStreaming && widget.enableStreamingTextFade,
         trimLastBlockBottomPadding: true,
+        trimFirstBlockTopPadding: true,
       );
     }
 
@@ -879,6 +882,7 @@ class _StreamingMarkdownWidgetState
                 widget.enableStreamingTextFade &&
                 stableParts[index].isMutableTail,
             trimLastBlockBottomPadding: index == stableParts.length - 1,
+            trimFirstBlockTopPadding: index == 0,
           ),
         ),
     ];
@@ -934,6 +938,7 @@ class _StreamingMarkdownWidgetState
     required String? stateScopeId,
     required bool enableStreamingTextFade,
     required bool trimLastBlockBottomPadding,
+    required bool trimFirstBlockTopPadding,
   }) {
     return ConduitMarkdownWidget(
       compiledDocument: document,
@@ -947,6 +952,7 @@ class _StreamingMarkdownWidgetState
           ? MarkdownHeavyBlockPolicy.defer
           : MarkdownHeavyBlockPolicy.eager,
       trimLastBlockBottomPadding: trimLastBlockBottomPadding,
+      trimFirstBlockTopPadding: trimFirstBlockTopPadding,
       debugOnCompiledViewMounted: widget.debugOnCompiledViewMounted,
       debugOnCompiledViewDisposed: widget.debugOnCompiledViewDisposed,
       debugOnBaseRender: widget.debugOnBaseRender,
@@ -1133,7 +1139,7 @@ class MarkdownWithLoading extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = content ?? '';
     if (isLoading && value.trim().isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: AdaptiveProgressIndicator());
     }
 
     return StreamingMarkdownWidget(

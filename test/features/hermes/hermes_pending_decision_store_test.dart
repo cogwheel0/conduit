@@ -40,6 +40,92 @@ void main() {
     check(stored).not((it) => it.contains('answer'));
   });
 
+  test('a whole Authorization value is redacted, scheme and all', () async {
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-2',
+      kind: HermesPendingDesktopDecisionKind.secret,
+      prompt: 'Send this header? Authorization: Bearer service-token',
+      sensitiveValues: const <String>[],
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records.single.prompt!).not((it) => it.contains('service-token'));
+    check(
+      PreferencesStore.getStringList(
+        PreferenceKeys.hermesPendingDesktopDecisions,
+      )!.single,
+    ).not((it) => it.contains('service-token'));
+  });
+
+  test('redaction markers do not push a prompt past its budget', () async {
+    // Short secrets, each replaced by a longer marker.
+    final prompt = List.filled(120, 'password=x').join(' ');
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-3',
+      kind: HermesPendingDesktopDecisionKind.secret,
+      prompt: prompt,
+      sensitiveValues: const <String>[],
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records).length.equals(1);
+    check(records.single.prompt!.runes.length).isLessOrEqual(512);
+  });
+
+  test('a long prompt reads back as saved, so a replay changes nothing',
+      () async {
+    // 400 scalars of two UTF-16 units each.
+    final prompt = 'Pick one ${'🌊' * 400}';
+    Future<bool> save() => HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-4',
+      kind: HermesPendingDesktopDecisionKind.secret,
+      prompt: prompt,
+      sensitiveValues: const <String>[],
+    );
+
+    check(await save()).isTrue();
+    check(await save()).isFalse();
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records.single.prompt).isNotNull();
+  });
+
+  // Redaction lengthens this choice past the saved bound: it was saved, then
+  // dropped on read, so every replay counted as a change.
+  test('a choice redaction lengthens reads back as saved', () async {
+    final choice = 'password=x ${'w' * 60}';
+    Future<bool> save() => HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-5',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      prompt: 'Which one?',
+      choices: [choice, 'Teal'],
+      sensitiveValues: const <String>[],
+    );
+
+    check(await save()).isTrue();
+    check(await save()).isFalse();
+  });
+
   test('resolution and origin cleanup remove only matching records', () async {
     for (final request in const <String>['request-1', 'request-2']) {
       await HermesPendingDecisionStore.upsert(

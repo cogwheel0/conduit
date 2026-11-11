@@ -76,6 +76,60 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
         : null;
   }
 
+  /// Runs one request of the MCP App [app] through Open WebUI's app RPC
+  /// (0.13 and later): `ui/resource`, `tools/call`, `resources/read` or
+  /// `resources/list`. The server checks the app's binding, and that a tool
+  /// the app calls is one it may call, and answers with the MCP result.
+  /// Throws [McpAppRpcException] with the server's reason when it refuses.
+  Future<Map<String, dynamic>> runMcpAppRequest(
+    OpenWebUiMcpApp app, {
+    required String method,
+    Map<String, dynamic> params = const <String, dynamic>{},
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/tools/id/${Uri.encodeComponent('server:mcp:${app.serverId}')}'
+        '/mcp/app/rpc',
+        data: <String, dynamic>{
+          'tool_name': app.toolName,
+          'binding': app.binding,
+          'method': method,
+          'params': params,
+        },
+        cancelToken: cancelToken,
+      );
+      final data = response.data;
+      if (data is! Map) {
+        throw const McpAppRpcException('The app request returned nothing.');
+      }
+      return {for (final entry in data.entries) entry.key.toString(): entry.value};
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) rethrow;
+      final data = e.response?.data;
+      final detail = data is Map ? data['detail'] : null;
+      final status = e.response?.statusCode;
+      throw McpAppRpcException(
+        detail is String && detail.trim().isNotEmpty
+            ? detail.trim()
+            : status == null
+            ? 'The app request failed.'
+            : 'The app request failed ($status).',
+      );
+    }
+  }
+
+  /// Switches a tool on or off (Open WebUI 0.13 and later). A tool switched
+  /// off cannot be picked or run in any chat.
+  Future<WorkspaceToolDetail?> toggleWorkspaceTool(String toolId) async {
+    final response = await _dio.post('/api/v1/tools/id/$toolId/toggle');
+    return response.data is Map
+        ? WorkspaceToolSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
   Future<void> deleteTool(String toolId) async {
     _traceApi('Deleting tool: $toolId');
     await _dio.delete('/api/v1/tools/id/$toolId/delete');

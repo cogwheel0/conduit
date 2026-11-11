@@ -1,22 +1,34 @@
 import 'dart:io';
 
 import 'package:conduit_core/features/terminal/controllers/terminal_controller_gateways.dart';
+import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../platform/webview_cookie_helper.dart' show isWebViewSupported;
 import '../models/terminal_models.dart';
 
 // The gateway contracts and the Riverpod adapter moved to conduit_core; this
 // file keeps the Flutter plugin gateway.
 export 'package:conduit_core/features/terminal/controllers/terminal_controller_gateways.dart';
 
-/// Platform plugin adapter for file picking, saving, and URL launching.
+/// Shows a port preview in the app's own page; false when it could not.
+typedef TerminalPortPreviewPresenter = Future<bool> Function(
+  TerminalPortPreview preview,
+);
+
+/// Platform plugin adapter for file picking, saving, and port previews.
 final class DefaultTerminalBrowserPlatformGateway
     implements TerminalBrowserPlatformGateway {
-  const DefaultTerminalBrowserPlatformGateway();
+  const DefaultTerminalBrowserPlatformGateway({this.showPreview});
+
+  /// Opens the app's preview page. Without it, or where the app has no web
+  /// view, a port opens through the proxy in the platform browser as it
+  /// always did.
+  final TerminalPortPreviewPresenter? showPreview;
 
   @override
   Future<TerminalUploadFile?> pickUploadFile() async {
@@ -44,8 +56,11 @@ final class DefaultTerminalBrowserPlatformGateway
   }
 
   @override
-  Future<bool> openPort(Uri uri, {String? bearerToken}) {
-    final token = bearerToken?.trim();
+  Future<bool> openPort(TerminalPortPreview preview) {
+    final show = showPreview;
+    if (show != null && isWebViewSupported) return show(preview);
+    final uri = preview.proxyNavigator().pageUri(preview.startUri);
+    final token = preview.bearerToken?.trim();
     return launchUrl(
       uri,
       mode: token == null || token.isEmpty

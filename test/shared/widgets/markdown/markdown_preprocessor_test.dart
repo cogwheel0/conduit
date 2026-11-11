@@ -3,6 +3,76 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('clipboard eligibility matches cleaned text at special prefixes', () {
+    const inputs = [
+      '',
+      ' \t\r\n\u0085',
+      'A blue square.',
+      '🟦',
+      '\u0085blue',
+      '<think>Compare shapes.</think>',
+      '<think>Compare shapes.</think> Blue square.',
+      '<think>Compare shapes.</think>\nBlue square.\n\n',
+      '<think>\nBlue square.</think>',
+      '<think>\nBlue square.\n</think>',
+      '<think>\n`</think>`\nBlue square.\n</think>',
+      '<think>Compare shapes.</think>\n&nbsp;',
+      '<think>Compare shapes.</think>\n[shape]: https://example.com',
+      '[shape]: https://example.com\nBlue square.',
+      '<details type="tool_calls">Count shapes.</details>\nBlue square.',
+      '<details type="tool_calls">\nBlue square.</details>',
+      '◁think▷Compare shapes.◁/think▷',
+      '◁think▷Compare shapes.◁/think▷\nBlue square.',
+      '◁think▷\nBlue square.◁/think▷',
+      '<details type="tool_calls">Count shapes.</details>',
+      '`<think>literal</think>`',
+      '[shape]: https://example.com',
+      '    [shape]: https://example.com',
+      '[shape](https://example.com)',
+      '[shape]: https://example.com (Blue\nsquare)',
+      '[shape]: https://example.com (Blue\r\nsquare)',
+      '[shape]: https://example.com (Blue\n\nsquare)',
+      '<think>Compare shapes.</think>\n[shape]: https://example.com (Blue\nsquare)',
+      '[shape]: https://example.com (Blue\nsquare) and circle',
+      '[shape]: https://example.com\nBlue square (and circle)',
+      '&nbsp;',
+      '&#32;',
+      '&amp;',
+      '&lt;think&gt;',
+      '\u0000conduit-code-span-0\u0000',
+    ];
+    for (final input in inputs) {
+      check(
+        because: input,
+        ConduitMarkdownPreprocessor.hasClipboardText(input),
+      ).equals(
+        ConduitMarkdownPreprocessor.sanitizeForClipboard(input).isNotEmpty,
+      );
+    }
+  });
+
+  test('clipboard sanitization reuses unchanged code-rich text', () {
+    final content = List.generate(
+      200,
+      (index) =>
+          'Use `sample[$index]` for the blue square.\n\n'
+          '```text\nsample[$index] = blue\n```',
+    ).join('\n\n');
+
+    check(
+      identical(
+        ConduitMarkdownPreprocessor.sanitizeForClipboard(content),
+        content,
+      ),
+    ).isTrue();
+  });
+
+  test('clipboard sanitization preserves repeated literal openers in code', () {
+    final content = '```html\n${'<think>\n' * 2048}```';
+    check(ConduitMarkdownPreprocessor.sanitizeForClipboard(content))
+        .equals(content);
+  });
+
   group('ConduitMarkdownPreprocessor.normalize', () {
     test('empty string returns empty', () {
       check(ConduitMarkdownPreprocessor.normalize('')).equals('');
@@ -670,6 +740,58 @@ after''';
       check(result).not((value) => value.contains('secret'));
       check(result).contains('before');
       check(result).contains('after');
+    });
+  });
+
+  group('ConduitMarkdownPreprocessor.normalize list nesting', () {
+    String normalize(String input) =>
+        ConduitMarkdownPreprocessor.normalize(input);
+
+    test('nests unindented bullets under the numbered step above them', () {
+      const input =
+          '1) Prepare the soil\n'
+          '- Loosen the top layer.\n'
+          '- Mix in compost.\n'
+          '\n'
+          '2) Sow the seeds\n'
+          '- Keep rows short.';
+      check(normalize(input)).equals(
+        '1) Prepare the soil\n'
+        '   - Loosen the top layer.\n'
+        '   - Mix in compost.\n'
+        '\n'
+        '2) Sow the seeds\n'
+        '   - Keep rows short.',
+      );
+    });
+
+    test('indents to the content column of wider markers', () {
+      check(normalize('10. Water the bed\n* Early morning is best.'))
+          .equals('10. Water the bed\n    * Early morning is best.');
+    });
+
+    test('keeps deeper bullets nested inside the moved run', () {
+      check(normalize('1. Plan\n- Beds\n  - Raised\n- Paths'))
+          .equals('1. Plan\n   - Beds\n     - Raised\n   - Paths');
+    });
+
+    test('leaves already nested and blank-line separated lists alone', () {
+      const nested = '1. Plan\n   - Beds\n   - Paths';
+      check(normalize(nested)).equals(nested);
+      const separate = '1. Plan\n\n- Beds\n- Paths';
+      check(normalize(separate)).equals(separate);
+    });
+
+    test('a heading or quote between them ends the run', () {
+      const heading = '1. Plan\n## Notes\n- Beds';
+      check(normalize(heading)).equals(heading);
+      const quote = '1. Plan\n- Beds\n> Aside\n- Paths';
+      check(normalize(quote)).equals('1. Plan\n   - Beds\n> Aside\n- Paths');
+    });
+
+    test('leaves fenced code untouched', () {
+      const input = '```\n1) step\n- detail\n```';
+      check(normalize(input)).equals(input);
     });
   });
 

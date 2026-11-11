@@ -130,6 +130,42 @@ void main() {
     },
   );
 
+  testWidgets('renders LibreChat documents by name without Open WebUI', (
+    WidgetTester tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'librechat-file-message',
+      role: 'user',
+      content: '',
+      timestamp: DateTime.utc(2026, 7, 13, 10),
+      files: const [
+        <String, dynamic>{
+          'type': 'file',
+          'url': '/uploads/user1/report.pdf',
+          'name': 'report.pdf',
+          'size': 4096,
+          'content_type': 'application/pdf',
+          'libreChatFileId': 'lc-file-1',
+        },
+        <String, dynamic>{
+          'type': 'file',
+          'url': '/uploads/user1/notes.txt',
+          'name': 'notes.txt',
+          'content_type': 'text/plain',
+          'libreChatFileId': 'lc-file-2',
+        },
+      ],
+    );
+
+    await tester.pumpWidget(buildHarness(message));
+    await tester.pump();
+
+    expect(find.text('report.pdf'), findsOneWidget);
+    expect(find.text('notes.txt'), findsOneWidget);
+    expect(find.text('Service unavailable'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('uses a tail-less borderless user bubble surface', (
     WidgetTester tester,
   ) async {
@@ -245,6 +281,50 @@ void main() {
       find.text('Something went wrong. Please try again.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('files sent to Hermes show by name, not as server files', (
+    WidgetTester tester,
+  ) async {
+    final api = _FakeAttachmentInfoApiService(
+      onGetFileInfo: (_) => throw StateError('must not fetch Hermes files'),
+    );
+    final message = ChatMessage(
+      id: 'hermes-desktop-file-message',
+      role: 'user',
+      content: 'Summarize these.',
+      timestamp: DateTime.utc(2026, 7, 13, 10),
+      // The ids of files staged on the device, which no server knows.
+      attachmentIds: const ['local-opaque-1', 'local-opaque-2'],
+      files: const [
+        <String, dynamic>{
+          'type': 'file',
+          'source': 'hermes_desktop_file',
+          'name': 'field-report.pdf',
+          'content_type': 'application/pdf',
+        },
+        <String, dynamic>{
+          'type': 'file',
+          'source': 'hermes_responses_file',
+          'name': 'field-notes.pdf',
+          'content_type': 'application/pdf',
+        },
+      ],
+    );
+
+    await tester.pumpWidget(
+      buildHarness(
+        message,
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('field-report.pdf'), findsOneWidget);
+    expect(find.text('field-notes.pdf'), findsOneWidget);
+    expect(find.byType(EnhancedAttachment), findsNothing);
+    expect(api.fileInfoCalls, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('legacy non-image attachment ids stay on generic file cards', (

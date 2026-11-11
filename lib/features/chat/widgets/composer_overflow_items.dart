@@ -1,3 +1,5 @@
+import '../../librechat/widgets/librechat_composer_support.dart'
+    show openLibreChatConnectionIfNeeded;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -32,6 +34,7 @@ class ComposerOverflowActionIds {
   static const codeInterpreter = 'codeInterpreter';
   static const toolSettings = 'toolSettings';
   static const compareModels = 'compareModels';
+  static const saveDraftAsNote = 'saveDraftAsNote';
   static const _filterPrefix = 'filter:';
   static const _toolPrefix = 'tool:';
   static const _terminalPrefix = 'terminal:';
@@ -172,6 +175,7 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
   bool hasMessage = true,
+  bool draftNoteAvailable = false,
   CodeInterpreterOffer? codeInterpreter,
 }) {
   return <ComposerOverflowItem>[
@@ -191,6 +195,10 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
       l10n: l10n,
       available: compareModelsAvailable,
       hasMessage: hasMessage,
+    ),
+    ...buildComposerOverflowDraftNoteItems(
+      l10n: l10n,
+      available: draftNoteAvailable,
     ),
     ...buildComposerOverflowToolItems(
       availableTools: availableTools,
@@ -217,34 +225,40 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
   required ComposerOverflowAttachmentAvailability attachmentAvailability,
 }) {
   return <ComposerOverflowItem>[
+    // "Files" opens the system file picker, named and drawn like the Files
+    // app it shows; "Server Files" lists files already on the server, drawn
+    // as a plain filled drive (the networked drive's stand and line read as
+    // a heavier, custom glyph beside the others); "Photos" is named like the
+    // Photos picker it opens. The tiles share one glyph family, all filled
+    // at one size and scale, so no one tile looks heavier.
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.file,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
-      label: l10n.file,
-      cupertinoIcon: CupertinoIcons.doc,
-      materialIcon: Icons.attach_file,
-      sfSymbol: 'doc',
+      label: l10n.files,
+      cupertinoIcon: CupertinoIcons.folder_fill,
+      materialIcon: Icons.folder,
+      sfSymbol: 'folder.fill',
       enabled: attachmentAvailability.file,
     ),
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.serverFile,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
-      label: l10n.files,
-      cupertinoIcon: CupertinoIcons.folder,
-      materialIcon: Icons.folder_rounded,
-      sfSymbol: 'folder',
+      label: l10n.composerAttachServerFiles,
+      cupertinoIcon: CupertinoIcons.tray_full_fill,
+      materialIcon: Icons.dns,
+      sfSymbol: 'externaldrive.fill',
       enabled: attachmentAvailability.serverFile,
     ),
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.photo,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
-      label: l10n.photo,
-      cupertinoIcon: CupertinoIcons.photo,
+      label: l10n.composerAttachPhotos,
+      cupertinoIcon: CupertinoIcons.photo_fill,
       materialIcon: Icons.image,
-      sfSymbol: 'photo',
+      sfSymbol: 'photo.fill',
       enabled: attachmentAvailability.photo,
     ),
     ComposerOverflowItem(
@@ -252,9 +266,9 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
       label: l10n.camera,
-      cupertinoIcon: CupertinoIcons.camera,
+      cupertinoIcon: CupertinoIcons.camera_fill,
       materialIcon: Icons.camera_alt,
-      sfSymbol: 'camera',
+      sfSymbol: 'camera.fill',
       enabled: attachmentAvailability.camera,
     ),
     ComposerOverflowItem(
@@ -264,7 +278,8 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       label: l10n.webPage,
       cupertinoIcon: CupertinoIcons.globe,
       materialIcon: Icons.public,
-      sfSymbol: 'globe',
+      // Cupertino icons have no filled globe; the native panel draws this one.
+      sfSymbol: 'globe.americas.fill',
       enabled: attachmentAvailability.web,
     ),
     if (attachmentAvailability.mcpContent)
@@ -273,9 +288,9 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
         kind: ComposerOverflowItemKind.attachment,
         section: ComposerOverflowSection.attachments,
         label: l10n.directMcpContentAction,
-        cupertinoIcon: CupertinoIcons.text_quote,
-        materialIcon: Icons.text_snippet_outlined,
-        sfSymbol: 'text.quote',
+        cupertinoIcon: CupertinoIcons.quote_bubble_fill,
+        materialIcon: Icons.text_snippet,
+        sfSymbol: 'quote.bubble.fill',
       ),
   ];
 }
@@ -630,6 +645,29 @@ List<ComposerOverflowItem> buildComposerOverflowComparisonItems({
   ];
 }
 
+/// "Save as Note": keeps the message being written as a new note, and opens
+/// it, instead of sending it. It is about the draft, so it is offered only
+/// while there is one ([available]), beside Compare Models in the features
+/// section, which both the native iOS panel and the Flutter panel render.
+List<ComposerOverflowItem> buildComposerOverflowDraftNoteItems({
+  required AppLocalizations l10n,
+  required bool available,
+}) {
+  if (!available) return const <ComposerOverflowItem>[];
+  return <ComposerOverflowItem>[
+    ComposerOverflowItem(
+      id: ComposerOverflowActionIds.saveDraftAsNote,
+      kind: ComposerOverflowItemKind.action,
+      section: ComposerOverflowSection.features,
+      label: l10n.composerSaveDraftAsNote,
+      subtitle: l10n.composerSaveDraftAsNoteDescription,
+      cupertinoIcon: CupertinoIcons.doc_text,
+      materialIcon: Icons.note_add_outlined,
+      sfSymbol: 'note.text.badge.plus',
+    ),
+  ];
+}
+
 /// The advanced "Tool settings" command. It lives in the tools section so the
 /// native iOS panel, which groups rows by section, renders it without a new
 /// native section; the id reaches Flutter through the same action callback.
@@ -717,6 +755,10 @@ void setComposerOverflowSelection(
 
   final toolId = ComposerOverflowActionIds.toolIdFrom(actionId);
   if (toolId == null) {
+    return;
+  }
+
+  if (selected && openLibreChatConnectionIfNeeded(ref, toolId)) {
     return;
   }
 

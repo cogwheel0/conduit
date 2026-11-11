@@ -68,11 +68,12 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
     }
 
     if (type == 'confirmation') {
+      final text = openWebUiConfirmationText(data);
       final prompt = OpenWebUiComposerPrompt(
         identity: 'live:${DateTime.now().microsecondsSinceEpoch}',
         kind: OpenWebUiComposerPromptKind.confirmation,
-        title: boundedOpenWebUiString(data['title'], 120),
-        message: boundedOpenWebUiString(data['message'], 2000),
+        title: text.title,
+        message: text.message,
       );
       _acknowledge = acknowledge;
       state = OpenWebUiLivePromptState(

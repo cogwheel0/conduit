@@ -112,6 +112,48 @@ class TerminalListeningPort {
   final String? process;
 }
 
+/// What a terminal server says it can do, from its `/api/config`.
+///
+/// A flag the server leaves out is off, so an older server is never sent to
+/// an endpoint it does not have. Only [terminal] defaults on: servers that
+/// predate the flag all had an interactive terminal.
+class TerminalServerFeatures {
+  const TerminalServerFeatures({
+    this.terminal = true,
+    this.events = false,
+    this.browser = false,
+  });
+
+  /// Whether the server opens interactive terminal sessions.
+  final bool terminal;
+
+  /// Whether the server has the `/events` socket that reports file and port
+  /// changes as they happen.
+  final bool events;
+
+  /// Whether the server opens browser sessions, whose pages load from a
+  /// signed link without credentials.
+  final bool browser;
+}
+
+/// A message from a terminal's `/events` socket.
+sealed class TerminalEvent {
+  const TerminalEvent();
+}
+
+/// The watched directory is being watched (`fs:ready`) or changed
+/// (`fs:change`). The server names no files: the listing must be read again.
+final class TerminalFilesChanged extends TerminalEvent {
+  const TerminalFilesChanged();
+}
+
+/// The listening ports changed; [ports] is the whole new list.
+final class TerminalPortsChanged extends TerminalEvent {
+  const TerminalPortsChanged(this.ports);
+
+  final List<TerminalListeningPort> ports;
+}
+
 class TerminalSessionInfo {
   const TerminalSessionInfo({
     required this.serverSelectionId,

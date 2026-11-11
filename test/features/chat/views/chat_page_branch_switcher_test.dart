@@ -1,5 +1,7 @@
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/features/chat/widgets/chat_branch_actions.dart';
+import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
+import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -198,6 +200,26 @@ void main() {
   }
 
   final switcher = find.byKey(const ValueKey('chat-branch-switcher'));
+
+  testWidgets('long chats expose their complete history to the lazy viewport', (
+    tester,
+  ) async {
+    final messages = List.generate(
+      500,
+      (index) => index.isEven
+          ? _user(
+              'synthetic-$index',
+              parent: index == 0 ? null : 'synthetic-${index - 1}',
+            )
+          : _assistant('synthetic-$index', parent: 'synthetic-${index - 1}'),
+    );
+    await mountPage(tester, messages: messages);
+    final viewport = tester.widget<ChatTimelineViewport>(
+      find.byType(ChatTimelineViewport),
+    );
+    expect(viewport.messageIds, messages.map((message) => message.id));
+    expect(find.byType(AssistantMessageWidget).evaluate().length, lessThan(25));
+  });
 
   final transcript = <ChatMessage>[
     // A first message has no parent, so its edits are never listed as

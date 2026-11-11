@@ -16,6 +16,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.AtomicFile
 import android.util.Log
+import android.view.RoundedCorner
 import android.view.View
 import android.view.WindowInsets
 import android.webkit.CookieManager
@@ -521,8 +522,10 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
     private lateinit var nativeSttBridge: NativeSttBridge
     private lateinit var nativeTtsBridge: NativeTtsBridge
+    private lateinit var realtimeAudioBridge: RealtimeAudioBridge
     private lateinit var imageGalleryBridge: ImageGalleryBridge
     private lateinit var pushBridge: PushBridge
+    private lateinit var telecomCallBridge: TelecomCallBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
@@ -571,6 +574,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"
     private val SHARE_TEXT_CHANNEL = "conduit/share_receiver_text"
     private val KEYBOARD_INSETS_CHANNEL = "app.cogwheel.conduit/keyboard_insets"
+    private val PLATFORM_ENVIRONMENT_CHANNEL = "app.cogwheel.conduit/platform_environment"
     private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
     private val SHARE_TEXT_PREFS_NAME = "conduit_share_receiver_text"
     private val PENDING_MULTIPLE_SHARE_TEXT_KEY = "pending_multiple_share_text"
@@ -581,6 +585,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val SHARE_STAGING_DIRECTORY_NAME = "conduit-shared-intents"
     private val maxSharedFileCount = 6
     private var methodChannel: MethodChannel? = null
+    private val assistantLaunches = AssistantLaunchQueue()
     private var shareChannel: MethodChannel? = null
     private var pendingStagedShareInProgress: Boolean
         get() = PendingShareImportRuntime.isImportInProgress
@@ -627,12 +632,25 @@ class MainActivity : FlutterFragmentActivity() {
         nativeSttBridge.setup(flutterEngine)
         nativeTtsBridge = NativeTtsBridge(this)
         nativeTtsBridge.setup(flutterEngine)
+        realtimeAudioBridge = RealtimeAudioBridge()
+        realtimeAudioBridge.setup(flutterEngine)
         imageGalleryBridge = ImageGalleryBridge(this)
         imageGalleryBridge.setup(flutterEngine)
         pushBridge = PushBridge(this)
         pushBridge.setup(flutterEngine)
+        telecomCallBridge = TelecomCallBridge(this)
+        telecomCallBridge.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
+        assistantLaunches.reset()
+        methodChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "takePendingAction" -> {
+                    result.success(assistantLaunches.startListening()?.toChannelValue())
+                }
+                else -> result.notImplemented()
+            }
+        }
         shareChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             SHARE_TEXT_CHANNEL
@@ -681,6 +699,16 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
 
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            PLATFORM_ENVIRONMENT_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "displayCornerRadius" -> result.success(displayCornerRadius())
+                else -> result.notImplemented()
+            }
+        }
+
         // Setup cookie manager channel for WebView cookie access
         val cookieChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -707,6 +735,18 @@ class MainActivity : FlutterFragmentActivity() {
         
         // Check if started with context
         handleIntent(intent)
+    }
+
+    /**
+     * The radius of the display's rounded corners in dp: 0 for a display
+     * that reports none, and null before Android 12, which cannot say.
+     */
+    private fun displayCornerRadius(): Double? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val display = display ?: return null
+        val corner = display.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
+            ?: return 0.0
+        return corner.radius / resources.displayMetrics.density.toDouble()
     }
 
     /**
@@ -1748,25 +1788,14 @@ class MainActivity : FlutterFragmentActivity() {
     private fun handleIntent(intent: Intent) {
         Log.d("MainActivity", "handleIntent called")
 
-        val screenContext = intent.getStringExtra("screen_context")
-        val screenshotPath = intent.getStringExtra("screenshot_path")
-        val startVoiceCall = intent.getBooleanExtra("start_voice_call", false)
-        val startNewChat = intent.getBooleanExtra("start_new_chat", false)
-
-        if (startVoiceCall) {
-            Log.d("MainActivity", "Invoking startVoiceCall")
-            methodChannel?.invokeMethod("startVoiceCall", null)
-        } else if (startNewChat) {
-            Log.d("MainActivity", "Invoking startNewChat")
-            methodChannel?.invokeMethod("startNewChat", null)
-        } else if (screenContext != null) {
-            Log.d("MainActivity", "Invoking analyzeScreen")
-            methodChannel?.invokeMethod("analyzeScreen", screenContext)
-        } else if (screenshotPath != null) {
-            Log.d("MainActivity", "Invoking analyzeScreenshot")
-            methodChannel?.invokeMethod("analyzeScreenshot", screenshotPath)
-        } else {
-            Log.d("MainActivity", "No screen context or screenshot path found")
+        val action = AssistantLaunchAction.take(intent)
+        if (action == null) {
+            Log.d("MainActivity", "No assistant request found")
+            return
+        }
+        Log.d("MainActivity", "Assistant asked for ${action.method}")
+        assistantLaunches.offer(action)?.let {
+            methodChannel?.invokeMethod(it.method, it.arguments)
         }
     }
     
@@ -1776,6 +1805,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (::nativeTtsBridge.isInitialized) {
             nativeTtsBridge.dispose()
+        }
+        if (::realtimeAudioBridge.isInitialized) {
+            realtimeAudioBridge.dispose()
         }
         if (::imageGalleryBridge.isInitialized) {
             imageGalleryBridge.dispose()

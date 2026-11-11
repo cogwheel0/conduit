@@ -11,12 +11,14 @@ import 'package:conduit_core/features/chat/services/chat_branch_service.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../../navigation/providers/conversation_selection_provider.dart';
 
 /// Whether the stored graph may hold other versions of [message], so that
 /// asking it is worth a read.
@@ -209,6 +211,62 @@ Future<void> forkChatFromMessage(
   if (conversation == null) return;
   final l10n = AppLocalizations.of(context)!;
   final report = Navigator.of(context, rootNavigator: true).context;
+  if (isLibreChatConversation(conversation)) {
+    // LibreChat branches the chat on its server and opens the copy, unless
+    // the user has moved on (another chat, another account, or a chat still
+    // opening) meanwhile: the copy is then only listed.
+    final startedIn = conversationScopedId(conversation);
+    final startedFor = container.read(primaryAccountProvider);
+    final startedSelection = container
+        .read(conversationSelectionProvider)
+        .generation;
+    try {
+      final copy = await copyLibreChatConversation(
+        container,
+        startedIn,
+        upToMessageId: messageId,
+      );
+      final active = container.read(activeConversationProvider);
+      if (active == null ||
+          conversationScopedId(active) != startedIn ||
+          container.read(primaryAccountProvider) != startedFor ||
+          container.read(conversationSelectionProvider).generation !=
+              startedSelection) {
+        return;
+      }
+      final selection = await container
+          .read(conversationSelectionProvider.notifier)
+          .select(copy);
+      if (selection.disposition == ConversationSelectionDisposition.failed) {
+        if (!report.mounted) return;
+        AdaptiveSnackBar.show(
+          report,
+          message: l10n.libreChatCopyFailed,
+          type: AdaptiveSnackBarType.error,
+        );
+        return;
+      }
+      if (selection.disposition !=
+          ConversationSelectionDisposition.committed) {
+        return;
+      }
+      if (!report.mounted) return;
+      AdaptiveSnackBar.show(
+        report,
+        message: l10n.chatBranchForkOpened,
+        type: AdaptiveSnackBarType.success,
+        duration: const Duration(seconds: 3),
+      );
+    } catch (_) {
+      if (!report.mounted) return;
+      AdaptiveSnackBar.show(
+        report,
+        message: l10n.libreChatCopyFailed,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
+    return;
+  }
   final owner = captureChatMutationOwner(container, conversation);
   try {
     await forkChatAtMessage(

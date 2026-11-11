@@ -19,6 +19,12 @@ import 'package:conduit_core/features/direct_connections/providers/direct_mcp_pr
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/models/librechat_server.dart';
+import 'package:conduit_core/features/librechat/models/librechat_session.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_registry_store.dart';
+import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:drift/drift.dart' show QueryExecutor;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,6 +66,47 @@ final class _WipingAuthStateManager extends _ClearedAuthStateManager {
     return FullAppDataClearOutcome.cleared;
   }
 }
+
+/// Notes what LibreChat looked like while the clear ran.
+final class _LibreChatObservingAuth extends _ClearedAuthStateManager {
+  _LibreChatObservingAuth(super.outcome);
+
+  LibreChatAccount? activeDuringClear;
+  Object? saveErrorDuringClear;
+
+  @override
+  Future<FullAppDataClearOutcome> logoutAndClearAppData({
+    required bool keepServerDetails,
+    required Future<void> Function() beforeClear,
+  }) async {
+    await beforeClear();
+    activeDuringClear = ref.read(activeLibreChatAccountProvider);
+    try {
+      await ref
+          .read(libreChatRegistryProvider.notifier)
+          .save(activeDuringClear ?? _libreChatAccount);
+    } catch (error) {
+      saveErrorDuringClear = error;
+    }
+    return outcome;
+  }
+}
+
+/// Secure storage whose deletes fail once [failDeletes] is set.
+final class _FlakySecureStore extends InMemorySecureKeyValueStore {
+  bool failDeletes = false;
+
+  @override
+  Future<void> delete({required String key}) {
+    if (failDeletes) throw StateError('keychain unavailable');
+    return super.delete(key: key);
+  }
+}
+
+final _libreChatAccount = LibreChatAccount.forUser(
+  const LibreChatServer(baseUrl: 'https://chat.example.com'),
+  const LibreChatUser(id: 'lc-user'),
+);
 
 final class _EmptyDirectProfiles extends DirectConnectionProfilesController {
   @override
@@ -520,6 +567,109 @@ void main() {
     check(
       PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
     ).isFalse();
+  });
+
+  group('LibreChat', () {
+    late Directory directory;
+    late _FlakySecureStore secure;
+
+    setUp(() {
+      directory = _tempDatabaseDirectory();
+      secure = _FlakySecureStore();
+    });
+
+    Future<ProviderContainer> signedInContainer(
+      _LibreChatObservingAuth auth,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(() => auth),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
+          databaseOpenerProvider.overrideWithValue(
+            _DirectoryDatabaseOpener(directory),
+          ),
+          libreChatRegistryStoreProvider.overrideWithValue(
+            LibreChatRegistryStore(secure),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+      await container
+          .read(libreChatRegistryProvider.notifier)
+          .save(_libreChatAccount, activate: true);
+      return container;
+    }
+
+    File databaseFile(String accountId) => File(
+      p.join(directory.path, '${libreChatDatabaseFileName(accountId)}.sqlite'),
+    )..writeAsStringSync('chats of $accountId');
+
+    test('a full sign-out stops it first and deletes all of it', () async {
+      final auth = _LibreChatObservingAuth(FullAppDataClearOutcome.cleared);
+      final container = await signedInContainer(auth);
+      final saved = databaseFile(_libreChatAccount.id);
+      // One no saved account names any more.
+      final forgotten = databaseFile('librechat:forgotten');
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: false);
+
+      check(auth.activeDuringClear).isNull();
+      check(auth.saveErrorDuringClear).isA<StateError>();
+      check(saved.existsSync()).isFalse();
+      check(forgotten.existsSync()).isFalse();
+      check(
+        (await container.read(libreChatRegistryProvider.future)).accounts,
+      ).isEmpty();
+      await container
+          .read(libreChatRegistryProvider.notifier)
+          .save(_libreChatAccount, activate: true);
+      check(container.read(activeLibreChatAccountProvider)).isNotNull();
+    });
+
+    test('a clear that loses ownership brings it back untouched', () async {
+      final auth = _LibreChatObservingAuth(
+        FullAppDataClearOutcome.ownershipYielded,
+      );
+      final container = await signedInContainer(auth);
+      final saved = databaseFile(_libreChatAccount.id);
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: false);
+
+      check(auth.activeDuringClear).isNull();
+      check(saved.existsSync()).isTrue();
+      check(
+        (await container.read(libreChatRegistryProvider.future)).activeId,
+      ).equals(_libreChatAccount.id);
+    });
+
+    test('an incomplete clear keeps it stopped if cleanup fails', () async {
+      final auth = _LibreChatObservingAuth(FullAppDataClearOutcome.incomplete);
+      final container = await signedInContainer(auth);
+      secure.failDeletes = true;
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: false);
+
+      check(container.read(activeLibreChatAccountProvider)).isNull();
+      await check(
+        container
+            .read(libreChatRegistryProvider.notifier)
+            .save(_libreChatAccount, activate: true),
+      ).throws<StateError>();
+    });
   });
 
   test('direct-local purge reopens an empty on-device chat store', () async {
