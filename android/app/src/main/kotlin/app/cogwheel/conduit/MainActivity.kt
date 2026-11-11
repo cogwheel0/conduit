@@ -23,6 +23,7 @@ import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.cogwheel.conduit.push.PushBridge
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileNotFoundException
@@ -523,11 +524,13 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var nativeTtsBridge: NativeTtsBridge
     private lateinit var realtimeAudioBridge: RealtimeAudioBridge
     private lateinit var imageGalleryBridge: ImageGalleryBridge
+    private lateinit var pushBridge: PushBridge
     private lateinit var telecomCallBridge: TelecomCallBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
         sanitizeLaunchIntent(intent)?.let { setIntent(it) }
+        PushBridge.captureLaunchIntent(this, intent, isRecreated = savedInstanceState != null)
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
@@ -633,6 +636,8 @@ class MainActivity : FlutterFragmentActivity() {
         realtimeAudioBridge.setup(flutterEngine)
         imageGalleryBridge = ImageGalleryBridge(this)
         imageGalleryBridge.setup(flutterEngine)
+        pushBridge = PushBridge(this)
+        pushBridge.setup(flutterEngine)
         telecomCallBridge = TelecomCallBridge(this)
         telecomCallBridge.setup(flutterEngine)
 
@@ -767,6 +772,11 @@ class MainActivity : FlutterFragmentActivity() {
         val sanitizedIntent = sanitizeLaunchIntent(intent) ?: intent
         setIntent(sanitizedIntent)
         super.onNewIntent(sanitizedIntent)
+        if (::pushBridge.isInitialized) {
+            pushBridge.handleNewIntent(sanitizedIntent)
+        } else {
+            PushBridge.captureLaunchIntent(this, sanitizedIntent, isRecreated = false)
+        }
         handleIntent(sanitizedIntent)
     }
 
@@ -1801,6 +1811,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (::imageGalleryBridge.isInitialized) {
             imageGalleryBridge.dispose()
+        }
+        if (::pushBridge.isInitialized) {
+            pushBridge.dispose()
         }
         if (::backgroundStreamingHandler.isInitialized) {
             backgroundStreamingHandler.cleanup()
