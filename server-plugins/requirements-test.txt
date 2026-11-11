@@ -1,0 +1,7 @@
+# Test-only dependencies for server-plugins/ (CI job "Push server plugins").
+# The plugins themselves only use what Open WebUI and Hermes already ship.
+cryptography==50.0.2
+httpx==0.28.1
+pydantic==2.13.5
+pytest==8.4.2
+PyYAML==6.0.3
