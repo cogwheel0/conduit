@@ -205,6 +205,9 @@ final class SignOutCoordinator {
         case FullAppDataClearOutcome.cleared ||
             FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete:
           directRuns.commitAppDataClear();
+          // Signed out for good: every account's notifications go now, so a
+          // purge below that fails can't leave their previews on screen.
+          notifyHostSignedOut(_ref, null);
           // The auth transaction has committed and did not yield to a newer
           // session. Only now is it safe to destructively remove the
           // app-global direct-local database; beforeClear is a reversible
@@ -223,7 +226,6 @@ final class SignOutCoordinator {
           directMcpServers.finishAppDataClear();
           hermesConfig.finishAppDataClear();
           _resetProvidersAfterFullAppDataClear(_ref);
-          notifyHostSignedOut(_ref, null);
         case FullAppDataClearOutcome.incomplete:
           directRuns.commitAppDataClear();
           await Future.wait<void>([
