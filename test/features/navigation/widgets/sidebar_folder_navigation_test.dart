@@ -397,6 +397,29 @@ void main() {
       sectionTitleLeft,
       kSidebarSectionHeaderInset + IconSize.listItem + Spacing.xxs,
     );
+    // New Folder's symbol stands over the folders' own disclosure buttons,
+    // on the section title's line.
+    final newFolderSymbol = tester.getCenter(
+      find.descendant(
+        of: find.byTooltip(AppLocalizationsEn().newFolder),
+        matching: find.byType(Icon),
+      ),
+    );
+    expect(
+      newFolderSymbol.dx,
+      tester
+          .getCenter(
+            find.byKey(const ValueKey<String>('folder-expand-parent-folder')),
+          )
+          .dx,
+    );
+    expect(
+      newFolderSymbol.dy,
+      moreOrLessEquals(
+        tester.getCenter(find.text(AppLocalizationsEn().folders)).dy,
+        epsilon: 0.5,
+      ),
+    );
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();
