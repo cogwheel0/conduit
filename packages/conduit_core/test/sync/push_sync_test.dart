@@ -66,6 +66,30 @@ class _HeldChatReadClient extends FakeSyncApiClient {
   }
 }
 
+/// Lets a create reach the server, then holds its answer until [release]:
+/// the chat is on the server, and still `local:` here.
+class _HeldCreateClient extends FakeSyncApiClient {
+  _HeldCreateClient(
+    super.server, {
+    required this.created,
+    required this.release,
+  });
+
+  final Completer<String> created;
+  final Completer<void> release;
+
+  @override
+  Future<Map<String, dynamic>> createChat(
+    Map<String, dynamic> chatBlob, {
+    String? folderId,
+  }) async {
+    final response = await super.createChat(chatBlob, folderId: folderId);
+    created.complete(response['id'] as String);
+    await release.future;
+    return response;
+  }
+}
+
 /// Runs [afterRead] after each read of a chat, before the copy is handed
 /// back, and lays [envelope] over the copy (see [_HeldChatReadClient]).
 class _ReadHookClient extends FakeSyncApiClient {
@@ -396,6 +420,54 @@ void main() {
           .equals(7001);
       // Stored as it was read, with no second read.
       check(reader.reads).equals(1);
+    });
+
+    test('a checklist event that comes while a copy from before the create '
+        'is read is kept', () async {
+      const localId = 'local:checklist';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final created = Completer<String>();
+      final answered = Completer<void>();
+      final creating = PushSync(
+        client: _HeldCreateClient(server, created: created, release: answered),
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      ).pushCreateChat(localId);
+      final serverId = await created.future;
+
+      // A pull reads the new chat before the create's answer is back...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final pulling = PullSync(
+        client: _HeldChatReadClient(server, read: read, release: release),
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+      await read.future;
+      // ...a checklist event comes for it, with no row under its id yet...
+      final tasks = <Map<String, dynamic>>[
+        {'id': '1', 'content': 'Water the seedlings', 'status': 'completed'},
+      ];
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.updateServerTasks(serverId, tasks),
+      );
+      // ...the answer lands and the row takes the server id...
+      answered.complete();
+      await creating;
+      // ...and the copy read before all that comes back.
+      release.complete();
+      await pulling;
+
+      final meta = jsonDecode((await db.chatsDao.getChat(serverId))!.meta);
+      check(meta as Map<String, dynamic>)
+          .has((m) => m['_conduit_tasks'], 'tasks')
+          .isA<List<dynamic>>()
+          .deepEquals(tasks);
     });
 
     test(

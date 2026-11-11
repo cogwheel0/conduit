@@ -857,7 +857,10 @@ class PullSync {
           pushedAtFetch != _db.chatsDao.pushVersion(id),
     );
 
-    _db.chatsDao.clearPendingServerTasks(id);
+    // A stored copy stored the checklist events kept for the chat, or a
+    // task list newer than them. A copy that stored nothing stored neither:
+    // the events wait for one that does.
+    if (!write.staleRead) _db.chatsDao.clearPendingServerTasks(id);
 
     // REQ 4: a merge that retained local-dirty content diverges from the
     // server, so it must be pushed. ChatsDao reasserts the updateChat op inside

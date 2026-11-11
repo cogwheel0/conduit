@@ -177,7 +177,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return encoded == null ? null : jsonDecode(encoded) as List<dynamic>;
   }
 
-  /// Called under the chat lock after a successful pull merge.
+  /// Called under the chat lock after a pull merge that stored the server's
+  /// copy, and with it these events or a newer task list.
   void clearPendingServerTasks(String chatId) =>
       _pendingTaskEvents.remove(chatId);
 
