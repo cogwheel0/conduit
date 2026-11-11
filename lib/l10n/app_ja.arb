@@ -6515,7 +6515,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "Android では代わりに UnifiedPush ディストリビューターを使えます。その場合、サーバーは Conduit リレーや Google を通さず、直接そこへ送信します。",
   "pushPrivacyOffTitle": "プッシュをオフにする",
-  "pushPrivacyOffBody": "プッシュをオフにすると、このデバイスのプッシュ用キーがすべて削除されます。アカウントからサインアウトしたりアカウントを削除したりすると、そのアカウントのキーが削除されます。その後に送られた内容は読めません。Conduit は各サーバーにもこのデバイスの登録を削除するよう依頼します。",
+  "pushPrivacyOffBody": "プッシュをオフにすると、このデバイスのプッシュ用キーがすべて削除されます。アカウントからサインアウトしたりアカウントを削除したりすると、そのアカウントのキーが削除されます。削除されたキー宛てにその後送られた内容は読めません。Conduit は各サーバーにもこのデバイスの登録を削除するよう依頼します。",
   "pushPrivacyReadMore": "詳細をすべて読む",
   "pushAttentionChip": "プッシュの確認が必要です",
   "notificationScheduledTitle": "スケジュールされたタスク",
