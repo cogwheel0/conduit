@@ -151,8 +151,8 @@ class AdaptiveSlider extends StatefulWidget {
 class _AdaptiveSliderState extends State<AdaptiveSlider> {
   int? _lastHapticStep;
 
-  /// Where a press on an iOS slider began, until it moves far enough to be
-  /// a drag.
+  /// Where a press on the Cupertino slider began, until it moves far enough
+  /// to be a drag.
   Offset? _pressedAt;
 
   /// The value a touch on an iOS slider started from, until the touch
@@ -223,8 +223,7 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
       _touchChanged = true;
       widget.onChangeStart?.call(start);
     }
-    // A press the slider moves the value for is its drag, never a tap,
-    // whether its end arrives before or after the pointer lifts.
+    // A press the slider moves the value for is its drag, never a tap.
     _pressedAt = null;
     _handleChanged(value);
   }
@@ -236,11 +235,12 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
     if (changed) widget.onChangeEnd?.call(value);
   }
 
-  /// A tap on an iOS slider moves the value to the tapped point, the point
-  /// [inset] from either end standing for the minimum and the maximum.
-  /// UIKit's slider follows only a drag, and the Cupertino one only a drag
-  /// that starts near its thumb.
-  Widget _seekingOnTap(Widget slider, {double inset = 0}) {
+  /// A tap on the Cupertino slider moves the value to the tapped point,
+  /// along the travel of the thumb's centre. On its own it follows only a
+  /// drag that starts near its thumb. The iOS 26 slider seeks on a tap
+  /// itself.
+  Widget _seekingOnTap(Widget slider) {
+    const inset = _kCupertinoThumbTravelInset;
     return Listener(
       // Raw pointer events reach this listener whether or not the slider
       // takes the gesture, across the whole track.
@@ -288,7 +288,7 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
   Widget _buildSlider(BuildContext context) {
     if (PlatformUiCapabilities.usesNativeIOS26) {
       final divisions = widget.divisions;
-      final slider = CNSlider(
+      return CNSlider(
         value: widget.value.clamp(widget.min, widget.max),
         min: widget.min,
         max: widget.max,
@@ -296,11 +296,7 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         onChanged: widget.onChanged == null ? (_) {} : _onTouchChanged,
         onChangeStart: _onTouchStart,
         onChangeEnd: _onTouchEnd,
-        // Not the package's own tap to seek: on a thumbless slider it maps a
-        // tap between the centres of the thumb it does not draw, so a tap
-        // near either end of the track lands on the end
-        // (gunumdogdu/cupertino_native_better#151).
-        seekOnTap: false,
+        seekOnTap: widget.seekOnTap,
         trackColor: widget.activeColor,
         thumbColor: widget.thumbColor,
         style: widget.thumbless
@@ -317,7 +313,6 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
             ? divisions + 1
             : null,
       );
-      return widget.seekOnTap ? _seekingOnTap(slider) : slider;
     }
     if (PlatformUiCapabilities.isIOS) {
       final slider = CupertinoSlider(
@@ -331,9 +326,7 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         thumbColor: widget.thumbColor ?? CupertinoColors.white,
         divisions: widget.divisions,
       );
-      return widget.seekOnTap
-          ? _seekingOnTap(slider, inset: _kCupertinoThumbTravelInset)
-          : slider;
+      return widget.seekOnTap ? _seekingOnTap(slider) : slider;
     }
     return Slider(
       value: widget.value.clamp(widget.min, widget.max),
