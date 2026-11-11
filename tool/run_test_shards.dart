@@ -9,18 +9,22 @@
 // named after it), runs them, and deletes them afterwards. Options other than --shards go to
 // `flutter test` unchanged.
 //
-// Files that share an entrypoint share an isolate. Files that talk to a real
-// socket keep their own: the first widget test installs the test binding,
-// whose HttpOverrides answer every request with 400. A test that passes on
-// its own but fails here is relying on state an earlier file left behind
-// (preferences, statics); make it set up what it relies on.
+// Files sharing an entrypoint share an isolate. Custom test bindings and
+// plugin singletons that cannot be reset need their own isolate. Real socket
+// tests also keep their own: the test binding answers every request with 400.
+// Other tests must set up the preferences and statics they rely on.
 //
 // Run a single file with plain `flutter test <file>` as usual.
 import 'dart:io';
 
-final RegExp _realSocketUse = RegExp(
+final RegExp _customTestBinding = RegExp(
+  r'\bextends\s+(?:\w+\.)?(?:Automated|Live)?TestWidgetsFlutterBinding\b',
+);
+
+final RegExp _requiresOwnIsolate = RegExp(
   r'HttpServer\.bind|ServerSocket\.bind|SecureServerSocket|HttpClient\(|'
-  r'Socket\.connect|WebSocket\.connect|RawDatagramSocket|HttpOverrides',
+  r'Socket\.connect|WebSocket\.connect|RawDatagramSocket|HttpOverrides|'
+  r'InAppWebViewPlatform\.instance\s*=',
 );
 
 Future<void> main(List<String> args) async {
@@ -98,7 +102,9 @@ TestShardPlan planTestShards(
   final paths = sources.keys.toList()..sort();
   final standalone = [
     for (final path in paths)
-      if (_realSocketUse.hasMatch(sources[path]!)) path,
+      if (_requiresOwnIsolate.hasMatch(sources[path]!) ||
+          _customTestBinding.hasMatch(sources[path]!))
+        path,
   ];
   final shardable = [
     for (final path in paths)

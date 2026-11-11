@@ -11,3 +11,7 @@
 	path = hermes-src
 	url = https://github.com/NousResearch/hermes-agent
 	branch = main
+[submodule "librechat-src"]
+	path = librechat-src
+	url = https://github.com/danny-avila/LibreChat.git
+	shallow = true

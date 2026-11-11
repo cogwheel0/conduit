@@ -166,11 +166,9 @@ class BrandService {
     return SizedBox(
       width: size,
       height: size,
-      child: CircularProgressIndicator(
+      child: AdaptiveProgressIndicator(
         strokeWidth: strokeWidth,
-        valueColor: AlwaysStoppedAnimation<Color>(
-          color ?? primaryBrandColor(context: context),
-        ),
+        color: color ?? primaryBrandColor(context: context),
       ),
     );
   }

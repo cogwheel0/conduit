@@ -20,6 +20,35 @@ void main() {
       expect(forwarded!.headers.containsKey('Authorization'), isFalse);
     });
 
+    test('two-step sign-in requests reach the server without a session', () async {
+      // They authenticate with the challenge token in their body; the sign-in
+      // they finish has no session yet, and must not send another one.
+      for (final path in [
+        '/api/v1/auths/mfa/verify',
+        '/api/v1/auths/mfa/enroll/start',
+        '/api/v1/auths/mfa/enroll/confirm',
+        '/api/v1/auths/mfa/recover',
+      ]) {
+        for (final token in [null, 'other-session']) {
+          final interceptor = ApiAuthInterceptor(
+            serverUrl: _serverUrl,
+            authToken: token,
+          );
+          final handler = _TestRequestInterceptorHandler();
+
+          interceptor.onRequest(RequestOptions(path: path), handler);
+          final forwarded = await handler.forwardedRequest;
+
+          expect(forwarded, isNotNull, reason: '$path ($token)');
+          expect(
+            forwarded!.headers.containsKey('Authorization'),
+            isFalse,
+            reason: '$path ($token)',
+          );
+        }
+      }
+    });
+
     test(
       'optional config request attaches auth header when token exists',
       () async {

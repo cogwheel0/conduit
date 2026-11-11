@@ -192,6 +192,9 @@ class ConduitMarkdownPreprocessor {
     // Separate consecutive links
     output = _separateConsecutiveLinks(output);
 
+    // Nest `1) Step` + unindented `- detail` runs the way the model meant.
+    output = _nestBulletsUnderOrderedItems(output);
+
     // An opening `<details ...>` tag whose quoted attribute values contain
     // real newlines (legal in HTML) has no `>` on its first line, so the
     // per-line block parser never matches it and the whole block renders as
@@ -223,7 +226,7 @@ class ConduitMarkdownPreprocessor {
     // answer text. Put it on a Markdown block boundary without rewriting
     // literal examples inside code spans or fences.
     if (_attachedToolCallDetailsOpen.hasMatch(output)) {
-      output = _replaceMatchesOutsideCode(
+      output = _replaceMarkupOutsideCode(
         output,
         _attachedToolCallDetailsOpen,
         (match) => '${match[1]}\n\n${match[2]}',
@@ -257,10 +260,34 @@ class ConduitMarkdownPreprocessor {
         .transform(_stripLinkReferenceDefinitions)
         .transform(
           (content) =>
-              _replaceMatchesOutsideCode(content, _reasoningBlocks, (_) => ''),
+              _replaceMarkupOutsideCode(content, _reasoningBlocks, (_) => ''),
         )
         .replaceAll(_multipleNewlines, '\n\n')
         .trim();
+  }
+
+  /// Whether clipboard sanitization leaves any text.
+  ///
+  /// Ordinary leading text survives every clipboard rule. Only markup,
+  /// reference definitions and entities can remove or decode that prefix.
+  /// A plain final line also survives when no block can close after it. A
+  /// final `)` can close a reference definition whose parenthesized title
+  /// started on an earlier line, so that line takes the full check.
+  static bool hasClipboardText(String input) {
+    final leadingText = input.trimLeft();
+    if (leadingText.isEmpty) return false;
+    if (!'<◁[&'.contains(leadingText[0])) return true;
+    final trailingText = leadingText.trimRight();
+    final lastLine = trailingText
+        .substring(trailingText.lastIndexOf('\n') + 1)
+        .trimLeft();
+    if (!'<◁[&'.contains(lastLine[0]) &&
+        !lastLine.contains('<') &&
+        !lastLine.contains('◁') &&
+        !lastLine.endsWith(')')) {
+      return true;
+    }
+    return sanitizeForClipboard(input).isNotEmpty;
   }
 
   /// Sanitizes message content for copying while omitting internal tool calls.
@@ -272,7 +299,7 @@ class ConduitMarkdownPreprocessor {
     if (input.isEmpty) return input;
 
     final sanitized = sanitize(input);
-    return _replaceMatchesOutsideCode(sanitized, _toolCallBlocks, (_) => '')
+    return _replaceMarkupOutsideCode(sanitized, _toolCallBlocks, (_) => '')
         // Stored assistant content is HTML-escaped for the renderer; the
         // clipboard needs the literal text back (`"` not `&quot;`). API
         // replay deliberately does NOT decode — it cannot distinguish
@@ -328,7 +355,7 @@ class ConduitMarkdownPreprocessor {
   static String removeAllDetails(String input) {
     if (input.isEmpty) return input;
 
-    return _replaceMatchesOutsideCode(input, _allDetailsBlocks, (_) => '');
+    return _replaceMarkupOutsideCode(input, _allDetailsBlocks, (_) => '');
   }
 
   /// Breaks long inline code spans for better wrapping.
@@ -383,6 +410,154 @@ class ConduitMarkdownPreprocessor {
     return output;
   }
 
+  /// Models often write a numbered step followed directly by its details as
+  /// unindented bullets:
+  ///
+  /// ```text
+  /// 1) Prepare the soil
+  /// - Loosen the top layer.
+  /// - Mix in compost.
+  /// ```
+  ///
+  /// CommonMark reads the bullets as a separate top-level list (the marker is
+  /// not indented past `1) `), which renders them flat beside the step with a
+  /// list gap in between. Indent such a bullet run to the step's content
+  /// column so it nests under the step, as the author intended.
+  ///
+  /// The rewrite only touches a bullet run that starts on the line right
+  /// after a numbered item (or its wrapped continuation) at the same marker
+  /// indent, and stops at the first blank line, so it never crosses a
+  /// paragraph break (which keeps it stable under incremental streaming
+  /// preparation, whose checkpoints sit on blank lines). Fenced code is left
+  /// alone.
+  static String _nestBulletsUnderOrderedItems(String input) {
+    if (!_orderedItemGate.hasMatch(input) || !_bulletItemGate.hasMatch(input)) {
+      return input;
+    }
+
+    final lines = input.split('\n');
+    String? openFence;
+    // Marker indent and content column of the numbered item that owns the
+    // current run of lines, if any.
+    int? orderedMarkerIndent;
+    int? orderedContentColumn;
+    // Indent of the first nested bullet and the spaces added to the run.
+    int? nestBulletIndent;
+    String? nestPrefix;
+    var changed = false;
+
+    void reset() {
+      orderedMarkerIndent = null;
+      orderedContentColumn = null;
+      nestBulletIndent = null;
+      nestPrefix = null;
+    }
+
+    for (var index = 0; index < lines.length; index += 1) {
+      final line = lines[index];
+      final fence = _fenceLinePattern.firstMatch(line);
+      if (openFence != null) {
+        if (fence != null &&
+            fence[1]![0] == openFence[0] &&
+            fence[1]!.length >= openFence.length &&
+            line.trim() == fence[1]) {
+          openFence = null;
+        }
+        continue;
+      }
+      if (fence != null) {
+        // Fences sit at column 0 after [_normalizeFences], so they always
+        // close any list they follow.
+        openFence = fence[1];
+        reset();
+        continue;
+      }
+      if (line.trim().isEmpty) {
+        reset();
+        continue;
+      }
+
+      final indent = _leadingIndent(line);
+      final ordered = _orderedItemLine.firstMatch(line);
+      if (ordered != null &&
+          (nestBulletIndent == null || indent <= nestBulletIndent!) &&
+          !ordered[3]!.contains('\t')) {
+        orderedMarkerIndent = ordered[1]!.length;
+        orderedContentColumn =
+            orderedMarkerIndent! + ordered[2]!.length + ordered[3]!.length;
+        nestBulletIndent = null;
+        nestPrefix = null;
+        continue;
+      }
+
+      final prefix = nestPrefix;
+      if (prefix != null) {
+        if (indent > nestBulletIndent! ||
+            (indent == nestBulletIndent && _isBulletLine(line))) {
+          // A sibling bullet, or content nested deeper inside one.
+          lines[index] = '$prefix$line';
+          changed = true;
+        } else if (_blockStartLine.hasMatch(line)) {
+          reset();
+        }
+        // Anything else is lazy paragraph continuation, which joins the
+        // nested item's paragraph without indentation.
+        continue;
+      }
+
+      final bullet = _isBulletLine(line)
+          ? _bulletItemLine.firstMatch(line)
+          : null;
+      if (bullet != null &&
+          orderedMarkerIndent != null &&
+          bullet[1]!.length == orderedMarkerIndent) {
+        nestBulletIndent = bullet[1]!.length;
+        final added = ' ' * (orderedContentColumn! - orderedMarkerIndent!);
+        nestPrefix = added;
+        lines[index] = '$added$line';
+        changed = true;
+        continue;
+      }
+      if (_blockStartLine.hasMatch(line)) {
+        reset();
+      }
+    }
+
+    return changed ? lines.join('\n') : input;
+  }
+
+  static bool _isBulletLine(String line) =>
+      _bulletItemLine.hasMatch(line) && !_blockStartLine.hasMatch(line);
+
+  static int _leadingIndent(String line) {
+    var width = 0;
+    for (var index = 0; index < line.length; index += 1) {
+      final char = line.codeUnitAt(index);
+      if (char == 0x20) {
+        width += 1;
+      } else if (char == 0x09) {
+        width += 4 - (width % 4);
+      } else {
+        break;
+      }
+    }
+    return width;
+  }
+
+  static final _orderedItemGate = RegExp(
+    r'^ {0,3}\d{1,9}[.)][ \t]',
+    multiLine: true,
+  );
+  static final _bulletItemGate = RegExp(r'^ {0,3}[-*+][ \t]', multiLine: true);
+  static final _orderedItemLine = RegExp(r'^( {0,3})(\d{1,9}[.)])([ \t]+)\S');
+  static final _bulletItemLine = RegExp(r'^( {0,3})[-*+][ \t]+\S');
+  static final _fenceLinePattern = RegExp(r'^ {0,3}(`{3,}|~{3,})');
+
+  /// Lines that start a new block instead of continuing a paragraph.
+  static final _blockStartLine = RegExp(
+    r'^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|\||<[A-Za-z/!]|([-*_])(?:[ \t]*\1){2,}[ \t]*$)',
+  );
+
   static String _separateConsecutiveLinks(String input) {
     final lines = input.split('\n');
     if (lines.length <= 1) return input;
@@ -414,10 +589,9 @@ class ConduitMarkdownPreprocessor {
   static String _stripLinkReferenceDefinitions(String input) {
     if (!hasLinkReferenceDefinitionLine(input)) return input;
 
-    final stripped = _replaceMatchesOutsideCode(
+    final stripped = _maskCodeAndTransform(
       input,
-      _linkReferenceDefinition,
-      (_) => '',
+      (content) => content.replaceAll(_linkReferenceDefinition, ''),
     );
     return stripped.replaceAll(_multipleNewlines, '\n\n').trim();
   }
@@ -426,14 +600,19 @@ class ConduitMarkdownPreprocessor {
     return _openWebUiRemoveFormattings(_removeEmojis(input.trim()));
   }
 
-  static String _replaceMatchesOutsideCode(
+  static String _replaceMarkupOutsideCode(
     String input,
     RegExp pattern,
     String Function(Match) replace,
-  ) => _maskCodeAndTransform(
-    input,
-    (content) => content.replaceAllMapped(pattern, replace),
-  );
+  ) {
+    // These rules require a markup opener. Probe only for its marker: matching
+    // a full block before masking would also scan literal tags inside code.
+    if (!input.contains('<') && !input.contains('◁')) return input;
+    return _maskCodeAndTransform(
+      input,
+      (content) => content.replaceAllMapped(pattern, replace),
+    );
+  }
 
   /// Case-insensitive `String.indexOf` for `<details` starting at [start].
   /// Returns -1 when not found.

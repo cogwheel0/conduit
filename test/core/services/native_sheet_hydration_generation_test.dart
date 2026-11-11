@@ -45,6 +45,20 @@ void main() {
     check(hydrated.value).equals('high');
   });
 
+  test('late effort hydration offers the user default only to advertisers', () {
+    // Issue #611: a model that does not advertise support is sent only its
+    // own pick, so the native picker must not show the user's default for it.
+    ({ReasoningEffortPolicy policy, String value}) hydrate(String id) =>
+        nativeHydratedServerReasoningEffort(
+          model: Model(id: id, name: id),
+          detail: const ServerModelReasoningEffort.known(null),
+          personalizationEffort: 'high',
+        );
+
+    check(hydrate('gpt-4o').value).equals('automatic');
+    check(hydrate('gpt-5').value).equals('high');
+  });
+
   test('late selector hydration cannot update a newer presentation', () {
     final generations = NativeSheetHydrationGeneration();
     final first = generations.begin();

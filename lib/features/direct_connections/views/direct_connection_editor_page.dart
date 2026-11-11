@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -440,10 +441,7 @@ class _DirectConnectionEditorPageState
         ),
       ],
       SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
-      DirectConnectionAdvancedSettingsSection(
-        form: _form,
-        flat: _setup,
-      ),
+      DirectConnectionAdvancedSettingsSection(form: _form, flat: _setup),
       if (!_setup) ...[
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
         if (PlatformInfo.isIOS) ...[
@@ -592,10 +590,9 @@ class _DirectConnectionEditorPageState
             )
           : const SizedBox.shrink(),
       trailing: !_setup && !_embedded && PlatformInfo.isIOS
-          ? CupertinoButton(
+          ? ConduitAdaptiveAppBarTextButton(
               key: const ValueKey<String>('direct-editor-save-toolbar-button'),
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-              minimumSize: const Size(0, TouchTarget.minimum),
+              label: l10n.save,
               onPressed:
                   _testing ||
                       _saving ||
@@ -604,9 +601,8 @@ class _DirectConnectionEditorPageState
                           DirectAuthenticationMode.unsupported
                   ? null
                   : _save,
-              child: _saving
-                  ? const CupertinoActivityIndicator(radius: 8)
-                  : Text(l10n.save),
+              isLoading: _saving,
+              prominent: true,
             )
           : null,
     );

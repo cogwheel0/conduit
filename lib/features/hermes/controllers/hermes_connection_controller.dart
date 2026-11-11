@@ -127,10 +127,12 @@ final class HermesConnectionController extends ChangeNotifier {
                ? HermesConnectionNameSource.derived
                : HermesConnectionNameSource.user),
        url = TextEditingController(text: initialConfig.baseUrl),
+       _previousUrl = initialConfig.baseUrl,
        _mode = initialConfig.mode,
        _desktopAuthKind = initialConfig.desktopAuthKind,
        _desktopProfile = initialConfig.desktopProfile,
        _allowSelfSignedCertificates = initialConfig.allowSelfSignedCertificates,
+       _plainHttpConsentOrigin = initialConfig.plainHttpConsentOrigin,
        _initialAccessHeaders = Map.of(initialConfig.accessHeaders),
        _accessHeaders = Map.of(initialConfig.accessHeaders);
 
@@ -140,6 +142,9 @@ final class HermesConnectionController extends ChangeNotifier {
   final TextEditingController name;
   HermesConnectionNameSource _nameSource;
   final TextEditingController url;
+
+  /// The server URL before its latest edit: a name it gave follows the edit.
+  String _previousUrl;
   final TextEditingController apiKey = TextEditingController();
   final TextEditingController sessionKey = TextEditingController();
   final TextEditingController desktopLegacyToken = TextEditingController();
@@ -147,6 +152,9 @@ final class HermesConnectionController extends ChangeNotifier {
   HermesDesktopAuthKind _desktopAuthKind;
   String _desktopProfile;
   bool _allowSelfSignedCertificates;
+
+  /// The origin the user agreed to send credentials to unencrypted.
+  String? _plainHttpConsentOrigin;
   Map<String, String> _initialAccessHeaders;
   Map<String, String> _accessHeaders;
 
@@ -184,6 +192,18 @@ final class HermesConnectionController extends ChangeNotifier {
   }
 
   bool draftIsUsable(HermesConfig saved) => _validate(saved) == null;
+
+  /// Whether the draft would send its credentials unencrypted to a server
+  /// the user has not agreed to: ask with [grantPlainHttpConsent] before
+  /// testing, saving or signing in.
+  bool needsPlainHttpConsent(HermesConfig saved) =>
+      !buildDraft(saved).config.mayUsePlainHttp;
+
+  /// Records the user's agreement to send credentials unencrypted to the
+  /// draft URL's origin; editing the URL to another one asks again.
+  void grantPlainHttpConsent() {
+    _plainHttpConsentOrigin = HermesConfig.plainHttpOrigin(url.text);
+  }
 
   HermesConnectionDraft buildDraft(HermesConfig saved) {
     final trimmedUrl = url.text.trim();
@@ -228,6 +248,8 @@ final class HermesConnectionController extends ChangeNotifier {
         desktopAuthKind: _desktopAuthKind,
         desktopProfile: _desktopProfile,
         allowSelfSignedCertificates: _allowSelfSignedCertificates,
+        plainHttpConsentOrigin:
+            _plainHttpConsentOrigin ?? saved.plainHttpConsentOrigin,
         apiKey: originChanged || apiKeyDirty
             ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
             : saved.apiKey,
@@ -252,7 +274,19 @@ final class HermesConnectionController extends ChangeNotifier {
     _markDraftChanged(nameDirty: true);
   }
 
-  void markUrlChanged() => _markDraftChanged();
+  void markUrlChanged() {
+    // Saving names the connection after its new host when the old one gave
+    // its name, so the name shown follows the URL as it is edited.
+    if (HermesConnectionProfile.nameFollowsUrl(
+      name.text,
+      _nameSource,
+      _previousUrl,
+    )) {
+      name.text = HermesConnectionProfile.deriveName(url.text);
+    }
+    _previousUrl = url.text;
+    _markDraftChanged();
+  }
 
   void markApiKeyChanged() => _markDraftChanged(apiKeyDirty: true);
 

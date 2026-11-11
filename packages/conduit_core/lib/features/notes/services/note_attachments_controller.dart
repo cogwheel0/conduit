@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:riverpod/riverpod.dart';
@@ -14,6 +16,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/notes/services/audio_recording_service.dart';
 import 'package:conduit_core/features/notes/services/note_audio_upload_service.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/note.dart';
@@ -58,6 +61,7 @@ class NoteAttachmentsController {
     required void Function(Note note) onNoteUpdated,
     required void Function() onChanged,
     required void Function(NoteAudioNotice notice) onNotice,
+    String? Function()? currentPageId,
   }) : _container = container,
        _store = store,
        _noteId = noteId,
@@ -65,7 +69,8 @@ class NoteAttachmentsController {
        _resolvedTitle = resolvedTitle,
        _onNoteUpdated = onNoteUpdated,
        _onChanged = onChanged,
-       _onNotice = onNotice;
+       _onNotice = onNotice,
+       _currentPageId = currentPageId;
 
   final ProviderContainer _container;
   final NoteAudioUploadStore _store;
@@ -76,7 +81,41 @@ class NoteAttachmentsController {
   final void Function() _onChanged;
   final void Function(NoteAudioNotice notice) _onNotice;
 
+  /// The page of a note with several pages (Open WebUI 0.12.5+) the editor
+  /// shows, read once when a recording is made or a file removed: the
+  /// recording is attached there, and the file detached from it. Null, or a
+  /// page the note no longer has, means the main page, as it does for a
+  /// recording staged before pages were known.
+  final String? Function()? _currentPageId;
+
   final List<PendingNoteAudioUpload> _pending = <PendingNoteAudioUpload>[];
+
+  /// Notes that keep their recordings although this editor started on one:
+  /// once a page of the note was saved as a note of its own ([rebindTo] with
+  /// a page), the editor shows that note, and the recordings of the other
+  /// pages wait for their note to be opened again.
+  final Set<String> _leftBehind = <String>{};
+
+  /// Counts [rebindTo] calls: a scan of the store that one overtook was for
+  /// the note the editor showed before, and is not published.
+  int _rebinds = 0;
+
+  /// Recordings that stay with the note they were made on after a page of
+  /// it was recovered: an upload of one still running neither comes back to
+  /// this editor nor attaches to the note it shows now.
+  final Set<String> _leftBehindUploads = <String>{};
+
+  /// Recordings [rebindTo] is moving to another note. A retry meanwhile
+  /// finds no copy where one was and reports it gone; such a report waits in
+  /// [_goneWhileMoving] for the move to say where the recording is.
+  final Set<String> _moving = <String>{};
+  final Set<String> _goneWhileMoving = <String>{};
+
+  /// The copies [rebindTo] moved recordings to, by id. A recording reported
+  /// gone later, by a retry that looked where it was before the move, is
+  /// gone only if its copy is too.
+  final Map<String, PendingNoteAudioUpload> _movedCopies =
+      <String, PendingNoteAudioUpload>{};
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -180,7 +219,9 @@ class NoteAttachmentsController {
   /// Moves a recorder cache file into account-scoped application support
   /// before any network request. Once this returns true, closing the page or
   /// losing connectivity cannot discard the recording.
-  Future<bool> stage(File audioFile) async {
+  /// [pageId] is the page the recording was started on; by default the page
+  /// shown now.
+  Future<bool> stage(File audioFile, {String? pageId}) async {
     final Note? note = _currentNote();
     final scope = _scope();
     final ApiService? api = _container.read(apiServiceProvider);
@@ -192,6 +233,10 @@ class NoteAttachmentsController {
     }
 
     final String fileName = noteRecordingFileName(audioFile.path);
+    // The page the recording was made on, read with the note: it is stored
+    // with the recording, which is attached there even when the editor
+    // shows another page, or is closed, by the time it uploads.
+    final String? madeOn = pageId ?? _currentPageId?.call();
     try {
       final PendingNoteAudioUpload item = await _store.stage(
         source: audioFile,
@@ -199,6 +244,7 @@ class NoteAttachmentsController {
         accountId: scope.accountId,
         noteId: note.id,
         fileName: fileName,
+        pageId: madeOn,
       );
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return true;
       _mutationGeneration++;
@@ -237,12 +283,14 @@ class NoteAttachmentsController {
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
     if (note == null || scope == null) return;
     final int mutationGeneration = _mutationGeneration;
+    final int rebinds = _rebinds;
     try {
       final Set<String> currentIds = <String>{_noteId, note.id};
       if (db != null) {
         currentIds.add(await db.notesDao.resolveNoteRemapTarget(_noteId));
         currentIds.add(await db.notesDao.resolveNoteRemapTarget(note.id));
       }
+      currentIds.removeAll(_leftBehind);
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
       final List<PendingNoteAudioUpload> accountItems = await _store
@@ -279,6 +327,9 @@ class NoteAttachmentsController {
       }
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
+      // The editor moved to another note meanwhile: this scan is the old
+      // note's, whose recordings may now stay with it.
+      if (rebinds != _rebinds) return;
       final bool changedWhileLoading =
           mutationGeneration != _mutationGeneration;
       if (changedWhileLoading) {
@@ -429,10 +480,20 @@ class NoteAttachmentsController {
 
       // A shared in-flight operation may have been owned by a different
       // editor instance, whose change callback does not target this page.
-      _applyChange(id, result);
+      // A moved recording is checked against its copy before the upload
+      // counts as over, so it is not reported saved while still in view.
+      await _reportChange(id, result);
+      // Another session may have begun while the copy was checked.
+      if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
       if (result == null) {
-        if (showFeedback) _onNotice(NoteAudioNotice.recordingSaved);
+        // Saved once it has left the view. It stays when the copy a move made
+        // of it could not be read, or is still stored (the upload then found
+        // only where it was before), or while a move settles its report.
+        final bool left = !_pending.any(
+          (PendingNoteAudioUpload item) => item.id == id,
+        );
+        if (showFeedback && left) _onNotice(NoteAudioNotice.recordingSaved);
       } else if (showFeedback) {
         _onNotice(NoteAudioNotice.uploadFailed);
       }
@@ -509,12 +570,23 @@ class NoteAttachmentsController {
     // the same while the account changes underneath them.
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
 
-    List<Map<String, dynamic>> without(List<Map<String, dynamic>> files) =>
-        files
-            .where((Map<String, dynamic> f) => f['id']?.toString() != fileId)
-            .toList();
-    final List<Map<String, dynamic>> currentFiles =
-        note.data.files ?? <Map<String, dynamic>>[];
+    if (fileId == null) return null;
+    // The page the file is removed from, read once: the editor may show
+    // another page by the time the stored row is read.
+    final String? page = _currentPageId?.call();
+    // The note as this page has it, for the API path; with a database the
+    // patch is built from the stored row inside the note lock, so an
+    // attachment added since [note] was read (a recording finishing, a pull),
+    // or files a sync moved into the content, are seen as they are now.
+    final Map<String, dynamic> shown = <String, dynamic>{
+      'content': note.data.content.toJson(),
+      'files': ?note.data.files,
+      if (note.data.hasPages)
+        'pages': <Object>[
+          for (final NotePage page in note.data.pages) page.toJson(),
+        ],
+    };
+    final String target = notePageIdIn(shown, page);
     final Note? updated = await persistNoteUpdate(
       _container,
       noteId: _noteId,
@@ -523,23 +595,16 @@ class NoteAttachmentsController {
       db: db,
       title: _resolvedTitle(),
       authEpoch: authEpoch,
-      data: <String, dynamic>{'files': without(currentFiles)},
-      // With a database the list is filtered from the stored row inside the
-      // note lock, so an attachment added since [note] was read (a recording
-      // finishing, a pull) is kept rather than overwritten.
-      dataFrom: (Map<String, dynamic> existing) {
-        final Object? raw = existing['files'];
-        return <String, dynamic>{
-          'files': without(
-            raw is List
-                ? raw
-                      .whereType<Map>()
-                      .map((Map file) => Map<String, dynamic>.from(file))
-                      .toList()
-                : <Map<String, dynamic>>[],
-          ),
-        };
-      },
+      // Only the stored row decides on the durable path: a list read from a
+      // stale copy must not be merged into a note that is paged by now.
+      data: db == null
+          ? noteDataWithoutFile(shown, fileId, pageId: target)
+          : const <String, dynamic>{},
+      // The same page as the save targets: one a sync removed meanwhile has
+      // no link left to take out, and another page's must stay.
+      dataFrom: (Map<String, dynamic> existing) =>
+          noteDataWithoutFile(existing, fileId, pageId: target),
+      pageId: target,
       isStillOpen: () => !_disposed,
     );
     if (updated == null ||
@@ -559,6 +624,7 @@ class NoteAttachmentsController {
     required String id,
     required Map<String, dynamic> attachment,
     required bool Function() canCommit,
+    String? page,
   }) async {
     // The account the recording was attached under, taken before the first
     // await; `canCommit` below fences the epoch it belongs to.
@@ -584,6 +650,22 @@ class NoteAttachmentsController {
       final Map<String, dynamic> existingData = decodeNoteData(
         existingRow.data,
       );
+      if (_attachesByLink(existingData)) {
+        // A 0.12.5 server keeps attachments as links in the page content.
+        final Map<String, dynamic>? linked = noteDataWithFileLink(
+          existingData,
+          attachment,
+          pageId: notePageIdIn(existingData, page),
+        );
+        if (linked == null || !canCommit()) return;
+        await db.notesDao.updateNoteWithOutbox(
+          resolvedId,
+          data: Value(jsonEncode(linked)),
+          localUpdatedAtNs: DateTime.now().microsecondsSinceEpoch * 1000,
+          enqueue: true,
+        );
+        return;
+      }
       final Object? rawFiles = existingData['files'];
       final List<Map<String, dynamic>> files = rawFiles is List
           ? rawFiles
@@ -640,18 +722,57 @@ class NoteAttachmentsController {
     if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
       throw StateError('The active note session changed');
     }
+    if (_leftBehindUploads.contains(item.id)) {
+      throw StateError('The recording stays with the note it was made on');
+    }
     final Note? note = _currentNote();
     if (note == null) throw StateError('The note is no longer available');
 
     final Map<String, dynamic> attachment = noteAudioAttachment(item, fileId);
+    final String? page = item.pageId;
 
     Note? updatedNote;
     if (db != null) {
       updatedNote = await _durableAttach(
         db,
         id: note.id,
+        page: page,
         attachment: attachment,
-        canCommit: () => _isCurrent(api: api, db: db, authEpoch: authEpoch),
+        // Checked again inside the note's lock, after the wait for it: a
+        // page recovery meanwhile can leave this recording with its note.
+        canCommit: () =>
+            _isCurrent(api: api, db: db, authEpoch: authEpoch) &&
+            !_leftBehindUploads.contains(item.id),
+      );
+    } else if (note.data.hasPages ||
+        _container.read(notePagesServerProvider) == true) {
+      final Map<String, dynamic> existing = <String, dynamic>{
+        'content': note.data.content.toJson(),
+        if (note.data.hasPages)
+          'pages': <Object>[
+            for (final NotePage page in note.data.pages) page.toJson(),
+          ],
+      };
+      final String pageId = notePageIdIn(existing, page);
+      final Map<String, dynamic>? linked = noteDataWithFileLink(
+        existing,
+        attachment,
+        pageId: pageId,
+      );
+      if (linked == null) return;
+      updatedNote = await persistNoteUpdate(
+        _container,
+        noteId: _noteId,
+        writeId: note.id,
+        api: api,
+        db: db,
+        title: _resolvedTitle(),
+        data: <String, dynamic>{'content': notePageContent(linked, pageId)},
+        pageId: pageId,
+        authEpoch: authEpoch,
+        authSnapshot: authSnapshot,
+        cancelToken: cancelToken,
+        isStillOpen: () => !_disposed,
       );
     } else {
       final List<Map<String, dynamic>> currentFiles =
@@ -686,7 +807,98 @@ class NoteAttachmentsController {
     _onNoteUpdated(updatedNote);
   }
 
+  /// Whether a recording is attached by a link in the page content: the note
+  /// is in the paged shape of a 0.12.5 server, or the server is known to be
+  /// one (a note stored before the upgrade, or created here since, can still
+  /// be in the older shape).
+  bool _attachesByLink(Map<String, dynamic> data) =>
+      noteDataHasPages(data) ||
+      _container.read(notePagesServerProvider) == true;
+
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
+    final Future<void>? check = _reportChange(id, updated);
+    if (check != null) unawaited(check);
+  }
+
+  /// Applies a change of recording [id]; a report of it gone that is checked
+  /// against the copy a move made returns that check.
+  Future<void>? _reportChange(String id, PendingNoteAudioUpload? updated) {
+    if (_disposed || _leftBehindUploads.contains(id)) return null;
+    if (updated == null) {
+      if (_moving.contains(id)) {
+        _goneWhileMoving.add(id);
+        return null;
+      }
+      if (_movedCopies.containsKey(id)) return _confirmGone(id);
+    }
+    _setChange(id, updated);
+    return null;
+  }
+
+  /// Hides recording [id], reported gone, unless the copy a move made of it
+  /// is still stored: the report then only missed where it was before. A
+  /// move that starts while the copy is read settles the report itself, and
+  /// one that has moved the recording again meanwhile is checked by its own
+  /// copy.
+  Future<void> _confirmGone(String id) async {
+    while (true) {
+      final PendingNoteAudioUpload? copy = _movedCopies[id];
+      final PendingNoteAudioUpload? current;
+      try {
+        current = copy == null ? null : await _store.loadCurrent(copy);
+      } catch (error, stackTrace) {
+        // Unknown: the recording stays in view, to be retried.
+        DebugLogger.error(
+          'note-audio-moved-copy-check-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'uploadId': id},
+        );
+        return;
+      }
+      if (_disposed || current != null) return;
+      if (_moving.contains(id)) {
+        _goneWhileMoving.add(id);
+        return;
+      }
+      if (!identical(_movedCopies[id], copy)) continue;
+      _movedCopies.remove(id);
+      _setChange(id, null);
+      return;
+    }
+  }
+
+  /// Reports recording [id] gone, as a retry that found no copy does; the
+  /// future completes once the report is settled or left to a running move.
+  @visibleForTesting
+  Future<void> debugReportGone(String id) async {
+    await _reportChange(id, null);
+  }
+
+  /// Settles the reports of recordings gone that came in while [ids] moved:
+  /// one the move made a copy of is checked against that copy; one it made
+  /// none of was finished or removed meanwhile, and goes.
+  void _settleMove(
+    Iterable<String> ids,
+    Map<String, PendingNoteAudioUpload> reboundUploads,
+  ) {
+    for (final String id in ids) {
+      final PendingNoteAudioUpload? copy = reboundUploads[id];
+      if (copy != null) _movedCopies[id] = copy;
+    }
+    _moving.removeAll(ids);
+    for (final String id in ids.toList()) {
+      if (!_goneWhileMoving.remove(id)) continue;
+      if (_movedCopies.containsKey(id)) {
+        unawaited(_confirmGone(id));
+      } else {
+        _setChange(id, null);
+      }
+    }
+  }
+
+  void _setChange(String id, PendingNoteAudioUpload? updated) {
     if (_disposed) return;
     _mutationGeneration++;
     final int index = _pending.indexWhere(
@@ -710,7 +922,30 @@ class NoteAttachmentsController {
   /// draft of one the server deleted, and retries them there. Anything the
   /// move cannot finish stays visible and retryable, and a later store scan
   /// completes it.
-  Future<void> rebindTo(Note previous, Note recovered) async {
+  ///
+  /// With [pageId], [recovered] holds the text of that page of [previous],
+  /// which is still there: only the recordings made on that page move. The
+  /// others stay with [previous], stored for when it is opened again, and
+  /// leave this editor, which shows [recovered] from now on.
+  Future<void> rebindTo(
+    Note previous,
+    Note recovered, {
+    String? pageId,
+  }) async {
+    bool moves(PendingNoteAudioUpload item) =>
+        pageId == null || (item.pageId ?? kNoteMainPageId) == pageId;
+    _rebinds++;
+    // Notes that kept their recordings in an earlier page recovery keep them
+    // now too.
+    final Set<String> keptBefore = Set<String>.of(_leftBehind);
+    if (pageId != null) {
+      _leftBehind.addAll(<String>{_noteId, previous.id});
+      // Reserved before anything is awaited: an upload of one of these that
+      // reaches its attach meanwhile must not attach to the new note.
+      for (final PendingNoteAudioUpload item in _pending) {
+        if (!moves(item)) _leftBehindUploads.add(item.id);
+      }
+    }
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
@@ -744,9 +979,11 @@ class NoteAttachmentsController {
 
     final Map<String, PendingNoteAudioUpload> initialUploads =
         <String, PendingNoteAudioUpload>{
-          for (final PendingNoteAudioUpload item in _pending) item.id: item,
+          for (final PendingNoteAudioUpload item in _pending)
+            if (moves(item)) item.id: item,
         };
     attemptedUploadIds.addAll(initialUploads.keys);
+    _moving.addAll(initialUploads.keys);
     final List<Future<MapEntry<String, PendingNoteAudioUpload?>>> rebindWaits =
         initialUploads.entries
             .map(
@@ -775,6 +1012,7 @@ class NoteAttachmentsController {
       final scope = _scope();
       if (scope != null) {
         for (final String noteId in <String>{_noteId, previous.id}) {
+          if (keptBefore.contains(noteId)) continue;
           final List<PendingNoteAudioUpload> durableItems = await _store
               .loadForNote(
                 serverId: scope.serverId,
@@ -788,7 +1026,8 @@ class NoteAttachmentsController {
       }
 
       for (final PendingNoteAudioUpload item in audioItemsById.values) {
-        if (!attemptedUploadIds.add(item.id)) continue;
+        if (!moves(item) || !attemptedUploadIds.add(item.id)) continue;
+        _moving.add(item.id);
         final PendingNoteAudioUpload? rebound = await rebindItem(item);
         if (rebound != null) reboundUploads[item.id] = rebound;
       }
@@ -801,7 +1040,25 @@ class NoteAttachmentsController {
         data: {'noteId': previous.id},
       );
     }
-    if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
+    if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
+      _moving.removeAll(attemptedUploadIds);
+      _goneWhileMoving.removeAll(attemptedUploadIds);
+      return;
+    }
+
+    // A recording this move took is the new note's, whatever page its copy
+    // names: one a retry published while it moved belongs to that note now.
+    bool stays(PendingNoteAudioUpload item) =>
+        !moves(item) && !attemptedUploadIds.contains(item.id);
+    final int pendingBefore = _pending.length;
+    for (final PendingNoteAudioUpload item in _pending) {
+      if (stays(item)) _leftBehindUploads.add(item.id);
+    }
+    _pending.removeWhere(stays);
+    if (_pending.length != pendingBefore && reboundUploads.isEmpty) {
+      _mutationGeneration++;
+      _notify();
+    }
 
     if (reboundUploads.isNotEmpty) {
       _mutationGeneration++;
@@ -823,6 +1080,7 @@ class NoteAttachmentsController {
         unawaited(retry(ids: reboundUploads.keys));
       }
     }
+    _settleMove(attemptedUploadIds, reboundUploads);
   }
 }
 
@@ -869,6 +1127,37 @@ Map<String, dynamic> noteAudioAttachment(
   'error': '',
   'itemId': item.id,
 };
+
+/// [data] with [attachment] linked at the end of the content of page
+/// [pageId] (by default the main page), as an Open WebUI 0.12.5 server
+/// attaches files; null when the page links it already. The link goes into
+/// every form the content holds (see [noteContentWithLinkedFiles]), so the
+/// rich text the web editor saved is kept, and the server and the web editor,
+/// which read its JSON or HTML first, find the file there too.
+Map<String, dynamic>? noteDataWithFileLink(
+  Map<String, dynamic> data,
+  Map<String, dynamic> attachment, {
+  String pageId = kNoteMainPageId,
+}) {
+  final String md = notePageMarkdown(data, pageId);
+  final String? fileId = attachment['id']?.toString();
+  if (fileId == null ||
+      noteFileLinksInMarkdown(
+        md,
+      ).any((NoteFileLink link) => link.id == fileId)) {
+    return null;
+  }
+  final Map<String, dynamic> content =
+      notePageContent(data, pageId) ?? <String, dynamic>{'md': md};
+  final Map<String, dynamic> linked = noteContentWithLinkedFiles(
+    content,
+    <Object?>[attachment],
+  );
+  if (identical(linked, content)) return null;
+  return applyNoteContentEdit(data, <String, dynamic>{
+    'content': linked,
+  }, pageId: pageId);
+}
 
 /// Whether [files] already holds [attachment], by server file id or by the
 /// upload id it was attached under.

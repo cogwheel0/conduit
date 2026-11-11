@@ -127,6 +127,40 @@ class MessageRowData {
   final Map<String, dynamic> payload;
 }
 
+/// [incoming] with the `meta` object of the message's [stored] payload kept.
+///
+/// Open WebUI keeps a message-level `meta` (a realtime call's spoken
+/// transcripts, for one) that Conduit's message model mirrors only in part.
+/// A row rebuilt from local state would drop it, and the next push would drop
+/// it from the server too, since the server replaces each message whole.
+/// Keys [incoming] sets in its own `meta` win. Returns [incoming] itself when
+/// [stored] has no `meta` to keep.
+Map<String, dynamic> withStoredMessageMeta(
+  Map<String, dynamic> incoming,
+  String? stored,
+) {
+  // Most rows never had a `meta`; skip decoding those.
+  if (stored == null || !stored.contains('"meta"')) return incoming;
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(stored);
+  } on FormatException {
+    return incoming;
+  }
+  final storedMeta = decoded is Map ? decoded['meta'] : null;
+  if (storedMeta is! Map || storedMeta.isEmpty) return incoming;
+  final incomingMeta = incoming['meta'];
+  return <String, dynamic>{
+    ...incoming,
+    'meta': <String, dynamic>{
+      for (final entry in storedMeta.entries) entry.key.toString(): entry.value,
+      if (incomingMeta is Map)
+        for (final entry in incomingMeta.entries)
+          entry.key.toString(): entry.value,
+    },
+  };
+}
+
 /// Result of decomposing one chat blob into rows (CDT-RFC-001 §6.1).
 class ChatRows {
   const ChatRows({

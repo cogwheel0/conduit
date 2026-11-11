@@ -2,16 +2,37 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
+import 'package:conduit_core/services/structured_output.dart'
+    show displayedChatFiles;
+import 'package:conduit_core/utils/usage_summary.dart';
+import 'package:conduit_core/utils/model_display_name.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
+    show installedModelLogoCatalog;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart'
+    show isHermesInlineDiffItem;
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show hermesErrorSurfaceOf;
+import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directContextLengthOverridesProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart'
+    show isDirectToolLoopNoAnswerError;
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show directModelAdvertisedContextLength, isDirectTooManyImagesError;
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -19,8 +40,11 @@ import '../providers/text_to_speech_provider.dart';
 
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show kAutomaticReasoningEffort, reasoningEffortForModel;
 
 import 'enhanced_image_attachment.dart';
+import 'enhanced_video_attachment.dart';
 import 'image_gallery_scope.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -30,17 +54,21 @@ import 'enhanced_attachment.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 
 import '../../../shared/widgets/model_avatar.dart';
+import '../../hermes/widgets/hermes_diff_card.dart';
+import '../../hermes/widgets/hermes_error_card.dart';
+import '../../hermes/widgets/hermes_history_actions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/web_content_embed.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatForkAvailability,
+        isUnconfirmedLibreChatMessage,
         ComparisonAnswerStop,
         ComparisonMergeException,
         ComparisonMergeFailure,
         chatBranchSiblingsProvider,
+        clearReasoningEffortForRetry,
         comparisonMergeCommandAvailableProvider,
         comparisonMergeProvider,
         stopComparisonAnswerProvider,
@@ -52,7 +80,10 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         streamingContentProvider,
         chatMessagesProvider;
 import 'package:conduit_core/providers/app_providers.dart'
-    show activeConversationProvider;
+    show activeConversationProvider, modelsProvider, selectedModelProvider;
+import 'package:conduit_core/models/model.dart' show Model;
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show kChatParamReasoningEffort;
 
 import '../../../shared/utils/external_link_launcher.dart';
 
@@ -75,6 +106,10 @@ import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
 import 'chat_branch_actions.dart';
 import 'chat_comparison_widgets.dart';
+
+import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
@@ -96,7 +131,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool isStreaming;
   final bool showFollowUps;
 
-  /// Another user's chat (shared folder): only copy/listen/version browsing.
+  /// Another user's chat: only copy/share/listen/version browsing.
   final bool readOnly;
   final bool animateOnMount;
   final String? modelName;
@@ -116,17 +151,25 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   /// row when this is false — only the buttons move.
   final bool showActionBar;
 
-  /// Supplies the full text of the grouped response for read-aloud.
+  /// Supplies the full text of the grouped response for read-aloud and sharing.
   ///
-  /// Called at tap time, not during build, so a row never has to observe its
-  /// siblings. Null means this row speaks its own content.
+  /// It reads rather than watches, so a row never has to observe its siblings.
+  /// Called at tap time, and when a settled footer checks there is anything
+  /// to share. Null means this row speaks its own content.
   final String Function()? resolveGroupedResponseText;
   final List<String?> versionModelNames;
   final List<String?> versionModelIconUrls;
   final bool suppressStreamingHaptics;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
-  final VoidCallback onDelete;
+
+  /// Whether the reply may be regenerated (or retried) at all. False in a
+  /// coding agent's chat, where only a new message continues it: the action
+  /// is then not offered, rather than offered and refused.
+  final bool allowsRegenerate;
+
+  /// Deletes the response; null where messages cannot be deleted.
+  final VoidCallback? onDelete;
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
   final FutureOr<void> Function(String suggestion)? onFollowUpSelected;
@@ -154,7 +197,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
-    required this.onDelete,
+    this.allowsRegenerate = true,
+    this.onDelete,
     this.onLike,
     this.onDislike,
     this.onFollowUpSelected,
@@ -169,6 +213,45 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  final _overflowButtonKey = GlobalKey();
+  final _inlineShareButtonKey = GlobalKey();
+
+  /// Copy shows a checkmark, read as "Copied", for a moment after it runs.
+  bool _showCopied = false;
+  Timer? _copiedTimer;
+  static const Duration _copiedConfirmationDuration = Duration(
+    milliseconds: 1200,
+  );
+
+  /// Reply actions: one SF Symbol weight, scale and colour for every glyph,
+  /// inline or in More, inside a 44 pt target, at 17 pt unless a glyph's
+  /// shape needs a nudge to look the same size as the rest.
+  static const double _footerActionTarget = 44;
+  static const double _footerActionGlyph = 17;
+
+  /// Point sizes that even out the row, measured as ink at 3x. At one 17 pt
+  /// size Copy's two squares (18 × 16.7 pt, the densest outline) outweighed
+  /// the rest; at the small scale (14 × 14 pt) they fell short of Speaker's
+  /// wide 18.7 × 13.7 pt. Copy at 15.5 pt (16 × 15 pt) and Speaker at 16.5 pt
+  /// (17 × 14.3 pt) now sit with Regenerate's 14 × 17.3 pt: every glyph's box
+  /// is about 15.5 pt on its geometric mean, and the strokes stay within a
+  /// tenth of each other, Copy's a touch lighter for its double outline.
+  static const String _copySymbol = 'square.on.square';
+  static const Map<String, double> _footerGlyphSizes = {
+    _copySymbol: 15.5,
+    'speaker.wave.2': 16.5,
+    'stop.fill': 16.5,
+  };
+
+  static double _footerGlyphSizeFor(String? sfSymbol) =>
+      _footerGlyphSizes[sfSymbol] ?? _footerActionGlyph;
+
+  /// More's ellipsis, drawn by the native menu button, which renders its
+  /// symbol at UIKit's large scale: at 17 pt that made 4 pt dots spanning
+  /// 19.3 pt, the heaviest glyph in the row. At this size it draws as the
+  /// 17 pt medium ellipsis does (about 14.7 pt across, 2.7 pt dots).
+  static const double _footerMoreGlyph = 13;
+  final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
@@ -177,6 +260,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
   String? _cachedAvatarIconUrl;
+  // The label as shown, in the app's language: a voice reply's names it.
+  String? _cachedAvatarLabel;
   // Hysteresis for the action row: a message that has streamed in this widget's
   // lifetime must reach a settled completion before the action row appears, so
   // a transient in-progress state can never flash the row mid-stream. Settled
@@ -215,6 +300,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   ChatMessage? get _chatMessage =>
       widget.message is ChatMessage ? widget.message as ChatMessage : null;
+
+  /// A reply a realtime call's voice gave by itself, stored under the voice
+  /// model. There is no chat model answer to run again.
+  /// Only the current version can say: earlier versions keep no `meta`.
+  bool get _isVoiceReply =>
+      _activeVersionIndex < 0 && _spokenOnly(widget.message);
+
+  static bool _spokenOnly(Object? message) =>
+      message is ChatMessage && voiceReplayFor(message).spokenOnly;
 
   ChatTurnPhase get _turnPhase =>
       chatTurnPhaseForMessage(_chatMessage, isStreaming: widget.isStreaming);
@@ -327,6 +421,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
       _cachedAvatarIconUrl = null;
+      _cachedAvatarLabel = null;
       _clearVisibleFollowUps();
       _resetTtsPlainTextState();
       _hasAnimated = !_shouldAnimateOnMount;
@@ -389,6 +484,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.versionModelNames != widget.versionModelNames ||
         oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
         oldWidget.message.model != widget.message.model ||
+        // A call's transcript can arrive after the message did.
+        _spokenOnly(oldWidget.message) != _spokenOnly(widget.message) ||
         _didVersionMetadataChange(oldWidget)) {
       _buildCachedAvatar();
     }
@@ -404,7 +501,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final streamingContent =
         selectedVersionIndex < 0 &&
             widget.isStreaming &&
-            ref.exists(chatMessagesProvider)
+            ref.read(chatMessagesProvider.exists)
         ? ref
               .read(chatMessagesProvider.notifier)
               .contentForStreamingMessage(widget.message.id)
@@ -585,9 +682,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   void _setActiveVersionIndex(int nextIndex) {
     final raw = _resolvedMessageContent(null, nextIndex);
+    _copiedTimer?.cancel();
     setState(() {
       _activeVersionIndex = nextIndex;
       _displayedContent = raw;
+      _showCopied = false;
     });
     _displayedContentListenable.value = raw;
     _resetTtsPlainTextState();
@@ -844,21 +943,47 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     children.add(
       Consumer(
         builder: (context, childRef, _) {
-          final ttsState = childRef.watch(textToSpeechControllerProvider);
+          // Only this message's reading rebuilds its card, which follows
+          // every estimated word.
+          final ttsState = childRef.watch(
+            textToSpeechControllerProvider.select(
+              (state) => state.activeMessageId == _messageId ? state : null,
+            ),
+          );
           final isActive =
-              ttsState.activeMessageId == _messageId &&
+              ttsState != null &&
+              ttsState.activeSentenceIndex >= 0 &&
               (ttsState.status == TtsPlaybackStatus.speaking ||
                   ttsState.status == TtsPlaybackStatus.paused ||
                   ttsState.status == TtsPlaybackStatus.loading);
-          if (!isActive || ttsState.activeSentenceIndex < 0) {
-            return const SizedBox.shrink();
+          final card = SizedBox(
+            width: double.infinity,
+            child: isActive
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: Spacing.sm),
+                      _buildKaraokeBar(ttsState),
+                    ],
+                  )
+                : null,
+          );
+          // The card grows in, follows each sentence's height and shrinks
+          // away instead of jumping. Under Reduce Motion it changes at once;
+          // AnimatedSize cannot run for no time.
+          final duration = context.motionDuration(
+            const Duration(milliseconds: 220),
+          );
+          const key = ValueKey('assistant-read-aloud-card-size');
+          if (duration == Duration.zero) {
+            return KeyedSubtree(key: key, child: card);
           }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: Spacing.sm),
-              _buildKaraokeBar(ttsState),
-            ],
+          return AnimatedSize(
+            key: key,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: card,
           );
         },
       ),
@@ -998,28 +1123,44 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // selected historical version can carry a DIFFERENT model, though, and
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
+    final isVoiceReply = _isVoiceReply;
+    // A raw id from an older version or the message itself reads as its
+    // models.dev name, as in the header and the model picker.
+    final displayName = modelDisplayName(
+      name: modelName,
+      id: modelName,
+      catalog: installedModelLogoCatalog,
+    );
+    final label = isVoiceReply
+        ? AppLocalizations.of(context)!.voiceReplySpokenLabel(displayName)
+        : displayName;
     if (!widget.showModelHeader &&
+        !isVoiceReply &&
         modelName == widget.modelName?.trim() &&
         iconUrl == widget.modelIconUrl) {
       _cachedAvatar = null;
       _cachedAvatarModelName = modelName;
       _cachedAvatarIconUrl = iconUrl;
+      _cachedAvatarLabel = label;
       return;
     }
     if (_cachedAvatar != null &&
         _cachedAvatarModelName == modelName &&
-        _cachedAvatarIconUrl == iconUrl) {
+        _cachedAvatarIconUrl == iconUrl &&
+        _cachedAvatarLabel == label) {
       return;
     }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
     // A quiet speaker label, like a group-chat sender name: it names a model
     // change without competing with the answer below it.
-    final Widget leading = hasIcon
-        ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
+    final Widget leading = hasIcon && !isVoiceReply
+        ? ModelAvatar(size: 16, imageUrl: iconUrl, label: displayName)
         : Icon(
-            Icons.auto_awesome,
-            color: theme.textTertiary,
+            isVoiceReply
+                ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
+                : Icons.auto_awesome,
+            color: theme.textSecondary,
             size: IconSize.sm - 2,
           );
 
@@ -1030,10 +1171,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           leading,
           const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
-            child: MiddleEllipsisText(
-              modelName,
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              // Secondary, not tertiary: a 13 pt label needs 4.5:1 to read.
               style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textTertiary,
+                color: theme.textSecondary,
                 fontWeight: FontWeight.w400,
                 letterSpacing: AppTypography.letterSpacingNormal,
               ),
@@ -1044,6 +1189,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _cachedAvatarModelName = modelName;
     _cachedAvatarIconUrl = iconUrl;
+    _cachedAvatarLabel = label;
   }
 
   String _resolveActiveModelName() {
@@ -1119,7 +1265,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         )) {
       // One acknowledgement is enough; the previous three pulses at
       // 0/150/300ms felt like an unintended rapid vibration after every send.
-      _streamingHaptic(HapticType.medium);
+      // A selection tick, not an impact: the reply starting is news, not a
+      // collision, and the send already had its own tap.
+      _streamingHaptic(HapticType.selection);
     }
   }
 
@@ -1155,6 +1303,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _copiedTimer?.cancel();
     _streamingContentSub?.close();
     _resetTtsPlainTextState();
     _fadeController.dispose();
@@ -1241,6 +1390,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final activeFiles = showingVersion
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
+    final shownFiles = displayedChatFiles(
+      showingVersion
+          ? widget.message.versions[_activeVersionIndex].output
+          : widget.message.output,
+    );
     final activeEmbeds = _resolveActiveEmbeds();
     final queuedCompletionAsync = ref.watch(
       queuedCompletionInfoForMessageProvider(_messageId),
@@ -1280,7 +1434,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final content = Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16, right: Spacing.xs),
+      // The reply runs to the same trailing margin as the bubbles, composer
+      // and header, so a table or code card ends where they do.
+      margin: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1321,12 +1477,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               children: [
                 // Display attachments - prioritize files array over attachmentIds to avoid duplication
                 if (activeFiles != null && activeFiles.isNotEmpty) ...[
-                  _buildFilesFromArray(),
+                  _buildFilesFromArray(shownFiles),
                   const SizedBox(height: Spacing.md),
-                ] else if (widget.message.attachmentIds != null &&
-                    widget.message.attachmentIds!.isNotEmpty) ...[
-                  _buildAttachmentItems(),
-                  const SizedBox(height: Spacing.md),
+                ] else ...[
+                  if (widget.message.attachmentIds != null &&
+                      widget.message.attachmentIds!.isNotEmpty) ...[
+                    _buildAttachmentItems(),
+                    const SizedBox(height: Spacing.md),
+                  ],
+                  // Files the model showed come with the reply either way.
+                  if (shownFiles.isNotEmpty) ...[
+                    _buildFilesFromArray(shownFiles),
+                    const SizedBox(height: Spacing.md),
+                  ],
                 ],
 
                 if (activeEmbeds != null && activeEmbeds.isNotEmpty) ...[
@@ -1377,13 +1540,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 // Display error banner if message or active version has an error
                 if (_getActiveError() != null) ...[
                   const SizedBox(height: Spacing.sm),
-                  _buildErrorBanner(_getActiveError()!),
+                  _buildHermesErrorCard() ??
+                      _buildErrorBanner(_getActiveError()!),
                 ],
 
                 if (hasCodeExecutions) ...[
                   const SizedBox(height: Spacing.md),
                   CodeExecutionListView(executions: activeCodeExecutions),
                 ],
+
+                // Files a Hermes reply's tools edited, as a diff card. An
+                // earlier version keeps no record of what its tools did.
+                if (!showingVersion)
+                  _hasHermesDiff(widget.message.statusHistory)
+                      ? Consumer(
+                          builder: (context, ref, _) => HermesChangedFilesCard(
+                            statuses: widget.message.statusHistory,
+                            workingDirectory: ref.watch(
+                              hermesReplyWorkingDirectoryProvider(
+                                _hermesSessionOf(widget.message),
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
 
                 // Version switcher moved inline with action buttons below
               ],
@@ -1392,9 +1572,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
           // Footer slot: keep completion actions inside the message while the
           // running turn indicator is owned by the timeline. The plain action
-          // row is extent-matched to the timeline's typing indicator (16+32
-          // vs 16+28+4) so the settle swap does not shift the
-          // bottom-anchored viewport; see settle_height_test.dart.
+          // row is extent-matched to the timeline's typing indicator (16+44
+          // each: 44 pt action targets, and the orbit row sized to match) so
+          // the settle swap does not shift the bottom-anchored viewport; see
+          // settle_height_test.dart.
           if (!hasQueuedCompletion)
             AnimatedSwitcher(
               // The running indicator is owned by the timeline footer now, so
@@ -1455,18 +1636,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (_showActionRowNow) {
       final children = <Widget>[];
       if (footer != null) {
-        children.add(
-          Padding(
-            padding: EdgeInsets.only(
-              top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
-            ),
-            child: footer,
-          ),
-        );
+        // The actions belong to the reply above them: the row sits right
+        // under its last line (its 44 pt targets already leave about 13 pt
+        // of air over the glyphs), and the block's usual gap follows it.
+        children.add(footer);
       }
       if (hasFollowUps) {
-        children.add(const SizedBox(height: Spacing.md));
+        // The action row's 44 pt targets and each suggestion's own 44 pt row
+        // already leave air; a wider gap detached the suggestions.
+        children.add(const SizedBox(height: Spacing.xs));
         children.add(_buildFollowUpSuggestions(activeFollowUps));
+      }
+      if (footer != null && !hasFollowUps) {
+        // The block's gap under the row, which suggestions replace with
+        // their own. With it, the row and the typing indicator it replaces
+        // (a gap, then a 44 pt row) take the same height.
+        children.add(
+          SizedBox(
+            height: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+          ),
+        );
       }
       if (children.isNotEmpty) {
         return KeyedSubtree(
@@ -1556,6 +1745,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
                 isCompact: true,
               ),
+              if (info.isFailed && _isQueuedReasoningEffortRejection(info))
+                ConduitButton(
+                  onPressed: () => _retryQueuedWithoutReasoningEffort(info),
+                  text: l10n.retryWithoutReasoningEffort,
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.slash_circle
+                      : Icons.highlight_off,
+                  isCompact: true,
+                  isSecondary: true,
+                ),
               ConduitButton(
                 onPressed: () => _cancelQueuedCompletion(info),
                 text: l10n.cancel,
@@ -1574,6 +1773,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     unawaited(() async {
       try {
         await ref.read(queuedCompletionActionsProvider).retry(info);
+      } catch (error, stackTrace) {
+        _handleQueuedCompletionActionError(error, stackTrace);
+      }
+    }());
+  }
+
+  /// Recovery for a completion the provider rejected for its frozen
+  /// `reasoning_effort`: clear the opt-ins for later turns and re-arm the op
+  /// with the parameter stripped from its stored settings snapshot. The
+  /// clearing is best effort here — the replay itself is fixed by the strip,
+  /// so a failed clear must not block the retry. It is still said out loud:
+  /// an unconfirmed clear can leave an opt-in effective for later sends, and
+  /// which half failed (model pick, chat override) the boolean cannot say.
+  void _retryQueuedWithoutReasoningEffort(QueuedCompletionInfo info) {
+    unawaited(() async {
+      try {
+        final cleared = await clearReasoningEffortForRetry(
+          ref,
+          _modelForQueuedRetry(),
+        );
+        if (!mounted) return;
+        if (!cleared) {
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!
+                .reasoningEffortClearIncomplete,
+            type: AdaptiveSnackBarType.warning,
+          );
+        }
+        await ref
+            .read(queuedCompletionActionsProvider)
+            .retryWithoutReasoningEffort(info);
       } catch (error, stackTrace) {
         _handleQueuedCompletionActionError(error, stackTrace);
       }
@@ -1631,6 +1862,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return msg.error;
   }
 
+  /// The card for a failed Hermes turn Hermes classified, or null for any
+  /// other error (shown as the banner).
+  Widget? _buildHermesErrorCard() {
+    final message = widget.message;
+    if (message is! ChatMessage || _activeVersionIndex >= 0) return null;
+    final surface = hermesErrorSurfaceOf(message);
+    if (surface == null) return null;
+    return HermesErrorCard(
+      surface: surface,
+      errorText: message.error?.content,
+      onRetry: widget.readOnly ? null : widget.onRegenerate,
+      onContinue: widget.readOnly
+          ? null
+          : () => _handleFollowUpTap('continue'),
+    );
+  }
+
   /// Build an error banner matching OpenWebUI's error display style.
   /// Shows error content in a red-tinted container with an info icon.
   Widget _buildErrorBanner(ChatMessageError error) {
@@ -1638,10 +1886,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final errorColor = theme.colorScheme.error;
     final errorContent = error.content;
 
-    // A model that can't call tools rejects web search's tool definitions;
-    // say what to do instead of echoing the provider's wording.
+    // Known Direct failures say what to do instead of echoing the provider's
+    // wording: a model that can't call tools rejects web search's tool
+    // definitions, a provider can refuse a request for too many images, and
+    // a model can keep asking for tools after Conduit stopped offering them.
+    final l10n = AppLocalizations.of(context)!;
     final displayText = isDirectToolsUnsupportedError(errorContent)
-        ? AppLocalizations.of(context)!.directModelToolsUnsupported
+        ? l10n.directModelToolsUnsupported
+        : isDirectTooManyImagesError(errorContent)
+        ? l10n.directModelTooManyImages
+        : isDirectToolLoopNoAnswerError(errorContent)
+        ? l10n.directToolLoopNoAnswer
         : (errorContent != null && errorContent.isNotEmpty)
         ? errorContent
         // If no content, show a generic error message
@@ -1675,12 +1930,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildMarkdownImage(Uri uri, String? title, String? alt) {
+    if (inferFileTypeFromUrl(uri.toString()) == 'video') {
+      return RepaintBoundary(
+        child: EnhancedVideoAttachment(
+          key: ValueKey('md_video_$uri'),
+          attachmentId: uri.toString(),
+          constraints: const BoxConstraints(maxWidth: 500),
+          filenameHint: title ?? alt,
+        ),
+      );
+    }
     return RepaintBoundary(
       child: EnhancedImageAttachment(
         attachmentId: uri.toString(),
         isMarkdownFormat: true,
         constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
         disableAnimation: _uiTreatsAsStreaming,
+        semanticLabel: alt,
       ),
     );
   }
@@ -1875,6 +2141,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .map((entry) {
           final index = entry.$1;
           final embed = entry.$2;
+          if (OpenWebUiMcpApp.tryParse(embed) case final app?) {
+            return KeyedSubtree(
+              key: ValueKey('message-mcp-app-$index-${app.binding}'),
+              child: McpAppEmbed(app: app),
+            );
+          }
           final source = extractEmbedSource(embed);
           if (source == null || source.isEmpty) {
             return null;
@@ -1902,11 +2174,20 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  Widget _buildFilesFromArray() {
-    final filesArray = _activeVersionIndex >= 0
+  /// The message's files, with [shownFiles]: files the model showed with
+  /// Open WebUI's display_file tool (0.12.5+), which the web client shows
+  /// with the reply, and the model is told the user sees.
+  Widget _buildFilesFromArray(List<Map<String, dynamic>> shownFiles) {
+    final storedFiles = _activeVersionIndex >= 0
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
-    if (filesArray == null || filesArray.isEmpty) {
+    // The reply's other attachments show only while it lists no files.
+    final filesArray = chatFilesWithShown(
+      storedFiles,
+      shownFiles,
+      attachmentIds: widget.message.attachmentIds,
+    );
+    if (filesArray.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -1915,7 +2196,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Separate images and non-image files
     // Match OpenWebUI: type === 'image' OR content_type starts with 'image/'
     final imageFiles = allFiles.where(isImageFile).toList();
-    final nonImageFiles = allFiles.where((file) => !isImageFile(file)).toList();
+    final videoFiles = allFiles.where(isVideoFile).toList();
+    final nonImageFiles = allFiles
+        .where((file) => !isImageFile(file) && !isVideoFile(file))
+        .toList();
 
     final widgets = <Widget>[];
 
@@ -1927,6 +2211,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           child: _buildImagesFromFiles(imageFiles),
         ),
       );
+    }
+
+    // Videos play inline; generated clips (mp4 et al.) must not render as
+    // broken image placeholders.
+    if (videoFiles.isNotEmpty) {
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: Spacing.sm));
+      }
+      widgets.add(_buildVideosFromFiles(videoFiles));
     }
 
     // Add non-image files
@@ -1953,6 +2246,43 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       if (getFileUrl(file) case final url?)
         ImageViewerItem(attachmentId: url, httpHeaders: _headersForFile(file)),
   ];
+
+  Widget _buildVideosFromFiles(List<dynamic> videoFiles) {
+    return Wrap(
+      key: const ValueKey('assistant-file-video-stack'),
+      spacing: Spacing.sm,
+      runSpacing: Spacing.sm,
+      children: videoFiles.map<Widget>((file) {
+        final fileUrl = getFileUrl(file);
+        if (fileUrl == null) return const SizedBox.shrink();
+        // A legacy /api/v1/files/{id} URL names the file-info endpoint; play
+        // the content endpoint on the same host instead. Only the path
+        // changes, so a query such as a signed token is kept.
+        final fileUri = Uri.tryParse(fileUrl);
+        final attachmentId =
+            fileUri != null &&
+                _fileIdPattern.hasMatch(fileUri.path) &&
+                !fileUri.path.endsWith('/content')
+            ? fileUri.replace(path: '${fileUri.path}/content').toString()
+            : fileUrl;
+        return RepaintBoundary(
+          child: EnhancedVideoAttachment(
+            key: ValueKey('gen_video_$attachmentId'),
+            attachmentId: attachmentId,
+            httpHeaders: _headersForFile(file),
+            constraints: const BoxConstraints(maxWidth: 500),
+            filenameHint:
+                file['filename'] as String? ?? file['name'] as String?,
+            contentType: file['content_type'] as String?,
+            sizeBytes: switch (file['size']) {
+              final num size => size.toInt(),
+              _ => null,
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
 
   Widget _buildImagesFromFiles(List<dynamic> imageFiles) {
     final imageCount = imageFiles.length;
@@ -2030,17 +2360,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         final fileUrl = getFileUrl(file);
         if (fileUrl == null) return const SizedBox.shrink();
 
-        // Extract file ID from URL - handle formats:
-        // - Bare file ID (new OpenWebUI format): "abc-123-def"
-        // - /api/v1/files/{id} (legacy format)
-        // - /api/v1/files/{id}/content (legacy format)
-        String attachmentId = fileUrl;
-        if (fileUrl.contains('/api/v1/files/')) {
-          final fileIdMatch = _fileIdPattern.firstMatch(fileUrl);
-          if (fileIdMatch != null) {
-            attachmentId = fileIdMatch.group(1)!;
-          }
-        }
+        // A bare file id (newer Open WebUI), or /api/v1/files/{id} with or
+        // without /content (older).
+        final attachmentId = chatFileShownId(file) ?? fileUrl;
 
         return EnhancedAttachment(
           key: ValueKey('file_attachment_$attachmentId'),
@@ -2063,19 +2385,39 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final actions = includeActions
         ? _buildFooterActions()
         : const <_AssistantFooterAction>[];
+    final preferred = ref.watch(
+      appSettingsProvider.select((settings) => settings.inlineMessageActions),
+    );
+    String preferenceId(_AssistantFooterAction action) => switch (action.id) {
+      'retry' => 'regenerate',
+      'stop-merge' => 'merge',
+      _ => action.id,
+    };
+    // Share, Delete and the Hermes history actions live in the overflow.
+    bool overflowOnly(_AssistantFooterAction action) =>
+        action.id == 'share' ||
+        action.id == 'delete' ||
+        action.id.startsWith('hermes-');
     final forcedOverflowActions = actions
-        .where((action) => action.id == 'delete')
+        .where(overflowOnly)
         .toList(growable: false);
     final inlineCandidateActions = actions
-        .where((action) => action.id != 'delete')
+        .where((action) => !overflowOnly(action))
         .toList(growable: false);
-    final visibleActions = inlineCandidateActions
-        .take(maxInlineActions)
-        .toList(growable: false);
-    final overflowActions = [
-      ...inlineCandidateActions.skip(maxInlineActions),
-      ...forcedOverflowActions,
-    ];
+    final visibleActions = preferred == null
+        ? inlineCandidateActions.take(maxInlineActions).toList(growable: false)
+        : [
+            for (final id in preferred.toSet())
+              ...actions.where((action) => preferenceId(action) == id),
+          ];
+    final overflowActions = preferred == null
+        ? [
+            ...inlineCandidateActions.skip(maxInlineActions),
+            ...forcedOverflowActions,
+          ]
+        : actions
+              .where((action) => !preferred.contains(preferenceId(action)))
+              .toList(growable: false);
     final infoWidgets = <Widget>[
       if (activeSources.isNotEmpty)
         OpenWebUISourcesWidget(
@@ -2092,15 +2434,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // from it is the point, so it leads the row as a labelled pill right after
     // the pager, and the usual buttons keep their places.
     final continueFromId = _continueFromVersionId();
+    // With 44 pt targets the pager and the pill can outgrow a narrow row, so
+    // the pill wraps under the pager rather than overflowing.
     final pagerGroup = continueFromId == null
         ? versionPager
-        : Row(
-            mainAxisSize: MainAxisSize.min,
+        : Wrap(
+            spacing: Spacing.xs,
+            runSpacing: Spacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (versionPager != null) ...[
-                versionPager,
-                const SizedBox(width: Spacing.xs),
-              ],
+              ?versionPager,
               _buildContinueFromHerePill(continueFromId),
             ],
           );
@@ -2122,14 +2465,35 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final actionButtons = <Widget>[
       if (continueFromId == null) ?versionPager,
       for (final action in visibleActions)
-        _buildActionButton(
-          icon: action.icon,
-          label: action.label,
-          onTap: action.onTap,
+        KeyedSubtree(
+          key: switch (action.id) {
+            'share' => _inlineShareButtonKey,
+            'usage' => _inlineUsageButtonKey,
+            _ => null,
+          },
+          child: _buildActionButton(
+            icon: action.icon,
+            label: action.label,
+            onTap: action.onTap,
+            sfSymbol: action.sfSymbol,
+            playsOwnFeedback: action.playsOwnFeedback,
+          ),
         ),
       ?overflowButton,
     ];
 
+    final buttonRow = Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: actionButtons,
+    );
+    // The shift assumes a 44 pt target leads the row; Material's More button
+    // is narrower, so a row it leads stays where it is.
+    final leadingInset =
+        versionPager != null ||
+            visibleActions.isNotEmpty ||
+            PlatformUiCapabilities.isIOS
+        ? _footerLeadingGlyphInset
+        : 0.0;
     return Wrap(
       spacing: Spacing.sm,
       runSpacing: Spacing.sm,
@@ -2137,11 +2501,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       children: [
         if (continueFromId != null) pagerGroup!,
         if (actionButtons.isNotEmpty)
-          Row(mainAxisSize: MainAxisSize.min, children: actionButtons),
+          continueFromId == null
+              // The 44 pt targets leading the row start their glyphs where
+              // the reply's text starts, not a half-target inside it.
+              ? Transform.translate(
+                  offset: Offset(
+                    Directionality.of(context) == TextDirection.rtl
+                        ? leadingInset
+                        : -leadingInset,
+                    0,
+                  ),
+                  child: buttonRow,
+                )
+              : buttonRow,
         ...infoWidgets,
       ],
     );
   }
+
+  /// Half of a target's spare width around its glyph's ink: Copy, which
+  /// leads the row, draws 16 pt wide (Regenerate and More about 14 to 15),
+  /// so the leading glyph starts on the reply's text margin.
+  static const double _footerLeadingGlyphInk = 16;
+  static const double _footerLeadingGlyphInset =
+      (_footerActionTarget - _footerLeadingGlyphInk) / 2;
 
   /// The id of the alternative response being previewed, when the chat can
   /// continue from it: it must be a stored same-role sibling of this response,
@@ -2276,6 +2659,161 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return _errorScanResult;
   }
 
+  // Issue #779: an explicit effort opt-in on a model that does not advertise
+  // support can be rejected by the upstream provider. When the failure names
+  // the parameter, the footer offers to clear the opt-in and retry.
+  static final _reasoningEffortRejectionPattern = RegExp(
+    r'reasoning[_\s-]*effort',
+    caseSensitive: false,
+  );
+
+  /// Resolves [modelId] against the model list, or the model selected now
+  /// when the id is absent or already the selected one. Null when the id
+  /// names a model that left the list — then only the chat-wide override can
+  /// still be cleared.
+  Model? _modelByIdOrSelected(String? modelId) {
+    final selected = ref.read(selectedModelProvider);
+    if (modelId == null || modelId.isEmpty || selected?.id == modelId) {
+      return selected;
+    }
+    for (final model in ref.read(modelsProvider).value ?? const <Model>[]) {
+      if (model.id == modelId) return model;
+    }
+    return null;
+  }
+
+  String? get _answerModelId {
+    final message = widget.message is ChatMessage
+        ? widget.message as ChatMessage
+        : null;
+    return message?.model;
+  }
+
+  /// The context length of the model that wrote the response on screen,
+  /// when it is known: the one the model advertises (Direct connections and
+  /// some providers do), else the one set for a Direct model that advertises
+  /// none. Null when the response names no model or the model has left the
+  /// list.
+  int? _activeModelContextLength() {
+    final rawModelId =
+        _activeVersionIndex >= 0 &&
+            _activeVersionIndex < widget.message.versions.length
+        ? widget.message.versions[_activeVersionIndex].model
+        : widget.message.model;
+    final modelId = (rawModelId as String?)?.trim();
+    if (modelId == null || modelId.isEmpty) return null;
+    final model = (ref.read(modelsProvider).value ?? const <Model>[])
+        .where((model) => model.id == modelId)
+        .firstOrNull;
+    if (model == null) return null;
+    return directModelAdvertisedContextLength(model) ??
+        ref.read(directContextLengthOverridesProvider)[model.id];
+  }
+
+  /// The model a live regeneration routes this answer through: ordinary
+  /// answers run on the model selected now, while a comparison answer
+  /// regenerates with its own model.
+  Model? _modelForRegeneratedAnswer() {
+    final group = _comparisonGroup;
+    if (group == null || !group.isComparison) {
+      return ref.read(selectedModelProvider);
+    }
+    return _modelByIdOrSelected(_answerModelId);
+  }
+
+  /// The model the queued completion replays under: always the one the
+  /// answer (the queued op's placeholder) carries, never whichever model is
+  /// selected now — a parked turn re-drains with its stored model.
+  Model? _modelForQueuedRetry() => _modelByIdOrSelected(_answerModelId);
+
+  /// The chat's own saved `reasoning_effort`, which a model that advertises
+  /// support is sent over the picker's value.
+  bool get _chatHasReasoningEffortOverride {
+    final params = ref.read(activeConversationProvider)?.chatParams;
+    final value = params == null ? null : params[kChatParamReasoningEffort];
+    return value is String &&
+        value.trim().isNotEmpty &&
+        value.trim().toLowerCase() != kAutomaticReasoningEffort;
+  }
+
+  /// Whether the chat saved a default (Automatic) for `reasoning_effort`,
+  /// which outranks every model's own pick.
+  bool get _chatSavedReasoningEffortDefault {
+    final params = ref.read(activeConversationProvider)?.chatParams;
+    return params != null &&
+        params.containsKey(kChatParamReasoningEffort) &&
+        !_chatHasReasoningEffortOverride;
+  }
+
+  bool _isReasoningEffortRejection(String errorText, Model? retryModel) {
+    if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
+    // An explicitly refusing model never takes the parameter: the request
+    // boundary strips it whatever the opt-ins say. A retry through such a
+    // model therefore cannot fail on the value, and offering recovery would
+    // discard the user's pick and the chat-wide override on an error that
+    // cannot be about the never-sent parameter (issue #779). A model that
+    // left the list is unknown, not refusing — recovery stays available.
+    if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
+    // A model that does not advertise support is sent only its own pick
+    // (issue #611); one that does is sent the chat's saved value over the
+    // picker's. A model that left the list may have been sent either.
+    final pickerOptIn =
+        retryModel != null &&
+        !retryModel.advertisesReasoningEffort &&
+        !_chatSavedReasoningEffortDefault &&
+        reasoningEffortForModel(ref.read, retryModel) !=
+            kAutomaticReasoningEffort;
+    final chatOptIn =
+        (retryModel == null || retryModel.advertisesReasoningEffort) &&
+        _chatHasReasoningEffortOverride;
+    return pickerOptIn || chatOptIn;
+  }
+
+  /// Like [_isReasoningEffortRejection] for a parked queued completion,
+  /// additionally qualified from the request itself: the replay sends the
+  /// snapshot frozen at enqueue time, so the rejected value can still be on
+  /// the wire after the picker and the chat override went back to automatic
+  /// (issue #779). The error text alone never qualifies —
+  /// unrelated failures can mention the parameter — and a raw snapshot value
+  /// alone never qualifies either, because the request boundary strips it
+  /// for models that explicitly refuse reasoning effort; that guard lives
+  /// in [_isReasoningEffortRejection] and is applied to the frozen value
+  /// here as well.
+  bool _isQueuedReasoningEffortRejection(QueuedCompletionInfo info) {
+    final errorText = info.lastError ?? '';
+    if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
+    final retryModel = _modelForQueuedRetry();
+    if (_isReasoningEffortRejection(errorText, retryModel)) return true;
+    if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
+    // As above: a model that does not advertise support was sent only the
+    // picker's frozen value, never the chat's.
+    final frozen = retryModel == null || retryModel.advertisesReasoningEffort
+        ? info.frozenReasoningEffort
+        : info.frozenPickedReasoningEffort;
+    return frozen != null;
+  }
+
+  Future<void> _retryWithoutReasoningEffort() async {
+    // "Automatic" clears the local pick and, for a model that was sent it,
+    // the chat's saved override. The retry may only start once the clears
+    // are confirmed: regenerating with a swallowed persistence failure would
+    // resend the rejected value.
+    final cleared = await clearReasoningEffortForRetry(
+      ref,
+      _modelForRegeneratedAnswer(),
+    );
+    if (!mounted) return;
+    if (!cleared) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+      return;
+    }
+    widget.onRegenerate?.call();
+  }
+
   List<_AssistantFooterAction> _buildFooterActions() {
     final l10n = AppLocalizations.of(context)!;
     // Watch only the playback fields the footer renders so Listen/Stop stays
@@ -2325,8 +2863,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool currentStreamingMessageCompleted =
         widget.isStreaming && _responseCompleted;
     final bool canRegenerate =
+        widget.allowsRegenerate &&
         widget.onRegenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
+    final bool canRetryWithoutEffort =
+        isErrorMessage &&
+        canRegenerate &&
+        _isReasoningEffortRejection(
+          '${activeError ?? ''}\n$_displayedContent',
+          _modelForRegeneratedAnswer(),
+        );
 
     // Branch actions need a real message id. The providers below are what make
     // them exclusive to the user's own durable chat, so the widget adds no
@@ -2340,9 +2886,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final branchControls = messageId.isNotEmpty && branchChatId != null;
     final previewingVersion = _activeVersionIndex >= 0;
     final continueFromId = _continueFromVersionId();
+    // A Hermes chat branches and undoes on its server session instead.
+    final hermesHistory = widget.readOnly
+        ? (branch: false, undo: false)
+        : watchHermesReplyHistoryActions(ref, messageId);
+    // A LibreChat reply the server never accepted has nothing there to copy.
     final bool canFork =
         branchControls &&
         (!previewingVersion || continueFromId != null) &&
+        !isUnconfirmedLibreChatMessage(widget.message) &&
         ref.watch(chatForkAvailabilityProvider) != ChatForkAvailability.hidden;
 
     VoidCallback? ttsOnTap;
@@ -2386,12 +2938,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final actions = <_AssistantFooterAction>[
       _AssistantFooterAction(
         id: 'copy',
-        icon: Platform.isIOS
-            ? CupertinoIcons.doc_on_doc
+        icon: _showCopied
+            ? (Platform.isIOS ? CupertinoIcons.checkmark : Icons.check)
+            : Platform.isIOS
+            ? CupertinoIcons.square_on_square
             : Icons.content_copy_outlined,
-        label: l10n.copy,
-        onTap: _responseCompleted ? widget.onCopy : null,
-        sfSymbol: 'doc.on.doc',
+        label: _showCopied ? l10n.copied : l10n.copy,
+        onTap: _responseCompleted && widget.onCopy != null
+            ? () => unawaited(_copyResponse())
+            : null,
+        sfSymbol: _showCopied ? 'checkmark' : _copySymbol,
+        playsOwnFeedback: true,
       ),
       if (shouldShowTtsButton)
         _AssistantFooterAction(
@@ -2407,13 +2964,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2',
         ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && !_isVoiceReply && widget.allowsRegenerate)
         _AssistantFooterAction(
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
           label: isErrorMessage ? l10n.retry : l10n.regenerate,
           onTap: canRegenerate ? widget.onRegenerate : null,
           sfSymbol: 'arrow.clockwise',
+        ),
+      if (canRetryWithoutEffort)
+        _AssistantFooterAction(
+          id: 'retry-without-effort',
+          icon: Platform.isIOS
+              ? CupertinoIcons.slash_circle
+              : Icons.highlight_off,
+          label: l10n.retryWithoutReasoningEffort,
+          onTap: () => unawaited(_retryWithoutReasoningEffort()),
+          sfSymbol: 'slash.circle',
         ),
       if (mergeIsRunningHere)
         _AssistantFooterAction(
@@ -2432,12 +2999,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: () => unawaited(_mergeResponses(comparisonGroup)),
           sfSymbol: 'arrow.triangle.merge',
         ),
-      if (activeUsage != null && activeUsage.isNotEmpty)
+      if (activeUsage != null && usageHasReport(activeUsage))
         _AssistantFooterAction(
           id: 'usage',
           icon: Platform.isIOS ? CupertinoIcons.info : Icons.info_outline,
           label: l10n.usageInfo,
-          onTap: () => UsageStatsModal.show(context, activeUsage),
+          // The popover points at the Info button, or at More when Info is
+          // one of its items.
+          onTap: () => UsageStatsModal.show(
+            context,
+            activeUsage,
+            anchorKey: _inlineUsageButtonKey.currentContext != null
+                ? _inlineUsageButtonKey
+                : _overflowButtonKey,
+            contextLength: _activeModelContextLength(),
+          ),
           sfSymbol: 'info.circle',
         ),
       if (canFork)
@@ -2453,7 +3029,36 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
           sfSymbol: 'arrow.triangle.branch',
         ),
-      if (!widget.readOnly)
+      // Hermes branches from the reply it stores, not an older version
+      // shown in its place.
+      if (hermesHistory.branch && !previewingVersion)
+        _AssistantFooterAction(
+          id: 'hermes-branch',
+          icon: Platform.isIOS ? CupertinoIcons.arrow_branch : Icons.call_split,
+          label: l10n.hermesBranchFromHere,
+          onTap: () =>
+              unawaited(branchHermesChatFromMessage(context, ref, messageId)),
+          sfSymbol: 'arrow.triangle.branch',
+        ),
+      if (hermesHistory.undo)
+        _AssistantFooterAction(
+          id: 'hermes-undo',
+          icon: Platform.isIOS
+              ? CupertinoIcons.arrow_uturn_left
+              : Icons.undo_rounded,
+          label: l10n.hermesUndoLastTurn,
+          onTap: () => unawaited(undoLastHermesTurnInChat(context, ref)),
+          sfSymbol: 'arrow.uturn.backward',
+        ),
+      if (_hasShareableResponseText())
+        _AssistantFooterAction(
+          id: 'share',
+          icon: Platform.isIOS ? CupertinoIcons.share : Icons.share_outlined,
+          label: l10n.shareSystemSheet,
+          onTap: _responseCompleted ? () => unawaited(_shareResponse()) : null,
+          sfSymbol: 'square.and.arrow.up',
+        ),
+      if (!widget.readOnly && widget.onDelete != null)
         _AssistantFooterAction(
           id: 'delete',
           icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,
@@ -2466,13 +3071,114 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return actions;
   }
 
+  // Footer rebuilds reuse eligibility without retaining a cleaned copy of the
+  // answer. Full clipboard text is prepared only when Copy or Share is used.
+  String? _shareTextSource;
+  bool _hasShareText = false;
+
+  String get _rawResponseTextForShare => _activeVersionIndex >= 0
+      ? _displayedContent
+      : widget.resolveGroupedResponseText?.call() ?? _displayedContent;
+
+  bool _hasShareableResponseText() {
+    final rawText = _rawResponseTextForShare;
+    if (rawText != _shareTextSource) {
+      _shareTextSource = rawText;
+      _hasShareText = ConduitMarkdownPreprocessor.hasClipboardText(rawText);
+    }
+    return _hasShareText;
+  }
+
+  /// The version on screen, or the whole grouped answer, cleaned like Copy.
+  String _shareableResponseText() =>
+      ConduitMarkdownPreprocessor.sanitizeForClipboard(
+        _rawResponseTextForShare,
+      );
+
+  /// The parent copies the stored answer. A version being previewed exists
+  /// only on screen, so copy it here, as the text Share would send.
+  Future<void> _copyResponse() async {
+    if (_activeVersionIndex < 0) {
+      widget.onCopy?.call();
+      _confirmCopied();
+      return;
+    }
+    try {
+      await Clipboard.setData(ClipboardData(text: _shareableResponseText()));
+      _confirmCopied();
+    } catch (_) {
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
+  }
+
+  /// Swaps Copy's glyph for a checkmark, read as "Copied", with a light tap,
+  /// then restores it.
+  void _confirmCopied() {
+    if (!mounted) return;
+    ConduitHaptics.lightImpact();
+    _copiedTimer?.cancel();
+    setState(() => _showCopied = true);
+    SemanticsService.sendAnnouncement(
+      View.of(context),
+      AppLocalizations.of(context)!.copied,
+      Directionality.of(context),
+    );
+    _copiedTimer = Timer(_copiedConfirmationDuration, () {
+      if (!mounted) return;
+      setState(() => _showCopied = false);
+    });
+  }
+
+  Future<void> _shareResponse() async {
+    final text = _shareableResponseText();
+    if (!_responseCompleted || text.isEmpty) return;
+    final renderObject =
+        (_inlineShareButtonKey.currentContext ??
+                _overflowButtonKey.currentContext)
+            ?.findRenderObject();
+    final origin = renderObject is RenderBox && renderObject.hasSize
+        ? renderObject.localToGlobal(Offset.zero) & renderObject.size
+        : null;
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: text, sharePositionOrigin: origin),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
+  }
+
   Widget _buildActionButton({
     required IconData icon,
     required String label,
     VoidCallback? onTap,
+    String? sfSymbol,
+    bool playsOwnFeedback = false,
   }) {
-    return ChatActionButton(icon: icon, label: label, onTap: onTap);
+    return ChatActionButton(
+      icon: icon,
+      label: label,
+      onTap: onTap,
+      sfSymbol: sfSymbol,
+      size: _footerActionTarget,
+      iconSize: _footerGlyphSizeFor(sfSymbol),
+      color: _footerActionColor,
+      hapticFeedback: !playsOwnFeedback,
+    );
   }
+
+  Color get _footerActionColor =>
+      context.conduitTheme.textPrimary.withValues(alpha: 0.72);
 
   /// `‹ 2/3 ›`: steps through this response's regenerations in place.
   /// [indices] are the answers it covers, oldest first, as indexes into
@@ -2516,54 +3222,108 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  /// The actions More shows as a row of icons when two or more of them are
+  /// in it: the everyday ones, each told apart by its symbol alone.
+  static const _paletteActionIds = {
+    'copy',
+    'tts',
+    'regenerate',
+    'retry',
+    'share',
+  };
+
+  /// [actions] grouped as an iOS 26 menu groups them: the everyday actions
+  /// as a row of icons on top, then the ones that make another answer or
+  /// chat from this one, then the ones that read, pass on or describe this
+  /// answer, and Delete last on its own. A lone everyday action is a row in
+  /// its group rather than a row of one icon. Each group keeps the footer's
+  /// order.
+  List<AdaptivePopupMenuEntry> _overflowMenuSections(
+    List<_AssistantFooterAction> actions,
+  ) {
+    final palette = [
+      for (final action in actions)
+        if (_paletteActionIds.contains(action.id)) action,
+    ];
+    final usePalette = palette.length >= 2;
+    final answer = <_AssistantFooterAction>[];
+    final response = <_AssistantFooterAction>[];
+    final destructive = <_AssistantFooterAction>[];
+    for (final action in actions) {
+      if (usePalette && _paletteActionIds.contains(action.id)) continue;
+      switch (action.id) {
+        case 'regenerate' ||
+            'retry' ||
+            'retry-without-effort' ||
+            'merge' ||
+            'stop-merge' ||
+            'fork':
+          answer.add(action);
+        case 'delete':
+          destructive.add(action);
+        default:
+          response.add(action);
+      }
+    }
+    AdaptivePopupMenuItem<String> item(_AssistantFooterAction action) =>
+        AdaptivePopupMenuItem<String>(
+          value: action.id,
+          label: action.label,
+          icon: PlatformUiCapabilities.isIOS ? action.sfSymbol : action.icon,
+          enabled: action.onTap != null,
+          isDestructive: action.id == 'delete',
+        );
+    return [
+      for (final (group, style) in [
+        (
+          usePalette ? palette : const [],
+          AdaptivePopupMenuSectionStyle.palette,
+        ),
+        (answer, AdaptivePopupMenuSectionStyle.inline),
+        (response, AdaptivePopupMenuSectionStyle.inline),
+        (destructive, AdaptivePopupMenuSectionStyle.inline),
+      ])
+        if (group.isNotEmpty)
+          AdaptivePopupMenuSection<String>(
+            items: [for (final action in group) item(action)],
+            style: style,
+          ),
+    ];
+  }
+
   Widget _buildOverflowActionButton(
     List<_AssistantFooterAction> overflowActions,
   ) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
 
+    final Widget menu = AdaptivePopupMenuButton.icon<String>(
+      key: const ValueKey<String>('assistant-response-overflow-button'),
+      icon: PlatformUiCapabilities.isIOS
+          ? 'ellipsis'
+          : Icons.more_horiz_rounded,
+      items: _overflowMenuSections(overflowActions),
+      onSelected: (_, entry) {
+        final selectedId = entry.value;
+        if (selectedId == null) {
+          return;
+        }
+        for (final action in overflowActions) {
+          if (action.id == selectedId) {
+            action.onTap?.call();
+            return;
+          }
+        }
+      },
+      tint: _footerActionColor,
+      size: _footerActionTarget,
+      iconSize: _footerMoreGlyph,
+      buttonStyle: PopupButtonStyle.plain,
+    );
     return AdaptiveTooltip(
+      key: _overflowButtonKey,
       message: l10n.more,
       waitDuration: const Duration(milliseconds: 600),
-      child: Semantics(
-        button: true,
-        label: l10n.more,
-        child: AdaptivePopupMenuButton.icon<String>(
-          key: const ValueKey<String>('assistant-response-overflow-button'),
-          icon: PlatformUiCapabilities.isIOS
-              ? 'ellipsis'
-              : Icons.more_horiz_rounded,
-          items: overflowActions
-              .map(
-                (action) => AdaptivePopupMenuItem<String>(
-                  value: action.id,
-                  label: action.label,
-                  icon: PlatformUiCapabilities.isIOS
-                      ? action.sfSymbol
-                      : action.icon,
-                  enabled: action.onTap != null,
-                  isDestructive: action.id == 'delete',
-                ),
-              )
-              .toList(growable: false),
-          onSelected: (_, entry) {
-            final selectedId = entry.value;
-            if (selectedId == null) {
-              return;
-            }
-            for (final action in overflowActions) {
-              if (action.id == selectedId) {
-                action.onTap?.call();
-                return;
-              }
-            }
-          },
-          tint: theme.textPrimary.withValues(alpha: 0.8),
-          size: 32,
-          iconSize: IconSize.sm,
-          buttonStyle: PopupButtonStyle.plain,
-        ),
-      ),
+      child: Semantics(button: true, label: l10n.more, child: menu),
     );
   }
 
@@ -2594,6 +3354,7 @@ class _AssistantFooterAction {
     required this.label,
     required this.sfSymbol,
     this.onTap,
+    this.playsOwnFeedback = false,
   });
 
   final String id;
@@ -2601,6 +3362,10 @@ class _AssistantFooterAction {
   final String label;
   final String sfSymbol;
   final VoidCallback? onTap;
+
+  /// Whether the action confirms itself (Copy's checkmark and tap), so the
+  /// button skips its generic selection haptic.
+  final bool playsOwnFeedback;
 }
 
 String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
@@ -2616,4 +3381,14 @@ String _buildTtsPlainTextFromRaw(String raw) {
   final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
   final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
   return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
+}
+
+/// Whether any of [statuses] carries the diff of a Hermes edit.
+bool _hasHermesDiff(List<ChatStatusUpdate> statuses) =>
+    statuses.any((status) => status.items.any(isHermesInlineDiffItem));
+
+/// The Hermes session [message] ran in, when it says.
+String? _hermesSessionOf(ChatMessage message) {
+  final session = message.metadata?['hermesSessionId'];
+  return session is String ? session : null;
 }

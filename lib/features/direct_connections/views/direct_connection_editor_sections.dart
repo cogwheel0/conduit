@@ -30,38 +30,46 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedSection(
-      child: InkWell(
-        onTap: () {
-          ConduitHaptics.selectionClick();
-          form.setEnabled(!form.enabled);
-        },
-        borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.enabledLabel,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
+      child: MergeSemantics(
+        child: InkWell(
+          onTap: () {
+            ConduitHaptics.selectionClick();
+            form.setEnabled(!form.enabled);
+          },
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ExcludeSemantics(
+                      child: Text(
+                        l10n.enabledLabel,
+                        style: AppTypography.bodyMediumStyle.copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  Text(
-                    l10n.directConnectionEnabledSubtitle,
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textSecondary,
+                    const SizedBox(height: Spacing.xxs),
+                    Text(
+                      l10n.directConnectionEnabledSubtitle,
+                      style: AppTypography.bodySmallStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: Spacing.md),
-            AdaptiveSwitch(value: form.enabled, onChanged: form.setEnabled),
-          ],
+              const SizedBox(width: Spacing.md),
+              AdaptiveSwitch(
+                value: form.enabled,
+                semanticLabel: l10n.enabledLabel,
+                onChanged: form.setEnabled,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -89,7 +97,7 @@ final class DirectConnectionGeneralSection extends StatelessWidget {
         UtilityRow(
           title: l10n.enabledLabel,
           titleFontWeight: FontWeight.w400,
-          preserveTrailingSemantics: true,
+          toggled: form.enabled,
           trailing: AdaptiveSwitch(
             value: form.enabled,
             onChanged: form.setEnabled,

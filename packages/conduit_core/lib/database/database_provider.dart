@@ -9,6 +9,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -16,6 +17,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 
 part 'database_provider.g.dart';
 
@@ -219,11 +221,21 @@ AppDatabase? _retryAppDatabaseOpen(Ref ref, Future<void> retryAfter) {
   return null;
 }
 
-/// Provenance-aware resolver over the active Open WebUI database (if any) and
-/// the independent direct-local database.
+/// Provenance-aware resolver over the account database of whichever account
+/// owns the Chats tab (Open WebUI's or LibreChat's, if any) and the
+/// independent direct-local database.
+///
+/// While a LibreChat account owns the tab, Open WebUI is parked and its
+/// database is never consulted, even if one is still open in the moment a
+/// switch completes.
 final chatDatabaseRepositoryProvider = Provider<ChatDatabaseRepository>((ref) {
+  final libreChatPrimary =
+      ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat;
   return ChatDatabaseRepository(
-    openWebUiDatabase: ref.watch(appDatabaseProvider),
+    openWebUiDatabase: libreChatPrimary ? null : ref.watch(appDatabaseProvider),
     directLocalDatabase: ref.watch(directLocalDatabaseProvider),
+    libreChatDatabase: libreChatPrimary
+        ? ref.watch(libreChatDatabaseProvider)
+        : null,
   );
 });

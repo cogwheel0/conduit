@@ -77,7 +77,13 @@ extension _HermesDesktopBots on HermesDesktopApiService {
       if (candidate == null) continue;
       _sessionProfiles[candidate] = bot.name;
       try {
-        final binding = await _resume(candidate, refresh: true);
+        // A session authority looks a session up by title only when asked
+        // to; given as an id, the title is not found.
+        final binding = (await _resumeSnapshot(
+          candidate,
+          refresh: true,
+          byTitle: candidate == kHermesBotChatTitle,
+        )).binding;
         _sessionProfiles[binding.storedId] = bot.name;
         return binding.storedId;
       } catch (error) {

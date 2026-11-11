@@ -359,6 +359,40 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     );
   }
 
+  Future<void> _toggleActive() async {
+    final l10n = AppLocalizations.of(context)!;
+    final summary = widget.summary;
+    if (summary == null) return;
+    // Switching reloads the tool, which would drop unsaved edits if the
+    // reload failed.
+    if (_session.dirty) {
+      _showSnack(l10n.workspaceToolToggleSaveFirst, isError: true);
+      return;
+    }
+    // The switch reloads the tool, and the reloaded tool rebuilds this form,
+    // possibly before the switch answers; its message goes through the app's
+    // overlay, which outlives the form.
+    final messages = Navigator.of(context, rootNavigator: true).context;
+    await WorkspaceEditorOperationRunner.capturedRoute<void>(
+      session: _session,
+      scope: 'workspace/tools',
+      operationLabel: 'tool toggle',
+      editorMounted: () => mounted,
+      operation: () =>
+          ref.read(workspaceToolsProvider.notifier).toggle(summary.id),
+      onSuccess: (_) {
+        if (mounted) _session.endOperation();
+        if (!messages.mounted) return;
+        AdaptiveSnackBar.show(
+          messages,
+          message: l10n.workspaceToolSaved,
+          type: AdaptiveSnackBarType.success,
+        );
+      },
+      onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
+    );
+  }
+
   Future<void> _delete() async {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
@@ -556,6 +590,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         onImportUrl: _importUrl,
         onExport: _export,
         onClone: _clone,
+        onToggleActive: _toggleActive,
         onOpenValves: _openValves,
         onManageAccess: _manageAccess,
         onDelete: _delete,

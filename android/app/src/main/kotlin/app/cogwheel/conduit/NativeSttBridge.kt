@@ -1,8 +1,13 @@
 package app.cogwheel.conduit
 
 import android.content.Intent
+import android.media.AudioFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.system.ErrnoException
+import android.system.OsConstants
 import android.speech.RecognitionListener
 import android.speech.RecognitionSupport
 import android.speech.RecognitionSupportCallback
@@ -14,11 +19,14 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.Locale
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
@@ -26,6 +34,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.isActive
 
 class NativeSttBridge(private val activity: MainActivity) : MethodChannel.MethodCallHandler,
     EventChannel.StreamHandler {
@@ -46,6 +56,11 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private val platformFailedLocaleIds = mutableSetOf<String?>()
     private var platformEngineName = "android_speech"
     private var platformCommittedText = ""
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var pcmSource: NativeDictationAudioSource? = null
+    private var pcmGeneration: Int? = null
+    private var pendingStarts = 0
+    private var recordingTranscriptionId: String? = null
     @Volatile
     private var recognitionGeneration = 0
 
@@ -81,14 +96,36 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 val emitPartialResults = call.argument<Boolean>("emitPartialResults") ?: true
                 val accumulateResults = call.argument<Boolean>("accumulateResults") ?: true
                 val allowOnlineFallback = call.argument<Boolean>("allowOnlineFallback") ?: true
+                val emitAudio = call.argument<Boolean>("emitAudio") ?: false
                 scope.launch {
-                    start(
+                    pendingStarts += 1
+                    try { start(
                         localeId,
                         emitPartialResults,
                         accumulateResults,
                         allowOnlineFallback,
+                        emitAudio,
                         result
-                    )
+                    ) } finally { pendingStarts -= 1 }
+                }
+            }
+            "transcribeRecording" -> {
+                val pcm = call.argument<ByteArray>("pcm")
+                val id = call.argument<String>("requestId")
+                if (pcm == null || pcm.isEmpty() || pcm.size % 2 != 0 || pcm.size > 32000 * 600 || id == null) {
+                    result.error("INVALID_AUDIO", "Invalid recording audio", null)
+                } else {
+                    transcribeRecording(pcm, call.argument<String>("localeId"), id, result)
+                }
+            }
+            "cancelRecordingTranscription" -> {
+                val id = call.argument<String>("requestId")
+                scope.launch {
+                    if (id != null && recordingTranscriptionId == id) {
+                        recognitionGeneration += 1
+                        stopInternal(emitDone = false, awaitCompletion = false)
+                    }
+                    result.success(null)
                 }
             }
             "stop" -> {
@@ -186,6 +223,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         emitPartialResults: Boolean,
         accumulateResults: Boolean,
         allowOnlineFallback: Boolean,
+        emitAudio: Boolean,
         result: MethodChannel.Result
     ) {
         val generation = recognitionGeneration + 1
@@ -220,6 +258,17 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         if (prepared == null) {
             if (platformRecognizerAvailable(allowOnlineFallback)) {
                 try {
+                    if (emitAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val source = createPcmSource(generation)
+                        if (!isCurrentGeneration(generation)) {
+                            source.stop()
+                            source.closeDescriptor()
+                            result.success(unavailable("Speech recognition start was cancelled"))
+                            return
+                        }
+                        pcmSource = source
+                        pcmGeneration = generation
+                    }
                     startPlatformRecognizer(
                         localeId,
                         emitPartialResults,
@@ -227,13 +276,15 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                         allowOnlineFallback,
                         languageSwitch
                     )
+                    pcmSource?.start(scope)
                     val engineName = if (usePlatformLanguageSwitch) {
                         "android_speech_auto"
                     } else {
                         "android_speech"
                     }
-                    result.success(available(engineName))
+                    result.success(available(engineName) + ("audioRecoverySupported" to (pcmSource != null)))
                 } catch (error: Throwable) {
+                    retirePcmSource(pcmSource)
                     Log.w(TAG, "Android speech recognition startup failed", error)
                     languageSwitch?.recognizer?.takeIf { it !== activePlatformRecognizer }
                         ?.let { runCatching { it.destroy() } }
@@ -249,13 +300,29 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
 
         val (recognizer, engineName) = prepared
+        val source = try {
+            if (emitAudio) createPcmSource(generation) else null
+        } catch (error: Exception) {
+            recognizer.close()
+            result.success(unavailable("Unable to preserve microphone audio"))
+            return
+        }
+        if (!isCurrentGeneration(generation)) {
+            retirePcmSource(source)
+            recognizer.close()
+            result.success(unavailable("Speech recognition start was cancelled"))
+            return
+        }
+        pcmSource = source
+        pcmGeneration = if (source == null) null else generation
         activeMlKitRecognizer = recognizer
         emitStatus("listening", engineName)
         recognitionJob = scope.launch(Dispatchers.IO) {
             var committedText = ""
             var doneEmitted = false
             try {
-                recognizer.startRecognition().collect { response ->
+                source?.start(scope)
+                recognizer.startRecognition(source?.descriptor).collect { response ->
                     if (!isCurrentGeneration(generation)) return@collect
                     when (response) {
                         is OnDeviceSpeechEvent.Partial -> {
@@ -298,15 +365,17 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             } catch (error: Throwable) {
                 emitError("MLKIT_ERROR", error.message ?: error.toString(), engineName)
             } finally {
+                retirePcmSource(source)
                 if (activeMlKitRecognizer === recognizer) {
                     activeMlKitRecognizer = null
                     runCatching { recognizer.close() }
                 }
             }
         }
-        result.success(available(engineName))
+        result.success(available(engineName) + ("audioRecoverySupported" to (source != null)))
     }
 
+    /** Prefers advanced recognition; only a current generation receives ownership. */
     private suspend fun prepareRecognizer(
         localeId: String?,
         generation: Int
@@ -315,26 +384,124 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             return null
         }
 
-        val advanced = createRecognizer(localeId, OnDeviceMode.ADVANCED)
-        if (!isCurrentGeneration(generation)) {
-            advanced.close()
-            return null
+        suspend fun prepare(mode: OnDeviceMode, engine: String): Pair<OnDeviceRecognizer, String>? {
+            if (!isCurrentGeneration(generation)) return null
+            val recognizer = createRecognizer(localeId, mode)
+            var transferred = false
+            try {
+                if (ensureReady(recognizer, engine, generation)) {
+                    transferred = true
+                    return recognizer to engine
+                }
+                return null
+            } finally {
+                if (!transferred) recognizer.close()
+            }
         }
-        if (ensureReady(advanced, "mlkit_advanced", generation)) {
-            return advanced to "mlkit_advanced"
-        }
-        advanced.close()
+        return prepare(OnDeviceMode.ADVANCED, "mlkit_advanced")
+            ?: prepare(OnDeviceMode.BASIC, "mlkit_basic")
+    }
 
-        val basic = createRecognizer(localeId, OnDeviceMode.BASIC)
-        if (!isCurrentGeneration(generation)) {
-            basic.close()
-            return null
+    /** Transcribes validated PCM exclusively, with a duration-based deadline and one reply. */
+    private fun transcribeRecording(pcm: ByteArray, localeId: String?, id: String, result: MethodChannel.Result) {
+        if (pendingStarts > 0 || recordingTranscriptionId != null ||
+            activeMlKitRecognizer != null || activePlatformRecognizer != null || recognitionJob?.isActive == true) {
+            result.error("BUSY", "Speech recognition is already in progress", null)
+            return
         }
-        if (ensureReady(basic, "mlkit_basic", generation)) {
-            return basic to "mlkit_basic"
+        val generation = ++recognitionGeneration
+        recordingTranscriptionId = id
+        recognitionJob = scope.launch(Dispatchers.IO) {
+            var recognizer: OnDeviceRecognizer? = null
+            var registered = false
+            var answered = false
+            suspend fun answer(text: String? = null, error: String? = null) {
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    if (!answered) {
+                        answered = true
+                        if (error == null) result.success(text)
+                        else result.error("TRANSCRIPTION_FAILED", error, null)
+                    }
+                }
+            }
+            try {
+                val prepared = prepareRecognizer(localeId, generation)
+                    ?: error("On-device transcription is unavailable for this device or language")
+                val client = prepared.first
+                recognizer = client
+                withContext(Dispatchers.Main.immediate) {
+                    if (!isCurrentGeneration(generation)) throw CancellationException()
+                    activeMlKitRecognizer = client
+                    registered = true
+                }
+                val text = withTimeout(pcm.size * 1000L / 32000 + 30000L) {
+                    transcribePcm(client, pcm)
+                }
+                if (!isCurrentGeneration(generation)) throw CancellationException()
+                check(text.isNotBlank()) { "No speech was recognized" }
+                answer(text = text)
+            } catch (_: CancellationException) {
+                answer(error = "Recording transcription was cancelled")
+            } catch (_: Exception) {
+                answer(error = "On-device recording transcription failed")
+            } finally {
+                val ownsClient = withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    if (recordingTranscriptionId == id) recordingTranscriptionId = null
+                    if (recognizer != null && activeMlKitRecognizer === recognizer) {
+                        activeMlKitRecognizer = null
+                        recognitionJob = null
+                        true
+                    } else !registered
+                }
+                if (ownsClient) runCatching { recognizer?.close() }
+            }
         }
-        basic.close()
-        return null
+    }
+
+    /** Feeds mono 16 kHz PCM16 through a paced nonblocking pipe, closing it on every exit.
+     * Recognition that ends before all input is submitted fails instead of returning partial text. */
+    private suspend fun transcribePcm(recognizer: OnDeviceRecognizer, pcm: ByteArray): String = coroutineScope {
+        val pipe = NativePcmPipe.create()
+        val submitted = CompletableDeferred<Unit>()
+        val writer = launch(Dispatchers.IO) {
+            try {
+                var offset = 0
+                while (offset < pcm.size) {
+                    val count = minOf(640, pcm.size - offset)
+                    try {
+                        val written = pipe.write(pcm, offset, count)
+                        offset += written
+                        delay(written * 1000L / 32000)
+                    } catch (error: ErrnoException) {
+                        if (error.errno != OsConstants.EAGAIN) throw error
+                        delay(10)
+                    }
+                }
+                submitted.complete(Unit)
+            } catch (error: Exception) {
+                if (isActive) throw error
+            } finally {
+                pipe.closeOutput()
+            }
+        }
+        try {
+            val segments = mutableListOf<String>()
+            recognizer.startRecognition(pipe.input).collect { response ->
+                when (response) {
+                    is OnDeviceSpeechEvent.Final -> segments.add(response.text.trim())
+                    is OnDeviceSpeechEvent.Error -> error("On-device transcription failed")
+                    else -> Unit
+                }
+            }
+            check(submitted.isCompleted) { "Recognition ended before the recording was consumed" }
+            segments.filter { it.isNotEmpty() }.joinToString(" ")
+        } finally {
+            withContext(NonCancellable) {
+                writer.cancel()
+                pipe.close()
+                writer.join()
+            }
+        }
     }
 
     private fun createRecognizer(localeId: String?, mode: OnDeviceMode): OnDeviceRecognizer {
@@ -491,7 +658,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         return NativeSttLanguagePolicy.platformRecognizerAvailable(
             allowOnlineFallback = allowOnlineFallback,
             sdkInt = Build.VERSION.SDK_INT,
-            recognitionAvailable = AndroidSpeechRecognizer.isRecognitionAvailable(context),
+            recognitionAvailable = otherRecognizerInstalled(context),
             onDeviceRecognitionAvailable = systemOnDeviceRecognitionAvailable()
         )
     }
@@ -654,6 +821,14 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, platformEmitPartialResults)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, !platformAllowOnlineFallback)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pcmSource?.let { source ->
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, source.descriptor)
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+                }
+            }
         }
     }
 
@@ -813,6 +988,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     private suspend fun stopInternal(emitDone: Boolean, awaitCompletion: Boolean) {
+        val source = pcmSource
+        source?.stop()
         val platformRecognizer = activePlatformRecognizer
         activePlatformRecognizer = null
         platformStopRequested = true
@@ -846,8 +1023,63 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
         recognitionJob = null
         recognizer?.close()
+        retirePcmSource(source)
         if (emitDone) {
             emitDone(if (platformRecognizer != null) "android_speech" else "mlkit")
+        }
+    }
+
+    /** Allocates off-main, gates delivery by generation, and retires cancelled allocations. */
+    private suspend fun createPcmSource(generation: Int): NativeDictationAudioSource {
+        var allocated: NativeDictationAudioSource? = null
+        try {
+            return withContext(Dispatchers.IO) {
+                NativeDictationAudioSource.create(
+                    onAudio = { bytes ->
+                        mainHandler.post {
+                            if (pcmGeneration == generation) {
+                                eventSink?.success(mapOf("type" to "audio", "pcm" to bytes))
+                            }
+                        }
+                    },
+                    onFailure = {
+                        scope.launch {
+                            if (pcmGeneration == generation) {
+                                pcmSource?.stop()
+                                if (pcmGeneration == generation) {
+                                    emitError("AUDIO_PRESERVATION_FAILED", "Unable to preserve dictation audio", "android_audio")
+                                }
+                            }
+                        }
+                    },
+                ).also { allocated = it }
+            }
+        } catch (error: Throwable) {
+            // withContext can be cancelled after allocation but before delivery.
+            withContext(NonCancellable) {
+                allocated?.stop()
+                allocated?.closeDescriptor()
+            }
+            throw error
+        }
+    }
+
+    /** Stops without cancellation and drains admitted main-thread events before closing input. */
+    private suspend fun retirePcmSource(source: NativeDictationAudioSource?) {
+        if (source == null) return
+        withContext(NonCancellable) {
+            source.stop()
+            // Drain admitted PCM events before the stop reply detaches Dart.
+            suspendCoroutine<Unit> { continuation ->
+                mainHandler.post {
+                    if (pcmSource === source) {
+                        pcmSource = null
+                        pcmGeneration = null
+                    }
+                    source.closeDescriptor()
+                    continuation.resume(Unit)
+                }
+            }
         }
     }
 

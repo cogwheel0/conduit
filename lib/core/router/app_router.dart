@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -23,6 +24,8 @@ import '../../features/navigation/views/folder_page.dart';
 import '../../features/navigation/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
+import '../../features/navigation/widgets/sidebar_destination_page.dart';
+import '../../features/navigation/widgets/sidebar_tab_registry.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../features/channels/views/channel_page.dart';
@@ -33,10 +36,14 @@ import '../../features/profile/views/manage_accounts_page.dart';
 import '../../features/profile/views/server_addresses_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/profile/views/voice_provider_settings_page.dart';
 import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
+import '../../features/librechat/views/librechat_sign_in_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/hermes/views/hermes_mcp_page.dart';
+import '../../features/hermes/views/hermes_hidden_sessions_page.dart';
+import '../../features/hermes/views/hermes_room_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
@@ -129,57 +136,98 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         child: const SplashLauncherPage(),
       ),
     ),
-    // ShellRoute keeps the drawer/sidebar mounted across page navigations
-    // so it doesn't reload on tablets when switching between chat, channels,
-    // and notes.
-    ShellRoute(
-      builder: (context, state, child) => DrawerShellPage(child: child),
-      routes: [
-        GoRoute(
-          path: Routes.chat,
-          name: RouteNames.chat,
-          pageBuilder: (context, state) =>
-              _buildNoTransitionPage(state: state, child: const ChatPage()),
+    // Retain each destination's existing widget state across menu selections.
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) => DrawerShellPage(
+        child: SidebarDestinationScope(
+          destination: sidebarTabRegistry[navigationShell.currentIndex].id,
+          child: navigationShell,
         ),
-        GoRoute(
-          path: Routes.folder,
-          name: RouteNames.folder,
-          pageBuilder: (context, state) {
-            final folderId = state.pathParameters['id']!;
-            return _buildNoTransitionPage(
-              state: state,
-              child: FolderPage(key: ValueKey(folderId), folderId: folderId),
-            );
-          },
+      ),
+      branches: [
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: Routes.chat,
+              name: RouteNames.chat,
+              pageBuilder: (context, state) =>
+                  _buildNoTransitionPage(state: state, child: const ChatPage()),
+            ),
+            GoRoute(
+              path: Routes.folder,
+              name: RouteNames.folder,
+              pageBuilder: (context, state) {
+                final folderId = state.pathParameters['id']!;
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: FolderPage(
+                    key: ValueKey(folderId),
+                    folderId: folderId,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: Routes.noteEditor,
+              name: RouteNames.noteEditor,
+              pageBuilder: (context, state) {
+                final noteId = state.pathParameters['id'];
+                if (noteId == null || noteId.isEmpty) {
+                  return _buildNoTransitionPage(
+                    state: state,
+                    child: const NotesListPage(),
+                  );
+                }
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: NoteEditorPage(key: ValueKey(noteId), noteId: noteId),
+                );
+              },
+            ),
+            GoRoute(
+              path: Routes.channel,
+              name: RouteNames.channel,
+              pageBuilder: (context, state) {
+                final channelId = state.pathParameters['id']!;
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: ChannelPage(channelId: channelId),
+                );
+              },
+            ),
+            GoRoute(
+              path: Routes.hermesRoom,
+              name: RouteNames.hermesRoom,
+              pageBuilder: (context, state) {
+                final roomId = state.pathParameters['id']!;
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: HermesRoomPage(
+                    key: ValueKey<String>('hermes-room-$roomId'),
+                    roomId: roomId,
+                  ),
+                );
+              },
+            ),
+          ],
         ),
-        GoRoute(
-          path: Routes.noteEditor,
-          name: RouteNames.noteEditor,
-          pageBuilder: (context, state) {
-            final noteId = state.pathParameters['id'];
-            if (noteId == null || noteId.isEmpty) {
-              return _buildNoTransitionPage(
-                state: state,
-                child: const NotesListPage(),
-              );
-            }
-            return _buildNoTransitionPage(
-              state: state,
-              child: NoteEditorPage(key: ValueKey(noteId), noteId: noteId),
-            );
-          },
-        ),
-        GoRoute(
-          path: Routes.channel,
-          name: RouteNames.channel,
-          pageBuilder: (context, state) {
-            final channelId = state.pathParameters['id']!;
-            return _buildNoTransitionPage(
-              state: state,
-              child: ChannelPage(channelId: channelId),
-            );
-          },
-        ),
+        for (final tab in sidebarTabRegistry.where(
+          (tab) => tab.id != SidebarTabId.chats,
+        ))
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: tab.location,
+                name: tab.id == SidebarTabId.hermes
+                    ? RouteNames.hermesSessions
+                    : tab.id.name,
+                pageBuilder: (context, state) => _buildNoTransitionPage(
+                  state: state,
+                  child: SidebarDestinationPage(destination: tab.id),
+                ),
+              ),
+            ],
+          ),
       ],
     ),
     GoRoute(
@@ -193,6 +241,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.backendChooser,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const BackendChooserPage()),
+    ),
+    GoRoute(
+      path: Routes.libreChatSignIn,
+      name: RouteNames.libreChatSignIn,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const LibreChatSignInPage()),
     ),
     GoRoute(
       path: Routes.serverConnection,
@@ -301,6 +355,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.audioSettings,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AudioSettingsPage()),
+    ),
+    GoRoute(
+      path: Routes.voiceProviderSettings,
+      name: RouteNames.voiceProviderSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const VoiceProviderSettingsPage(),
+      ),
     ),
     GoRoute(
       path: Routes.accountSettings,
@@ -528,18 +590,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           _buildPlatformPage(state: state, child: const HermesMcpPage()),
     ),
     GoRoute(
+      path: Routes.hermesHiddenSessions,
+      name: RouteNames.hermesHiddenSessions,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const HermesHiddenSessionsPage(),
+      ),
+    ),
+    GoRoute(
       path: Routes.about,
       name: RouteNames.about,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AboutPage()),
     ),
     ..._workspaceRoutes(),
-    GoRoute(
-      path: Routes.notes,
-      name: RouteNames.notes,
-      pageBuilder: (context, state) =>
-          _buildNoTransitionPage(state: state, child: const NotesListPage()),
-    ),
   ];
 
   final router = GoRouter(

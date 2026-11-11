@@ -12,6 +12,7 @@ import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_session_tile.dart';
 import 'hermes_bot_avatar.dart';
@@ -61,7 +62,7 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
             ? const SizedBox(
                 width: IconSize.sm,
                 height: IconSize.sm,
-                child: CircularProgressIndicator(
+                child: AdaptiveProgressIndicator(
                   strokeWidth: BorderWidth.medium,
                 ),
               )

@@ -16,12 +16,19 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         chatMessagesProvider,
         hermesRunKeyForConversation;
 
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
+import '../../../shared/utils/ui_utils.dart';
+import '../../../l10n/app_localizations.dart';
 import 'hermes_approval_card.dart';
+import 'hermes_approval_cost_chip.dart';
+import 'hermes_clarify_form_card.dart';
 import 'hermes_decision_card.dart';
 
 typedef _HermesApprovalBinding = ({
@@ -32,12 +39,21 @@ typedef _HermesApprovalBinding = ({
   String runId,
   String approvalId,
   String? storedSessionId,
+  int? executionGeneration,
+  List<String> choices,
 });
 
 String? _nonEmptyString(Object? value) {
   final text = value?.toString();
   return text == null || text.isEmpty ? null : text;
 }
+
+/// A REST run's question, answered by its run, prompt id and generation:
+/// it needs no Hermes session, so a run started without one still asks it.
+bool _isRunQuestion(ChatMessage message, Map<dynamic, dynamic> decision) =>
+    message.metadata?['restoredDesktopDecision'] != true &&
+    decision['kind'] == HermesDecisionKind.clarification.name &&
+    decision['executionGeneration'] is int;
 
 ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
   for (final message in messages.reversed) {
@@ -66,7 +82,7 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
         _nonEmptyString(message.metadata?['hermesSessionId']);
     if (_nonEmptyString(decision['requestId']) != null &&
         _nonEmptyString(decision['runtimeId']) != null &&
-        storedSessionId != null &&
+        (storedSessionId != null || _isRunQuestion(message, decision)) &&
         expiresAt != null &&
         expiresAt.isAfter(clock.now().toUtc())) {
       return message;
@@ -150,11 +166,14 @@ class _HermesComposerPromptOverlayState
           )) {
         return null;
       }
+      final shown = hermesApprovalPresentation(
+        approval['summary'] is String ? approval['summary'] as String : null,
+        approval['cost'],
+      );
       return HermesApprovalCard(
         state: state,
-        summary: approval['summary'] is String
-            ? approval['summary'] as String
-            : null,
+        summary: shown.summary,
+        cost: shown.cost,
         choices: choices,
         onChoice: choices.isEmpty
             ? null
@@ -211,17 +230,24 @@ class _HermesComposerPromptOverlayState
       runId: runId,
       approvalId: approvalId,
       storedSessionId: storedSessionId,
+      executionGeneration: approval['executionGeneration'] is int
+          ? approval['executionGeneration'] as int
+          : null,
+      choices: choices,
     );
 
     final capabilities = ref.watch(hermesCapabilitiesProvider).asData?.value;
     if (capabilities != null && !capabilities.runApproval) {
       return null;
     }
+    final shown = hermesApprovalPresentation(
+      approval['summary'] is String ? approval['summary'] as String : null,
+      approval['cost'],
+    );
     return HermesApprovalCard(
       state: state,
-      summary: approval['summary'] is String
-          ? approval['summary'] as String
-          : null,
+      summary: shown.summary,
+      cost: shown.cost,
       choices: choices,
       onChoice: choices.isEmpty
           ? null
@@ -259,12 +285,28 @@ class _HermesComposerPromptOverlayState
     final storedSessionId =
         _nonEmptyString(decision['storedSessionId']) ??
         _nonEmptyString(message.metadata?['hermesSessionId']);
-    if (ownerConversationId == null || storedSessionId == null) {
+    if (ownerConversationId == null ||
+        (storedSessionId == null && !_isRunQuestion(message, decision))) {
       return null;
     }
     _expiryTimer = Timer(expiresAt.difference(clock.now().toUtc()), () {
       if (mounted) setState(() {});
     });
+    // A question with no text has nothing to show as a form; it keeps the
+    // plain reply card.
+    if (kind == HermesDecisionKind.clarification &&
+        hermesClarifyQuestionsFromPayload(decision).isNotEmpty) {
+      return _buildClarifyForm(
+        message: message,
+        decision: decision,
+        requestId: requestId,
+        runtimeId: runtimeId,
+        storedSessionId: storedSessionId,
+        ownerConversationId: ownerConversationId,
+        expiresAt: expiresAt,
+      );
+    }
+    if (storedSessionId == null) return null;
     return HermesDecisionCard(
       key: ValueKey('$runtimeId\u0000$requestId\u0000${kind.name}'),
       kind: kind,
@@ -331,6 +373,117 @@ class _HermesComposerPromptOverlayState
       },
     );
   }
+
+  /// A question Hermes asked, as one form: every question of a Desktop
+  /// Gateway clarify request, or the one question of a REST run's or a
+  /// session authority's `clarify.request`.
+  Widget _buildClarifyForm({
+    required ChatMessage message,
+    required Map<dynamic, dynamic> decision,
+    required String requestId,
+    required String runtimeId,
+    required String? storedSessionId,
+    required String ownerConversationId,
+    required DateTime expiresAt,
+  }) {
+    final questions = hermesClarifyQuestionsFromPayload(decision);
+    final generation = decision['executionGeneration'];
+    return HermesClarifyFormCard(
+      key: ValueKey('$runtimeId\u0000$requestId\u0000clarify'),
+      questions: questions,
+      onSubmit: (answers) async {
+        if (!expiresAt.isAfter(clock.now().toUtc())) return false;
+        final service = ref.read(hermesApiServiceProvider);
+        final configController = ref.read(hermesConfigProvider.notifier);
+        final admission = configController.captureSessionActionAdmission();
+        bool owns() => switch (service) {
+          final HermesDesktopApiService desktop =>
+            storedSessionId != null &&
+                _ownsDesktopDecision(
+                  service: desktop,
+                  ownerConversationId: ownerConversationId,
+                  storedSessionId: storedSessionId,
+                ),
+          final HermesApiService rest => _ownsRestDecision(
+            service: rest,
+            ownerConversationId: ownerConversationId,
+          ),
+          _ => false,
+        };
+        if (admission == null || !owns()) return false;
+        try {
+          switch (service) {
+            case final HermesDesktopApiService desktop:
+              await desktop.respondToClarifyForm(
+                runtimeId: runtimeId,
+                storedSessionId: storedSessionId,
+                requestId: requestId,
+                answers: answers,
+              );
+            case final HermesApiService rest when generation is int:
+              // A run's question takes one answer; empty skips it.
+              await rest.answerClarify(
+                runtimeId,
+                promptId: requestId,
+                executionGeneration: generation,
+                answer: answers.values.firstOrNull ?? '',
+              );
+            default:
+              return false;
+          }
+        } on HermesDecisionAlreadySettled {
+          // Answered elsewhere or expired: the card closes, and says the
+          // answer was not sent.
+          if (mounted && owns()) {
+            _closeDecision(message.id, requestId);
+            UiUtils.showMessage(
+              context,
+              AppLocalizations.of(context)!.hermesClarifyAlreadySettled,
+            );
+          }
+          return false;
+        } catch (_) {
+          DebugLogger.warning(
+            'clarify-answer-failed',
+            scope: 'chat/hermes_clarify',
+          );
+          return false;
+        }
+        if (!configController.sessionActionAdmissionIsCurrent(admission) ||
+            !owns()) {
+          return false;
+        }
+        _closeDecision(message.id, requestId);
+        return true;
+      },
+    );
+  }
+
+  /// Marks the decision card [requestId] on message [messageId] resolved,
+  /// which closes it.
+  void _closeDecision(String messageId, String requestId) {
+    ref.read(chatMessagesProvider.notifier).updateMessageById(messageId, (
+      message,
+    ) {
+      final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
+      final current = metadata[kHermesDecisionMeta];
+      if (current is Map && current['requestId'] == requestId) {
+        metadata[kHermesDecisionMeta] = {
+          ...current.cast<String, dynamic>(),
+          'state': 'resolved',
+        };
+      }
+      return message.copyWith(metadata: metadata);
+    });
+  }
+
+  bool _ownsRestDecision({
+    required HermesApiService service,
+    required String ownerConversationId,
+  }) =>
+      mounted &&
+      identical(ref.read(hermesApiServiceProvider), service) &&
+      ref.read(activeConversationProvider)?.id == ownerConversationId;
 
   @override
   void dispose() {
@@ -537,6 +690,16 @@ class _HermesComposerPromptOverlayState
           approvalId: approvalId,
           choice: choice,
         );
+      } else if (service is HermesApiService) {
+        await service.resolveApproval(
+          runId,
+          approvalId: approvalId,
+          approved: approved,
+          executionGeneration: binding.executionGeneration,
+          // The scope the user picked (`session`, `always`), when the
+          // approval offered it; otherwise once or deny.
+          choice: binding.choices.contains(choice) ? choice : null,
+        );
       } else {
         await service.resolveApproval(
           runId,
@@ -544,12 +707,21 @@ class _HermesComposerPromptOverlayState
           approved: approved,
         );
       }
-    } catch (_) {
+    } catch (error) {
       DebugLogger.error(
         'approval-resolve-failed',
         scope: 'chat/hermes_approval',
       );
-      setApprovalState('pending', expectedState: 'resolving');
+      // The prompt was answered elsewhere, timed out, or belongs to an older
+      // execution: offering it again could only fail the same way.
+      final settled =
+          error is HermesApiException &&
+          (error.code == HermesApiErrorCode.approvalNotPending ||
+              error.code == HermesApiErrorCode.staleGeneration);
+      setApprovalState(
+        settled ? 'settled' : 'pending',
+        expectedState: 'resolving',
+      );
       return;
     }
     setApprovalState(

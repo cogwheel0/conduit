@@ -40,12 +40,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Default model'), findsWidgets);
-    expect(find.text('Your system prompt'), findsNothing);
+    expect(find.text('Default Model'), findsWidgets);
+    expect(find.text('System Prompt'), findsNothing);
     expect(find.text('Memory'), findsNothing);
-    expect(find.text('Prompt overrides'), findsNothing);
+    expect(find.text('Prompt Overrides'), findsNothing);
 
-    await tester.tap(find.text('Default model').last);
+    await tester.tap(find.text('Default Model').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Direct Alpha'), findsOneWidget);
@@ -76,7 +76,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Default image generation model'), findsWidgets);
+    expect(find.text('Default Image Generation Model'), findsWidgets);
     expect(find.text('openai/gpt-5-image-mini'), findsOneWidget);
   });
 
@@ -88,7 +88,7 @@ void main() {
       await _pumpSignedInPage(tester, api);
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       // The ordinary editor is the content box and nothing else.
       expect(find.byType(TextField), findsOneWidget);
@@ -140,7 +140,7 @@ void main() {
       await _pumpSignedInPage(tester, api);
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'I prefer metric units');
       await tester.tap(find.text('Save').last);
@@ -161,7 +161,7 @@ void main() {
       await _pumpSignedInPage(tester, _MemoriesApi());
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('memory-type')), findsNothing);
@@ -174,13 +174,13 @@ void main() {
       await _pumpSignedInPage(tester, _MemoriesApi());
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel').last);
       await tester.pumpAndSettle();
 
       expect(find.byType(TextField), findsNothing);
-      expect(find.text('Keep editing'), findsNothing);
+      expect(find.text('Keep Editing'), findsNothing);
     });
 
     testWidgets('a save on its way is neither closed nor offered as a '
@@ -191,7 +191,7 @@ void main() {
       await _pumpSignedInPage(tester, api);
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'I prefer metric units');
       await tester.tap(find.text('Save').last);
@@ -201,10 +201,10 @@ void main() {
       // asking whether to discard.
       await tester.tapAt(const Offset(10, 10));
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Keep editing'), findsNothing);
+      expect(find.text('Keep Editing'), findsNothing);
       await tester.binding.handlePopRoute();
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Keep editing'), findsNothing);
+      expect(find.text('Keep Editing'), findsNothing);
       expect(find.text('I prefer metric units'), findsOneWidget);
 
       gate.complete();
@@ -218,15 +218,15 @@ void main() {
       await _pumpSignedInPage(tester, api);
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'Half a thought');
       await tester.pump();
 
       await tester.tap(find.text('Cancel').last);
       await tester.pumpAndSettle();
-      expect(find.text('Keep editing'), findsOneWidget);
-      await tester.tap(find.text('Keep editing'));
+      expect(find.text('Keep Editing'), findsOneWidget);
+      await tester.tap(find.text('Keep Editing'));
       await tester.pumpAndSettle();
       // Still editing, with the text kept.
       expect(find.text('Half a thought'), findsOneWidget);
@@ -258,7 +258,7 @@ void main() {
         .selected;
 
     Future<void> openAdd(WidgetTester tester) async {
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
     }
 
@@ -375,7 +375,7 @@ void main() {
       );
 
       await _openMemoryManager(tester);
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'meant for account A');
       session.switchAccount();
@@ -424,11 +424,11 @@ void main() {
       );
 
       await _openMemoryManager(tester);
-      await tester.tap(find.byTooltip('Delete memory'));
+      await tester.tap(find.byTooltip('Delete Memory'));
       await tester.pumpAndSettle();
       session.switchAccount();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete memory').last);
+      await tester.tap(find.text('Delete Memory').last);
       await tester.pumpAndSettle();
 
       expect(session.api.deleted, isEmpty);
@@ -442,9 +442,9 @@ void main() {
         await _pumpSignedInPage(tester, _MemoriesApi(), permitted: false);
 
         expect(find.text('Memory'), findsNothing);
-        expect(find.text('Manage memories'), findsNothing);
+        expect(find.text('Manage Memories'), findsNothing);
         expect(
-          find.text('Your system prompt', skipOffstage: false),
+          find.text('System Prompt', skipOffstage: false),
           findsOneWidget,
         );
       },
@@ -455,7 +455,7 @@ void main() {
     ) async {
       await _pumpSignedInPage(tester, _MemoriesApi(), permitted: null);
 
-      expect(find.text('Manage memories', skipOffstage: false), findsOneWidget);
+      expect(find.text('Manage Memories', skipOffstage: false), findsOneWidget);
     });
   });
 }
@@ -489,8 +489,8 @@ class _OpenRouterModels extends Models {
 }
 
 Future<void> _openMemoryManager(WidgetTester tester) async {
-  await tester.ensureVisible(find.text('Manage memories'));
-  await tester.tap(find.text('Manage memories'));
+  await tester.ensureVisible(find.text('Manage Memories'));
+  await tester.tap(find.text('Manage Memories'));
   await tester.pumpAndSettle();
 }
 

@@ -11,6 +11,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 
@@ -210,6 +211,24 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
           );
     } on DirectConnectionProfileConflictException catch (error, stackTrace) {
       Error.throwWithStackTrace(DirectEditorSaveConflict(error), stackTrace);
+    }
+    // Hermes-only mode hides Direct, so a provider added there would never
+    // show. Direct becomes primary instead, and Hermes joins it. The provider
+    // is saved by now; failing to check or switch does not undo that.
+    if (mode.isNew && intent.draft.isUsable) {
+      try {
+        if (ref.read(hermesOnlyModeProvider)) {
+          await ref
+              .read(preferredBackendProvider.notifier)
+              .set(PreferredBackend.direct);
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'direct-primary-after-save-failed',
+          scope: 'direct/editor',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
     }
   }
 

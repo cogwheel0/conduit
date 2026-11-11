@@ -19,6 +19,12 @@ HermesDesktopAuthKind hermesRecommendedDesktopAuth(
             flow is Map &&
                 (flow['id'] == 'native_pkce' || flow['type'] == 'native_pkce'),
       );
+  // A deployment gated only by its provisioned session token (Hermes 0.22.6+
+  // `session-token` provider) offers no interactive sign-in: its login page
+  // is just a note, so the token itself is the credential.
+  if (!native && hermesDesktopAcceptsSessionToken(status)) {
+    return HermesDesktopAuthKind.legacyToken;
+  }
   return native && !hasAccessHeaders
       ? HermesDesktopAuthKind.nativePkce
       : HermesDesktopAuthKind.dashboardCookie;
@@ -96,6 +102,9 @@ final class HermesDesktopConnectionCoordinator {
     Future<T> Function(HermesDesktopApiService service) operation, {
     HermesDesktopCredentialsWriter? onCredentialsChanged,
   }) async {
+    // Every request from a draft sends its credentials (access headers at
+    // least): never unencrypted unasked.
+    if (!config.mayUsePlainHttp) throw const HermesPlainHttpConsentRequired();
     final service = HermesDesktopApiService(
       config: config,
       openExternalUrl: openExternalUrl,

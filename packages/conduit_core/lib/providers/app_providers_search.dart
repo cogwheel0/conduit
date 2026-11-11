@@ -45,6 +45,47 @@ Future<List<Conversation>> _offlineSearch(
   }
 }
 
+/// How long the stores a search reads must stay quiet before it reruns.
+const Duration _searchRerunDelay = Duration(milliseconds: 250);
+
+/// Reruns an on-device search whenever the stores it reads change: a pull
+/// brings chats in, a chat is renamed or deleted, or the index is built
+/// after the first pull. Otherwise a search typed before history arrived
+/// would keep showing nothing. A burst of writes, such as a pull storing
+/// chat after chat, reruns it once.
+void _rerunWhenChatsChange(Ref ref, ChatDatabaseRepository repository) {
+  Timer? rerun;
+  final subscriptions = [
+    for (final location in [
+      ?repository.openWebUiLocation,
+      ?repository.libreChatLocation,
+      repository.directLocalLocation,
+    ])
+      location.database.tableUpdates().listen((updates) {
+        final database = location.database;
+        final watched = {
+          database.chats.actualTableName,
+          // An account's index is built by its sync. The on-device one is
+          // built by the search itself, which must not rerun it.
+          if (location.storage != ChatStorageKind.directLocal)
+            database.syncMeta.actualTableName,
+        };
+        if (updates.any((update) => watched.contains(update.table))) {
+          rerun?.cancel();
+          rerun = Timer(_searchRerunDelay, () {
+            if (ref.mounted) ref.invalidateSelf();
+          });
+        }
+      }),
+  ];
+  ref.onDispose(() {
+    rerun?.cancel();
+    for (final subscription in subscriptions) {
+      unawaited(subscription.cancel());
+    }
+  });
+}
+
 // Server-side search provider for chats, with an offline FTS5 fallback.
 @riverpod
 Future<List<Conversation>> serverSearch(Ref ref, String query) async {
@@ -73,8 +114,18 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   if (api == null) {
     // Offline: serve ranked results straight from the local
     // FTS index over synced history (CDT-RFC-001 Phase 4 acceptance).
+    // Watching the repository reruns the search when the account that owns
+    // the Chats tab changes (Open WebUI parked, one LibreChat account for
+    // another), and a search finishing after that change is dropped.
+    final repository = ref.watch(chatDatabaseRepositoryProvider);
+    _rerunWhenChatsChange(ref, repository);
     DebugLogger.log('offline-search', scope: 'search');
-    return _offlineSearch(ref, trimmedQuery);
+    final results = await _offlineSearch(ref, trimmedQuery);
+    if (!ref.mounted ||
+        !identical(ref.read(chatDatabaseRepositoryProvider), repository)) {
+      return const [];
+    }
+    return results;
   }
 
   try {
