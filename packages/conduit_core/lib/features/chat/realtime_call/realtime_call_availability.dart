@@ -99,7 +99,11 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(
       ? ref.read(temporaryChatEnforcedProvider) ||
             ref.read(appSettingsProvider).temporaryChatByDefault
       : ref.read(temporaryChatEnabledProvider);
-  if (temporary || (active != null && isTemporaryChat(active.id))) {
+  // Hermes chats keep `local:` ids although Hermes stores them server-side, so
+  // the temporary-chat rule is not theirs: applied to them, every call after
+  // the first GPT-Live one in a chat quietly fell back to Standard.
+  if (!isHermesModel(model) &&
+      (temporary || (active != null && isTemporaryChat(active.id)))) {
     return _blocked(RealtimeCallBlock.temporaryChat);
   }
   // Hermes keeps the OpenAI key and opens GPT-Live calls itself, from its
