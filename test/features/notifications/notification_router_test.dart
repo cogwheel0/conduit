@@ -139,6 +139,40 @@ void main() {
     ),
   );
 
+  group('signing out while a notification is routed', () {
+    test('its account signed out during the sound shows nothing', () async {
+      final playing = Completer<void>();
+      when(() => sound.play()).thenAnswer((_) => playing.future);
+      final router = build(foreground: false);
+      final routing = router.route(_chat());
+      router.signedOut(_chat().scope);
+      playing.complete();
+      check(await routing).equals(NotificationSurface.suppressed);
+      verifyNeverShown();
+    });
+
+    test('signing out of everything stops it too', () async {
+      final playing = Completer<void>();
+      when(() => sound.play()).thenAnswer((_) => playing.future);
+      final router = build();
+      final routing = router.route(_chat());
+      router.signedOut(null);
+      playing.complete();
+      check(await routing).equals(NotificationSurface.suppressed);
+      check(banners).isEmpty();
+    });
+
+    test('another account signing out leaves it alone', () async {
+      final playing = Completer<void>();
+      when(() => sound.play()).thenAnswer((_) => playing.future);
+      final router = build(foreground: false);
+      final routing = router.route(_chat());
+      router.signedOut('owui:someone-else');
+      playing.complete();
+      check(await routing).equals(NotificationSurface.system);
+    });
+  });
+
   group('gating', () {
     test('master toggle off suppresses everything', () async {
       final router = build(
