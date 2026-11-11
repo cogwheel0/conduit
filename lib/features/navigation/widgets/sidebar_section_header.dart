@@ -61,6 +61,11 @@ class SidebarSectionHeader extends StatelessWidget {
   /// A compact control at the trailing end, such as New Folder: laid out
   /// [TouchTarget.minimum] wide and as tall as the header, it should centre
   /// its content.
+  ///
+  /// At the default text size a later section's header is about 44 pt tall,
+  /// but the first section's is about 40 pt, below the toolbar's tighter
+  /// spacing. The control keeps that shorter target rather than make the
+  /// header taller than the others.
   final Widget? trailing;
 
   final Key? chevronKey;

@@ -117,6 +117,7 @@ void main() {
     tester.view.physicalSize = const Size(_windowWidth, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    const controlKey = ValueKey<String>('trailing-control');
     const glyphKey = ValueKey<String>('trailing-glyph');
     var controlTaps = 0;
     var rowTaps = 0;
@@ -149,6 +150,7 @@ void main() {
                             onToggle: () => toggles++,
                             trailing: withControl
                                 ? GestureDetector(
+                                    key: controlKey,
                                     behavior: HitTestBehavior.opaque,
                                     onTap: () => controlTaps++,
                                     child: const Center(
@@ -198,8 +200,14 @@ void main() {
           reason: reason,
         );
 
-        // The control takes taps from the header's top edge to its bottom
-        // edge, and the row below keeps its own.
+        // The control is laid out a touch target wide and as tall as the
+        // header, takes taps from the header's top edge to its bottom edge,
+        // and the row below keeps its own.
+        expect(
+          tester.getSize(find.byKey(controlKey)),
+          Size(TouchTarget.minimum, header.height),
+          reason: reason,
+        );
         final x = glyph.center.dx;
         for (final y in [header.top + 1, glyph.center.dy, header.bottom - 1]) {
           final before = controlTaps;
