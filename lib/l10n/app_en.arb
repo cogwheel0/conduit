@@ -11216,7 +11216,7 @@
   "@pushResetKeysConfirm": {
     "description": "Confirms resetting push keys."
   },
-  "pushPrivacyIntro": "Each push notification is encrypted on your own server, to a key that never leaves this device. Nothing in between can read it.",
+  "pushPrivacyIntro": "Your own server encrypts each push notification so that only this device can read it. The key that decrypts it never leaves this device, so nothing in between can read it.",
   "@pushPrivacyIntro": {
     "description": "Opening paragraph of the push privacy explainer."
   },
@@ -11256,7 +11256,7 @@
   "@pushPrivacyOffTitle": {
     "description": "Push privacy explainer section about turning push off."
   },
-  "pushPrivacyOffBody": "Turning push off, signing out or removing an account removes this device from the server and deletes its keys, so nothing sent later can be read.",
+  "pushPrivacyOffBody": "Turning push off, signing out or removing an account deletes this device's push keys, so nothing sent later can be read. Conduit also asks the server to forget this device.",
   "@pushPrivacyOffBody": {
     "description": "Push privacy explainer: what turning push off does."
   },
