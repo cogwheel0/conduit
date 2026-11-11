@@ -162,6 +162,7 @@ class PushSync {
         // local-id lock span, and remap+clear share this server-id lock span.
         // Clear only the captured message snapshot (now living under serverId)
         // and the chat row.
+        _db.chatsDao.notePushLanded(pushed.serverId);
         await _clearDirty(
           chatId: pushed.serverId,
           messageIds: pushed.capturedMessageIds,
@@ -285,6 +286,7 @@ class PushSync {
       // Store serverUpdatedAt + clear dirty ONLY for the captured snapshot:
       // any row dirtied after the capture (none possible inside this single
       // lock span, but defensively) stays dirty.
+      _db.chatsDao.notePushLanded(chatId);
       await _clearDirty(
         chatId: chatId,
         messageIds: capturedMessageIds,
@@ -503,14 +505,16 @@ class PushSync {
 
   /// Caller holds the chat lock. Stores [serverUpdatedAt] + clears dirty for
   /// the chat row and exactly [messageIds] in ONE transaction (REQ §7.2/§10).
+  ///
+  /// A push that reached the server notes it first
+  /// ([ChatsDao.notePushLanded]): a copy read before then is older than the
+  /// base stored here, even one stamped the same second. A create found
+  /// satisfied already sent nothing, so a copy read before it is current.
   Future<void> _clearDirty({
     required String chatId,
     required List<String> messageIds,
     required int serverUpdatedAt,
   }) {
-    // The server holds what was pushed: a copy read before now is older than
-    // the base stored here, even one stamped the same second.
-    _db.chatsDao.notePushLanded(chatId);
     return _db.transaction(() async {
       await _db.customUpdate(
         'UPDATE chats SET server_updated_at = ?, dirty = 0 WHERE id = ?',

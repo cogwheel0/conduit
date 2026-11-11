@@ -47,8 +47,12 @@ class _HeldChatReadClient extends FakeSyncApiClient {
   final Completer<void> read;
   final Completer<void> release;
 
+  /// How many times the chat was read.
+  int reads = 0;
+
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    reads++;
     final copy = await super.getChatRaw(id);
     if (!read.isCompleted) read.complete();
     await release.future;
@@ -321,6 +325,55 @@ void main() {
       check(reResult).equals(serverId);
       // Still exactly one createChat POST — no duplicate chat on the server.
       check(client.createChatCalls).equals(1);
+    });
+
+    test('a re-run that sends nothing leaves a newer copy, read before it, '
+        'to be stored', () async {
+      const localId = 'local:rerun';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final serverId = (await push.pushCreateChat(localId))!;
+
+      // Edited on another device a second later.
+      final blob =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final history = blob['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      (messages['$localId-m1'] as Map<String, dynamic>)['content'] =
+          'Sow the peas in March.';
+      server.seedChat(
+        id: serverId,
+        blob: blob,
+        createdAt: 7000,
+        updatedAt: 7001,
+      );
+
+      // A pull reads that copy...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final reader = _HeldChatReadClient(server, read: read, release: release);
+      final pulling = PullSync(
+        client: reader,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+      await read.future;
+      // ...the create runs again (its done mark was lost) and finds the chat
+      // on the server already, so nothing is sent...
+      check(await push.pushCreateChat(serverId)).equals(serverId);
+      check(client.createChatCalls).equals(1);
+      // ...and the copy comes back after it.
+      release.complete();
+      await pulling;
+
+      final stored = await db.messagesDao.getForChat(serverId);
+      check(stored.single.content).equals('Sow the peas in March.');
+      check(await db.chatsDao.getChat(serverId))
+          .isNotNull()
+          .has((c) => c.serverUpdatedAt, 'serverUpdatedAt')
+          .equals(7001);
+      // Stored as it was read, with no second read.
+      check(reader.reads).equals(1);
     });
 
     test(
