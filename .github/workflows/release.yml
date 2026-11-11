@@ -86,6 +86,15 @@ jobs:
     needs: generate-release-notes
     permissions:
       contents: write
+    # Push: the relay's address is a repository variable, so this public
+    # repository names no deployment, and Firebase's app values are secrets.
+    # Built without them, the app has no FCM push; UnifiedPush still works.
+    env:
+      CONDUIT_PUSH_RELAY_URL: ${{ vars.CONDUIT_PUSH_RELAY_URL }}
+      CONDUIT_FCM_PROJECT_ID: ${{ secrets.CONDUIT_FCM_PROJECT_ID }}
+      CONDUIT_FCM_APP_ID: ${{ secrets.CONDUIT_FCM_APP_ID }}
+      CONDUIT_FCM_API_KEY: ${{ secrets.CONDUIT_FCM_API_KEY }}
+      CONDUIT_FCM_SENDER_ID: ${{ secrets.CONDUIT_FCM_SENDER_ID }}
 
     steps:
         #1 Checkout Repository
@@ -148,10 +157,23 @@ jobs:
         working-directory: android
       
       - name: Build APK
-        run: flutter build apk --split-per-abi --target-platform android-arm,android-arm64 --release
+        run: flutter build apk --split-per-abi --target-platform android-arm,android-arm64 --release --dart-define=CONDUIT_PUSH_RELAY_URL="$CONDUIT_PUSH_RELAY_URL"
 
       - name: Build appBundle
-        run: flutter build appbundle --target-platform android-arm,android-arm64 --release
+        run: flutter build appbundle --target-platform android-arm,android-arm64 --release --dart-define=CONDUIT_PUSH_RELAY_URL="$CONDUIT_PUSH_RELAY_URL"
+
+      # The FOSS build (UnifiedPush only, no Google code) writes the same APK
+      # names, so the Play APKs are set aside first.
+      - name: Build FOSS APK
+        run: |
+          mkdir -p build/release-apks
+          for abi in arm64-v8a armeabi-v7a; do
+            mv "build/app/outputs/flutter-apk/app-$abi-release.apk" build/release-apks/
+          done
+          flutter build apk --split-per-abi --target-platform android-arm,android-arm64 --release -P conduitPushVariant=foss
+          for abi in arm64-v8a armeabi-v7a; do
+            mv "build/app/outputs/flutter-apk/app-$abi-release.apk" "build/release-apks/app-$abi-foss-release.apk"
+          done
 
       # Both only read the built files.
       - parallel:
@@ -160,13 +182,12 @@ jobs:
             with:
               name: Android-Release
               path: |
-                build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-                build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+                build/release-apks/*.apk
                 build/app/outputs/bundle/release/app-release.aab
           - name: Update Release with Artifacts
             uses: ncipollo/release-action@v1
             with:
-              artifacts: "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk,build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk,build/app/outputs/bundle/release/app-release.aab"
+              artifacts: "build/release-apks/*.apk,build/app/outputs/bundle/release/app-release.aab"
               tag: ${{ github.ref_name }}
               token: ${{ secrets.GITHUB_TOKEN }}
               allowUpdates: true
@@ -256,8 +277,9 @@ jobs:
       - name: Build iOS App
         env:
           XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/ArmOnly.xcconfig
+          CONDUIT_PUSH_RELAY_URL: ${{ vars.CONDUIT_PUSH_RELAY_URL }}
         run: |
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --dart-define=CONDUIT_PUSH_RELAY_URL="$CONDUIT_PUSH_RELAY_URL"
 
         #7 Create IPA from App Bundle
       - name: Create IPA
