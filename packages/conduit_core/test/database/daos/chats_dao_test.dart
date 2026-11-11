@@ -1125,6 +1125,37 @@ void main() {
         refreshWhenClean: true,
       );
       check(await stored()).equals('the finished answer');
+
+      // A copy older than the base -- read before a push of the chat landed
+      // -- is not taken, asked for by name or not.
+      final stale = ChatRows(
+        chat: ChatRowData(
+          id: rows.chat.id,
+          title: rows.chat.title,
+          folderId: rows.chat.folderId,
+          pinned: rows.chat.pinned,
+          archived: rows.chat.archived,
+          currentMessageId: rows.chat.currentMessageId,
+          createdAt: rows.chat.createdAt,
+          updatedAt: rows.chat.updatedAt - 1,
+          rawExtra: rows.chat.rawExtra,
+        ),
+        messages: rows.messages,
+        unmappableMessages: rows.unmappableMessages,
+        unmappableMessageOrder: rows.unmappableMessageOrder,
+        blobHadTitle: rows.blobHadTitle,
+        blobTitleValue: rows.blobTitleValue,
+        blobHadHistory: rows.blobHadHistory,
+        historyHadMessages: rows.historyHadMessages,
+        historyHadCurrentId: rows.historyHadCurrentId,
+        historyExtra: rows.historyExtra,
+      );
+      final skipped = await db.chatsDao.mergeServerChat(
+        server: stale,
+        refreshWhenClean: true,
+      );
+      check(skipped.staleRead).isTrue();
+      check(await stored()).equals('the finished answer');
     },
   );
 }

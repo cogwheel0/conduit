@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:drift/drift.dart';
@@ -29,6 +33,88 @@ class _DeleteAfterArchiveToggleClient extends FakeSyncApiClient {
     final response = await super.toggleArchive(id);
     server.deleteChat(id);
     return response;
+  }
+}
+
+/// Reads the chat when asked, then holds the copy until [release]: a pull
+/// whose read lands before a push and whose merge comes after it.
+class _HeldChatReadClient extends FakeSyncApiClient {
+  _HeldChatReadClient(
+    super.server, {
+    required this.read,
+    required this.release,
+    this.envelope = const {},
+  });
+
+  final Completer<void> read;
+  final Completer<void> release;
+
+  /// Laid over each copy as it is read: what Open WebUI keeps beside the
+  /// chat without moving its `updated_at` (tags, a share link), which the
+  /// fake server does not hold.
+  Map<String, dynamic> envelope;
+
+  /// How many times the chat was read.
+  int reads = 0;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    reads++;
+    final copy = await super.getChatRaw(id);
+    final beside = envelope;
+    if (!read.isCompleted) read.complete();
+    await release.future;
+    return copy == null ? null : {...copy, ...beside};
+  }
+}
+
+/// Fails the pin that follows an update: the update has reached the server,
+/// and the push has not finished.
+class _PinFailsClient extends FakeSyncApiClient {
+  _PinFailsClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> togglePin(String id) async =>
+      throw StateError('connection reset while pinning $id');
+}
+
+/// Lets a create reach the server, then holds its answer until [release]:
+/// the chat is on the server, and still `local:` here.
+class _HeldCreateClient extends FakeSyncApiClient {
+  _HeldCreateClient(
+    super.server, {
+    required this.created,
+    required this.release,
+  });
+
+  final Completer<String> created;
+  final Completer<void> release;
+
+  @override
+  Future<Map<String, dynamic>> createChat(
+    Map<String, dynamic> chatBlob, {
+    String? folderId,
+  }) async {
+    final response = await super.createChat(chatBlob, folderId: folderId);
+    created.complete(response['id'] as String);
+    await release.future;
+    return response;
+  }
+}
+
+/// Runs [afterRead] after each read of a chat, before the copy is handed
+/// back, and lays [envelope] over the copy (see [_HeldChatReadClient]).
+class _ReadHookClient extends FakeSyncApiClient {
+  _ReadHookClient(super.server);
+
+  Map<String, dynamic> envelope = const {};
+  Future<void> Function()? afterRead;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final copy = await super.getChatRaw(id);
+    await afterRead?.call();
+    return copy == null ? null : {...copy, ...envelope};
   }
 }
 
@@ -299,6 +385,251 @@ void main() {
       check(client.createChatCalls).equals(1);
     });
 
+    test('a re-run that sends nothing leaves a newer copy, read before it, '
+        'to be stored', () async {
+      const localId = 'local:rerun';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final serverId = (await push.pushCreateChat(localId))!;
+
+      // Edited on another device a second later.
+      final blob =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final history = blob['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      (messages['$localId-m1'] as Map<String, dynamic>)['content'] =
+          'Sow the peas in March.';
+      server.seedChat(
+        id: serverId,
+        blob: blob,
+        createdAt: 7000,
+        updatedAt: 7001,
+      );
+
+      // A pull reads that copy...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final reader = _HeldChatReadClient(server, read: read, release: release);
+      final pulling = PullSync(
+        client: reader,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+      await read.future;
+      // ...the create runs again (its done mark was lost) and finds the chat
+      // on the server already, so nothing is sent...
+      check(await push.pushCreateChat(serverId)).equals(serverId);
+      check(client.createChatCalls).equals(1);
+      // ...and the copy comes back after it.
+      release.complete();
+      await pulling;
+
+      final stored = await db.messagesDao.getForChat(serverId);
+      check(stored.single.content).equals('Sow the peas in March.');
+      check(await db.chatsDao.getChat(serverId))
+          .isNotNull()
+          .has((c) => c.serverUpdatedAt, 'serverUpdatedAt')
+          .equals(7001);
+      // Stored as it was read, with no second read.
+      check(reader.reads).equals(1);
+    });
+
+    test('a re-run after a params edit leaves the edit to the update still '
+        'owed, past a copy from before it read in the same second', () async {
+      const localId = 'local:params-edit';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+
+      // A pull reads the chat...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final pulling = PullSync(
+        client: _HeldChatReadClient(server, read: read, release: release),
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+      await read.future;
+      // ...its temperature is changed here, in the same second...
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.patchChatParamsWithOutbox(
+          serverId,
+          set: {'temperature': 0.2},
+          updatedAt: 7000,
+        ),
+      );
+      // ...the create runs again (its done mark was lost) and sends
+      // nothing...
+      check(await push.pushCreateChat(serverId, contentHash: contentHash))
+          .equals(serverId);
+      check(client.createChatCalls).equals(1);
+      // ...and the copy from before the edit comes back after it.
+      release.complete();
+      await pulling;
+
+      check(await db.chatsDao.getChatParams(serverId))
+          .isNotNull()
+          .deepEquals({'temperature': 0.2});
+      // The update the edit queued sends it.
+      check(await outboxOpsForChat(db, serverId)).single
+          .has((op) => op.kind, 'kind')
+          .equals(OutboxKind.updateChat.name);
+      await push.pushUpdateChat(serverId);
+      check((server.getChatById(serverId)!['chat'] as Map)['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'temperature': 0.2});
+    });
+
+    test('a re-run after a pin, which its snapshot leaves out, leaves the pin '
+        'to the update still owed', () async {
+      const localId = 'local:pin-after-create';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+
+      // Pinned here, then the create runs again and sends nothing...
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.updateEnvelopeWithOutbox(
+          serverId,
+          pinned: const Value(true),
+          enqueue: true,
+        ),
+      );
+      check(await push.pushCreateChat(serverId, contentHash: contentHash))
+          .equals(serverId);
+      // ...and the chat is pulled by name, in the same second.
+      await PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+
+      check(await db.chatsDao.getChat(serverId))
+          .isNotNull()
+          .has((c) => c.pinned, 'pinned')
+          .isTrue();
+      await push.pushUpdateChat(serverId);
+      check(server.getChatById(serverId)!['pinned']).equals(true);
+    });
+
+    test('an edit made while a create that reached the server waits to run '
+        'again is still sent', () async {
+      const localId = 'local:waiting-create';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      await db.transaction(
+        () => db.outboxDao.enqueue(
+          kind: OutboxKind.createChat,
+          chatId: localId,
+          contentHash: contentHash,
+        ),
+      );
+      // The create reaches the server and its op takes the server id with
+      // the row, but its done mark is lost...
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+      // ...and the temperature is changed before it runs again.
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.patchChatParamsWithOutbox(
+          serverId,
+          set: {'temperature': 0.2},
+          updatedAt: 7000,
+        ),
+      );
+
+      final ops = await outboxOpsForChat(db, serverId)
+        ..sort((a, b) => a.seq.compareTo(b.seq));
+      for (final op in ops) {
+        if (op.kind == OutboxKind.createChat.name) {
+          await push.pushCreateChat(op.chatId!, contentHash: op.contentHash);
+        } else if (op.kind == OutboxKind.updateChat.name) {
+          await push.pushUpdateChat(op.chatId!);
+        }
+        await db.outboxDao.markDone(op.seq);
+      }
+
+      check(client.createChatCalls).equals(1);
+      check((server.getChatById(serverId)!['chat'] as Map)['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'temperature': 0.2});
+    });
+
+    test('a checklist event that comes while a copy from before the create '
+        'is read is kept', () async {
+      const localId = 'local:checklist';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final created = Completer<String>();
+      final answered = Completer<void>();
+      final creating = PushSync(
+        client: _HeldCreateClient(server, created: created, release: answered),
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      ).pushCreateChat(localId);
+      final serverId = await created.future;
+
+      // A pull reads the new chat before the create's answer is back...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final pulling = PullSync(
+        client: _HeldChatReadClient(server, read: read, release: release),
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+      await read.future;
+      // ...a checklist event comes for it, with no row under its id yet...
+      final tasks = <Map<String, dynamic>>[
+        {'id': '1', 'content': 'Water the seedlings', 'status': 'completed'},
+      ];
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.updateServerTasks(serverId, tasks),
+      );
+      // ...the answer lands and the row takes the server id...
+      answered.complete();
+      await creating;
+      // ...and the copy read before all that comes back.
+      release.complete();
+      await pulling;
+
+      final meta = jsonDecode((await db.chatsDao.getChat(serverId))!.meta);
+      check(meta as Map<String, dynamic>)
+          .has((m) => m['_conduit_tasks'], 'tasks')
+          .isA<List<dynamic>>()
+          .deepEquals(tasks);
+    });
+
     test(
       're-run with an already-remapped id keeps newer dirty messages dirty',
       () async {
@@ -365,6 +696,453 @@ void main() {
   });
 
   group('pushUpdateChat', () {
+    test('a copy read before a send was pushed, in the same second, does not '
+        'take the sent message and its placeholder back out', () async {
+      // Open WebUI stamps whole seconds: the stored chat, the push below
+      // and the copy a pull reads in between all carry 7000.
+      server.seedChat(
+        id: 'srv-race',
+        blob: {
+          'title': 'Seed beds',
+          'models': ['llama3'],
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': ['a1'],
+                'role': 'user',
+                'content': 'When do beans go in?',
+              },
+              'a1': {
+                'id': 'a1',
+                'parentId': 'q1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': 'After the last frost.',
+                'done': true,
+              },
+            },
+            'currentId': 'a1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      await pull.pullChat('srv-race');
+
+      // A send, as `durableSend` commits it: the question and its answer's
+      // empty placeholder, pending a push and a completion.
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'srv-race',
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: 'q2',
+            chatId: 'srv-race',
+            parentId: 'a1',
+            role: 'user',
+            content: 'And the herbs?',
+            createdAt: 7000,
+            orderIndex: 0,
+            payload: <String, dynamic>{
+              'id': 'q2',
+              'parentId': 'a1',
+              'childrenIds': ['a2'],
+              'role': 'user',
+              'content': 'And the herbs?',
+            },
+          ),
+          MessageRowData(
+            id: 'a2',
+            chatId: 'srv-race',
+            parentId: 'q2',
+            role: 'assistant',
+            content: '',
+            createdAt: 7000,
+            orderIndex: 1,
+            payload: <String, dynamic>{
+              'id': 'a2',
+              'parentId': 'q2',
+              'childrenIds': <String>[],
+              'role': 'assistant',
+              'content': '',
+            },
+          ),
+        ],
+        currentMessageId: 'a2',
+        updatedAt: 7000,
+        enqueueCompletion: false,
+      );
+
+      // Another pull reads the chat now, before the push...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final racing = PullSync(
+        client: _HeldChatReadClient(server, read: read, release: release),
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      final pulling = racing.pullChat('srv-race');
+      await read.future;
+      // ...the push lands, in the same second...
+      await push.pushUpdateChat('srv-race');
+      check(await db.chatsDao.getChat('srv-race'))
+          .isNotNull()
+          .has((c) => c.serverUpdatedAt, 'serverUpdatedAt')
+          .equals(7000);
+      // ...and the copy from before it is stored after it.
+      release.complete();
+      await pulling;
+
+      final ids = [
+        for (final m in await db.messagesDao.getForChat('srv-race')) m.id,
+      ];
+      check(ids).deepEquals(['q1', 'a1', 'q2', 'a2']);
+      // The answer is written on the server in that same second, and the
+      // next pull, read after the push, takes it as before.
+      final blob =
+          server.getChatById('srv-race')!['chat'] as Map<String, dynamic>;
+      final history = blob['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      (messages['a2'] as Map<String, dynamic>)
+        ..['content'] = 'Basil once the nights are warm.'
+        ..['done'] = true;
+      server.seedChat(
+        id: 'srv-race',
+        blob: blob,
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      await pull.pullChat('srv-race');
+      final stored = await db.messagesDao.getForChat('srv-race');
+      check([for (final m in stored) m.id])
+          .deepEquals(['q1', 'a1', 'q2', 'a2']);
+      check(stored.last.content).equals('Basil once the nights are warm.');
+    });
+
+    test('a copy read before an update reached the server is read again when '
+        'the pin after the update fails', () async {
+      server.seedChat(
+        id: 'srv-pin-fails',
+        blob: {
+          'title': 'Potting mix',
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'What goes in a potting mix?',
+              },
+            },
+            'currentId': 'q1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      await PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat('srv-pin-fails');
+
+      // A message sent and the chat pinned here, pending one push.
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'srv-pin-fails',
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: 'q2',
+            chatId: 'srv-pin-fails',
+            parentId: 'q1',
+            role: 'user',
+            content: 'And for seedlings?',
+            createdAt: 7000,
+            orderIndex: 0,
+            payload: <String, dynamic>{
+              'id': 'q2',
+              'parentId': 'q1',
+              'childrenIds': <String>[],
+              'role': 'user',
+              'content': 'And for seedlings?',
+            },
+          ),
+        ],
+        currentMessageId: 'q2',
+        updatedAt: 7000,
+        enqueueCompletion: false,
+      );
+      await chatLocks.runExclusive(
+        'srv-pin-fails',
+        () => db.chatsDao.updateEnvelopeWithOutbox(
+          'srv-pin-fails',
+          pinned: const Value(true),
+          enqueue: true,
+        ),
+      );
+
+      // A pull reads the chat, with the link it is shared by, before the
+      // push...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final reader = _HeldChatReadClient(
+        server,
+        read: read,
+        release: release,
+        envelope: {'share_id': 'share-mix'},
+      );
+      final pulling = PullSync(
+        client: reader,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat('srv-pin-fails');
+      await read.future;
+      // ...the update lands, in the same second, and the pin after it
+      // fails...
+      await check(
+        PushSync(
+          client: _PinFailsClient(server),
+          db: db,
+          chatLocks: chatLocks,
+          folderLocks: folderLocks,
+          clock: clock,
+          remapper: remapper,
+        ).pushUpdateChat('srv-pin-fails'),
+      ).throws<StateError>();
+      final history =
+          (server.getChatById('srv-pin-fails')!['chat'] as Map)['history']
+              as Map;
+      check((history['messages'] as Map).keys).contains('q2');
+      // ...the link is taken down elsewhere...
+      reader.envelope = const {'share_id': null};
+      // ...and the copy from before the update comes back after it.
+      release.complete();
+      await pulling;
+
+      // None of it is stored: the chat is read again, link and all.
+      check(reader.reads).equals(2);
+      check(await db.chatsDao.getChat('srv-pin-fails'))
+          .isNotNull()
+          .has((c) => c.shareId, 'shareId')
+          .isNull();
+    });
+
+    for (final byName in [false, true]) {
+      test(
+        'tags and a share link read with a copy from before a push still '
+        'arrive (${byName ? 'a pull asked for by name' : 'a pull cycle'})',
+        () async {
+          server.seedChat(
+            id: 'srv-tags',
+            blob: {
+              'title': 'Bean rows',
+              'models': ['llama3'],
+              'history': {
+                'messages': {
+                  'q1': {
+                    'id': 'q1',
+                    'parentId': null,
+                    'childrenIds': ['a1'],
+                    'role': 'user',
+                    'content': 'How far apart are bean rows?',
+                  },
+                  'a1': {
+                    'id': 'a1',
+                    'parentId': 'q1',
+                    'childrenIds': <String>[],
+                    'role': 'assistant',
+                    'content': 'About 45 cm.',
+                    'done': true,
+                  },
+                },
+                'currentId': 'a1',
+              },
+            },
+            createdAt: 100,
+            updatedAt: 7000,
+          );
+          await PullSync(
+            client: client,
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          ).pullChat('srv-tags');
+
+          // A message sent here, pending its push.
+          await db.chatsDao.appendMessagesWithUpdateOp(
+            chatId: 'srv-tags',
+            messages: <MessageRowData>[
+              MessageRowData(
+                id: 'q2',
+                chatId: 'srv-tags',
+                parentId: 'a1',
+                role: 'user',
+                content: 'And for peas?',
+                createdAt: 7000,
+                orderIndex: 0,
+                payload: <String, dynamic>{
+                  'id': 'q2',
+                  'parentId': 'a1',
+                  'childrenIds': <String>[],
+                  'role': 'user',
+                  'content': 'And for peas?',
+                },
+              ),
+            ],
+            currentMessageId: 'q2',
+            updatedAt: 7000,
+            enqueueCompletion: false,
+          );
+
+          // Tagged and shared elsewhere, which leaves `updated_at` alone. A
+          // pull reads the chat, tags and link included, before the push...
+          final read = Completer<void>();
+          final release = Completer<void>();
+          final racing = PullSync(
+            client: _HeldChatReadClient(
+              server,
+              read: read,
+              release: release,
+              envelope: {
+                'meta': {
+                  'tags': ['garden'],
+                },
+                'share_id': 'share-beans',
+              },
+            ),
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          );
+          final Future<Object?> pulling = byName
+              ? racing.pullChat('srv-tags')
+              : racing.run();
+          await read.future;
+          // ...the push lands, in the same second...
+          await push.pushUpdateChat('srv-tags');
+          // ...and the copy from before it comes back after it.
+          release.complete();
+          await pulling;
+
+          final chat = (await db.chatsDao.getChat('srv-tags'))!;
+          check(jsonDecode(chat.meta) as Map<String, dynamic>)
+              .has((m) => m['tags'], 'tags')
+              .isA<List<dynamic>>()
+              .deepEquals(['garden']);
+          check(chat.shareId).equals('share-beans');
+          check([
+            for (final m in await db.messagesDao.getForChat('srv-tags')) m.id,
+          ]).deepEquals(['q1', 'a1', 'q2']);
+        },
+      );
+    }
+
+    test('a cycle whose every read of a chat predates a push of it leaves the '
+        'chat for the next cycle to read', () async {
+      server.seedChat(
+        id: 'srv-memo',
+        blob: {
+          'title': 'Compost',
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'How often to turn compost?',
+              },
+            },
+            'currentId': 'q1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      var elapsedMs = 0;
+      final memo = PullFetchMemo(elapsedMs: () => elapsedMs);
+      final reader = _ReadHookClient(server);
+      Future<void> cycle() => PullSync(
+        client: reader,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+        fetchMemo: memo,
+      ).run();
+      Future<Object?> tags() async =>
+          (jsonDecode((await db.chatsDao.getChat('srv-memo'))!.meta)
+              as Map)['tags'];
+      var sent = 1;
+      Future<void> sendAndPush() async {
+        final id = 'q${sent + 1}';
+        final parentId = 'q$sent';
+        sent++;
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: 'srv-memo',
+          messages: <MessageRowData>[
+            MessageRowData(
+              id: id,
+              chatId: 'srv-memo',
+              parentId: parentId,
+              role: 'user',
+              content: 'And $id?',
+              createdAt: 7000,
+              orderIndex: 0,
+              payload: <String, dynamic>{
+                'id': id,
+                'parentId': parentId,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'And $id?',
+              },
+            ),
+          ],
+          currentMessageId: id,
+          updatedAt: 7000,
+          enqueueCompletion: false,
+        );
+        await push.pushUpdateChat('srv-memo');
+      }
+
+      // A cycle reads and stores the chat at its stamp.
+      await cycle();
+      check(await db.chatsDao.getChat('srv-memo')).isNotNull();
+
+      // Tagged elsewhere, which leaves `updated_at` alone. The next cycle,
+      // past the overlap window, reads it again, but each read is overtaken
+      // by a send pushed in the same second: nothing of it is stored.
+      reader.envelope = {
+        'meta': {
+          'tags': ['compost'],
+        },
+      };
+      elapsedMs += kPullOverlapSeconds * 1000;
+      reader.afterRead = sendAndPush;
+      await cycle();
+      check(await tags()).isNull();
+
+      // That is not counted as a read of the stamp, so the cycle after reads
+      // the chat again rather than skipping it, and stores the tags.
+      reader.afterRead = null;
+      elapsedMs += kPullOverlapSeconds * 1000;
+      await cycle();
+      check(await tags()).isA<List<dynamic>>().deepEquals(['compost']);
+      check(await db.chatsDao.getChat('srv-memo'))
+          .isNotNull()
+          .has((c) => c.serverUpdatedAt, 'serverUpdatedAt')
+          .equals(7000);
+    });
+
     test(
       'pushes the FULL reconstructed blob (shallow-merge keeps it intact)',
       () async {

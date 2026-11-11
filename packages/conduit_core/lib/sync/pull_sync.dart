@@ -289,6 +289,16 @@ class PullSync {
   /// can tell a read that a bulk barrier has since outdated.
   final _generationsAtFetch = Expando<int>();
 
+  /// [ChatsDao.pushVersion] when each raw response was requested, so the
+  /// merge can tell a copy read before a push of the chat landed.
+  final _pushVersionsAtFetch = Expando<int>();
+
+  /// How many times a pull reads a chat whose copy comes back older than a
+  /// push of it, which stores none of it (`ChatMergeWriteResult.staleRead`).
+  /// Past that the chat waits for the next cycle, which lists it again: the
+  /// push stamped it after this cycle's list was read.
+  static const _readsWhenStale = 2;
+
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
   /// AND the local row is present, clean, body-synced, and stamped at that
@@ -494,19 +504,17 @@ class PullSync {
             // provably holds this exact server state already.
             continue;
           }
-          final resp = await fetchChatRaw(item.id);
-          if (resp == null) {
-            // Server-deleted: counts as success; no local change in Phase 1
-            // (deletion reconcile is Phase 3).
-            continue;
-          }
-          await _mergeChatResponse(
-            resp,
+          // Server-deleted counts as success; no local change in Phase 1
+          // (deletion reconcile is Phase 3). Neither it nor a chat whose
+          // every copy predated a push of it is recorded as fetched: nothing
+          // of it was stored.
+          final stored = await _fetchAndMerge(
+            item.id,
             listLastReadAt: item.lastReadAt,
             readStateSince: readStateSince,
             hasPendingCreateHashes: hasPendingCreateHashes,
           );
-          _fetchMemo?.recordFetched(item.id, item.updatedAt);
+          if (stored) _fetchMemo?.recordFetched(item.id, item.updatedAt);
         } catch (error, stackTrace) {
           failedFetches++;
           DebugLogger.error(
@@ -594,11 +602,13 @@ class PullSync {
   Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
     final modelListVersion = _db.chatsDao.modelListVersion(id);
+    final pushVersion = _db.chatsDao.pushVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
       _modelListVersionsAtFetch[response] = modelListVersion;
+      _pushVersionsAtFetch[response] = pushVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -608,8 +618,8 @@ class PullSync {
   /// (the max() rule preserves the local value). Returns `mustPush`. Adapter
   /// seam — the archived path inside [run] supplies a real lastReadAt and is NOT
   /// routed here.
-  Future<bool> mergeChatResponseForAdapter(Map<String, dynamic> resp) =>
-      _mergeChatResponse(resp, listLastReadAt: null);
+  Future<bool> mergeChatResponseForAdapter(Map<String, dynamic> resp) async =>
+      (await _mergeChatResponse(resp, listLastReadAt: null)).mustPush;
 
   /// Single-chat pull. `getChatRaw` null (404) -> returns null, no local
   /// change (deletion reconcile is Phase 3). Otherwise lock + upsert
@@ -620,50 +630,94 @@ class PullSync {
   /// conversation is parsed straight from that same response, so a caller
   /// that may not keep the chat still downloads it only once. A read that a
   /// bulk change has since outdated comes back as null, as when storing.
+  ///
+  /// A copy read before a push of the chat landed stores nothing, so the
+  /// chat is read again (see [_readsWhenStale]); past that the stored chat,
+  /// as pushed, is returned.
   Future<Conversation?> pullChat(
     String chatId, {
     bool Function(Map<String, dynamic> response)? storeIf,
   }) async {
-    final resp = await fetchChatRaw(chatId);
-    if (resp == null) return null;
-    if (storeIf != null && !storeIf(resp)) {
-      final fetchedGeneration = _generationsAtFetch[resp];
-      if (fetchedGeneration != null && fetchedGeneration != _locks.generation) {
+    for (var read = 1; ; read++) {
+      final resp = await fetchChatRaw(chatId);
+      if (resp == null) return null;
+      if (storeIf != null && !storeIf(resp)) {
+        final fetchedGeneration = _generationsAtFetch[resp];
+        if (fetchedGeneration != null &&
+            fetchedGeneration != _locks.generation) {
+          return null;
+        }
+        final parseOffload = _parseOffload;
+        if (parseOffload != null) return parseOffload(resp);
+        return parseFullConversationModel(resp);
+      }
+      final id = resp['id'] is String ? resp['id'] as String : chatId;
+      final ({bool readAgain, Conversation? conversation}) pulled;
+      try {
+        pulled = await _locks.runExclusive(id, () async {
+          // Asked for by name, so what the server says now wins over a same-
+          // second copy stored a moment ago (see `refreshWhenClean`).
+          final merged = await _upsertServerChatUnlocked(
+            resp,
+            listLastReadAt: null,
+            refreshWhenClean: true,
+          );
+          if (merged.staleRead && read < _readsWhenStale) {
+            return (readAgain: true, conversation: null);
+          }
+          final chat = await _db.chatsDao.getChat(id);
+          if (chat == null) return (readAgain: false, conversation: null);
+          final messages = await _db.messagesDao.getForChat(id);
+          return (
+            readAgain: false,
+            conversation: await assembleConversationGuarded(
+              chat,
+              messages,
+              offload: _parseOffload,
+            ),
+          );
+        });
+      } on StaleServerReadException {
+        // A bulk change ended while this was in flight: nothing is stored, as
+        // for a chat the server no longer has.
         return null;
       }
-      final parseOffload = _parseOffload;
-      if (parseOffload != null) return parseOffload(resp);
-      return parseFullConversationModel(resp);
-    }
-    final id = resp['id'] is String ? resp['id'] as String : chatId;
-    try {
-      return await _locks.runExclusive(id, () async {
-        // Asked for by name, so what the server says now wins over a same-
-        // second copy stored a moment ago (see `refreshWhenClean`).
-        await _upsertServerChatUnlockedReturningPush(
-          resp,
-          listLastReadAt: null,
-          refreshWhenClean: true,
-        );
-        final chat = await _db.chatsDao.getChat(id);
-        if (chat == null) return null;
-        final messages = await _db.messagesDao.getForChat(id);
-        return assembleConversationGuarded(
-          chat,
-          messages,
-          offload: _parseOffload,
-        );
-      });
-    } on StaleServerReadException {
-      // A bulk change ended while this was in flight: nothing is stored, as
-      // for a chat the server no longer has.
-      return null;
+      if (!pulled.readAgain) return pulled.conversation;
     }
   }
 
+  /// Reads chat [id] and merges the copy under its lock, reading it again
+  /// while the copy predates a push of the chat (see [_readsWhenStale]).
+  /// Returns whether a copy was stored: false for a chat the server no
+  /// longer has, too.
+  Future<bool> _fetchAndMerge(
+    String id, {
+    required int? listLastReadAt,
+    int? readStateSince,
+    bool? hasPendingCreateHashes,
+  }) async {
+    for (var read = 1; read <= _readsWhenStale; read++) {
+      final resp = await fetchChatRaw(id);
+      if (resp == null) return false;
+      final merged = await _mergeChatResponse(
+        resp,
+        listLastReadAt: listLastReadAt,
+        readStateSince: readStateSince,
+        hasPendingCreateHashes: hasPendingCreateHashes,
+      );
+      if (!merged.staleRead) return true;
+      DebugLogger.log(
+        'read-before-push',
+        scope: 'sync/pull',
+        data: {'chatId': id, 'read': read},
+      );
+    }
+    return false;
+  }
+
   /// Lock + one-transaction merge of a raw `ChatResponse` map (REQ 1/3).
-  /// Returns `mustPush` from the upsert (REQ 4); pull-path callers ignore it.
-  Future<bool> _mergeChatResponse(
+  /// Returns the upsert's result (see [_upsertServerChatUnlocked]).
+  Future<({bool mustPush, bool staleRead})> _mergeChatResponse(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
     int? readStateSince,
@@ -674,7 +728,7 @@ class PullSync {
       throw const FormatException('ChatResponse without a string id');
     }
     return _locks.runExclusive(id, () {
-      return _upsertServerChatUnlockedReturningPush(
+      return _upsertServerChatUnlocked(
         resp,
         listLastReadAt: listLastReadAt,
         readStateSince: readStateSince,
@@ -686,8 +740,10 @@ class PullSync {
   /// Caller must hold the chat lock. ONE drift transaction per chat inside the
   /// DAO (REQ 1), so the list stream emits once per chat merge. Returns whether
   /// the merge owed a push (REQ 4) — used by the [ChatAdapter] seam's
-  /// `mergeServer`; the pull paths ignore the result.
-  Future<bool> _upsertServerChatUnlockedReturningPush(
+  /// `mergeServer` — and whether the copy predated a push of the chat, so
+  /// nothing of it was stored (`ChatMergeWriteResult.staleRead`): the pull
+  /// paths read the chat again then.
+  Future<({bool mustPush, bool staleRead})> _upsertServerChatUnlocked(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
     int? readStateSince,
@@ -781,12 +837,13 @@ class PullSync {
         shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
       );
       _db.chatsDao.clearPendingServerTasks(id);
-      return false;
+      return (mustPush: false, staleRead: false);
     }
 
     // §7.4 three-way merge runs inside ONE drift transaction in the DAO
     // (REQ §10.1); the dirty read + decision + write are atomic under the chat
     // lock we already hold.
+    final pushedAtFetch = _pushVersionsAtFetch[resp];
     final write = await _db.chatsDao.mergeServerChat(
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
@@ -795,14 +852,20 @@ class PullSync {
       listLastReadAt: listLastReadAt,
       readStateSince: readStateSince,
       refreshWhenClean: refreshWhenClean,
+      readBeforePush:
+          pushedAtFetch != null &&
+          pushedAtFetch != _db.chatsDao.pushVersion(id),
     );
 
-    _db.chatsDao.clearPendingServerTasks(id);
+    // A stored copy stored the checklist events kept for the chat, or a
+    // task list newer than them. A copy that stored nothing stored neither:
+    // the events wait for one that does.
+    if (!write.staleRead) _db.chatsDao.clearPendingServerTasks(id);
 
     // REQ 4: a merge that retained local-dirty content diverges from the
     // server, so it must be pushed. ChatsDao reasserts the updateChat op inside
     // the merge transaction so dirty rows and outbox state stay atomic.
-    return write.mustPush;
+    return (mustPush: write.mustPush, staleRead: write.staleRead);
   }
 
   /// Attempts the §7.3 content-hash crash-heal. Returns true when it ran the
