@@ -1196,36 +1196,6 @@ exceptions:
     owner: notes
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/notifications/views/notification_settings_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: notifications
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/notifications/widgets/notification_target_editor.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: notifications
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/notifications/widgets/notification_target_editor.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: notifications
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/notifications/widgets/notification_targets_section.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: notifications
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/notifications/widgets/notification_targets_section.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: notifications
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/profile/views/chat_data_controls_page.dart
     package: "package:cupertino_ui/cupertino_ui.dart"
     count: 1

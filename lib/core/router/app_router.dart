@@ -39,7 +39,6 @@ import '../../features/hermes/views/hermes_mcp_page.dart';
 import '../../features/hermes/views/hermes_hidden_sessions_page.dart';
 import '../../features/hermes/views/hermes_room_page.dart';
 import '../../features/profile/views/personalization_page.dart';
-import '../../features/notifications/views/notification_settings_page.dart';
 import '../../features/push/views/push_privacy_page.dart';
 import '../../features/settings/views/settings_page_view.dart';
 import '../../features/settings/views/settings_root_page.dart';
@@ -453,7 +452,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.notificationSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const NotificationSettingsPage(),
+        child: const SettingsDetailPage(
+          detailId: NativeSheetRoutes.notificationSettings,
+        ),
       ),
     ),
     GoRoute(

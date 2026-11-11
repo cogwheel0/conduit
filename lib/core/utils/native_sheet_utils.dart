@@ -1763,21 +1763,18 @@ NativeSheetDetailConfig buildNativeSystemPromptDetail(
 /// Notifications page, where the destinations are managed.
 const nativeNotificationTargetsActionId = 'notification-targets';
 
-/// The Webhook destinations row of the native Notifications sheet. The native
-/// sheet has no editor for them, so the row closes it and opens the Flutter
-/// page, which holds the list and editor. [count] is how many the account
-/// has; with none read yet the row shows no count.
+/// The Webhook destinations row of the Notifications page, which opens their
+/// list. [count] is how many the account has; with none read yet the row
+/// shows no count.
 NativeSheetItemConfig buildNativeNotificationTargetsItem(
   AppLocalizations l10n, {
   int? count,
 }) {
   return NativeSheetItemConfig(
-    id: 'notification-targets',
+    id: nativeNotificationTargetsActionId,
     title: l10n.notificationTargetsTitle,
     subtitle: count == null ? null : l10n.nativeWebhookDestinationsCount(count),
     sfSymbol: 'bell.and.waves.left.and.right',
-    dismissOnSelect: true,
-    actionId: nativeNotificationTargetsActionId,
   );
 }
 

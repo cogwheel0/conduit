@@ -55,7 +55,7 @@ import 'package:conduit_core/features/calendar/providers/calendar_providers.dart
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
     show personalConnectionsEntryVisibleProvider;
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart'
-    show notificationTargetsAvailableProvider, notificationTargetsProvider;
+    show notificationTargetsAvailableProvider;
 import 'package:conduit_core/navigation/routes.dart'
     show permittedWorkspaceSections;
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart'
@@ -87,6 +87,9 @@ import '../../features/release_notes/data/release_notes_repository.dart';
 import '../../features/release_notes/release_notes_presenter.dart'
     show latestBundledReleaseNotesForVersion;
 import 'package:conduit_core/features/support/support_links.dart';
+import '../../features/settings/pages/webhook_settings_pages.dart'
+    show readNotificationTargets, webhookListPageId;
+import '../../features/settings/settings_page_module.dart';
 import '../../features/settings/settings_pages.dart';
 import '../../features/chat/widgets/model_control_labels.dart';
 import '../../platform/conduit_platform_apis.g.dart'
@@ -896,6 +899,13 @@ class NativeSheetHydrationService {
       stopFollowing(nativeSocketHealthDetailId);
     }
 
+    for (final module in _ref.read(settingsPageModulesProvider)) {
+      if (module.ownsPage(detailId)) {
+        await module.hydrate(detailId, l10n);
+        return;
+      }
+    }
+
     if (detailId.startsWith(nativeLicensePagePrefix)) {
       await _hydrateNativeLicenseDetail(detailId);
       return;
@@ -1393,9 +1403,10 @@ class NativeSheetHydrationService {
   /// could not be read in time; the row then shows no count.
   Future<int?> _nativeNotificationTargetsCount() async {
     try {
-      final data = await _ref
-          .read(notificationTargetsProvider.future)
-          .timeout(const Duration(seconds: 2));
+      final data = await readNotificationTargets(
+        _ref,
+        patience: const Duration(seconds: 2),
+      );
       return data.targets.length;
     } catch (_) {
       return null;
@@ -1546,7 +1557,14 @@ class NativeSheetHydrationService {
             buildNativeNotificationTargetsSection(l10n, count: count),
           ],
         ),
-        detailSheets: _nativePushDetailSheets(l10n),
+        detailSheets: [
+          ..._nativePushDetailSheets(l10n),
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: webhookListPageId,
+            title: l10n.notificationTargetsTitle,
+          ),
+        ],
       );
     } catch (error, stackTrace) {
       DebugLogger.error(

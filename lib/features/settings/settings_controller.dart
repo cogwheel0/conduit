@@ -12,7 +12,6 @@ import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_s
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
-import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/server_memory.dart';
@@ -47,6 +46,7 @@ import '../profile/widgets/account_sheet.dart'
     show EditDirectConnectionRequest, showAccountSheet;
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
+import 'settings_page_module.dart';
 import 'settings_pages.dart';
 
 /// Which Settings an event came from.
@@ -476,9 +476,9 @@ class SettingsController {
         return;
       }
 
-      if (event.id == nativeNotificationTargetsActionId) {
-        _openNativeNotificationTargets(origin);
-        return;
+      final l10n = currentAppLocalizations();
+      for (final module in ref.read(settingsPageModulesProvider)) {
+        if (await module.handleChange(event.id, value, l10n)) return;
       }
 
       if (event.id == nativePushTargetActionId && value is String) {
@@ -1126,25 +1126,6 @@ class SettingsController {
     final owner = ref.read(nativeSheetHydrationServiceProvider).memoryOwner;
     if (owner == null) return;
     await action(ref.read(userMemoriesProvider.notifier), owner);
-  }
-
-  /// Opens the Flutter Notifications page, where webhook destinations live, once
-  /// the native sheet has closed. It is entered with the native-sheet origin so
-  /// the page does not slide over the sheet that just left. Nothing is sent from
-  /// here: the page captures the account when an action in it opens, so this
-  /// only has to keep a stale or denied row from navigating.
-  void _openNativeNotificationTargets(NativeSheetNavigationOrigin? origin) {
-    final advanced = ref.read(appSettingsProvider).advancedFeaturesEnabled;
-    if (!advanced || !ref.read(notificationTargetsAvailableProvider)) {
-      _showNativeOptionUnavailable();
-      return;
-    }
-    unawaited(
-      NavigationService.router.pushNamed<void>(
-        RouteNames.notificationSettings,
-        extra: origin,
-      ),
-    );
   }
 
   /// Turns push on or off from the Notifications page's switch. The page

@@ -734,8 +734,9 @@ void main() {
       expect(section.footer, _l10n.notificationTargetsDescription);
       final item = section.items.single;
       expect(item.sfSymbol, 'bell.and.waves.left.and.right');
-      expect(item.dismissOnSelect, isTrue);
-      expect(item.actionId, nativeNotificationTargetsActionId);
+      // It opens the destinations' own page, inside Settings.
+      expect(item.id, nativeNotificationTargetsActionId);
+      expect(item.dismissOnSelect, isFalse);
     });
   });
 
