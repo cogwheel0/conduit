@@ -30,13 +30,7 @@ import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
-import '../../features/profile/views/about_page.dart';
-import '../../features/profile/views/account_settings_page.dart';
-import '../../features/profile/views/manage_accounts_page.dart';
 import '../../features/profile/views/server_addresses_page.dart';
-import '../../features/profile/views/app_customization_page.dart';
-import '../../features/profile/views/audio_settings_page.dart';
-import '../../features/profile/views/voice_provider_settings_page.dart';
 import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/librechat/views/librechat_sign_in_page.dart';
@@ -45,9 +39,12 @@ import '../../features/hermes/views/hermes_mcp_page.dart';
 import '../../features/hermes/views/hermes_hidden_sessions_page.dart';
 import '../../features/hermes/views/hermes_room_page.dart';
 import '../../features/profile/views/personalization_page.dart';
-import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
 import '../../features/push/views/push_privacy_page.dart';
+import '../../features/settings/views/settings_page_view.dart';
+import '../../features/settings/views/settings_root_page.dart';
+import '../services/native_sheet_bridge.dart' show NativeSheetRoutes;
+import '../utils/native_sheet_utils.dart' show nativeAccountsDetailId;
 import '../../features/workspace/views/workspace_page.dart';
 import '../../features/workspace/workspace_navigation.dart';
 
@@ -343,7 +340,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       path: Routes.profile,
       name: RouteNames.profile,
       pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const ProfilePage()),
+          _buildPlatformPage(state: state, child: const SettingsRootPage()),
+    ),
+    GoRoute(
+      path: Routes.settingsPage,
+      name: RouteNames.settingsPage,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: SettingsDetailPage(
+          key: ValueKey<String>('settings-page-${state.pathParameters['id']}'),
+          detailId: state.pathParameters['id']!,
+        ),
+      ),
     ),
     GoRoute(
       path: Routes.personalization,
@@ -354,28 +362,36 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.audioSettings,
       name: RouteNames.audioSettings,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const AudioSettingsPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: NativeSheetRoutes.voice),
+      ),
     ),
     GoRoute(
       path: Routes.voiceProviderSettings,
       name: RouteNames.voiceProviderSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const VoiceProviderSettingsPage(),
+        child: const SettingsDetailPage(
+          detailId: NativeSheetRoutes.voiceProvider,
+        ),
       ),
     ),
     GoRoute(
       path: Routes.accountSettings,
       name: RouteNames.accountSettings,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const AccountSettingsPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: NativeSheetRoutes.profile),
+      ),
     ),
     GoRoute(
       path: Routes.accounts,
       name: RouteNames.accounts,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const ManageAccountsPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: nativeAccountsDetailId),
+      ),
     ),
     GoRoute(
       path: Routes.serverAddresses,
@@ -386,7 +402,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           state: state,
           child: serverId is String
               ? ServerAddressesPage(serverId: serverId)
-              : const ManageAccountsPage(),
+              : const SettingsDetailPage(detailId: nativeAccountsDetailId),
         );
       },
     ),
@@ -402,7 +418,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
                   routesOfServerId: request.serverId,
                   endpointId: request.endpointId,
                 )
-              : const ManageAccountsPage(),
+              : const SettingsDetailPage(detailId: nativeAccountsDetailId),
         );
       },
     ),
@@ -411,9 +427,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.appearanceSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const AppCustomizationPage(
-          section: AppCustomizationSection.appearance,
-        ),
+        child: const SettingsDetailPage(detailId: NativeSheetRoutes.appearance),
       ),
     ),
     GoRoute(
@@ -421,9 +435,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.chatSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const AppCustomizationPage(
-          section: AppCustomizationSection.chat,
-        ),
+        child: const SettingsDetailPage(detailId: NativeSheetRoutes.chats),
       ),
     ),
     GoRoute(
@@ -431,8 +443,8 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.dataConnectionSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const AppCustomizationPage(
-          section: AppCustomizationSection.dataConnection,
+        child: const SettingsDetailPage(
+          detailId: NativeSheetRoutes.dataConnection,
         ),
       ),
     ),
@@ -607,8 +619,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.about,
       name: RouteNames.about,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const AboutPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: NativeSheetRoutes.helpAbout),
+      ),
     ),
     ..._workspaceRoutes(),
   ];

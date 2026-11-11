@@ -1251,7 +1251,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // Switching, adding or signing out of an account can ask a question
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
-        || actionId == "account-sign-out" || actionId == "account-direct-edit"
+        || actionId == "account-sign-out" || actionId == "account-sign-out-of"
+        || actionId == "account-direct-edit"
         || actionId == "account-librechat-use"
         || actionId == "account-librechat-sign-out"
         // A push target's detail is a Flutter sheet over the Notifications page.
@@ -3905,6 +3906,9 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         valueButton.menu = UIMenu(children: options.map { option in
             UIAction(
                 title: option.label,
+                // An option this device or server cannot use now stays
+                // listed, greyed, so the choice still reads in full.
+                attributes: option.enabled ? [] : .disabled,
                 state: option.id == selectedId ? .on : .off
             ) { [weak self] _ in
                 guard let self else { return }

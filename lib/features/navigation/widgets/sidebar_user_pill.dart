@@ -14,7 +14,6 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/account_metadata.dart';
-import 'package:conduit_core/models/user.dart';
 
 import '../../../core/network/image_header_utils.dart';
 
@@ -34,9 +33,6 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 
 import '../../../shared/services/navigation_service.dart';
 
-import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
-import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
@@ -70,6 +66,7 @@ import '../../../shared/widgets/user_avatar.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import '../../workspace/providers/workspace_capabilities_provider.dart';
+import '../../settings/settings_root.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_monogram_avatar.dart';
 
@@ -542,7 +539,7 @@ class _SidebarProfileAppBarLeadingState
               ? null
               : NativeProfileRootAccount(
                   displayName: displayName,
-                  email: _extractEmail(user) ?? l10n.noEmailLabel,
+                  email: settingsUserEmail(user) ?? l10n.noEmailLabel,
                 );
           final generation = ++_nativeProfileSheetGeneration;
           final config = _buildNativeProfileSheetConfig(
@@ -786,7 +783,7 @@ class _SidebarProfileAppBarLeadingState
     final avatarBytes = _decodeDataImage(avatarUrl);
     return NativeProfileSheetUser(
       displayName: displayName,
-      email: _extractEmail(user) ?? l10n.noEmailLabel,
+      email: settingsUserEmail(user) ?? l10n.noEmailLabel,
       initials: extractAvatarInitials(displayName),
       avatarUrl: avatarBytes == null ? avatarUrl : null,
       avatarBytes: avatarBytes,
@@ -814,21 +811,6 @@ class _SidebarProfileAppBarLeadingState
     Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    final appSettings = ref.read(appSettingsProvider);
-    final nativeAudio = buildNativeAudioSheetParts(
-      l10n,
-      appSettings,
-      voiceProviderCandidates:
-          (ref.read(directConnectionProfilesProvider).value ?? const [])
-              .where(canBeVoiceProvider)
-              .toList(growable: false),
-      serverOffersVoiceChoice:
-          ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
-    );
-    final appearanceTitle = nativeAppearanceTitle(l10n);
-    final chatsTitle = nativeChatsTitle(l10n);
-    final aiMemoryTitle = nativeAiMemoryTitle(l10n);
-    final dataConnectionTitle = nativeDataConnectionTitle(l10n);
     final card = readNativeAccountCard(ref.read, l10n, account: rootAccount);
     final sections = buildNativeProfileRootSections(
       l10n,
@@ -919,75 +901,14 @@ class _SidebarProfileAppBarLeadingState
       supportTitle: l10n.supportConduit,
       supportItems: supportItems,
       sections: sections,
-      detailSheets: [
-        readNativeAccountsDetail(ref.read, l10n),
-        if (user != null && profilePending)
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: NativeSheetRoutes.profile,
-            title: nativeProfileTitle(l10n),
-            subtitle: l10n.loadingShort,
-          )
-        else if (user != null)
-          NativeSheetDetailConfig(
-            id: NativeSheetRoutes.profile,
-            title: nativeProfileTitle(l10n),
-            sections: buildNativeProfileDetailSections(
-              l10n,
-              displayName: displayName,
-              accountProfile: accountProfile,
-            ),
-          ),
-        if (user != null)
-          buildNativePasswordDetail(
-            l10n,
-            passwordChangeEnabled: true,
-            subtitle: l10n.passwordFieldsRequired,
-          ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.appearance,
-          title: appearanceTitle,
-          subtitle: l10n.loadingShort,
-        ),
-        NativeSheetDetailConfig(
-          id: NativeSheetRoutes.voice,
-          title: l10n.voice,
-          sections: nativeAudio.mainSections,
-        ),
-        nativeAudio.voicePickerDetail,
-        nativeAudio.voiceProviderDetail,
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.chats,
-          title: chatsTitle,
-          subtitle: l10n.loadingShort,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.aiMemory,
-          title: aiMemoryTitle,
-          subtitle: l10n.loadingShort,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.notificationSettings,
-          title: l10n.notificationsTitle,
-          subtitle: l10n.loadingShort,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.dataConnection,
-          title: dataConnectionTitle,
-          subtitle: l10n.loadingShort,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.helpAbout,
-          title: l10n.aboutApp,
-          subtitle: l10n.loadingShort,
-        ),
-      ],
+      detailSheets: buildSettingsRootDetails(
+        l10n,
+        ref.read,
+        hasOpenWebUiUser: user != null,
+        displayName: displayName,
+        accountProfile: accountProfile,
+        profilePending: profilePending,
+      ),
     );
   }
 
@@ -1030,26 +951,6 @@ class _SidebarProfileAppBarLeadingState
     } catch (_) {
       return null;
     }
-  }
-
-  String? _extractEmail(dynamic source) {
-    if (source is User) {
-      return source.email;
-    }
-    if (source is Map) {
-      final value = source['email'];
-      if (value is String && value.trim().isNotEmpty) {
-        return value.trim();
-      }
-      final nested = source['user'];
-      if (nested is Map) {
-        final nestedValue = nested['email'];
-        if (nestedValue is String && nestedValue.trim().isNotEmpty) {
-          return nestedValue.trim();
-        }
-      }
-    }
-    return null;
   }
 }
 

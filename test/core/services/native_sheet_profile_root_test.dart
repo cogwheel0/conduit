@@ -599,11 +599,37 @@ void main() {
           _entry('sam-home', _home, name: 'Sam'),
         ],
       );
-      expect(_ids(page.sections).last, [nativeSignOutActionId]);
+      expect(_ids(page.sections).last, [
+        nativeAccountSignOutOfDetailId,
+        nativeSignOutActionId,
+      ]);
       expect(
         _item(page.sections, nativeSignOutActionId).title,
         _l10n.accountsSignOutAll,
       );
+    });
+
+    // Signing out of one account leaves the others signed in; it asks
+    // first, so on iOS the sheet closes before the question.
+    test('one saved account can be signed out of alone', () {
+      final page = buildNativeAccountSignOutDetail(
+        _l10n,
+        accounts: [
+          _entry('alex-home', _home, name: 'Alex', isActive: true),
+          _entry('sam-home', _home, name: 'Sam'),
+        ],
+      );
+
+      final rows = page.sections.single.items;
+      expect(rows.map((row) => row.title), [
+        _l10n.accountsSignOutOf('Alex'),
+        _l10n.accountsSignOutOf('Sam'),
+      ]);
+      final sam = rows.last;
+      expect(sam.destructive, isTrue);
+      expect(sam.dismissOnSelect, isTrue);
+      expect(sam.actionId, nativeAccountSignOutOfActionId);
+      expect(sam.actionValue, 'sam-home');
     });
   });
 
@@ -640,6 +666,39 @@ void main() {
       expect(item.dismissOnSelect, isTrue);
       expect(item.actionId, nativeNotificationTargetsActionId);
     });
+  });
+
+  test('profile page says the account role and status the server holds', () {
+    final sections = buildNativeProfileDetailSections(
+      _l10n,
+      displayName: 'Ada',
+      accountProfile: const AccountMetadata(
+        id: 'user-1',
+        email: 'ada@example.com',
+        name: 'Ada',
+        role: 'admin',
+        isActive: true,
+        statusEmoji: '🌴',
+        statusMessage: 'Away',
+      ),
+    );
+
+    expect(_item(sections, 'profile-role').subtitle, 'Admin');
+    expect(
+      _item(sections, 'profile-status').subtitle,
+      '${_l10n.activeStatus} • 🌴 Away',
+    );
+    // Without a profile there is nothing to say about it.
+    expect(
+      _ids(
+        buildNativeProfileDetailSections(
+          _l10n,
+          displayName: 'Ada',
+          accountProfile: null,
+        ),
+      ).expand((ids) => ids),
+      isNot(contains('profile-role')),
+    );
   });
 
   test('profile page rows show the About text, or Not set', () {

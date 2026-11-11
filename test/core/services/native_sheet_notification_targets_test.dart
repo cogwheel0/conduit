@@ -332,7 +332,26 @@ void main() {
     expect(ids(patches.first), _localToggles);
     expect(ids(patches.last), [..._localToggles, 'notification-targets']);
     expect(native.items(_detail).last.subtitle, '2 destinations');
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  // Android switches each kind of notification off in its own settings,
+  // which the page opens; iOS keeps one switch per app there.
+  testWidgets('on Android the master switch is followed by the system '
+      'notification settings', (tester) async {
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      notificationsOn: false,
+    );
+
+    await native.detailAppeared(_detail);
+
+    final patch = native.patches.lastWhere((p) => p.detailId == _detail);
+    expect(patch.sections.single.items.map((item) => item.id), [
+      'notifications-enabled',
+      'notification-system-settings',
+    ]);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   // With notifications off the options under the switch could not do
   // anything, so only the switch shows, as in Settings.
@@ -353,7 +372,7 @@ void main() {
     expect(master.items.single.value, isFalse);
     expect(master.items.single.subtitle, isNull);
     expect(master.footer, isNotNull);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('an unreadable list leaves the row without a count', (
     tester,

@@ -123,6 +123,36 @@ void main() {
     check(item).isNull();
   });
 
+  test('an engine that cannot work now is greyed, and says so when chosen', () {
+    final parts = buildNativeAudioSheetParts(
+      l10n,
+      const AppSettings(ttsEngine: TtsEngine.server),
+      availability: const NativeVoiceEngineAvailability(
+        serverRecognition: false,
+        serverSpeech: false,
+      ),
+    );
+    final sections = parts.mainSections;
+    NativeSheetItemConfig row(String id) => sections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == id);
+    bool enabled(String rowId, String option) =>
+        row(rowId).options.singleWhere((o) => o.id == option).enabled;
+
+    check(enabled('stt-engine', 'serverOnly')).isFalse();
+    check(enabled('stt-engine', 'deviceOnly')).isTrue();
+    check(enabled('tts-engine', 'server')).isFalse();
+    // Device recognition is chosen and works: no warning under it.
+    final stt = sections.singleWhere(
+      (section) => section.items.any((item) => item.id == 'stt-engine'),
+    );
+    check(stt.footer).isNull();
+    final tts = sections.singleWhere(
+      (section) => section.items.any((item) => item.id == 'tts-engine'),
+    );
+    check(tts.footer).equals(l10n.ttsServerUnavailableWarning);
+  });
+
   test('native barge-in toggle is off by default', () {
     final parts = buildNativeAudioSheetParts(l10n, const AppSettings());
     final bargeIn = parts.mainSections

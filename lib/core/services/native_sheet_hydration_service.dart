@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
@@ -9,6 +11,10 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../features/chat/providers/text_to_speech_provider.dart';
+import '../../features/chat/services/voice_input_service.dart'
+    show
+        localVoiceRecognitionAvailableProvider,
+        serverVoiceRecognitionAvailableProvider;
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -54,6 +60,7 @@ import 'package:conduit_core/navigation/routes.dart'
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart'
     show workspaceCapabilitiesProvider;
 
+import 'package:conduit_core/models/socket_health.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
@@ -74,6 +81,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
+import '../../features/settings/settings_pages.dart';
 import '../../features/chat/widgets/model_control_labels.dart';
 import '../../platform/conduit_platform_apis.g.dart'
     show PlatformNativeSheetModelControl;
@@ -176,6 +184,21 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
 
 /// The language the app is set to, as the App Language row names it: a
 /// language tag, or `system`.
+/// Which speech engines can work now, read from the providers the voice
+/// features use. Device recognition still being checked counts as able.
+NativeVoiceEngineAvailability readNativeVoiceEngineAvailability(
+  NativeSheetProviderReader read,
+) {
+  final tts = read(textToSpeechServiceProvider);
+  return NativeVoiceEngineAvailability(
+    deviceRecognition:
+        read(localVoiceRecognitionAvailableProvider).value ?? true,
+    serverRecognition: read(serverVoiceRecognitionAvailableProvider),
+    deviceSpeech: tts.deviceEngineAvailable || !tts.isInitialized,
+    serverSpeech: read(serverSpeechProviderProvider)?.canSynthesize == true,
+  );
+}
+
 String readNativeAppLanguageTag(NativeSheetProviderReader read) =>
     read(appLocaleProvider)?.toLanguageTag() ?? 'system';
 
@@ -193,6 +216,17 @@ int? readNativeOtherAccountCount(NativeSheetProviderReader read) {
   if (libreChatAccounts == null) return null;
   return others + libreChatAccounts.length;
 }
+
+/// The page that signs out of one saved account, read now.
+NativeSheetDetailConfig readNativeAccountSignOutDetail(
+  NativeSheetProviderReader read,
+  AppLocalizations l10n,
+) => buildNativeAccountSignOutDetail(
+  l10n,
+  accounts: read(openWebUiAccountsProvider).value,
+  libreChatAccounts:
+      read(libreChatRegistryProvider).value?.accounts ?? const [],
+);
 
 /// The native Accounts page, read now.
 NativeSheetDetailConfig readNativeAccountsDetail(
@@ -297,9 +331,13 @@ nativeHydratedServerReasoningEffort({
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref) {
     final sheetEvents = NativeSheetBridge.instance.events.listen((event) {
-      if (event is NativeSheetDismissed) _appearanceDetailPresented = false;
+      if (event is NativeSheetDismissed) {
+        _appearanceDetailPresented = false;
+        stopFollowing(nativeSocketHealthDetailId);
+      }
     });
     _ref.onDispose(sheetEvents.cancel);
+    _ref.onDispose(() => _socketHealthUpdates?.cancel());
     // The native sheet keeps the rows it was handed, so a language chosen
     // inside it left every label in the old language until the sheet was
     // reopened. Hand it rows built in the new language: the root, where the
@@ -312,7 +350,11 @@ class NativeSheetHydrationService {
   }
 
   final Ref _ref;
+  SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
   bool _appearanceDetailPresented = false;
+
+  /// The connection's health, followed while its page is on screen.
+  StreamSubscription<SocketHealth>? _socketHealthUpdates;
   MemoryOwner? _memoryOwner;
   _NativeProfileRoot? _profileRoot;
   final NativeSheetHydrationGeneration _notificationsHydration =
@@ -353,7 +395,7 @@ class NativeSheetHydrationService {
     if (ctx == null || !ctx.mounted) return false;
     final l10n = AppLocalizations.of(ctx);
     if (l10n == null) return false;
-    final applied = await NativeSheetBridge.instance.applyDetailPatch(
+    final applied = await _surface.applyDetailPatch(
       detailId: NativeSheetRoutes.profileMenu,
       title: nativeSettingsTitle(l10n),
       items: const [],
@@ -835,17 +877,31 @@ class NativeSheetHydrationService {
       return;
     }
 
+    // Another page on screen means the health page is not.
+    if (detailId != nativeSocketHealthDetailId) {
+      stopFollowing(nativeSocketHealthDetailId);
+    }
+
     switch (detailId) {
+      case nativeSocketHealthDetailId:
+        _followSocketHealth(l10n);
+        return;
+      case nativeAccountSignOutOfDetailId:
+        await _applyNativeDetail(
+          readNativeAccountSignOutDetail(_ref.read, l10n),
+        );
+        return;
       case nativeAccountsDetailId:
         // As they are now: the Direct providers may have been read since the
         // sheet opened, and a pushed page comes back to this one.
         await settleNativeAccountsDetail(_ref.read);
         final accounts = readNativeAccountsDetail(_ref.read, l10n);
-        await NativeSheetBridge.instance.applyDetailPatch(
+        await _surface.applyDetailPatch(
           detailId: nativeAccountsDetailId,
           title: accounts.title,
           items: const [],
           sections: accounts.sections,
+          detailSheets: [readNativeAccountSignOutDetail(_ref.read, l10n)],
         );
         return;
       case NativeSheetRoutes.accountSettings:
@@ -1254,7 +1310,19 @@ class NativeSheetHydrationService {
     );
     final masterSection = NativeSheetSectionConfig(
       footer: l10n.notificationsEnabledDescription,
-      items: [masterItem],
+      items: [
+        masterItem,
+        // Android lets each kind of notification be turned off in its own
+        // settings; iOS keeps one switch per app there, so it has no row.
+        if (defaultTargetPlatform == TargetPlatform.android)
+          NativeSheetItemConfig(
+            id: nativeNotificationSystemSettingsId,
+            title: l10n.notificationSystemSettingsTitle,
+            subtitle: l10n.notificationSystemSettingsDescription,
+            sfSymbol: 'gearshape.2',
+            showsDisclosure: true,
+          ),
+      ],
     );
     // With notifications off the rest cannot do anything, so it is not
     // shown, as Settings hides an app's alert options until they are
@@ -1445,6 +1513,10 @@ class NativeSheetHydrationService {
               .toList(growable: false),
       serverOffersVoiceChoice:
           _ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
+      // The provider's page shows no engines.
+      availability: providerOnly
+          ? const NativeVoiceEngineAvailability()
+          : readNativeVoiceEngineAvailability(_ref.read),
     );
     if (providerOnly) {
       await _applyNativeDetail(nativeAudio.voiceProviderDetail);
@@ -1759,7 +1831,7 @@ class NativeSheetHydrationService {
               ),
             if (socketService != null)
               NativeSheetItemConfig(
-                id: 'socket-health',
+                id: nativeSocketHealthDetailId,
                 title: l10n.connectionHealth,
                 subtitle: nativeSocketHealthSummary(
                   l10n,
@@ -1772,7 +1844,7 @@ class NativeSheetHydrationService {
         detailSheets: [
           if (socketService != null)
             NativeSheetDetailConfig(
-              id: 'socket-health',
+              id: nativeSocketHealthDetailId,
               title: l10n.connectionHealth,
               subtitle: nativeSocketHealthSummary(
                 l10n,
@@ -1909,6 +1981,34 @@ class NativeSheetHydrationService {
           ),
         ],
       ),
+      // Only Android lets Conduit be the default assistant.
+      if (defaultTargetPlatform == TargetPlatform.android)
+        NativeSheetSectionConfig(
+          footer: l10n.androidAssistantDescription,
+          items: [
+            NativeSheetItemConfig(
+              id: nativeAndroidAssistantTriggerId,
+              title: l10n.androidAssistantTitle,
+              sfSymbol: 'sparkles',
+              kind: NativeSheetItemKind.segment,
+              value: appSettings.androidAssistantTrigger.name,
+              options: [
+                NativeSheetOptionConfig(
+                  id: AndroidAssistantTrigger.overlay.name,
+                  label: l10n.androidAssistantOverlayOption,
+                ),
+                NativeSheetOptionConfig(
+                  id: AndroidAssistantTrigger.newChat.name,
+                  label: l10n.androidAssistantNewChatOption,
+                ),
+                NativeSheetOptionConfig(
+                  id: AndroidAssistantTrigger.voiceCall.name,
+                  label: l10n.androidAssistantVoiceCallOption,
+                ),
+              ],
+            ),
+          ],
+        ),
     ];
   }
 
@@ -2206,7 +2306,7 @@ class NativeSheetHydrationService {
           .where((id) => allowedIds.contains(id))
           .toSet();
 
-      await NativeSheetBridge.instance.applyDetailPatch(
+      await _surface.applyDetailPatch(
         detailId: 'quick-pills',
         clearSubtitle: true,
         items: [
@@ -2273,7 +2373,7 @@ class NativeSheetHydrationService {
     final modelId = Uri.decodeComponent(encodedModel);
 
     Future<void> patchFailure() async {
-      await NativeSheetBridge.instance.applyDetailPatch(
+      await _surface.applyDetailPatch(
         detailId: detailId,
         clearSubtitle: true,
         items: [
@@ -2296,7 +2396,7 @@ class NativeSheetHydrationService {
     final detail = await api.getModelDetails(modelId);
     if (!context.mounted) return;
     if (detail == null) {
-      await NativeSheetBridge.instance.applyDetailPatch(
+      await _surface.applyDetailPatch(
         detailId: detailId,
         clearSubtitle: true,
         items: [
@@ -2339,15 +2439,40 @@ class NativeSheetHydrationService {
             ),
           ];
 
-    await NativeSheetBridge.instance.applyDetailPatch(
+    await _surface.applyDetailPatch(
       detailId: detailId,
       subtitle: l10n.modelSystemPromptEditorDescription,
       items: items,
     );
   }
 
+  /// Shows the connection's health now, then again each time it changes,
+  /// until the page leaves the screen.
+  void _followSocketHealth(AppLocalizations l10n) {
+    final socket = _ref.read(socketServiceProvider);
+    _socketHealthUpdates?.cancel();
+    _socketHealthUpdates = null;
+    Future<void> show(SocketHealth? health) => _surface.applyDetailPatch(
+      detailId: nativeSocketHealthDetailId,
+      subtitle: nativeSocketHealthSummary(l10n, health),
+      items: nativeSocketHealthItems(l10n, health),
+    );
+    unawaited(show(socket?.currentHealth));
+    if (socket == null) return;
+    _socketHealthUpdates = socket.healthStream.listen(
+      (health) => unawaited(show(health)),
+    );
+  }
+
+  /// Stops keeping page [detailId] current; it has left the screen.
+  void stopFollowing(String detailId) {
+    if (detailId != nativeSocketHealthDetailId) return;
+    _socketHealthUpdates?.cancel();
+    _socketHealthUpdates = null;
+  }
+
   Future<void> _patchNativeDetailError(String detailId, String title) {
-    return NativeSheetBridge.instance.applyDetailPatch(
+    return _surface.applyDetailPatch(
       detailId: detailId,
       clearSubtitle: true,
       items: [
@@ -2365,7 +2490,7 @@ class NativeSheetHydrationService {
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) {
-    return NativeSheetBridge.instance.applyDetailPatch(
+    return _surface.applyDetailPatch(
       detailId: detail.id,
       title: detail.title,
       subtitle: detail.subtitle,

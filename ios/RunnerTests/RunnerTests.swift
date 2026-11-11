@@ -929,7 +929,8 @@ class RunnerTests: XCTestCase {
     // its own, and editing a Direct provider opens one; a server's page only
     // opens under the sheet.
     for actionId in [
-      "account-switch", "account-add", "account-sign-out", "account-direct-edit",
+      "account-switch", "account-add", "account-sign-out",
+      "account-sign-out-of", "account-direct-edit",
       "account-librechat-use", "account-librechat-sign-out",
     ] {
       XCTAssertTrue(

@@ -1226,60 +1226,6 @@ exceptions:
     owner: notifications
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/profile/views/about_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/account_settings_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/account_settings_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/app_customization_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/app_customization_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/app_customization_page.dart
-    symbol: "LinearProgressIndicator"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/audio_settings_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/audio_settings_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/audio_settings_page.dart
-    symbol: "LinearProgressIndicator"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/profile/views/chat_data_controls_page.dart
     package: "package:cupertino_ui/cupertino_ui.dart"
     count: 1
@@ -1299,18 +1245,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/profile/views/personalization_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/profile_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/profile_page.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
     owner: settings
@@ -1359,12 +1293,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/profile/widgets/settings_page_scaffold.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/socket_health_card.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
     owner: settings
