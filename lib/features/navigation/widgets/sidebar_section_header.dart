@@ -58,8 +58,9 @@ class SidebarSectionHeader extends StatelessWidget {
   /// Opens or closes the section.
   final VoidCallback? onToggle;
 
-  /// A compact control at the trailing end, such as New Folder, laid out in
-  /// a [TouchTarget.minimum] square.
+  /// A compact control at the trailing end, such as New Folder: laid out
+  /// [TouchTarget.minimum] wide and as tall as the header, it should centre
+  /// its content.
   final Widget? trailing;
 
   final Key? chevronKey;
@@ -148,18 +149,18 @@ class SidebarSectionHeader extends StatelessWidget {
             bottom: 0,
             end: kSidebarRowContentInset,
             width: TouchTarget.minimum,
-            child: Center(
-              // Centred on the header, then moved down onto the title's
-              // line: half the difference between the space above the title
-              // and the space below it. Its target reaches past the header's
-              // lower edge, where the first row takes taps over.
-              child: Transform.translate(
-                offset: Offset(
-                  0,
-                  (topSpacing - kSidebarSectionHeaderBottomSpacing) / 2,
-                ),
-                child: trailing,
+            // The control takes taps across the header's whole height, so
+            // no row below takes any part of its target, while its content,
+            // centred on the header, is drawn down on the title's line: half
+            // the difference between the space above the title and the
+            // space below it.
+            child: Transform.translate(
+              offset: Offset(
+                0,
+                (topSpacing - kSidebarSectionHeaderBottomSpacing) / 2,
               ),
+              transformHitTests: false,
+              child: trailing,
             ),
           ),
         ],

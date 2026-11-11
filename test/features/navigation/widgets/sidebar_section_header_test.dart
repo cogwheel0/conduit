@@ -117,8 +117,10 @@ void main() {
     tester.view.physicalSize = const Size(_windowWidth, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    const controlKey = ValueKey<String>('trailing-control');
-    var taps = 0;
+    const glyphKey = ValueKey<String>('trailing-glyph');
+    var controlTaps = 0;
+    var rowTaps = 0;
+    var toggles = 0;
 
     for (final scale in [1.0, 2.0]) {
       for (final isFirst in [true, false]) {
@@ -137,21 +139,37 @@ void main() {
                     alignment: Alignment.topLeft,
                     child: SizedBox(
                       width: _windowWidth,
-                      child: SidebarSectionHeader(
-                        title: 'Folders',
-                        isFirst: isFirst,
-                        isExpanded: true,
-                        onToggle: () {},
-                        trailing: withControl
-                            ? GestureDetector(
-                                key: controlKey,
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => taps++,
-                                child: const SizedBox.square(
-                                  dimension: TouchTarget.minimum,
-                                ),
-                              )
-                            : null,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SidebarSectionHeader(
+                            title: 'Folders',
+                            isFirst: isFirst,
+                            isExpanded: true,
+                            onToggle: () => toggles++,
+                            trailing: withControl
+                                ? GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => controlTaps++,
+                                    child: const Center(
+                                      child: SizedBox.square(
+                                        key: glyphKey,
+                                        dimension: IconSize.small,
+                                      ),
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          // The section's first row, right below the header.
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => rowTaps++,
+                            child: const SizedBox(
+                              width: _windowWidth,
+                              height: TouchTarget.minimum,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -166,23 +184,32 @@ void main() {
         final header = await pumpHeader(withControl: true);
         expect(header.height, plain.height, reason: reason);
 
-        final control = tester.getRect(find.byKey(controlKey));
+        final glyph = tester.getRect(find.byKey(glyphKey));
         final title = tester.getRect(find.text('Folders'));
         expect(
-          control.center.dy,
+          glyph.center.dy,
           moreOrLessEquals(title.center.dy, epsilon: 0.5),
           reason: reason,
         );
         // Over the rows' trailing controls, which end on their content edge.
         expect(
-          control.right,
-          _windowWidth - kSidebarRowContentInset,
+          glyph.center.dx,
+          _windowWidth - kSidebarRowContentInset - TouchTarget.minimum / 2,
           reason: reason,
         );
 
-        final before = taps;
-        await tester.tapAt(control.center);
-        expect(taps, before + 1, reason: reason);
+        // The control takes taps from the header's top edge to its bottom
+        // edge, and the row below keeps its own.
+        final x = glyph.center.dx;
+        for (final y in [header.top + 1, glyph.center.dy, header.bottom - 1]) {
+          final before = controlTaps;
+          await tester.tapAt(Offset(x, y));
+          expect(controlTaps, before + 1, reason: '$reason, y $y');
+        }
+        final rowTapsBefore = rowTaps;
+        await tester.tapAt(Offset(x, header.bottom + 1));
+        expect(rowTaps, rowTapsBefore + 1, reason: reason);
+        expect(toggles, 0, reason: reason);
       }
     }
   });
