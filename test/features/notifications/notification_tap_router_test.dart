@@ -1,7 +1,10 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_tap_router.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show authStatusProvider;
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
@@ -169,6 +172,7 @@ void main() {
     bool libreChat = false,
     List<PrimarySwitchResult> primaryResults = const [],
     Set<String> signedOut = const {},
+    AuthStatus authStatus = AuthStatus.authenticated,
   }) {
     navigator = _RecordingNavigator();
     settled = _SettledAccount(activeAccountId);
@@ -205,6 +209,7 @@ void main() {
         hermesConnectionsProvider.overrideWithValue([_hermesHome, _hermesWork]),
         hermesActiveConnectionIdProvider.overrideWithValue(activeHermesId),
         hermesEnabledProvider.overrideWithValue(hermesEnabled),
+        authStatusProvider.overrideWithValue(authStatus),
         primaryAccountKindProvider.overrideWithValue(
           libreChat ? PrimaryAccountKind.libreChat : PrimaryAccountKind.openWebUi,
         ),
@@ -366,6 +371,18 @@ void main() {
           libreChat: true,
           primaryResults: [PrimarySwitchResult.done],
           signedOut: {'acct-2'},
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.calls).deepEquals(['sign-in']);
+      });
+
+      test('a saved session refused once in use opens sign-in', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.tokenExpired,
         );
         await router.openTap(
           tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),

@@ -67,22 +67,26 @@ internal object FcmTransport {
         val messaging = try {
             ensureInitialized(appContext)
             PushRuntime.config(appContext).fcmOptedIn = true
-            FirebaseMessaging.getInstance().apply {
-                // The manifest keeps auto-init off until now; from here on FCM
-                // refreshes the token by itself.
-                isAutoInitEnabled = true
-            }
+            FirebaseMessaging.getInstance()
         } catch (error: RuntimeException) {
             callback(Result.failure(FlutterError("fcm_unavailable", error.message, null)))
             return
         }
+        // The manifest keeps auto-init off until now; from here on FCM
+        // refreshes the token by itself. Not before a deletion still running
+        // has ended: Firebase's own sync could fetch the token it is about to
+        // invalidate. And not when FCM was released meanwhile.
+        fun tokenAfterOptIn(): Task<String> {
+            if (PushRuntime.config(appContext).fcmOptedIn) messaging.isAutoInitEnabled = true
+            return messaging.token
+        }
         val deletion = pendingDeletion
         val token = if (deletion == null || deletion.isComplete) {
-            messaging.token
+            tokenAfterOptIn()
         } else {
             // Wait for the deletion whether or not it succeeds, then ask for a
             // token: it is a new one.
-            deletion.continueWithTask { messaging.token }
+            deletion.continueWithTask { tokenAfterOptIn() }
         }
         token.addOnCompleteListener { task ->
             if (task.isSuccessful) {

@@ -882,6 +882,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
       initialNotify: connectionId == null ? null : notifies,
       notifyUnavailableHint: _notifyUnavailableHint(ref, l10n, connectionId),
       initialDeliver: job.deliveryTarget,
+      deliveryEditable: job.deliveryKnown,
       initialCatchUp: job.catchUpChoice,
       scheduling:
           ref.read(hermesConfigProvider).mode ==
@@ -911,14 +912,22 @@ class _JobCardState extends ConsumerState<_JobCard> {
       failureMessage: l10n.hermesJobUpdateFailed,
       successMessage: changesNotify ? null : l10n.hermesJobUpdated,
     );
-    // Reported apart from the edit, which has been saved.
+    // Reported apart from the edit, which has been saved. The card stays
+    // busy meanwhile: another edit now could be written over by this step,
+    // which reads the job's delivery and writes it back.
     if (saved && changesNotify) {
-      final changed = await _trySetJobNotify(
-        container,
-        connectionId,
-        job,
-        notify: notify,
-      );
+      if (mounted) setState(() => _mutation = _JobMutation.edit);
+      final bool changed;
+      try {
+        changed = await _trySetJobNotify(
+          container,
+          connectionId,
+          job,
+          notify: notify,
+        );
+      } finally {
+        if (mounted) setState(() => _mutation = null);
+      }
       if (mounted) {
         UiUtils.showMessage(
           context,

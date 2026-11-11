@@ -11256,7 +11256,7 @@
   "@pushPrivacyOffTitle": {
     "description": "Push privacy explainer section about turning push off."
   },
-  "pushPrivacyOffBody": "Turning push off, signing out or removing an account deletes this device's push keys, so nothing sent later can be read. Conduit also asks the server to forget this device.",
+  "pushPrivacyOffBody": "Turning push off deletes all of this device's push keys; signing out of or removing an account deletes that account's. Nothing sent to them later can be read. Conduit also asks each server to forget this device.",
   "@pushPrivacyOffBody": {
     "description": "Push privacy explainer: what turning push off does."
   },

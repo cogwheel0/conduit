@@ -712,6 +712,33 @@ void main() {
           .deepEquals(['org.unifiedpush.distributor.ntfy']);
     });
 
+    test('switching back from UnifiedPush quickly keeps FCM', () async {
+      h = await _Harness.start(
+        targets: [_owui],
+        fcm: true,
+        unifiedPush: true,
+      );
+      h.platform.distributors = const [];
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_owui.scope).sid!;
+      h.log.clear();
+
+      // UnifiedPush, then straight back to Automatic before the first
+      // change has finished.
+      final toUnifiedPush = h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+      );
+      final back = h.coordinator.setAndroidTransport(null);
+      await Future.wait([toUnifiedPush, back]);
+
+      check(h.record(_owui.scope).sid).equals(sid);
+      check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
+      check(h.server(_owui).subscriptions).containsKey(sid);
+      check(h.log).not((it) => it.contains('delete $sid'));
+      check(h.log).not((it) => it.contains('release fcm'));
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
     test('a new distributor registers every subscription again', () async {
       h = await _Harness.start(targets: [_owui, _owui2], unifiedPush: true);
       h.platform.distributors = const [
