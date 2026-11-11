@@ -397,6 +397,15 @@ void main() {
       sectionTitleLeft,
       kSidebarSectionHeaderInset + IconSize.listItem + Spacing.xxs,
     );
+    // New Folder stands over the folders' own disclosure buttons.
+    expect(
+      tester.getCenter(find.byTooltip(AppLocalizationsEn().newFolder)).dx,
+      tester
+          .getCenter(
+            find.byKey(const ValueKey<String>('folder-expand-parent-folder')),
+          )
+          .dx,
+    );
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();

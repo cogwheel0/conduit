@@ -1,3 +1,4 @@
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_section_header.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/color_tokens.dart';
@@ -108,6 +109,81 @@ void main() {
         );
       }
       expect(find.byKey(_chevronKey), findsNothing);
+    }
+  });
+
+  testWidgets('a trailing control sits on the title\'s line and leaves the '
+      'header as tall as the others', (tester) async {
+    tester.view.physicalSize = const Size(_windowWidth, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const controlKey = ValueKey<String>('trailing-control');
+    var taps = 0;
+
+    for (final scale in [1.0, 2.0]) {
+      for (final isFirst in [true, false]) {
+        final reason = 'scale $scale, first $isFirst';
+        Future<Rect> pumpHeader({required bool withControl}) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: AppTheme.light(TweakcnThemes.conduit),
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: const Size(_windowWidth, 874),
+                  textScaler: TextScaler.linear(scale),
+                ),
+                child: Scaffold(
+                  body: Align(
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: _windowWidth,
+                      child: SidebarSectionHeader(
+                        title: 'Folders',
+                        isFirst: isFirst,
+                        isExpanded: true,
+                        onToggle: () {},
+                        trailing: withControl
+                            ? GestureDetector(
+                                key: controlKey,
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => taps++,
+                                child: const SizedBox.square(
+                                  dimension: TouchTarget.minimum,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          return tester.getRect(find.byType(SidebarSectionHeader));
+        }
+
+        final plain = await pumpHeader(withControl: false);
+        final header = await pumpHeader(withControl: true);
+        expect(header.height, plain.height, reason: reason);
+
+        final control = tester.getRect(find.byKey(controlKey));
+        final title = tester.getRect(find.text('Folders'));
+        expect(
+          control.center.dy,
+          moreOrLessEquals(title.center.dy, epsilon: 0.5),
+          reason: reason,
+        );
+        // Over the rows' trailing controls, which end on their content edge.
+        expect(
+          control.right,
+          _windowWidth - kSidebarRowContentInset,
+          reason: reason,
+        );
+
+        final before = taps;
+        await tester.tapAt(control.center);
+        expect(taps, before + 1, reason: reason);
+      }
     }
   });
 
