@@ -51,11 +51,11 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       if (notify != null) {
-        expect(find.text('Notify me'), findsOneWidget);
+        expect(find.text('Notify Me'), findsOneWidget);
         await tester.tap(find.byType(AdaptiveSwitch));
         await tester.pumpAndSettle();
       } else {
-        expect(find.text('Notify me'), findsNothing);
+        expect(find.text('Notify Me'), findsNothing);
       }
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
@@ -128,7 +128,7 @@ void main() {
     Future<void> createJob(WidgetTester tester, {required bool offered}) async {
       await tester.tap(find.text('New Scheduled Job'));
       await tester.pumpAndSettle();
-      expect(find.text('Notify me'), offered ? findsOneWidget : findsNothing);
+      expect(find.text('Notify Me'), offered ? findsOneWidget : findsNothing);
       if (offered) {
         final toggle = tester.widget<AdaptiveSwitch>(
           find.byType(AdaptiveSwitch).last,
@@ -311,7 +311,7 @@ void main() {
       expect(toggle.value, isFalse);
       expect(toggle.onChanged, isNull);
       expect(
-        find.text('Turn on Scheduled tasks in Notifications to use this.'),
+        find.text('Turn on Scheduled Tasks in Notifications to use this.'),
         findsOneWidget,
       );
       await tester.enterText(find.byType(EditableText).at(0), 'Daily');

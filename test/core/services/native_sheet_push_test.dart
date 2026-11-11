@@ -408,7 +408,7 @@ void main() {
 
     expect(native.pushed.single.path, Routes.notificationSettings);
     expect(find.byKey(const Key('push-detail-diagnostics')), findsNothing);
-    expect(find.text('Push notifications'), findsNothing);
+    expect(find.text('Push Notifications'), findsNothing);
   });
 
   testWidgets('push that can no longer work here can still be turned off', (

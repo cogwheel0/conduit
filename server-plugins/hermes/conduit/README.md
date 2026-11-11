@@ -78,7 +78,7 @@ To remove it: `hermes plugins remove conduit`, then restart Hermes.
 
 The plugin registers a delivery platform named `conduit` whose home channel is
 `devices`, meaning every subscribed device. Set a job's delivery target to
-`conduit` (in Conduit, the job editor's "Notify me" switch does this), or list
+`conduit` (in Conduit, the job editor's "Notify Me" switch does this), or list
 it with others, for example `deliver: telegram,conduit`. No other setup is
 needed.
 
