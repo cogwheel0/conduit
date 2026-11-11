@@ -4,6 +4,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/database/local_conversation_loader.dart';
 
@@ -13,10 +15,13 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 
 import '../../../core/utils/current_localizations.dart';
+import '../../navigation/providers/chat_back_provider.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/channels/providers/channel_socket_handler.dart';
+import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
@@ -97,11 +102,13 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
       case NotificationKind.chatCompletion:
         final ownership = captureOpenWebUiConversationRead(ref);
         if (ownership == null) return;
-        final outgoing = ref.read(activeConversationProvider);
-        if (outgoing == null ||
-            !conversationMatchesScopedId(outgoing, tap.sourceId)) {
-          clearSelectedFiltersForConversationBoundary(ref);
-        }
+        // The notification names an Open WebUI chat: an on-device chat with
+        // the same raw id is another chat.
+        final tappedId = ChatStorageIdentity(
+          rawId: tap.sourceId,
+          storage: ChatStorageKind.openWebUi,
+        ).scopedId;
+        final chatWasOnScreen = chatPageOnScreen();
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
@@ -112,6 +119,18 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
         );
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
+          // The picks of the chat open now, or of one opened while this one
+          // loaded, are not this chat's. They start again only here, once
+          // this chat opens: a tap whose chat is not stored leaves the open
+          // chat, and its picks, as they are.
+          final current = ref.read(activeConversationProvider);
+          if (current == null ||
+              !conversationMatchesScopedId(current, tappedId)) {
+            clearSelectedFiltersForConversationBoundary(ref);
+          }
+          ref
+              .read(chatBackOpensListProvider.notifier)
+              .switchTo(local, chatOnScreen: chatWasOnScreen);
           ref.read(activeConversationProvider.notifier).set(local);
         }
         schedulePullChatNow(ref, tap.sourceId, ownership: ownership);
@@ -224,6 +243,14 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   }
 
   void _onChannelEvent(Map<String, dynamic> event) {
+    // A mute set here or in another session reaches every channel in the
+    // list, open or not, as in Open WebUI's layout handler.
+    if (parseChannelMuteEvent(event) case final mute?) {
+      ref
+          .read(channelsListProvider.notifier)
+          .setMuted(mute.channelId, mute.isChannelMuted);
+      return;
+    }
     final userId = _currentUserId;
     // Until the current user resolves we can't run the self-author filter, so
     // skip rather than risk notifying the user for their own messages.
@@ -232,23 +259,64 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       event,
       currentUserId: userId,
     );
-    if (notification != null) _route(notification);
+    if (notification != null) {
+      unawaited(_routeChannelMessage(notification, userId));
+    }
   }
 
-  void _route(AppNotification notification) {
+  /// Routes a channel message by the channel's notification setting. Like Open
+  /// WebUI, the setting is read from the channel list, or from the channel
+  /// itself when the list does not hold it yet, and a message whose channel
+  /// cannot be read is not notified.
+  Future<void> _routeChannelMessage(
+    AppNotification notification,
+    String userId,
+  ) async {
+    final muted = await _isChannelMuted(notification.sourceId);
+    if (muted == null || !ref.mounted || _currentUserId != userId) return;
+    _route(
+      notification,
+      alert: shouldNotifyChannelMessage(
+        isMuted: muted,
+        content: notification.body,
+        userId: userId,
+      ),
+    );
+  }
+
+  Future<bool?> _isChannelMuted(String channelId) async {
+    for (final channel in ref.read(channelsListProvider).value ?? const []) {
+      if (channel.id == channelId) return channel.isChannelMuted;
+    }
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return null;
+    try {
+      return Channel.fromJson(await api.getChannel(channelId)).isChannelMuted;
+    } catch (e, st) {
+      DebugLogger.error(
+        'channel notification setting unavailable',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/channel',
+      );
+      return null;
+    }
+  }
+
+  void _route(AppNotification notification, {bool alert = true}) {
     unawaited(
-      ref.read(notificationRouterProvider).route(notification).catchError((
-        Object e,
-        StackTrace st,
-      ) {
-        DebugLogger.error(
-          'notification routing failed',
-          error: e,
-          stackTrace: st,
-          scope: 'notifications/center',
-        );
-        return NotificationSurface.suppressed;
-      }),
+      ref
+          .read(notificationRouterProvider)
+          .route(notification, alert: alert)
+          .catchError((Object e, StackTrace st) {
+            DebugLogger.error(
+              'notification routing failed',
+              error: e,
+              stackTrace: st,
+              scope: 'notifications/center',
+            );
+            return NotificationSurface.suppressed;
+          }),
     );
   }
 }

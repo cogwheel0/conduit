@@ -29,13 +29,16 @@ import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../utils/channel_request_owner.dart';
 import 'channel_form_dialog.dart';
 
 /// Sidebar tab that lists all channels with search and create support.
 class ChannelListTab extends ConsumerStatefulWidget {
-  const ChannelListTab({super.key});
+  const ChannelListTab({super.key, this.searchController});
+
+  final TextEditingController? searchController;
 
   @override
   ConsumerState<ChannelListTab> createState() => _ChannelListTabState();
@@ -95,12 +98,46 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     NavigationService.router.go('/channel/${channel.id}');
   }
 
+  /// The notification setting of [channel], as in Open WebUI's ChannelMenu:
+  /// every message, or mentions only. The current choice carries a check.
+  List<ConduitContextMenuAction> _buildNotificationActions(
+    Channel channel,
+    AppLocalizations l10n,
+  ) {
+    final muted = channel.isChannelMuted;
+    return [
+      ConduitContextMenuAction(
+        cupertinoIcon: muted ? CupertinoIcons.bell : CupertinoIcons.checkmark,
+        sfSymbol: muted ? 'bell' : 'checkmark',
+        materialIcon: muted
+            ? Icons.notifications_none_rounded
+            : Icons.check_rounded,
+        label: l10n.channelNotifyAllMessages,
+        onSelected: () async => _setChannelMuted(channel, false),
+      ),
+      ConduitContextMenuAction(
+        cupertinoIcon: muted
+            ? CupertinoIcons.checkmark
+            : CupertinoIcons.bell_slash,
+        sfSymbol: muted ? 'checkmark' : 'bell.slash',
+        materialIcon: muted
+            ? Icons.check_rounded
+            : Icons.notifications_off_outlined,
+        label: l10n.channelNotifyMentionsOnly,
+        onSelected: () async => _setChannelMuted(channel, true),
+      ),
+    ];
+  }
+
   List<ConduitContextMenuAction> _buildChannelActions(Channel channel) {
     final l10n = AppLocalizations.of(context)!;
+    final notificationActions = _buildNotificationActions(channel, l10n);
     if (channel.isDm) {
       return [
+        ...notificationActions,
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.xmark,
+          sfSymbol: 'xmark',
           materialIcon: Icons.close_rounded,
           label: l10n.channelLeave,
           onSelected: () async => _leaveChannel(channel),
@@ -114,17 +151,48 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         channel.userId == user?.id ||
         channel.isManager;
     if (!canManage) {
-      return [];
+      return notificationActions;
     }
 
     return [
+      ...notificationActions,
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.gear,
+        sfSymbol: 'gearshape',
         materialIcon: Icons.settings_rounded,
         label: l10n.channelEdit,
         onSelected: () async => _editChannel(channel),
       ),
     ];
+  }
+
+  Future<void> _setChannelMuted(Channel channel, bool muted) async {
+    if (channel.isChannelMuted == muted) return;
+    final l10n = AppLocalizations.of(context)!;
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    try {
+      await ref
+          .read(channelsListProvider.notifier)
+          .updateMuted(channel.id, muted);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'mute-channel-failed',
+        scope: 'channels/list-tab',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted ||
+          !isChannelRequestOwnerCurrent(
+            ref: ref,
+            api: api,
+            authSessionEpoch: authSessionEpoch,
+          )) {
+        return;
+      }
+      _showChannelActionError(l10n.errorMessage);
+    }
   }
 
   Future<void> _leaveChannel(Channel channel) async {
@@ -236,8 +304,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _showChannelActionError(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    AdaptiveSnackBar.show(context, message: message);
   }
 
   @override
@@ -245,7 +312,9 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     super.build(context);
     final l10n = AppLocalizations.of(context)!;
     final channelsAsync = ref.watch(channelsListProvider);
-    final searchController = ref.watch(sidebarSearchFieldControllerProvider);
+    final TextEditingController searchController =
+        widget.searchController ??
+        ref.watch(sidebarSearchFieldControllerProvider);
 
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: searchController,
@@ -323,7 +392,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
                   )
                 : Scrollbar(controller: _scrollController, child: primary);
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const Center(child: AdaptiveProgressIndicator()),
           error: (err, _) => Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -364,7 +433,9 @@ class _ChannelTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final unread = channel.unreadCount;
+    final muted = channel.isChannelMuted;
+    // A channel set to mentions only shows no unread badge, as in Open WebUI.
+    final unread = muted ? 0 : channel.unreadCount;
 
     final displayName = channelDisplayName(
       channel,
@@ -376,52 +447,56 @@ class _ChannelTile extends ConsumerWidget {
     final semanticLabel = [
       displayName,
       ?description,
+      if (muted) l10n.channelNotifyMentionsOnly,
       if (unread > 0) l10n.channelUnreadCount(unread),
     ].join('. ');
+
+    final tile = ChatStyleSidebarTile(
+      key: ValueKey<String>('channel-sidebar-row-${channel.id}'),
+      selected: selected,
+      onTap: onTap,
+      semanticLabel: semanticLabel,
+      tintKey: ValueKey<String>('channel-sidebar-selected-${channel.id}'),
+      pressedKey: ValueKey<String>('channel-sidebar-pressed-${channel.id}'),
+      child: SidebarListTileContent(
+        leading: Icon(
+          _channelIcon(),
+          color: selected ? theme.textPrimary : theme.textSecondary,
+          size: IconSize.listItem,
+        ),
+        title: displayName,
+        selected: selected,
+        subtitle: description,
+        trailing: unread <= 0
+            ? null
+            : Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  unread > 99
+                      ? '99+'
+                      : LocaleDisplayFormatters.integer(context, unread),
+                  style: AppTypography.sidebarBadgeStyle.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+      ),
+    );
 
     return ConduitContextMenu(
       actions: actions,
       previewBuilder: buildConversationTileContextPreview,
-      child: ChatStyleSidebarTile(
-        key: ValueKey<String>('channel-sidebar-row-${channel.id}'),
-        selected: selected,
-        onTap: onTap,
-        semanticLabel: semanticLabel,
-        tintKey: ValueKey<String>('channel-sidebar-selected-${channel.id}'),
-        pressedKey: ValueKey<String>('channel-sidebar-pressed-${channel.id}'),
-        child: SidebarListTileContent(
-          leading: Icon(
-            _channelIcon(),
-            color: selected ? theme.textPrimary : theme.textSecondary,
-            size: IconSize.listItem,
-          ),
-          title: displayName,
-          selected: selected,
-          subtitle: description,
-          trailing: unread <= 0
-              ? null
-              : Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    unread > 99
-                        ? '99+'
-                        : LocaleDisplayFormatters.integer(context, unread),
-                    style: AppTypography.sidebarBadgeStyle.copyWith(
-                      color: Theme.of(context).colorScheme.onPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-        ),
-      ),
+      // A muted channel is dimmed, as in Open WebUI's sidebar.
+      child: Opacity(opacity: muted ? 0.6 : 1, child: tile),
     );
   }
 }

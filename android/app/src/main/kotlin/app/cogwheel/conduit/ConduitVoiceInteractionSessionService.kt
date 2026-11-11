@@ -1,11 +1,13 @@
 package app.cogwheel.conduit
 
-import android.service.voice.VoiceInteractionSession
-import android.service.voice.VoiceInteractionSessionService
-import android.os.Bundle
+import android.service.voice.VoiceInteractionService
 
-class ConduitVoiceInteractionSessionService : VoiceInteractionSessionService() {
-    override fun onNewSession(args: Bundle?): VoiceInteractionSession {
-        return ConduitVoiceInteractionSession(this)
-    }
-}
+/**
+ * The service Android binds while Conduit is the default digital assistant.
+ * Its sessions come from [ConduitAssistSessionService].
+ *
+ * The name is historical: this class used to be the session service, and
+ * Android remembers the chosen assistant by this class name, so renaming it
+ * would unset Conduit as the assistant when the app updates.
+ */
+class ConduitVoiceInteractionSessionService : VoiceInteractionService()

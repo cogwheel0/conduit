@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -158,6 +159,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
     final contextLengthOverrides = ref.watch(
       directContextLengthOverridesProvider,
     );
+    final maxImagesPerRequest = ref.watch(directMaxImagesPerRequestProvider);
 
     return profiles.when(
       loading: () => _buildDirectConnectionsScaffold(
@@ -208,6 +210,25 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
           }
         },
         webSearchSettings: const OnDeviceWebSearchSettingsSection(),
+        maxImagesPerRequest: maxImagesPerRequest,
+        onMaxImagesPerRequestChanged: (count) => unawaited(
+          ref
+              .read(directMaxImagesPerRequestProvider.notifier)
+              .set(count)
+              .then<void>(
+                (_) {},
+                // The row keeps showing the stored value; say why it didn't
+                // change.
+                onError: (Object _, StackTrace _) {
+                  if (context.mounted) {
+                    UiUtils.showMessage(
+                      context,
+                      l10n.directImagesPerRequestSaveFailed,
+                    );
+                  }
+                },
+              ),
+        ),
         modelsWithoutContextLimit: modelsWithoutContextLimit,
         contextLengthOverrides: contextLengthOverrides,
         onContextLengthChanged: (modelId, contextLength) => unawaited(
@@ -310,6 +331,8 @@ class DirectConnectionsContent extends StatelessWidget {
     this.contextLengthOverrides = const <String, int>{},
     this.onContextLengthChanged,
     this.webSearchSettings,
+    this.maxImagesPerRequest = kDefaultDirectMaxImagesPerRequest,
+    this.onMaxImagesPerRequestChanged,
   });
 
   final List<DirectConnectionProfile> profiles;
@@ -344,6 +367,10 @@ class DirectConnectionsContent extends StatelessWidget {
 
   /// On-device web search settings; hidden during onboarding.
   final Widget? webSearchSettings;
+
+  /// The Images per request setting; hidden during onboarding.
+  final int maxImagesPerRequest;
+  final ValueChanged<int>? onMaxImagesPerRequestChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -448,6 +475,13 @@ class DirectConnectionsContent extends StatelessWidget {
         onRetry: onRetryMcp,
         flat: isOnboarding,
       ),
+      if (onMaxImagesPerRequestChanged != null && !isOnboarding) ...[
+        const SizedBox(height: Spacing.xl),
+        _DirectImagesPerRequestSection(
+          value: maxImagesPerRequest,
+          onChanged: onMaxImagesPerRequestChanged!,
+        ),
+      ],
       if (webSearchSettings != null && !isOnboarding) ...[
         const SizedBox(height: Spacing.xl),
         webSearchSettings!,
@@ -682,6 +716,63 @@ class _AppleModelSection extends StatelessWidget {
   }
 }
 
+/// How many of a chat's newest images one Direct request carries.
+class _DirectImagesPerRequestSection extends StatelessWidget {
+  const _DirectImagesPerRequestSection({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedList(
+      title: l10n.attachments,
+      footer: l10n.directImagesPerRequestFooter,
+      useNativeSurface: PlatformInfo.isIOS,
+      children: [
+        UtilityRow(
+          key: const ValueKey<String>('direct-images-per-request'),
+          title: l10n.directImagesPerRequest,
+          subtitle: _formatCount(context, value),
+          titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+          showChevron: true,
+          onTap: () => _showPicker(context),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showPicker(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    const options = kDirectMaxImagesPerRequestOptions;
+    final selected = await showAdaptiveSelectionSheet<int>(
+      context: context,
+      builder: (sheetContext) => AdaptiveSelectionSheet(
+        title: l10n.directImagesPerRequest,
+        description: l10n.directImagesPerRequestFooter,
+        itemCount: options.length,
+        itemBuilder: (context, index) {
+          final option = options[index];
+          return AdaptiveSelectionTile(
+            title: _formatCount(context, option),
+            selected: option == value,
+            onTap: () => Navigator.of(sheetContext).pop(option),
+          );
+        },
+      ),
+    );
+    if (selected != null && selected != value) onChanged(selected);
+  }
+}
+
+String _formatCount(BuildContext context, int count) =>
+    NumberFormat.decimalPattern(Localizations.localeOf(context).toLanguageTag())
+        .format(count);
+
 /// One row standing in for a long context-limit list.
 class _DirectContextCompactionSummary extends StatelessWidget {
   const _DirectContextCompactionSummary({required this.modelCount});
@@ -762,9 +853,16 @@ class _DirectContextCompactionSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // A limit picked for a local Ollama model is also sent as its num_ctx.
+    final listsOllamaModel = models.any(
+      (model) => model.metadata?['adapterKey'] == kOllamaAdapterKey,
+    );
     return InsetGroupedList(
       title: showTitle ? l10n.directContextCompactionTitle : null,
-      footer: l10n.directContextCompactionDescription,
+      footer: listsOllamaModel
+          ? '${l10n.directContextCompactionDescription}\n\n'
+                '${l10n.directContextLimitOllamaNote}'
+          : l10n.directContextCompactionDescription,
       useNativeSurface: PlatformInfo.isIOS,
       children: [
         for (final model in models)
@@ -1009,16 +1107,9 @@ class _DirectConnectionSectionHeader extends StatelessWidget {
               if (onAdd != null) ...[
                 const SizedBox(width: Spacing.sm),
                 if (PlatformInfo.isIOS)
-                  CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-                    minimumSize: const Size(0, TouchTarget.minimum),
+                  ConduitAdaptiveAppBarTextButton(
+                    label: l10n.addDirectConnection,
                     onPressed: onAdd,
-                    child: Text(
-                      l10n.addDirectConnection,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.buttonPrimary,
-                      ),
-                    ),
                   )
                 else if (constraints.maxWidth < 330)
                   ConduitIconButton(

@@ -178,6 +178,149 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Co nowego",
+      "intro": "Cześć! Możesz mieć zalogowanych kilka kont Open WebUI i przełączać się między nimi oraz zapisać kilka połączeń Hermes. Rozmowy mogą mówić głosem na żywo, który możesz przerwać. Open WebUI 0.12 działa, łącznie z logowaniem dwuetapowym, a kolejne funkcje Open WebUI nie wymagają już opcji Zaawansowane.",
+      "bullets": [
+        {
+          "text": "Konta: miej zalogowanych kilka kont Open WebUI, na jednym lub kilku serwerach, i przełączaj się z profilu albo z nowej strony Konta na górze Ustawień. Każde konto lub połączenie dodasz z jednego arkusza. Serwer może mieć kilka adresów, np. LAN, Tailscale i publiczne proxy; aplikacja używa pierwszego, który odpowie.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: zapisz kilka nazwanych połączeń, np. Dom i Badania, i przełączaj się między nimi z paska bocznego, ustawień lub strony Konta. Czat, którego sesja należy do innego połączenia, zaproponuje przełączenie na nie.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Rozmowy na żywo: w Open WebUI 0.12, Direct i Hermes Desktop Gateway rozmowy mogą mówić głosem OpenAI na żywo, a gdy zaczniesz mówić, głos milknie. Dla czatów Direct i Apple wybierz Dostawcę głosu w ustawieniach dźwięku. Zamiana mowy na tekst i tekstu na mowę na serwerze działa zgodnie z backendem każdego czatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: aplikacja działa bez ostrzeżenia o zgodności. Weryfikacja dwuetapowa przy logowaniu działa, łącznie z konfiguracją i kodami odzyskiwania. Eksport umiejętności, udostępnianie folderów, wymuszone czaty tymczasowe i zatwierdzanie narzędzi działają zgodnie z wersją 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Funkcje Open WebUI: kolejka szkiców, interpreter kodu, gałęzie, odbiorcy czatu, foldery projektów, udostępnianie, członkowie kanałów i kalendarz nie wymagają już opcji Zaawansowane. Zaawansowane dodaje porównanie modeli, zaplanowane zadania, webhooki i zarządzanie danymi. Duże czaty nie są już pobierane od nowa przy każdym otwarciu, a wybrany poziom rozumowania zostaje zapamiętany.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.12.2 działa, a kanały pokazują aplikacje, które w nich odpowiadają, i mogą powiadamiać Cię tylko o wzmiankach. Rozmowy głosowe trwają mimo hałasu w tle i gestów awatara, a przycisk głośnika działa od początku rozmów na Androidzie.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: aplikacja działa bez ostrzeżenia o zgodności. Czaty rozpoczęte przez rozmowę na żywo dostają wygenerowany tytuł i tagi, zgodnie z Twoimi ustawieniami tytułów i tagów.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanały: wiadomości od aplikacji pokazują nazwę aplikacji, karty, przyciski i linki. Naciśnięcie przycisku wysyła go do aplikacji, a odpowiedzi widoczne tylko dla Ciebie pojawiają się pod wiadomością, dopóki ich nie zamkniesz. Ustaw kanał lub wiadomość bezpośrednią na Tylko wzmianki, aby pominąć plakietki i powiadomienia, chyba że ktoś Cię wspomni.",
+          "icon": "direct"
+        },
+        {
+          "text": "Rozmowy głosowe: hałas w tle nie przerywa już głosu na żywo w połowie zdania; głos się zatrzymuje i mówi dalej, jeśli nic nie zostało powiedziane. Gesty awatara nie opóźniają już odpowiedzi o trzy sekundy. Na Androidzie przycisk głośnika działa od początku rozmowy, a rozmowa nie blokuje już Twoich połączeń telefonicznych przez pierwsze dwie minuty.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.12.4 działa, a odpowiedzi możesz udostępniać, czaty oznaczać jako nieprzeczytane, a filmy w czacie odtwarzać jednym dotknięciem. Dyktowanie na serwerze zachowuje każde słowo, udostępnianie do Conduit na iOS przynosi prawdziwy plik, a wstecz na Androidzie prowadzi do listy czatów.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: aplikacja działa bez ostrzeżenia o zgodności, a zdanie przerwane pauzą podczas rozmowy w czasie rzeczywistym dostaje jedną odpowiedź. Foldery zostają otwarte lub zamknięte tak, jak je zostawiłeś, tutaj i w przeglądarce. Oznacz czat jako nieprzeczytany z listy czatów, a czaty oznaczone tak w przeglądarce są nieprzeczytane także tutaj. Filtry, które mają startować włączone, są włączone w nowych czatach, obrazy z narzędzi MCP się ładują, każdy model oferuje wybór nakładu rozumowania, a funkcja może zaproponować przeniesienie czatu do innego modelu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Czaty: filmy pokazują kartę i ładują się dopiero po dotknięciu Odtwórz. „Udostępnij…” w menu ⋯ odpowiedzi udostępnia jej tekst, a Kopiuj i Udostępnij biorą wersję widoczną na ekranie. Na iOS po przytrzymaniu długiej wiadomości Edytuj, Kopiuj i Usuń pozostają widoczne, a długa wiadomość na kanale nie wypycha już odpowiedzi w wątku poza ekran.",
+          "icon": "direct"
+        },
+        {
+          "text": "Udostępnianie i dyktowanie: na iOS zrzuty ekranu, dokumenty z Plików i obrazy z Safari przychodzą jako prawdziwy plik, a czat pojawia się, nawet gdy były otwarte Ustawienia. Dyktowanie na serwerze zachowuje wszystko, co powiedziałeś, do ostatniego słowa, nawet gdy wcześnie dotkniesz stop albo mówisz dłużej niż 90 sekund.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android i konta: wstecz prowadzi do listy czatów, a asystent otwiera gotowy nowy czat i działa dalej po ponownym uruchomieniu. Edytowany serwer lub połączenie Hermes dostaje nazwę od nowego adresu, a dostawcy Direct zostają pod ręką obok Hermes.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.13 i 0.12.5 działają: aplikacje MCP otwierają się w czacie, terminale odświeżają się na żywo i pokazują porty w aplikacji, a notatki mogą mieć strony. Odsłuchanie odpowiedzi otwiera odtwarzacz, który możesz wstrzymać i przewijać, niewysłane wersje robocze przetrwają ponowne uruchomienie, a w ustawieniach Wygląd czeka nowy wysuwany panel boczny.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: aplikacja działa bez ostrzeżenia o zgodności, a czaty tymczasowe działają i odpowiadają dalej po ponownym połączeniu. Aplikacja narzędzia MCP otwiera się prosto w czacie i pyta cię przed każdym narzędziem, które uruchamia. Czaty czekające na zatwierdzenie narzędzia pokazują na liście czatów podniesioną rękę. Włączaj i wyłączaj narzędzia w obszarze roboczym, a przesyłanie do bazy wiedzy trzyma się limitów plików serwera i mówi, dlaczego plik odrzucono; właściciel bazy może ustawić własne Limity plików. Webhooki zapisane w 0.12 znów da się edytować.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: w Open WebUI 0.13 pliki i porty odświeżają się, gdy tylko się zmienią. Port otwiera się na własnej stronie Conduit z przyciskami wstecz, dalej, odśwież i Otwórz w przeglądarce, a linki na niej działają. Na iOS podglądy przechodzą też przez proxy logowania stojące przed Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: aplikacja działa bez ostrzeżenia o zgodności. Model wybrany w czacie zapisuje się razem z nim, a zmiana modelu zachowuje narzędzia i filtry, które włączyłeś lub wyłączyłeś. Odpowiedzi przerwane przez restart serwera nie wyglądają już na wciąż pisane. Pliki, które pokazuje model, i obrazy, które tworzy przez Responses API, pojawiają się w odpowiedzi, a zużycie liczy każdy krok odpowiedzi i informuje, gdy liczby mogą być zaniżone. Przeniesienie czatu do folderu zachowuje jego datę, a we wspólnym czacie Stop jest dostępny tylko dla twojej własnej odpowiedzi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notatki: w Open WebUI 0.12.5 notatka może mieć kilka stron. Dotknij nazwy strony pod tytułem albo Strony w menu, aby przełączyć; zmiany zapisują się na stronie, na której jesteś. Załączone pliki pojawiają się w tekście jako karty, a nowe nagranie trafia tam, gdzie stoi kursor. Strony dodajesz, zmieniasz ich nazwy i przenosisz w przeglądarce.",
+          "icon": "direct"
+        },
+        {
+          "text": "Wysuwany panel boczny: włącz go w ustawieniach Wygląd. Czat odsuwa się na bok i pokazuje historię, z kartami backendów na dole obok Nowy czat, a Notatki, Terminal i Kanały otwierają się zamiast czatu z przyciskiem wstecz. Na iOS menu, przełączniki, alerty, banery, zaznaczanie tekstu i lupa są teraz systemowe.",
+          "icon": "polish"
+        },
+        {
+          "text": "Odsłuchiwanie i wersje robocze: Odsłuchaj przy odpowiedzi otwiera odtwarzacz, który pozwala wstrzymać, zatrzymać i przeskoczyć 15 sekund do tyłu lub do przodu, z głosami serwera i urządzenia, a listę głosów można filtrować według języka. Niewysłany tekst i nagrania zostają przy każdym czacie po ponownym uruchomieniu, a odzyskane nagranie możesz przepisać na tekst, wyeksportować lub odrzucić. Na iOS ekran blokady pokazuje trwające nagranie z przyciskiem Stop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czaty i ustawienia: Wygeneruj tytuł w menu czatu Open WebUI nadaje mu nazwę na podstawie rozmowy. Wybierz i ułóż działania pod odpowiedzią w Działania wiadomości w ustawieniach Czat. W ustawieniach Wygląd możesz ukryć przycisk notatek w polu wiadomości i tło cytowań. Ikona chmury pojawia się, gdy aktualizacje na żywo czatu się rozłączą, ze szczegółami i Ponów, a przy długich wersjach roboczych przyciski pola wiadomości zostają widoczne.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Co nowego",
+      "intro": "Cześć! LibreChat pojawia się w wersji beta: zaloguj się, rozmawiaj z jego modelami i agentami, a jego historia trafi do karty Czaty. Hermes 0.23 działa, z Pokojami, przypiętymi i ukrytymi czatami oraz panelem Kontekst i użycie. Open WebUI 0.13.3 udostępnia agentów programistycznych swoich terminali jako modele, a Komputer otwiera pulpit terminala z nagłówka czatu.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): zaloguj się na serwer LibreChat e-mailem lub przez LDAP, z weryfikacją dwuetapową albo przez jednokrotne logowanie (SSO), i przełączaj się między nim a Open WebUI na stronie Konta. Jego czaty wypełniają kartę Czaty i można je czytać offline. Wybieraj jego specyfikacje modeli, agentów i modele, załączaj pliki, włączaj wyszukiwanie w sieci, kod, wyszukiwanie w plikach i serwery MCP, odpowiadaj na prośby o zatwierdzenie narzędzi i wstawiaj jego prompty przez /. Odpowiedzi generują się dalej, kiedy jesteś w innym czacie. Linki do udostępniania, rozgałęzianie, Duplikuj czat, głosy serwera i wspomnienia w sekcji Personalizacja też działają.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: czaty przez Desktop Gateway i serwer API działają, a połączyć się możesz też z listenerem Webapp, który ma sam gateway. Zatwierdzenia i pytania znów się pojawiają, a wszystkie pytania z jednej tury przychodzą w jednym formularzu. Czat rozpoczęty w innej aplikacji Hermes oferuje Kontynuuj w kopii, przebieg przerwany przez restart rusza dalej, a odpowiedź na wiadomość, którą Hermes zapisał podczas restartu, pojawia się, gdy tylko jest gotowa. Conduit pyta, zanim połączenie wyśle dane logowania przez nieszyfrowane HTTP i zanim przejdzie na model, przy którym Hermes chce twojego potwierdzenia.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Czaty Hermes: przypnij, zarchiwizuj lub ukryj czat, utwórz gałąź od dowolnej odpowiedzi albo cofnij ostatnią turę. Edycja lub ponowne generowanie w czacie Desktop Gateway idzie dalej w tej samej sesji, razem z jej kontekstem. Panel Kontekst i użycie pokazuje, jak pełne jest okno kontekstu i jakie limity ma twój abonament, oraz kompaktuje czat. Plakietka nad polem wiadomości pokazuje działających podagentów i procesy: możesz nimi pokierować, zatrzymać je lub zakończyć. Nieudana tura pokazuje kartę, która mówi, co się zepsuło, i proponuje poprawkę, zmienione pliki pojawiają się jako karta diff, płatne narzędzia pokazują swoją cenę, a plan agenta zostaje nad polem wiadomości.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Pokoje i zadania Hermes: połączenia Desktop Gateway dostają Pokoje, czyli czaty grupowe z udziałem od dwóch do sześciu twoich botów. Ich zaplanowane zadania można zatrzymać w trakcie działania, w opcji Pominięte uruchomienia wybrać, co ma się z nimi dziać, a w opcji Dostarczaj do wskazać komunikatory, Czaty botów i Czaty grupowe. Zadania na serwerze API można edytować, a wybrany nakład rozumowania działa teraz także tam. Serwery MCP z katalogu proszą o klucze przy dodawaniu, a przy kilku połączeniach przełączasz się przez nazwę u góry paska bocznego.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 i 0.13.3: aplikacja działa bez ostrzeżenia o zgodności. Wybierz terminal w zapisanym czacie, a jego agenci programistyczni, np. Codex i Claude Code, pojawią się w wyborze modelu w sekcji Agenci programistyczni. Komputer w nagłówku czatu otwiera Pulpit lub Przeglądarkę terminala na pełnym ekranie: patrz, jak powstaje odpowiedź, albo wybierz Przejmij sterowanie, by pisać, klikać i przeglądać strony. Wyłączysz go w Ustawienia > Czat. Przywołania wspomnień i listy umiejętności, które serwer ukrywa, nie pokazują się już jako bloki narzędzi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: wywołania narzędzi nie zatrzymują się już po 8 rundach. Nowe ustawienie Obrazy na żądanie (domyślnie 10) i budżet dokumentów obowiązują teraz na każde żądanie, więc starsze załączniki są pomijane, zamiast żeby każda kolejna tura kończyła się błędem. Limit kontekstu wybrany dla lokalnego modelu Ollama jest wysyłany do Ollama. Rozumowanie i kroki narzędzi zostają po ponownym otwarciu czatu, zapełnienie kontekstu w zużyciu jest liczone poprawnie, a serwery wysyłające puste pola nie psują już streamu.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: na iOS 26 menu, alerty, panele i pola wyszukiwania są systemowe, a Ustawienia są pogrupowane jak w aplikacji Ustawienia. Rozmowy głosowe i czytanie na głos unoszą się na szklanych wyspach: dotknij paska, aby przewinąć, przeskocz o 15 sekund i śledź podświetlone słowo. Czaty i notatki są ułożone według daty, zużycie odpowiedzi otwiera się w dymku z zapełnieniem kontekstu, edytor notatek ma pasek narzędzi na dole, a strony ustawień rozmywają się pod paskiem podczas przewijania.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czaty: długie czaty przewijają się bez skaczącego paska przewijania, na Androidzie pasek przewijania można przeciągać, a czat stoi w miejscu, gdy wysuwasz pasek boczny. Bloki kodu zawijają długie linie, kolumny tabel dopasowują się do treści, sugestie kolejnych pytań wyświetlają się jako pełne wiersze, a odpowiedź pokazuje Myślenie… z czasem oczekiwania. Jedna prędkość ustawia teraz głosy w chmurze i na urządzeniu, logowanie do panelu Hermes nie robi się już puste za klawiaturą, a dwukrotne dotknięcie profilu nie otwiera już Ustawień dwa razy.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -13,6 +13,34 @@ img.Image _decodeDataUrl(String dataUrl, {String type = 'png'}) {
 }
 
 void main() {
+  group('isDefaultProfileImageUrl', () {
+    test('treats no image and Open WebUI\'s /user.png as the stand-in', () {
+      for (final url in [
+        null,
+        '',
+        '  ',
+        '/user.png',
+        'user.png',
+        '/static/user.png',
+        'https://chat.example.com/user.png',
+        'http://127.0.0.1:8091/user.png?v=2',
+      ]) {
+        check(isDefaultProfileImageUrl(url)).isTrue();
+      }
+    });
+
+    test('treats an uploaded or linked photo as the user\'s own', () {
+      for (final url in [
+        'data:image/png;base64,iVBORw0KGgo=',
+        '/api/v1/users/u-1/profile/image',
+        'https://cdn.example.com/avatars/robin.png',
+        '/files/user.png.backup',
+      ]) {
+        check(isDefaultProfileImageUrl(url)).isFalse();
+      }
+    });
+  });
+
   group('extractAvatarInitials', () {
     test('two words give their first letters', () {
       check(extractAvatarInitials('  ada   lovelace king ')).equals('AL');

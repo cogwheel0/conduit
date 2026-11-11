@@ -2,6 +2,7 @@ import 'package:meta/meta.dart';
 
 import 'package:conduit_core/features/automations/automation_schedule.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 
 /// Why a draft cannot be saved yet.
 enum AutomationDraftIssue {
@@ -18,6 +19,12 @@ enum AutomationDraftIssue {
 
   /// A weekly schedule with no day, or a rule with no text.
   scheduleIncomplete,
+
+  /// A coding agent runs on a terminal, and none is chosen.
+  terminalRequired,
+
+  /// A coding agent's results go to a chat; Open WebUI refuses a channel.
+  agentNeedsChat,
 }
 
 /// A scheduled task being created or edited.
@@ -36,6 +43,8 @@ final class AutomationDraft {
     required this.target,
     required this.isActive,
     this.folderId,
+    this.terminalId,
+    this.terminalCwd,
     this.original,
   });
 
@@ -60,6 +69,8 @@ final class AutomationDraft {
     target: task.target,
     isActive: task.isActive,
     folderId: task.folderId,
+    terminalId: _terminalText(task.terminal?['server_id']),
+    terminalCwd: _terminalText(task.terminal?['cwd']),
     original: task,
   );
 
@@ -70,6 +81,14 @@ final class AutomationDraft {
   final AutomationTarget target;
   final bool isActive;
   final String? folderId;
+
+  /// The server terminal the task runs with (its tools, and its agents when
+  /// [modelId] is a coding agent's), or null for none.
+  final String? terminalId;
+
+  /// The folder on [terminalId] the task starts in, or null for the
+  /// terminal's own.
+  final String? terminalCwd;
 
   /// The task being edited, or null for a new one.
   final Automation? original;
@@ -85,6 +104,9 @@ final class AutomationDraft {
     bool? isActive,
     String? folderId,
     bool clearFolder = false,
+    String? terminalId,
+    String? terminalCwd,
+    bool clearTerminal = false,
   }) {
     // A channel result is not filed in a folder, as in Open WebUI's own form.
     final channelNow = target?.isChannel ?? false;
@@ -96,6 +118,8 @@ final class AutomationDraft {
       target: target ?? this.target,
       isActive: isActive ?? this.isActive,
       folderId: clearFolder || channelNow ? null : (folderId ?? this.folderId),
+      terminalId: clearTerminal ? null : (terminalId ?? this.terminalId),
+      terminalCwd: clearTerminal ? null : (terminalCwd ?? this.terminalCwd),
       original: original,
     );
   }
@@ -111,8 +135,16 @@ final class AutomationDraft {
         schedule != AutomationSchedule.parse(task.rrule) ||
         target != task.target ||
         isActive != task.isActive ||
-        folderId != task.folderId;
+        folderId != task.folderId ||
+        terminalId != _terminalText(task.terminal?['server_id']) ||
+        _cwd != _terminalText(task.terminal?['cwd']);
   }
+
+  /// [terminalCwd] trimmed, or null when it holds nothing.
+  String? get _cwd => _terminalText(terminalCwd);
+
+  /// Whether [modelId] names a coding agent.
+  bool get runsAgent => isTerminalAgentModelId(modelId.trim());
 
   /// What stops this draft from being saved. Each set is what the account can
   /// pick right now; null means the list could not be read, so that part is
@@ -130,8 +162,11 @@ final class AutomationDraft {
       if (prompt.trim().isEmpty) AutomationDraftIssue.promptRequired,
       if (modelId.trim().isEmpty)
         AutomationDraftIssue.modelRequired
+      else if (runsAgent && terminalId == null)
+        AutomationDraftIssue.terminalRequired
       else if (modelIds != null && !modelIds.contains(modelId.trim()))
         AutomationDraftIssue.modelUnavailable,
+      if (runsAgent && target.isChannel) AutomationDraftIssue.agentNeedsChat,
       if (target.isChannel && selectedChannel == null)
         AutomationDraftIssue.channelRequired
       else if (target.isChannel &&
@@ -164,6 +199,20 @@ final class AutomationDraft {
           ? <String, dynamic>{'type': 'channel', 'channel_id': target.channelId}
           : <String, dynamic>{'type': 'chat'};
     }
+    final terminal = terminalId;
+    final stored = task?.terminal;
+    if (terminal == null) {
+      data.remove('terminal');
+    } else if (stored == null ||
+        terminal != _terminalText(stored['server_id']) ||
+        _cwd != _terminalText(stored['cwd'])) {
+      // Any other key the server keeps on the terminal stays with it.
+      data['terminal'] = <String, dynamic>{
+        ...?stored,
+        'server_id': terminal,
+        'cwd': ?_cwd,
+      }..removeWhere((key, _) => key == 'cwd' && _cwd == null);
+    }
     return AutomationForm(
       name: name.trim(),
       folderId: target.isChannel ? null : folderId,
@@ -181,4 +230,9 @@ final class AutomationDraft {
     }
     return schedule.toRrule();
   }
+}
+
+String? _terminalText(Object? value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
 }

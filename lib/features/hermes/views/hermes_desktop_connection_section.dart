@@ -146,9 +146,25 @@ class _HermesDesktopConnectionSectionState
     if (_profilesLoading && !force) return;
     final saved = widget.savedConfig();
     final draft = _controller.buildDraft(saved);
+    // A load this draft cut short has no say any more (its epoch moved on),
+    // so the button it spun is freed here.
     if (HermesConfig.connectionOrigin(draft.config.baseUrl) == null) {
       if (!mounted) return;
-      setState(() => _profilesError = 'Enter the Hermes server URL first.');
+      setState(() {
+        _profilesLoading = false;
+        _profilesError = 'Enter the Hermes server URL first.';
+      });
+      return;
+    }
+    // Listing profiles sends the draft's credentials, which go unencrypted
+    // only once Test, Save or sign-in has asked.
+    if (!draft.config.mayUsePlainHttp) {
+      if (!mounted) return;
+      setState(() {
+        _profiles = const [];
+        _profilesLoading = false;
+        _profilesError = 'Test the connection, then refresh the profile list.';
+      });
       return;
     }
     final identity = _authDraftIdentity(draft.config);
@@ -231,6 +247,8 @@ class _HermesDesktopConnectionSectionState
     if (!force && saved.mode == HermesBackendMode.desktopGateway) return;
     final draft = _controller.buildDraft(saved).config.copyWith(enabled: true);
     if (HermesConfig.connectionOrigin(draft.baseUrl) == null) return;
+    // Not unencrypted unasked: the access headers go with the probe.
+    if (!draft.mayUsePlainHttp) return;
     final identity = _authDraftIdentity(draft);
     final epoch = ++_recommendationEpoch;
     try {
@@ -366,6 +384,7 @@ class _HermesDesktopConnectionSectionState
             children: [
               AdaptiveSegmentedControl(
                 key: const ValueKey<String>('hermes-desktop-auth-selector'),
+                semanticLabel: l10n.hermesDesktopAuthentication,
                 labels: [
                   l10n.hermesAuthLegacy,
                   l10n.hermesAuthNative,

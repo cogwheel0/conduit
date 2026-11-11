@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -381,6 +382,9 @@ void main() {
         ),
         reviewerModeProvider.overrideWithValue(false),
         socketServiceProvider.overrideWithValue(socket),
+        personalConnectionsAccessProvider.overrideWithValue(
+          const PersonalConnectionsAccess.allowed(),
+        ),
       ],
     );
     addTearDown(container.dispose);

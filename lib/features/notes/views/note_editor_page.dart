@@ -1,18 +1,21 @@
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 
 import 'dart:async';
+import 'dart:convert' show base64Decode;
 import 'dart:io' show File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -22,6 +25,7 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/note_mapper.dart';
 
 import 'package:conduit_core/models/note.dart';
 
@@ -36,24 +40,33 @@ import 'package:conduit_core/features/notes/services/note_ai_actions.dart';
 import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
 import 'package:conduit_core/features/notes/services/note_dictation.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/notes/utils/note_file_cards.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart'
     show WorkspacePrincipalType;
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 
 import '../utils/note_context_actions.dart';
+import '../utils/note_file_download.dart';
+import '../utils/note_file_link_insertion.dart';
+import '../widgets/note_pages_sheet.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/services/navigation_service.dart';
+import '../../navigation/utils/sidebar_page_back.dart';
+import '../../navigation/widgets/sidebar_page_leading_button.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
-import '../../../shared/widgets/sidebar_layout_contract.dart';
+import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -64,9 +77,9 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../chat/services/voice_input_service.dart';
 import '../providers/notes_providers.dart';
 import '../services/note_audio_upload_service.dart';
-import '../utils/note_document_codec.dart';
 import '../widgets/audio_player_dialog.dart';
 import '../widgets/audio_recording_overlay.dart';
+import '../widgets/note_bottom_toolbar.dart';
 import '../widgets/note_file_attachment.dart';
 import '../widgets/note_floating_actions.dart';
 
@@ -209,6 +222,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// note or discards it.
   bool _writeRefused = false;
 
+  /// Whether dictation is starting: listening is not running yet, but will
+  /// write into the page shown.
+  bool _dictationStarting = false;
+
+  /// Whether a file is being removed from the page shown, whose text loses
+  /// its link once the stored note has.
+  bool _removingFile = false;
+
+  /// Whether the draft is being saved as a note of its own.
+  bool _savingAsOwnNote = false;
+
+  /// Counts dictation ends: a start under way when one ends does not begin.
+  int _dictationEnds = 0;
+
   /// The server refused to show the note (403), which is not a missing note.
   bool _loadForbidden = false;
 
@@ -245,6 +272,46 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   // normalisation.
   String _savedMarkdown = '';
 
+  /// The stored markdown of the page the editor shows, as last loaded or
+  /// saved. A file link the stored page gains beyond it (a recording attached,
+  /// or files a sync moved into the content on an Open WebUI 0.12.5 server)
+  /// is merged into the next save and put in the editor; a link the user
+  /// removed since stays removed.
+  String _linkBase = '';
+
+  /// The page the editor shows and saves to. Open WebUI 0.12.5 notes can have
+  /// several; every other note has only its main page.
+  String _pageId = kNoteMainPageId;
+
+  /// The page the editor shows was removed elsewhere while it held unsaved
+  /// text: nothing more is saved to it, and the text can be kept as a note
+  /// of its own or discarded.
+  bool _pageMissing = false;
+
+  /// Height of the bars at the foot of the page with the iOS 26 toolbar.
+  /// While the body is edited that is the formatting bar, and the text is
+  /// laid out above it, so it never hides the caret.
+  double _bottomBarsHeight = 0;
+
+  /// On iOS 26 a native bottom toolbar holds the voice, AI and note actions
+  /// that elsewhere sit in floating buttons and the top bar's ⋯ menu.
+  bool get _usesNativeToolbar => PlatformUiCapabilities.usesNativeIOS26;
+
+  /// Whether the body is being edited, which brings up the formatting bar.
+  bool get _editingContent => !_readOnly && _contentFocusNode.hasFocus;
+
+  /// Whether the body or the title is being edited, with the keyboard up.
+  /// On iOS 26 the bottom toolbar then gives way, as in Notes, and Done in
+  /// the top bar ends the edit.
+  bool get _editingWithKeyboard =>
+      !_readOnly && (_contentFocusNode.hasFocus || _titleFocusNode.hasFocus);
+
+  /// Ends editing the title or the body, which hides the keyboard.
+  void _endEditing() {
+    _titleFocusNode.unfocus();
+    _contentFocusNode.unfocus();
+  }
+
   static final _whitespacePattern = RegExp(r'\s+');
   int _cachedWordCount = 0;
 
@@ -260,15 +327,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Markdown encoding of the current document.
   String get _contentMarkdown {
     final controller = _contentController;
-    return controller == null ? '' : markdownFromDocument(controller.document);
+    return controller == null
+        ? ''
+        : noteMarkdownFromDocument(controller.document);
   }
 
   void _updateWordCount() {
-    final text = _contentPlainText.trim();
+    final text = _countedText.trim();
     _cachedWordCount = text.isEmpty ? 0 : text.split(_whitespacePattern).length;
   }
 
-  int get _charCount => _contentPlainText.length;
+  int get _charCount => _countedText.length;
+
+  /// The text counted for words and characters: file cards are not text.
+  String get _countedText => _contentPlainText.replaceAll(
+    EmbedNode.kObjectReplacementCharacter,
+    '',
+  );
 
   @override
   void initState() {
@@ -285,12 +360,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       currentNote: () => _note,
       resolvedTitle: _resolvedTitle,
       onNoteUpdated: (note) {
-        if (mounted) setState(() => _note = note);
+        if (!mounted) return;
+        setState(() {
+          _takeStoredNote(note);
+          _showFileLinksOf(note);
+        });
       },
       onChanged: () {
         if (mounted) setState(() {});
       },
       onNotice: _onAudioNotice,
+      currentPageId: () => _pageId,
     )..start();
     _recovery = DeletedNoteDraftRecovery(
       container: _container,
@@ -317,6 +397,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             setState(() {
               _note = note;
               _savedMarkdown = savedMarkdown;
+              _pageId = kNoteMainPageId;
+              _pageMissing = false;
+              _linkBase = _pageMarkdown(note);
               _hasChanges = changedDuringRecovery;
             });
           },
@@ -349,10 +432,33 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     setState(() {});
   }
 
+  /// Whether the editor is in view. Leaving it for the notes list or another
+  /// page keeps it mounted out of sight, with its tickers muted.
+  bool _inView = true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _fleatherTheme = _buildFleatherTheme(context);
+    final inView = TickerMode.valuesOf(context).enabled;
+    if (_inView && !inView) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_inView) unawaited(_endDictationOutOfView());
+      });
+    }
+    _inView = inView;
+  }
+
+  /// Dictation writes into the text in view, so it ends once the editor is
+  /// out of sight, and what it wrote is saved.
+  Future<void> _endDictationOutOfView() async {
+    if (!_isRecording && !_dictationStarting) return;
+    // A start still under way is called off too.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
+    _saveDebounce?.cancel();
+    await _autoSave();
   }
 
   /// Replaces the content editor's controller with one backed by [document],
@@ -418,9 +524,208 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// that opened it, or a save was refused.
   bool get _readOnly =>
       _writeRefused ||
+      _pageMissing ||
       _note == null ||
       noteWriteAccess(_note!, accountId: _openUserId) !=
           NoteWriteAccess.allowed;
+
+  /// The stored markdown of the page the editor shows ([_pageId]). A note in
+  /// the older shape, or with one page, has its content.
+  String _pageMarkdown(Note note) {
+    if (note.isMultiPage) {
+      final pageId = _hasPage(note, _pageId) ? _pageId : kNoteMainPageId;
+      for (final page in note.data.pages) {
+        if (page.id == pageId) return page.content.md;
+      }
+    }
+    return note.markdownContent;
+  }
+
+  /// Whether [note] has page [pageId]; the main page is always there.
+  bool _hasPage(Note note, String pageId) =>
+      pageId == kNoteMainPageId ||
+      (note.isMultiPage && note.data.pages.any((page) => page.id == pageId));
+
+  /// Keeps [_pageId] on a page [note] has: the main page when the note has
+  /// one page, or when the page shown was removed elsewhere, which returns
+  /// whether it was.
+  bool _settlePage(Note note) {
+    if (_hasPage(note, _pageId)) return false;
+    _pageId = kNoteMainPageId;
+    _pageMissing = false;
+    return true;
+  }
+
+  /// Takes in [note], read back from storage after a save or an attachment:
+  /// the page shown may have been removed by a sync meanwhile. Without unsaved
+  /// text the editor moves to the main page; with it the text stays, marked
+  /// as belonging to no page.
+  void _takeStoredNote(Note note) {
+    _note = note;
+    if (_hasPage(note, _pageId)) return;
+    if (_contentMarkdown != _savedMarkdown) {
+      _pageMissing = true;
+      _hasChanges = true;
+      // The text is kept as it is; dictation would go on changing it.
+      _dropDictation();
+      return;
+    }
+    _settlePage(note);
+    _dropDictation();
+    _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
+    _savedMarkdown = _contentMarkdown;
+    _linkBase = _pageMarkdown(note);
+    // The title belongs to the note, not the page: one typed meanwhile is
+    // still to be saved.
+    _hasChanges = _resolvedTitle() != note.title;
+    _updateWordCount();
+    if (mounted) {
+      final l10n = AppLocalizations.of(context)!;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.notePageRemoved,
+          type: AdaptiveSnackBarType.info,
+        );
+      });
+    }
+  }
+
+  /// Puts a card for each file the stored [note] gained on the page shown
+  /// beyond [_linkBase] (Open WebUI 0.12.5 keeps attachments as links in the
+  /// page content) into the editor, unless it shows the file already: at the
+  /// cursor while the user is writing, else at the end. Then moves
+  /// [_linkBase] on to [note].
+  void _showFileLinksOf(Note note) {
+    if (!_hasPage(note, _pageId)) return;
+    final stored = _pageMarkdown(note);
+    final base = _linkBase;
+    _linkBase = stored;
+    final controller = _contentController;
+    if (controller == null || _readOnly) return;
+    final known = <String>{
+      for (final link in noteFileLinksInMarkdown(base)) link.id,
+      for (final link in noteFileLinksInMarkdown(_contentMarkdown)) link.id,
+    };
+    final gained = [
+      for (final link in noteFileLinksInMarkdown(stored))
+        if (!known.contains(link.id)) link,
+    ];
+    if (gained.isEmpty) return;
+    // Text typed while a save ran is not saved yet; the debounce it started
+    // still compares against [_savedMarkdown] and saves it.
+    final wasSaved = _contentMarkdown == _savedMarkdown;
+    final index = _cardInsertIndex();
+    insertNoteFileCardsInEditor(controller, gained, index: index);
+    if (wasSaved && index == null) {
+      // The stored note already holds these files, at the end of the page as
+      // here: nothing new to save. Cards put in at the cursor sit elsewhere
+      // than the stored links, so that place is saved.
+      _savedMarkdown = _contentMarkdown;
+    }
+  }
+
+  /// Where a file card goes in: at the cursor while the user writes in a
+  /// plain paragraph, else at the end. In a list, quote or code block a link
+  /// is no attachment, so the card would be read back as a plain link. While
+  /// dictation runs, at the end, where it cannot move the text dictation is
+  /// rewriting.
+  int? _cardInsertIndex() {
+    final controller = _contentController;
+    if (controller == null || !_contentFocusNode.hasFocus) return null;
+    if (_isRecording || _dictationRun != null) return null;
+    final selection = controller.selection;
+    if (!selection.isValid) return null;
+    final line = controller.document.lookupLine(selection.extentOffset).node;
+    if (line is! LineNode || line.parent is BlockNode) return null;
+    if (line.style.lineAttributes.isNotEmpty) return null;
+    return selection.extentOffset;
+  }
+
+  /// Saves the page shown, then shows page [pageId] of the note, as stored
+  /// now. An edit that could not be saved keeps the editor on its page, as
+  /// does a running enhancement, whose result belongs to this page; dictation
+  /// stops, since it writes into this page's text.
+  Future<void> _showPage(String pageId) async {
+    if (pageId == _pageId ||
+        _note == null ||
+        _isEnhancing ||
+        _dictationStarting ||
+        _removingFile ||
+        _savingAsOwnNote) {
+      return;
+    }
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
+    _saveDebounce?.cancel();
+    await _autoSave();
+    // A title or text the save left unsaved, or refused, keeps the editor
+    // here with its recovery choices; once the draft is discarded, the
+    // note's pages can be read.
+    bool unsaved() =>
+        _contentMarkdown != _savedMarkdown || _hasChanges || _pageMissing;
+    if (!mounted || unsaved() || _isEnhancing) return;
+    // A sync may have brought newer pages since this editor last read them.
+    final stored = await _readStoredNote();
+    // An enhancement or dictation started meanwhile works on this page.
+    if (!mounted ||
+        unsaved() ||
+        _isEnhancing ||
+        _isRecording ||
+        _dictationStarting ||
+        _removingFile) {
+      return;
+    }
+    final note = stored ?? _note!;
+    // A sync may have renamed the note; the old title would be saved over the
+    // new one with the next edit.
+    if (_titleController.text != note.title) {
+      _titleController.text = note.title;
+    }
+    setState(() {
+      _note = note;
+      _pageId = pageId;
+      _settlePage(note);
+      _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
+      _savedMarkdown = _contentMarkdown;
+      _linkBase = _pageMarkdown(note);
+      _hasChanges = false;
+      _updateWordCount();
+    });
+    // Taking the stored title is no edit to save.
+    _saveDebounce?.cancel();
+  }
+
+  /// The note as stored now, or null without a database (or a stored copy).
+  Future<Note?> _readStoredNote() async {
+    final db = _openDb;
+    final id = _note?.id;
+    if (db == null || id == null || !_isOpenSessionCurrent) return null;
+    final row = await db.notesDao.getNote(id);
+    if (row == null || row.deleted || !_isOpenSessionCurrent) return null;
+    return Note.fromJson(noteRowToServer(row));
+  }
+
+  Future<void> _openPagesSheet() async {
+    final note = _note;
+    if (note == null || !note.isMultiPage || _isEnhancing) return;
+    final picked = await showNotePagesSheet(
+      context,
+      entries: notePageEntries(note.data.pages, _resolvedTitle()),
+      currentId: _pageId,
+    );
+    if (picked == null || !mounted) return;
+    await _showPage(picked);
+  }
+
+  /// The path of the page shown, as the Pages sheet names it.
+  String _pagePath(Note note) {
+    for (final entry in notePageEntries(note.data.pages, _resolvedTitle())) {
+      if (entry.id == _pageId) return entry.path;
+    }
+    return _resolvedTitle();
+  }
 
   String _resolvedTitle() {
     final title = _titleController.text.trim();
@@ -477,8 +782,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() {
           _note = note;
           _titleController.text = note.title;
-          _installContentDocument(documentFromMarkdown(note.markdownContent));
+          _settlePage(note);
+          _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
           _savedMarkdown = _contentMarkdown;
+          _linkBase = _pageMarkdown(note);
           _updateWordCount();
           _isLoading = false;
           _hasChanges = false;
@@ -564,10 +871,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   /// Handles a back-navigation attempt. Reached only when [canPop] was false,
-  /// i.e. there is a pending edit: flush it while still mounted (so the durable
+  /// i.e. there is a pending edit or dictation is running: end dictation and
+  /// take its last words, flush the edit while still mounted (so the durable
   /// write doesn't race teardown), then pop programmatically.
   Future<void> _onEditorPopInvoked(bool didPop, Object? result) async {
     if (didPop) return;
+    // Dictation's last words arrive as it stops, and closing the editor
+    // would drop them.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
     _saveDebounce?.cancel();
     await _autoSave();
     // Keep the editor open if persistence failed. In particular, a remotely
@@ -582,9 +895,49 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Saves a pending edit before the editor is left by its back button.
+  /// Returns false, keeping the editor open, when the save did not land, so a
+  /// remotely deleted note's recovery retry stays reachable.
+  Future<bool> _saveBeforeLeaving() async {
+    // Dictation would keep adding text the saves below chase.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return false;
+    _saveDebounce?.cancel();
+    // A save covers the text as it began, so typing while it runs needs
+    // another; a few rounds catch up with any typing that is still going.
+    for (
+      var round = 0;
+      round < 3 && (_hasChanges || _hasUnsavedText);
+      round++
+    ) {
+      await _autoSave();
+      if (!mounted) return false;
+    }
+    if (_hasChanges || _hasUnsavedText) {
+      _recovery.pendingRetry?.call();
+      return false;
+    }
+    return true;
+  }
+
+  /// Whether [_autoSave] has text to save that would change what is stored.
+  /// A title differs only when the save would store another one: a stored
+  /// title that is empty or padded, as notes made elsewhere can have, is not
+  /// an edit.
+  bool get _hasUnsavedText {
+    final note = _note;
+    if (note == null) return false;
+    final titleUnsaved =
+        _titleController.text != note.title && _resolvedTitle() != note.title;
+    return titleUnsaved || _contentMarkdown != _savedMarkdown;
+  }
+
   Future<void> _autoSave() async {
     final note = _note;
-    if (note == null) return;
+    // Text kept from a removed page has nowhere to be saved; it waits for the
+    // user to keep it as a note of its own or discard it.
+    if (note == null || _pageMissing) return;
 
     // Authoritative dirty check: compare the re-encoded markdown against the
     // snapshot taken on load/save so markdown normalisation on open never
@@ -635,6 +988,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required AppDatabase? db,
     required String title,
     required Map<String, dynamic> data,
+    Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
+    required String pageId,
     Object? authEpoch,
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,
@@ -647,6 +1002,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       db: db,
       title: title,
       data: data,
+      dataFrom: dataFrom,
+      // The page the text was edited on: on Open WebUI 0.12.5 a note that
+      // gained pages meanwhile keeps the text there.
+      pageId: pageId,
       authEpoch: authEpoch,
       // The account that opened the page, not whoever is active at Save.
       accountId: _openUserId,
@@ -677,12 +1036,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
 
+    final pageId = _pageId;
     try {
       final title = _titleController.text.trim();
 
       // Preserve existing note data (versions, attached files) — only the
       // content changes here.
       final savedMarkdown = _contentMarkdown;
+      final linkBase = _linkBase;
       final data = _composeUpdatedNoteData();
 
       final resolvedTitle = title.isEmpty
@@ -693,6 +1054,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         db: db,
         title: resolvedTitle,
         data: data,
+        // Read inside the note lock: a file link the stored page gained since
+        // this text was loaded is kept, not replaced by the editor's copy.
+        dataFrom: (existing) => noteContentData(
+          mergeNoteFileLinks(
+            base: linkBase,
+            stored: notePageMarkdown(existing, pageId),
+            mine: savedMarkdown,
+          ),
+        ),
+        pageId: pageId,
         authEpoch: _openAuthEpoch,
       );
 
@@ -705,12 +1076,25 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           return;
         }
 
+        // A save that ends after the editor moved to another page holds text
+        // that page never showed: it is no baseline for it.
+        if (pageId != _pageId) {
+          setState(() => _isSaving = false);
+          return;
+        }
+
         if (updatedNote != null) {
+          // A title or text typed while the save ran is not in it: it stays
+          // unsaved, so leaving the page saves it first.
+          final editedDuringSave =
+              _titleController.text.trim() != title ||
+              _contentMarkdown != savedMarkdown;
           setState(() {
-            _note = updatedNote;
             _savedMarkdown = savedMarkdown;
             _isSaving = false;
-            _hasChanges = false;
+            _hasChanges = editedDuringSave;
+            _takeStoredNote(updatedNote);
+            _showFileLinksOf(updatedNote);
           });
 
           if (showFeedback) {
@@ -730,6 +1114,42 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _writeRefused = true;
         });
       }
+    } on NotePageMissingException {
+      // A sync removed the page this text was written on. Keep the text and
+      // let the user keep it as a note of its own; the note as stored now is
+      // what Discard goes back to.
+      // The page is only switched once its text is saved, so a refusal that
+      // ends after a switch holds nothing to keep.
+      if (pageId != _pageId) {
+        if (mounted) setState(() => _isSaving = false);
+        return;
+      }
+      _saveDebounce?.cancel();
+      final stored = await _readStoredNote();
+      if (!mounted) return;
+      // A switch can also finish while the note is read back: the refusal is
+      // then about the page left, and changes nothing on the one shown.
+      if (pageId != _pageId) {
+        setState(() => _isSaving = false);
+        return;
+      }
+      setState(() {
+        _isSaving = false;
+        if (stored != null && !_hasPage(stored, _pageId)) {
+          // As for a page removed under the editor: text that differs from
+          // what was saved stays, to keep or discard; text the user put back
+          // meanwhile leaves nothing to keep, and the main page shows.
+          _takeStoredNote(stored);
+        } else {
+          // The stored note could not be read back: the text stays, with the
+          // choices to keep it or discard it.
+          _pageMissing = true;
+          _hasChanges = true;
+          // The text is kept as it is; dictation would go on changing it.
+          _dropDictation();
+          if (stored != null) _note = stored;
+        }
+      });
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
@@ -766,10 +1186,24 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // not delete the note under another identity.
     if (confirmed && mounted && _isOpenSessionCurrent) {
       ConduitHaptics.mediumImpact();
+      final route = NavigationService.currentRoute;
+      final routeRevision = NavigationService.currentRouteRevision;
       final success = await ref
           .read(noteDeleterProvider.notifier)
           .deleteNote(note.id);
-      if (success && mounted) {
+      // Back no longer returns to the deleted note, wherever the user is, by
+      // either id: a note made offline keeps the one it opened with in its
+      // location once it carries its server id.
+      if (success) {
+        for (final id in {widget.noteId, note.id}) {
+          NavigationService.forgetPath('/notes/$id');
+        }
+      }
+      if (success &&
+          mounted &&
+          _isOpenSessionCurrent &&
+          NavigationService.currentRoute == route &&
+          NavigationService.currentRouteRevision == routeRevision) {
         context.go('/chat');
       }
     }
@@ -853,12 +1287,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     setState(() => _isEnhancing = true);
     ConduitHaptics.lightImpact();
     try {
+      final enhancedPage = _pageId;
       final result = await enhanceNote(_container, _contentMarkdown);
-      if (!mounted) return;
+      // The result belongs to the page it was made from.
+      if (!mounted || _pageId != enhancedPage || _pageMissing) return;
       switch (result.outcome) {
         case NoteAiOutcome.done:
+          // On Open WebUI 0.12.5 files are attached by links in the text; one
+          // the model left out is put back, as enhancing detaches nothing.
+          final before = noteFileLinksInMarkdown(_contentMarkdown);
+          final enhanced = appendNoteFileLinks(result.text!, [
+            for (final link in before) link.toAttachment(),
+          ]);
           setState(() {
-            _installContentDocument(documentFromMarkdown(result.text!));
+            _installContentDocument(noteDocumentFromMarkdown(enhanced));
           });
           // _installContentDocument deliberately leaves _savedMarkdown
           // untouched, so the enhanced content now differs from the saved
@@ -899,24 +1341,33 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _startDictation() async {
-    if (_readOnly) return;
+    if (_readOnly || _dictationStarting) return;
     // Use the shared service, as the chat composer does, so dictation honours
     // the user's speech-to-text preference (e.g. server-only) and locale.
     _voiceService ??= ref.read(voiceInputServiceProvider);
+    // Dictation writes into the page it was started on: the editor stays on
+    // it while listening starts ([_showPage] waits for this).
+    final page = _pageId;
+    final ends = _dictationEnds;
+    _dictationStarting = true;
 
     try {
       final ok = await _voiceService!.initialize();
-      if (!mounted) return;
+      if (!mounted || _readOnly || ends != _dictationEnds) return;
       if (!ok) {
         _showError(AppLocalizations.of(context)!.voiceInputUnavailable);
         return;
       }
 
       final stream = await _voiceService!.beginListening();
-      if (!mounted) {
-        // The editor closed while listening was starting. Capture is already
-        // running and dispose() saw no dictation to stop, so stop it here,
-        // unless another consumer has taken the service over since.
+      if (!mounted ||
+          _pageId != page ||
+          _readOnly ||
+          ends != _dictationEnds) {
+        // The editor closed, shows another page, or can no longer be edited
+        // (a sync removed the page, say) while listening was starting.
+        // Capture is already running and nothing else will stop it, so stop
+        // it here, unless another consumer has taken the service over since.
         if (_voiceService?.textStream == stream) {
           unawaited(_voiceService?.stopListening());
         }
@@ -957,14 +1408,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           if (!mounted) return;
           _applyDictationText(text);
         },
+        // A run that ends by itself is over too: a card that comes in later
+        // goes in at the cursor again.
         onDone: () {
           if (!mounted) return;
           _dictationStream = null;
+          _dictationRun = null;
           setState(() => _isRecording = false);
         },
         onError: (_) {
           if (!mounted) return;
           _dictationStream = null;
+          _dictationRun = null;
           setState(() => _isRecording = false);
         },
       );
@@ -973,7 +1428,26 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (mounted) {
         setState(() => _isRecording = false);
       }
+    } finally {
+      _dictationStarting = false;
     }
+  }
+
+  /// Ends dictation at once, for a document about to be replaced: its run
+  /// points into the text being taken away. Called inside `setState`.
+  void _dropDictation() {
+    // A start still under way is called off too.
+    _dictationEnds++;
+    if (!_isRecording && _dictationRun == null && _dictationStream == null) {
+      return;
+    }
+    final owned = _ownsDictationRun;
+    _voiceSub?.cancel();
+    _voiceSub = null;
+    _dictationStream = null;
+    _dictationRun = null;
+    _isRecording = false;
+    if (owned) unawaited(_voiceService?.stopListening());
   }
 
   /// Whether the voice service is still on the run this editor started.
@@ -1130,6 +1604,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Shows the full-screen audio recording overlay.
   void _showAudioRecordingOverlay() {
+    // The recording belongs to the page shown when it starts: a page switch
+    // that finishes while the overlay is open does not move it.
+    final recordedOn = _pageId;
     Navigator.of(context).push(
       PageRouteBuilder<void>(
         opaque: false,
@@ -1140,7 +1617,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             child: AudioRecordingOverlay(
               onCancel: () => Navigator.pop(context),
               onConfirm: (file) async {
-                final staged = await _attachments.stage(file);
+                final staged = await _attachments.stage(
+                  file,
+                  pageId: recordedOn,
+                );
                 if (staged && context.mounted) Navigator.pop(context);
                 return staged;
               },
@@ -1174,12 +1654,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // The read-only banner names the note's owner once the account's lookup
     // exists; watching retries the lookup when it arrives.
     ref.watch(workspacePrincipalLookupProvider);
-    // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
-      // Redirect back to chat on next frame
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        // This editor can remain mounted in an inactive navigation branch.
+        if (mounted &&
+            GoRouter.of(context).routeInformationProvider.value.uri.path ==
+                '/notes/${widget.noteId}') {
           context.go('/chat');
         }
       });
@@ -1187,21 +1668,42 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveRouteShell(body: SizedBox.shrink());
     }
 
+    final goesBack = sidebarPagesGoBack(ref);
     return PopScope(
       // Allow the back gesture/animation to proceed normally when there is
       // nothing to save. When an edit is still pending (within the auto-save
-      // debounce), intercept the pop, flush the save while the widget is still
-      // mounted (so the durable write completes without racing teardown), then
-      // pop programmatically.
-      canPop: !_hasChanges,
-      onPopInvokedWithResult: _onEditorPopInvoked,
+      // debounce), or dictation is running and has last words to deliver,
+      // intercept the pop, flush the save while the widget is still mounted
+      // (so the durable write completes without racing teardown), then pop
+      // programmatically. The sliding sidebar opens the editor in place, so
+      // its back returns to the page before, as the back button does.
+      canPop: !_hasChanges && !_isRecording && !goesBack,
+      onPopInvokedWithResult: goesBack
+          ? (didPop, _) {
+              if (didPop) return;
+              unawaited(
+                goBackFromSidebarPage(
+                  fallback: Routes.notes,
+                  beforeBack: _saveBeforeLeaving,
+                ),
+              );
+            }
+          : _onEditorPopInvoked,
       child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
         appBar: _buildAdaptiveNoteEditorAppBar(context),
         body: Stack(
           children: [
-            Positioned.fill(child: _buildMainContent(context)),
+            Positioned(
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: _usesNativeToolbar && _editingContent
+                  ? _bottomBarsHeight
+                  : 0,
+              child: _buildMainContent(context),
+            ),
             Positioned(
               left: 0,
               right: 0,
@@ -1224,7 +1726,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   child: Center(child: _buildFloatingMetadataBar(context)),
                 ),
               ),
-            if (!_isLoading &&
+            if (_usesNativeToolbar && !_isLoading && _note != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _buildNativeBottomBars(context),
+              ),
+            if (!_usesNativeToolbar &&
+                !_isLoading &&
                 _note != null &&
                 !_readOnly &&
                 !_contentFocusNode.hasFocus)
@@ -1249,7 +1759,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             // laid out above the keyboard; anchoring at bottom: 0 sits the
             // toolbar directly on top of it (anchoring at viewInsets.bottom
             // would double-count the inset and push it up to the stats row).
-            if (!_isLoading &&
+            if (!_usesNativeToolbar &&
+                !_isLoading &&
                 _note != null &&
                 !_readOnly &&
                 _contentFocusNode.hasFocus)
@@ -1263,6 +1774,74 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         ),
       ),
     );
+  }
+
+  /// The iOS 26 toolbar at the foot of the page. While the keyboard is up it
+  /// gives way: to the formatting bar when the body is edited, to nothing
+  /// when the title is. It stays mounted meanwhile, so its native view is
+  /// not built again each time the keyboard goes down.
+  Widget _buildNativeBottomBars(BuildContext context) {
+    final note = _note!;
+    const placeholder = SizedBox(height: AdaptiveBottomToolbar.height);
+    // A native view would show through a page pushed above the editor, such
+    // as the recording overlay, which leaves the bottom inset unpainted.
+    final covered = ModalRoute.isCurrentOf(context) == false;
+    final toolbar = covered
+        ? placeholder
+        : ThemedSheets.hideNativeChromeWhileCovered(
+            replacement: placeholder,
+            child: NoteBottomToolbar(
+              readOnly: _readOnly,
+              isRecording: _isRecording,
+              isUploadingAudio: _attachments.isUploading,
+              isEnhancing: _isEnhancing,
+              isGeneratingTitle: _isGeneratingTitle,
+              isPinned: note.isPinned,
+              canShare: canShareNote(ref, note),
+              hasPages: note.isMultiPage,
+              onStopDictation: _toggleDictation,
+              onShare: () => _handleEditorToolbarMenuSelection('share'),
+              onPages: () => _handleEditorToolbarMenuSelection('pages'),
+              onAction: _handleNoteToolbarAction,
+            ),
+          );
+    return MeasureSize(
+      onChange: (size) {
+        if (mounted && size.height != _bottomBarsHeight) {
+          setState(() => _bottomBarsHeight = size.height);
+        }
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Offstage(
+            offstage: _editingWithKeyboard,
+            child: SafeArea(top: false, child: toolbar),
+          ),
+          if (_editingContent) _buildFormattingToolbar(context),
+        ],
+      ),
+    );
+  }
+
+  void _handleNoteToolbarAction(NoteToolbarAction action) {
+    switch (action) {
+      case NoteToolbarAction.dictation:
+        unawaited(_toggleDictation());
+      case NoteToolbarAction.recordAudio:
+        _showAudioRecordingOverlay();
+      case NoteToolbarAction.enhance:
+        unawaited(_enhanceContent());
+      case NoteToolbarAction.generateTitle:
+        _handleEditorToolbarMenuSelection('generate');
+      case NoteToolbarAction.copy:
+        _handleEditorToolbarMenuSelection('copy');
+      case NoteToolbarAction.togglePin:
+        _handleEditorToolbarMenuSelection('pin');
+      case NoteToolbarAction.delete:
+        _handleEditorToolbarMenuSelection('delete');
+    }
   }
 
   Widget _buildFormattingToolbar(BuildContext context) {
@@ -1306,11 +1885,41 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   AdaptiveAppBar _buildAdaptiveNoteEditorAppBar(BuildContext context) {
     final tintColor = context.conduitTheme.textPrimary;
     final l10n = AppLocalizations.of(context)!;
+    // On iOS 26 the note's actions are in the bottom toolbar, and the top
+    // bar shows Done while the keyboard is up.
+    final showsMenu = !_usesNativeToolbar;
+    final showsDone = _usesNativeToolbar && _editingWithKeyboard;
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: 1,
+      trailingActionCount: showsMenu || showsDone ? 1 : 0,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
+    final title = _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth);
+    final leading = SidebarPageLeadingButton(
+      fallback: Routes.notes,
+      beforeBack: _saveBeforeLeaving,
+      iconColor: tintColor,
+    );
+    if (!showsMenu) {
+      return buildConduitCenteredAdaptiveAppBar(
+        context: context,
+        tintColor: tintColor,
+        leading: leading,
+        title: title,
+        actions: const [],
+        cupertinoTrailing: showsDone
+            ? ConduitAdaptiveAppBarIconButton(
+                key: const ValueKey<String>('note-editor-done'),
+                icon: Icons.check,
+                iosSymbol: 'checkmark',
+                iconColor: tintColor,
+                semanticLabel: l10n.done,
+                onPressed: _endEditing,
+              )
+            : null,
+        centerTitle: false,
+      );
+    }
     final menuItems = _buildNoteEditorToolbarMenuItems(l10n);
     final actions = _buildNoteEditorToolbarActionWidgets(context, menuItems);
     final nativeMenuAction = buildConduitNativeToolbarMenuAction<String>(
@@ -1328,15 +1937,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return buildConduitCenteredAdaptiveAppBar(
       context: context,
       tintColor: tintColor,
-      leading: ConduitAdaptiveAppBarIconButton(
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        iosSymbol: 'line.3.horizontal',
-        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
-        onPressed: () =>
-            SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
-        iconColor: tintColor,
-      ),
-      title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),
+      leading: leading,
+      title: title,
       actions: actions,
       cupertinoTrailing: useNativeActionGroup
           ? ConduitNativeToolbarActionGroup(actions: [nativeMenuAction])
@@ -1358,11 +1960,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             materialIcon: Icons.auto_awesome,
           ),
         ),
+      if (_note?.isMultiPage ?? false)
+        AdaptivePopupMenuItem<String>(
+          value: 'pages',
+          label: l10n.notePages,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'doc.on.doc',
+            materialIcon: Icons.layers_outlined,
+          ),
+        ),
       AdaptivePopupMenuItem<String>(
         value: 'copy',
         label: l10n.copy,
         icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'doc.on.doc',
+          iosSymbol: 'square.on.square',
           materialIcon: Icons.copy_outlined,
         ),
       ),
@@ -1415,6 +2026,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       case 'generate':
         ConduitHaptics.selectionClick();
         _generateTitle();
+        return;
+      case 'pages':
+        ConduitHaptics.selectionClick();
+        unawaited(_openPagesSheet());
         return;
       case 'copy':
         ConduitHaptics.selectionClick();
@@ -1483,11 +2098,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                           SizedBox(
                             width: IconSize.sm,
                             height: IconSize.sm,
-                            child: CircularProgressIndicator(
+                            child: AdaptiveProgressIndicator(
                               strokeWidth: BorderWidth.medium,
-                              valueColor: AlwaysStoppedAnimation(
-                                conduitTheme.loadingIndicator,
-                              ),
+                              color: conduitTheme.loadingIndicator,
                             ),
                           ),
                           const SizedBox(width: Spacing.sm),
@@ -1571,11 +2184,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   child: SizedBox(
                     width: IconSize.sm,
                     height: IconSize.sm,
-                    child: CircularProgressIndicator(
+                    child: AdaptiveProgressIndicator(
                       strokeWidth: BorderWidth.medium,
-                      valueColor: AlwaysStoppedAnimation(
-                        conduitTheme.loadingIndicator,
-                      ),
+                      color: conduitTheme.loadingIndicator,
                     ),
                   ),
                 ),
@@ -1604,6 +2215,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // The page's path gives way first on a narrow screen.
+          if (_note?.isMultiPage ?? false) ...[
+            Flexible(child: _buildPageChip(context, _note!)),
+            _buildMetadataSeparator(context),
+          ],
           _buildMetadataChip(
             context,
             icon: Platform.isIOS
@@ -1652,6 +2268,66 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
       ),
       child: content,
+    );
+  }
+
+  /// The page shown, by its path, for a note with several pages: tapping it
+  /// lists the pages to move to.
+  Widget _buildPageChip(BuildContext context, Note note) {
+    final l10n = AppLocalizations.of(context)!;
+    final secondaryColor = context.conduitTheme.textSecondary;
+    final path = _pagePath(note);
+    return Semantics(
+      button: true,
+      label: l10n.notePageChipLabel(path),
+      excludeSemantics: true,
+      onTap: () => unawaited(_openPagesSheet()),
+      child: GestureDetector(
+        key: const ValueKey<String>('note-page-chip'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          ConduitHaptics.selectionClick();
+          unawaited(_openPagesSheet());
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.xs,
+            vertical: Spacing.xxs,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Platform.isIOS ? CupertinoIcons.doc_on_doc : Icons.layers_outlined,
+                color: secondaryColor,
+                size: IconSize.xs,
+              ),
+              const SizedBox(width: Spacing.xxs),
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(
+                    path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.tiny.copyWith(
+                      color: secondaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              Icon(
+                Platform.isIOS
+                    ? CupertinoIcons.chevron_down
+                    : Icons.expand_more_rounded,
+                color: secondaryColor,
+                size: IconSize.xs,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1722,8 +2398,25 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // Adaptive app bar height + metadata bar (~40).
     final appBarHeight = conduitAdaptiveToolbarHeightOf(context) + 40;
 
-    // Get attached files
-    final files = _note?.data.files ?? [];
+    // The file list servers before 0.12.5 keep, and the files the page links
+    // where no card shows them: 0.12.5 attaches files by links in the page,
+    // which the editor shows as cards where a link stands on its own line,
+    // but a link in a sentence, list or quote stays text, and is listed here
+    // to be played or opened.
+    final listed = _note?.data.files ?? <Map<String, dynamic>>[];
+    final controller = _contentController;
+    final carded = <String>{
+      if (controller != null)
+        for (final card in noteFileCardsIn(controller.document)) card.id,
+    };
+    final files = [
+      ...listed,
+      if (controller != null)
+        for (final link in noteFileLinksInMarkdown(_contentMarkdown))
+          if (!carded.contains(link.id) &&
+              !listed.any((file) => file['id']?.toString() == link.id))
+            link.toAttachment(),
+    ];
 
     return GestureDetector(
       onTap: () => _contentFocusNode.requestFocus(),
@@ -1824,7 +2517,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             padding: const EdgeInsets.only(bottom: Spacing.xs),
             child: NoteFileAttachment(
               file: file,
-              onTap: () => _playAudioFile(file),
+              onTap: () => _openNoteFile(file),
               onDelete: () => _removeFile(file),
             ),
           ),
@@ -1966,6 +2659,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// without syncing would let the detail fetch return a server copy that is
   /// behind a not-yet-synced local edit and clobber it with stale/empty content.
   Future<void> _refreshNote() async {
+    ConduitHaptics.lightImpact();
+    var pageRemoved = false;
     final noteBeforeRefresh = _note;
     final hadDraftChanges =
         noteBeforeRefresh != null &&
@@ -2035,8 +2730,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() {
           _note = null;
           _titleController.clear();
-          _installContentDocument(documentFromMarkdown(''));
+          _installContentDocument(noteDocumentFromMarkdown(''));
           _savedMarkdown = '';
+          _linkBase = '';
           _cachedWordCount = 0;
           _hasChanges = false;
         });
@@ -2057,10 +2753,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       setState(() {
         _note = note;
         _titleController.text = note.title;
-        _installContentDocument(documentFromMarkdown(note.markdownContent));
+        pageRemoved = _settlePage(note);
+        _dropDictation();
+        _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
         _savedMarkdown = _contentMarkdown;
+        _linkBase = _pageMarkdown(note);
         _updateWordCount();
       });
+      if (pageRemoved && mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.notePageRemoved,
+          type: AdaptiveSnackBarType.info,
+        );
+      }
     } catch (e) {
       if (mounted) _showError(e.toString());
     }
@@ -2079,6 +2785,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         controller: controller,
         focusNode: _contentFocusNode,
         readOnly: _readOnly,
+        embedBuilder: _buildEmbed,
+        contextMenuBuilder: AdaptiveDocumentSelectionMenu.richText,
         // Lives inside the page's SingleChildScrollView; the editor must not
         // scroll independently so the whole note grows with the content. Give
         // Fleather the parent controller so context-menu actions can reveal the
@@ -2120,10 +2828,136 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
   }
 
+  /// A file the page links on a line of its own shows as a card, as on the
+  /// web; other embeds as Fleather draws them.
+  Widget _buildEmbed(BuildContext context, EmbedNode node) {
+    final file = noteFileOfEmbed(node.value);
+    if (file == null) return defaultFleatherEmbedBuilder(context, node);
+    final attachment = file.toAttachment();
+    return Padding(
+      key: ValueKey<String>('note-file-card-${file.id}'),
+      padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+      child: NoteFileAttachment(
+        file: attachment,
+        onTap: () => _openNoteFile(attachment),
+        onDelete: _readOnly ? null : () => _removeFileCard(file),
+        showDelete: !_readOnly,
+      ),
+    );
+  }
+
+  /// Takes the card for [file] out of the page, after asking; the next save
+  /// detaches it.
+  Future<void> _removeFileCard(NoteFileLink file) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.removeFile,
+      message: l10n.removeFileConfirm,
+      confirmText: l10n.delete,
+      cancelText: l10n.cancel,
+      isDestructive: true,
+    );
+    final controller = _contentController;
+    if (confirmed != true || !mounted || _readOnly || controller == null) {
+      return;
+    }
+    // The removal is saved through the session active now, which must be the
+    // one the page opened under.
+    if (!_isOpenSessionCurrent) {
+      _showError(l10n.noteSessionChangedNotice);
+      return;
+    }
+    // Dictation rewrites the text it wrote by its place, which the removal
+    // moves.
+    setState(_dropDictation);
+    removeNoteFileCardsInEditor(controller, file.id);
+    // An older note may also list the file; the list goes the same way.
+    final listed = _note?.data.files ?? const <Map<String, dynamic>>[];
+    if (listed.any((entry) => entry['id']?.toString() == file.id)) {
+      try {
+        final updated = await _attachments.removeAttachedFile(file.id);
+        if (mounted && updated != null) setState(() => _note = updated);
+      } on NoteWriteDeniedException {
+        // Access went away: the draft stays, and is not saved again.
+        _saveDebounce?.cancel();
+        if (mounted) setState(() => _writeRefused = true);
+      } catch (e) {
+        _showError(e.toString());
+      }
+    }
+  }
+
   /// Builds a Fleather theme derived from the app's typography and colours so
   /// the rich-text editor matches the rest of the note UI.
   FleatherThemeData _buildFleatherTheme(BuildContext context) {
     return buildNoteEditorFleatherTheme(context);
+  }
+
+  /// Opens [file] the way its kind needs: an audio file in the player, any
+  /// other file downloaded and shared, so an app that can open it does, as
+  /// the chat does with a file it cannot show.
+  Future<void> _openNoteFile(Map<String, dynamic> file) async {
+    final local = file['_localPath']?.toString();
+    final isAudio =
+        (local != null && local.isNotEmpty) ||
+        file['type'] == 'audio' ||
+        FileTypeUtils.isAudio(
+          FileTypeUtils.extensionFromName(file['name']?.toString() ?? ''),
+        );
+    if (isAudio) return _playAudioFile(file);
+
+    final l10n = AppLocalizations.of(context)!;
+    final fileId = file['id']?.toString();
+    final api = ref.read(apiServiceProvider);
+    if (fileId == null || api == null || !_isOpenSessionCurrent) return;
+    final renderObject = context.findRenderObject();
+    final shareOrigin = renderObject is RenderBox && renderObject.hasSize
+        ? renderObject.localToGlobal(Offset.zero) & renderObject.size
+        : null;
+    final rawName = file['name']?.toString() ?? '';
+    final name = rawName.trim().isEmpty ? fileId : rawName;
+    // The file is the account's that opened the page, read with its
+    // credentials; another signed in meanwhile gets no share sheet for it.
+    final auth = api.captureAuthSnapshot();
+    bool stillOpen() => mounted && _isOpenSessionCurrent;
+    try {
+      final content = await api.getFileContent(
+        fileId,
+        authSnapshot: auth,
+        maxBytes: kNoteFileShareMaxBytes,
+      );
+      if (!stillOpen()) return;
+      final encoded = content.startsWith('data:')
+          ? content.substring(content.indexOf(',') + 1)
+          : content;
+      // A folder of this download's own, gone once the share sheet closes,
+      // so a second tap cannot write over a file being shared and the note's
+      // file does not stay behind.
+      final folder = await createNoteFileDownloadFolder(
+        (await getTemporaryDirectory()).path,
+        fileId,
+      );
+      try {
+        final path = '${folder.path}/${noteFileDownloadName(name)}';
+        // Up to the share limit of bytes: decoded off the UI isolate, so the
+        // editor does not stall.
+        final bytes = await compute(base64Decode, encoded);
+        if (!stillOpen()) return;
+        await File(path).writeAsBytes(bytes, flush: true);
+        if (!stillOpen()) return;
+        await SharePlus.instance.share(
+          ShareParams(
+            files: <XFile>[XFile(path, name: name)],
+            sharePositionOrigin: shareOrigin,
+          ),
+        );
+      } finally {
+        await folder.delete(recursive: true);
+      }
+    } catch (_) {
+      if (mounted) _showError(l10n.errorMessage);
+    }
   }
 
   /// Play an audio file attachment.
@@ -2181,6 +3015,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
 
+    // A 0.12.5 server attaches a file by a link in the page content: one the
+    // editor shows comes out of its text too, and is saved without it.
+    final fileId = file['id']?.toString();
+    final shownInText =
+        fileId != null &&
+        noteFileLinksInMarkdown(
+          _contentMarkdown,
+        ).any((link) => link.id == fileId);
+    // The page's text loses the link once the removal is done, which moves
+    // the text dictation rewrites by place: it ends now.
+    if (shownInText) setState(_dropDictation);
+
     final api = _openApi;
     final db = _openDb;
     if (api == null && db == null) return;
@@ -2190,18 +3036,46 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
 
     setState(() => _isSaving = true);
+    // The file comes out of the page shown now; the editor stays on it until
+    // the removal is done ([_showPage] waits for this).
+    final pageId = _pageId;
+    _removingFile = true;
 
     try {
-      final updatedNote = await _attachments.removeAttachedFile(
-        file['id']?.toString(),
-      );
+      // The stored note decides what is removed: its list on a server
+      // before 0.12.5, its link in the content on 0.12.5, wherever it sits
+      // there now.
+      final updatedNote = await _attachments.removeAttachedFile(fileId);
 
       if (mounted) {
         if (updatedNote != null) {
+          final onPage = shownInText && _pageId == pageId;
           setState(() {
             _note = updatedNote;
             _isSaving = false;
+            final controller = _contentController;
+            if (onPage && controller != null) {
+              // Dictation rewrites its text by place, which this moves.
+              _dropDictation();
+              removeNoteFileCardsInEditor(controller, fileId);
+              // A link in a sentence or list is not a card; it goes too.
+              if (noteFileLinksInMarkdown(
+                _contentMarkdown,
+              ).any((link) => link.id == fileId)) {
+                _installContentDocument(
+                  noteDocumentFromMarkdown(
+                    removeNoteFileLinks(_contentMarkdown, fileId),
+                  ),
+                );
+              }
+              _hasChanges = true;
+              _updateWordCount();
+            }
+            _showFileLinksOf(updatedNote);
           });
+          _removingFile = false;
+          if (onPage) await _saveNote(showFeedback: false);
+          if (!mounted) return;
 
           ConduitHaptics.lightImpact();
           AdaptiveSnackBar.show(
@@ -2219,6 +3093,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() => _isSaving = false);
         _showError(e.toString());
       }
+    } finally {
+      _removingFile = false;
     }
   }
 
@@ -2227,6 +3103,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final note = _note;
     if (note == null) return null;
     if (_writeRefused) return l10n.noteAccessRevokedNotice;
+    if (_pageMissing) return l10n.notePageMissingNotice;
     return switch (noteWriteAccess(note, accountId: _openUserId)) {
       NoteWriteAccess.allowed => null,
       NoteWriteAccess.denied => switch (_sharedOwnerName(note)) {
@@ -2277,26 +3154,52 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Saves what is on screen as a new note the user owns, through the same
   /// recovery used when a note is deleted under an open editor.
   Future<void> _saveDraftAsOwnNote() async {
+    if (_savingAsOwnNote) return;
+    // The draft being saved must stay as it is until the new note holds it:
+    // Discard and other pages wait.
+    setState(() => _savingAsOwnNote = true);
+    try {
+      await _saveDraftAsOwnNoteOnce();
+    } finally {
+      if (mounted) setState(() => _savingAsOwnNote = false);
+    }
+  }
+
+  Future<void> _saveDraftAsOwnNoteOnce() async {
     final session = NoteRecoverySession(
       api: _openApi,
       db: _openDb,
       authEpoch: _openAuthEpoch,
       userId: _openUserId,
     );
-    await _recovery.recover(session);
+    // The text of a page a sync removed takes only that page's recordings;
+    // the note keeps the others.
+    await _recovery.recover(session, pageId: _pageMissing ? _pageId : null);
     // The recovery rebinds the editor to the new note, which the user owns.
-    if (mounted && !_hasChanges) setState(() => _writeRefused = false);
+    if (mounted && !_hasChanges) {
+      setState(() {
+        _writeRefused = false;
+        _pageMissing = false;
+      });
+    }
   }
 
   void _discardDraft() {
+    if (_savingAsOwnNote) return;
     _saveDebounce?.cancel();
+    // A save as a note of its own that failed is not retried for a draft the
+    // user discarded.
+    _recovery.forgetPendingRetry();
     setState(() {
       _hasChanges = false;
+      _pageMissing = false;
       _titleController.text = _note?.title ?? '';
+      if (_note != null) _settlePage(_note!);
       _installContentDocument(
-        documentFromMarkdown(_note?.markdownContent ?? ''),
+        noteDocumentFromMarkdown(_note == null ? '' : _pageMarkdown(_note!)),
       );
       _savedMarkdown = _contentMarkdown;
+      _linkBase = _note == null ? '' : _pageMarkdown(_note!);
       _updateWordCount();
     });
   }
@@ -2337,7 +3240,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   ),
                 ],
               ),
-              if (_writeRefused && _hasChanges) ...[
+              if ((_writeRefused || _pageMissing) && _hasChanges) ...[
                 const SizedBox(height: Spacing.sm),
                 Wrap(
                   spacing: Spacing.sm,
@@ -2346,14 +3249,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                       key: const ValueKey<String>('note-save-as-own'),
                       text: l10n.noteSaveAsOwnNote,
                       isCompact: true,
-                      onPressed: _saveDraftAsOwnNote,
+                      onPressed: _savingAsOwnNote ? null : _saveDraftAsOwnNote,
                     ),
                     ConduitButton(
                       key: const ValueKey<String>('note-discard-draft'),
                       text: l10n.noteDiscardChanges,
                       isCompact: true,
                       isSecondary: true,
-                      onPressed: _discardDraft,
+                      onPressed: _savingAsOwnNote ? null : _discardDraft,
                     ),
                   ],
                 ),

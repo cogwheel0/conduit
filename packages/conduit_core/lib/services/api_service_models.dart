@@ -12,36 +12,8 @@ mixin _ModelsApi on _ApiServiceBase {
       options: _withAuthSnapshot(Options(), authSnapshot),
     );
 
-    // Normalize common response formats:
-    // - {"data": [...]} (OpenAI)
-    // - {"models": [...]} (some proxies)
-    // - [...] (raw array)
-    // - String payloads that need JSON decoding
-    dynamic payload = response.data;
-    if (payload is String) {
-      try {
-        payload = json.decode(payload);
-      } catch (_) {}
-    }
-
-    final payloadMap = _coerceJsonMap(payload);
-    List<dynamic>? rawModels;
-    if (payloadMap != null) {
-      rawModels =
-          _asListOrNull(payloadMap['data']) ??
-          _asListOrNull(payloadMap['models']);
-    } else {
-      rawModels = _asListOrNull(payload);
-    }
-
-    if (rawModels == null) {
-      DebugLogger.error(
-        'models-format',
-        scope: 'api/models',
-        data: {'type': payload.runtimeType},
-      );
-      return const [];
-    }
+    final rawModels = _rawModelList(response.data);
+    if (rawModels == null) return const [];
 
     final models = <Model>[];
     var hiddenModelCount = 0;
@@ -87,6 +59,94 @@ mixin _ModelsApi on _ApiServiceBase {
       data: {'count': models.length, 'hidden': hiddenModelCount},
     );
     return models;
+  }
+
+  /// The list in a model-list response, or null when it holds none.
+  ///
+  /// Accepts `{"data": [...]}` (OpenAI), `{"models": [...]}` (some proxies),
+  /// a bare list, and any of these sent as a JSON string.
+  List<dynamic>? _rawModelList(dynamic payload) {
+    if (payload is String) {
+      try {
+        payload = json.decode(payload);
+      } catch (_) {}
+    }
+
+    final payloadMap = _coerceJsonMap(payload);
+    final rawModels = payloadMap != null
+        ? _asListOrNull(payloadMap['data']) ??
+              _asListOrNull(payloadMap['models'])
+        : _asListOrNull(payload);
+    if (rawModels == null) {
+      DebugLogger.error(
+        'models-format',
+        scope: 'api/models',
+        data: {'type': payload.runtimeType},
+      );
+    }
+    return rawModels;
+  }
+
+  /// The coding agents [terminalId], one of the server's own terminals,
+  /// offers as models (Open WebUI 0.13.1 and later), named for the picker and
+  /// tagged with [terminalName].
+  ///
+  /// [chatId] is the saved chat they would answer in: a terminal that keeps
+  /// one workspace per chat lists the agents of that chat's workspace.
+  /// [automationId] does the same for a scheduled task: the list then comes
+  /// from the scheduled-task route (0.13.3 and later), which also takes the
+  /// task's working folder as [cwd].
+  Future<List<Model>> getTerminalAgentModels({
+    required String terminalId,
+    String? chatId,
+    String? cwd,
+    String? terminalName,
+    bool forAutomation = false,
+    String? automationId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final directory = cwd?.trim();
+    final response = await _dio.get(
+      forAutomation ? '/api/v1/automations/models' : '/api/models',
+      queryParameters: {
+        'terminal_id': terminalId,
+        if (!forAutomation && chatId != null && chatId.isNotEmpty)
+          'chat_id': chatId,
+        if (directory != null && directory.isNotEmpty) 'cwd': directory,
+        if (forAutomation && automationId != null && automationId.isNotEmpty)
+          'automation_id': automationId,
+      },
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    final rawModels = _rawModelList(response.data) ?? const [];
+    final agents = <Model>[];
+    final seen = <String>{};
+    for (final raw in rawModels) {
+      if (raw is! Map) continue;
+      try {
+        final model = terminalAgentModelFromJson(
+          raw.map((key, value) => MapEntry(key.toString(), value)),
+          terminalName: terminalName,
+        );
+        // Every other model in the list is the account's ordinary one.
+        if (model == null || model.isHidden) continue;
+        if (terminalAgentTerminalId(model) != terminalId) continue;
+        if (seen.add(model.id)) agents.add(model);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'agent-model-parse-failed',
+          scope: 'api/models',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    DebugLogger.log(
+      'agent-models-count',
+      scope: 'api/models',
+      data: {'count': agents.length, 'automation': forAutomation},
+    );
+    return agents;
   }
 
   // Get default model configuration from OpenWebUI user settings

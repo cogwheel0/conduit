@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:test/test.dart';
@@ -224,6 +225,40 @@ void main() {
 
         check(payload['content']).equals(content);
       });
+    });
+
+    test('stores a voice record where Open WebUI reads it', () {
+      // The server replays `meta.voice` to the chat model; metadata is only
+      // Conduit's mirror, and copying a record there would double its size.
+      const voice = <String, dynamic>{
+        'call_id': 'call-1',
+        'model': 'gpt-realtime',
+        'speech': [
+          {'item_id': 'item-1', 'transcript': 'Sure, one moment.'},
+        ],
+      };
+      final payload = localEchoRowForMessage(
+        'chat-1',
+        message.copyWith(
+          metadata: const <String, dynamic>{
+            'modelName': 'GPT-4o',
+            kMessageVoiceMetadataKey: voice,
+          },
+        ),
+      ).payload;
+
+      check(payload['meta']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': voice,
+      });
+      check(payload['metadata']).isA<Map<String, dynamic>>().deepEquals({
+        'modelName': 'GPT-4o',
+      });
+    });
+
+    test('writes no meta for a message without a voice record', () {
+      final payload = localEchoRowForMessage('chat-1', message).payload;
+
+      check(payload.containsKey('meta')).isFalse();
     });
   });
 }

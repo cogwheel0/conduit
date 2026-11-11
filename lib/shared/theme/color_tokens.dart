@@ -91,6 +91,8 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     required this.neutralTone60,
     required this.neutralTone80,
     required this.neutralOnSurface,
+    required this.textSecondaryTone,
+    required this.textTertiaryTone,
     required this.brandTone40,
     required this.brandTone60,
     required this.brandOn60,
@@ -129,6 +131,15 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
   final Color neutralTone60;
   final Color neutralTone80;
   final Color neutralOnSurface;
+
+  /// Secondary label tone (subtitles, captions, metadata): the palette's
+  /// muted foreground, nudged to at least 4.5:1 on the page so it stays
+  /// readable while sitting clearly below [neutralOnSurface].
+  final Color textSecondaryTone;
+
+  /// Tertiary label tone (placeholders, hints, de-emphasised glyphs):
+  /// lighter than [textSecondaryTone], kept at 3:1 or better on the page.
+  final Color textTertiaryTone;
 
   // Brand tokens
   final Color brandTone40;
@@ -207,6 +218,22 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       surface: neutralTone00,
       foreground: variant.foreground,
       minContrast: 4.5,
+    );
+    final Color textSecondaryTone = withMinContrast(
+      variant.mutedForeground,
+      neutralTone00,
+      4.5,
+    );
+    // Color.lerp, not mix(): mix() is a pass-through that returns its first
+    // argument, and the tertiary tier must sit visibly below the secondary.
+    final Color textTertiaryTone = withMinContrast(
+      Color.lerp(
+        variant.mutedForeground,
+        neutralTone00,
+        isLight ? 0.3 : 0.35,
+      )!,
+      neutralTone00,
+      3.0,
     );
 
     final Color brandTone60 = variant.primary;
@@ -310,6 +337,8 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       neutralTone60: neutralTone60,
       neutralTone80: neutralTone80,
       neutralOnSurface: neutralOnSurface,
+      textSecondaryTone: textSecondaryTone,
+      textTertiaryTone: textTertiaryTone,
       brandTone40: brandTone40,
       brandTone60: brandTone60,
       brandOn60: brandOn60,
@@ -349,6 +378,8 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     Color? neutralTone60,
     Color? neutralTone80,
     Color? neutralOnSurface,
+    Color? textSecondaryTone,
+    Color? textTertiaryTone,
     Color? brandTone40,
     Color? brandTone60,
     Color? brandOn60,
@@ -385,6 +416,8 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       neutralTone60: neutralTone60 ?? this.neutralTone60,
       neutralTone80: neutralTone80 ?? this.neutralTone80,
       neutralOnSurface: neutralOnSurface ?? this.neutralOnSurface,
+      textSecondaryTone: textSecondaryTone ?? this.textSecondaryTone,
+      textTertiaryTone: textTertiaryTone ?? this.textTertiaryTone,
       brandTone40: brandTone40 ?? this.brandTone40,
       brandTone60: brandTone60 ?? this.brandTone60,
       brandOn60: brandOn60 ?? this.brandOn60,
@@ -434,6 +467,16 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
       neutralOnSurface: Color.lerp(
         neutralOnSurface,
         other.neutralOnSurface,
+        t,
+      )!,
+      textSecondaryTone: Color.lerp(
+        textSecondaryTone,
+        other.textSecondaryTone,
+        t,
+      )!,
+      textTertiaryTone: Color.lerp(
+        textTertiaryTone,
+        other.textTertiaryTone,
         t,
       )!,
       brandTone40: Color.lerp(brandTone40, other.brandTone40, t)!,

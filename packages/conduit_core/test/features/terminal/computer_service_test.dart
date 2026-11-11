@@ -1,0 +1,471 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:conduit_core/features/terminal/models/computer_models.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/services/computer_service.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
+import 'package:test/test.dart';
+
+void main() {
+  test('only explicit boolean capability flags enable Computer', () {
+    for (final value in [
+      null,
+      {},
+      {
+        'features': {'terminal': true},
+      },
+      {
+        'features': {'browser': 'true', 'desktop': 1},
+      },
+    ]) {
+      expect(ComputerCapabilities.fromJson(value).available, isFalse);
+    }
+    expect(
+      ComputerCapabilities.fromJson({
+        'features': {'browser': true},
+      }).preferred,
+      ComputerSurface.browser,
+    );
+  });
+
+  late HttpServer http;
+  late ComputerService service;
+  final requests =
+      <
+        ({
+          String path,
+          String method,
+          String? scope,
+          String? auth,
+          Object? data,
+        })
+      >[];
+  late Future<void> Function(HttpRequest) respond;
+
+  setUp(() async {
+    requests.clear();
+    http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final url = 'http://127.0.0.1:${http.port}/nested';
+    final api = ApiService(
+      serverConfig: ServerConfig(
+        id: 'fixture',
+        name: 'Fixture',
+        url: url,
+        customHeaders: {
+          'Cookie':
+              'CF_Authorization=synthetic-proxy; token=private-webui-cookie',
+          'X-Proxy-Credential': 'synthetic-header',
+        },
+      ),
+      authToken: 'synthetic-webui-token',
+      workerManager: WorkerManager(),
+    );
+    service = ComputerService(
+      TerminalService(api),
+      TerminalServerInfo(
+        kind: TerminalServerKind.direct,
+        selectionId: 'fixture',
+        baseUrl: Uri.parse(url),
+        apiKey: 'synthetic-terminal-key',
+      ),
+      'chat-fixture',
+    );
+    respond = (request) async {
+      request.response.write('{}');
+    };
+    http.listen((request) async {
+      final body = await utf8.decoder.bind(request).join();
+      requests.add((
+        path: request.uri.path,
+        method: request.method,
+        scope: request.headers.value('X-Session-Id'),
+        auth: request.headers.value('Authorization'),
+        data: body.isEmpty ? null : jsonDecode(body),
+      ));
+      request.response.headers.contentType = ContentType.json;
+      await respond(request);
+      await request.response.close();
+    });
+  });
+  tearDown(() => http.close(force: true));
+
+  test(
+    'desktop uses scoped HTTP and first-message auth, preserving base path',
+    () async {
+      respond = (request) async {
+        request.response.write('{"transport":"frames"}');
+      };
+      final connection = (await service.open(ComputerSurface.desktop))!;
+      expect(requests.single.path, '/nested/desktop');
+      expect(requests.single.scope, 'chat-fixture');
+      expect(requests.single.auth, 'Bearer synthetic-terminal-key');
+      expect(connection.streamUri.path, '/nested/desktop/stream');
+      expect(connection.streamUri.scheme, 'ws');
+      expect(connection.streamUri.query, isEmpty);
+      expect(connection.token, 'synthetic-terminal-key');
+      expect(connection.chatId, 'chat-fixture');
+      expect(connection.proxyCookies, isEmpty);
+      expect(connection.proxyHeaders, isEmpty);
+    },
+  );
+
+  test(
+    'legacy terminals are hidden; authentication failures are not capabilities',
+    () async {
+      respond = (request) async {
+        request.response.statusCode = 404;
+      };
+      expect((await service.capabilities()).available, isFalse);
+      respond = (request) async {
+        request.response.statusCode = 401;
+      };
+      await expectLater(service.capabilities(), throwsA(isA<DioException>()));
+      expect(
+        requests.every((request) => request.path == '/nested/api/config'),
+        isTrue,
+      );
+    },
+  );
+
+  test('system desktop uses the authenticated Open WebUI proxy', () async {
+    final proxy = ComputerService(
+      service.terminal,
+      TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'terminal-fixture',
+        systemServerId: 'terminal-fixture',
+        baseUrl: Uri.parse(
+          'http://127.0.0.1:${http.port}/nested/api/v1/terminals/terminal-fixture',
+        ),
+      ),
+      'chat-fixture',
+    );
+    respond = (request) async {
+      request.response.write('{"transport":"frames"}');
+    };
+    final connection = (await proxy.open(ComputerSurface.desktop))!;
+    expect(
+      requests.single.path,
+      '/nested/api/v1/terminals/terminal-fixture/desktop',
+    );
+    expect(requests.single.auth, 'Bearer synthetic-webui-token');
+    expect(requests.single.scope, 'chat-fixture');
+    expect(connection.token, 'synthetic-webui-token');
+    expect(connection.proxyCookies, {'CF_Authorization': 'synthetic-proxy'});
+    expect(connection.proxyHeaders, {'X-Proxy-Credential': 'synthetic-header'});
+    expect(
+      connection.toViewerConfig().toString(),
+      isNot(contains('synthetic-header')),
+    );
+    expect(connection.toViewerConfig(), isNot(contains('proxyCookies')));
+    expect(connection.streamUri.query, isEmpty);
+    expect(
+      connection.streamUri.path,
+      '/nested/api/v1/terminals/terminal-fixture/desktop/stream',
+    );
+  });
+
+  test('browser stream gets only its own system proxy cookies', () async {
+    final proxy = ComputerService(
+      service.terminal,
+      TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'terminal-fixture',
+        systemServerId: 'terminal-fixture',
+        baseUrl: Uri.parse('http://127.0.0.1:${http.port}/nested'),
+      ),
+      'chat-fixture',
+    );
+    respond = (request) async => request.response.write(
+      request.uri.path.endsWith('/tabs')
+          ? '{"current_session_id":"tab"}'
+          : '{"id":"tab","token":"ticket","chrome_available":true}',
+    );
+    final connection = (await proxy.open(ComputerSurface.browser))!;
+    expect(connection.proxyCookies, {'CF_Authorization': 'synthetic-proxy'});
+    expect(connection.proxyHeaders, {'X-Proxy-Credential': 'synthetic-header'});
+    expect(
+      connection.toViewerConfig().toString(),
+      isNot(contains('synthetic-header')),
+    );
+    expect(connection.token, isNull);
+    expect(
+      connection.toViewerConfig().toString(),
+      isNot(contains('synthetic-proxy')),
+    );
+  });
+
+  test('watching an empty browser never creates a session', () async {
+    respond = (request) async =>
+        request.response.write('{"tabs":[],"current_session_id":null}');
+    expect(await service.open(ComputerSurface.browser), isNull);
+    expect(requests.map((request) => request.method), ['GET']);
+  });
+
+  test('watching a proxy tab does not activate or select it', () async {
+    respond = (request) async => request.response.write(
+      request.uri.path.endsWith('/tabs')
+          ? '{"current_session_id":"proxy-tab"}'
+          : '{"id":"proxy-tab","token":"synthetic-ticket","chrome_available":true,"mode":"proxy"}',
+    );
+    final connection = (await service.open(ComputerSurface.browser))!;
+    expect(connection.requiresBrowserActivation, isTrue);
+    expect(requests.map((request) => request.method), ['GET', 'GET']);
+  });
+
+  for (final outcome in [
+    'empty',
+    'replacement',
+    'removed',
+    'unauthorized',
+    'missing',
+  ]) {
+    test('a tab closed during attachment handles $outcome', () async {
+      var lists = 0;
+      respond = (request) async {
+        if (request.uri.path.endsWith('/tabs')) {
+          lists++;
+          if (lists > 1 && outcome == 'removed') {
+            request.response.statusCode = 404;
+          } else {
+            request.response.write(
+              jsonEncode({
+                'current_session_id': lists == 1
+                    ? 'closed'
+                    : (outcome == 'empty' ? null : 'next'),
+              }),
+            );
+          }
+        } else if (request.uri.path.endsWith('/next') &&
+            outcome == 'replacement') {
+          request.response.write(
+            jsonEncode({
+              'id': 'next',
+              'token': 'synthetic-ticket',
+              'chrome_available': true,
+              'mode': 'chrome',
+            }),
+          );
+        } else {
+          request.response.statusCode = outcome == 'unauthorized' ? 401 : 404;
+        }
+      };
+      if (outcome == 'empty') {
+        expect(await service.open(ComputerSurface.browser), isNull);
+      } else if (outcome == 'replacement') {
+        final connection = await service.open(ComputerSurface.browser);
+        expect(connection?.browserSession?.id, 'next');
+      } else {
+        await expectLater(
+          service.open(ComputerSurface.browser),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.response?.statusCode,
+              'status',
+              outcome == 'unauthorized' ? 401 : 404,
+            ),
+          ),
+        );
+      }
+      expect(lists, outcome == 'unauthorized' ? 1 : 2);
+      expect(requests.every((request) => request.method == 'GET'), isTrue);
+      expect(requests.length, lessThanOrEqualTo(4));
+    });
+  }
+
+  test(
+    'reattaches the selected browser without spawning or closing a tab',
+    () async {
+      respond = (request) async {
+        request.response.write(
+          request.uri.path.endsWith('/tabs')
+              ? '{"current_session_id":"agent-tab"}'
+              : '{"id":"agent-tab","token":"scoped-capability","chrome_available":true,"mode":"chrome"}',
+        );
+      };
+      final connection = (await service.open(ComputerSurface.browser))!;
+      expect(
+        connection.streamUri.path,
+        '/nested/browser/view/agent-tab/scoped-capability/stream',
+      );
+      expect(connection.token, isNull);
+      expect(requests.map((request) => request.method), ['GET', 'GET']);
+      await service.keepAlive(connection);
+      expect(requests.last.method, 'GET');
+      expect(requests.last.path, '/nested/browser/tabs');
+      expect(
+        requests.every((request) => request.scope == 'chat-fixture'),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'new browser belongs to current chat and rejects unsupported Chrome mode',
+    () async {
+      respond = (request) async {
+        request.response.write(
+          request.uri.path.endsWith('/tabs') ? '{"tabs":[]}' : '{"id":"new-tab","token":"scoped-capability","chrome_available":false}',
+        );
+      };
+      await expectLater(
+        service.createBrowserTab(),
+        throwsA(isA<ComputerBrowserUnavailable>()),
+      );
+      expect(requests.first.method, 'POST');
+      expect(requests.first.scope, 'chat-fixture');
+      expect(requests.any((request) => request.method == 'PATCH'), isFalse);
+    },
+  );
+
+  test('draft identifiers are never sent as saved chat scopes', () async {
+    final draft = ComputerService(
+      service.terminal,
+      service.server,
+      'local:unsaved',
+    );
+    respond = (request) async {
+      request.response.write('{"transport":"vnc"}');
+    };
+    final connection = (await draft.open(ComputerSurface.desktop))!;
+    expect(connection.chatId, isEmpty);
+    expect(requests.single.scope, isNull);
+  });
+
+  test(
+    'tab listing, selection, creation and closure retain the chat scope',
+    () async {
+      respond = (request) async {
+        request.response.write(
+          request.uri.path.endsWith('/tabs')
+              ? '{"current_session_id":"second","tabs":[{"session_id":"first","title":"Sketches","url":"https://studio.example","selected":false},{"session_id":"second","title":"Materials","selected":true}]}'
+              : '{"id":"first","token":"synthetic-viewer-capability","chrome_available":true}',
+        );
+      };
+      final tabs = await service.browserTabs();
+      expect(tabs.map((tab) => tab.title), ['Sketches', 'Materials']);
+      expect(tabs.last.selected, isTrue);
+      final selected = await service.selectBrowserTab('first');
+      expect(selected.browserSession!.id, 'first');
+      expect(requests.last.data, {'mode': 'chrome', 'active': true});
+      await service.createBrowserTab();
+      expect(requests[3].method, 'POST');
+      expect(requests[3].data, {'url': ''});
+      await service.closeBrowserTab('first');
+      expect(requests.last.path, '/nested/browser/sessions/first');
+      expect(requests.last.method, 'DELETE');
+      expect(
+        requests.every((request) => request.scope == 'chat-fixture'),
+        isTrue,
+      );
+      expect(
+        requests.every(
+          (request) => request.auth == 'Bearer synthetic-terminal-key',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'failed new-tab startup removes only the newly created session',
+    () async {
+      respond = (request) async {
+        if (request.method == 'PATCH') {
+          request.response.statusCode = 409;
+          request.response.write('{}');
+        } else {
+          request.response.write(
+            '{"id":"new-tab","token":"synthetic-capability","chrome_available":true}',
+          );
+        }
+      };
+      await expectLater(
+        service.createBrowserTab(),
+        throwsA(isA<DioException>()),
+      );
+      expect(requests.map((request) => request.method), [
+        'POST',
+        'PATCH',
+        'DELETE',
+      ]);
+      expect(requests.last.path, '/nested/browser/sessions/new-tab');
+      requests.clear();
+      await expectLater(
+        service.selectBrowserTab('existing'),
+        throwsA(isA<DioException>()),
+      );
+      expect(requests.map((request) => request.method), ['GET', 'PATCH']);
+    },
+  );
+
+  test(
+    'shortcuts target the displayed tab and validate before sending',
+    () async {
+      final connection = ComputerConnection(
+        surface: ComputerSurface.browser,
+        streamUri: Uri.parse('ws://computer.example/browser/stream'),
+        browserSession: const ComputerBrowserSession(
+          id: 'displayed-tab',
+          token: 'synthetic-capability',
+          chromeAvailable: true,
+        ),
+      );
+      await service.sendShortcut(connection, 'Ctrl+Shift+Z');
+      expect(requests.single.path, '/nested/browser/action');
+      expect(requests.single.data, {
+        'session_id': 'displayed-tab',
+        'actions': [
+          {'action': 'key', 'key': 'Ctrl+Shift+z'},
+        ],
+      });
+      await expectLater(
+        service.sendShortcut(connection, 'Ctrl+A\n'),
+        throwsFormatException,
+      );
+      expect(requests, hasLength(1));
+      await service.sendShortcut(
+        ComputerConnection(
+          surface: ComputerSurface.desktop,
+          streamUri: Uri.parse('ws://computer.example/desktop/stream'),
+        ),
+        'Alt+Tab',
+      );
+      expect(requests.last.path, '/nested/desktop/action');
+      expect(requests.last.data, {
+        'actions': [
+          {'action': 'key', 'key': 'Alt+Tab'},
+        ],
+      });
+      for (final pair in [
+        ('Ctrl+S', 'Ctrl+s'),
+        ('Ctrl+Shift+S', 'Ctrl+Shift+s'),
+        ('Alt+F2', 'Alt+F2'),
+        ('S', 'S'),
+      ]) {
+        await service.sendShortcut(connection, pair.$1);
+        expect(requests.last.data, {
+          'session_id': 'displayed-tab',
+          'actions': [
+            {'action': 'key', 'key': pair.$2},
+          ],
+        });
+      }
+    },
+  );
+
+  test('unrecognized transports fail before opening a socket', () async {
+    respond = (request) async {
+      request.response.write('{"transport":"unknown"}');
+    };
+    await expectLater(
+      service.open(ComputerSurface.desktop),
+      throwsFormatException,
+    );
+  });
+}

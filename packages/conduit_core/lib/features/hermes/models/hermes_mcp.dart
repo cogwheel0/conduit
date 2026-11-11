@@ -208,23 +208,141 @@ Map<String, Object?> hermesMcpServerConfig({
   if (toolFilter != null) 'tools': toolFilter.toJson(),
 };
 
+/// A value a catalog server asks for when it is added (one of its manifest's
+/// `auth.env` specs): the environment variable Hermes keeps it under, what to
+/// ask for, and whether the server can start without it.
+final class HermesMcpCatalogCredential {
+  const HermesMcpCatalogCredential({
+    required this.name,
+    this.prompt,
+    this.required = true,
+  });
+
+  final String name;
+  final String? prompt;
+  final bool required;
+}
+
 final class HermesMcpCatalogEntry {
   const HermesMcpCatalogEntry({
     required this.name,
     required this.description,
     required this.installed,
+    this.authType,
+    this.credentials = const [],
+    this.credentialsComplete = true,
+    this.fromDashboard = false,
   });
 
-  factory HermesMcpCatalogEntry.fromJson(Map<dynamic, dynamic> json) =>
-      HermesMcpCatalogEntry(
-        name: json['name']?.toString() ?? '',
-        description: json['description']?.toString() ?? '',
-        installed: json['installed'] == true,
-      );
+  /// An entry of the dashboard's catalog (`auth_type`, and `required_env`:
+  /// what to ask and whether it is required) or the gateway's (`requires`:
+  /// the variable names only), as [fromDashboard] says.
+  factory HermesMcpCatalogEntry.fromJson(
+    Map<dynamic, dynamic> json, {
+    bool fromDashboard = false,
+  }) {
+    final credentials = _catalogCredentials(json);
+    return HermesMcpCatalogEntry(
+      name: json['name']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      installed: json['installed'] == true,
+      authType: validateHermesBoundedString(
+        json['auth_type'],
+        maxCharacters: 32,
+      ),
+      credentials: credentials ?? const [],
+      credentialsComplete: credentials != null,
+      fromDashboard: fromDashboard,
+    );
+  }
 
   final String name;
   final String description;
   final bool installed;
+
+  /// How Hermes signs in to it (`api_key`, `oauth` or `none`); null when its
+  /// catalog does not say, as the gateway's does not.
+  final String? authType;
+
+  /// What adding it asks for; empty when nothing.
+  final List<HermesMcpCatalogCredential> credentials;
+
+  /// False when it asks for more values than the app asks for: it is then
+  /// not offered, rather than added without some of them.
+  final bool credentialsComplete;
+
+  /// Read from Hermes' dashboard, whose install adds it: that install runs
+  /// the entry's own setup and takes its [credentials].
+  final bool fromDashboard;
+
+  bool get usesOAuth => authType == 'oauth';
+
+  /// Whether the app can add it with all it needs: it asks for nothing, or
+  /// the install that adds it takes its values.
+  bool get canAdd =>
+      credentialsComplete && (credentials.isEmpty || fromDashboard);
+}
+
+/// The values to send when adding [entry] from [answers] (variable name to
+/// what the user typed): trimmed, the empty ones left out, and only the
+/// variables [entry] asks for. Null while a required one has no value.
+Map<String, String>? hermesMcpCatalogCredentialValues(
+  HermesMcpCatalogEntry entry,
+  Map<String, String> answers,
+) {
+  final values = <String, String>{};
+  for (final credential in entry.credentials) {
+    final value = answers[credential.name]?.trim() ?? '';
+    if (value.isNotEmpty) {
+      values[credential.name] = value;
+    } else if (credential.required) {
+      return null;
+    }
+  }
+  return values;
+}
+
+final RegExp _environmentVariableName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+/// The most values the app asks for when adding one catalog server.
+const int _maxCatalogCredentials = 32;
+
+/// [json]'s credentials, each valid name once; null when there are more
+/// than the app asks for, or than it reads.
+List<HermesMcpCatalogCredential>? _catalogCredentials(
+  Map<dynamic, dynamic> json,
+) {
+  final specs = json['required_env'];
+  final names = json['requires'];
+  final List<Object?> raw = specs is List
+      ? specs
+      : names is List
+      ? names
+      : const [];
+  if (raw.length > _maxCatalogCredentials * 8) return null;
+  final credentials = <HermesMcpCatalogCredential>[];
+  final seen = <String>{};
+  for (final item in raw) {
+    final spec = specs is List ? (item is Map ? item : null) : {'name': item};
+    final name = validateHermesBoundedString(spec?['name'], maxCharacters: 128);
+    if (name == null ||
+        !_environmentVariableName.hasMatch(name) ||
+        !seen.add(name)) {
+      continue;
+    }
+    credentials.add(
+      HermesMcpCatalogCredential(
+        name: name,
+        prompt: validateHermesBoundedString(
+          spec?['prompt'],
+          maxCharacters: 200,
+        ),
+        required: spec?['required'] != false,
+      ),
+    );
+  }
+  if (credentials.length > _maxCatalogCredentials) return null;
+  return List.unmodifiable(credentials);
 }
 
 final class HermesMcpTestResult {

@@ -113,9 +113,10 @@ final class WorkspaceModelAdvancedSection extends StatelessWidget {
               padding: usesCupertinoChrome
                   ? const EdgeInsets.symmetric(vertical: Spacing.xs)
                   : EdgeInsets.zero,
-              title: Text(entry.key),
+              title: ExcludeSemantics(child: Text(entry.key)),
               trailing: AdaptiveSwitch(
                 value: entry.value,
+                semanticLabel: entry.key,
                 onChanged: controller.readOnly
                     ? null
                     : (value) => controller.setCapability(entry.key, value),

@@ -174,6 +174,16 @@ mixin _FoldersTagsApi on _ApiServiceBase {
     );
   }
 
+  /// Whether the folder shows its contents in the sidebar, which the server
+  /// keeps for the folder's owner.
+  Future<void> updateFolderExpanded(String id, bool isExpanded) async {
+    _traceApi('Updating folder expanded: $id -> $isExpanded');
+    await _dio.post(
+      '/api/v1/folders/$id/update/expanded',
+      data: {'is_expanded': isExpanded},
+    );
+  }
+
   Future<void> deleteFolder(String id) async {
     _traceApi('Deleting folder: $id');
     await _dio.delete('/api/v1/folders/$id');
@@ -205,11 +215,13 @@ mixin _FoldersTagsApi on _ApiServiceBase {
   /// tags afterwards.
   Future<List<Map<String, dynamic>>> addChatTag(
     String chatId,
-    String name,
-  ) async {
+    String name, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     final response = await _dio.post(
       '/api/v1/chats/$chatId/tags',
       data: {'name': name},
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return _coerceRawMapList(response.data);
   }

@@ -198,6 +198,50 @@ void main() {
       expect(keysPerProcess[1], keysPerProcess[0]);
     },
   );
+
+  // Open WebUI 0.12 stores an image an MCP tool returned as a path on the
+  // server, which reached the image loader with no host (#859).
+  testWidgets('a markdown image at a server path loads from the server with '
+      'the account\'s credentials', (tester) async {
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
+    final api = _buildApi(workerManager);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        authTokenProvider3.overrideWithValue('account-a-token'),
+        openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+        selfSignedImageCacheManagerProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(() {
+      container.dispose();
+      api.dispose();
+      workerManager.dispose();
+    });
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ConduitMarkdown.buildImage(
+                context,
+                Uri.parse('/api/v1/files/shared/content'),
+                context.conduitTheme,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final provider = _cachedProviders(tester).single;
+    expect(provider.url, _imageUrl);
+    expect(provider.headers?['Authorization'], 'Bearer account-a-token');
+    expect(provider.cacheKey, isNotNull);
+  });
 }
 
 final class _ValueNotifier<T> extends Notifier<T> {

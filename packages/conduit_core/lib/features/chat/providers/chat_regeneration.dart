@@ -1,5 +1,97 @@
 part of 'chat_providers.dart';
 
+/// Metadata key of an edited Hermes user message: the text its session still
+/// stores for the turn, until the edit's replacement is sent.
+const String kHermesStoredUserContentKey = 'hermesStoredContent';
+
+/// A Desktop Gateway session's place to cut before [replayedUserIndex], or
+/// null when the turn goes to a new session instead: the REST transport
+/// replays an explicit history, and a chat with no session has nothing to
+/// cut. [rowId] is null when the replayed turn never reached the session,
+/// which then only gets the prompt again.
+///
+/// [originalText] is the replayed prompt as the session stores it, when an
+/// edit has already changed it on screen. [previousText] is the text shown
+/// before that edit: a turn edited before is stored with that one once the
+/// earlier edit went through, and with [originalText] when it did not.
+@visibleForTesting
+Future<({String sessionId, int? rowId, int? lastRowId})?>
+hermesDesktopRewindTarget({
+  required HermesBackendService? service,
+  required Conversation? conversation,
+  required List<ChatMessage> messages,
+  required int replayedUserIndex,
+  String? originalText,
+  String? previousText,
+}) async {
+  if (service is! HermesDesktopTurnService ||
+      replayedUserIndex < 0 ||
+      !isNativeHermesConversation(conversation)) {
+    return null;
+  }
+  final sessionId = validateHermesOpaqueIdentifier(
+    conversation!.metadata['hermesSessionId'],
+  );
+  if (sessionId == null) return null;
+  // What the session holds now, never a longer read from before another app
+  // shortened it: a cut at a row that is gone, or a turn that is gone
+  // matched, would cut the wrong history.
+  final transcript = await service.getCurrentSessionMessages(sessionId);
+  // An edit stores its new text once its replacement is sent: until then
+  // the session holds [originalText], after it what the chat shows. A text
+  // the chat no longer shows (one kept from before an edit, which may not
+  // have been cleared yet) counts only at the turn's place: out of place it
+  // may be a later turn another app sent with it.
+  final shown = messages[replayedUserIndex].content.trim();
+  int? find(String? text) => hermesTranscriptUserRowIndex(
+    transcript: transcript,
+    messages: messages,
+    index: replayedUserIndex,
+    text: text,
+    inPlaceOnly: text != null && text.trim() != shown,
+  );
+  // Each text the turn may be stored with is tried: two that match two
+  // rows mean one of them is another turn (one sent later with the text
+  // before the edit), and nothing says which.
+  final found = <int>{
+    for (final text in {?originalText, ?previousText}) ?find(text),
+  };
+  if (found.length > 1) {
+    throw StateError(
+      'This message could not be found in the Hermes chat. Reopen the chat '
+      'and try again.',
+    );
+  }
+  final row = found.isEmpty ? find(null) : found.single;
+  // The last row the session held when the cut was chosen: a turn stored
+  // after it refuses the cut rather than being cut too.
+  int? lastRowId;
+  for (final stored in transcript.reversed) {
+    lastRowId = hermesTranscriptRowId(stored);
+    if (lastRowId != null) break;
+  }
+  final rowId = row == null ? null : hermesTranscriptRowId(transcript[row]);
+  if (rowId != null) {
+    return (sessionId: sessionId, rowId: rowId, lastRowId: lastRowId);
+  }
+  var ordinal = 0;
+  for (var index = 0; index < replayedUserIndex; index++) {
+    if (messages[index].role == 'user') ordinal++;
+  }
+  final storedTurns = transcript
+      .where((row) => hermesTranscriptUserContent(row) != null)
+      .length;
+  if (storedTurns > ordinal) {
+    // The session holds this turn or a later one, and neither can be told
+    // apart for certain: sending again uncut would leave them in place.
+    throw StateError(
+      'This message could not be found in the Hermes chat. Reopen the chat '
+      'and try again.',
+    );
+  }
+  return (sessionId: sessionId, rowId: null, lastRowId: lastRowId);
+}
+
 Future<void> _regenerateHermesMessage(
   dynamic ref, {
   required Model selectedModel,
@@ -7,6 +99,8 @@ Future<void> _regenerateHermesMessage(
   required HermesConfigController configController,
   required int configAdmission,
   required HermesBackendService? serviceGeneration,
+  String? originalUserContent,
+  String? previousUserContent,
 }) async {
   final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
@@ -103,6 +197,27 @@ Future<void> _regenerateHermesMessage(
       !identical(ref.read(hermesApiServiceProvider), serviceGeneration)) {
     return;
   }
+  // A Desktop Gateway session keeps its own transcript: the replayed turn is
+  // cut from it and sent again into that session, so every Hermes surface
+  // sees the same history.
+  final texts = hermesRewindCandidateTexts(
+    replayed: replayedUser,
+    originalUserContent: originalUserContent,
+    previousUserContent: previousUserContent,
+  );
+  final rewind = await hermesDesktopRewindTarget(
+    service: serviceGeneration,
+    conversation: activeAtStart,
+    messages: existingMessages,
+    replayedUserIndex: replayedUserIndex,
+    originalText: texts.originalText,
+    previousText: texts.previousText,
+  );
+  if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
+  if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
+      !identical(ref.read(hermesApiServiceProvider), serviceGeneration)) {
+    return;
+  }
 
   // Historical regeneration leaves the selected assistant at the tail. Reuse
   // that message rather than retaining an archived record plus a second
@@ -115,7 +230,9 @@ Future<void> _regenerateHermesMessage(
     assistantSeed: assistant,
     input: replayedUser?.content ?? input,
     existingMessages: continuityMessages,
-    forceNewSession: true,
+    forceNewSession: rewind == null,
+    truncateBeforeRowId: rewind?.rowId,
+    truncateSeenThroughRowId: rewind?.lastRowId,
     // Regeneration branches from [continuityMessages]. Chaining the response
     // being replaced would restore the wrong tail and the wrong server session.
     previousResponseIdOverride: null,
@@ -548,11 +665,22 @@ Future<void> regenerateEditedHermesUserMessage(
   );
   if (index < 0) throw StateError('The Hermes user message was not found.');
 
-  final edited = messages[index].copyWith(
+  final original = messages[index];
+  // The text the session stores for this turn, kept until it is replaced:
+  // a retry after a replacement that failed before its cut finds the turn
+  // by it.
+  final storedContent = switch (original.metadata?[
+    kHermesStoredUserContentKey
+  ]) {
+    final String stored => stored,
+    _ => original.content,
+  };
+  final edited = original.copyWith(
     content: content,
     metadata: <String, dynamic>{
-      ...?messages[index].metadata,
+      ...?original.metadata,
       'childrenIds': const <String>[],
+      kHermesStoredUserContentKey: storedContent,
     },
   );
   final notifier =
@@ -563,7 +691,16 @@ Future<void> regenerateEditedHermesUserMessage(
   ]);
   notifier.setMessages(optimisticMessages);
   try {
-    await regenerateMessage(ref, content, null);
+    await regenerateMessage(
+      ref,
+      content,
+      null,
+      // A Desktop session finds the turn to cut by the text it stored: the
+      // one before any edit, or the one shown now once an edit went through.
+      hermesOriginalUserContent: storedContent,
+      hermesPreviousUserContent: original.content,
+    );
+    await forgetReplacedHermesStoredContent(ref, messageId: messageId);
   } catch (_) {
     // Editing is a branch operation, but the original branch must remain
     // intact when the replacement cannot even be started. Restore only while
@@ -580,19 +717,102 @@ Future<void> regenerateEditedHermesUserMessage(
   }
 }
 
+/// The texts the session may store the replayed turn [replayed] with, for
+/// [hermesDesktopRewindTarget]. An edit passes both its own. Otherwise (a
+/// regenerate) the text before an edit comes from the turn's metadata,
+/// which an edit may not have cleared yet: the text shown is then tried
+/// too. A text the chat no longer shows counts only at the turn's place, so
+/// a later turn another app sent with the old text is never the one cut.
+@visibleForTesting
+({String? originalText, String? previousText}) hermesRewindCandidateTexts({
+  required ChatMessage? replayed,
+  String? originalUserContent,
+  String? previousUserContent,
+}) {
+  final stored = switch (replayed?.metadata?[kHermesStoredUserContentKey]) {
+    final String text => text,
+    _ => null,
+  };
+  return (
+    originalText: originalUserContent ?? stored,
+    previousText:
+        previousUserContent ??
+        (originalUserContent == null && stored != null
+            ? replayed?.content
+            : null),
+  );
+}
+
+/// Drops the text a Desktop turn was stored with before an edit
+/// ([kHermesStoredUserContentKey]) once the session stores the edited text:
+/// from then on it names nothing of this turn, and another app may send the
+/// same text as a later one, which an edit would then cut instead. Kept when
+/// the session still holds the old text at the turn's place (even if a later
+/// turn holds the edited one) or cannot be read.
+@visibleForTesting
+Future<void> forgetReplacedHermesStoredContent(
+  dynamic ref, {
+  required String messageId,
+}) async {
+  final service = ref.read(hermesApiServiceProvider);
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (service is! HermesDesktopTurnService ||
+      !isNativeHermesConversation(active)) {
+    return;
+  }
+  final sessionId = validateHermesOpaqueIdentifier(
+    active!.metadata['hermesSessionId'],
+  );
+  if (sessionId == null) return;
+  final List<Map<String, dynamic>> transcript;
+  try {
+    transcript = await service.getCurrentSessionMessages(sessionId);
+  } catch (_) {
+    return;
+  }
+  final current = ref.read(activeConversationProvider) as Conversation?;
+  if (current == null || !isSameStoredConversation(current, active)) return;
+  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  final index = messages.indexWhere(
+    (message) => message.id == messageId && message.role == 'user',
+  );
+  if (index < 0 ||
+      messages[index].metadata?[kHermesStoredUserContentKey] == null ||
+      hermesTranscriptUserRowIndex(
+            transcript: transcript,
+            messages: messages,
+            index: index,
+            // The edited text is stored at the turn's own place. Out of
+            // place, the same text is a turn another app sent.
+            inPlaceOnly: true,
+          ) ==
+          null) {
+    return;
+  }
+  (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+      .updateMessageById(messageId, (message) {
+        final metadata = Map<String, dynamic>.from(message.metadata ?? const {})
+          ..remove(kHermesStoredUserContentKey);
+        return message.copyWith(metadata: metadata);
+      });
+}
+
 // Regenerate a message without duplicating its user prompt. Image replay uses
 // a request-scoped force flag so it never mutates the persisted composer
 // preference while provider preflight is in flight.
 /// The model and column a regeneration belongs to when the answer being
 /// regenerated is one of several models' answers to one prompt.
 ///
-/// Open WebUI regenerates such an answer with ITS model and keeps its column
-/// (`modelIdx`), whatever the picker holds now; a duplicate-model chat is
-/// told apart by the column alone. A single-model turn returns null and
-/// regenerates with the picker's model as before.
+/// The answer keeps its column (`modelIdx`); a duplicate-model chat is told
+/// apart by the column alone, and is asked of that column's model. Open
+/// WebUI 0.12.5 regenerates with the model picked now instead of the one that
+/// wrote the answer: so once the user picked a model ([picked]) after the turn
+/// was sent, that model answers in the column. A single-model turn returns
+/// null and regenerates with the picker's model as before.
 ({String modelId, int slot})? _comparisonRegenerationTarget(
-  List<ChatMessage> messages,
-) {
+  List<ChatMessage> messages, {
+  ChatModelPick? picked,
+}) {
   if (messages.isEmpty || messages.last.role != 'assistant') return null;
   final tail = messages.last;
   final modelId = tail.model?.trim() ?? '';
@@ -602,12 +822,27 @@ Future<void> regenerateEditedHermesUserMessage(
     if (candidate.role != 'user') continue;
     final models = candidate.metadata?['models'];
     if (models is List && models.length > 1) {
-      return (modelId: modelId, slot: tail.modelSlot);
+      // A pick made once the chat held this turn's prompt applies; one made
+      // before it was sent, or edited, does not. Regenerating, deleting or
+      // cutting back other turns leaves the prompt's id as it was.
+      final pickedSince =
+          picked != null && picked.promptIds.contains(candidate.id);
+      return (
+        modelId: pickedSince ? picked.modelId : modelId,
+        slot: tail.modelSlot,
+      );
     }
     return null;
   }
   return null;
 }
+
+/// [_comparisonRegenerationTarget], for tests.
+@visibleForTesting
+({String modelId, int slot})? debugComparisonRegenerationTarget(
+  List<ChatMessage> messages, {
+  ChatModelPick? picked,
+}) => _comparisonRegenerationTarget(messages, picked: picked);
 
 Future<void> regenerateMessage(
   dynamic ref,
@@ -615,6 +850,8 @@ Future<void> regenerateMessage(
   List<String>? attachments, {
   bool forceImageGeneration = false,
   bool Function()? ownsPreparationState,
+  String? hermesOriginalUserContent,
+  String? hermesPreviousUserContent,
 }) async {
   final conversationAtRegenerationStart =
       ref.read(activeConversationProvider) as Conversation?;
@@ -709,6 +946,16 @@ Future<void> regenerateMessage(
       'On-device direct chats can only continue with a direct connection model.',
     );
   }
+  // A LibreChat model answers only in a LibreChat chat (or starts one), as
+  // a send does; no other backend knows its id.
+  if (!reviewerMode &&
+      isLibreChatModel(selectedModel) &&
+      !usesLibreChatTransportForRegeneration(
+        activeConversation,
+        selectedModel,
+      )) {
+    throw StateError('A LibreChat model can only continue a LibreChat chat.');
+  }
   if (!reviewerMode &&
       usesHermesTransportForRegeneration(
         selectedModel: selectedModel,
@@ -721,7 +968,22 @@ Future<void> regenerateMessage(
       configController: hermesConfigController!,
       configAdmission: hermesConfigAdmission!,
       serviceGeneration: hermesServiceGeneration,
+      originalUserContent: hermesOriginalUserContent,
+      previousUserContent: hermesPreviousUserContent,
     );
+    return;
+  }
+  if (!reviewerMode &&
+      usesLibreChatTransportForRegeneration(
+        activeConversation,
+        selectedModel,
+      )) {
+    if (!isLibreChatModel(selectedModel)) {
+      throw StateError(
+        'A LibreChat chat continues only with a LibreChat model.',
+      );
+    }
+    await _regenerateLibreChatMessage(ref, model: selectedModel);
     return;
   }
   if (activeConversation == null) {
@@ -738,6 +1000,10 @@ Future<void> regenerateMessage(
       ? null
       : _comparisonRegenerationTarget(
           ref.read(chatMessagesProvider) as List<ChatMessage>,
+          picked: switch (ref.read(chatModelPickProvider) as ChatModelPick?) {
+            final pick? when pick.chatId == activeConversation.id => pick,
+            _ => null,
+          },
         );
   if (comparisonTarget != null) {
     final listed =
@@ -1001,6 +1267,20 @@ Future<void> regenerateMessage(
         'Open WebUI direct connections require an active server socket.',
       );
     }
+    if (isTemporary &&
+        socketSessionId == null &&
+        ref.read(temporaryChatNeedsSocketProvider)) {
+      throw const TemporaryChatNeedsConnectionException();
+    }
+    if (isTemporary && socketSessionId != null) {
+      regenerationOwner.chatId = await _temporaryChatIdForSession(
+        ref,
+        api: api!,
+        chatId: regenerationOwner.chatId,
+        sessionId: socketSessionId,
+        unknownToServer: false,
+      );
+    }
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,
@@ -1016,6 +1296,7 @@ Future<void> regenerateMessage(
         api: api,
         userSettings: userSettingsData,
         selectedToolIds: selectedToolIds,
+        personalConnectionsAvailable: _personalConnectionsAvailable(ref),
         onUnresolvedSelections: (ids) =>
             _clearUnresolvedPersonalToolSelections(ref, ids),
         admitted: admittedToolServers,
@@ -1028,9 +1309,10 @@ Future<void> regenerateMessage(
       );
       return;
     }
-    final terminalIdForApi = modelSupportsTerminal(selectedModel)
-        ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
-        : null;
+    final terminalIdForApi = terminalIdForModelRequest(
+      selectedModel,
+      selectedTerminalId: selectedTerminalId,
+    );
     final codeInterpreterEnabled =
         codeInterpreterAtRegenerationStart && terminalIdForApi == null;
 

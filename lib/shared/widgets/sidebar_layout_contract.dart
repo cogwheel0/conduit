@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/theme_extensions.dart';
+import 'adaptive_toolbar_components.dart' show kConduitCupertinoToolbarHeight;
 import 'sidebar_layout_constants.dart';
 
 /// Commands exposed by the active sidebar drawer without leaking its concrete
@@ -41,6 +42,17 @@ bool usesPersistentTabletSidebar(BuildContext context) {
       usesPersistentTabletSidebarFor(width: size.width, height: size.height);
 }
 
+/// Whether the sidebar is fully open over the main pane, as on a phone,
+/// rather than docked beside it. Status bar taps then belong to the sidebar.
+bool sidebarCoversMainPane(BuildContext context) {
+  if (usesPersistentTabletSidebar(context)) return false;
+  return context
+          .getInheritedWidgetOfExactType<SidebarDrawerControllerScope>()
+          ?.controller
+          .isOpen ??
+      false;
+}
+
 /// Closes the sidebar only when it is presented as a mobile overlay.
 void closeSidebarDrawerIfOverlay(BuildContext context) {
   if (usesPersistentTabletSidebar(context)) return;
@@ -54,11 +66,17 @@ class SidebarTabLayoutScope extends InheritedWidget {
     super.key,
     required this.parentOwnsHeaderInset,
     required this.bottomNavigationVisible,
+    this.floatingChromeInsets,
     required super.child,
   });
 
   final bool parentOwnsHeaderInset;
   final bool bottomNavigationVisible;
+
+  /// Extents of a header and bottom bar that float over the content on every
+  /// platform. When set, content scrolls beneath them instead of beginning
+  /// below platform-specific chrome.
+  final EdgeInsets? floatingChromeInsets;
 
   static SidebarTabLayoutScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<SidebarTabLayoutScope>();
@@ -66,8 +84,107 @@ class SidebarTabLayoutScope extends InheritedWidget {
   @override
   bool updateShouldNotify(SidebarTabLayoutScope oldWidget) =>
       parentOwnsHeaderInset != oldWidget.parentOwnsHeaderInset ||
-      bottomNavigationVisible != oldWidget.bottomNavigationVisible;
+      bottomNavigationVisible != oldWidget.bottomNavigationVisible ||
+      floatingChromeInsets != oldWidget.floatingChromeInsets;
 }
+
+/// The scrollbar [builder] puts around sidebar tab content, with its track
+/// between a header and bottom bar that float over the content instead of
+/// beneath them.
+///
+/// Scrollbars inset their track by the media padding, so the scrollbar is
+/// given the floating chrome's extents as its padding, and [child] keeps the
+/// padding around this widget.
+class SidebarTabScrollbar extends StatelessWidget {
+  const SidebarTabScrollbar({
+    super.key,
+    required this.builder,
+    required this.child,
+  });
+
+  /// Builds the scrollbar around the given scrollable.
+  final Widget Function(Widget child) builder;
+
+  /// The scrollable content.
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final insets = SidebarTabLayoutScope.maybeOf(context)?.floatingChromeInsets;
+    if (insets == null) return builder(child);
+    final media = MediaQuery.of(context);
+    return MediaQuery(
+      data: media.copyWith(
+        padding: media.padding.copyWith(top: insets.top, bottom: insets.bottom),
+      ),
+      child: builder(MediaQuery(data: media, child: child)),
+    );
+  }
+}
+
+/// Rows that scroll at the top of a sidebar history list, above its first
+/// section.
+class SidebarHistoryHeaderScope extends InheritedWidget {
+  const SidebarHistoryHeaderScope({
+    super.key,
+    required this.header,
+    required super.child,
+  });
+
+  final Widget header;
+
+  static Widget? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<SidebarHistoryHeaderScope>()
+      ?.header;
+
+  @override
+  bool updateShouldNotify(SidebarHistoryHeaderScope oldWidget) =>
+      header != oldWidget.header;
+}
+
+/// The [SidebarHistoryHeaderScope] rows as slivers, or none.
+List<Widget> sidebarHistoryHeaderSlivers(BuildContext context) => [
+  if (SidebarHistoryHeaderScope.maybeOf(context) case final header?)
+    SliverToBoxAdapter(child: header),
+];
+
+/// Keeps the [SidebarHistoryHeaderScope] rows above a loading, empty, or
+/// error [state] that a history list shows in place of its scroll view.
+Widget sidebarHistoryStateBelowHeader(BuildContext context, Widget state) {
+  final header = SidebarHistoryHeaderScope.maybeOf(context);
+  if (header == null) return state;
+  return CustomScrollView(
+    slivers: [
+      SliverToBoxAdapter(
+        child: SizedBox(height: sidebarTabContentTopPadding(context)),
+      ),
+      SliverToBoxAdapter(child: header),
+      // Fills the rest of the viewport without scrolling further. The
+      // sliver sizes itself from its child's intrinsic height, which a
+      // positioned child does not report, so [state] may hold scroll views
+      // and layout builders; the spacer keeps it visible below a tall
+      // header.
+      SliverFillRemaining(
+        hasScrollBody: false,
+        child: Stack(
+          children: [
+            const SizedBox(height: _kSidebarHistoryStateMinHeight),
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: sidebarTabContentBottomPadding(context),
+                ),
+                child: state,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+const double _kSidebarHistoryStateMinHeight = 160;
 
 /// Marks sidebar content mounted in the persistent tablet pane.
 class PersistentTabletSidebarScope extends InheritedWidget {
@@ -117,17 +234,23 @@ bool _usesNativeSidebarChrome(BuildContext context) =>
 /// Top inset so sidebar tab content starts below native sidebar chrome.
 double sidebarTabContentTopPadding(BuildContext context) {
   final layout = SidebarTabLayoutScope.maybeOf(context);
+  if (layout?.floatingChromeInsets case final insets?) {
+    return insets.top + Spacing.sm;
+  }
   if (layout?.parentOwnsHeaderInset ?? false) return Spacing.sm;
   if (!_usesNativeSidebarChrome(context)) return Spacing.sm;
-  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight + Spacing.sm;
+  return MediaQuery.viewPaddingOf(context).top +
+      kConduitCupertinoToolbarHeight +
+      Spacing.sm;
 }
 
 /// Edge offset so pull-to-refresh indicators appear below sidebar chrome.
 double sidebarRefreshIndicatorEdgeOffset(BuildContext context) {
   final layout = SidebarTabLayoutScope.maybeOf(context);
+  if (layout?.floatingChromeInsets case final insets?) return insets.top;
   if (layout?.parentOwnsHeaderInset ?? false) return 0.0;
   if (!_usesNativeSidebarChrome(context)) return 0.0;
-  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight;
+  return MediaQuery.viewPaddingOf(context).top + kConduitCupertinoToolbarHeight;
 }
 
 /// Bottom inset so sidebar tab content clears native sidebar chrome.
@@ -135,10 +258,13 @@ double sidebarTabContentBottomPadding(
   BuildContext context, {
   bool includeNativeBottomBar = true,
 }) {
+  final layout = SidebarTabLayoutScope.maybeOf(context);
+  if (layout?.floatingChromeInsets case final insets?) {
+    return insets.bottom + Spacing.md;
+  }
   if (!_usesNativeSidebarChrome(context)) return Spacing.md;
 
   final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
-  final layout = SidebarTabLayoutScope.maybeOf(context);
   final bottomNavigationVisible =
       layout?.bottomNavigationVisible ?? includeNativeBottomBar;
   final navigationBarHeight = includeNativeBottomBar && bottomNavigationVisible

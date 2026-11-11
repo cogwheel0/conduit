@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 // Re-exported because these used to live here and a dozen callers, and the
 // tests, still reach them through this library. An imported symbol is not
@@ -30,6 +32,7 @@ import 'package:conduit_core/features/notes/providers/notes_providers.dart'
     show activeNoteProvider;
 import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
     show activePromptCommandProvider;
+import '../../platform/android_assistant_handler.dart';
 import '../../platform/app_intents_service.dart';
 import '../../platform/carplay_service.dart';
 import '../../platform/home_widget_service.dart';
@@ -125,6 +128,40 @@ final userScopedProviderCleanupProvider = Provider<void>((ref) {
     }
 
     scheduleCleanup();
+  });
+
+  // The LibreChat account in charge changing (to another LibreChat account,
+  // to Open WebUI, or signed out) ends what it owned on screen: its open
+  // chat, a chat still loading for it, and the composer's attachments.
+  ref.listen<PrimaryAccountRef>(primaryAccountProvider, (previous, next) {
+    if (previous == null ||
+        previous.kind != PrimaryAccountKind.libreChat ||
+        previous.id == null ||
+        previous == next) {
+      return;
+    }
+    ref.read(conversationSelectionProvider.notifier).cancel();
+    final active = ref.read(activeConversationProvider);
+    if (active != null && isLibreChatConversation(active)) {
+      ref.read(activeConversationProvider.notifier).set(null);
+    }
+    ref.read(contextAttachmentsProvider.notifier).clear();
+    final attachmentOwnership = ref
+        .read(mediaUploadControllerProvider)
+        .captureAttachmentOwnership();
+    unawaited(
+      ref
+          .read(mediaUploadControllerProvider)
+          .retireAttachmentOwnership(attachmentOwnership)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'librechat-switch-attachment-cleanup-failed',
+              scope: 'startup/auth-cleanup',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
   });
 
   // Switching Open WebUI accounts goes tokenless only for the moment it takes
@@ -1039,6 +1076,15 @@ class AppStartupFlow extends _$AppStartupFlow {
       () => ref.read(shareReceiverInitializerProvider),
       label: 'share-receiver',
     );
+    // The assistant can open the app before any chat page exists, and its
+    // handler then runs what was asked once the app can do it.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      _scheduleAfterDelay(
+        const Duration(milliseconds: 88),
+        () => ref.read(androidAssistantProvider),
+        label: 'android-assistant',
+      );
+    }
   }
 
   void _scheduleStartupTasks() {
@@ -1225,6 +1271,10 @@ class AppStartupFlow extends _$AppStartupFlow {
     // Install the remap-route consumer (Wiring C): swaps the active-chat /
     // pending-folder id in place when a local id is remapped to a server id.
     _keepAlive(remapRouteSyncProvider);
+
+    // A coding agent runs only on its own terminal: switching that terminal
+    // off puts the default model back.
+    _keepAlive(terminalAgentSelectionGuardProvider);
 
     // Retry authenticated startup work if the API becomes available after the
     // initial startup/auth transition request.

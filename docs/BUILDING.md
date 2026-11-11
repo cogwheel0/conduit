@@ -13,7 +13,7 @@ instead.
 | Flutter SDK | Flutter `3.47.0` or newer, with Dart `3.13.0` or newer |
 | Android | Java 17+, AGP 9.1.0, KGP 2.4.0, Gradle 9.3.1, Android SDK 36, Android 7.0+ (API 24) at runtime |
 | iOS | Xcode with an iOS 16.0+ deployment target |
-| Backend | An Open WebUI instance, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
+| Backend | An Open WebUI instance, a LibreChat server, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
 
 Apple On-Device requires Xcode 26 and an iOS 26 device that supports Apple
 Intelligence. It uses the local SystemLanguageModel with a 4K context window;
@@ -33,7 +33,7 @@ git clone --recursive https://github.com/cogwheel0/conduit.git
 cd conduit
 ```
 
-`--recursive` matters. Conduit vendors four submodules:
+`--recursive` matters. Conduit vendors five submodules:
 
 - `third_party/mermaid`: the native Mermaid renderer packages
   (`mermaid_core`, `mermaid_flutter`), referenced by path from `pubspec.yaml`.
@@ -44,6 +44,11 @@ cd conduit
 - `hermes-src`: a vendored Hermes Agent checkout (NousResearch/hermes-agent)
   used **only** as the reference for the Hermes gateway RPC and REST contracts
   (`tui_gateway/`, `gateway/platforms/api_server.py`). It is not built or
+  shipped.
+- `librechat-src`: a vendored LibreChat checkout (danny-avila/LibreChat,
+  pinned to the oldest release Conduit supports) used **only** as the
+  reference for the LibreChat REST and stream contracts (`api/server/routes/`,
+  `client/src/hooks/SSE/`, `packages/data-provider/`). It is not built or
   shipped.
 
 For an existing clone:
@@ -89,6 +94,14 @@ recorder. Remove the override and exact VAD pin when [upstream issue
 #22](https://github.com/keyur2maru/vad/issues/22) ships Record 7 support. Keep
 the Conduit-owned stream until upstream can also preserve externally managed
 iOS audio sessions.
+
+### A LibreChat server
+
+`tool/librechat_dev/` runs the vendored LibreChat release in Docker, with
+the features Conduit uses turned on and chat sent to Ollama on the host. Web
+search, server speech and file search need services the stack does not run;
+its README says what each needs. It also covers setup, the User-Agent ban
+LibreChat applies to non-browser clients, and recording stream fixtures.
 
 ## Verify
 
