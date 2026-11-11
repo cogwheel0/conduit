@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show currentUserProvider2;
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
@@ -51,6 +53,7 @@ import '../release_notes/data/release_notes_repository.dart';
 import '../release_notes/release_notes_presenter.dart';
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
+import 'settings_pages.dart';
 
 /// Which Settings an event came from.
 enum SettingsEventSource {
@@ -84,7 +87,32 @@ class SettingsController {
 
   /// Hands over the app root's ref. Settings events that arrive before it
   /// are dropped, as there is no app to act in yet.
-  void attach(WidgetRef ref) => _widgetRef = ref;
+  ///
+  /// Settings pages belong to the account they were described for: when
+  /// another account (or none) takes over, they are all forgotten, and a
+  /// page still open describes itself again for the new one.
+  void attach(WidgetRef ref) {
+    _widgetRef = ref;
+    ref.listenManual(
+      currentUserProvider2.select((user) => user?.id),
+      (previous, next) => _forgetPages(),
+    );
+    ref.listenManual(apiServiceProvider, (previous, next) {
+      if (!identical(previous, next)) _forgetPages();
+    });
+  }
+
+  SettingsSurface get _surface => ref.read(settingsSurfaceProvider);
+
+  void _forgetPages() {
+    _nativeSheetDraftValues.clear();
+    ref.read(settingsPagesProvider.notifier).clear();
+  }
+
+  /// A Flutter Settings page closed: what it held unsaved is forgotten.
+  void pageClosed(String detailId) {
+    if (detailId == 'password') _forgetPasswordDraft();
+  }
 
   bool get _attached => _widgetRef?.context.mounted ?? false;
 
@@ -119,9 +147,18 @@ class SettingsController {
           (_) => _handleNativeSheetControlChanged(event, source),
         );
       case NativeSheetDetailAppeared(:final detailId):
-        unawaited(
-          ref.read(nativeSheetHydrationServiceProvider).hydrateDetail(detailId),
-        );
+        // A password typed on an earlier visit is not combined with this one.
+        if (detailId == 'password') _forgetPasswordDraft();
+        final hydration = ref.read(nativeSheetHydrationServiceProvider);
+        // The native sheet fills in its own Profile page as it opens.
+        if (detailId == NativeSheetRoutes.profile &&
+            source == SettingsEventSource.flutter) {
+          unawaited(
+            hydration.hydrateFlutterProfileDetail(currentAppLocalizations()),
+          );
+        } else {
+          unawaited(hydration.hydrateDetail(detailId));
+        }
       case NativeEditProfileCommitted():
         unawaited(_handleNativeEditProfileCommitted(event));
     }
@@ -172,6 +209,7 @@ class SettingsController {
         final account = registry.byId(value);
         if (account == null || !context.mounted) return true;
         await signOutOfLibreChatAccount(context, account);
+        await _refreshSignOutPage();
         return true;
       case nativeDirectEditActionId:
         if (context == null || value is! String) return true;
@@ -183,6 +221,7 @@ class SettingsController {
         final entry = accounts.where((entry) => entry.id == value).firstOrNull;
         if (entry == null || !context.mounted) return true;
         await signOutOfSavedAccount(context, ref, entry);
+        await _refreshSignOutPage();
         return true;
       case nativeAccountSignOutActionId:
         if (context == null) return true;
@@ -1014,17 +1053,49 @@ class SettingsController {
         confirm.isEmpty) {
       return;
     }
+    final l10n = currentAppLocalizations();
+    // Whatever the outcome, the page starts over with it said on the page,
+    // and nothing typed stays behind.
+    _forgetPasswordDraft();
+    String outcome;
     if (confirm != next) {
-      return;
+      outcome = l10n.passwordsDoNotMatch;
+    } else {
+      try {
+        await ref
+            .read(accountProfileProvider.notifier)
+            .updatePassword(password: current, newPassword: next);
+        outcome = l10n.passwordUpdated;
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'settings-password-change-failed',
+          scope: 'settings/profile',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        outcome = l10n.errorMessage;
+      }
     }
+    await _surface.applyDetail(
+      buildNativePasswordDetail(
+        l10n,
+        passwordChangeEnabled: true,
+        subtitle: outcome,
+      ),
+    );
+  }
 
-    await ref
-        .read(accountProfileProvider.notifier)
-        .updatePassword(password: current, newPassword: next);
+  void _forgetPasswordDraft() {
     _nativeSheetDraftValues.remove('current-password');
     _nativeSheetDraftValues.remove('new-password');
     _nativeSheetDraftValues.remove('confirm-password');
   }
+
+  /// The page listing the accounts to sign out of, read again after one
+  /// signed out, so it no longer offers that account.
+  Future<void> _refreshSignOutPage() => ref
+      .read(nativeSheetHydrationServiceProvider)
+      .hydrateDetail(nativeAccountSignOutOfDetailId);
 
   Future<void> _showManualReleaseNotes(BuildContext context) async {
     final packageInfo = await ref.read(packageInfoProvider.future);

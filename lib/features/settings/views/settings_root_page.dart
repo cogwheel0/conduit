@@ -1,11 +1,6 @@
-import 'dart:async';
-
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
-    show directConnectionProfilesProvider;
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/profile_avatar.dart';
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 import 'package:conduit_core/utils/user_display_name.dart';
@@ -37,62 +32,18 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
   /// The account the root's pages were registered for, so they are
   /// registered again when another one takes over.
   Object? _registeredFor;
-  bool _refreshingProfile = false;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_prepare());
-    });
-  }
-
-  /// Waits briefly for the saved accounts, which the Accounts page and the
-  /// sign-out row read, then refreshes the account profile behind the
-  /// Profile page, which stays loading until then: its editors save every
-  /// field, so they must start from the copy the server has now.
-  Future<void> _prepare() async {
-    try {
-      await Future.wait([
-        ref.read(openWebUiAccountsProvider.future),
-        ref.read(directConnectionProfilesProvider.future),
-      ]).timeout(const Duration(seconds: 2));
-    } catch (error) {
-      DebugLogger.warning(
-        'saved-accounts-load-failed',
-        scope: 'settings/root',
-        data: {'error': error.toString()},
-      );
-    }
-    if (!mounted || ref.read(currentUserProvider2) == null) return;
-    _refreshingProfile = true;
-    try {
-      await ref
-          .read(accountProfileProvider.notifier)
-          .refresh()
-          .timeout(const Duration(seconds: 5));
-    } catch (error) {
-      DebugLogger.warning(
-        'account-profile-refresh-failed',
-        scope: 'settings/root',
-        data: {'error': error.toString()},
-      );
-    } finally {
-      _refreshingProfile = false;
-    }
-    if (mounted) _register(force: true);
-  }
-
-  /// Makes the root's pages known, built for the account signed in now.
-  void _register({bool force = false}) {
+  /// Makes the root's pages known, built for the account signed in now. The
+  /// Profile page stays loading until it appears and reads the profile the
+  /// server has now: its editors save every field.
+  void _register() {
     final l10n = AppLocalizations.of(context);
     if (l10n == null) return;
     final user = ref.read(currentUserProvider2);
     final api = ref.read(apiServiceProvider);
     final account = (user?.id, identityHashCode(api));
-    if (!force && account == _registeredFor) return;
+    if (account == _registeredFor) return;
     _registeredFor = account;
-    final profile = ref.read(accountProfileProvider).asData?.value;
     ref
         .read(settingsPagesProvider.notifier)
         .register(
@@ -101,9 +52,8 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
             ref.read,
             hasOpenWebUiUser: user != null,
             displayName: _displayName(l10n, user),
-            accountProfile: profile,
-            profilePending:
-                user != null && (_refreshingProfile || profile == null),
+            accountProfile: null,
+            profilePending: true,
           ),
         );
   }

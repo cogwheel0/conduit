@@ -494,6 +494,11 @@ class _SettingsAppearanceTiles extends StatelessWidget {
   final String? selectedId;
   final ValueChanged<String> onChanged;
 
+  void _choose(String id) {
+    HapticFeedback.selectionClick();
+    onChanged(id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
@@ -504,17 +509,17 @@ class _SettingsAppearanceTiles extends StatelessWidget {
         children: [
           for (final option in item.options)
             Expanded(
+              // The tap is the node's own action too: the node stands in for
+              // the tile, whose own semantics it leaves out.
               child: Semantics(
                 button: true,
                 selected: option.id == selectedId,
                 label: option.label,
                 excludeSemantics: true,
+                onTap: () => _choose(option.id),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    onChanged(option.id);
-                  },
+                  onTap: () => _choose(option.id),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
                     child: Column(

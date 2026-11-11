@@ -201,6 +201,50 @@ void main() {
     check(controller.changes).deepEquals([('stt-language-code', 'fr')]);
   });
 
+  testWidgets('text typed on the page is sent before a choice is made', (
+    tester,
+  ) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'stt-language-code',
+          title: 'Transcription language',
+          kind: NativeSheetItemKind.textField,
+          value: '',
+        ),
+        const NativeSheetItemConfig(
+          id: 'tts-voice',
+          title: 'Voice',
+          kind: NativeSheetItemKind.searchablePicker,
+          value: 'alloy',
+          options: [
+            NativeSheetOptionConfig(id: 'alloy', label: 'Alloy'),
+            NativeSheetOptionConfig(id: 'verse', label: 'Verse'),
+          ],
+        ),
+      ]),
+    );
+
+    await tester.enterText(
+      find.descendant(
+        of: _row('stt-language-code'),
+        matching: find.byType(EditableText),
+      ),
+      'fr',
+    );
+    await tester.tap(_row('tts-voice'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-option-verse')),
+    );
+    await tester.pumpAndSettle();
+
+    // The choice can describe the page again, so the text goes first.
+    check(controller.changes)
+        .deepEquals([('stt-language-code', 'fr'), ('tts-voice', 'verse')]);
+  });
+
   testWidgets('a page described again drops the values set on the last one', (
     tester,
   ) async {

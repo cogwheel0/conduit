@@ -45,10 +45,12 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   /// Read while the page is up: a page that follows something live stops
   /// when it closes, after `ref` can no longer be read.
   late final NativeSheetHydrationService _hydration;
+  late final SettingsController _controller;
 
   @override
   void dispose() {
     _hydration.stopFollowing(widget.detailId);
+    _controller.pageClosed(widget.detailId);
     super.dispose();
   }
 
@@ -58,6 +60,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     // Providers can't change while the tree builds, so the page asks once
     // this first frame is done.
     _hydration = ref.read(nativeSheetHydrationServiceProvider);
+    _controller = ref.read(settingsControllerProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _appeared();
     });
@@ -83,6 +86,17 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Forgotten while open, as when another account takes over: the page
+    // describes itself again, for the account there is now.
+    ref.listen(
+      settingsPagesProvider.select((pages) => pages.contains(widget.detailId)),
+      (wasKnown, isKnown) {
+        if (wasKnown != true || isKnown) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _appeared();
+        });
+      },
+    );
     final detail = ref.watch(
       settingsPagesProvider.select((pages) => pages[widget.detailId]),
     );
@@ -240,6 +254,9 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
 
   Future<void> _select(NativeSheetItemConfig item) async {
     final l10n = AppLocalizations.of(context)!;
+    // Text typed on the page is sent before any row acts, as the native
+    // sheet does: a choice can describe the page again, dropping drafts.
+    _commitPendingText();
     switch (item.kind) {
       case NativeSheetItemKind.segment:
       case NativeSheetItemKind.dropdown:
@@ -263,8 +280,6 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       _send(item.id, keepServerDetails);
       return;
     }
-
-    _commitPendingText();
 
     if (item.dismissOnSelect) {
       final actionId = item.actionId?.isNotEmpty == true

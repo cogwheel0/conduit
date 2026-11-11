@@ -226,6 +226,15 @@ class _SettingsOptionSheetState extends State<SettingsOptionSheet> {
           : () {},
     );
     if (option.enabled) return row;
-    return Opacity(opacity: 0.45, child: ExcludeSemantics(child: row));
+    // Read out, as unavailable, with why in its subtitle; it does nothing.
+    return Opacity(
+      opacity: 0.45,
+      child: Semantics(
+        enabled: false,
+        label: [option.label, ?option.subtitle].join(', '),
+        excludeSemantics: true,
+        child: IgnorePointer(child: row),
+      ),
+    );
   }
 }

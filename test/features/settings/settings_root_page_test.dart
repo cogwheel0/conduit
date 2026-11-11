@@ -62,7 +62,11 @@ const _user = User(
 
 Future<_RecordingController> _pumpRoot(
   WidgetTester tester, {
-  required WorkspaceCapabilities capabilities,
+  WorkspaceCapabilities capabilities = const WorkspaceCapabilities(),
+  bool calendar = false,
+  bool scheduledTasks = false,
+  bool personalConnections = false,
+  bool chatDataControls = false,
 }) async {
   final controller = _RecordingController();
   await tester.pumpWidget(
@@ -76,10 +80,14 @@ Future<_RecordingController> _pumpRoot(
         apiServiceProvider.overrideWithValue(_ApiService()),
         workspaceCapabilitiesProvider.overrideWith((ref) async => capabilities),
         appSettingsProvider.overrideWithValue(const AppSettings()),
-        calendarAvailableProvider.overrideWithValue(false),
-        personalConnectionsEntryVisibleProvider.overrideWithValue(false),
-        scheduledTasksEntryVisibleProvider.overrideWithValue(false),
-        chatDataControlsEntryVisibleProvider.overrideWithValue(false),
+        calendarAvailableProvider.overrideWithValue(calendar),
+        personalConnectionsEntryVisibleProvider.overrideWithValue(
+          personalConnections,
+        ),
+        scheduledTasksEntryVisibleProvider.overrideWithValue(scheduledTasks),
+        chatDataControlsEntryVisibleProvider.overrideWithValue(
+          chatDataControls,
+        ),
         openWebUiAccountsProvider.overrideWith((ref) async => const []),
         directConnectionProfilesProvider.overrideWith(_NoDirect.new),
         libreChatRegistryProvider.overrideWith(_NoLibreChat.new),
@@ -127,5 +135,44 @@ void main() {
     check(_row(NativeSheetRoutes.workspace).evaluate()).isEmpty();
     // The rows around it are the native root's, in its order.
     check(_row(NativeSheetRoutes.appearance).evaluate()).isNotEmpty();
+  });
+
+  testWidgets('the root offers Calendar and the Advanced pages only where '
+      'each is available', (tester) async {
+    const gated = [
+      NativeSheetRoutes.calendar,
+      NativeSheetRoutes.scheduledTasks,
+      NativeSheetRoutes.personalConnections,
+      NativeSheetRoutes.chatDataControls,
+    ];
+    Future<List<String>> shown() async {
+      final ids = <String>[];
+      for (final id in gated) {
+        if (_row(id).evaluate().isEmpty) {
+          await tester
+              .dragUntilVisible(
+                _row(id),
+                find.byType(Scrollable).first,
+                const Offset(0, -300),
+                maxIteration: 8,
+              )
+              .catchError((_) {});
+        }
+        if (_row(id).evaluate().isNotEmpty) ids.add(id);
+      }
+      return ids;
+    }
+
+    await _pumpRoot(tester);
+    check(await shown()).isEmpty();
+
+    await _pumpRoot(
+      tester,
+      calendar: true,
+      scheduledTasks: true,
+      personalConnections: true,
+      chatDataControls: true,
+    );
+    check(await shown()).deepEquals(gated);
   });
 }

@@ -40,6 +40,7 @@ import 'package:conduit_core/models/tool.dart';
 import '../network/image_header_utils.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/utils/user_display_name.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
@@ -182,8 +183,6 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   );
 }
 
-/// The language the app is set to, as the App Language row names it: a
-/// language tag, or `system`.
 /// Which speech engines can work now, read from the providers the voice
 /// features use. Device recognition still being checked counts as able.
 NativeVoiceEngineAvailability readNativeVoiceEngineAvailability(
@@ -199,6 +198,8 @@ NativeVoiceEngineAvailability readNativeVoiceEngineAvailability(
   );
 }
 
+/// The language the app is set to, as the App Language row names it: a
+/// language tag, or `system`.
 String readNativeAppLanguageTag(NativeSheetProviderReader read) =>
     read(appLocaleProvider)?.toLanguageTag() ?? 'system';
 
@@ -904,8 +905,8 @@ class NativeSheetHydrationService {
           detailSheets: [readNativeAccountSignOutDetail(_ref.read, l10n)],
         );
         return;
-      case NativeSheetRoutes.accountSettings:
-        await _hydrateNativeAccountSettingsDetail(ctx, l10n);
+      case 'password':
+        await _hydrateNativePasswordDetail(ctx, l10n);
         return;
       case NativeSheetRoutes.appearance:
       case NativeSheetRoutes.chats:
@@ -1023,59 +1024,87 @@ class NativeSheetHydrationService {
     }
   }
 
-  Future<void> _hydrateNativeAccountSettingsDetail(
+  /// Turns the Change Password page into a note that the server does not
+  /// allow it, when the server says so. An allowed change leaves the page as
+  /// it opened, so nothing typed into it is lost.
+  Future<void> _hydrateNativePasswordDetail(
     BuildContext context,
     AppLocalizations l10n,
   ) async {
     try {
       final about = await _ref.read(serverAboutInfoProvider.future);
-      if (!context.mounted) return;
-      final passwordChangeEnabled = about?.enablePasswordChangeForm ?? true;
-
+      if (!context.mounted || (about?.enablePasswordChangeForm ?? true)) {
+        return;
+      }
       await _applyNativeDetail(
-        NativeSheetDetailConfig(
-          id: NativeSheetRoutes.accountSettings,
-          title: l10n.accountSettingsTitle,
-          items: [
-            if (passwordChangeEnabled)
-              NativeSheetItemConfig(
-                id: 'password',
-                title: l10n.changePasswordTitle,
-                subtitle: l10n.passwordChangeDescription,
-                sfSymbol: 'lock',
-              )
-            else
-              NativeSheetItemConfig(
-                id: 'password-unavailable',
-                title: l10n.changePasswordTitle,
-                subtitle: l10n.passwordChangeUnavailable,
-                sfSymbol: 'lock.slash',
-                kind: NativeSheetItemKind.info,
-              ),
-          ],
-        ),
-        detailSheets: passwordChangeEnabled
-            ? [
-                buildNativePasswordDetail(
-                  l10n,
-                  passwordChangeEnabled: true,
-                  subtitle: l10n.passwordFieldsRequired,
-                ),
-              ]
-            : const [],
+        buildNativePasswordDetail(l10n, passwordChangeEnabled: false),
       );
     } catch (error, stackTrace) {
+      // The form stays; the server refuses a change it does not allow.
       DebugLogger.error(
-        'native-account-settings-hydration-failed',
+        'native-password-hydration-failed',
         scope: 'native-sheet',
         error: error,
         stackTrace: stackTrace,
       );
-      await _patchNativeDetailError(
-        NativeSheetRoutes.accountSettings,
-        l10n.unableToLoadOpenWebuiSettings,
+    }
+  }
+
+  /// Fills in the Profile page the Flutter Settings pages draw. Its editors
+  /// save every field, so the page waits on its loading row until the
+  /// profile has been read from the server again; when that fails, the copy
+  /// the app holds is shown, and with none the page says so. (The native
+  /// sheet fills its own Profile page as it opens.)
+  Future<void> hydrateFlutterProfileDetail(AppLocalizations l10n) async {
+    const pageId = NativeSheetRoutes.profile;
+    final user = _ref.read(currentUserProvider2);
+    if (user == null) {
+      await _patchNativeDetailError(pageId, l10n.unableToLoadProfile);
+      return;
+    }
+    final api = _ref.read(apiServiceProvider);
+    final cached = _ref.read(accountProfileProvider).asData?.value;
+    var refreshed = true;
+    try {
+      await _ref
+          .read(accountProfileProvider.notifier)
+          .refresh()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      refreshed = false;
+      DebugLogger.warning(
+        'account-profile-refresh-failed',
+        scope: 'settings/profile',
+        data: {'error': error.toString()},
       );
     }
+    // Another account took over meanwhile: the page is for it now.
+    if (!identical(_ref.read(apiServiceProvider), api) ||
+        _ref.read(currentUserProvider2)?.id != user.id) {
+      return;
+    }
+    // `refresh` keeps a failed request in the provider rather than throwing.
+    final state = _ref.read(accountProfileProvider);
+    final fresh = refreshed && !state.hasError ? state.asData?.value : null;
+    final profile = fresh ?? cached;
+    if (profile == null) {
+      await _patchNativeDetailError(pageId, l10n.unableToLoadProfile);
+      return;
+    }
+    await _applyNativeDetail(
+      NativeSheetDetailConfig(
+        id: pageId,
+        title: nativeProfileTitle(l10n),
+        sections: buildNativeProfileDetailSections(
+          l10n,
+          displayName: deriveUserDisplayName(
+            user,
+            fallback: l10n.userFallbackName,
+          ),
+          accountProfile: profile,
+        ),
+      ),
+    );
   }
 
   Future<void> _hydrateNativePersonalizationDetail(

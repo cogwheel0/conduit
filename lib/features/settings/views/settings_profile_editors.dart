@@ -32,8 +32,10 @@ const settingsProfileEditorIds = {
 /// Edits the field behind Profile row [rowId] and saves the whole profile,
 /// as the native editors save every field at once.
 ///
-/// The profile is read fresh from the account first, so a save never writes
-/// back a copy older than the server's.
+/// The fields not edited come from the profile as it is once the edit is
+/// done, not as it was when the editor opened, so a save never writes back a
+/// copy older than the one the app holds; and nothing is saved once another
+/// account has taken over.
 Future<void> editSettingsProfileField(
   BuildContext context,
   WidgetRef ref,
@@ -54,18 +56,26 @@ Future<void> editSettingsProfileField(
   };
   final change = await edit;
   if (change == null || !context.mounted) return;
+  // Refreshed while the editor was open, the profile may hold newer fields.
+  final latest = ref.read(accountProfileProvider).asData?.value;
+  if (latest == null || latest.id != profile.id) {
+    UiUtils.showMessage(context, l10n.unableToLoadProfile);
+    return;
+  }
   try {
     final saved = await ref
         .read(accountProfileProvider.notifier)
         .save(
-          name: change.name ?? profile.name,
+          name: change.name ?? latest.name,
           profileImageUrl:
               change.profileImageUrl ??
-              normalizeProfileImageUrl(profile.profileImageUrl),
-          bio: change.bio ?? profile.bio ?? '',
-          gender: change.clearsGender ? null : change.gender ?? profile.gender,
-          dateOfBirth: change.dateOfBirth ?? profile.dateOfBirth,
-          timezone: profile.timezone,
+              normalizeProfileImageUrl(latest.profileImageUrl),
+          bio: change.bio ?? latest.bio ?? '',
+          gender: change.clearsGender ? null : change.gender ?? latest.gender,
+          dateOfBirth: change.clearsBirthDate
+              ? null
+              : change.dateOfBirth ?? latest.dateOfBirth,
+          timezone: latest.timezone,
         );
     await ref
         .read(settingsSurfaceProvider)
@@ -92,7 +102,8 @@ Future<void> editSettingsProfileField(
   }
 }
 
-/// One edit to the profile. Null fields keep what the profile holds.
+/// One edit to the profile. Null fields keep what the profile holds; the
+/// gender and birth date can also be cleared.
 final class _ProfileEdit {
   const _ProfileEdit({
     this.name,
@@ -101,6 +112,7 @@ final class _ProfileEdit {
     this.gender,
     this.dateOfBirth,
     this.clearsGender = false,
+    this.clearsBirthDate = false,
   });
 
   final String? name;
@@ -109,6 +121,7 @@ final class _ProfileEdit {
   final String? gender;
   final String? dateOfBirth;
   final bool clearsGender;
+  final bool clearsBirthDate;
 }
 
 Future<_ProfileEdit?> _editName(
@@ -164,6 +177,21 @@ Future<_ProfileEdit?> _editDetails(
   );
   if (choice == null || !context.mounted) return null;
   if (choice == 'birth') {
+    // A saved date can be cleared, as the native editor's Clear does.
+    final saved = profile.dateOfBirth?.trim() ?? '';
+    if (saved.isNotEmpty) {
+      final action = await _pick(
+        context,
+        title: l10n.birthDateLabel,
+        selected: null,
+        options: [
+          (id: 'select', label: l10n.selectBirthDate),
+          (id: 'clear', label: l10n.clear),
+        ],
+      );
+      if (action == null || !context.mounted) return null;
+      if (action == 'clear') return const _ProfileEdit(clearsBirthDate: true);
+    }
     final initial = clampProfileBirthDate(
       parseProfileBirthDate(profile.dateOfBirth ?? '') ?? DateTime(1990),
     );
@@ -174,7 +202,7 @@ Future<_ProfileEdit?> _editDetails(
       last: DateTime.now(),
       title: l10n.birthDateLabel,
     );
-    if (picked == null) return null;
+    if (picked == null || !context.mounted) return null;
     return _ProfileEdit(dateOfBirth: formatProfileBirthDate(picked));
   }
   final gender = await _pick(
