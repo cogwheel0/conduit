@@ -233,79 +233,82 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final semantics = tester.ensureSemantics();
-    var presses = 0;
-    var toggles = 0;
+    try {
+      var presses = 0;
+      var toggles = 0;
 
-    for (final isFirst in [true, false]) {
-      final reason = 'first $isFirst';
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.conduit),
-          home: Scaffold(
-            body: Align(
-              alignment: Alignment.topLeft,
-              child: SizedBox(
-                width: _windowWidth,
-                // A sidebar list gives its headers unbounded height.
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SidebarSectionHeader(
-                      title: 'Folders',
-                      isFirst: isFirst,
-                      isExpanded: true,
-                      onToggle: () => toggles++,
-                      trailing: ConduitIconButton(
-                        icon: Icons.create_new_folder_outlined,
-                        tooltip: 'New Folder',
-                        isCompact: true,
-                        onPressed: () => presses++,
+      for (final isFirst in [true, false]) {
+        final reason = 'first $isFirst';
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.conduit),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: _windowWidth,
+                  // A sidebar list gives its headers unbounded height.
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SidebarSectionHeader(
+                        title: 'Folders',
+                        isFirst: isFirst,
+                        isExpanded: true,
+                        onToggle: () => toggles++,
+                        trailing: ConduitIconButton(
+                          icon: Icons.create_new_folder_outlined,
+                          tooltip: 'New Folder',
+                          isCompact: true,
+                          onPressed: () => presses++,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      final header = tester.getRect(find.byType(SidebarSectionHeader));
-      final x = tester.getCenter(find.byType(Icon)).dx;
-      // The button is round, so its edges count along the symbol's column.
-      for (final y in [header.top + 2, header.bottom - 2]) {
-        final before = presses;
-        await tester.tapAt(Offset(x, y));
-        await tester.pumpAndSettle();
-        expect(presses, before + 1, reason: '$reason, y $y');
-      }
-
-      // The symbol's node, which takes the tap, lies over the box that takes
-      // the taps, not where the symbol is drawn.
-      final node = tester.getSemantics(find.byType(Icon));
-      expect(
-        node.getSemanticsData().hasAction(SemanticsAction.tap),
-        isTrue,
-        reason: reason,
-      );
-      var rect = node.rect;
-      for (SemanticsNode? n = node; n != null; n = n.parent) {
-        if (n.transform case final transform?) {
-          rect = MatrixUtils.transformRect(transform, rect);
+        );
+        final header = tester.getRect(find.byType(SidebarSectionHeader));
+        final x = tester.getCenter(find.byType(Icon)).dx;
+        // The button is round, so its edges count along the symbol's column.
+        for (final y in [header.top + 2, header.bottom - 2]) {
+          final before = presses;
+          await tester.tapAt(Offset(x, y));
+          await tester.pumpAndSettle();
+          expect(presses, before + 1, reason: '$reason, y $y');
         }
+
+        // The symbol's node, which takes the tap, lies over the box that takes
+        // the taps, not where the symbol is drawn.
+        final node = tester.getSemantics(find.byType(Icon));
+        expect(
+          node.getSemanticsData().hasAction(SemanticsAction.tap),
+          isTrue,
+          reason: reason,
+        );
+        var rect = node.rect;
+        for (SemanticsNode? n = node; n != null; n = n.parent) {
+          if (n.transform case final transform?) {
+            rect = MatrixUtils.transformRect(transform, rect);
+          }
+        }
+        expect(
+          rect,
+          Rect.fromLTRB(
+            _windowWidth - kSidebarRowContentInset - TouchTarget.minimum,
+            header.top,
+            _windowWidth - kSidebarRowContentInset,
+            header.bottom,
+          ),
+          reason: reason,
+        );
       }
-      expect(
-        rect,
-        Rect.fromLTRB(
-          _windowWidth - kSidebarRowContentInset - TouchTarget.minimum,
-          header.top,
-          _windowWidth - kSidebarRowContentInset,
-          header.bottom,
-        ),
-        reason: reason,
-      );
+      expect(toggles, 0);
+    } finally {
+      semantics.dispose();
     }
-    expect(toggles, 0);
-    semantics.dispose();
   });
 
   testWidgets('dark section headers sit quieter than secondary text', (
