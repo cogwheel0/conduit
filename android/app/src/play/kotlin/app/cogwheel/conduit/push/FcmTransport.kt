@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import app.cogwheel.conduit.BuildConfig
 import app.cogwheel.conduit.FlutterError
+import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
@@ -21,6 +22,14 @@ import com.google.firebase.messaging.FirebaseMessaging
 internal object FcmTransport {
     private const val TAG = "ConduitFcm"
     private const val PLAY_SERVICES_PACKAGE = "com.google.android.gms"
+
+    /**
+     * The token deletion [release] started. Firebase runs deletion and token
+     * requests on different executors, so a request made while this runs
+     * could return the token the deletion is about to invalidate.
+     */
+    @Volatile
+    private var pendingDeletion: Task<Void>? = null
 
     private fun options(): FirebaseOptions? {
         val projectId = BuildConfig.CONDUIT_FCM_PROJECT_ID
@@ -67,7 +76,15 @@ internal object FcmTransport {
             callback(Result.failure(FlutterError("fcm_unavailable", error.message, null)))
             return
         }
-        messaging.token.addOnCompleteListener { task ->
+        val deletion = pendingDeletion
+        val token = if (deletion == null || deletion.isComplete) {
+            messaging.token
+        } else {
+            // Wait for the deletion whether or not it succeeds, then ask for a
+            // token: it is a new one.
+            deletion.continueWithTask { messaging.token }
+        }
+        token.addOnCompleteListener { task ->
             if (task.isSuccessful) {
                 callback(Result.success(task.result))
             } else {
@@ -89,7 +106,7 @@ internal object FcmTransport {
         try {
             FirebaseMessaging.getInstance().apply {
                 isAutoInitEnabled = false
-                deleteToken().addOnFailureListener { error ->
+                pendingDeletion = deleteToken().addOnFailureListener { error ->
                     Log.w(TAG, "FCM token could not be deleted", error)
                 }
             }

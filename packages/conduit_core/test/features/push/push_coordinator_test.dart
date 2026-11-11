@@ -19,8 +19,10 @@ import 'package:conduit_core/features/push/services/push_settings_store.dart';
 import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/push_platform_port.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -283,6 +285,37 @@ void main() {
       await h.coordinator.retry(_owui.scope);
       check(h.status(_owui.scope)).equals(PushStatus.on);
       check(h.state.permissionDenied).isFalse();
+    });
+
+    test('a sign-out whose saves fail still stops APNs', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      h.log.clear();
+
+      // The sign-out outlived its time and app data is being cleared.
+      await PreferencesStore.blockWritesForAppDataClear();
+      addTearDown(PreferencesStore.resumeWritesAfterAppDataClear);
+      await check(h.coordinator.releaseAll()).throws<StateError>();
+      check(h.log).contains('release apns');
+    });
+
+    test('a permission changed in system settings shows on return', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      check(h.state.permissionDenied).isFalse();
+
+      h.platform.permission = false;
+      h.lifecycle.resume();
+      await h.until(() => h.state.permissionDenied);
+      await h.until(
+        () => h.status(_owui.scope) == PushStatus.permissionDenied,
+      );
+
+      h.platform.permission = true;
+      h.lifecycle.resume();
+      await h.until(() => h.status(_owui.scope) == PushStatus.on);
+      check(h.state.permissionDenied).isFalse();
+      check(h.platform.prompts).equals(1);
     });
 
     test('a check after launch never prompts', () async {
@@ -678,6 +711,32 @@ void main() {
       check(await h.coordinator.distributors())
           .deepEquals(['org.unifiedpush.distributor.ntfy']);
     });
+
+    test(
+      'choosing UnifiedPush with no distributor still stops FCM',
+      () async {
+        h = await _Harness.start(
+          targets: [_owui],
+          fcm: true,
+          unifiedPush: true,
+        );
+        h.platform.distributors = const [];
+        await h.coordinator.setEnabled(true);
+        final sid = h.record(_owui.scope).sid!;
+        check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
+
+        await h.coordinator.setAndroidTransport(
+          PushAndroidTransport.unifiedPush,
+        );
+        // Nothing set up through UnifiedPush, and nothing left through
+        // Google either: the server and device forget the FCM subscription.
+        check(h.record(_owui.scope).sid).isNull();
+        check(h.server(_owui).subscriptions).isEmpty();
+        check(h.log).contains('delete $sid');
+        check(h.log).contains('release fcm');
+        check(h.status(_owui.scope)).equals(PushStatus.failed);
+      },
+    );
 
     test('a token that changed while the app was closed is caught', () async {
       h = await _Harness.start(targets: [_owui, _owui2]);
@@ -1752,6 +1811,29 @@ void main() {
       check(h.factory.jobs.updates).isEmpty();
     });
 
+    test('notify me never makes a delivery list too long', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      final targets = <String>['local'];
+      while (targets.join(',').length < kMaxHermesJobDeliverCharacters - 100) {
+        targets.add('room:${'r' * 30}${targets.length}@ops');
+      }
+      // One last room leaves 3 characters: too few for `,conduit`.
+      final room =
+          kMaxHermesJobDeliverCharacters - 3 - targets.join(',').length - 1;
+      targets.add('room:${'s' * (room - 'room:@ops'.length)}@ops');
+      final full = targets.join(',');
+      check(full.length).equals(kMaxHermesJobDeliverCharacters - 3);
+      h.factory.jobs.stored['job-1'] = full;
+      await check(
+        h.coordinator.setHermesJobNotify(
+          connectionId: 'conn-1',
+          jobId: 'job-1',
+          notify: true,
+        ),
+      ).throws<StateError>();
+      check(h.factory.jobs.updates).isEmpty();
+    });
+
     test('notify me already in place writes nothing', () async {
       h = await _Harness.start(targets: [_hermes]);
       h.factory.jobs.stored['job-1'] = 'local,conduit';
@@ -1808,6 +1890,22 @@ final class _Settings extends AppSettingsNotifier {
   void set(AppSettings settings) => state = settings;
 }
 
+final class _Lifecycle implements AppLifecyclePort {
+  final _changes = StreamController<AppLifecyclePhase>.broadcast();
+
+  @override
+  AppLifecyclePhase? current = AppLifecyclePhase.resumed;
+
+  @override
+  Stream<AppLifecyclePhase> get changes => _changes.stream;
+
+  /// The app comes back to the foreground.
+  void resume() {
+    current = AppLifecyclePhase.resumed;
+    _changes.add(AppLifecyclePhase.resumed);
+  }
+}
+
 final class _Harness {
   _Harness._(this.container, this.log, this.platform, this.factory, this.relay);
 
@@ -1829,6 +1927,7 @@ final class _Harness {
   final _Platform platform;
   final _Factory factory;
   final _Relay relay;
+  late final _Lifecycle lifecycle;
   _Gateway get gateway => factory.gateway;
 
   static Future<_Harness> start({
@@ -1860,10 +1959,12 @@ final class _Harness {
       factory.addServer(target);
     }
     final relayAdapter = _Relay();
+    final lifecycle = _Lifecycle();
     _TargetList.initial = targets;
     final container = ProviderContainer(
       overrides: [
         pushPlatformPortProvider.overrideWithValue(fake),
+        appLifecycleProvider.overrideWithValue(lifecycle),
         pushRelayClientProvider.overrideWithValue(
           relay
               ? PushRelayClient(
@@ -1886,7 +1987,8 @@ final class _Harness {
         ),
       ],
     );
-    final harness = _Harness._(container, log, fake, factory, relayAdapter);
+    final harness = _Harness._(container, log, fake, factory, relayAdapter)
+      ..lifecycle = lifecycle;
     factory.current = (scope) =>
         container.read(_targetsProvider).where((t) => t.scope == scope).firstOrNull;
     last = harness;

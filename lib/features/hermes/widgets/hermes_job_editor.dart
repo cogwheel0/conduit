@@ -293,6 +293,11 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
                                 option,
                           ]),
                     loading: options.isLoading,
+                    // Room for `,conduit`, which saving or "Notify Me" adds.
+                    reservedCharacters:
+                        _deliversToConduit || widget.initialNotify != null
+                        ? kConduitHermesPluginName.length + 1
+                        : 0,
                     onChanged: (value) => setState(() => _deliver = value),
                   );
                 },

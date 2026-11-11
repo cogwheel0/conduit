@@ -574,6 +574,45 @@ void main() {
       check(changes).isEmpty();
     });
 
+    testWidgets('the list keeps room for Conduit when asked to', (
+      tester,
+    ) async {
+      // Room targets filling the list to 2,035 characters: `,telegram`
+      // still fits, but not with `,conduit` after it.
+      final rooms = <String>[];
+      while (['local', ...rooms].join(',').length < 1990) {
+        rooms.add('room:${'r' * 30}${rooms.length}@ops');
+      }
+      final last = 2035 - ['local', ...rooms].join(',').length - 1;
+      rooms.add('room:${'s' * (last - 'room:@ops'.length)}@ops');
+      final value = ['local', ...rooms].join(',');
+      check(value.length).equals(2035);
+
+      for (final (reserved, allowed) in [(0, true), (8, false)]) {
+        final changes = <String>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: HermesJobDeliveryField(
+                  key: ValueKey(reserved),
+                  value: value,
+                  options: _options,
+                  reservedCharacters: reserved,
+                  onChanged: changes.add,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.ensureVisible(target('telegram'));
+        await tester.tap(target('telegram'));
+        await tester.pump();
+        check(changes).length.equals(allowed ? 1 : 0);
+      }
+    });
+
     testWidgets('the last target cannot be cleared', (tester) async {
       final editor = await openEditor(
         tester,
