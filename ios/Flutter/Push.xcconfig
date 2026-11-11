@@ -1,0 +1,10 @@
+// Conduit push notifications, shared by Runner and the NotificationService
+// extension.
+//
+// The extension may drop a push (instead of showing a passive, silent
+// generic notification) only with com.apple.developer.usernotifications.filtering,
+// which Apple grants on request. Set this to YES once that entitlement is in
+// NotificationService.entitlements and in the extension's provisioning
+// profiles; with YES and no entitlement, iOS ignores the drop and shows the
+// relay's generic alert with sound.
+CONDUIT_PUSH_FILTERING_ENABLED = NO

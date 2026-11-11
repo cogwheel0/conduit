@@ -19,13 +19,59 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    ConduitBridgeRegistry.applicationDidFinishLaunching()
+    ConduitBridgeRegistry.applicationDidFinishLaunching(launchOptions: launchOptions)
     // FlutterAppDelegate forwards notification callbacks to plugins only while
     // it is the notification center's delegate. Without this, a tap on a
     // Conduit notification never reached flutter_local_notifications. Set it
     // before launch finishes so a tap that cold-starts the app is delivered.
     UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    PushBridge.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    PushBridge.shared.didFailToRegisterForRemoteNotifications(error: error)
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+  }
+
+  // Conduit pushes the NotificationService extension decrypted go to the push
+  // bridge; everything else, flutter_local_notifications' own notifications
+  // included, still reaches the plugins through FlutterAppDelegate.
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler:
+      @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if PushBridge.shared.willPresent(notification) {
+      completionHandler([])
+      return
+    }
+    super.userNotificationCenter(
+      center, willPresent: notification, withCompletionHandler: completionHandler)
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if PushBridge.shared.didReceive(response) {
+      completionHandler()
+      return
+    }
+    super.userNotificationCenter(
+      center, didReceive: response, withCompletionHandler: completionHandler)
   }
 
   func didInitializeImplicitFlutterEngine(
