@@ -1,5 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/structured_output.dart';
@@ -299,6 +301,61 @@ void main() {
         final metadata = messages.single['metadata'] as Map<String, dynamic>;
         check(metadata).deepEquals({'safe': 'kept'});
       });
+
+      test('strips forged LibreChat provenance from OpenWebUI', () {
+        // Stop, regenerate and approval routes follow these markers, so an
+        // Open WebUI payload must never be able to claim a LibreChat turn.
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'metadata': {
+            'backend': 'libreChat',
+            'libreChatConversationId': 'victim',
+            'kept': true,
+          },
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Approve the tool call',
+              'metadata': {
+                'transport': 'libreChat',
+                'libreChat': {
+                  'conversationId': 'victim',
+                  'pendingAction': {'actionId': 'a1'},
+                },
+                'LIBRECHAT_stream': 's1',
+                'safe': 'kept',
+              },
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.single['metadata'] as Map<String, dynamic>;
+        check(metadata).deepEquals({'safe': 'kept'});
+        check(
+          result['metadata'] as Map<String, dynamic>,
+        ).deepEquals({'kept': true});
+      });
+
+      test('strips a forged chat store claim from OpenWebUI', () {
+        // Account clean-up keeps a chat that says it lives in another
+        // account's store, so a payload must never be able to say so.
+        final payload = {
+          'id': 'conv-1',
+          'metadata': {
+            'conduit.chatStorageKind': 'libreChat',
+            'kept': true,
+          },
+        };
+
+        check(
+          Conversation.fromJson(parseFullConversation(payload)).metadata,
+        ).deepEquals({'kept': true});
+        check(
+          Conversation.fromJson(parseConversationSummary(payload)).metadata,
+        ).deepEquals({'kept': true});
+      });
     });
 
     group('preserves Open WebUI file descriptors', () {
@@ -505,6 +562,51 @@ void main() {
         check(versions.single['files'])
             .isA<List<dynamic>>()
             .deepEquals([safeDescriptor]);
+      });
+
+      test('a reply the server reports not done is marked so, from this '
+          'snapshot only', () {
+        Map<String, dynamic> replyMetadata({Object? done, Object? saved}) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'currentId': 'assistant-1',
+                'messages': {
+                  'user-1': {
+                    'role': 'user',
+                    'content': 'Hello',
+                    'childrenIds': ['assistant-1'],
+                    'timestamp': 1700000000,
+                  },
+                  'assistant-1': {
+                    'role': 'assistant',
+                    'content': 'So far',
+                    'parentId': 'user-1',
+                    'done': ?done,
+                    'metadata': {'serverUnfinished': ?saved, 'custom': 'kept'},
+                    'timestamp': 1700000001,
+                  },
+                },
+              },
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.last['metadata'] as Map<String, dynamic>;
+        }
+
+        // A reply written in the web client keeps only `done: false` while it
+        // runs, and no `isStreaming`.
+        check(replyMetadata(done: false)['serverUnfinished']).equals(true);
+        // Done, or with no marker, it is not; a mark an earlier read saved
+        // into the copy does not survive.
+        check(
+          replyMetadata(done: true, saved: true),
+        ).not((it) => it.containsKey('serverUnfinished'));
+        check(
+          replyMetadata(saved: true),
+        ).not((it) => it.containsKey('serverUnfinished'));
+        check(replyMetadata(done: false)['custom']).equals('kept');
       });
 
       test('derives a comparison\'s unfinished answers from this snapshot, '
@@ -1859,6 +1961,49 @@ void main() {
     final metadata = conversation.messages.single.metadata!;
     check(metadata[kMessageRatingMetadataKey]).equals(-1);
     check(metadata[kMessageFeedbackIdMetadataKey]).equals('fb-7');
+  });
+
+  test("a call's voice record is read from meta only", () {
+    // Open WebUI keeps what a realtime call spoke in `meta.voice`. A copy in
+    // metadata is an older echo of it and never wins over the server's.
+    const voice = {
+      'call_id': 'call-1',
+      'model': 'gpt-realtime',
+      'speech': [
+        {'item_id': 'item-1', 'transcript': 'Sure.'},
+      ],
+    };
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'chat': {
+        'messages': [
+          {
+            'id': 'a1',
+            'role': 'assistant',
+            'content': 'Sure.',
+            'model': 'gpt-realtime',
+            'done': true,
+            'meta': {'voice': voice, 'other': true},
+            'timestamp': 1700000000,
+          },
+          {
+            'id': 'a2',
+            'role': 'assistant',
+            'content': 'Answer',
+            'done': true,
+            'metadata': {
+              kMessageVoiceMetadataKey: {'call_id': 'stale'},
+            },
+            'timestamp': 1700000001,
+          },
+        ],
+      },
+    });
+    final [spoken, stale] = conversation.messages;
+    check(spoken.metadata![kMessageVoiceMetadataKey]).isA<Map>().deepEquals(
+      voice,
+    );
+    check(stale.metadata!.containsKey(kMessageVoiceMetadataKey)).isFalse();
   });
 
   group('chat params projection', () {

@@ -46,6 +46,17 @@ class FloatingAppBarPill extends StatelessWidget {
         : child;
 
     final theme = context.conduitTheme;
+    if (PlatformUiCapabilities.usesNativeIOS26) {
+      return Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: AdaptiveGlassBackdrop(borderRadius: borderRadius),
+          ),
+          surfaceChild,
+        ],
+      );
+    }
     return Container(
       decoration: BoxDecoration(
         color: theme.surfaceContainerHighest,
@@ -336,6 +347,13 @@ class FloatingAppBarAction extends StatelessWidget {
   }
 }
 
+/// A search field on a glass pill.
+///
+/// On iOS 26 and later it is the system search bar
+/// ([AdaptiveNativeSearchBar]) unless [nativeOnIOS26] is false. Like the
+/// Flutter field, it takes text set in [controller] and focus requested
+/// through [focusNode], and a list that hides the keyboard when it is
+/// dragged hides its keyboard too.
 class ConduitGlassSearchField extends StatelessWidget {
   const ConduitGlassSearchField({
     super.key,
@@ -345,6 +363,7 @@ class ConduitGlassSearchField extends StatelessWidget {
     required this.query,
     required this.onClear,
     this.focusNode,
+    this.nativeOnIOS26 = true,
   });
 
   final TextEditingController controller;
@@ -352,10 +371,29 @@ class ConduitGlassSearchField extends StatelessWidget {
   final String hintText;
   final ValueChanged<String> onChanged;
   final String query;
+
+  /// Called by the clear button of the Material field. The iOS fields report
+  /// clearing through [onChanged], with the empty text.
   final VoidCallback onClear;
+
+  /// Whether iOS 26 and later may use the system search bar.
+  final bool nativeOnIOS26;
 
   @override
   Widget build(BuildContext context) {
+    if (nativeOnIOS26 && PlatformUiCapabilities.usesNativeIOS26) {
+      return AdaptiveNativeSearchBar(
+        controller: controller,
+        focusNode: focusNode,
+        placeholder: hintText,
+        onChanged: onChanged,
+        height: TouchTarget.minimum,
+      );
+    }
+    return _buildFlutterField(context);
+  }
+
+  Widget _buildFlutterField(BuildContext context) {
     final textColor = context.conduitTheme.textPrimary;
     final hintColor = context.conduitTheme.iconSecondary;
 
@@ -397,6 +435,7 @@ class ConduitGlassSearchField extends StatelessWidget {
         focusNode: focusNode,
         onChanged: onChanged,
         textAlignVertical: TextAlignVertical.center,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: AppTypography.standard.copyWith(color: textColor),
         decoration: InputDecoration(
           isDense: true,
@@ -475,7 +514,14 @@ class ConduitButton extends StatelessWidget {
         : styles.primary();
     final isEnabled = !isLoading && onPressed != null;
     final backgroundColor = variant.background;
-    final textColor = variant.foreground;
+    final nativeGlass =
+        useNative && PlatformUiCapabilities.usesNativeIOS26 && isSecondary;
+    // A glass button is not filled with the variant's color, so a
+    // destructive one shows its label in that color instead of the light
+    // text meant for a filled background.
+    final textColor = nativeGlass && isDestructive
+        ? backgroundColor
+        : variant.foreground;
     final displayedBackgroundColor = isEnabled
         ? backgroundColor
         : context.conduitTheme.buttonDisabled;
@@ -489,6 +535,7 @@ class ConduitButton extends StatelessWidget {
       color: textColor,
     );
     final minWidth = width ?? _contentMinWidth(context, textStyle);
+    final nativeSymbol = icon == null ? null : conduitSfSymbolForIcon(icon!);
 
     // Build semantic label
     String semanticLabel = text;
@@ -503,6 +550,7 @@ class ConduitButton extends StatelessWidget {
       label: semanticLabel,
       button: true,
       enabled: isEnabled,
+      onTap: isEnabled ? onPressed : null,
       child: GestureDetector(
         // Trigger haptic feedback on tap down for immediate tactile response
         onTapDown: (onPressed != null && !isLoading)
@@ -522,15 +570,35 @@ class ConduitButton extends StatelessWidget {
             final button = SizedBox(
               width: isFullWidth ? double.infinity : width,
               height: height,
-              child: icon == null
+              child:
+                  icon == null ||
+                      (useNative &&
+                          PlatformUiCapabilities.usesNativeIOS26 &&
+                          !isLoading &&
+                          nativeSymbol != null)
                   ? AdaptiveButton(
                       onPressed: isEnabled ? onPressed : null,
-                      label: isLoading ? '$text…' : text,
+                      // A label that already reads as in progress
+                      // ("Stopping…") keeps its one ellipsis.
+                      label: isLoading && !text.endsWith('…')
+                          ? '$text…'
+                          : text,
+                      sfSymbol: nativeSymbol == null
+                          ? null
+                          : SFSymbol(
+                              nativeSymbol,
+                              size: IconSize.small,
+                              color: displayedTextColor,
+                            ),
                       enabled: isEnabled,
                       color: displayedBackgroundColor,
                       textColor: displayedTextColor,
                       labelStyle: textStyle.copyWith(color: displayedTextColor),
-                      style: variant.adaptiveStyle,
+                      style: useNative && PlatformUiCapabilities.usesNativeIOS26
+                          ? isSecondary
+                                ? AdaptiveButtonStyle.glass
+                                : AdaptiveButtonStyle.prominentGlass
+                          : variant.adaptiveStyle,
                       size: isCompact
                           ? AdaptiveButtonSize.small
                           : AdaptiveButtonSize.medium,
@@ -546,7 +614,11 @@ class ConduitButton extends StatelessWidget {
                       onPressed: onPressed,
                       enabled: !isLoading && onPressed != null,
                       color: backgroundColor,
-                      style: variant.adaptiveStyle,
+                      style: useNative && PlatformUiCapabilities.usesNativeIOS26
+                          ? isSecondary
+                                ? AdaptiveButtonStyle.glass
+                                : AdaptiveButtonStyle.prominentGlass
+                          : variant.adaptiveStyle,
                       size: isCompact
                           ? AdaptiveButtonSize.small
                           : AdaptiveButtonSize.medium,
@@ -567,11 +639,9 @@ class ConduitButton extends StatelessWidget {
                               child: SizedBox(
                                 width: IconSize.small,
                                 height: IconSize.small,
-                                child: CircularProgressIndicator(
+                                child: AdaptiveProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    textColor,
-                                  ),
+                                  color: textColor,
                                 ),
                               ),
                             )
@@ -615,10 +685,12 @@ class ConduitButton extends StatelessWidget {
     )..layout();
     final iconWidth = icon == null ? 0 : IconSize.small + Spacing.iconSpacing;
     final horizontalPadding = isCompact ? Spacing.md : Spacing.buttonPadding;
-    return math.max(
+    final minWidth = math.max(
       TouchTarget.minimum,
-      painter.width + iconWidth + (horizontalPadding * 2),
+      painter.width + iconWidth + horizontalPadding * 2,
     );
+    painter.dispose();
+    return minWidth;
   }
 }
 
@@ -950,6 +1022,10 @@ class ConduitIconButton extends StatelessWidget {
   final bool isCompact;
   final bool isCircular;
 
+  /// Uses system glass for controls floating over full-screen iOS media: the
+  /// clear variant, which lets the photo or video through.
+  final bool useGlass;
+
   const ConduitIconButton({
     super.key,
     required this.icon,
@@ -960,6 +1036,7 @@ class ConduitIconButton extends StatelessWidget {
     this.iconColor,
     this.isCompact = false,
     this.isCircular = true,
+    this.useGlass = false,
   });
 
   @override
@@ -987,56 +1064,77 @@ class ConduitIconButton extends StatelessWidget {
       isCircular ? AppBorderRadius.circular : AppBorderRadius.standard,
     );
 
-    return Semantics(
-      label: semanticLabel,
-      button: true,
-      enabled: onPressed != null,
-      child: SizedBox.square(
-        dimension: size,
-        child: AdaptiveTooltip(
-          message: tooltip ?? '',
-          child: AdaptiveButton.child(
-            onPressed: onPressed != null
-                ? () {
-                    ConduitHaptics.selectionClick();
-                    onPressed!();
-                  }
-                : null,
-            enabled: onPressed != null,
-            color: effectiveBackgroundColor,
-            style: variant.adaptiveStyle,
-            borderRadius: borderRadius,
-            minSize: Size(size, size),
-            padding: EdgeInsets.zero,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: borderRadius,
-                border: isActive
-                    ? Border.all(
-                        color: context.conduitTheme.buttonPrimary.withValues(
-                          alpha: Alpha.standard,
-                        ),
-                        width: BorderWidth.standard,
-                      )
+    final useNativeGlass = PlatformUiCapabilities.usesNativeIOS26 && useGlass;
+    final button = SizedBox.square(
+      dimension: size,
+      child: AdaptiveTooltip(
+        message: tooltip ?? '',
+        excludeFromSemantics: useNativeGlass ? true : null,
+        child: useNativeGlass
+            ? AdaptiveButton.icon(
+                onPressed: onPressed != null
+                    ? () {
+                        ConduitHaptics.selectionClick();
+                        onPressed!();
+                      }
                     : null,
-              ),
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: Center(
-                  child: Icon(
-                    icon,
-                    size: isCompact ? IconSize.small : IconSize.medium,
-                    color: effectiveIconColor,
-                    semanticLabel: tooltip,
+                icon: icon,
+                iconSize: isCompact ? IconSize.small : IconSize.medium,
+                iconColor: effectiveIconColor,
+                semanticLabel: semanticLabel,
+                style: AdaptiveButtonStyle.clearGlass,
+                minSize: Size.square(size),
+                padding: EdgeInsets.zero,
+                useSmoothRectangleBorder: !isCircular,
+              )
+            : AdaptiveButton.child(
+                onPressed: onPressed != null
+                    ? () {
+                        ConduitHaptics.selectionClick();
+                        onPressed!();
+                      }
+                    : null,
+                enabled: onPressed != null,
+                color: effectiveBackgroundColor,
+                style: variant.adaptiveStyle,
+                borderRadius: borderRadius,
+                minSize: Size(size, size),
+                padding: EdgeInsets.zero,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: borderRadius,
+                    border: isActive
+                        ? Border.all(
+                            color: context.conduitTheme.buttonPrimary
+                                .withValues(alpha: Alpha.standard),
+                            width: BorderWidth.standard,
+                          )
+                        : null,
+                  ),
+                  child: SizedBox(
+                    width: size,
+                    height: size,
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        size: isCompact ? IconSize.small : IconSize.medium,
+                        color: effectiveIconColor,
+                        semanticLabel: tooltip,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
       ),
     );
+    return useNativeGlass
+        ? button
+        : Semantics(
+            label: semanticLabel,
+            button: true,
+            enabled: onPressed != null,
+            child: button,
+          );
   }
 }
 

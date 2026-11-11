@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/utils/model_sort_utils.dart';
 import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
@@ -42,6 +43,26 @@ void main() {
       check(sorted.map((model) => model.id).toList())
           .deepEquals(['bravo', 'charlie', 'alpha', 'delta']);
     });
+  });
+
+  test('model selector search keeps a section whose label matches', () {
+    const section = ModelSelectorSection(
+      label: 'Ollama',
+      models: [
+        Model(id: 'llama', name: 'llama3.2'),
+        Model(id: 'qwen', name: 'qwen3'),
+      ],
+    );
+
+    check(modelSelectorSectionForQuery(section, '')).identicalTo(section);
+    check(modelSelectorSectionForQuery(section, 'olla')).identicalTo(section);
+    check(
+      modelSelectorSectionForQuery(
+        section,
+        'qwen',
+      )?.models.map((model) => model.id).toList(),
+    ).isNotNull().deepEquals(['qwen']);
+    check(modelSelectorSectionForQuery(section, 'gpt')).isNull();
   });
 
   test('model selector search matches a displayed Direct source label', () {

@@ -31,7 +31,7 @@ void main() {
         find.byKey(const Key('advanced-required-turn-on')),
         findsOneWidget,
       );
-      expect(find.textContaining('Scheduled tasks'), findsWidgets);
+      expect(find.textContaining('Scheduled Tasks'), findsWidgets);
       expect(find.text('Digest'), findsNothing);
       expect(session.wire.requests, isEmpty);
     });
@@ -117,7 +117,7 @@ void main() {
       await tester.tap(find.byKey(const Key('scheduled-tasks-empty')));
       await tester.pumpAndSettle();
 
-      expect(find.text('New scheduled task'), findsWidgets);
+      expect(find.text('New Scheduled Task'), findsWidgets);
       expect(find.byKey(const Key('scheduled-task-save')), findsOneWidget);
     });
 
@@ -265,7 +265,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('scheduled-task-save')), findsOneWidget);
-      expect(find.text('New scheduled task'), findsWidgets);
+      expect(find.text('New Scheduled Task'), findsWidgets);
     });
 
     testWidgets('a chosen filter shows at once, with progress until the '

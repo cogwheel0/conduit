@@ -93,6 +93,46 @@ class ActiveChatIds extends _$ActiveChatIds {
   }
 }
 
+/// The chats whose tool call waits for the user to allow or deny it, which
+/// Open WebUI 0.13 reports with each `chat:active` event and on each chat-list
+/// row. Older servers never report one, so the set stays empty.
+@Riverpod(keepAlive: true)
+class PendingApprovalChatIds extends _$PendingApprovalChatIds {
+  @override
+  Set<String> build() => const <String>{};
+
+  int _seq = 0;
+  final Map<String, int> _changedAt = {};
+
+  /// Records whether [chatId] waits for an approval.
+  void set(String chatId, {required bool pending}) {
+    _changedAt[chatId] = ++_seq;
+    if (state.contains(chatId) == pending) return;
+    state = pending ? {...state, chatId} : ({...state}..remove(chatId));
+  }
+
+  /// A mark to take before asking the server, for [setAll]'s `since`.
+  int mark() => _seq;
+
+  /// Replaces the whole set from a server response. With [since], a chat
+  /// whose state an event changed after that [mark] keeps the event's state:
+  /// the response may have been read before it.
+  void setAll(Set<String> chatIds, {int? since}) {
+    if (since == null) {
+      _changedAt.clear();
+      state = chatIds;
+      return;
+    }
+    final next = <String>{
+      for (final id in chatIds)
+        if ((_changedAt[id] ?? 0) <= since) id,
+      for (final id in state)
+        if ((_changedAt[id] ?? 0) > since) id,
+    };
+    state = next;
+  }
+}
+
 /// Keeps global chat task state and generated titles synchronized.
 ///
 /// OpenWebUI's sidebar both bulk-fetches active chats on load and listens for
@@ -131,6 +171,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
       _boundApi = next;
       _bindSocket(ref.read(socketServiceProvider), force: true);
       ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      ref.read(pendingApprovalChatIdsProvider.notifier).setAll(const {});
     });
     ref.listen<Object>(openWebUiAuthSessionEpochProvider, (prev, next) {
       if (identical(prev, next)) return;
@@ -138,6 +179,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
       _boundApi = ref.read(apiServiceProvider);
       _bindSocket(ref.read(socketServiceProvider), force: true);
       ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      ref.read(pendingApprovalChatIdsProvider.notifier).setAll(const {});
     });
 
     // Cold-open population: refresh once the conversation list first resolves.
@@ -179,6 +221,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
       // survive into the next session (the new socket re-arms the cold-open
       // fetch below to repopulate authoritative state).
       ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      ref.read(pendingApprovalChatIdsProvider.notifier).setAll(const {});
       _initialFetchDone = false;
       return;
     }
@@ -251,6 +294,14 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     } else {
       notifier.setInactive(chatId);
     }
+    // Every event names the approval state on 0.13; older servers name none,
+    // and nothing waits for one there.
+    ref
+        .read(pendingApprovalChatIdsProvider.notifier)
+        .set(
+          chatId,
+          pending: payload is Map && payload['pending_approval'] == true,
+        );
   }
 
   void _handleChatTasksEvent(Map<String, dynamic> map) {
@@ -330,8 +381,9 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     final socket = _boundSocket;
     final generation = _bindingGeneration;
     final authSessionEpoch = _boundAuthSessionEpoch;
+    final pendingMark = ref.read(pendingApprovalChatIdsProvider.notifier).mark();
     try {
-      final active = await api.checkActiveChats(ids);
+      final activity = await api.checkChatActivity(ids);
       if (generation != _bindingGeneration ||
           !identical(api, ref.read(apiServiceProvider)) ||
           !identical(socket, _boundSocket) ||
@@ -342,7 +394,10 @@ class ActiveChatsSync extends _$ActiveChatsSync {
           )) {
         return;
       }
-      ref.read(activeChatIdsProvider.notifier).setAll(active);
+      ref.read(activeChatIdsProvider.notifier).setAll(activity.active);
+      ref
+          .read(pendingApprovalChatIdsProvider.notifier)
+          .setAll(activity.pendingApproval, since: pendingMark);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'active-chats refresh failed',

@@ -55,6 +55,38 @@ class _ChecklistClient extends FakeSyncApiClient {
   }
 }
 
+/// Runs [whileListLoads] after the server answers the first main list page
+/// and before the pull sees it, like a read made on this device meanwhile.
+class _ListHookClient extends FakeSyncApiClient {
+  _ListHookClient(super.server);
+
+  Future<void> Function()? whileListLoads;
+
+  @override
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) async {
+    final items = await super.getChatListPage(page);
+    final hook = whileListLoads;
+    whileListLoads = null;
+    await hook?.call();
+    return items;
+  }
+}
+
+/// Runs [whileChatLoads] after the server answers a chat download and before
+/// the pull merges it, like a read made on this device meanwhile.
+class _ChatHookClient extends FakeSyncApiClient {
+  _ChatHookClient(super.server);
+
+  Future<void> Function(String id)? whileChatLoads;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final raw = await super.getChatRaw(id);
+    await whileChatLoads?.call(id);
+    return raw;
+  }
+}
+
 class _MalformedFullMainListClient extends FakeSyncApiClient {
   _MalformedFullMainListClient(super.server);
 
@@ -621,6 +653,134 @@ void main() {
       check(result.watermarkAdvanced).isTrue();
       check(await db.syncMetaDao.getPullWatermark()).equals(200);
       check((await allChats()).map((c) => c.id)).deepEquals(['chat-1']);
+    });
+  });
+
+  group('a model picked while a pull reads the chat', () {
+    Future<List<Object?>?> stored() => db.chatsDao.storedChatModels('chat-1');
+    void seed(List<String> models) => server.seedChat(
+      id: 'chat-1',
+      blob: {...blobFor('chat-1'), 'models': models},
+      createdAt: 100,
+      updatedAt: 150,
+    );
+
+    test('stays over the list the pull read before it', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-1']);
+
+      // A pull has read the chat, and waits to store it; meanwhile the user
+      // picks a model, which is stored at once and sent to the server after.
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      gate.complete();
+      await pulling;
+
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+
+      // Once the server has taken it, a pull takes the server's list again.
+      await db.chatsDao.setChatModels(
+        'chat-1',
+        const ['model-2'],
+        confirmed: true,
+      );
+      seed(['model-3']);
+      pull = PullSync(client: client, db: db, locks: locks);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-3']);
+    });
+
+    test('a chat with edits of its own, read by name, takes the server\'s '
+        'list once a pick is given up, and keeps its edits', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      // A title edit here, not pushed yet, leaves the chat dirty.
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-1'))).write(
+        const ChatsCompanion(dirty: Value(true), title: Value('Mine')),
+      );
+
+      // Picked and not taken yet: a read by name keeps it.
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+
+      // Given up: a read by name, the server having changed nothing since,
+      // takes the server's list, and only that.
+      db.chatsDao.releaseUnconfirmedModelList('chat-1');
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-1']);
+      final row = (await db.chatsDao.getChat('chat-1'))!;
+      check(row.title).equals('Mine');
+      check(row.dirty).isTrue();
+    });
+
+    test('stays over a copy read after it, until the server has taken it',
+        () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+
+      // Picked, not sent yet: the server still holds the earlier list.
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+    });
+
+    test('a turn sent with a list keeps it over a copy read before it',
+        () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'chat-1',
+        messages: const [],
+        enqueueUpdate: false,
+        enqueueCompletion: false,
+        chatModels: const ['model-a', 'model-b'],
+      );
+      gate.complete();
+      await pulling;
+
+      check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
+
+      // A copy read after the turn, from before its update op landed, still
+      // holds the old list: the turn's stays.
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
+      check(db.chatsDao.hasUnconfirmedModelList('chat-1')).isTrue();
+
+      // Once a copy carries it, the server has it, and it is no longer held.
+      seed(['model-a', 'model-b']);
+      await pull.pullChat('chat-1');
+      check(db.chatsDao.hasUnconfirmedModelList('chat-1')).isFalse();
+      seed(['model-c']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-c']);
+    });
+
+    test('a pick never stored holds nothing over the server', () async {
+      await db.chatsDao.setChatModels('no-such-chat', const ['model-2']);
+      check(db.chatsDao.hasUnconfirmedModelList('no-such-chat')).isFalse();
+    });
+
+    test('an envelope that cannot be read keeps no list', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-1'))).write(
+        const ChatsCompanion(rawExtra: Value('not json')),
+      );
+      check(await stored()).isNull();
     });
   });
 
@@ -1398,6 +1558,171 @@ void main() {
       await memoPull.run();
       check(client.chatFetchStarts.where((id) => id == 'dirtied').length)
           .equals(fetchesBefore + 1);
+    });
+
+    test('a server unread re-fetches a chat the memo would skip', () async {
+      server.seedChat(
+        id: 'unread-elsewhere',
+        blob: blobFor('unread-elsewhere'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await memoPull.run();
+      advancePastConfirmSpacing();
+      await memoPull.run();
+      await db.chatsDao.setLastReadAt('unread-elsewhere', 250);
+
+      // Marking unread leaves updated_at alone, so only last_read_at moved.
+      server.markChatUnread('unread-elsewhere');
+      advancePastConfirmSpacing();
+      await memoPull.run();
+
+      check(
+        client.chatFetchStarts.where((id) => id == 'unread-elsewhere').length,
+      ).equals(3);
+      check(
+        (await db.chatsDao.getChat('unread-elsewhere'))!.lastReadAt,
+      ).equals(0);
+    });
+  });
+
+  group('read state on list rows', () {
+    // 'older' sits below the watermark after the first cycle, so later
+    // cycles see it on the list page without fetching it.
+    Future<void> seedOlderAndNewer() async {
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      server.seedChat(
+        id: 'newer',
+        blob: blobFor('newer'),
+        createdAt: 500,
+        updatedAt: 500,
+      );
+      await pull.run();
+      await db.chatsDao.setLastReadAt('older', 300);
+      client.chatFetchStarts.clear();
+    }
+
+    test('a chat marked unread elsewhere shows unread after a pull', () async {
+      await seedOlderAndNewer();
+
+      server.markChatUnread('older');
+      await pull.run();
+
+      check(client.chatFetchStarts).not((it) => it.contains('older'));
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(0);
+    });
+
+    test('a chat read elsewhere moves its read time forward', () async {
+      await seedOlderAndNewer();
+
+      final previous = await db.chatsDao.markUnread('older');
+      await db.chatsDao.finishUnread(
+        'older',
+        refused: false,
+        previous: previous,
+      );
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+        lastReadAt: 400,
+      );
+      await pull.run();
+
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(400);
+    });
+
+    test('a read made here while the list loads is kept', () async {
+      final hookClient = _ListHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      await seedOlderAndNewer();
+
+      server.markChatUnread('older');
+      hookClient.whileListLoads = () => db.chatsDao.setLastReadAt('older', 600);
+      await pull.run();
+
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(600);
+    });
+
+    test('an unread whose request lands after the list is kept', () async {
+      final hookClient = _ListHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+        lastReadAt: 300,
+      );
+      server.seedChat(
+        id: 'newer',
+        blob: blobFor('newer'),
+        createdAt: 500,
+        updatedAt: 500,
+        lastReadAt: 500,
+      );
+      await pull.run();
+
+      // Both marked unread here; the list is read before the server stores
+      // either, and both requests succeed before the pull applies it.
+      final olderBefore = await db.chatsDao.markUnread('older');
+      final newerBefore = await db.chatsDao.markUnread('newer');
+      hookClient.whileListLoads = () async {
+        server
+          ..markChatUnread('older')
+          ..markChatUnread('newer');
+        await db.chatsDao.finishUnread(
+          'older',
+          refused: false,
+          previous: olderBefore,
+        );
+        await db.chatsDao.finishUnread(
+          'newer',
+          refused: false,
+          previous: newerBefore,
+        );
+      };
+      await pull.run();
+
+      // 'newer' sits in the overlap window, so it went through the merge.
+      check(hookClient.chatFetchStarts.where((id) => id == 'newer').length)
+          .equals(2);
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(0);
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
+    });
+
+    test('a chat whose download fails still takes its read state', () async {
+      await seedOlderAndNewer();
+      await db.chatsDao.setLastReadAt('newer', 600);
+
+      // 'newer' is in the overlap window, so the pull downloads it.
+      server.markChatUnread('newer');
+      client.failChatIds.add('newer');
+      final result = await pull.run();
+
+      check(result.success).isFalse();
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
+    });
+
+    test('a read made here while a chat downloads is kept', () async {
+      final hookClient = _ChatHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      await seedOlderAndNewer();
+
+      server.markChatUnread('newer');
+      hookClient.whileChatLoads = (id) async {
+        if (id == 'newer') await db.chatsDao.setLastReadAt('newer', 700);
+      };
+      await pull.run();
+
+      check(hookClient.chatFetchStarts).contains('newer');
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(700);
     });
   });
 

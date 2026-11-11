@@ -20,6 +20,7 @@ import '../../profile/widgets/account_actions.dart'
     show abandonAddedAccount, confirmLeavingActiveAccount;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -29,6 +30,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../../platform/webview_cookie_helper.dart' show isWebViewSupported;
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../widgets/auth_grouped_form.dart';
+import '../widgets/openwebui_two_step_form.dart';
 
 /// Authentication mode options
 enum AuthMode {
@@ -109,6 +112,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _ldapUsernameController = TextEditingController();
   final TextEditingController _ldapPasswordController = TextEditingController();
+  final FocusNode _usernameFocus = FocusNode();
+  final FocusNode _passwordFocus = FocusNode();
+  final FocusNode _ldapUsernameFocus = FocusNode();
+  final FocusNode _ldapPasswordFocus = FocusNode();
+  final FocusNode _tokenFocus = FocusNode();
 
   bool _obscurePassword = true;
   AuthMode _authMode = AuthMode.credentials;
@@ -121,6 +129,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   late BackendConfig? _backendConfig = widget.backendConfig;
   String? _loginError;
   bool _isSigningIn = false;
+
+  /// The second step a password or LDAP sign-in stopped at, while it is
+  /// taken, and the username that sign-in began with.
+  OpenWebUiTwoStepChallenge? _twoStep;
+  String _twoStepAccount = '';
   bool _serverConfigSaved = false;
 
   /// Whether the addition this page's server was saved for is still under
@@ -195,7 +208,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       try {
         await _loadSavedCredentials();
       } finally {
-        if (mounted) _checkAuthStateError();
+        if (mounted) {
+          _checkAuthStateError();
+          _focusFirstEmptyField();
+        }
       }
     });
   }
@@ -272,8 +288,32 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
   }
 
+  /// Puts the cursor where typing starts: the username, or the password when
+  /// the username was remembered.
+  void _focusFirstEmptyField() {
+    if (_twoStep != null) return;
+    final FocusNode? node = switch (_authMode) {
+      AuthMode.credentials =>
+        _usernameController.text.trim().isEmpty
+            ? _usernameFocus
+            : _passwordFocus,
+      AuthMode.ldap =>
+        _ldapUsernameController.text.trim().isEmpty
+            ? _ldapUsernameFocus
+            : _ldapPasswordFocus,
+      AuthMode.token => _tokenFocus,
+      AuthMode.sso => null,
+    };
+    if (node != null && node.context != null) node.requestFocus();
+  }
+
   @override
   void dispose() {
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _ldapUsernameFocus.dispose();
+    _ldapPasswordFocus.dispose();
+    _tokenFocus.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     _apiKeyController.dispose();
@@ -287,6 +327,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
+    // Sign in with what was validated and submitted: the method and fields
+    // can change while the sign-in waits on a confirmation or the server.
+    final mode = _authMode;
+    final username = mode == AuthMode.ldap
+        ? _ldapUsernameController.text.trim()
+        : _usernameController.text.trim();
+    final password = mode == AuthMode.ldap
+        ? _ldapPasswordController.text
+        : _passwordController.text;
+    final token = _apiKeyController.text.trim();
     if (!await _mayLeaveActiveAccount() || !mounted) return;
 
     setState(() {
@@ -309,22 +359,22 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       final actions = ref.read(authActionsProvider);
       bool success;
 
-      switch (_authMode) {
+      switch (mode) {
         case AuthMode.credentials:
           success = await actions.login(
-            _usernameController.text.trim(),
-            _passwordController.text,
+            username,
+            password,
             rememberCredentials: true,
           );
         case AuthMode.token:
           success = await actions.loginWithApiKey(
-            _apiKeyController.text.trim(),
+            token,
             rememberCredentials: true,
           );
         case AuthMode.ldap:
           success = await actions.ldapLogin(
-            _ldapUsernameController.text.trim(),
-            _ldapPasswordController.text,
+            username,
+            password,
             rememberCredentials: true,
           );
         case AuthMode.sso:
@@ -342,6 +392,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       ConduitHaptics.success();
 
       // Success - navigation will be handled by auth state change
+    } on OpenWebUiTwoStepRequired catch (e) {
+      // The password was right; the server asks for a second step before it
+      // issues a session.
+      if (!mounted) return;
+      setState(() {
+        _twoStep = e.challenge;
+        _twoStepAccount = username;
+      });
     } catch (e) {
       if (!mounted) return;
       // Don't clear server config on auth failure - user should be able to retry
@@ -480,7 +538,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   String _formatLoginError(String error) {
     final l10n = AppLocalizations.of(context)!;
-    if (error.contains('apiKeyNotSupported')) {
+    if (error.contains('twoStepVerificationRequired')) {
+      return l10n.signInTwoStepVerificationRequired;
+    } else if (error.contains('twoStepSessionRejected')) {
+      return l10n.twoStepExpired;
+    } else if (error.contains('accountPendingApproval')) {
+      return l10n.signInAccountPendingApproval;
+    } else if (error.contains('apiKeyNotSupported')) {
       return l10n.apiKeyNotSupported;
     } else if (error.contains('apiKeyNoLongerSupported')) {
       return l10n.apiKeyNoLongerSupported;
@@ -527,32 +591,284 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final abandonable =
         ref.watch(pendingSignInAbandonableProvider).value ?? false;
 
+    final twoStep = _twoStep;
+    final cupertino = context.usesCupertinoChrome;
+    final backNavigation = _backNavigation(l10n, abandonable: abandonable);
+
     // The system back and the edge swipe leave as Cancel does, so they cannot
-    // leave an added account that never signed in as the active one.
+    // leave an added account that never signed in as the active one. During
+    // a second step they return to the sign-in form.
     return PopScope(
-      canPop: !abandonable,
+      canPop: !abandonable && twoStep == null,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _cancelAddition();
+        if (didPop) return;
+        if (_twoStep != null) {
+          _leaveTwoStep();
+        } else {
+          _cancelAddition();
+        }
       },
       child: UtilityPageScaffold.auth(
         title: l10n.signIn,
-        backNavigation: _backNavigation(l10n, abandonable: abandonable),
-        bottomAction: _buildSignInButton(),
+        largeTitle: true,
+        backNavigation: backNavigation,
+        bottomAction: twoStep == null
+            ? (cupertino
+                  ? _buildCupertinoSignInButton()
+                  : _buildSignInButton())
+            : null,
         body: Form(
           key: _formKey,
-          child: Column(
+          child: cupertino
+              ? _buildCupertinoBody(
+                  l10n,
+                  twoStep: twoStep,
+                  changeServer: abandonable ? null : backNavigation.onPressed,
+                )
+              : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildHeader(),
               const SizedBox(height: Spacing.xl),
-              _buildAuthMethodSection(),
-              const SizedBox(height: Spacing.xl),
-              _buildAuthForm(),
+              if (twoStep != null)
+                OpenWebUiTwoStepForm(
+                  key: ObjectKey(twoStep),
+                  challenge: twoStep,
+                  account: _twoStepAccount,
+                  onCancel: _leaveTwoStep,
+                  mayFinish: _signInTargetStillSelected,
+                  formatSignInError: _formatLoginError,
+                )
+              else ...[
+                _buildAuthMethodSection(),
+                const SizedBox(height: Spacing.xl),
+                _buildAuthForm(),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// The iOS sign-in: the server as a grouped row with Change, the methods
+  /// as a segmented control, and the fields as one grouped section whose
+  /// footer guides or, after a failed attempt, says why. Each field names
+  /// itself with a leading label, as the server step's address field does,
+  /// so a filled form still says what each value is.
+  Widget _buildCupertinoBody(
+    AppLocalizations l10n, {
+    required OpenWebUiTwoStepChallenge? twoStep,
+    required VoidCallback? changeServer,
+  }) {
+    final methods = _availableAuthModes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildCupertinoServerRow(l10n, changeServer: changeServer),
+        const SizedBox(height: Spacing.lg + Spacing.xs),
+        if (twoStep != null)
+          OpenWebUiTwoStepForm(
+            key: ObjectKey(twoStep),
+            challenge: twoStep,
+            account: _twoStepAccount,
+            onCancel: _leaveTwoStep,
+            mayFinish: _signInTargetStillSelected,
+            formatSignInError: _formatLoginError,
+          )
+        else ...[
+          if (methods.length > 1) ...[
+            _buildAuthMethodSection(),
+            const SizedBox(height: Spacing.lg),
+          ],
+          _buildCupertinoAuthForm(l10n),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCupertinoServerRow(
+    AppLocalizations l10n, {
+    required VoidCallback? changeServer,
+  }) {
+    final address = _serverAddressForDisplay(_resolvedServerConfig?.url);
+    final host = address.replaceFirst(RegExp(r'^https?://'), '');
+    return AuthGroupedCard(
+      children: [
+        AuthGroupedRow(
+          key: const ValueKey<String>('authentication-server-row'),
+          leading: const AuthIconTile(
+            assetName: 'assets/icons/open_webui_tab.png',
+            assetSize: 17,
+            size: 30,
+          ),
+          title: host,
+          subtitle: l10n.backendChooserOpenWebUITitle,
+          semanticLabel: '${l10n.backendChooserOpenWebUITitle}. $address',
+          verticalPadding: Spacing.sm,
+          trailing: changeServer == null
+              ? null
+              : AuthRowTextButton(
+                  key: const ValueKey<String>('authentication-change-server'),
+                  label: l10n.signInChangeServer,
+                  onPressed: _isSigningIn ? null : changeServer,
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCupertinoAuthForm(AppLocalizations l10n) {
+    final error = _isSigningIn ? null : _loginError;
+    final visibilityToggle = _buildVisibilityToggle(l10n);
+    switch (_authMode) {
+      case AuthMode.credentials when _hasLoginFormEnabled:
+        return AutofillGroup(
+          onDisposeAction: _autofillDisposeAction,
+          child: AuthGroupedSection(
+            key: const ValueKey('credentials_form'),
+            error: error,
+            children: [
+              AuthGroupedTextField(
+                controller: _usernameController,
+                focusNode: _usernameFocus,
+                label: l10n.authFieldEmail,
+                placeholder: l10n.authEmailPlaceholder,
+                semanticLabel: l10n.usernameOrEmail,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [
+                  AutofillHints.username,
+                  AutofillHints.email,
+                ],
+                validator: (value) => InputValidationService.combine([
+                  InputValidationService.validateRequired,
+                  InputValidationService.validateEmailOrUsername,
+                ])(value),
+                onSubmitted: (_) => _passwordFocus.requestFocus(),
+              ),
+              AuthGroupedTextField(
+                controller: _passwordController,
+                focusNode: _passwordFocus,
+                label: l10n.password,
+                placeholder: l10n.authFieldRequired,
+                semanticLabel: l10n.password,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.go,
+                autofillHints: const [AutofillHints.password],
+                validator: InputValidationService.validateRequired,
+                onSubmitted: (_) => _submitFromKeyboard(),
+                trailing: visibilityToggle,
+              ),
+            ],
+          ),
+        );
+      case AuthMode.ldap when _hasLdapEnabled:
+        return AutofillGroup(
+          onDisposeAction: _autofillDisposeAction,
+          child: AuthGroupedSection(
+            key: const ValueKey('ldap_form'),
+            footer: l10n.ldapDescription,
+            error: error,
+            children: [
+              AuthGroupedTextField(
+                controller: _ldapUsernameController,
+                focusNode: _ldapUsernameFocus,
+                label: l10n.ldapUsername,
+                placeholder: l10n.authFieldRequired,
+                semanticLabel: l10n.ldapUsername,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.username],
+                validator: InputValidationService.validateRequired,
+                onSubmitted: (_) => _ldapPasswordFocus.requestFocus(),
+              ),
+              AuthGroupedTextField(
+                controller: _ldapPasswordController,
+                focusNode: _ldapPasswordFocus,
+                label: l10n.password,
+                placeholder: l10n.authFieldRequired,
+                semanticLabel: l10n.password,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.go,
+                autofillHints: const [AutofillHints.password],
+                validator: InputValidationService.validateRequired,
+                onSubmitted: (_) => _submitFromKeyboard(),
+                trailing: visibilityToggle,
+              ),
+            ],
+          ),
+        );
+      case AuthMode.token:
+        return AuthGroupedSection(
+          key: const ValueKey('api_key_form'),
+          footer: l10n.tokenHint,
+          error: error,
+          children: [
+            AuthGroupedTextField(
+              controller: _apiKeyController,
+              focusNode: _tokenFocus,
+              label: l10n.authTokenFieldLabel,
+              placeholder: l10n.authFieldRequired,
+              semanticLabel: l10n.token,
+              obscureText: _obscurePassword,
+              textInputAction: TextInputAction.go,
+              autofillHints: const [AutofillHints.password],
+              validator: (value) =>
+                  _validateJwtToken(value ?? _apiKeyController.text),
+              onSubmitted: (_) => _submitFromKeyboard(),
+              trailing: visibilityToggle,
+            ),
+          ],
+        );
+      case AuthMode.sso:
+        return AuthGroupedSection(
+          key: const ValueKey<String>('sso_form'),
+          footer: _ssoSubtitle(l10n),
+          error: error,
+          children: const [],
+        );
+      case AuthMode.credentials || AuthMode.ldap:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void _submitFromKeyboard() {
+    if (!_canSubmit) return;
+    if (_authMode == AuthMode.sso) {
+      _navigateToSso();
+    } else {
+      _signIn();
+    }
+  }
+
+  Widget _buildVisibilityToggle(AppLocalizations l10n) {
+    return AuthPasswordVisibilityButton(
+      key: const ValueKey<String>('authentication-password-visibility'),
+      obscured: _obscurePassword,
+      label: _obscurePassword ? l10n.showPassword : l10n.hidePassword,
+      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+    );
+  }
+
+  /// The step's title already says Sign In; the button goes on, as Apple
+  /// Account's sign-in does, rather than repeat it.
+  Widget _buildCupertinoSignInButton() {
+    final l10n = AppLocalizations.of(context)!;
+    final sso = _authMode == AuthMode.sso;
+    return AuthPrimaryButton(
+      key: const ValueKey<String>('authentication-submit'),
+      label: sso ? l10n.signInContinueWithSso : l10n.continueButton,
+      busyLabel: l10n.signingIn,
+      busy: _isSigningIn,
+      onPressed: !_canSubmit ? null : (sso ? _navigateToSso : _signIn),
+    );
+  }
+
+  void _leaveTwoStep() {
+    setState(() {
+      _twoStep = null;
+      _loginError = null;
+    });
   }
 
   Widget _buildHeader() {

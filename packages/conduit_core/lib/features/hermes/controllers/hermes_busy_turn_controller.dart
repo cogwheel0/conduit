@@ -7,6 +7,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
@@ -54,6 +55,10 @@ final class HermesBusyTurnController {
 
   /// Submits a busy-turn action and returns true only while its original chat,
   /// connection, and session still own the acknowledgement.
+  ///
+  /// Throws [HermesSteerUncertain], while they still own it, when Hermes did
+  /// not say whether the turn saw the steer: the caller keeps the text and
+  /// says so.
   Future<bool> submit({
     required HermesBusyTurnAction action,
     required String text,
@@ -86,6 +91,11 @@ final class HermesBusyTurnController {
         )) {
       return false;
     }
+    bool stillOwned() =>
+        configController.sessionActionAdmissionIsCurrent(admission) &&
+        identical(_ref.read(hermesApiServiceProvider), service) &&
+        _ref.read(hermesActiveSessionProvider) == sessionId &&
+        _ref.read(activeConversationProvider)?.id == conversation?.id;
     try {
       switch (action) {
         case HermesBusyTurnAction.steer:
@@ -93,6 +103,9 @@ final class HermesBusyTurnController {
         case HermesBusyTurnAction.sendNext:
           await service.queue(sessionId, trimmed);
       }
+    } on HermesSteerUncertain {
+      if (stillOwned()) rethrow;
+      return false;
     } catch (_) {
       DebugLogger.warning(
         action == HermesBusyTurnAction.steer ? 'steer-failed' : 'queue-failed',
@@ -100,9 +113,6 @@ final class HermesBusyTurnController {
       );
       return false;
     }
-    return configController.sessionActionAdmissionIsCurrent(admission) &&
-        identical(_ref.read(hermesApiServiceProvider), service) &&
-        _ref.read(hermesActiveSessionProvider) == sessionId &&
-        _ref.read(activeConversationProvider)?.id == conversation?.id;
+    return stillOwned();
   }
 }

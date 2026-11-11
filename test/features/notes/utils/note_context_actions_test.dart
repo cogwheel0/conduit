@@ -74,7 +74,7 @@ void main() {
     ];
 
     expect(labels.first, 'Edit');
-    expect(labels, contains('Share note'));
+    expect(labels, contains('Share Note'));
     expect(labels.last, 'Delete');
   });
 
@@ -89,7 +89,7 @@ void main() {
     expect(labels.first, 'Open');
     expect(labels, isNot(contains('Edit')));
     expect(labels, isNot(contains('Delete')));
-    expect(labels, isNot(contains('Share note')));
+    expect(labels, isNot(contains('Share Note')));
     expect(actions.any((action) => action.destructive), isFalse);
   });
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../features/notes/utils/note_page_data.dart';
 import '../../sync/note_conflict.dart';
 import '../app_database.dart';
 import '../mappers/note_mapper.dart';
@@ -348,33 +349,16 @@ LIMIT 1
     // Spawn the conflict copy BEFORE overwriting the canonical row's local
     // data, so the LOCAL data is captured intact.
     if (decision.spawnConflictCopy) {
-      final copyId = 'local:${_uuid.v4()}';
-      await into(notes).insert(
-        NotesCompanion.insert(
-          id: copyId,
-          // Local title (+ suffix) preserved on the copy.
-          title: existing.title + kNoteConflictCopySuffix,
-          data: Value(existing.data),
-          meta: Value(existing.meta),
-          isPinned: const Value(false),
-          createdAt: existing.createdAt,
-          updatedAt: existing.updatedAt,
-          serverUpdatedAt: const Value(null),
-          dirtyTitle: const Value(true),
-          dirtyData: const Value(true),
-          dirtyPinned: const Value(false),
-          deleted: const Value(false),
-          rawExtra: Value(existing.rawExtra),
-          isConflictCopy: const Value(true),
-          conflictOf: Value(existing.id),
-        ),
-      );
-      final copy = await getNote(copyId);
-      await _outboxDao.enqueue(
-        kind: OutboxKind.noteCreate,
-        chatId: copyId,
-        contentHash: noteCreateContentHashFromRow(copy!),
-      );
+      // An earlier build's edit of a paged note's combined view belongs to no
+      // page, and the copy of the edited pages leaves it out: it is kept in
+      // a copy of its own.
+      final Map<String, dynamic> local = decodeJsonMap(existing.data);
+      if (noteDataIsMultiPage(local) &&
+          noteDirtyPageIds(local).isNotEmpty &&
+          noteCombinedContentEdited(local)) {
+        await spawnConflictCopy(existing, data: _combinedEditCopyData(local));
+      }
+      await spawnConflictCopy(existing);
     }
 
     // Canonical row: title/data each follow the field-LWW decision. Conflict
@@ -401,6 +385,85 @@ LIMIT 1
         rawExtra: serverRow.rawExtra,
       ),
     );
+  }
+
+  /// Keeps the local edit of [existing] as a note of its own: a `local:` row
+  /// marked as its conflict copy, with a `noteCreate` op. A paged note's copy
+  /// holds the text edited here ([noteDataForConflictCopy]) without the
+  /// pages, which belong to the original. Runs in the caller's transaction,
+  /// or its own.
+  Future<void> spawnConflictCopy(
+    NoteRow existing, {
+    Map<String, dynamic>? data,
+  }) {
+    return transaction(() async {
+      final copyId = 'local:${_uuid.v4()}';
+      await into(notes).insert(
+        NotesCompanion.insert(
+          id: copyId,
+          // Local title (+ suffix) preserved on the copy.
+          title: existing.title + kNoteConflictCopySuffix,
+          data: Value(
+            jsonEncode(
+              data ?? noteDataForConflictCopy(decodeJsonMap(existing.data)),
+            ),
+          ),
+          meta: Value(existing.meta),
+          isPinned: const Value(false),
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+          serverUpdatedAt: const Value(null),
+          dirtyTitle: const Value(true),
+          dirtyData: const Value(true),
+          dirtyPinned: const Value(false),
+          deleted: const Value(false),
+          rawExtra: Value(existing.rawExtra),
+          isConflictCopy: const Value(true),
+          conflictOf: Value(existing.id),
+        ),
+      );
+      final copy = await getNote(copyId);
+      await _outboxDao.enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: copyId,
+        contentHash: noteCreateContentHashFromRow(copy!),
+      );
+    });
+  }
+
+  /// Keeps an edit an earlier build made to the combined view of [note], a
+  /// note with several pages, as a conflict copy holding that text, and puts
+  /// the combined view back to what the pages hold, in one transaction: the
+  /// edit belongs to no page, and a retry must not copy it again. Returns
+  /// the note's data as now stored. Caller holds the note lock.
+  Future<Map<String, dynamic>> keepCombinedEditAsCopy(NoteRow note) {
+    return transaction(() async {
+      final data = decodeJsonMap(note.data);
+      final Object? content = data['content'];
+      await spawnConflictCopy(note, data: _combinedEditCopyData(data));
+      final restored = <String, dynamic>{
+        ...data,
+        'content': noteContentWithMarkdown(
+          content is Map ? Map<String, dynamic>.from(content) : null,
+          noteCombinedMarkdown(notePagesOf(data)),
+        ),
+      };
+      await (update(notes)..where((t) => t.id.equals(note.id))).write(
+        NotesCompanion(data: Value(jsonEncode(restored))),
+      );
+      return restored;
+    });
+  }
+
+  /// The data of a conflict copy holding the combined view of [data], a note
+  /// with several pages, as an earlier build edited it.
+  static Map<String, dynamic> _combinedEditCopyData(Map<String, dynamic> data) {
+    final Object? content = data['content'];
+    return <String, dynamic>{
+      'content': content is Map
+          ? Map<String, dynamic>.from(content)
+          : noteContentWithMarkdown(null, ''),
+    };
   }
 
   // ---- local-mutation *WithOutbox (row + op in one tx; caller holds lock) ----

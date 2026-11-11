@@ -248,6 +248,7 @@ class WorkspaceToolSummary {
     this.meta = const {},
     this.accessGrants = const [],
     this.writeAccess = false,
+    this.isActive,
     this.owner,
     this.createdAt = 0,
     this.updatedAt = 0,
@@ -257,6 +258,11 @@ class WorkspaceToolSummary {
   final String name;
   final String userId;
   final String? content;
+
+  /// Whether the tool is switched on, which Open WebUI 0.13 and later report;
+  /// null from an older server, where every tool is on and none can be
+  /// switched off. A tool switched off cannot be picked or run in any chat.
+  final bool? isActive;
   final List<Map<String, dynamic>> specs;
   final Map<String, dynamic> meta;
   final List<WorkspaceAccessGrant> accessGrants;
@@ -275,6 +281,9 @@ class WorkspaceToolSummary {
         meta: workspaceJsonMap(json['meta']),
         accessGrants: workspaceGrants(json['access_grants']),
         writeAccess: workspaceBool(json['write_access']),
+        isActive: json.containsKey('is_active')
+            ? workspaceBool(json['is_active'], true)
+            : null,
         owner: json['user'] is Map
             ? WorkspaceOwnerPreview.fromJson(workspaceJsonMap(json['user']))
             : null,
@@ -337,6 +346,7 @@ class WorkspaceSkillSummary {
     required this.userId,
     this.description,
     this.content,
+    this.files,
     this.meta = const {},
     this.isActive = true,
     this.accessGrants = const [],
@@ -351,6 +361,10 @@ class WorkspaceSkillSummary {
   final String userId;
   final String? description;
   final String? content;
+
+  /// The skill's package files (`{path, content, encoding}`), as Open WebUI
+  /// 0.12's export returns them. Null when the server sent none.
+  final List<Map<String, dynamic>>? files;
   final Map<String, dynamic> meta;
   final bool isActive;
   final List<WorkspaceAccessGrant> accessGrants;
@@ -365,7 +379,8 @@ class WorkspaceSkillSummary {
         name: json['name']?.toString() ?? '',
         userId: json['user_id']?.toString() ?? '',
         description: json['description']?.toString(),
-        content: json['content']?.toString(),
+        content: workspaceSkillRootContent(json),
+        files: json['files'] is List ? workspaceJsonList(json['files']) : null,
         meta: workspaceJsonMap(json['meta']),
         isActive: workspaceBool(json['is_active'], true),
         accessGrants: workspaceGrants(json['access_grants']),
@@ -380,6 +395,22 @@ class WorkspaceSkillSummary {
 
 typedef WorkspaceSkillDetail = WorkspaceSkillSummary;
 
+/// A skill's SKILL.md text. Open WebUI 0.12 exports a skill as a package of
+/// `files`, whose root `SKILL.md` holds the instructions, and drops the
+/// top-level `content` that 0.11 sent; like 0.12's own import, `files` wins
+/// when both are present.
+String? workspaceSkillRootContent(Map<String, dynamic> json) {
+  final files = json['files'];
+  if (files is List) {
+    for (final file in workspaceJsonList(files)) {
+      if (file['path'] == 'SKILL.md' && file['encoding'] == null) {
+        return file['content']?.toString();
+      }
+    }
+  }
+  return json['content']?.toString();
+}
+
 @immutable
 class WorkspaceSkillForm {
   const WorkspaceSkillForm({
@@ -387,6 +418,7 @@ class WorkspaceSkillForm {
     required this.name,
     required this.content,
     this.description,
+    this.files,
     this.meta = const {},
     this.isActive = true,
     this.accessGrants = const [],
@@ -396,6 +428,11 @@ class WorkspaceSkillForm {
   final String name;
   final String? description;
   final String content;
+
+  /// Package files from an Open WebUI 0.12 skill export. A 0.12 server keeps
+  /// them, supporting files included; a 0.11 server ignores them and reads
+  /// [content].
+  final List<Map<String, dynamic>>? files;
   final Map<String, dynamic> meta;
   final bool isActive;
   final List<WorkspaceAccessGrantInput> accessGrants;
@@ -405,6 +442,7 @@ class WorkspaceSkillForm {
     'name': name,
     'description': description,
     'content': content,
+    if (files != null) 'files': files,
     'meta': meta,
     'is_active': isActive,
     'access_grants': workspaceGrantInputs(accessGrants),

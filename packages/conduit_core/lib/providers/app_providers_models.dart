@@ -10,18 +10,20 @@ List<Model> appendHermesModelIfUsable(
   String? hermesConnectionName,
 }) {
   final directModels = models.where(isLocallyMintedDirectModel);
-  final safeModels = sanitizeRemoteHermesModels(
-    sanitizeRemoteDirectModels(models),
+  final libreChatModels = models.where(isLibreChatModel);
+  final safeModels = sanitizeRemoteLibreChatModels(
+    sanitizeRemoteHermesModels(sanitizeRemoteDirectModels(models)),
   );
   return hermesUsable
       ? <Model>[
           ...safeModels,
           ...directModels,
+          ...libreChatModels,
           if (allowSyntheticHermesModel)
             hermesSyntheticModel(name: hermesConnectionName),
           ...hermesModels,
         ]
-      : <Model>[...safeModels, ...directModels];
+      : <Model>[...safeModels, ...directModels, ...libreChatModels];
 }
 
 bool _sameModelCacheOwnership(
@@ -43,7 +45,32 @@ String _modelBackendForDiagnostics(Model? model) {
   if (model == null) return 'none';
   if (isLocallyMintedDirectModel(model)) return 'direct';
   if (isHermesModel(model)) return 'hermes';
+  if (isLibreChatModel(model)) return 'librechat';
   return 'openwebui';
+}
+
+/// The model a send takes when none is picked: the first listed, once the
+/// models load. With LibreChat in charge, the first of LibreChat's once its
+/// catalog arrives: the others listed meanwhile (Direct, Hermes) are not the
+/// user's choice. Null when there is none to take.
+Future<Model?> modelForUnpickedSend(
+  T Function<T>(ProviderListenable<T> provider) read,
+) async {
+  if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+    try {
+      await read(libreChatModelCatalogProvider.future);
+    } catch (_) {
+      // A refresh that failed keeps the models it last listed: one of
+      // those is taken, when there are any.
+    }
+    final models = await read(modelsProvider.future);
+    return models.where(isLibreChatModel).firstOrNull;
+  }
+  final listed = read(modelsProvider);
+  final models = listed.hasValue
+      ? listed.value!
+      : await read(modelsProvider.future);
+  return models.firstOrNull;
 }
 
 @Riverpod(keepAlive: true)
@@ -68,6 +95,20 @@ class Models extends _$Models {
     // The synthetic Hermes model carries the active connection's name, so a
     // rename or a switch to a differently named connection rebuilds the list.
     ref.watch(hermesConfigProvider.select((config) => config.name));
+    if (ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      // Watched, not waited for: the models usable now (Direct, Hermes) are
+      // listed while a slow server answers, and the list is built again with
+      // LibreChat's once its catalog arrives.
+      final catalog = ref.watch(libreChatModelCatalogProvider);
+      if (catalog.hasError && !catalog.isLoading) {
+        DebugLogger.error(
+          'catalog-failed',
+          scope: 'models/librechat',
+          error: catalog.error,
+          stackTrace: catalog.stackTrace,
+        );
+      }
+    }
     if (hermesUsable && hermesMode == HermesBackendMode.desktopGateway) {
       try {
         await ref.watch(hermesDesktopModelsProvider.future);
@@ -337,14 +378,32 @@ class Models extends _$Models {
     );
   }
 
+  List<Model> _libreChatModelsKept() {
+    final catalog = ref.read(libreChatModelCatalogProvider);
+    return (catalog.hasError ? catalog.value : catalog.asData?.value) ??
+        const <Model>[];
+  }
+
   /// Appends locally minted direct/Hermes models after the OpenWebUI list has
   /// been sanitized and persisted. Local transport models remain runtime-only.
   List<Model> _withLocalModels(
     List<Model> models, {
     List<Model>? directModels,
   }) {
+    // LibreChat's models, minted for its signed-in account, while it owns
+    // the Chats tab: runtime-only like Direct's and Hermes', never cached.
+    // A refresh that failed keeps the list last loaded, and with it the
+    // model chosen there, until a later one succeeds.
+    // Read only then: reading the catalog starts its requests.
+    final libreChatModels =
+        ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? _libreChatModelsKept()
+        : const <Model>[];
     final withDirect = reconcileDirectModelsForDisplay(
-      remoteModels: models,
+      remoteModels: [
+        ...sanitizeRemoteLibreChatModels(models),
+        ...libreChatModels,
+      ],
       directModels:
           directModels ??
           ref.read(directModelDiscoveryProvider).value?.models ??
@@ -388,14 +447,14 @@ class Models extends _$Models {
         return models;
       }
 
+      if (_keepsLocalModelBesideLibreChat(ref, currentSelected)) {
+        return models;
+      }
       final replacement = _accountlessSelection(
         models: models,
         current: currentSelected,
         preferredBackend: ref.read(preferredBackendProvider),
-        preferredModelId:
-            currentSelected != null && ref.read(isManualModelSelectionProvider)
-            ? null
-            : ref.read(appSettingsProvider).defaultModel,
+        preferredModelId: _accountlessDefaultModelId(ref, currentSelected),
       );
       if (identical(currentSelected, replacement)) return models;
 
@@ -421,6 +480,7 @@ class Models extends _$Models {
     final isLocalTransport =
         currentSelected != null &&
         (isHermesModel(currentSelected) ||
+            isLibreChatModel(currentSelected) ||
             isLocallyMintedDirectModel(currentSelected));
     if (currentSelected == null || !isLocalTransport) {
       return models;
@@ -511,6 +571,34 @@ class Models extends _$Models {
       }
       if (!ref.mounted) return;
     }
+    // LibreChat's catalog is fetched again too: models, agents or specs
+    // added on the server since show up without restarting.
+    if (ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      ref.invalidate(libreChatModelCatalogProvider);
+      try {
+        await ref.read(libreChatModelCatalogProvider.future);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'catalog-refresh-failed',
+          scope: 'models/librechat',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      // Switching the primary account while the catalog loaded rebuilt the
+      // list for the new account already; this refresh's list is stale.
+      if (!ref.mounted ||
+          ref.read(primaryAccountKindProvider) !=
+              PrimaryAccountKind.libreChat) {
+        return;
+      }
+      // Open WebUI is parked while LibreChat is in charge: the list is the
+      // app's own transports and the catalog just fetched. Applied here as
+      // well, since a refresh while auth settles keeps the list it has.
+      state = AsyncData<List<Model>>(
+        _reconcileLocalSelection(_withLocalModels(const <Model>[])),
+      );
+    }
     final modelAuth = ref.read(_modelAuthReadinessProvider);
     if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
       // An explicit refresh during login/revalidation is deferred. This keeps
@@ -573,7 +661,10 @@ class Models extends _$Models {
       final freshModels = currentState.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
-        if (currentSelected.isHidden) {
+        // A coding agent is listed by its terminal, never in this list.
+        // terminalAgentSelectionGuardProvider drops it when its terminal is
+        // switched or the server stops offering it.
+        if (currentSelected.isHidden || isTerminalAgentModel(currentSelected)) {
           return;
         }
         try {
@@ -705,6 +796,23 @@ class Models extends _$Models {
   ];
 }
 
+/// Whether [model] is a Direct or Hermes model that can still send.
+bool _localModelStillSends(Ref ref, Model model) =>
+    (isLocallyMintedDirectModel(model) &&
+        ref.read(directModelRegistryProvider).resolve(model) != null) ||
+    (isHermesModel(model) && ref.read(hermesConfigProvider).isUsable);
+
+/// Whether [current], a Direct or Hermes model, stays selected while
+/// LibreChat owns the Chats tab: they stay on offer beside LibreChat's
+/// models, so one the user chose, or the open chat's, stays while it can
+/// still send.
+bool _keepsLocalModelBesideLibreChat(Ref ref, Model? current) =>
+    current != null &&
+    ref.read(preferredBackendProvider) == PreferredBackend.libreChat &&
+    _localModelStillSends(ref, current) &&
+    (ref.read(isManualModelSelectionProvider) ||
+        ref.read(activeConversationProvider) != null);
+
 @visibleForTesting
 Model? replacementForUnavailableLocalModel({
   required Iterable<Model> models,
@@ -732,6 +840,18 @@ typedef _OwnedModels = ({
   OpenWebUiCacheOwnershipSnapshot ownership,
 });
 
+/// LibreChat's catalog while LibreChat is the preferred backend, and
+/// nothing otherwise, so choosing a model elsewhere never builds LibreChat's
+/// session or fetches its catalog.
+final _preferredLibreChatCatalogProvider = Provider<AsyncValue<List<Model>>>((
+  ref,
+) {
+  if (ref.watch(preferredBackendProvider) != PreferredBackend.libreChat) {
+    return const AsyncData<List<Model>>(<Model>[]);
+  }
+  return ref.watch(libreChatModelCatalogProvider);
+});
+
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
   bool _authenticatedDefaultRestoreScheduled = false;
@@ -754,9 +874,17 @@ class SelectedModel extends _$SelectedModel {
     });
     ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
       _accountlessBackendReconciliationPending =
-          next == PreferredBackend.direct || next == PreferredBackend.hermes;
+          next == PreferredBackend.direct ||
+          next == PreferredBackend.hermes ||
+          next == PreferredBackend.libreChat;
       _schedulePrimaryAccountlessRestore();
     });
+    // LibreChat's models arrive once its account is signed in and its
+    // catalog loads; a LibreChat primary picks among them then.
+    ref.listen<AsyncValue<List<Model>>>(
+      _preferredLibreChatCatalogProvider,
+      (previous, next) => _schedulePrimaryAccountlessRestore(),
+    );
     ref.listen<bool>(
       hermesConfigProvider.select((config) => config.isUsable),
       (previous, next) => _schedulePrimaryAccountlessRestore(),
@@ -824,7 +952,8 @@ class SelectedModel extends _$SelectedModel {
     // accountless transport that the router has already admitted to chat.
     final preferredBackend = ref.read(preferredBackendProvider);
     if (preferredBackend != PreferredBackend.hermes &&
-        preferredBackend != PreferredBackend.direct) {
+        preferredBackend != PreferredBackend.direct &&
+        preferredBackend != PreferredBackend.libreChat) {
       return (shouldReconcile: false, model: null);
     }
 
@@ -836,6 +965,23 @@ class SelectedModel extends _$SelectedModel {
         modelAuth.status == AuthStatus.loading ||
         modelAuth.status == AuthStatus.authenticated) {
       return (shouldReconcile: false, model: null);
+    }
+
+    if (preferredBackend == PreferredBackend.libreChat) {
+      if (_keepsLocalModelBesideLibreChat(ref, current)) {
+        return (shouldReconcile: true, model: current);
+      }
+      final catalog = ref.read(libreChatModelCatalogProvider);
+      if (!catalog.hasValue) return (shouldReconcile: false, model: null);
+      return (
+        shouldReconcile: true,
+        model: _accountlessSelection(
+          models: catalog.requireValue,
+          current: current,
+          preferredBackend: preferredBackend,
+          preferredModelId: _accountlessDefaultModelId(ref, current),
+        ),
+      );
     }
 
     if (preferredBackend == PreferredBackend.hermes) {
@@ -898,6 +1044,15 @@ class SelectedModel extends _$SelectedModel {
                       null,
             PreferredBackend.hermes =>
               isHermesModel(current) && ref.read(hermesConfigProvider).isUsable,
+            PreferredBackend.libreChat =>
+              (isLibreChatModel(current) &&
+                      (ref
+                              .read(libreChatModelCatalogProvider)
+                              .asData
+                              ?.value
+                              .any((model) => identical(model, current)) ??
+                          false)) ||
+                  _localModelStillSends(ref, current),
             _ => false,
           };
       if (manualSelectionIsUsable &&
@@ -949,7 +1104,9 @@ class SelectedModel extends _$SelectedModel {
         final current = state;
         final staleLocalTransport =
             current != null &&
-            (isHermesModel(current) || isLocallyMintedDirectModel(current));
+            (isHermesModel(current) ||
+                isLibreChatModel(current) ||
+                isLocallyMintedDirectModel(current));
         if (current != null && !staleLocalTransport) return;
         final auth = ref.read(_modelAuthReadinessProvider);
         if (!auth.authenticated || ref.read(apiServiceProvider) == null) return;

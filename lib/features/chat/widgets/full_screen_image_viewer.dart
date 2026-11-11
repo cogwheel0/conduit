@@ -3,12 +3,7 @@ part of 'enhanced_image_attachment.dart';
 ImageAttachmentCacheScope? _viewerCacheScope(
   ProviderContainer container,
   String attachmentId,
-) => usesAccountScopedImageCache(attachmentId)
-    ? ImageAttachmentCacheScope(
-        api: container.read(apiServiceProvider),
-        authSessionEpoch: container.read(openWebUiAuthSessionEpochProvider),
-      )
-    : null;
+) => imageAttachmentCacheScopeFor(container.read, attachmentId);
 
 /// Resolves a gallery item through the same cache the thumbnails use, so
 /// visible siblings open without another request.
@@ -613,6 +608,7 @@ class _FullScreenImageViewerState extends ConsumerState<FullScreenImageViewer>
                     const Spacer(),
                     if (_canSave && canAct && !currentEntry.isSvg) ...[
                       ConduitIconButton(
+                        useGlass: true,
                         icon: Icons.download_outlined,
                         iconColor: iconColor,
                         tooltip: l10n.saveImage,
@@ -621,6 +617,7 @@ class _FullScreenImageViewerState extends ConsumerState<FullScreenImageViewer>
                       const SizedBox(width: 8),
                     ],
                     ConduitIconButton(
+                      useGlass: true,
                       icon: Platform.isIOS
                           ? Icons.ios_share
                           : Icons.share_outlined,
@@ -630,6 +627,7 @@ class _FullScreenImageViewerState extends ConsumerState<FullScreenImageViewer>
                     ),
                     const SizedBox(width: 8),
                     ConduitIconButton(
+                      useGlass: true,
                       icon: Icons.close,
                       iconColor: iconColor,
                       tooltip: MaterialLocalizations.of(context)
@@ -651,7 +649,7 @@ class _FullScreenImageViewerState extends ConsumerState<FullScreenImageViewer>
     final Widget content;
     if (entry == null) {
       content = Center(
-        child: CircularProgressIndicator(
+        child: AdaptiveProgressIndicator(
           color: context.conduitTheme.buttonPrimary,
         ),
       );
@@ -878,7 +876,7 @@ class _FullScreenImageContent extends ConsumerWidget {
           headers: headers,
           cacheIdentity: networkCacheKey,
           placeholderBuilder: (context) => Center(
-            child: CircularProgressIndicator(
+            child: AdaptiveProgressIndicator(
               color: context.conduitTheme.buttonPrimary,
             ),
           ),
@@ -905,7 +903,7 @@ class _FullScreenImageContent extends ConsumerWidget {
                 : SizedBox.fromSize(
                     size: viewportSize,
                     child: Center(
-                      child: CircularProgressIndicator(
+                      child: AdaptiveProgressIndicator(
                         color: context.conduitTheme.buttonPrimary,
                       ),
                     ),

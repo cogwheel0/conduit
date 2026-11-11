@@ -246,6 +246,40 @@ String _buildFailClosedImageCacheKey(String url) {
   return 'conduit-unowned-image-$digest';
 }
 
+/// Joins a root-relative image URL, such as the `/api/v1/files/<id>/content`
+/// Open WebUI stores for an image a tool returned, to the server's address.
+///
+/// Any other URL, or one with no usable server address, is returned as is.
+String resolveServerRelativeImageUrl(String? serverBaseUrl, String imageUrl) {
+  final path = imageUrl.trim();
+  if (!path.startsWith('/') || path.startsWith('//')) return imageUrl;
+  final base = serverBaseUrl?.trim() ?? '';
+  final serverUri = Uri.tryParse(base);
+  if (serverUri == null ||
+      !_isHttpScheme(serverUri.scheme) ||
+      serverUri.host.isEmpty) {
+    return imageUrl;
+  }
+  final root = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+  return '$root$path';
+}
+
+/// [resolveServerRelativeImageUrl] against the active server, watched so the
+/// image follows a change of server or address.
+String resolveServerRelativeImageUrlFromWidgetRef(WidgetRef ref, String url) {
+  if (!url.trim().startsWith('/')) return url;
+  try {
+    return resolveServerRelativeImageUrl(
+      ref.watch(apiServiceProvider)?.baseUrl,
+      url,
+    );
+  } catch (_) {
+    // As for the headers: with no app owner (teardown or bootstrap), the
+    // image fails to load rather than the row failing to build.
+    return url;
+  }
+}
+
 bool imageUrlIsServerOrigin(String? serverBaseUrl, String imageUrl) {
   if (serverBaseUrl == null || serverBaseUrl.isEmpty) return false;
   final serverUri = Uri.tryParse(serverBaseUrl.trim());

@@ -1,3 +1,4 @@
+import 'package:conduit_markdown/conduit_markdown.dart' show MathTokenizer;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_tex/flutter_tex.dart';
 
@@ -25,14 +26,17 @@ class LatexPreprocessor {
   /// operation.
   LatexPreprocessor()
     : _blockExpressions = <String, String>{},
-      _inlineExpressions = <String, String>{};
+      _inlineExpressions = <String, String>{},
+      _tokenizer = MathTokenizer();
 
   LatexPreprocessor.fromExpressions(
     Map<String, String> blockExpressions,
     Map<String, String> inlineExpressions,
   ) : _blockExpressions = Map<String, String>.from(blockExpressions),
       _inlineExpressions = Map<String, String>.from(inlineExpressions),
-      _counter = blockExpressions.length + inlineExpressions.length;
+      _tokenizer = MathTokenizer(
+        firstIndex: blockExpressions.length + inlineExpressions.length,
+      );
 
   /// Block-level LaTeX expressions (placeholder key to TeX).
   final Map<String, String> _blockExpressions;
@@ -40,47 +44,9 @@ class LatexPreprocessor {
   /// Inline LaTeX expressions (placeholder key to TeX).
   final Map<String, String> _inlineExpressions;
 
-  /// Monotonically increasing counter for unique keys.
-  int _counter = 0;
-
-  // -- Placeholder tokens --
-  // Use zero-width spaces to avoid collisions with real
-  // content. The prefix distinguishes block from inline.
-
-  static const _blockPrefix = '\u200B\u200BLATEX_BLOCK_';
-  static const _inlinePrefix = '\u200B\u200BLATEX_INLINE_';
-  static const _suffix = '\u200B\u200B';
-
-  // -- Pre-compiled regex patterns --
-
-  /// Matches `\[...\]` (block LaTeX), non-greedy, multiline.
-  static final _bracketBlockPattern = RegExp(
-    r'\\\[([\s\S]+?)\\\]',
-    multiLine: true,
-  );
-
-  /// Matches `$$...$$` (block LaTeX), non-greedy, multiline.
-  static final _dollarBlockPattern = RegExp(
-    r'\$\$([\s\S]+?)\$\$',
-    multiLine: true,
-  );
-
-  /// Matches `\(...\)` (inline LaTeX), non-greedy.
-  static final _parenInlinePattern = RegExp(r'\\\(([\s\S]+?)\\\)');
-
-  /// Matches `$...$` (inline LaTeX).
-  ///
-  /// Excludes `$$`, escaped `\$`, and requires non-whitespace
-  /// immediately after the opening `$` and before the closing
-  /// `$`.
-  ///
-  /// Also requires a safe trailing boundary after the closing
-  /// `$` (whitespace, punctuation, or end-of-input) so plain
-  /// currency text such as `$65,539 USD ... ~$42.6` is not
-  /// treated as a math span.
-  static final _dollarInlinePattern = RegExp(
-    r'(?<!\$)(?<!\\)\$(?!\$)(\S(?:[^\n$]*?\S)?)\$(?!\$)(?=(?:[\s\]),.;:!?]|$))',
-  );
+  /// Conduit's shared delimiter rule (`conduit_markdown`); it numbers the
+  /// placeholders and keeps them unique across [extract] calls.
+  final MathTokenizer _tokenizer;
 
   /// Whether any LaTeX was found during [extract].
   bool get hasLatex =>
@@ -98,50 +64,20 @@ class LatexPreprocessor {
   /// parser. All block variants (`\[...\]` and `$$...$$`) are
   /// extracted first, surrounded by blank lines so the parser
   /// treats them as their own paragraphs. Then inline variants
-  /// (`\(...\)` and `$...$`) are extracted.
+  /// (`\(...\)` and `$...$`) are extracted. The delimiter rule
+  /// itself is [MathTokenizer]'s.
   ///
   /// Use [splitOnPlaceholders] during rendering to recover
   /// the original LaTeX content.
   String extract(String content) {
-    // Every delimiter starts with '$' or '\'; skip the four full regex passes
-    // for the common all-prose case.
-    if (!content.contains(r'$') && !content.contains('\\')) {
-      return content;
+    final known = _tokenizer.spans.length;
+    final result = _tokenizer.tokenize(content);
+    for (final entry in _tokenizer.spans.entries.skip(known)) {
+      final expressions = entry.value.isDisplay
+          ? _blockExpressions
+          : _inlineExpressions;
+      expressions[entry.key] = entry.value.tex;
     }
-    var result = content;
-
-    // Extract \[...\] block LaTeX.
-    result = result.replaceAllMapped(_bracketBlockPattern, (match) {
-      final tex = match.group(1)!.trim();
-      final key = '$_blockPrefix${_counter++}$_suffix';
-      _blockExpressions[key] = tex;
-      return '\n\n$key\n\n';
-    });
-
-    // Extract $$...$$ block LaTeX.
-    result = result.replaceAllMapped(_dollarBlockPattern, (match) {
-      final tex = match.group(1)!.trim();
-      final key = '$_blockPrefix${_counter++}$_suffix';
-      _blockExpressions[key] = tex;
-      return '\n\n$key\n\n';
-    });
-
-    // Extract \(...\) inline LaTeX.
-    result = result.replaceAllMapped(_parenInlinePattern, (match) {
-      final tex = match.group(1)!.trim();
-      final key = '$_inlinePrefix${_counter++}$_suffix';
-      _inlineExpressions[key] = tex;
-      return key;
-    });
-
-    // Extract $...$ inline LaTeX.
-    result = result.replaceAllMapped(_dollarInlinePattern, (match) {
-      final tex = match.group(1)!;
-      final key = '$_inlinePrefix${_counter++}$_suffix';
-      _inlineExpressions[key] = tex;
-      return key;
-    });
-
     return result;
   }
 
@@ -149,8 +85,7 @@ class LatexPreprocessor {
   ///
   /// A quick check to decide whether [splitOnPlaceholders]
   /// needs to be called.
-  bool containsPlaceholder(String text) =>
-      text.contains(_blockPrefix) || text.contains(_inlinePrefix);
+  bool containsPlaceholder(String text) => MathTokenizer.containsToken(text);
 
   /// Splits [text] on LaTeX placeholders into segments.
   ///

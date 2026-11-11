@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:collection/collection.dart' show DeepCollectionEquality;
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -11,6 +13,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 
 import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/read_state_sync.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/sync/sync_api_client.dart';
@@ -279,6 +282,9 @@ class PullSync {
   final PullFetchMemo? _fetchMemo;
   final _taskVersionsAtFetch = Expando<int>();
 
+  /// [ChatsDao.modelListVersion] when each raw response was requested.
+  final _modelListVersionsAtFetch = Expando<int>();
+
   /// [ChatLocks.generation] when each raw response was requested, so the merge
   /// can tell a read that a bulk barrier has since outdated.
   final _generationsAtFetch = Expando<int>();
@@ -289,9 +295,8 @@ class PullSync {
   /// exact `updatedAt` — so a re-fetch could only reproduce the merge the
   /// database already holds. Any local divergence (dirty edit, remap,
   /// stub) falls through to a normal fetch, as does a list envelope whose
-  /// lastReadAt is newer than the local row's (read-state changes on the
-  /// server do not bump updatedAt; the merge's max() rule must still see
-  /// them).
+  /// lastReadAt would change the local row's (read-state changes on the
+  /// server do not bump updatedAt; the merge must still see them).
   Future<bool> _canSkipOverlapFetch(_ChangedItem item) async {
     final memo = _fetchMemo;
     if (memo == null || !memo.isConfirmed(item.id, item.updatedAt)) {
@@ -305,8 +310,11 @@ class PullSync {
         local.serverUpdatedAt != item.updatedAt) {
       return false;
     }
-    final listLastReadAt = item.lastReadAt;
-    return listLastReadAt == null || (local.lastReadAt ?? 0) >= listLastReadAt;
+    final merged = ChatsDao.mergeServerLastReadAt(
+      local.lastReadAt,
+      item.lastReadAt,
+    );
+    return merged == local.lastReadAt;
   }
 
   /// Runs one pull cycle. The watermark advances only when every list page
@@ -320,9 +328,14 @@ class PullSync {
     final watermark = await _db.syncMetaDao.getPullWatermark();
     final threshold = watermark - kPullOverlapSeconds;
     var maxSeen = watermark;
+    // Before any list page is requested; see applyServerReadStates.
+    final readStateSince = _db.chatsDao.localReadStateClock;
 
     // Keyed by chat id; first occurrence wins (list order is newest-first).
     final changed = <String, _ChangedItem>{};
+    // Every row on the fetched pages, changed or not: a chat read or marked
+    // unread elsewhere keeps its updatedAt, so only its list row says so.
+    final listedReadStates = <String, int>{};
 
     // 1+2. Main list loop. Any list-page fetch error aborts the whole cycle
     // before any chat fetch.
@@ -336,12 +349,15 @@ class PullSync {
         for (final item in items) {
           final parsed = _parseListItem(item);
           if (parsed == null) continue;
+          if (parsed.lastReadAt case final lastReadAt?) {
+            listedReadStates.putIfAbsent(parsed.id, () => lastReadAt);
+          }
+          if (stop) continue;
           if (parsed.updatedAt > threshold) {
             changed.putIfAbsent(parsed.id, () => parsed);
             maxSeen = math.max(maxSeen, parsed.updatedAt);
           } else {
             stop = true;
-            break;
           }
         }
         if (stop || items.length < kOpenWebUiChatListPageSize) break;
@@ -425,6 +441,7 @@ class PullSync {
               updatedAt: item.updatedAt,
               archived: true,
               lastReadAt: item.lastReadAt,
+              readStateSince: readStateSince,
             );
           });
         }
@@ -486,6 +503,7 @@ class PullSync {
           await _mergeChatResponse(
             resp,
             listLastReadAt: item.lastReadAt,
+            readStateSince: readStateSince,
             hasPendingCreateHashes: hasPendingCreateHashes,
           );
           _fetchMemo?.recordFetched(item.id, item.updatedAt);
@@ -508,6 +526,17 @@ class PullSync {
     await Future.wait([
       for (var i = 0; i < kPullFetchConcurrency; i++) worker(),
     ]);
+
+    // Merged chats already hold their list read state and are skipped; a
+    // chat whose download failed still gets it. Best effort: a failure here
+    // never holds the watermark back.
+    await applyServerReadStates(
+      db: _db,
+      locks: _locks,
+      serverLastReadAts: listedReadStates,
+      since: readStateSince,
+      scope: 'sync/pull',
+    );
 
     // 6. Watermark advance rule (REQ 5).
     final success = !archivedListFailed && failedFetches == 0;
@@ -564,10 +593,12 @@ class PullSync {
   /// Full `ChatResponse` fetch; null on 404. Adapter seam.
   Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
+    final modelListVersion = _db.chatsDao.modelListVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
+      _modelListVersionsAtFetch[response] = modelListVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -635,6 +666,7 @@ class PullSync {
   Future<bool> _mergeChatResponse(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+    int? readStateSince,
     bool? hasPendingCreateHashes,
   }) {
     final id = resp['id'] is String ? resp['id'] as String : '';
@@ -645,6 +677,7 @@ class PullSync {
       return _upsertServerChatUnlockedReturningPush(
         resp,
         listLastReadAt: listLastReadAt,
+        readStateSince: readStateSince,
         hasPendingCreateHashes: hasPendingCreateHashes,
       );
     });
@@ -657,6 +690,7 @@ class PullSync {
   Future<bool> _upsertServerChatUnlockedReturningPush(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+    int? readStateSince,
     bool? hasPendingCreateHashes,
     bool refreshWhenClean = false,
   }) async {
@@ -665,6 +699,28 @@ class PullSync {
       throw const StaleServerReadException();
     }
     final id = resp['id'] as String;
+    // A model picked here since this copy was read stays: the copy holds the
+    // list from before, and the server keeps the chat's date on a model
+    // change, so its age shows nowhere else.
+    final modelsFetchedAt = _modelListVersionsAtFetch[resp];
+    final chatBody = resp['chat'];
+    final readBeforeWrite =
+        modelsFetchedAt != null &&
+        modelsFetchedAt != _db.chatsDao.modelListVersion(id);
+    final unconfirmed = _db.chatsDao.hasUnconfirmedModelList(id);
+    if (chatBody is Map && (readBeforeWrite || unconfirmed)) {
+      final picked = await _db.chatsDao.storedChatModels(id);
+      if (picked != null) {
+        if (!readBeforeWrite &&
+            const DeepCollectionEquality().equals(chatBody['models'], picked)) {
+          // A copy read after the list was written carries it: the server
+          // has it.
+          _db.chatsDao.confirmModelList(id);
+        } else {
+          chatBody['models'] = picked;
+        }
+      }
+    }
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
     final stored = await _db.chatsDao.getChat(id);
@@ -737,6 +793,7 @@ class PullSync {
       userId: resp['user_id']?.toString(),
       meta: meta,
       listLastReadAt: listLastReadAt,
+      readStateSince: readStateSince,
       refreshWhenClean: refreshWhenClean,
     );
 

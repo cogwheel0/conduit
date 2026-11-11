@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -12,6 +13,15 @@ import 'package:conduit_core/features/workspace/providers/workspace_providers.da
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 
 part 'workspace_knowledge_files.g.dart';
+
+/// A file picked for upload: its name, size in bytes (-1 when the platform
+/// cannot tell before reading it), and a way to read it once it is its
+/// turn.
+typedef WorkspaceUploadSource = ({
+  String name,
+  int size,
+  Future<List<int>> Function() read,
+});
 
 /// Progress of the file currently being uploaded into a knowledge base.
 @immutable
@@ -241,6 +251,12 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   Future<void> uploadBytes(String filename, List<int> bytes) async {
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
+      await session.api.validateWorkspaceKnowledgeUpload(
+        knowledgeId,
+        count: 1,
+        largestFileSize: bytes.length,
+      );
+      session.ensureCurrent(ref);
       state = AsyncData(
         _current.copyWith(
           upload: WorkspaceUploadProgress(filename: filename, fraction: 0),
@@ -263,7 +279,11 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         },
       );
       session.ensureCurrent(ref);
-      await _attach(session.api, fileId);
+      await _refuseUnprocessed(
+        session,
+        await _waitForProcessing(session, [fileId]),
+      );
+      await _attachUploaded(session.api, [fileId]);
       session.ensureCurrent(ref);
     });
   }
@@ -275,48 +295,208 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       final name = filename.toLowerCase().endsWith('.txt')
           ? filename
           : '$filename.txt';
-      final fileId = await session.api.uploadFileBytes(
-        name,
-        utf8.encode(content),
+      final bytes = utf8.encode(content);
+      await session.api.validateWorkspaceKnowledgeUpload(
+        knowledgeId,
+        count: 1,
+        largestFileSize: bytes.length,
       );
       session.ensureCurrent(ref);
-      await _attach(session.api, fileId);
+      final fileId = await session.api.uploadFileBytes(name, bytes);
+      session.ensureCurrent(ref);
+      await _refuseUnprocessed(
+        session,
+        await _waitForProcessing(session, [fileId]),
+      );
+      await _attachUploaded(session.api, [fileId]);
       session.ensureCurrent(ref);
     });
   }
 
   /// Attaches a file that already exists on the server into the current dir.
+  /// Nothing is uploaded, so the server's own check on linking decides: it
+  /// lets a full base take a file it already holds.
   Future<void> attachExisting(String fileId) async {
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
-      await _attach(session.api, fileId);
+      try {
+        await _attach(session.api, fileId);
+      } on DioException catch (error) {
+        // The file is the user's own; it stays where it was.
+        throw _limitRefusal(error) ?? error;
+      }
       session.ensureCurrent(ref);
     });
   }
 
-  /// Uploads bytes and returns the new file id WITHOUT linking it, so a caller
-  /// can collect several ids and link them together via [batchAttach].
-  Future<String> uploadForBatch(String filename, List<int> bytes) async {
-    final session = WorkspaceSessionIdentity.read(ref);
-    final id = await session.api.uploadFileBytes(filename, bytes);
-    session.ensureCurrent(ref);
-    return id;
-  }
-
-  /// Attaches many existing files in one request.
-  Future<void> batchAttach(List<String> fileIds) async {
-    if (fileIds.isEmpty) return;
+  /// Uploads [files] and links them into the current directory in one
+  /// request.
+  ///
+  /// Open WebUI 0.13 is asked first whether they fit the knowledge base's
+  /// limits, by their count and the largest [WorkspaceUploadSource.size], so
+  /// a refused upload sends nothing. When a size is unknown (-1), only the
+  /// count is asked about; the server still checks each file's size when it
+  /// is linked. Files uploaded before a later failure, or that the server
+  /// still refuses to link, are deleted again rather than left among the
+  /// user's files.
+  Future<void> uploadMany(List<WorkspaceUploadSource> picked) async {
+    // An empty file is not uploaded, so it does not count against a limit.
+    final files = [
+      for (final file in picked)
+        if (file.size != 0) file,
+    ];
+    if (files.isEmpty) return;
+    final sizeUnknown = files.any((file) => file.size < 0);
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
-      final directoryId = _current.isRoot ? null : _current.directoryId;
-      await session.api.attachWorkspaceKnowledgeFiles(
+      await session.api.validateWorkspaceKnowledgeUpload(
         knowledgeId,
-        fileIds
-            .map((id) => (fileId: id, directoryId: directoryId))
-            .toList(growable: false),
+        count: files.length,
+        largestFileSize: sizeUnknown
+            ? null
+            : files.fold<int>(
+                0,
+                (largest, file) => file.size > largest ? file.size : largest,
+              ),
       );
       session.ensureCurrent(ref);
+      final uploaded = <String>[];
+      final names = <String, String>{};
+      try {
+        for (final file in files) {
+          final bytes = await file.read();
+          if (bytes.isEmpty) continue;
+          final id = await session.api.uploadFileBytes(file.name, bytes);
+          uploaded.add(id);
+          names[id] = file.name;
+          session.ensureCurrent(ref);
+        }
+      } catch (_) {
+        await _discardUploads(session.api, uploaded);
+        rethrow;
+      }
+      if (uploaded.isEmpty) return;
+      // Files the server could not process are deleted and left out: first,
+      // so a link that fails cannot leave them among the user's files. The
+      // rest go in, and the user hears why the others did not.
+      final failed = await _waitForProcessing(session, uploaded);
+      await _discardUploads(session.api, failed.keys.toList());
+      final processed = [
+        for (final id in uploaded)
+          if (!failed.containsKey(id)) id,
+      ];
+      if (processed.isNotEmpty) {
+        await _attachUploaded(session.api, processed);
+        session.ensureCurrent(ref);
+      }
+      if (failed.isNotEmpty) throw _unprocessed(failed, names: names);
     });
+  }
+
+  /// Waits until the server has processed [fileIds], which it does in the
+  /// background after each upload, so they can be linked; see
+  /// [ApiService.waitForFileProcessing]. Returns the uploads it could not
+  /// process, with its reason for each. The uploads are deleted again if the
+  /// wait fails or the session changes meanwhile.
+  Future<Map<String, String>> _waitForProcessing(
+    WorkspaceSessionIdentity session,
+    List<String> fileIds,
+  ) async {
+    final failed = <String, String>{};
+    try {
+      for (final id in fileIds) {
+        final error = await session.api.waitForFileProcessing(
+          id,
+          keepWaiting: () => session.isCurrent(ref),
+        );
+        session.ensureCurrent(ref);
+        if (error != null) failed[id] = error;
+      }
+    } catch (_) {
+      await _discardUploads(session.api, fileIds);
+      rethrow;
+    }
+    return failed;
+  }
+
+  /// Deletes the uploads in [failed], which the server could not process,
+  /// and throws its reasons.
+  Future<void> _refuseUnprocessed(
+    WorkspaceSessionIdentity session,
+    Map<String, String> failed,
+  ) async {
+    if (failed.isEmpty) return;
+    await _discardUploads(session.api, failed.keys.toList());
+    throw _unprocessed(failed);
+  }
+
+  /// The server's reasons for not processing the uploads in [failed], each
+  /// named from [names] when there is a list of them.
+  static KnowledgeUploadRefused _unprocessed(
+    Map<String, String> failed, {
+    Map<String, String>? names,
+  }) => KnowledgeUploadRefused(
+    names == null
+        ? failed.values.join('\n')
+        : [
+            for (final entry in failed.entries)
+              '${names[entry.key] ?? entry.key}: ${entry.value}',
+          ].join('\n'),
+  );
+
+  /// Links freshly uploaded [fileIds] into the current directory. When the
+  /// server refuses them, as for the knowledge base's limits, they are
+  /// deleted so they do not linger among the user's files, and the server's
+  /// reason is thrown as [KnowledgeUploadRefused].
+  Future<void> _attachUploaded(ApiService api, List<String> fileIds) async {
+    try {
+      if (fileIds.length == 1) {
+        await _attach(api, fileIds.single);
+      } else {
+        final directoryId = _current.isRoot ? null : _current.directoryId;
+        final added = await api.attachWorkspaceKnowledgeFiles(
+          knowledgeId,
+          fileIds
+              .map((id) => (fileId: id, directoryId: directoryId))
+              .toList(growable: false),
+        );
+        // Files the server could not process were not added; the rest were.
+        final warning = added?.warning;
+        if (warning != null) {
+          final linked = {for (final file in added!.files) file.id};
+          await _discardUploads(api, [
+            for (final id in fileIds)
+              if (!linked.contains(id)) id,
+          ]);
+          throw KnowledgeUploadRefused(warning);
+        }
+      }
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status == 400 || status == 413) {
+        await _discardUploads(api, fileIds);
+      }
+      throw _limitRefusal(error) ?? error;
+    }
+  }
+
+  Future<void> _discardUploads(ApiService api, List<String> fileIds) async {
+    for (final id in fileIds) {
+      try {
+        await api.deleteFile(id);
+      } catch (_) {}
+    }
+  }
+
+  /// The server's reason for refusing files, as [KnowledgeUploadRefused].
+  static KnowledgeUploadRefused? _limitRefusal(DioException error) {
+    final status = error.response?.statusCode;
+    if (status != 400 && status != 413) return null;
+    final data = error.response?.data;
+    final detail = data is Map ? data['detail'] : null;
+    return detail is String && detail.trim().isNotEmpty
+        ? KnowledgeUploadRefused(detail.trim())
+        : null;
   }
 
   /// Attaches a single [fileId] into the current directory via the JSON
@@ -468,6 +648,17 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       state = AsyncData(_current.copyWith(clearUpload: true));
       await refresh();
       _reconcile();
+    } on KnowledgeUploadRefused {
+      // The server said why; the caller shows it, and the browser is not
+      // broken. Some files of a batch may have gone in, so the list reloads.
+      if (session.isCurrent(ref)) {
+        state = AsyncData(_current.copyWith(isBusy: false, clearUpload: true));
+        try {
+          await refresh();
+          _reconcile();
+        } catch (_) {}
+      }
+      rethrow;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
         state = AsyncData(

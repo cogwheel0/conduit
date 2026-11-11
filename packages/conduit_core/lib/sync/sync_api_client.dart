@@ -27,6 +27,24 @@ class SyncTerminalException implements Exception {
   String toString() => 'SyncTerminalException($statusCode): $message';
 }
 
+/// The server refused a write's body as malformed (HTTP 400 or 422).
+///
+/// Unlike [SyncTerminalException] this is retried like any transient error,
+/// since a 400 can also stand for a server fault. It lets a writer that knows
+/// another accepted shape for the same change try that one, as a note save
+/// does for an Open WebUI 0.12.5 server that no longer takes a file list.
+class SyncRejectedException implements Exception {
+  const SyncRejectedException({required this.statusCode, this.detail});
+
+  final int statusCode;
+
+  /// The server's `detail`, when it gave one.
+  final String? detail;
+
+  @override
+  String toString() => 'SyncRejectedException($statusCode): ${detail ?? ''}';
+}
+
 /// Thin client seam so `PullSync`/`PushSync` are unit-testable against
 /// `FakeOpenWebUiServer` (CDT-RFC-001 Phase 1 + Phase 2).
 abstract interface class SyncApiClient {
@@ -140,6 +158,10 @@ abstract interface class SyncApiClient {
   /// POST `/api/v1/folders/{id}/update/parent`; false on 404.
   Future<bool> updateFolderParent(String id, String? parentId);
 
+  /// POST `/api/v1/folders/{id}/update/expanded` with `is_expanded`; false on
+  /// 404. 401/403 throws [SyncTerminalException].
+  Future<bool> updateFolderExpanded(String id, bool isExpanded);
+
   /// DELETE `/api/v1/folders/{id}?delete_contents=false`. `true` on success;
   /// 404 (already-gone) -> `false` WITHOUT throwing. 401/403 throws
   /// [SyncTerminalException].
@@ -182,9 +204,10 @@ abstract interface class SyncApiClient {
   });
 
   /// POST `/api/v1/notes/{id}/update` body = the patch map ([patch] ALWAYS
-  /// carries `title`; `data` only when the data axis changed — WARNING B).
-  /// Returns the updated `NoteModel` map; null on 404 (gone). 401/403 throws
-  /// [SyncTerminalException].
+  /// carries `title`; `data` and `page_id` only when the data axis changed —
+  /// WARNING B). Returns the updated `NoteModel` map; null on 404 (gone).
+  /// 401/403 throws [SyncTerminalException]; a body the server refuses
+  /// (400/422) throws [SyncRejectedException].
   Future<Map<String, dynamic>?> updateNote(
     String id,
     Map<String, dynamic> patch,
@@ -407,6 +430,24 @@ class ApiSyncApiClient implements SyncApiClient {
         throw SyncTerminalException(
           statusCode: code,
           message: 'updateFolderParent $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> updateFolderExpanded(String id, bool isExpanded) async {
+    try {
+      await api.updateFolderExpanded(id, isExpanded);
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateFolderExpanded $id forbidden',
         );
       }
       rethrow;

@@ -822,6 +822,12 @@ final class NativeSttEventDeliveryGate {
     return token
   }
 
+  var currentToken: NativeSttEventDeliveryToken? {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeToken
+  }
+
   func deactivate() {
     lock.lock()
     activeToken = nil
@@ -1244,16 +1250,113 @@ final class NativeCallKitCallOwnership {
   }
 }
 
+/// Copies microphone frames on the tap, then normalizes them on a serial
+/// worker. Disk I/O stays in the owning Dart draft store, never on the audio
+/// render thread. Explicit stop drains this worker before acknowledging stop.
+final class NativeDictationAudioEmitter {
+  private let pool: NativeSttPCMBufferPool
+  private let converter: AVAudioConverter
+  private let format: AVAudioFormat
+  private let emit: ([String: Any]) -> Void
+  private let queue = DispatchQueue(label: "app.cogwheel.conduit.dictation-audio")
+  private let queueKey = DispatchSpecificKey<UInt8>()
+  private let lock = NSLock()
+  private var closed = false
+  // Accessed only on the conversion queue. Stop emitting after the first
+  // gap so the saved prefix never pretends to be a continuous recording.
+  private var preservationFailed = false
+
+  init(format input: AVAudioFormat, emit: @escaping ([String: Any]) -> Void) throws {
+    guard let output = AVAudioFormat(
+      commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true
+    ), let converter = AVAudioConverter(from: input, to: output),
+       let pool = NativeSttPCMBufferPool(format: input, frameCapacity: 4096, count: 4) else {
+      throw NSError(domain: "NativeSttBridge", code: 12, userInfo: [
+        NSLocalizedDescriptionKey: "Unable to preserve dictation audio"
+      ])
+    }
+    self.format = output
+    self.converter = converter
+    self.pool = pool
+    self.emit = emit
+    queue.setSpecific(key: queueKey, value: 1)
+  }
+
+  /// Copies borrowed tap data before queuing conversion; preservation failure ends audio output.
+  func append(_ source: AVAudioPCMBuffer) {
+    guard let lease = pool.copyFromTap(source) else {
+      queue.async { [self] in reportPreservationFailure() }
+      return
+    }
+    lock.lock()
+    guard !closed else { lock.unlock(); lease.release(); return }
+    queue.async { [self] in
+      defer { lease.release() }
+      convert(lease.buffer)
+    }
+    lock.unlock()
+  }
+
+  private func reportPreservationFailure() {
+    guard !preservationFailed else { return }
+    preservationFailed = true
+    emit(["type": "error", "code": "AUDIO_PRESERVATION_FAILED", "message": "Unable to preserve dictation audio"])
+  }
+
+  /// Runs on the conversion queue; nil flushes mono 16 kHz PCM16, unless preservation failed.
+  private func convert(_ source: AVAudioPCMBuffer?) {
+    guard !preservationFailed else { return }
+    let capacity = source.map {
+      AVAudioFrameCount(ceil(Double($0.frameLength) * 16000 / $0.format.sampleRate)) + 32
+    } ?? 1024
+    guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+      reportPreservationFailure()
+      return
+    }
+    var supplied = false
+    var error: NSError?
+    let status = converter.convert(to: output, error: &error) { _, state in
+      guard let source else { state.pointee = .endOfStream; return nil }
+      if supplied { state.pointee = .noDataNow; return nil }
+      supplied = true
+      state.pointee = .haveData
+      return source
+    }
+    if status == .error {
+      reportPreservationFailure()
+      return
+    }
+    guard output.frameLength > 0, let samples = output.int16ChannelData?[0] else { return }
+    let pcm = Data(bytes: samples, count: Int(output.frameLength) * 2)
+    emit(["type": "audio", "pcm": FlutterStandardTypedData(bytes: pcm)])
+  }
+
+  /// Stops admission and flushes queued audio; the first off-queue caller waits for the drain.
+  func close() {
+    lock.lock()
+    guard !closed else { lock.unlock(); return }
+    closed = true
+    queue.async { [self] in convert(nil) }
+    lock.unlock()
+    if DispatchQueue.getSpecific(key: queueKey) != 1 { queue.sync {} }
+  }
+}
+
 final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
   static let shared = NativeSttBridge()
   private static let stopAcknowledgementTimeoutNanoseconds: UInt64 =
     1_000_000_000
+  private static let recordingDrainTimeoutNanoseconds: UInt64 =
+    30_000_000_000
   private static let callKitActivationTimeoutNanoseconds: UInt64 =
     5_000_000_000
 
   private var methodChannel: FlutterMethodChannel?
   private let lifecycle: NativeSttLifecycleState
   private let eventDeliveryGate = NativeSttEventDeliveryGate()
+  private var recordingAudio = false
+  private var recordingTranscription: Task<Void, Never>?
+  private var recordingTranscriptionId: String?
   private let callKitCallOwnership = NativeCallKitCallOwnership()
   private let responseWaitCaptureOwner: NativeResponseWaitCaptureOwner
 
@@ -1319,6 +1422,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
     let emitPartialResults = arguments?["emitPartialResults"] as? Bool ?? true
     let accumulateResults = arguments?["accumulateResults"] as? Bool ?? true
     let allowOnlineFallback = arguments?["allowOnlineFallback"] as? Bool ?? true
+    let emitAudio = arguments?["emitAudio"] as? Bool ?? false
 
     switch call.method {
     case "checkAvailability":
@@ -1331,7 +1435,44 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
       }
     case "getLocales":
       result(localesPayload(deviceLocaleId: deviceLocaleId ?? localeId))
+    case "transcribeRecording":
+      guard let pcm = arguments?["pcm"] as? FlutterStandardTypedData,
+            let id = arguments?["requestId"] as? String, UUID(uuidString: id) != nil,
+            !pcm.data.isEmpty, pcm.data.count.isMultiple(of: 2),
+            pcm.data.count <= 16000 * 2 * 600 else {
+        result(FlutterError(code: "INVALID_AUDIO", message: "Invalid recording audio", details: nil))
+        return
+      }
+      guard recordingTranscriptionId == nil else {
+        result(FlutterError(code: "BUSY", message: "A transcription is already in progress", details: nil))
+        return
+      }
+      recordingTranscriptionId = id
+      recordingTranscription = Task { @MainActor [weak self] in
+        defer {
+          if self?.recordingTranscriptionId == id {
+            self?.recordingTranscriptionId = nil
+            self?.recordingTranscription = nil
+          }
+        }
+        do {
+          guard #available(iOS 26.0, *) else {
+            throw NSError(domain: "NativeSttBridge", code: 13, userInfo: [NSLocalizedDescriptionKey: "On-device recording transcription requires iOS 26 or later"])
+          }
+          let text = try await SpeechAnalyzerSttSession.transcribeRecording(pcm.data, localeId: localeId)
+          try Task.checkCancellation()
+          result(text)
+        } catch {
+          result(FlutterError(code: "TRANSCRIPTION_FAILED", message: error.localizedDescription, details: nil))
+        }
+      }
+    case "cancelRecordingTranscription":
+      if let id = arguments?["requestId"] as? String, recordingTranscriptionId == id {
+        recordingTranscription?.cancel()
+      }
+      result(nil)
     case "start":
+      recordingAudio = emitAudio
       // Invalidate the retiring producer at command-receipt time. The new
       // start may await a long shutdown chain before it can activate its own
       // token, and teardown events from the prior session must not leak into
@@ -1346,19 +1487,34 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
           preserveAudioSession: preserveAudioSession,
           emitPartialResults: emitPartialResults,
           accumulateResults: accumulateResults,
-          allowOnlineFallback: allowOnlineFallback
+          allowOnlineFallback: allowOnlineFallback,
+          emitAudio: emitAudio
         )
         await MainActor.run { result(availability) }
       }
     case "stop":
-      eventDeliveryGate.deactivate()
+      let drainAudio = recordingAudio
+      let deliveryToken = eventDeliveryGate.currentToken
+      recordingAudio = false
+      if !drainAudio { eventDeliveryGate.deactivate() }
       let transition = lifecycle.beginStop()
       Task {
-        await waitForStopTransition(
+        let drained = await waitForStopTransition(
           transition,
-          waitForFullShutdown: false
+          waitForFullShutdown: drainAudio
         )
-        await MainActor.run { result(nil) }
+        if drainAudio, !drained, let token = deliveryToken,
+           lifecycle.isCurrent(transition.generation) {
+          emit(["type": "error", "code": "AUDIO_PRESERVATION_FAILED", "message": "Recording shutdown timed out"], token: token)
+        }
+        // Audio delivery uses this same queue. A FIFO barrier keeps the last
+        // admitted PCM event ahead of the stop reply and subscription teardown.
+        DispatchQueue.main.async { [weak self] in
+          if drainAudio, self?.lifecycle.isCurrent(transition.generation) == true {
+            self?.eventDeliveryGate.deactivate()
+          }
+          result(nil)
+        }
       }
     default:
       result(FlutterMethodNotImplemented)
@@ -1496,7 +1652,8 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
     preserveAudioSession: Bool,
     emitPartialResults: Bool,
     accumulateResults: Bool,
-    allowOnlineFallback: Bool
+    allowOnlineFallback: Bool,
+    emitAudio: Bool
   ) async -> [String: Any] {
     let generation = transition.generation
     await transition.shutdownTask.value
@@ -1520,6 +1677,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
           preserveAudioSession: preserveAudioSession,
           emitPartialResults: emitPartialResults,
           accumulateResults: accumulateResults,
+          emitAudio: emitAudio,
           emit: analyzerEmit,
           isCurrent: { [weak self] in
             self?.lifecycle.isCurrent(generation) == true
@@ -1592,6 +1750,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
         emitPartialResults: emitPartialResults,
         accumulateResults: accumulateResults,
         allowOnlineFallback: allowOnlineFallback,
+        emitAudio: emitAudio,
         emit: fallbackEmit,
         isCurrent: { [weak self] in
           self?.lifecycle.isCurrent(generation) == true
@@ -1645,18 +1804,17 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
     }
   }
 
+  /// Bounds shutdown acknowledgement to 30 seconds for recording drain, one second otherwise.
   private func waitForStopTransition(
     _ transition: NativeSttLifecycleTransition,
     waitForFullShutdown: Bool
-  ) async {
-    if waitForFullShutdown {
-      await transition.shutdownTask.value
-    } else {
-      _ = await waitForNativeSttTask(
-        transition.shutdownTask,
-        timeoutNanoseconds: Self.stopAcknowledgementTimeoutNanoseconds
-      )
-    }
+  ) async -> Bool {
+    await waitForNativeSttTask(
+      transition.shutdownTask,
+      timeoutNanoseconds: waitForFullShutdown
+        ? Self.recordingDrainTimeoutNanoseconds
+        : Self.stopAcknowledgementTimeoutNanoseconds
+    )
   }
 
   private func finishCurrentSession(
@@ -1737,6 +1895,8 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   private let preserveAudioSession: Bool
   private let emitPartialResults: Bool
   private let accumulateResults: Bool
+  private let emitAudio: Bool
+  private var audioCapture: NativeDictationAudioEmitter?
   private let emit: ([String: Any]) -> Void
   private let isCurrent: () -> Bool
   private let onFinished: (SpeechAnalyzerSttSession) -> Void
@@ -1765,6 +1925,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     preserveAudioSession: Bool,
     emitPartialResults: Bool,
     accumulateResults: Bool,
+    emitAudio: Bool,
     emit: @escaping ([String: Any]) -> Void,
     isCurrent: @escaping () -> Bool,
     onFinished: @escaping (SpeechAnalyzerSttSession) -> Void
@@ -1773,6 +1934,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     self.preserveAudioSession = preserveAudioSession
     self.emitPartialResults = emitPartialResults
     self.accumulateResults = accumulateResults
+    self.emitAudio = emitAudio
     self.emit = emit
     self.isCurrent = isCurrent
     self.onFinished = onFinished
@@ -1854,6 +2016,9 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
     let inputFormat = inputNode.outputFormat(forBus: 0)
     try Self.validateInputFormat(inputFormat)
+    audioCapture?.close()
+    let capture = emitAudio ? try NativeDictationAudioEmitter(format: inputFormat, emit: emit) : nil
+    audioCapture = capture
     // The tap below requests 1024 frames, but iOS treats that as a hint and
     // can deliver 4096+ frame buffers (especially with voice processing).
     // Size the pool so those still take the preallocated fast path; anything
@@ -1963,6 +2128,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
 
     let didInstallTap = installAudioTapIfActive {
       inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+        capture?.append(buffer)
         guard let self,
               let inputLease = tapBufferPool.copyFromTap(buffer) else { return }
         // AVAudioEngine owns the tap buffer. The render callback normally only
@@ -2038,6 +2204,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       audioEngine.inputNode.removeTap(onBus: 0)
     }
     audioEngine.stop()
+    audioCapture?.close()
     // beginStopping() closes admission under the same lock used when a tap
     // callback enqueues conversion work. The queue barrier therefore runs
     // after every accepted conversion and no later callback can enqueue
@@ -2065,6 +2232,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       audioEngine.inputNode.removeTap(onBus: 0)
     }
     audioEngine.stop()
+    audioCapture?.close()
     syncOnAudioConversionQueue {
       inputContinuation?.finish()
       inputContinuation = nil
@@ -2165,6 +2333,73 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       work()
     } else {
       audioConversionQueue.sync(execute: work)
+    }
+  }
+
+  /// Transcribes saved PCM entirely on-device without opening a microphone,
+  /// creating a temporary audio file, or activating an audio session. Input is mono 16 kHz PCM16.
+  /// Loads a supported locale's model and requests speech permission; empty results fail.
+  static func transcribeRecording(_ pcm: Foundation.Data, localeId: String?) async throws -> String {
+    let locale = try await requiredSupportedLocale(localeId: localeId)
+    guard await isAvailable(localeId: localeId) else {
+      throw NSError(domain: "NativeSttBridge", code: 13, userInfo: [NSLocalizedDescriptionKey: "On-device transcription is unavailable for this device or language"])
+    }
+    let transcriber = makeTranscriber(locale: locale)
+    let modules: [any SpeechModule] = [transcriber]
+    if let assets = try await AssetInventory.assetInstallationRequest(supporting: modules) {
+      try await assets.downloadAndInstall()
+    }
+    guard await requestSpeechAuthorization() else {
+      throw NSError(domain: "NativeSttBridge", code: 8, userInfo: [NSLocalizedDescriptionKey: "Speech recognition permission was not granted"])
+    }
+    let analyzer = SpeechAnalyzer(modules: modules)
+    guard let inputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true) else {
+      throw NSError(domain: "NativeSttBridge", code: 12)
+    }
+    let outputFormat = try await analyzerFormat(compatibleWith: modules, naturalFormat: inputFormat)
+    let converter = try makeConverter(from: inputFormat, to: outputFormat)
+    try await analyzer.prepareToAnalyze(in: outputFormat)
+    let results = Task {
+      var text = ""
+      for try await result in transcriber.results where result.isFinal {
+        let segment = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !segment.isEmpty { text += (text.isEmpty ? "" : " ") + segment }
+      }
+      return text
+    }
+    let input = AsyncThrowingStream<AnalyzerInput, Error> { continuation in
+      do {
+        for offset in stride(from: 0, to: pcm.count, by: 32000) {
+          let count = min(32000, pcm.count - offset)
+          guard let buffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(count / 2)),
+                let target = buffer.int16ChannelData?[0] else {
+            throw NSError(domain: "NativeSttBridge", code: 12)
+          }
+          buffer.frameLength = buffer.frameCapacity
+          pcm.withUnsafeBytes { bytes in
+            UnsafeMutableRawPointer(target).copyMemory(from: bytes.baseAddress!.advanced(by: offset), byteCount: count)
+          }
+          if let converter {
+            guard let converted = convert(buffer: buffer, to: outputFormat, using: converter) else {
+              throw NSError(domain: "NativeSttBridge", code: 12)
+            }
+            continuation.yield(AnalyzerInput(buffer: converted))
+          } else { continuation.yield(AnalyzerInput(buffer: buffer)) }
+        }
+        continuation.finish()
+      } catch { continuation.finish(throwing: error) }
+    }
+    do {
+      if let end = try await analyzer.analyzeSequence(input) {
+        try await analyzer.finalizeAndFinish(through: end)
+      } else { await analyzer.cancelAndFinishNow() }
+      let text = try await results.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !text.isEmpty else { throw NSError(domain: "NativeSttBridge", code: 14, userInfo: [NSLocalizedDescriptionKey: "No speech was recognized"]) }
+      return text
+    } catch {
+      results.cancel()
+      await analyzer.cancelAndFinishNow()
+      throw error
     }
   }
 
@@ -2301,6 +2536,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   }
 
   private func emitError(code: String, message: String) {
+    audioCapture?.close()
     emit([
       "type": "error",
       "code": code,
@@ -2310,6 +2546,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   }
 
   private func emitDone() {
+    audioCapture?.close()
     emit(["type": "done", "engine": "speechAnalyzer"])
   }
 
@@ -2374,6 +2611,8 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   private let preserveAudioSession: Bool
   private let emitPartialResults: Bool
   private let accumulateResults: Bool
+  private let emitAudio: Bool
+  private var audioCapture: NativeDictationAudioEmitter?
   private let allowOnlineFallback: Bool
   private let emit: ([String: Any]) -> Void
   private let isCurrent: () -> Bool
@@ -2406,6 +2645,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     emitPartialResults: Bool,
     accumulateResults: Bool,
     allowOnlineFallback: Bool,
+    emitAudio: Bool,
     emit: @escaping ([String: Any]) -> Void,
     isCurrent: @escaping () -> Bool,
     onFinished: @escaping (SFSpeechNativeSttSession) -> Void
@@ -2414,6 +2654,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     self.preserveAudioSession = preserveAudioSession
     self.emitPartialResults = emitPartialResults
     self.accumulateResults = accumulateResults
+    self.emitAudio = emitAudio
     self.allowOnlineFallback = allowOnlineFallback
     self.emit = emit
     self.isCurrent = isCurrent
@@ -2499,6 +2740,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
       tapInstalled = false
     }
     audioEngine.stop()
+    audioCapture?.close()
     recognitionRequest?.endAudio()
     recognitionTask?.cancel()
     recognitionRequest = nil
@@ -2539,9 +2781,13 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
     let inputFormat = inputNode.outputFormat(forBus: 0)
     try Self.validateInputFormat(inputFormat)
+    audioCapture?.close()
+    let capture = emitAudio ? try NativeDictationAudioEmitter(format: inputFormat, emit: emit) : nil
+    audioCapture = capture
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
       guard appendGate.begin() else { return }
       defer { appendGate.end() }
+      capture?.append(buffer)
       // Admission is the request's ownership boundary. Do not acquire the
       // session lifecycle lock from AVAudioEngine's real-time callback: a
       // segment restart closes this gate while holding that lifecycle lock
@@ -2610,6 +2856,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
           recognizer = self.recognizer
         }
         guard let recognizer else {
+          self.audioCapture?.close()
           self.emit(["type": "done", "engine": "sfSpeech"])
           self.notifyFinished()
           return
@@ -2637,6 +2884,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
 
   private func handleRecognitionError(_ error: Error) {
     guard !isStopped, isCurrent() else { return }
+    audioCapture?.close()
     emit([
       "type": "error",
       "code": "SFSPEECH_ERROR",
@@ -2683,6 +2931,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   private func notifyFinished() {
+    audioCapture?.close()
     guard !didNotifyFinished else { return }
     didNotifyFinished = true
     onFinished(self)

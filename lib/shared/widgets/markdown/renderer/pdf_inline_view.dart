@@ -27,6 +27,7 @@ import '../../../../core/network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../theme/theme_extensions.dart';
 
@@ -1003,7 +1004,7 @@ class _PdfInlineViewState extends ConsumerState<PdfInlineView> {
         child: SizedBox(
           width: 26,
           height: 26,
-          child: CircularProgressIndicator(
+          child: AdaptiveProgressIndicator(
             strokeWidth: 2,
             color: conduitTheme.loadingIndicator,
           ),
@@ -1340,7 +1341,7 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
     }
     if (!_opened) {
       return Center(
-        child: CircularProgressIndicator(color: conduitTheme.loadingIndicator),
+        child: AdaptiveProgressIndicator(color: conduitTheme.loadingIndicator),
       );
     }
     if (_pageCount == 0) {
@@ -1400,7 +1401,7 @@ class _PdfFullscreenPageState extends State<_PdfFullscreenPage> {
                       : SizedBox(
                           width: 24,
                           height: 24,
-                          child: CircularProgressIndicator(
+                          child: AdaptiveProgressIndicator(
                             strokeWidth: 2,
                             color: conduitTheme.loadingIndicator,
                           ),

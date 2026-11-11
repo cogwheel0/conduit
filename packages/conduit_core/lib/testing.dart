@@ -13,6 +13,7 @@
 library;
 
 export 'testing/fake_app_lifecycle.dart';
+export 'testing/fake_librechat_server.dart';
 export 'testing/fake_open_webui_server.dart';
 export 'testing/fake_sync_api_client.dart';
 export 'testing/fake_user_settings_server.dart';
