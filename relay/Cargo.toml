@@ -1,0 +1,31 @@
+[package]
+name = "conduit-push-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Stateless relay that turns Conduit's end-to-end encrypted Web Push into APNs and FCM"
+license = "GPL-3.0-only"
+publish = false
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio"] }
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+jsonwebtoken = { version = "11", default-features = false, features = ["use_pem", "aws_lc_rs"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std"] }
+
+[dev-dependencies]
+# Generates the throwaway APNs and FCM signing keys the tests use. The relay
+# already links it through rustls and jsonwebtoken, so it adds no build.
+aws-lc-rs = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
