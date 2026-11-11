@@ -4898,7 +4898,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "Unter Android kannst du stattdessen einen UnifiedPush-Distributor verwenden. Dein Server sendet dann direkt an ihn, ohne das Conduit-Relay und ohne Google.",
   "pushPrivacyOffTitle": "Push ausschalten",
-  "pushPrivacyOffBody": "Wenn du Push ausschaltest, werden alle Push-Schlüssel dieses Geräts gelöscht; wenn du dich von einem Konto abmeldest oder es entfernst, die Schlüssel dieses Kontos. Was danach an sie gesendet wird, kann nicht gelesen werden. Conduit bittet außerdem jeden Server, dieses Gerät zu vergessen.",
+  "pushPrivacyOffBody": "Wenn du Push ausschaltest, werden alle Push-Schlüssel dieses Geräts gelöscht; wenn du dich von einem Konto abmeldest oder es entfernst, die Schlüssel dieses Kontos. Was danach an sie gesendet wird, kann nicht gelesen werden. Conduit bittet außerdem die Server der betroffenen Konten, dieses Gerät zu vergessen.",
   "pushPrivacyReadMore": "Alle Details lesen",
   "pushAttentionChip": "Push braucht Aufmerksamkeit",
   "notificationScheduledTitle": "Geplante Aufgaben",
