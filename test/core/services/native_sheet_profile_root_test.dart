@@ -302,7 +302,7 @@ void main() {
       expect(_ids(sections).first, [nativeAccountsDetailId]);
     });
 
-    test('with LibreChat in charge, Personalization opens its Flutter page',
+    test('with LibreChat in charge, Personalization opens its memories page',
         () {
       const libreChat = NativeProfileRootVisibility(
         showLibreChatPersonalization: true,
@@ -312,8 +312,9 @@ void main() {
         nativeLibreChatPersonalizationActionId,
       );
       expect(item.title, _l10n.personalization);
-      expect(item.dismissOnSelect, isTrue);
-      expect(item.actionId, nativeLibreChatPersonalizationActionId);
+      // The page is Settings's own, inside the sheet.
+        expect(item.dismissOnSelect, isFalse);
+      expect(item.actionId, isNull);
       // An Open WebUI account signed in has its own AI & Memory instead.
       expect(
         _ids(_root(visibility: libreChat)).expand((ids) => ids),

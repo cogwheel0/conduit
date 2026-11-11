@@ -1208,54 +1208,6 @@ exceptions:
     owner: settings
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/profile/views/personalization_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/personalization_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/customization_tile.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/customization_tile.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/default_model_sheet.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/default_model_sheet.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/expandable_card.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/expandable_card.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/profile/widgets/profile_text_styles.dart
     package: "package:material_ui/material_ui.dart"
     count: 1

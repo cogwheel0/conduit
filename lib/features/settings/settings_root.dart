@@ -103,6 +103,11 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     ),
     buildNativeLoadingDetail(
       l10n: l10n,
+      id: nativeLibreChatPersonalizationActionId,
+      title: l10n.personalization,
+    ),
+    buildNativeLoadingDetail(
+      l10n: l10n,
       id: NativeSheetRoutes.helpAbout,
       title: l10n.aboutApp,
       subtitle: l10n.loadingShort,

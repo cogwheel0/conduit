@@ -17,7 +17,6 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/server_memory.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -399,25 +398,6 @@ class SettingsController {
           return;
         }
         final request = scheduledTasksNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
-
-      if (event.id == nativeLibreChatPersonalizationActionId) {
-        // As for Scheduled tasks: a row from a sheet built while LibreChat
-        // was in charge must not navigate once it no longer is.
-        if (ref.read(primaryAccountKindProvider) !=
-            PrimaryAccountKind.libreChat) {
-          _showNativeOptionUnavailable();
-          return;
-        }
-        // As the other rows' pages: the sheet slides away, not the page in.
-        final request = libreChatPersonalizationNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
             request.routeName,

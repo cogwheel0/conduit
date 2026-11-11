@@ -356,8 +356,8 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     ] else if (visibility.showLibreChatPersonalization)
       // LibreChat's memories, drawn with the head AI & Memory uses for Open
       // WebUI's, in the root's one outline family.
-      _nativeRootPageItem(
-        nativeLibreChatPersonalizationActionId,
+      NativeSheetItemConfig(
+        id: nativeLibreChatPersonalizationActionId,
         title: l10n.personalization,
         sfSymbol: 'brain.head.profile',
       ),
@@ -481,7 +481,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
 /// Id of the native Accounts page, pushed from the account card.
 const nativeAccountsDetailId = 'accounts';
 
-/// The root row that opens the Flutter Personalization page while LibreChat
+/// The root row that opens the LibreChat account's memories while LibreChat
 /// is in charge.
 const nativeLibreChatPersonalizationActionId = 'librechat-personalization';
 
