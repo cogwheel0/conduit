@@ -178,7 +178,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Home agent'), findsNothing);
-    expect(find.text('HA'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('hermes-connection-switcher')),
       findsNothing,

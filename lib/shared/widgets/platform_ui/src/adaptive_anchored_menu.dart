@@ -11,6 +11,7 @@ class AdaptiveAnchoredMenuItem {
   const AdaptiveAnchoredMenuItem({
     required this.id,
     required this.label,
+    this.subtitle,
     this.sfSymbol,
     this.checked = false,
     this.startsSection = false,
@@ -20,6 +21,9 @@ class AdaptiveAnchoredMenuItem {
   final String id;
 
   final String label;
+
+  /// A second line under [label].
+  final String? subtitle;
 
   /// An SF Symbol shown with the label.
   final String? sfSymbol;
@@ -64,6 +68,7 @@ abstract final class AdaptiveAnchoredMenu {
       entries.add(
         CNPopupMenuItem(
           label: item.label,
+          subtitle: item.subtitle?.isNotEmpty == true ? item.subtitle : null,
           icon: item.sfSymbol == null ? null : CNSymbol(item.sfSymbol!),
           checked: item.checked,
         ),

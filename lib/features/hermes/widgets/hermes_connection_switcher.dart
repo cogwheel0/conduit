@@ -129,7 +129,8 @@ Future<void> showHermesConnectionPicker(
 }
 
 /// Opens the saved connections as a native menu under [anchor], with the
-/// active one checked; picking another switches to it. Without a native menu
+/// active one checked and each one's [hermesConnectionSummary] under its
+/// name; picking another switches to it. Without a native menu
 /// (before iOS 26, or on Android) they open as [showHermesConnectionPicker]'s
 /// sheet instead.
 Future<void> showHermesConnectionMenu(
@@ -141,6 +142,7 @@ Future<void> showHermesConnectionMenu(
   }
   final connections = ref.read(hermesConnectionsProvider);
   final activeId = ref.read(hermesActiveConnectionIdProvider);
+  final l10n = AppLocalizations.of(anchor)!;
   final picked = await AdaptiveAnchoredMenu.show(
     anchorContext: anchor,
     items: [
@@ -148,6 +150,7 @@ Future<void> showHermesConnectionMenu(
         AdaptiveAnchoredMenuItem(
           id: connection.id,
           label: connection.name,
+          subtitle: hermesConnectionSummary(connection, l10n),
           checked: connection.id == activeId,
         ),
     ],
