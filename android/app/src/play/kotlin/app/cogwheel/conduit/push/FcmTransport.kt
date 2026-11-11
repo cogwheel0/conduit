@@ -88,21 +88,22 @@ internal object FcmTransport {
                 }
             }
         }
-        val deletion = pendingDeletion
-        if (deletion == null || deletion.isComplete) {
-            fetchToken()
-            return
-        }
-        // Wait for the deletion whether or not it succeeds, then ask for a
-        // token: it is a new one. Released again meanwhile (push turned off),
-        // this request is stale and gets no token; a later one opts in again.
-        deletion.addOnCompleteListener {
-            if (PushRuntime.config(appContext).fcmOptedIn) {
+        // Wait for every deletion still running, whether or not it succeeds,
+        // then ask for a token: it is a new one. Each time one ends, look
+        // again: a release meanwhile may have started another. Released
+        // (push turned off) when none is left, this request is stale and gets
+        // no token; a later one opts in again.
+        fun afterDeletions() {
+            val deletion = pendingDeletion
+            if (deletion != null && !deletion.isComplete) {
+                deletion.addOnCompleteListener { afterDeletions() }
+            } else if (PushRuntime.config(appContext).fcmOptedIn) {
                 fetchToken()
             } else {
                 callback(Result.success(null))
             }
         }
+        afterDeletions()
     }
 
     /**
