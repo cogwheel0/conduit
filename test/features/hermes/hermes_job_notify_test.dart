@@ -4,6 +4,8 @@ import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart'
+    show ConduitIconButton;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
     show AdaptiveSwitch;
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
@@ -216,6 +218,52 @@ void main() {
       expect(fake.calls, [
         'setHermesJobNotify $_connection job-1 true',
       ]);
+    });
+
+    testWidgets('a job stays busy until its Notify me step ends', (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        jobs: const [
+          HermesJob(
+            id: 'job-1',
+            name: 'Daily',
+            prompt: 'Summarize',
+            schedule: '0 9 * * *',
+            deliveryTarget: 'telegram',
+          ),
+        ],
+      );
+      final gate = fake.jobNotifyGate = Completer<void>();
+      ConduitIconButton editButton() => tester.widget<ConduitIconButton>(
+        find.ancestor(
+          of: find.byTooltip('Edit Scheduled Job'),
+          matching: find.byType(ConduitIconButton),
+        ),
+      );
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('hermes-job-notify')),
+          matching: find.byType(AdaptiveSwitch),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      await tester.pump();
+
+      // The notify step reads the job's delivery and writes it back: a
+      // second edit now could be written over.
+      expect(fake.calls, ['setHermesJobNotify $_connection job-1 true']);
+      expect(editButton().onPressed, isNull);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(editButton().onPressed, isNotNull);
     });
 
     testWidgets('a job created whose notify step fails says only that', (

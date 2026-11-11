@@ -45,6 +45,9 @@ typedef HermesJobEditorResult = ({
 /// be changed, with the hint saying why, and the result's `notify` is null.
 /// Push is that switch alone: the checklist leaves out the Conduit target,
 /// and keeps it as the job had it.
+///
+/// [deliveryEditable] is false for a job whose delivery targets this app
+/// can't read: the checklist is left out, so a save can't replace them.
 Future<HermesJobEditorResult?> showHermesJobEditor(
   BuildContext context, {
   String? initialName,
@@ -53,6 +56,7 @@ Future<HermesJobEditorResult?> showHermesJobEditor(
   String? initialDeliver,
   HermesJobCatchUp initialCatchUp = HermesJobCatchUp.hermesDefault,
   bool scheduling = false,
+  bool deliveryEditable = true,
   bool? initialNotify,
   String? notifyUnavailableHint,
 }) {
@@ -65,6 +69,7 @@ Future<HermesJobEditorResult?> showHermesJobEditor(
       initialDeliver: initialDeliver,
       initialCatchUp: initialCatchUp,
       scheduling: scheduling,
+      deliveryEditable: deliveryEditable,
       initialNotify: initialNotify,
       notifyUnavailableHint: notifyUnavailableHint,
     ),
@@ -86,6 +91,7 @@ class _HermesJobEditorDialog extends StatefulWidget {
     this.initialDeliver,
     this.initialCatchUp = HermesJobCatchUp.hermesDefault,
     this.scheduling = false,
+    this.deliveryEditable = true,
     this.initialNotify,
     this.notifyUnavailableHint,
   });
@@ -96,6 +102,7 @@ class _HermesJobEditorDialog extends StatefulWidget {
   final String? initialDeliver;
   final HermesJobCatchUp initialCatchUp;
   final bool scheduling;
+  final bool deliveryEditable;
   final bool? initialNotify;
   final String? notifyUnavailableHint;
 
@@ -169,7 +176,9 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
       name: name,
       prompt: prompt,
       schedule: schedule,
-      deliver: scheduling && deliverChanged ? deliver : null,
+      deliver: scheduling && widget.deliveryEditable && deliverChanged
+          ? deliver
+          : null,
       catchUp: scheduling && catchUpChanged ? _catchUp : null,
       // Shown but not changeable: nothing to change.
       notify: widget.notifyUnavailableHint == null ? _notify : null,
@@ -278,30 +287,32 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
                 ),
                 nativeTitle: l10n.hermesJobCatchUpLabel,
               ),
-              const SizedBox(height: Spacing.md),
-              Consumer(
-                builder: (context, ref, _) {
-                  final options = ref.watch(hermesJobDeliveryOptionsProvider);
-                  final listed = options.asData?.value;
-                  return HermesJobDeliveryField(
-                    value: _deliver,
-                    options: listed == null
-                        ? null
-                        : HermesDeliveryOptions([
-                            for (final option in listed.options)
-                              if (option.target != kConduitHermesPluginName)
-                                option,
-                          ]),
-                    loading: options.isLoading,
-                    // Room for `,conduit`, which saving or "Notify Me" adds.
-                    reservedCharacters:
-                        _deliversToConduit || widget.initialNotify != null
-                        ? kConduitHermesPluginName.length + 1
-                        : 0,
-                    onChanged: (value) => setState(() => _deliver = value),
-                  );
-                },
-              ),
+              if (widget.deliveryEditable) ...[
+                const SizedBox(height: Spacing.md),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final options = ref.watch(hermesJobDeliveryOptionsProvider);
+                    final listed = options.asData?.value;
+                    return HermesJobDeliveryField(
+                      value: _deliver,
+                      options: listed == null
+                          ? null
+                          : HermesDeliveryOptions([
+                              for (final option in listed.options)
+                                if (option.target != kConduitHermesPluginName)
+                                  option,
+                            ]),
+                      loading: options.isLoading,
+                      // Room for `,conduit`, which saving or "Notify Me" adds.
+                      reservedCharacters:
+                          _deliversToConduit || widget.initialNotify != null
+                          ? kConduitHermesPluginName.length + 1
+                          : 0,
+                      onChanged: (value) => setState(() => _deliver = value),
+                    );
+                  },
+                ),
+              ],
             ],
             if (widget.notifyUnavailableHint case final hint?) ...[
               const SizedBox(height: Spacing.sm),
