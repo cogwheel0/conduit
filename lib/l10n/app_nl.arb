@@ -4785,5 +4785,14 @@
   "scheduledTaskWorkingFolderHint": "Standaard van de terminal",
   "scheduledTaskTerminalRequired": "Kies de terminal waarop deze agent draait.",
   "scheduledTaskAgentNeedsChat": "De resultaten van een agent gaan naar een nieuwe chat.",
-  "scheduledTaskAgentsLoading": "Agents van deze terminal laden…"
+  "scheduledTaskAgentsLoading": "Agents van deze terminal laden…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nieuwe melding",
+  "pushReplyTitle": "Nieuw antwoord",
+  "pushReplyFailedTitle": "Antwoord mislukt",
+  "pushReplyFailedBody": "Het antwoord kon niet worden voltooid.",
+  "pushChannelTitle": "Nieuw bericht",
+  "pushCronTitle": "Geplande taak",
+  "pushTestTitle": "Pushmeldingen werken",
+  "pushTestBody": "Deze testmelding kwam van je server."
 }

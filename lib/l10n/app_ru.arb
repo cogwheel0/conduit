@@ -4823,5 +4823,14 @@
   "scheduledTaskWorkingFolderHint": "Папка терминала по умолчанию",
   "scheduledTaskTerminalRequired": "Выберите терминал, на котором работает этот агент.",
   "scheduledTaskAgentNeedsChat": "Результаты агента отправляются в новый чат.",
-  "scheduledTaskAgentsLoading": "Загрузка агентов этого терминала…"
+  "scheduledTaskAgentsLoading": "Загрузка агентов этого терминала…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Новое уведомление",
+  "pushReplyTitle": "Новый ответ",
+  "pushReplyFailedTitle": "Ошибка ответа",
+  "pushReplyFailedBody": "Не удалось завершить ответ.",
+  "pushChannelTitle": "Новое сообщение",
+  "pushCronTitle": "Запланированная задача",
+  "pushTestTitle": "Push-уведомления работают",
+  "pushTestBody": "Это тестовое уведомление пришло с вашего сервера."
 }

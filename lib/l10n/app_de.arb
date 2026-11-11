@@ -4785,5 +4785,14 @@
   "scheduledTaskWorkingFolderHint": "Standard des Terminals",
   "scheduledTaskTerminalRequired": "Wähle das Terminal, auf dem dieser Agent läuft.",
   "scheduledTaskAgentNeedsChat": "Die Ergebnisse eines Agenten landen in einem neuen Chat.",
-  "scheduledTaskAgentsLoading": "Agenten dieses Terminals werden geladen…"
+  "scheduledTaskAgentsLoading": "Agenten dieses Terminals werden geladen…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Neue Benachrichtigung",
+  "pushReplyTitle": "Neue Antwort",
+  "pushReplyFailedTitle": "Antwort fehlgeschlagen",
+  "pushReplyFailedBody": "Die Antwort konnte nicht abgeschlossen werden.",
+  "pushChannelTitle": "Neue Nachricht",
+  "pushCronTitle": "Geplante Aufgabe",
+  "pushTestTitle": "Push-Benachrichtigungen funktionieren",
+  "pushTestBody": "Diese Testbenachrichtigung kam von deinem Server."
 }

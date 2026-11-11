@@ -4785,5 +4785,14 @@
   "scheduledTaskWorkingFolderHint": "终端的默认文件夹",
   "scheduledTaskTerminalRequired": "请选择运行此智能体的终端。",
   "scheduledTaskAgentNeedsChat": "智能体的结果会发送到新聊天。",
-  "scheduledTaskAgentsLoading": "正在加载此终端的智能体…"
+  "scheduledTaskAgentsLoading": "正在加载此终端的智能体…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新通知",
+  "pushReplyTitle": "新回复",
+  "pushReplyFailedTitle": "回复失败",
+  "pushReplyFailedBody": "回复未能完成。",
+  "pushChannelTitle": "新消息",
+  "pushCronTitle": "计划任务",
+  "pushTestTitle": "推送通知已可用",
+  "pushTestBody": "这条测试通知来自你的服务器。"
 }

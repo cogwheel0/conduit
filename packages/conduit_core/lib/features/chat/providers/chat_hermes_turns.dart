@@ -1601,6 +1601,26 @@ Future<void> _deleteLateHermesSessionWithinDeadline(
       );
 }
 
+/// Tells the Hermes push plugin that Conduit started a reply in [sessionId],
+/// so it pushes when the reply finishes. Only an API server connection needs
+/// this: the plugin pushes Hermes dashboard (`mobile`) sessions on its own.
+/// Fire and forget; it never affects the turn.
+void _watchHermesSessionForPush(
+  dynamic ref,
+  HermesBackendService service,
+  String sessionId,
+) {
+  if (service is! HermesApiService) return;
+  final connectionId = service.config.connectionId;
+  if (connectionId == null || connectionId.isEmpty) return;
+  try {
+    final watch = ref.read(pushHermesSessionWatchProvider);
+    if (watch is PushHermesSessionWatch) watch(connectionId, sessionId);
+  } catch (_) {
+    // Push is best effort.
+  }
+}
+
 void _deleteLateHermesSessionBestEffort(
   HermesBackendService service,
   String sessionId, {
@@ -2025,6 +2045,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       ownerMessages: ownerMessages,
       sendHandle: sendHandle,
     );
+    _watchHermesSessionForPush(ref, service, sessionId);
   }
 
   // Hermes v0.22.1+ refuses API turns into a session another Hermes surface
@@ -2204,6 +2225,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         );
         if (responseCreatedSession) {
           ref.invalidate(hermesSessionsProvider);
+          _watchHermesSessionForPush(ref, service, establishedSessionId);
         }
       },
       onSessionRefused: markSessionRefused,

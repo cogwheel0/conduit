@@ -6402,5 +6402,14 @@
   "scheduledTaskWorkingFolderHint": "ターミナルの既定",
   "scheduledTaskTerminalRequired": "このエージェントを実行するターミナルを選択してください。",
   "scheduledTaskAgentNeedsChat": "エージェントの結果は新しいチャットに送られます。",
-  "scheduledTaskAgentsLoading": "このターミナルのエージェントを読み込み中…"
+  "scheduledTaskAgentsLoading": "このターミナルのエージェントを読み込み中…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新しい通知",
+  "pushReplyTitle": "新しい返信",
+  "pushReplyFailedTitle": "返信に失敗しました",
+  "pushReplyFailedBody": "返信を完了できませんでした。",
+  "pushChannelTitle": "新しいメッセージ",
+  "pushCronTitle": "スケジュールされたタスク",
+  "pushTestTitle": "プッシュ通知は正常に動作しています",
+  "pushTestBody": "このテスト通知はあなたのサーバーから届きました。"
 }

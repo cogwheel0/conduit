@@ -9145,5 +9145,14 @@
   "scheduledTaskAgentNeedsChat": "Wyniki agenta trafiają do nowego czatu.",
   "@scheduledTaskAgentNeedsChat": {"description": "Shown on the destination of a scheduled task whose model is a coding agent (such as Codex) when a channel is chosen: Open WebUI posts an agent's results only to a new chat."},
   "scheduledTaskAgentsLoading": "Wczytywanie agentów tego terminala…",
-  "@scheduledTaskAgentsLoading": {"description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."}
+  "@scheduledTaskAgentsLoading": {"description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."},
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nowe powiadomienie",
+  "pushReplyTitle": "Nowa odpowiedź",
+  "pushReplyFailedTitle": "Odpowiedź nie powiodła się",
+  "pushReplyFailedBody": "Nie udało się dokończyć odpowiedzi.",
+  "pushChannelTitle": "Nowa wiadomość",
+  "pushCronTitle": "Zadanie zaplanowane",
+  "pushTestTitle": "Powiadomienia push działają",
+  "pushTestBody": "To powiadomienie testowe przyszło z Twojego serwera."
 }

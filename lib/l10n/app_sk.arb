@@ -6708,5 +6708,14 @@
   "scheduledTaskWorkingFolderHint": "Predvolený priečinok terminálu",
   "scheduledTaskTerminalRequired": "Vyberte terminál, na ktorom tento agent beží.",
   "scheduledTaskAgentNeedsChat": "Výsledky agenta sa ukladajú do nového chatu.",
-  "scheduledTaskAgentsLoading": "Načítavajú sa agenti tohto terminálu…"
+  "scheduledTaskAgentsLoading": "Načítavajú sa agenti tohto terminálu…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nové upozornenie",
+  "pushReplyTitle": "Nová odpoveď",
+  "pushReplyFailedTitle": "Odpoveď zlyhala",
+  "pushReplyFailedBody": "Odpoveď sa nepodarilo dokončiť.",
+  "pushChannelTitle": "Nová správa",
+  "pushCronTitle": "Naplánovaná úloha",
+  "pushTestTitle": "Push upozornenia fungujú",
+  "pushTestBody": "Toto testovacie upozornenie prišlo z vášho servera."
 }

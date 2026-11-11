@@ -24,6 +24,7 @@ export 'audio_playback_port.dart';
 export 'display_boost_port.dart';
 export 'flush_scheduler.dart';
 export 'post_frame_scheduler.dart';
+export 'push_platform_port.dart';
 export 'route_navigator_port.dart';
 export 'key_value_store.dart';
 export 'location_port.dart';

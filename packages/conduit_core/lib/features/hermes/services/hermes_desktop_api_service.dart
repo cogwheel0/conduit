@@ -51,6 +51,7 @@ part 'hermes_desktop_canonical.dart';
 part 'hermes_desktop_context.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
+part 'hermes_desktop_raw_rest.dart';
 part 'hermes_desktop_rooms.dart';
 part 'hermes_desktop_todos.dart';
 part 'hermes_desktop_turn_runtime.dart';
@@ -747,6 +748,15 @@ final class HermesDesktopApiService
     deliver: deliver,
     catchUp: catchUp,
   );
+
+  /// [method] [path] against the dashboard with its authentication, answering
+  /// any status rather than throwing on one.
+  Future<HermesDashboardResponse> dashboardRequest(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) => _rawRequest(method, path, body: body, query: query);
 
   /// Stops the job's running run (`POST /api/cron/jobs/{id}/cancel`).
   /// Throws [HermesJobStopUnsupportedException] on Hermes before 0.22.6.

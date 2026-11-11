@@ -4785,5 +4785,14 @@
   "scheduledTaskWorkingFolderHint": "La predeterminada del terminal",
   "scheduledTaskTerminalRequired": "Elige el terminal en el que se ejecuta este agente.",
   "scheduledTaskAgentNeedsChat": "Los resultados de un agente van a un chat nuevo.",
-  "scheduledTaskAgentsLoading": "Cargando los agentes de este terminal…"
+  "scheduledTaskAgentsLoading": "Cargando los agentes de este terminal…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nueva notificación",
+  "pushReplyTitle": "Nueva respuesta",
+  "pushReplyFailedTitle": "La respuesta falló",
+  "pushReplyFailedBody": "No se pudo completar la respuesta.",
+  "pushChannelTitle": "Nuevo mensaje",
+  "pushCronTitle": "Tarea programada",
+  "pushTestTitle": "Las notificaciones push funcionan",
+  "pushTestBody": "Esta notificación de prueba llegó desde tu servidor."
 }

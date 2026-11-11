@@ -92,11 +92,16 @@ class NotificationRouter {
   /// Routes [notification] through the gating chain and dispatches it. Returns
   /// the surface taken, primarily for tests and diagnostics.
   ///
+  /// [alreadyClaimed] is for a push the platform handed over in the
+  /// foreground: the notification service extension claimed its key before
+  /// the app saw it, so claiming again would always lose.
+  ///
   /// [alert] is false for a message in a channel set to mentions only that
   /// does not mention the user: it still counts as unread, but plays no sound
   /// and shows no banner or system notification, as in Open WebUI.
   Future<NotificationSurface> route(
     AppNotification notification, {
+    bool alreadyClaimed = false,
     bool alert = true,
   }) async {
     final settings = _readSettings();
@@ -151,7 +156,7 @@ class NotificationRouter {
       if (settings.notificationSystem) {
         // Another source (a push) may already have shown this event.
         final id = _localNotifications.nextNotificationId();
-        if (!await _claim(notification.dedupKey, '$id')) {
+        if (!alreadyClaimed && !await _claim(notification.dedupKey, '$id')) {
           return NotificationSurface.suppressed;
         }
         await _localNotifications.show(

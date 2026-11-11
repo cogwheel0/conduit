@@ -4785,5 +4785,14 @@
   "scheduledTaskWorkingFolderHint": "終端機的預設資料夾",
   "scheduledTaskTerminalRequired": "請選擇執行此代理的終端機。",
   "scheduledTaskAgentNeedsChat": "代理的結果會傳送到新聊天。",
-  "scheduledTaskAgentsLoading": "正在載入此終端機的代理…"
+  "scheduledTaskAgentsLoading": "正在載入此終端機的代理…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新通知",
+  "pushReplyTitle": "新回覆",
+  "pushReplyFailedTitle": "回覆失敗",
+  "pushReplyFailedBody": "回覆未能完成。",
+  "pushChannelTitle": "新訊息",
+  "pushCronTitle": "排程工作",
+  "pushTestTitle": "推播通知已可使用",
+  "pushTestBody": "這則測試通知來自你的伺服器。"
 }
