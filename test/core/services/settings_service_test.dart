@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/web_search/web_search.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -10,6 +13,76 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
+  group('Sliding sidebar preference', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test('defaults off and survives a new settings provider', () async {
+      check(const AppSettings().slidingSidebarEnabled).isFalse();
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+      final first = ProviderContainer();
+      await first
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(true);
+      first.dispose();
+      final reopened = ProviderContainer();
+      addTearDown(reopened.dispose);
+      check(reopened.read(appSettingsProvider).slidingSidebarEnabled).isTrue();
+      await reopened
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(false);
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+    });
+
+    test('a delayed bulk save cannot undo a newer sidebar toggle', () async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      var held = false;
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (_, key, value) async {
+          if (key == PreferenceKeys.reduceMotion && !held) {
+            held = true;
+            entered.complete();
+            await release.future;
+          }
+          return null;
+        },
+      );
+      final bulk = SettingsService.saveSettings(const AppSettings());
+      await entered.future;
+      await SettingsService.setSlidingSidebarEnabled(true);
+      release.complete();
+      await bulk;
+      check(await SettingsService.getSlidingSidebarEnabled()).isTrue();
+      final reopened = ProviderContainer();
+      addTearDown(reopened.dispose);
+      check(reopened.read(appSettingsProvider).slidingSidebarEnabled).isTrue();
+    });
+
+    test('reset restores the default sidebar after opting in', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(true);
+      await container.read(appSettingsProvider.notifier).resetToDefaults();
+      check(container.read(appSettingsProvider).slidingSidebarEnabled)
+          .isFalse();
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+    });
+
+    test('copy and equality retain the preference', () {
+      final enabled = const AppSettings().copyWith(slidingSidebarEnabled: true);
+      check(enabled == const AppSettings()).isFalse();
+      check(enabled.copyWith().slidingSidebarEnabled).isTrue();
+      check(enabled == enabled.copyWith()).isTrue();
+    });
+  });
+
   group('AppSettings', () {
     group('default constructor values', () {
       const settings = AppSettings();
@@ -86,8 +159,8 @@ void main() {
         check(settings.ttsVoiceName).isNull();
       });
 
-      test('ttsSpeechRate defaults to 0.5', () {
-        check(settings.ttsSpeechRate).equals(0.5);
+      test('ttsSpeed defaults to the voice\'s own pace', () {
+        check(settings.ttsSpeed).equals(1.0);
       });
 
       test('ttsPitch defaults to 1.0', () {
@@ -146,7 +219,7 @@ void main() {
           pinnedModels: ['gpt-4o', 'claude-sonnet'],
           sendOnEnter: true,
           sttPreference: SttPreference.serverOnly,
-          ttsSpeechRate: 0.8,
+          ttsSpeed: 1.25,
           ttsPitch: 1.2,
           ttsVolume: 0.9,
           ttsEngine: TtsEngine.server,
@@ -167,7 +240,7 @@ void main() {
         check(modified.pinnedModels).deepEquals(['gpt-4o', 'claude-sonnet']);
         check(modified.sendOnEnter).equals(true);
         check(modified.sttPreference).equals(SttPreference.serverOnly);
-        check(modified.ttsSpeechRate).equals(0.8);
+        check(modified.ttsSpeed).equals(1.25);
         check(modified.ttsPitch).equals(1.2);
         check(modified.ttsVolume).equals(0.9);
         check(modified.ttsEngine).equals(TtsEngine.server);
@@ -407,6 +480,38 @@ void main() {
     );
   });
 
+  group('SettingsService speech speed persistence', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    // An older install saved the device engine's rate, where 0.5 was the
+    // voice's own pace; it carries over as the nearest speed offered.
+    for (final (rate, speed) in [
+      (null, 1.0),
+      (0.5, 1.0),
+      (0.6, 1.25),
+      (0.25, 0.75),
+      (2.0, 2.0),
+    ]) {
+      test('a saved rate of $rate loads as ${speed}x', () async {
+        if (rate != null) {
+          await PreferencesStore.put(PreferenceKeys.ttsSpeechRate, rate);
+        }
+        check((await SettingsService.loadSettings()).ttsSpeed).equals(speed);
+      });
+    }
+
+    test('a saved speed wins over an older rate and round-trips', () async {
+      await PreferencesStore.put(PreferenceKeys.ttsSpeechRate, 0.9);
+      await SettingsService.saveSettings(const AppSettings(ttsSpeed: 0.75));
+      check((await SettingsService.loadSettings()).ttsSpeed).equals(0.75);
+    });
+  });
+
   group('SettingsService OpenRouter image model persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -526,6 +631,127 @@ void main() {
     });
   });
 
+  group('Computer preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test(
+      'disable survives restart and bulk save; reset restores default',
+      () async {
+        const defaults = AppSettings();
+        check(defaults.computerEnabled).isTrue();
+        check(defaults.copyWith(computerEnabled: false))
+            .not((it) => it.equals(defaults));
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        await container
+            .read(appSettingsProvider.notifier)
+            .setComputerEnabled(false);
+        check(container.read(appSettingsProvider).computerEnabled).isFalse();
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.reload();
+        final saved = <String, Object>{
+          for (final key in preferences.getKeys()) key: preferences.get(key)!,
+        };
+        SharedPreferences.setMockInitialValues(saved);
+        PreferencesStore.debugReset();
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        final restarted = ProviderContainer();
+        addTearDown(restarted.dispose);
+        check(restarted.read(appSettingsProvider).computerEnabled).isFalse();
+        await SettingsService.saveSettings(const AppSettings());
+        check((await SettingsService.loadSettings()).computerEnabled).isFalse();
+        await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+        check((await SettingsService.loadSettings()).computerEnabled).isTrue();
+      },
+    );
+  });
+
+  group('Citation background preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('defaults to filled and participates in settings equality', () {
+      const defaults = AppSettings();
+      final transparent = defaults.copyWith(citationBackground: false);
+      check(defaults.citationBackground).isTrue();
+      check(transparent.citationBackground).isFalse();
+      check(transparent).not((it) => it.equals(defaults));
+      check(transparent.copyWith()).equals(transparent);
+    });
+
+    test(
+      'transparent survives restart and bulk save; reset restores filled',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        await container
+            .read(appSettingsProvider.notifier)
+            .setCitationBackground(false);
+        check(container.read(appSettingsProvider).citationBackground).isFalse();
+
+        // Reload the persisted mock values into a fresh host store.
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.reload();
+        final saved = <String, Object>{
+          for (final key in preferences.getKeys()) key: preferences.get(key)!,
+        };
+        SharedPreferences.setMockInitialValues(saved);
+        PreferencesStore.debugReset();
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+
+        final restarted = ProviderContainer();
+        addTearDown(restarted.dispose);
+        check(restarted.read(appSettingsProvider).citationBackground).isFalse();
+        // A stale unrelated settings save must not reset the local appearance.
+        await SettingsService.saveSettings(const AppSettings());
+        check((await SettingsService.loadSettings()).citationBackground)
+            .isFalse();
+
+        await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+        final afterReset = ProviderContainer();
+        addTearDown(afterReset.dispose);
+        check(afterReset.read(appSettingsProvider).citationBackground).isTrue();
+      },
+    );
+  });
+
+  group('AppSettingsNotifier Voice provider', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('survives a restart, and reset clears it for good', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setDirectVoiceProvider(
+            const DirectVoiceProviderSettings(profileId: 'voice'),
+          );
+
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      check(restarted.read(appSettingsProvider).directVoiceProvider?.profileId)
+          .equals('voice');
+
+      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+      final afterReset = ProviderContainer();
+      addTearDown(afterReset.dispose);
+      check(afterReset.read(appSettingsProvider).directVoiceProvider).isNull();
+    });
+  });
+
   group('SettingsService.normalizeSttLanguageCode', () {
     test('normalizes two-letter language codes', () {
       check(SettingsService.normalizeSttLanguageCode('PL')).equals('pl');
@@ -585,6 +811,73 @@ void main() {
     test('voiceCall storageValue is "voice_call"', () {
       check(AndroidAssistantTrigger.voiceCall.storageValue)
           .equals('voice_call');
+    });
+  });
+  group('message action preferences', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test('custom actions and empty choices survive restart; reset restores defaults', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+      await notifier.setInlineMessageActions(['share', 'usage', 'share']);
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'share',
+        'usage',
+      ]);
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      expect(restarted.read(appSettingsProvider).inlineMessageActions, [
+        'share',
+        'usage',
+      ]);
+      await notifier.setInlineMessageActions([]);
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isEmpty,
+      );
+      await notifier.setInlineMessageActions(null);
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isNull,
+      );
+      expect(
+        PreferencesStore.containsKey(PreferenceKeys.inlineMessageActions),
+        isFalse,
+      );
+    });
+
+    test('bulk settings saves preserve independently saved actions', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+      final stale = container.read(appSettingsProvider);
+      await notifier.setInlineMessageActions(['share']);
+      await SettingsService.saveSettings(stale.copyWith(ttsSpeed: 1.5));
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'share',
+      ]);
+      await notifier.resetToDefaults();
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isNull,
+      );
+    });
+
+    test('copy and equality distinguish defaults from an empty selection', () {
+      const defaults = AppSettings();
+      final empty = defaults.copyWith(inlineMessageActions: <String>[]);
+      expect(empty, isNot(defaults));
+      expect(empty.copyWith(darkMode: false).inlineMessageActions, isEmpty);
+      expect(empty.copyWith(inlineMessageActions: null), defaults);
+      expect(
+        defaults.copyWith(inlineMessageActions: ['share']),
+        defaults.copyWith(inlineMessageActions: ['share']),
+      );
     });
   });
 }

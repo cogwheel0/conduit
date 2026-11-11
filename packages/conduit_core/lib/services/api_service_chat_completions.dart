@@ -240,7 +240,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           _isUnsupportedModernChatMetadataError(error);
 
       if (!shouldRetryWithLegacy) {
-        throw Exception('Chat completion failed ($status): $error');
+        return _recoverSavedReplyOrThrow(
+          status: status,
+          error: error,
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
       }
 
       _traceApi(
@@ -256,7 +263,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
 
       if (status < 200 || status >= 300) {
         final retryError = await _decodeChatCompletionError(resp);
-        throw Exception('Chat completion failed ($status): $retryError');
+        return _recoverSavedReplyOrThrow(
+          status: status,
+          error: retryError,
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
       }
     } else {
       _chatRequestMetadataFormat ??= metadataFormat;
@@ -523,6 +537,90 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     );
   }
 
+  /// POST `/api/v1/tasks/title/completions`: a title for a chat that begins
+  /// with [messages], or null when the server makes none, such as with title
+  /// generation turned off. Read as Open WebUI's web client reads it.
+  Future<String?> generateChatTitle({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final title = (await _generateTaskJson(
+      '/api/v1/tasks/title/completions',
+      model: model,
+      messages: messages,
+      chatId: chatId,
+      authSnapshot: authSnapshot,
+    ))?['title'];
+    return title is String && title.isNotEmpty ? title : null;
+  }
+
+  /// POST `/api/v1/tasks/tags/completions`: tags for a chat that begins with
+  /// [messages], empty when the server makes none.
+  Future<List<String>> generateChatTags({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final tags = (await _generateTaskJson(
+      '/api/v1/tasks/tags/completions',
+      model: model,
+      messages: messages,
+      chatId: chatId,
+      authSnapshot: authSnapshot,
+    ))?['tags'];
+    return tags is List ? [for (final tag in tags) ?_tagName(tag)] : const [];
+  }
+
+  static String? _tagName(Object? tag) =>
+      tag is String && tag.trim().isNotEmpty ? tag.trim() : null;
+
+  /// The JSON object a task model answered with, from its outermost braces.
+  /// An answer that is not JSON as written is read again with its quotes
+  /// made double, as the web client reads every answer; doing that first
+  /// would break titles and tags that hold an apostrophe.
+  Future<Map<String, dynamic>?> _generateTaskJson(
+    String path, {
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.post(
+      path,
+      data: <String, dynamic>{
+        'model': model,
+        'messages': messages,
+        'chat_id': ?chatId,
+      },
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    final data = response.data;
+    final choices = data is Map ? data['choices'] : null;
+    final first = choices is List && choices.isNotEmpty ? choices.first : null;
+    final message = first is Map ? first['message'] : null;
+    final content = message is Map ? message['content'] : null;
+    if (content is! String) return null;
+    final start = content.indexOf('{');
+    final end = content.lastIndexOf('}');
+    if (start == -1 || end < start) return null;
+    final json = content.substring(start, end + 1);
+    for (final candidate in [
+      json,
+      json.replaceAll(RegExp('[\'‘’`]'), '"'),
+    ]) {
+      try {
+        final parsed = jsonDecode(candidate);
+        return parsed is Map<String, dynamic> ? parsed : null;
+      } on FormatException {
+        continue;
+      }
+    }
+    return null;
+  }
+
   // === Tasks control (parity with Web client) ===
   Future<void> stopTask(String taskId) async {
     try {
@@ -547,6 +645,66 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     } catch (e) {
       rethrow;
     }
+  }
+
+  /// Moves a temporary chat to the socket session [sessionId] and reads what
+  /// its running replies have written so far.
+  ///
+  /// Open WebUI 0.13 sends a temporary chat's events only to the socket
+  /// session that owns it, so after a reconnect its replies arrive only once
+  /// the new session takes it over. Null when the server has no such endpoint
+  /// (before 0.13, where the events go to every session of the account).
+  /// Throws [TemporaryChatUnavailable] when the server no longer holds the
+  /// chat.
+  Future<TemporaryChatResume?> resumeTemporaryChat(
+    String chatId, {
+    required String sessionId,
+  }) async {
+    final unsupportedAt = _temporaryChatResumeUnsupportedAt;
+    if (unsupportedAt != null &&
+        DateTime.now().difference(unsupportedAt) <
+            _ApiServiceBase._temporaryChatResumeRecheck) {
+      return null;
+    }
+    final Response<dynamic> resp;
+    try {
+      resp = await _dio.post(
+        '/api/tasks/chat/${Uri.encodeComponent(chatId)}/resume',
+        data: <String, dynamic>{'session_id': sessionId},
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      // Older servers match the path to the GET route that lists a chat's
+      // tasks, and refuse the method.
+      final data = e.response?.data;
+      final detail = data is Map ? data['detail']?.toString().trim() : null;
+      // Open WebUI 0.13's own answer for a chat it does not hold.
+      if (status == 404 && detail == TemporaryChatUnavailable.serverDetail) {
+        throw TemporaryChatUnavailable(detail!);
+      }
+      // Any other unknown route: a server, or a proxy before it, without
+      // the endpoint (older servers match the GET route and answer 405).
+      if (status == 404 || status == 405) {
+        _temporaryChatResumeUnsupportedAt = DateTime.now();
+        return null;
+      }
+      rethrow;
+    }
+    final data = resp.data;
+    if (data is! Map) return null;
+    final rawTaskIds = data['task_ids'];
+    final rawStreams = data['streams'];
+    return TemporaryChatResume(
+      taskIds: rawTaskIds is List
+          ? [for (final id in rawTaskIds) id.toString()]
+          : const <String>[],
+      streams: rawStreams is List
+          ? [
+              for (final stream in rawStreams)
+                if (stream is Map) Map<String, dynamic>.from(stream),
+            ]
+          : const <Map<String, dynamic>>[],
+    );
   }
 
   Future<List<String>> getTaskIdsByChat(String chatId) async {
@@ -592,15 +750,21 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     return taskIds.toSet().toList(growable: false);
   }
 
+  /// Which of [chatIds] currently have an active server task.
+  Future<Set<String>> checkActiveChats(List<String> chatIds) async =>
+      (await checkChatActivity(chatIds)).active;
+
   /// POST `/api/v1/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
   ///
-  /// Bulk query for which of [chatIds] currently have an active server task.
-  /// Open WebUI through 0.10 provides the dedicated task endpoint; 0.11 puts
-  /// the same state on chat-list rows. A 404 or 405 permanently selects that
-  /// list fallback for this API-service instance.
-  Future<Set<String>> checkActiveChats(List<String> chatIds) async {
+  /// Bulk query for which of [chatIds] currently have an active server task,
+  /// and which wait for the user to approve a tool call. Open WebUI through
+  /// 0.10 provides the dedicated task endpoint, which knows no approvals; 0.11
+  /// puts the task state on chat-list rows, and 0.13 the approval state too.
+  /// A 404 or 405 permanently selects that list fallback for this API-service
+  /// instance.
+  Future<ChatActivity> checkChatActivity(List<String> chatIds) async {
     if (chatIds.isEmpty) {
-      return <String>{};
+      return (active: <String>{}, pendingApproval: <String>{});
     }
     if (_activeChatsEndpointUnsupported) {
       return _checkActiveChatsFromLists(chatIds);
@@ -612,11 +776,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       );
       final data = resp.data;
       if (data is Map && data['active_chat_ids'] is List) {
-        return (data['active_chat_ids'] as List)
-            .map((e) => e.toString())
-            .toSet();
+        return (
+          active: (data['active_chat_ids'] as List)
+              .map((e) => e.toString())
+              .toSet(),
+          pendingApproval: <String>{},
+        );
       }
-      return <String>{};
+      return (active: <String>{}, pendingApproval: <String>{});
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       if (statusCode == 404 || statusCode == 405) {
@@ -647,6 +814,74 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   void clearStreamCancelToken(String messageId) {
     _streamCancelActions.remove(messageId);
   }
+}
+
+/// Open WebUI refused files for a knowledge base: too many in one upload,
+/// more than the base may hold, or one too large. [reason] is the server's.
+final class KnowledgeUploadRefused implements Exception {
+  const KnowledgeUploadRefused(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'KnowledgeUploadRefused: $reason';
+}
+
+/// Which chats have a server task running, and which of them wait for the
+/// user to approve a tool call (Open WebUI 0.13 and later).
+typedef ChatActivity = ({Set<String> active, Set<String> pendingApproval});
+
+/// What Open WebUI reports when a temporary chat moves to a new socket
+/// session: the chat's running tasks, and a snapshot of each running reply
+/// (`chat_id`, `message_id`, `output` and its text as `content`).
+final class TemporaryChatResume {
+  const TemporaryChatResume({required this.taskIds, required this.streams});
+
+  /// The error a running reply shows when the chat resumes with no task left:
+  /// the reply ended, or failed, while no session received it.
+  static const String connectionLostMessage = 'Connection lost. Please retry.';
+
+  final List<String> taskIds;
+  final List<Map<String, dynamic>> streams;
+
+  /// The snapshot of the reply [messageId], if it is still running.
+  Map<String, dynamic>? streamFor(String messageId) {
+    for (final stream in streams) {
+      if (stream['message_id']?.toString() == messageId) return stream;
+    }
+    return null;
+  }
+}
+
+/// A temporary chat on Open WebUI 0.13 or later was sent without a connected
+/// socket, which such a server refuses.
+final class TemporaryChatNeedsConnectionException implements Exception {
+  const TemporaryChatNeedsConnectionException();
+
+  @override
+  String toString() =>
+      'TemporaryChatNeedsConnectionException: no socket session';
+}
+
+/// The server does not hold a temporary chat: it forgot it after a day or a
+/// restart, another session started it, or the session asking for it is no
+/// longer connected.
+final class TemporaryChatUnavailable implements Exception {
+  const TemporaryChatUnavailable(this.detail);
+
+  /// Open WebUI's `detail` for a temporary chat it no longer holds, both on a
+  /// resume and on a completion request.
+  static const String serverDetail = 'Temporary chat expired or unavailable';
+
+  /// What the user is told when the server no longer holds the chat.
+  static const String userMessage =
+      'The server no longer has this temporary chat. Start a new temporary '
+      'chat to continue.';
+
+  final String detail;
+
+  @override
+  String toString() => 'TemporaryChatUnavailable: $detail';
 }
 
 /// The server answered a task stop successfully but did not stop the task.

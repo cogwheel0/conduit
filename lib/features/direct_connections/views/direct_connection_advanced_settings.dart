@@ -194,6 +194,7 @@ final class _NativeAdvancedSettingsContent extends StatelessWidget {
               textInputAction: TextInputAction.newline,
               autocorrect: false,
               padding: const EdgeInsets.all(Spacing.md),
+              magnifierConfiguration: nativeIosTextMagnifierConfiguration,
               style: AppTypography.bodyMediumStyle.copyWith(
                 color: context.conduitTheme.textPrimary,
               ),

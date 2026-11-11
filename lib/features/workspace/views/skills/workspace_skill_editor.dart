@@ -665,6 +665,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
               width: 200,
               child: AdaptiveSegmentedControl(
                 key: const Key('workspace-skill-preview-toggle'),
+                semanticLabel: l10n.workspaceSkillContent,
                 shrinkWrap: true,
                 labels: [
                   l10n.workspaceSkillWriteTab,

@@ -138,12 +138,28 @@ class _NotificationTargetEditorState extends State<_NotificationTargetEditor> {
       ? l10n.notificationTargetUrlRequired
       : null;
 
+  /// Events the destination holds that the server's catalog no longer lists,
+  /// such as the file processing alert Open WebUI 0.13 dropped. The server
+  /// refuses any update of a destination that keeps one, even an update that
+  /// leaves its events alone, so they are not shown and every save drops them.
+  /// Empty while the catalog is unknown: nothing can be told apart then.
+  Set<String> get _retiredEvents {
+    if (widget.events.isEmpty) return const <String>{};
+    final listed = {for (final event in widget.events) event.event};
+    return {
+      for (final id in _target?.events ?? const <String>[])
+        if (!listed.contains(id)) id,
+    };
+  }
+
   /// The catalog, then any event the destination holds that the catalog does
   /// not list, so a subscription this client cannot name is shown and kept.
+  /// With the catalog read, that leaves only events it lists.
   List<({String id, String label, String? description, bool unknown})>
   get _eventRows {
     final l10n = AppLocalizations.of(context)!;
     final listed = {for (final event in widget.events) event.event};
+    final retired = _retiredEvents;
     return [
       for (final event in widget.events)
         (
@@ -153,7 +169,7 @@ class _NotificationTargetEditorState extends State<_NotificationTargetEditor> {
           unknown: false,
         ),
       for (final id in _target?.events ?? const <String>[])
-        if (!listed.contains(id))
+        if (!listed.contains(id) && !retired.contains(id))
           (
             id: id,
             label: id,
@@ -220,13 +236,17 @@ class _NotificationTargetEditorState extends State<_NotificationTargetEditor> {
         );
       } else {
         // Only what changed goes out, so an edit that leaves the destination
-        // alone cannot touch the URL the server holds or trip server checks
-        // on an event it no longer recognizes.
+        // alone cannot touch the URL the server holds. The events also go out
+        // when the destination keeps one the server no longer lists: the
+        // server checks the stored ones too, and refuses the whole update.
         await widget.notifier.updateTarget(
           target.id,
           enabled: _enabled != target.enabled ? _enabled : null,
           events:
-              const SetEquality<String>().equals(_events, {...target.events})
+              _retiredEvents.isEmpty &&
+                  const SetEquality<String>().equals(_events, {
+                    ...target.events,
+                  })
               ? null
               : events,
           delivery: _delivery != target.delivery ? _delivery : null,

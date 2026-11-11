@@ -6,8 +6,12 @@ final class PreferenceKeys {
   static const String disableHapticsWhileStreaming =
       'disable_haptics_while_streaming';
   static const String citationShowTitles = 'citation_show_titles';
+  static const String citationBackground = 'citation_background';
   static const String highContrast = 'high_contrast';
+  static const String computerEnabled = 'computer_enabled';
+  static const String showComposerNotesButton = 'show_composer_notes_button';
   static const String darkMode = 'dark_mode';
+  static const String slidingSidebarEnabled = 'sliding_sidebar_enabled';
   static const String defaultModel = 'default_model';
   static const String openRouterImageGenerationModel =
       'openrouter_image_generation_model_v1';
@@ -15,10 +19,12 @@ final class PreferenceKeys {
   static const String voiceHoldToTalk = 'voice_hold_to_talk';
   static const String voiceAutoSendFinal = 'voice_auto_send_final';
   static const String voiceBargeInEnabled = 'voice_barge_in_enabled';
+  static const String voiceCallMode = 'voice_call_mode';
   static const String voiceSttPreference = 'voice_stt_preference';
   static const String voiceSttLanguageCode = 'voice_stt_language_code';
   static const String socketTransportMode = 'socket_transport_mode';
   static const String quickPills = 'quick_pills';
+  static const String inlineMessageActions = 'inline_message_actions_v1';
   static const String chatWebSearchEnabled = 'chat_web_search_enabled';
   static const String chatImageGenerationEnabled =
       'chat_image_generation_enabled';
@@ -26,7 +32,9 @@ final class PreferenceKeys {
   static const String webSearchEngine = 'web_search_engine_v1';
   static const String webSearchSafeSearch = 'web_search_safe_search_v1';
   static const String webSearchRegion = 'web_search_region_v1';
+  static const String directVoiceProvider = 'direct_voice_provider_v1';
   static const String sendOnEnterKey = 'send_on_enter';
+
   /// Holds the active Open WebUI *account* id. The key predates accounts:
   /// an account's id is the id its server config always had.
   static const String activeServerId = 'active_server_id';
@@ -83,7 +91,10 @@ final class PreferenceKeys {
       'server_version_warning_dismissed_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
+  /// The device engine's rate saved before [ttsSpeed] replaced it; read once
+  /// to carry an older install's pace over.
   static const String ttsSpeechRate = 'tts_speech_rate';
+  static const String ttsSpeed = 'tts_speed';
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
   static const String ttsEngine = 'tts_engine'; // 'device' | 'server'
@@ -144,6 +155,10 @@ final class PreferenceKeys {
   static const String hermesPendingDesktopDecisions =
       'hermes_pending_desktop_decisions_v1';
 
+  /// Hermes chats hidden (or, on the API server, archived) from Conduit,
+  /// which no Hermes session list returns.
+  static const String hermesSetAsideSessions = 'hermes_set_aside_sessions_v1';
+
   /// Keyed by origin, not by saved connection: the WebView cookie store is
   /// process-global, so two connections on one origin share dashboard cookies.
   static const String hermesDashboardCookieIdentities =
@@ -153,6 +168,20 @@ final class PreferenceKeys {
   /// ('owui' | 'direct' | 'hermes' | unset).
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
+
+  /// Set while Open WebUI is parked: its accounts and their sessions kept,
+  /// none active, because another account backend owns the Chats tab. No
+  /// account is then active by storage's single-account fallback either.
+  static const String openWebUiParked = 'openwebui_parked_v1';
+
+  /// A change of the account that owns the Chats tab, between Open WebUI and
+  /// LibreChat, written before the old one is left and cleared once the new
+  /// one has settled. Found at start, the change is finished or undone.
+  static const String primarySwitchIntent = 'primary_switch_intent_v1';
+
+  /// Set when a full sign-out could not forget the LibreChat accounts and
+  /// their sessions. The next start forgets them before any can open.
+  static const String libreChatClearPending = 'librechat_clear_pending_v1';
 
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.
@@ -165,6 +194,8 @@ final class PreferenceKeys {
       'apple_pcc_on_device_fallback_v1';
   static const String directContextLengthOverrides =
       'direct_context_length_overrides_v1';
+  static const String directMaxImagesPerRequest =
+      'direct_max_images_per_request_v1';
   static const String reasoningEffortByModel = 'reasoning_effort_by_model_v1';
 
   /// Prefix for the per-server account owner marker that guards reopening an
@@ -184,6 +215,9 @@ final class PreferenceKeys {
 
   /// Bots section visibility in the sidebar Hermes tab.
   static const String hermesShowBots = 'hermes_show_bots';
+
+  /// Rooms section visibility in the sidebar Hermes tab.
+  static const String hermesShowRooms = 'hermes_show_rooms';
 
   static const String sidebarActiveTab = 'sidebar_active_tab';
   static const String sidebarTabletWidth = 'sidebar_tablet_width_v1';

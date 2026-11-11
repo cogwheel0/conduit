@@ -45,6 +45,9 @@ class UiUtils {
   static IconData get menuIcon =>
       platformIcon(ios: CupertinoIcons.line_horizontal_3, android: Icons.menu);
 
+  static IconData get backIcon =>
+      platformIcon(ios: CupertinoIcons.back, android: Icons.arrow_back);
+
   static IconData get addIcon =>
       platformIcon(ios: CupertinoIcons.plus_circle, android: Icons.add);
 
@@ -89,7 +92,7 @@ class UiUtils {
       platformIcon(ios: CupertinoIcons.tag, android: Icons.label);
 
   static IconData get copyIcon =>
-      platformIcon(ios: CupertinoIcons.doc_on_doc, android: Icons.copy);
+      platformIcon(ios: CupertinoIcons.square_on_square, android: Icons.copy);
 
   static IconData get pinIcon =>
       platformIcon(ios: CupertinoIcons.pin_fill, android: Icons.push_pin);

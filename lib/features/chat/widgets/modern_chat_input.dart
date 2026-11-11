@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart'
-    show ValueNotifier, kIsWeb, visibleForTesting;
+    show TargetPlatform, ValueNotifier, kIsWeb, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/scheduler.dart';
@@ -16,9 +16,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
 import 'dart:async';
+
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
@@ -30,6 +32,7 @@ import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../services/ios_keyboard_attachment_bridge.dart';
+import 'speech_playback_bar.dart';
 
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
@@ -45,8 +48,19 @@ import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_contro
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/librechat/models/librechat_prompts.dart'
+    show isLibreChatPrompt;
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show primaryUserProvider;
+
+import '../../librechat/widgets/librechat_composer_support.dart';
+
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
     as core
@@ -67,6 +81,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../services/native_stt_service.dart';
 
 import 'package:conduit_core/services/location_service.dart';
 
@@ -97,10 +112,16 @@ import '../../prompts/widgets/prompt_variable_dialog.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
+import '../controllers/composer_draft_binding.dart';
+import '../controllers/composer_recording_session.dart';
+import '../providers/composer_draft_provider.dart';
+import 'composer_recordings.dart';
 import 'chat_draft_queue_sheet.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'chat_comparison_widgets.dart';
+import 'composer_prominent_button.dart';
+import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
@@ -139,6 +160,20 @@ TextEditingValue composerTextValueAfterInsertion(
     text: inserted.text,
     selection: TextSelection.collapsed(offset: inserted.caret),
     composing: TextRange.empty,
+  );
+}
+
+@visibleForTesting
+TextEditingValue composerTextValueAfterTranscription(
+  TextEditingValue current,
+  String content,
+) {
+  if (content.isEmpty) return current;
+  final text = current.text;
+  final separator = text.isEmpty || RegExp(r'\s$').hasMatch(text) ? '' : ' ';
+  return composerTextValueAfterInsertion(
+    current.copyWith(selection: TextSelection.collapsed(offset: text.length)),
+    '$separator$content',
   );
 }
 
@@ -257,13 +292,20 @@ double fallbackAttachmentPanelHeight({
 }
 
 /// Shared visibility rule used by both compact and expanded '+' branches.
+/// Save as Note lives only in the '+' panel, so a draft that can be kept
+/// as a note shows the button on any backend.
 bool shouldShowComposerOverflowButton({
   required bool isHermesComposer,
   required bool isDirectComposer,
   required bool directSupportsImages,
   bool directHasOverflowActions = false,
   bool hermesHasLocalAttachmentActions = false,
+  bool isLibreChatComposer = false,
+  bool libreChatHasOverflowActions = false,
+  bool draftNoteAvailable = false,
 }) {
+  if (draftNoteAvailable) return true;
+  if (isLibreChatComposer) return libreChatHasOverflowActions;
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
   return !isDirectComposer || directSupportsImages || directHasOverflowActions;
 }
@@ -289,6 +331,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
   bool hasMessage = true,
+  bool draftNoteAvailable = false,
   CodeInterpreterOffer? codeInterpreter,
 }) {
   final items = buildComposerOverflowItems(
@@ -316,11 +359,14 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     compareModelsAvailable:
         !hermesMode && !directMode && compareModelsAvailable,
     hasMessage: hasMessage,
+    // Notes are the app's own, so every backend can keep a draft as one.
+    draftNoteAvailable: draftNoteAvailable,
     codeInterpreter: codeInterpreter,
   );
 
   return items
       .where((item) {
+        if (item.id == ComposerOverflowActionIds.saveDraftAsNote) return true;
         if (hermesMode) {
           return item.enabled &&
               (item.id == ComposerOverflowActionIds.file ||
@@ -365,6 +411,13 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
 
+  /// Acknowledges admission before the composer retires its local draft.
+  final Future<ChatSendPlaceholderHandle?> Function(
+    String text,
+    void Function(ChatSendPlaceholderHandle) onPrepared,
+  )?
+  onSendDraft;
+
   /// Sends the composer's message to several models as one comparison turn.
   /// Null where the host cannot run one. Completes with the committed turn, or
   /// null if it was not durably admitted; the composer keeps its draft unless
@@ -372,6 +425,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
   final Future<ChatSendPlaceholderHandle?> Function(
     String text,
     List<Model> models,
+    void Function(ChatSendPlaceholderHandle) onPrepared,
   )?
   onCompareSend;
   final bool enabled;
@@ -414,6 +468,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
   const ModernChatInput({
     super.key,
     required this.onSendMessage,
+    this.onSendDraft,
     this.onCompareSend,
     this.enabled = true,
     this.bottomPadding,
@@ -450,10 +505,17 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
 
 const double _maxCompactComposerControlScale = 1.25;
 const double _cupertinoComposerOverflowIconExtent = IconSize.large;
+
+/// Glyphs for the composer's SF Symbols where the system lacks one.
+const Map<String, IconData> _composerSymbolFallbacks = <String, IconData>{
+  'arrow.up': CupertinoIcons.arrow_up,
+  'stop.fill': CupertinoIcons.stop_fill,
+  'waveform': CupertinoIcons.waveform,
+};
 const double _materialComposerOverflowIconExtent = 28;
 
 /// The account and the chat a comparison send was started in.
-typedef _ComparisonOwner = ({
+typedef _ComposerOwner = ({
   Object? api,
   Object? epoch,
   ChatMutationOwnerToken chat,
@@ -553,7 +615,7 @@ class _StableNativeComposerIconButtonState
 }
 
 class _ModernChatInputState extends ConsumerState<ModernChatInput>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
   static const int _maxContextSuggestionsPerType = 4;
 
@@ -588,6 +650,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget? _cachedComposerGlassBackdrop;
   bool _pendingFocus = false;
   bool _isRecording = false;
+
+  ComposerRecordingSession? _recordingSession;
+  String? _recordingTranscriptionErrorId;
+  String? _recordingCaptureErrorId;
+  ComposerDraftContext? _transcribingRecordingOwner;
+  bool _startingVoice = false;
+  int _voiceStartGeneration = 0;
   // Server STT transcribes after the recording stops (manually or by voice
   // activity detection); show that instead of leaving the composer stuck on
   // "Recording…" (issue #707). Mirrors VoiceInputService.transcribing.
@@ -605,15 +674,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// when the text was typed back to what it was.
   int _editGeneration = 0;
   String _observedText = '';
+  ComposerDraftBinding? _draftBinding;
+  ChatSendPlaceholderHandle? _draftSendOwner;
+
+  bool _sendingDraft = false;
+  ProviderSubscription<ComposerDraftContext>? _draftSubscription;
   StreamSubscription<String>? _voiceStreamSubscription;
   final Object _nativePasteHandlerOwner = Object();
   StreamSubscription<IosKeyboardAttachmentEvent>?
   _keyboardAttachmentSubscription;
   VoiceInputService? _voiceService;
-  StreamSubscription<String>? _textSub;
+  StreamSubscription<void>? _textSub;
   Timer? _contextSuggestionDebounce;
   Timer? _skillSuggestionDebounce;
-  String _baseTextAtStart = '';
   bool _isDeactivated = false;
   int _lastHandledFocusTick = 0;
   bool _showPromptOverlay = false;
@@ -674,6 +747,52 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Listen for text and selection changes in the composer
     _observedText = _controller.text;
     _controller.addListener(_handleComposerChanged);
+    WidgetsBinding.instance.addObserver(this);
+    _draftBinding = ComposerDraftBinding(
+      _controller,
+      onFailure: (loading, retry) {
+        if (!mounted || _isDeactivated) return;
+        final l10n = AppLocalizations.of(context)!;
+        AdaptiveSnackBar.show(
+          context,
+          message: loading
+              ? l10n.composerDraftLoadFailed
+              : l10n.composerDraftSaveFailed,
+          type: AdaptiveSnackBarType.error,
+          action: l10n.retry,
+          onActionPressed: retry,
+        );
+      },
+    );
+    _draftSubscription = ref.listenManual(composerDraftContextProvider, (
+      previous,
+      next,
+    ) {
+      if (previous != null &&
+          previous != next &&
+          (_isRecording || _startingVoice)) {
+        ++_voiceStartGeneration;
+        unawaited(_stopVoiceListening());
+      }
+      final nativeRemap =
+          previous != null &&
+          previous.owner.backend == 'hermes' &&
+          ref
+                  .read(activeConversationInPlaceRemapProvider)
+                  ?.matches(
+                    previous.chatId,
+                    next.chatId,
+                    namespace: ActiveConversationRemapNamespace.hermes,
+                  ) ==
+              true;
+      unawaited(
+        _draftBinding!.bind(
+          next,
+          remapped: nativeRemap,
+          preserveInput: _draftSendOwner?.ownsActiveChat(ref) == true,
+        ),
+      );
+    }, fireImmediately: true);
 
     if (!kIsWeb && Platform.isIOS) {
       IosNativePasteService.instance.registerHandler(
@@ -750,6 +869,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void dispose() {
     // Note: Avoid using ref in dispose as per Riverpod best practices
     // The focus state will be naturally cleared when the widget is disposed
+
+    unawaited(_draftBinding?.dispose());
+    WidgetsBinding.instance.removeObserver(this);
+    _draftSubscription?.close();
     _controller.removeListener(_handleComposerChanged);
     ThemedSheets.activeSheetListenable.removeListener(
       _handleActiveSheetChanged,
@@ -771,7 +894,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!kIsWeb && Platform.isIOS) {
       unawaited(IosKeyboardAttachmentBridge.instance.hide());
     }
-    _voiceService?.stopListening();
+    final voice = _voiceService;
+    final recording = _recordingSession;
+    unawaited(() async {
+      try {
+        await voice?.stopListening();
+      } finally {
+        await recording?.close();
+      }
+    }().catchError((Object _) {}));
     super.dispose();
   }
 
@@ -872,13 +1003,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// all follow it, so none of them starts a second turn mid-response.
   bool get _queuesInsteadOfSending => ref.read(chatDraftQueueOfferProvider);
 
+  /// Whether this composer sends to a Hermes Desktop Gateway.
+  bool get _isDesktopHermesComposer {
+    final model = ref.read(selectedModelProvider);
+    return model != null &&
+        isHermesModel(model) &&
+        ref.read(hermesConfigProvider).mode ==
+            HermesBackendMode.desktopGateway;
+  }
+
   /// Queues what is typed, with the composer's files, and clears the composer.
   /// A draft the queue refuses (the response just ended) leaves it untouched.
   /// Queueing is a send, so it is felt once, as one, whichever way it came.
   void _queueDraft() {
     final text = _controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
-    final wireText = _controller.toWireFormat().trim();
+    final wireText = _outgoingText();
     final queue = ref.read(chatDraftQueueProvider.notifier);
     if (queue.enqueue(wireText) == null) return;
     ConduitHaptics.mediumImpact();
@@ -896,25 +1036,64 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
+  bool get _isRecoveringRecording =>
+      _transcribingRecordingOwner != null &&
+      _transcribingRecordingOwner == ref.read(composerDraftContextProvider);
+
+  /// The draft as it goes out: its @mentions in Open WebUI's wire format
+  /// (@GPT-4 → <@M:gpt-4|GPT-4>), or, for a LibreChat model, which takes
+  /// none, the text as shown -- a mention made before switching to it would
+  /// reach LibreChat as markup.
+  String _outgoingText() {
+    final model = ref.read(selectedModelProvider);
+    return (model != null && isLibreChatModel(model)
+            ? _controller.text
+            : _controller.toWireFormat())
+        .trim();
+  }
+
   void _sendMessage() {
+    if (_startingVoice || _isTranscribing || _isRecoveringRecording) return;
+    if (_isRecording) {
+      unawaited(_stopVoice());
+      return;
+    }
     final text = _controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
     if (_queuesInsteadOfSending) {
       _queueDraft();
       return;
     }
+    // While a reply runs the send button is Stop, and no other way to send
+    // starts a second turn over it either: a Hermes or Direct turn gives up
+    // its text as soon as it is handed to its run, so nothing else holds the
+    // next send back. A Desktop Gateway takes a busy turn's messages itself,
+    // as the next message, as Enter sends them.
+    final streaming = ref.read(isChatStreamingProvider);
+    if (_isDesktopHermesComposer &&
+        (streaming ||
+            ref.read(hermesDesktopTurnStateProvider).asData?.value ==
+                HermesDesktopTurnState.running)) {
+      unawaited(_sendDesktopBusyMessage(steer: false));
+      return;
+    }
+    if (streaming) return;
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.
     final saved = ref.read(folderDraftComparisonModelsProvider);
     if (saved != null && widget.onCompareSend != null) {
-      unawaited(_sendComparison(saved, _captureComparisonOwner()));
+      unawaited(_sendComparison(saved, _captureComposerOwner()));
       return;
     }
 
-    // Convert @mentions to OpenWebUI wire format
-    // (e.g. @GPT-4 → <@M:gpt-4|GPT-4>) before sending.
-    final wireText = _controller.toWireFormat().trim();
+    final sendDraft = widget.onSendDraft;
+    if (sendDraft != null) {
+      unawaited(_sendOwnedDraft(_captureComposerOwner(), sendDraft));
+      return;
+    }
+
+    final wireText = _outgoingText();
 
     widget.onSendMessage(wireText);
     _controller.clearMentions();
@@ -948,6 +1127,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _controller.clearMentions();
       _controller.clear();
       _focusNode.requestFocus();
+    } on HermesSteerUncertain {
+      // The turn may have it already: the text stays, and is not resent.
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.hermesSteerUncertain,
+        type: AdaptiveSnackBarType.warning,
+      );
     } finally {
       if (mounted) setState(() => _desktopQueueActionBusy = false);
     }
@@ -995,6 +1182,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       case ComposerOverflowActionIds.compareModels:
         // The same command the Flutter menu runs: one controller for both.
         unawaited(_openCompareModels());
+        return;
+      case ComposerOverflowActionIds.saveDraftAsNote:
+        unawaited(_createNoteFromDraft());
         return;
       default:
         if (isComposerConnectionAction(id)) {
@@ -1272,6 +1462,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _ensureFocusedIfEnabled();
   }
 
+  void _recordingTranscribingChanged(ComposerDraftContext owner, bool busy) {
+    if (!mounted || (!busy && _transcribingRecordingOwner != owner)) return;
+    setState(() => _transcribingRecordingOwner = busy ? owner : null);
+  }
+
+  void _appendRecordingTranscription(String content) {
+    if (_recordingTranscriptionErrorId != null) {
+      setState(() => _recordingTranscriptionErrorId = null);
+    }
+    _controller.value = composerTextValueAfterTranscription(
+      _controller.value,
+      content,
+    );
+    _ensureFocusedIfEnabled();
+  }
+
   void _insertTextAtCurrentSelection(String content) {
     if (content.isEmpty) {
       return;
@@ -1336,14 +1542,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     await _hideNativeKeyboardAttachmentPanel();
     if (!mounted || _isDeactivated) return;
-    final owner = _captureComparisonOwner();
+    final owner = _captureComposerOwner();
     final models = await showComparisonSetupSheet(context, ref);
     await _sendComparison(models, owner);
   }
 
   /// The account and the chat this composer is showing, named before anything
   /// awaits. A new chat has no conversation yet.
-  _ComparisonOwner _captureComparisonOwner() => (
+  _ComposerOwner _captureComposerOwner() => (
     api: ref.read(apiServiceProvider),
     epoch: ref.read(openWebUiAuthSessionEpochProvider),
     chat: captureChatMutationOwner(ref, ref.read(activeConversationProvider)),
@@ -1355,7 +1561,50 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// models both send through here.
   Future<void> _sendComparison(
     List<Model>? models,
-    _ComparisonOwner owner,
+    _ComposerOwner owner,
+  ) async {
+    if (models == null) return;
+    final send = widget.onCompareSend;
+    if (send == null) return;
+    await _sendOwnedDraft(
+      owner,
+      (text, onPrepared) => send(text, models, onPrepared),
+    );
+  }
+
+  Future<void> _sendOwnedDraft(
+    _ComposerOwner owner,
+    Future<ChatSendPlaceholderHandle?> Function(
+      String,
+      void Function(ChatSendPlaceholderHandle),
+    )
+    send,
+  ) async {
+    if (_sendingDraft) return;
+    _sendingDraft = true;
+    try {
+      await _admitOwnedDraft(owner, send);
+    } catch (_) {
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.errorMessage,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+    } finally {
+      _sendingDraft = false;
+      _draftSendOwner = null;
+    }
+  }
+
+  Future<void> _admitOwnedDraft(
+    _ComposerOwner owner,
+    Future<ChatSendPlaceholderHandle?> Function(
+      String,
+      void Function(ChatSendPlaceholderHandle),
+    )
+    send,
   ) async {
     bool sameAccount() =>
         mounted &&
@@ -1364,20 +1613,47 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         identical(ref.read(openWebUiAuthSessionEpochProvider), owner.epoch);
     // The turn goes to whichever chat is active when it is sent, so the chat
     // the user composed in must still be it.
-    if (models == null ||
-        !sameAccount() ||
-        !chatMutationTokenStillActive(ref, owner.chat)) {
+    if (!sameAccount() || !chatMutationTokenStillActive(ref, owner.chat)) {
       return;
     }
-    final wireText = _controller.toWireFormat().trim();
+    final wireText = _outgoingText();
     if (wireText.isEmpty || !widget.enabled) return;
-    final send = widget.onCompareSend;
-    if (send == null) return;
     // Edits made after this point belong to a newer draft.
     final draftGeneration = _editGeneration;
     // The draft is the user's until the turn is durably admitted: a refusal
     // leaves its text, mentions and attachments exactly where they are.
-    final committed = await send(wireText, models);
+    final originDraft = ref.read(composerDraftContextProvider);
+    final sentSnapshot = _controller.snapshotDraft();
+    final recordings = originDraft.temporary || originDraft.store == null
+        ? const <String>[]
+        : (await originDraft.store!.recordings
+                  .watch(originDraft.scope, originDraft.chatId)
+                  .first)
+              .map((item) => item.id)
+              .toList();
+    if (!sameAccount() || !chatMutationTokenStillActive(ref, owner.chat)) {
+      return;
+    }
+    final committed = await send(
+      wireText,
+      (handle) => _draftSendOwner = handle,
+    );
+    if (committed != null) {
+      await _draftBinding?.markSent(originDraft, sentSnapshot);
+      try {
+        for (final id in recordings) {
+          await originDraft.store?.recordings.discard(id);
+        }
+      } catch (_) {
+        if (mounted) {
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.recordingDiscardFailed,
+            type: AdaptiveSnackBarType.error,
+          );
+        }
+      }
+    }
     // Clear only the composer that sent the turn: same account, showing the
     // chat the turn went into, and not edited since.
     if (committed == null ||
@@ -1547,6 +1823,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_draftBinding?.flush());
+      unawaited(_recordingSession?.flush().catchError((Object _) {}));
+    }
+  }
+
   void _handleComposerChanged() {
     if (_controller.text != _observedText) {
       _observedText = _controller.text;
@@ -1652,6 +1938,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (_currentPromptCommand.startsWith('/')) {
         if (_hermesCommandsActive) {
           ref.read(hermesSkillPromptsProvider.future);
+        } else if (_libreChatPromptsActive) {
+          ref.read(libreChatPromptsProvider.future);
         } else {
           ref.read(promptsListProvider.future);
         }
@@ -1672,16 +1960,35 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   /// The current base prompt list for the `/` overlay, from the source matching
-  /// the active model (Hermes skills or OpenWebUI prompts).
+  /// the active model (Hermes skills, LibreChat prompts or OpenWebUI prompts).
   List<Prompt>? get _activePromptListValue => _hermesCommandsActive
       ? ref.read(hermesSkillPromptsProvider).value
+      : _libreChatPromptsActive
+      ? ref.read(libreChatPromptsProvider).value
       : ref.read(promptsListProvider).value;
+
+  /// Whether `/` lists the LibreChat prompt library rather than Open WebUI's:
+  /// a LibreChat model is selected.
+  bool get _libreChatPromptsActive {
+    final model = ref.read(selectedModelProvider);
+    return model != null && isLibreChatModel(model);
+  }
 
   bool get _openWebUiSkillsAvailable {
     if (!ref.read(openWebUiAccountAvailableProvider)) return false;
     final model = ref.read(selectedModelProvider);
     return model == null ||
-        (!isHermesModel(model) && !isLocallyMintedDirectModel(model));
+        (!isHermesModel(model) &&
+            !isLibreChatModel(model) &&
+            !isLocallyMintedDirectModel(model));
+  }
+
+  /// Whether `@` offers models to switch to. A LibreChat turn takes no
+  /// mention, and a LibreChat chat goes on only with LibreChat's models.
+  bool get _modelMentionsAvailable {
+    final model = ref.read(selectedModelProvider);
+    if (model != null && isLibreChatModel(model)) return false;
+    return !isLibreChatConversation(ref.read(activeConversationProvider));
   }
 
   PromptCommandMatch? _resolvePromptCommand(
@@ -1701,7 +2008,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectionStart: selection.start,
       selectionEnd: selection.end,
       allowSkills: _openWebUiSkillsAvailable,
-      allowContext: model == null || !isHermesModel(model),
+      allowContext:
+          model == null || (!isHermesModel(model) && !isLibreChatModel(model)),
+      triggers: {
+        ComposerCommandTrigger.prompt,
+        ComposerCommandTrigger.context,
+        ComposerCommandTrigger.skill,
+        if (_modelMentionsAvailable) ComposerCommandTrigger.model,
+      },
     );
     if (match == null) return null;
     return PromptCommandMatch(
@@ -1738,8 +2052,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return filtered;
   }
 
-  List<Model> _filterModels(List<Model> models) =>
-      filterModelsForMention(models, _currentPromptCommand);
+  /// The models `@` offers. A chat goes on only with its own backend: no
+  /// open chat but a LibreChat one takes LibreChat's models (and in that
+  /// one `@` is off).
+  List<Model> _filterModels(List<Model> models) {
+    final chatOpen = ref.read(activeConversationProvider) != null;
+    return filterModelsForMention(
+      chatOpen
+          ? models.where((model) => !isLibreChatModel(model)).toList()
+          : models,
+      _currentPromptCommand,
+    );
+  }
 
   void _clearSkillSuggestions() {
     _skillSuggestionDebounce?.cancel();
@@ -1974,6 +2298,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
 
+    // A LibreChat turn takes no mention, so its model gets none: the @query
+    // goes, and the model is switched to as the picker would, as a choice
+    // the user made (LibreChat keeps none on the chat, and a refresh of its
+    // models would otherwise go back to the default).
+    if (isLibreChatModel(model)) {
+      _controller.value = TextEditingValue(
+        text: _controller.text.replaceRange(range.start, range.end, ''),
+        selection: TextSelection.collapsed(offset: range.start),
+      );
+      ref.read(isManualModelSelectionProvider.notifier).set(true);
+      ref.read(selectedModelProvider.notifier).set(model);
+      unawaited(saveChatModelChoice(ref, model));
+      setState(() {
+        _hasText = _controller.text.trim().isNotEmpty;
+        _showPromptOverlay = false;
+        _currentPromptCommand = '';
+        _currentPromptRange = null;
+        _promptSelectionIndex = 0;
+      });
+      return;
+    }
+
     // Replace the @query with @ModelName (keep it visible like OpenWebUI).
     final inserted = insertComposerMention(
       _controller.text,
@@ -2003,8 +2349,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       label: model.name,
     );
 
-    // Switch to the selected model.
+    // Switch to the selected model, and keep it as the chat's, as Open
+    // WebUI 0.12.5 does for a model mentioned with @.
     ref.read(selectedModelProvider.notifier).set(model);
+    unawaited(saveChatModelChoice(ref, model));
 
     setState(() {
       _hasText = newText.trim().isNotEmpty;
@@ -2153,19 +2501,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _applyPrompt(Prompt prompt) {
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
+    // The command typed, which the prompt replaces once filled in: a dialog
+    // may be up meanwhile, and the range then has to hold it still.
+    final String text = _controller.text;
+    if (range.start < 0 || range.end > text.length) return;
+    final String command = text.substring(range.start, range.end);
+
+    if (isLibreChatPrompt(prompt)) {
+      unawaited(_applyLibreChatPrompt(prompt, range, command));
+      return;
+    }
 
     // Check if the prompt has variables that need processing
     const parser = PromptVariableParser();
     if (parser.hasVariables(prompt.content)) {
-      _processPromptWithVariables(prompt, range);
+      _processPromptWithVariables(prompt, range, command);
     } else {
-      _insertPromptContent(prompt.content, range);
+      _insertPromptContent(prompt.content, range, command);
     }
   }
 
   Future<void> _processPromptWithVariables(
     Prompt prompt,
     TextRange range,
+    String command,
   ) async {
     // Hide overlay first
     setState(() {
@@ -2239,13 +2598,49 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     // Insert the fully processed content
-    _insertPromptContent(finalContent, range);
+    _insertPromptContent(finalContent, range, command);
   }
 
-  void _insertPromptContent(String content, TextRange range) {
+  /// Fills a LibreChat prompt with LibreChat's own variable grammar and
+  /// special variables, never Open WebUI's.
+  Future<void> _applyLibreChatPrompt(
+    Prompt prompt,
+    TextRange range,
+    String command,
+  ) async {
+    setState(() {
+      _showPromptOverlay = false;
+      _currentPromptCommand = '';
+      _currentPromptRange = null;
+      _promptSelectionIndex = 0;
+    });
+    final filled = await fillLibreChatPromptInteractively(
+      context,
+      prompt,
+      userName: ref.read(primaryUserProvider)?.displayName,
+    );
+    if (!mounted) return;
+    if (filled == null) {
+      _ensureFocusedIfEnabled();
+      return;
+    }
+    _insertPromptContent(filled, range, command);
+  }
+
+  void _insertPromptContent(String content, TextRange range, String command) {
     final String text = _controller.text;
-    final String before = text.substring(0, range.start);
-    final String after = text.substring(range.end);
+    // Dictation can change the text while a prompt's dialog is up. A range
+    // that no longer holds the [command] typed -- another one in its place
+    // included -- says nothing about where the prompt belongs, so the prompt
+    // goes where the caret is instead.
+    final bool rangeHolds =
+        range.start >= 0 &&
+        range.start <= range.end &&
+        range.end <= text.length &&
+        text.substring(range.start, range.end) == command;
+    final TextRange at = rangeHolds ? range : _caretRange(text);
+    final String before = text.substring(0, at.start);
+    final String after = text.substring(at.end);
     final int caret = before.length + content.length;
 
     _controller.value = TextEditingValue(
@@ -2262,6 +2657,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _currentPromptRange = null;
       _promptSelectionIndex = 0;
     });
+  }
+
+  /// The selection to replace in [text], or its end without one.
+  TextRange _caretRange(String text) {
+    final selection = _controller.selection;
+    if (selection.isValid && selection.end <= text.length) {
+      return TextRange(start: selection.start, end: selection.end);
+    }
+    return TextRange.collapsed(text.length);
   }
 
   void _hidePromptOverlay() {
@@ -2281,6 +2685,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (_currentPromptCommand.startsWith('\$')) {
       return _openWebUiSkillsAvailable;
     }
+    if (_currentPromptCommand.startsWith('@')) return _modelMentionsAvailable;
     final model = ref.read(selectedModelProvider);
     return !(model != null &&
         isHermesModel(model) &&
@@ -2463,7 +2868,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                               flex: 2,
                               child: loading
                                   ? const Center(
-                                      child: CircularProgressIndicator(),
+                                      child: AdaptiveProgressIndicator(),
                                     )
                                   : ListView.builder(
                                       itemCount: files.length,
@@ -2563,6 +2968,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     return PromptSuggestionOverlay(
       useHermesSkills: useHermesSkills,
+      useLibreChatPrompts: _libreChatPromptsActive,
       filteredPrompts: _filterPrompts,
       selectionIndex: _promptSelectionIndex,
       onPromptSelected: _applyPrompt,
@@ -2583,11 +2989,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           leading: SizedBox(
             width: IconSize.large,
             height: IconSize.large,
-            child: CircularProgressIndicator(
+            child: AdaptiveProgressIndicator(
               strokeWidth: BorderWidth.regular,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                context.conduitTheme.loadingIndicator,
-              ),
+              color: context.conduitTheme.loadingIndicator,
             ),
           ),
         ),
@@ -2803,6 +3207,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
     final model = ref.read(selectedModelProvider);
+    if (model != null && isLibreChatModel(model)) {
+      return ComposerOverflowAttachmentAvailability(
+        file: widget.onFileAttachment != null,
+        serverFile: false,
+        photo: widget.onImageAttachment != null,
+        camera: widget.onCameraCapture != null,
+        web: false,
+      );
+    }
     final hermesMode = model != null && isHermesModel(model);
     if (hermesMode) {
       final inputImages =
@@ -2861,6 +3274,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool toolSettingsAvailable,
     required bool compareModelsAvailable,
     required bool hasMessage,
+    required bool draftNoteAvailable,
     required CodeInterpreterOffer? codeInterpreter,
   }) {
     if (kIsWeb || !Platform.isIOS) {
@@ -2872,12 +3286,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final directMode =
         selectedModel != null && hasReservedDirectIdentity(selectedModel);
+    // LibreChat offers uploads and its own tools; like Direct, none of Open
+    // WebUI's filters, connections or commands.
+    final libreChatMode =
+        selectedModel != null && isLibreChatModel(selectedModel);
 
     return buildIosKeyboardAttachmentActions(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
       hermesMode: hermesMode,
-      directMode: directMode,
+      directMode: directMode || libreChatMode,
       webSearchAvailable: webSearchAvailable,
       webSearchEnabled: webSearchEnabled,
       imageGenerationAvailable: imageGenerationAvailable,
@@ -2890,9 +3308,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       toolSettingsAvailable: toolSettingsAvailable,
       compareModelsAvailable: compareModelsAvailable,
       hasMessage: hasMessage,
+      draftNoteAvailable: draftNoteAvailable,
       codeInterpreter: codeInterpreter,
     );
   }
+
+  /// Whether the + panel offers "Save as Note": notes are on, the Chats
+  /// setting allows it, and a typed message is there that is not already
+  /// being sent or saved.
+  bool _draftNoteActionAvailable(ComposerRead read) =>
+      read(notesFeatureEnabledProvider) &&
+      read(
+        appSettingsProvider.select(
+          (settings) => settings.showComposerNotesButton,
+        ),
+      ) &&
+      !read(noteCreatorProvider.select((state) => state.isLoading)) &&
+      _controller.text.trim().isNotEmpty &&
+      !_isRecording;
 
   /// Personal connections for the native panel; none for the model families
   /// that have no Open WebUI account behind them.
@@ -2900,6 +3333,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final selectedModel = ref.read(selectedModelProvider);
     if (selectedModel != null &&
         (isHermesModel(selectedModel) ||
+            isLibreChatModel(selectedModel) ||
             hasReservedDirectIdentity(selectedModel))) {
       return ComposerPersonalConnections.none;
     }
@@ -2923,6 +3357,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? (directToolsAvailable
               ? ref.read(directMcpToolsProvider)
               : const AsyncData<List<Tool>>([]))
+        : selectedModel != null && isLibreChatModel(selectedModel)
+        ? ref
+              .read(libreChatComposerOptionsProvider)
+              .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.read(toolsListProvider);
     final availableTools = tools.maybeWhen<List<Tool>>(
       data: (tools) => tools,
@@ -2944,6 +3382,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       toolSettingsAvailable: ref.read(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.read),
       hasMessage: _controller.text.trim().isNotEmpty,
+      draftNoteAvailable: _draftNoteActionAvailable(ref.read),
       codeInterpreter: ref.read(codeInterpreterOfferProvider),
     );
   }
@@ -3186,7 +3625,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
-        _insertTextAtCurrentSelection(next.text);
+        if (!next.onlyIntoEmpty || _controller.text.trim().isEmpty) {
+          _insertTextAtCurrentSelection(next.text);
+        }
         try {
           ref.read(composerTextInsertionProvider.notifier).clear(next.id);
         } catch (_) {}
@@ -3221,13 +3662,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
     ref.listen<Model?>(selectedModelProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
+      // A LibreChat model takes no `@` mention: a model list already open
+      // closes.
+      if (_currentPromptCommand.startsWith('@') && !_modelMentionsAvailable) {
+        _hidePromptOverlay();
+      }
+      // Nor does it take `#` context: a list already open closes too.
+      if (_currentPromptCommand.startsWith('#') &&
+          next != null &&
+          isLibreChatModel(next)) {
+        _clearContextSuggestions();
+        _hidePromptOverlay();
+      }
     });
     ref.listen(hermesCapabilitiesProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
 
-    // Use dedicated streaming provider to avoid rebuilding on every message change
+    // Use dedicated streaming provider to avoid rebuilding on every message
+    // change. Any reply running, in a shared chat another person's too, has a
+    // message typed now queued behind it.
     final localTurnIsGenerating = ref.watch(isChatStreamingProvider);
+    // Only a reply this account asked for is its to stop; another person's
+    // is not, and the composer offers no Stop for it.
+    final localTurnCanStop = ref.watch(isOwnChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
     // Watch only upload send-state booleans so metadata/progress churn does not
@@ -3256,9 +3714,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final codeInterpreterOffer = ref.watch(codeInterpreterOfferProvider);
     final l10n = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
+    final showNotesButton = ref.watch(
+      appSettingsProvider.select(
+        (settings) => settings.showComposerNotesButton,
+      ),
+    );
     final isCreatingDraftNote = ref.watch(
       noteCreatorProvider.select((state) => state.isLoading),
     );
+    // "Save as Note" lives in the + panel, where a typed message can be kept
+    // as a note instead of sent; the trailing slot beside Send stays Send's.
+    final bool draftNoteAvailable =
+        notesEnabled &&
+        showNotesButton &&
+        !isCreatingDraftNote &&
+        _hasText &&
+        !_isRecording;
     final selectedQuickPills = ref.watch(
       appSettingsProvider.select((s) => s.quickPills),
     );
@@ -3269,13 +3740,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isDirectComposer =
         selectedComposerModel != null &&
         hasReservedDirectIdentity(selectedComposerModel);
+    // A LibreChat turn takes none of Open WebUI's request options: no quick
+    // pills, code interpreter or personal connections. It has its own
+    // uploads and tools.
+    final isLibreChatComposer =
+        selectedComposerModel != null &&
+        isLibreChatModel(selectedComposerModel);
     final directToolsAvailable =
         isDirectComposer &&
         directBindingSupportsLocalMcp(
           ref.watch(directModelRegistryProvider).resolve(selectedComposerModel),
         );
-    final toolsAsync = isDirectComposer
+    final AsyncValue<List<Tool>> toolsAsync = isDirectComposer
         ? const AsyncData<List<Tool>>([])
+        : isLibreChatComposer
+        ? ref
+              .watch(libreChatComposerOptionsProvider)
+              .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.watch(toolsListProvider);
     final directMcpToolsAsync = directToolsAvailable
         ? ref.watch(directMcpToolsProvider)
@@ -3288,6 +3769,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _scheduleNativeKeyboardAttachmentSync();
       });
       ref.watch(directMcpServersProvider);
+    } else if (isLibreChatComposer) {
+      ref.listen(libreChatComposerOptionsProvider, (previous, next) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
     } else if (!kIsWeb &&
         Platform.isIOS &&
         !(selectedComposerModel != null &&
@@ -3341,6 +3826,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         localTurnIsGenerating ||
         (isDesktopHermesComposer &&
             desktopTurnState == HermesDesktopTurnState.running);
+    final canStop =
+        localTurnCanStop ||
+        (isDesktopHermesComposer &&
+            desktopTurnState == HermesDesktopTurnState.running);
     final desktopTurnControlsSupported =
         !isDesktopHermesComposer ||
         desktopTurnState != HermesDesktopTurnState.unsupportedGateway;
@@ -3360,21 +3849,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !isDirectComposer ||
         (visionCapableModelIds.contains(selectedComposerModel.id) &&
             (attachmentAvailability.photo || attachmentAvailability.camera));
-    final showOverflowButton = shouldShowComposerOverflowButton(
-      isHermesComposer: isHermesComposer,
-      isDirectComposer: isDirectComposer,
-      directSupportsImages: directSupportsImages,
-      directHasOverflowActions:
-          attachmentAvailability.file ||
-          attachmentAvailability.mcpContent ||
-          webSearchAvailable ||
-          imageGenAvailable ||
-          (isDirectComposer && availableTools.isNotEmpty),
-      hermesHasLocalAttachmentActions:
-          attachmentAvailability.file ||
-          attachmentAvailability.photo ||
-          attachmentAvailability.camera,
+    bool overflowButtonShows({required bool draftNote}) =>
+        shouldShowComposerOverflowButton(
+          isHermesComposer: isHermesComposer,
+          isDirectComposer: isDirectComposer,
+          directSupportsImages: directSupportsImages,
+          directHasOverflowActions:
+              attachmentAvailability.file ||
+              attachmentAvailability.mcpContent ||
+              webSearchAvailable ||
+              imageGenAvailable ||
+              (isDirectComposer && availableTools.isNotEmpty),
+          hermesHasLocalAttachmentActions:
+              attachmentAvailability.file ||
+              attachmentAvailability.photo ||
+              attachmentAvailability.camera,
+          isLibreChatComposer: isLibreChatComposer,
+          libreChatHasOverflowActions:
+              attachmentAvailability.file ||
+              attachmentAvailability.photo ||
+              attachmentAvailability.camera ||
+              availableTools.isNotEmpty,
+          draftNoteAvailable: draftNote,
+        );
+    final showOverflowButton = overflowButtonShows(
+      draftNote: draftNoteAvailable,
     );
+    // When Save as Note is all the panel offers, the button says so rather
+    // than offering an attachment.
+    final overflowButtonLabel = overflowButtonShows(draftNote: false)
+        ? l10n.composerAddAttachment
+        : l10n.composerSaveDraftAsNote;
     final compactControls = _compactComposerControls(
       showOverflowButton: showOverflowButton,
       voiceAvailable: voiceAvailable,
@@ -3388,7 +3893,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       });
     }
     final nativeConnections =
-        !kIsWeb && Platform.isIOS && !isHermesComposer && !isDirectComposer
+        !kIsWeb &&
+            Platform.isIOS &&
+            !isHermesComposer &&
+            !isDirectComposer &&
+            !isLibreChatComposer
         ? readComposerPersonalConnections(ref.watch)
         : ComposerPersonalConnections.none;
     _builtNativeConnectionsOwner = nativeConnections.owner;
@@ -3406,6 +3915,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       toolSettingsAvailable: ref.watch(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.watch),
       hasMessage: _hasText,
+      draftNoteAvailable: draftNoteAvailable,
       codeInterpreter: codeInterpreterOffer,
     );
 
@@ -3435,7 +3945,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
-      if (isHermesComposer || isDirectComposer) {
+      if (isHermesComposer || isDirectComposer || isLibreChatComposer) {
         break;
       }
       final filterId = ComposerOverflowActionIds.filterIdFrom(id);
@@ -3555,7 +4065,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // warning glyph, and a tap says why before offering to turn it off.
     if (codeInterpreterOffer?.selected == true &&
         !isHermesComposer &&
-        !isDirectComposer) {
+        !isDirectComposer &&
+        !isLibreChatComposer) {
       final block = codeInterpreterOffer!.block;
       final blockReason = block == null
           ? null
@@ -3596,8 +4107,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // every control keeps its full touch target.
     // A message typed during a response can be queued, which needs room for the
     // Queue action beside Stop, as Hermes's turn actions do.
+    // While the typed message is itself being sent, the turn it starts is
+    // already generating but the draft has not cleared yet; that text is not
+    // a new message to queue, so Queue must not flash in for those frames.
     final bool showQueueAction =
-        _hasText && isGenerating && ref.watch(chatDraftQueueOfferProvider);
+        _hasText &&
+        isGenerating &&
+        !_sendingDraft &&
+        ref.watch(chatDraftQueueOfferProvider);
     final bool showCompactComposer =
         conduitSystemControlScaleOf(context) <=
             _maxCompactComposerControlScale &&
@@ -3605,12 +4122,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !_isMultiline &&
         !showQueueAction &&
         !(isDesktopHermesComposer && isGenerating && _hasText);
-    final bool showCreateDraftNoteAction =
-        !showCompactComposer &&
-        notesEnabled &&
-        _hasText &&
-        !isGenerating &&
-        !_isRecording;
     final bool showInlineMicAction =
         !_isRecording && !_hasText && voiceAvailable && !isGenerating;
 
@@ -3625,59 +4136,52 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (!showCompactComposer) {
       final List<Widget> composerChildren = <Widget>[
-        if (_shouldShowPromptOverlay)
-          Padding(
-            key: const ValueKey('prompt-overlay'),
-            padding: const EdgeInsets.fromLTRB(
-              Spacing.sm,
-              0,
-              Spacing.sm,
-              Spacing.xs,
-            ),
-            child: _buildActiveOverlay(),
-          ),
-        Padding(
-          key: const ValueKey('composer-expanded-input'),
-          padding: const EdgeInsets.fromLTRB(
-            _composerHorizontalInset,
-            Spacing.sm,
-            _composerHorizontalInset,
-            Spacing.sm,
-          ),
-          child: Stack(
-            children: [
-              Padding(
-                padding: EdgeInsetsDirectional.only(
-                  end: _showExpandButton && !_expandModalOpen
-                      ? conduitScaledIconExtent(context, IconSize.large) +
-                            (Spacing.xs * 3)
-                      : 0,
-                ),
-                child: _buildComposerTextField(
-                  brightness: brightness,
-                  sendOnEnter: sendOnEnter,
-                  voiceAvailable: voiceAvailable,
-                  isGenerating: isGenerating,
-                  desktopTurnRunning:
-                      isDesktopHermesComposer &&
-                      desktopTurnState == HermesDesktopTurnState.running,
-                  allUploadsComplete: allUploadsComplete,
-                  placeholderBase: placeholderBase,
-                  placeholderFocused: placeholderFocused,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: Spacing.xs,
-                  ),
-                  isActive: isActive,
-                ),
+        Flexible(
+          child: _buildExpandedComposerEditor(
+            Padding(
+              key: const ValueKey('composer-expanded-input'),
+              padding: const EdgeInsets.fromLTRB(
+                _composerHorizontalInset,
+                Spacing.sm,
+                _composerHorizontalInset,
+                Spacing.sm,
               ),
-              if (_showExpandButton && !_expandModalOpen)
-                PositionedDirectional(
-                  top: Spacing.xs,
-                  end: Spacing.xs,
-                  child: _buildExpandButton(_showExpandTextModal),
-                ),
-            ],
+              child: Stack(
+                children: [
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      end: _showExpandButton && !_expandModalOpen
+                          ? conduitScaledIconExtent(context, IconSize.large) +
+                                (Spacing.xs * 3)
+                          : 0,
+                    ),
+                    child: _buildComposerTextField(
+                      brightness: brightness,
+                      sendOnEnter: sendOnEnter,
+                      voiceAvailable: voiceAvailable,
+                      isGenerating: isGenerating,
+                      desktopTurnRunning:
+                          isDesktopHermesComposer &&
+                          desktopTurnState == HermesDesktopTurnState.running,
+                      allUploadsComplete: allUploadsComplete,
+                      placeholderBase: placeholderBase,
+                      placeholderFocused: placeholderFocused,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.sm,
+                        vertical: Spacing.xs,
+                      ),
+                      isActive: isActive,
+                    ),
+                  ),
+                  if (_showExpandButton && !_expandModalOpen)
+                    PositionedDirectional(
+                      top: Spacing.xs,
+                      end: Spacing.xs,
+                      child: _buildExpandButton(_showExpandTextModal),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
         Padding(
@@ -3695,7 +4199,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 const SizedBox(width: Spacing.xs),
               ] else if (showOverflowButton) ...[
                 _buildOverflowButton(
-                  tooltip: l10n.more,
+                  tooltip: overflowButtonLabel,
                   dense: true,
                   nativeActions: nativeAttachmentActions,
                 ),
@@ -3766,16 +4270,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 const SizedBox(width: Spacing.xs),
               ],
-              if (showCreateDraftNoteAction) ...[
-                const SizedBox(width: Spacing.xs),
-                _buildCreateDraftNoteButton(isLoading: isCreatingDraftNote),
-              ],
               if (showInlineMicAction) ...[
                 const SizedBox(width: Spacing.xs),
                 _buildInlineMicAction(voiceAvailable),
               ],
-              if (!showCreateDraftNoteAction && !showInlineMicAction)
-                const SizedBox(width: Spacing.xs),
+              if (!showInlineMicAction) const SizedBox(width: Spacing.xs),
               _buildPrimaryButton(
                 _hasText,
                 isGenerating,
@@ -3783,6 +4282,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 voiceAvailable,
                 allUploadsComplete,
                 hasUploadsInProgress,
+                canStop: canStop,
                 dense: true,
               ),
             ],
@@ -3790,7 +4290,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       ];
 
-      // Multiline and quick-pill states use the full two-tier shell.
+      // Only the editor and suggestions yield height; actions never scroll.
+      // The text field handles scrolling after reaching its line or height cap.
       shellContent = KeyedSubtree(
         key: const ValueKey('expanded-composer-shell'),
         child: ConstrainedBox(
@@ -3800,13 +4301,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           // Keep text-entry height changes direct. AnimatedSize here runs on
           // each new or removed line, making the composer trail the user's
           // typing and repeatedly relaying out the chat viewport.
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: composerChildren,
-              ),
+          child: RepaintBoundary(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: composerChildren,
             ),
           ),
         ),
@@ -3838,7 +4336,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   const SizedBox(width: Spacing.xs),
                 ] else if (compactControls.showLeading) ...[
                   _buildOverflowButton(
-                    tooltip: l10n.more,
+                    tooltip: overflowButtonLabel,
                     dense: true,
                     nativeActions: nativeAttachmentActions,
                   ),
@@ -3885,6 +4383,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   voiceAvailable,
                   allUploadsComplete,
                   hasUploadsInProgress,
+                  canStop: canStop,
                   dense: true,
                 ),
               ],
@@ -3945,13 +4444,56 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
-      child: _wrapWithFallbackAttachmentPanel(
-        composer: composer,
-        localAttachmentsOnly: isHermesComposer,
-        attachmentAvailability: attachmentAvailability,
+      child: _wrapWithNativePanelGapFill(
+        _wrapWithFallbackAttachmentPanel(
+          composer: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [const SpeechPlaybackBar(), composer],
+          ),
+          localAttachmentsOnly: isHermesComposer,
+          attachmentAvailability: attachmentAvailability,
+          draftNoteAvailable: draftNoteAvailable,
+        ),
       ),
     );
   }
+
+  /// While the native attachment panel stands in for the keyboard, the page
+  /// behind the strip between the composer and the panel (and behind the
+  /// panel's rounded top corners) is filled, so the thread no longer peeks
+  /// through between the two and they read as one surface. The strip lies
+  /// outside the composer's bounds; the panel's own window covers the rest.
+  Widget _wrapWithNativePanelGapFill(Widget child) {
+    final visible =
+        !kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible;
+    // The Stack stays in the tree either way: inserting it only while the
+    // panel shows would re-parent the composer and drop its field's state.
+    return Stack(
+      clipBehavior: Clip.none,
+      // The composer keeps exactly the constraints it had without the Stack.
+      fit: StackFit.passthrough,
+      children: [
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: -_nativePanelGapFillHeight,
+          height: _nativePanelGapFillHeight,
+          child: IgnorePointer(
+            child: visible
+                ? ColoredBox(
+                    key: const ValueKey('composer-native-panel-gap-fill'),
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+
+  /// The composer's gap above the keyboard plus the panel's corner radius.
+  static const double _nativePanelGapFillHeight = Spacing.sm + 32;
 
   Widget _wrapWithComposerLineMeasurement({
     required Widget child,
@@ -3985,6 +4527,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required Widget composer,
     required bool localAttachmentsOnly,
     required ComposerOverflowAttachmentAvailability attachmentAvailability,
+    required bool draftNoteAvailable,
   }) {
     final fallbackPanel = ComposerAttachmentKeyboard(
       height: _fallbackAttachmentPanelHeight,
@@ -4015,6 +4558,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ? () => unawaited(_openCompareModels())
           : null,
       compareModelsHasMessage: _hasText,
+      onSaveDraftAsNote: draftNoteAvailable
+          ? () {
+              _dismissFallbackAttachmentPanel();
+              unawaited(_createNoteFromDraft());
+            }
+          : null,
     );
 
     return PopScope(
@@ -4038,6 +4587,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          ComposerRecordings(
+            key: ValueKey(ref.watch(composerDraftContextProvider)),
+            owner: ref.watch(composerDraftContextProvider),
+            activeId: _isRecording ? _recordingSession?.id : null,
+            transcribing: _isTranscribing,
+            transcriptionErrorId: _recordingTranscriptionErrorId,
+            captureErrorId: _recordingCaptureErrorId,
+            onTranscribingChanged: _recordingTranscribingChanged,
+            onInsert: _appendRecordingTranscription,
+          ),
           composer,
           if (widget.managesSystemKeyboardInset)
             SizedBox(
@@ -4086,6 +4645,55 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
     return result;
+  }
+
+  /// Leaves room for one scaled editor line when suggestions share its height.
+  Widget _buildExpandedComposerEditor(Widget editor) {
+    if (!_shouldShowPromptOverlay) return editor;
+    final typography = _composerTypography(context);
+    final painter = TextPainter(
+      text: TextSpan(text: ' ', style: typography.style),
+      textDirection: typography.direction,
+      textScaler: typography.textScaler,
+      locale: typography.locale,
+    );
+    final double minimumEditorHeight;
+    try {
+      // Include the outer input padding and the text field's own padding.
+      minimumEditorHeight =
+          painter.preferredLineHeight + 2 * (Spacing.sm + Spacing.xs);
+    } finally {
+      painter.dispose();
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: math.max(
+                0,
+                math.min(
+                  constraints.maxHeight / 2,
+                  constraints.maxHeight - minimumEditorHeight,
+                ),
+              ),
+            ),
+            child: Padding(
+              key: const ValueKey('prompt-overlay'),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.sm,
+                0,
+                Spacing.sm,
+                Spacing.xs,
+              ),
+              child: _buildActiveOverlay(),
+            ),
+          ),
+          Flexible(child: editor),
+        ],
+      ),
+    );
   }
 
   Widget _buildComposerTextField({
@@ -4192,6 +4800,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 placeholderFocused,
                 factor,
               )!;
+              // The + panel stands in for the keyboard: no caret blinks in
+              // a field nothing can be typed into.
+              final bool hideCaret =
+                  _isNativeAttachmentPanelVisible ||
+                  _isFallbackAttachmentPanelVisible;
               final textLabel = context.conduitTheme.inputText;
               final Color animatedTextColor = Color.lerp(
                 textLabel.withValues(alpha: 0.88),
@@ -4215,19 +4828,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // the "confirm" action is used to commit characters, not to
               // send messages. The send-on-enter functionality is handled
               // by keyboard shortcuts (Enter key) instead.
-              if (!kIsWeb && Platform.isIOS) {
+              if (!kIsWeb && Theme.of(context).platform == TargetPlatform.iOS) {
                 final usesNativePlatformView = conduitSupportsNativeGlass();
                 return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  placeholder: inputPlaceholder,
+                  placeholder: placeholderClearOfCaret(inputPlaceholder),
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
                   ),
                   enabled: widget.enabled,
                   autofocus: false,
                   minLines: 1,
-                  maxLines: null,
+                  maxLines: 8,
                   textAlignVertical: TextAlignVertical.center,
                   keyboardType: TextInputType.multiline,
                   textCapitalization: TextCapitalization.sentences,
@@ -4237,7 +4850,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   cursorOpacityAnimates: composerCursorOpacityAnimates(
                     usesNativePlatformView: usesNativePlatformView,
                   ),
-                  cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
+                  cursorColor: hideCaret
+                      ? const Color(0x00000000)
+                      : Theme.of(context).textSelectionTheme.cursorColor,
+                  magnifierConfiguration: usesNativePlatformView
+                      ? IosTextMagnifier.configuration
+                      : null,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
                   style: baseChatStyle.copyWith(color: animatedTextColor),
@@ -4272,22 +4890,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 enabled: widget.enabled,
                 autofocus: false,
                 minLines: 1,
-                maxLines: null,
+                maxLines: 8,
                 textAlignVertical: TextAlignVertical.center,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
                 textInputAction: TextInputAction.newline,
                 autofillHints: const <String>[],
                 showCursor: true,
+                cursorColor: hideCaret ? const Color(0x00000000) : null,
                 scrollPadding: const EdgeInsets.only(bottom: 80),
                 keyboardAppearance: brightness,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: baseChatStyle.copyWith(color: animatedTextColor),
                 decoration: context.conduitInputStyles
                     .borderless(hint: inputPlaceholder)
                     .copyWith(
+                      // Placeholder keeps the text's own weight; its colour
+                      // alone marks it as a hint, as native fields do.
                       hintStyle: baseChatStyle.copyWith(
                         color: animatedPlaceholder,
-                        fontWeight: FontWeight.w300,
                       ),
                       contentPadding: contentPadding,
                       isDense: true,
@@ -4367,13 +4988,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : _materialComposerOverflowIconExtent,
     );
 
+    // Named for what it does now: open the attachment panel; while the
+    // panel stands in for the keyboard, bring the keyboard back; or close a
+    // panel that opened without one. The native panel always takes the
+    // keyboard's place.
+    final bool panelRestoresKeyboard =
+        (!kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible) ||
+        (_isFallbackAttachmentPanelVisible && _fallbackPanelReplacedKeyboard);
+    final l10n = AppLocalizations.of(context)!;
+    final label = !attachmentPanelVisible
+        ? tooltip
+        : panelRestoresKeyboard
+        ? l10n.composerShowKeyboard
+        : l10n.close;
+
     return Focus(
       key: const ValueKey('composer-overflow-button'),
       canRequestFocus: false,
       skipTraversal: true,
       descendantsAreFocusable: false,
       child: AdaptiveTooltip(
-        message: tooltip,
+        message: label,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           onPressed: enabled
               ? () {
@@ -4381,6 +5017,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 }
               : null,
           size: buttonSize,
+          semanticLabel: label,
           forcePlain: true,
           iosSymbol: attachmentPanelVisible ? 'xmark' : 'plus',
           iosSymbolSize: iconSize,
@@ -4473,9 +5110,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : (Platform.isIOS ? CupertinoIcons.mic : Icons.mic);
     final Color iconColor = active
         ? theme.buttonPrimaryText
-        : theme.textSecondary.withValues(
-            alpha: enabledMic ? Alpha.strong : Alpha.disabled,
-          );
+        : _composerSecondaryGlyphColor(enabled: enabledMic);
     final icon = AnimatedSwitcher(
       duration: context.motionDuration(const Duration(milliseconds: 160)),
       switchInCurve: Curves.easeOutCubic,
@@ -4510,25 +5145,35 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           }
         : null;
 
+    final dictationLabel = active
+        ? AppLocalizations.of(context)!.stopRecording
+        : AppLocalizations.of(context)!.startDictation;
     return AdaptiveTooltip(
-      message: active
-          ? AppLocalizations.of(context)!.stopRecording
-          : AppLocalizations.of(context)!.startDictation,
-      child: GestureDetector(
-        key: ValueKey<String>(
-          active ? 'composer-dictation-stop' : 'composer-dictation-start',
-        ),
-        behavior: HitTestBehavior.opaque,
+      message: dictationLabel,
+      excludeFromSemantics: true,
+      // A button to VoiceOver, not a stray text label.
+      child: Semantics(
+        button: true,
+        enabled: onPressed != null,
+        label: dictationLabel,
         onTap: onPressed,
-        child: SizedBox.square(
-          dimension: buttonSize,
-          child: Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: Padding(
-              padding: const EdgeInsetsDirectional.only(
-                end: _composerTrailingAccessoryInset,
+        excludeSemantics: true,
+        child: GestureDetector(
+          key: ValueKey<String>(
+            active ? 'composer-dictation-stop' : 'composer-dictation-start',
+          ),
+          behavior: HitTestBehavior.opaque,
+          onTap: onPressed,
+          child: SizedBox.square(
+            dimension: buttonSize,
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  end: _composerTrailingAccessoryInset,
+                ),
+                child: icon,
               ),
-              child: icon,
             ),
           ),
         ),
@@ -4536,51 +5181,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  Widget _buildCreateDraftNoteButton({required bool isLoading}) {
-    final l10n = AppLocalizations.of(context)!;
-    final bool enabled = widget.enabled && !isLoading && !_isRecording;
-    final buttonSize = conduitScaledControlExtent(
-      context,
-      baseExtent: _composerControlSize,
-    );
-    final iconSize = conduitScaledIconExtent(context, IconSize.medium);
-    final visualSize = conduitScaledControlExtent(
-      context,
-      baseExtent: _composerPrimaryVisualSize,
-    );
-    final iconColor = enabled
-        ? context.conduitTheme.textSecondary.withValues(alpha: Alpha.strong)
-        : context.conduitTheme.textSecondary.withValues(alpha: Alpha.disabled);
-
-    return AdaptiveTooltip(
-      message: l10n.createNote,
-      child: _buildComposerIconButton(
-        key: const ValueKey('create-draft-note-button'),
-        onPressed: enabled ? _createNoteFromDraft : null,
-        size: buttonSize,
-        visualSize: visualSize,
-        visualAlignment: AlignmentDirectional.centerEnd,
-        forcePlain: true,
-        iosSymbol: isLoading ? null : 'doc.text',
-        iosSymbolColor: iconColor,
-        child: isLoading
-            ? SizedBox(
-                width: iconSize,
-                height: iconSize,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: context.conduitTheme.textSecondary,
-                ),
-              )
-            : ConduitSystemAdaptiveIcon(
-                Platform.isIOS
-                    ? CupertinoIcons.doc_text
-                    : Icons.note_add_outlined,
-                size: iconSize,
-                color: iconColor,
-              ),
-      ),
-    );
+  /// The tone of the composer's quiet trailing glyphs (dictation):
+  /// secondary text, dimmed when unavailable.
+  Color _composerSecondaryGlyphColor({required bool enabled}) {
+    final secondary = context.conduitTheme.textSecondary;
+    return enabled ? secondary : secondary.withValues(alpha: Alpha.disabled);
   }
 
   Widget _buildPrimaryButton(
@@ -4590,6 +5195,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool voiceAvailable,
     bool allUploadsComplete,
     bool hasUploadsInProgress, {
+    required bool canStop,
     bool dense = false,
   }) {
     final double buttonSize = conduitScaledControlExtent(
@@ -4608,15 +5214,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       Platform.isIOS ? IconSize.small : IconSize.medium,
     );
 
-    // Don't allow sending until all uploads are complete
+    // Don't allow sending until all uploads are complete.
     final enabled =
         !isGenerating && hasText && widget.enabled && allUploadsComplete;
 
-    // Generating -> STOP variant
-    if (isGenerating) {
+    // Generating -> STOP variant, for a reply this account may stop. Another
+    // person's reply leaves the draft to Queue, and Send waits for it.
+    if (isGenerating && canStop) {
       final stopLabel = AppLocalizations.of(context)!.stopGenerating;
       return AdaptiveTooltip(
         message: stopLabel,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
           onPressed: () {
@@ -4639,24 +5247,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
 
-    // If there's text, render SEND variant. During active dictation, keep the
-    // send affordance visible even before text arrives so the layout stays
-    // stable around the middle text field.
-    if (hasText || _isRecording) {
-      final onPressed = enabled
-          ? () {
-              if (_isRecording) {
-                unawaited(_stopVoiceAndSend());
-              } else {
-                _sendMessage();
-              }
-            }
-          : null;
+    // Dictation only adds text to the draft. Keep its stop/transcribe action
+    // separate from sending, including while the server is transcribing.
+    if (_isRecording || _isTranscribing || _isRecoveringRecording) {
+      return SizedBox.square(dimension: buttonSize);
+    }
+
+    if (hasText) {
+      final onPressed = enabled ? _sendMessage : null;
+      final glyphLit = enabled;
       final sendChild = hasUploadsInProgress
           ? SizedBox(
               width: primaryIconSize,
               height: primaryIconSize,
-              child: CircularProgressIndicator(
+              child: AdaptiveProgressIndicator(
                 strokeWidth: 2.5,
                 color: context.conduitTheme.textSecondary,
               ),
@@ -4666,16 +5270,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ? CupertinoIcons.arrow_up
                   : Icons.arrow_upward_rounded,
               size: primaryIconSize,
-              color: enabled
+              color: glyphLit
                   ? context.conduitTheme.buttonPrimaryText
                   : context.conduitTheme.textPrimary.withValues(
                       alpha: Alpha.disabled,
                     ),
             );
+      // Sending puts Stop in Send's place; have its glyph ready so the disc
+      // is never empty.
+      NativeSymbolGlyph.prewarm(context, 'stop.fill', primaryIconSize);
       return AdaptiveTooltip(
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
             : AppLocalizations.of(context)!.send,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-send'),
           onPressed: onPressed,
@@ -4687,7 +5295,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           iosSymbolSize: primaryIconSize,
           isProminent: true,
           iosSymbol: hasUploadsInProgress ? null : 'arrow.up',
-          iosSymbolColor: enabled
+          iosSymbolColor: glyphLit
               ? context.conduitTheme.buttonPrimaryText
               : context.conduitTheme.textPrimary.withValues(
                   alpha: Alpha.disabled,
@@ -4700,9 +5308,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // VOICE CALL variant when no text is present and voice is available.
     // Otherwise fall back to a muted send button.
     if (widget.onVoiceCall != null) {
-      final bool enabledVoiceCall = widget.enabled && !_isRecording;
+      // Not while a reply runs: in a shared chat that is another person's,
+      // which leaves no Stop in its place.
+      final bool enabledVoiceCall =
+          widget.enabled && !_isRecording && !isGenerating;
       return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.voiceCallTitle,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-voice-call'),
           onPressed: enabledVoiceCall
@@ -4875,7 +5487,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // iOS glass buttons are UIKit platform views. Remove them while another
     // route covers the composer so their compositor layer cannot bleed
     // through an opaque Flutter modal sheet.
-    if (conduitSupportsNativeGlass() && !forcePlain && !_isRouteVisible) {
+    if (conduitSupportsNativeGlass() &&
+        !forcePlain &&
+        !isProminent &&
+        !_isRouteVisible) {
       return SizedBox.square(dimension: size);
     }
 
@@ -4935,6 +5550,36 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           visualSize: effectiveVisualSize,
           visualAlignment: visualAlignment,
           control: loadingButton,
+        );
+      }
+      if (isProminent) {
+        // Send, Stop and voice: a Flutter disc. UIKit's prominent glass
+        // highlight took the system accent (a blue flash on a black button).
+        final glyph = NativeSymbolGlyph.isAvailable
+            ? NativeSymbolGlyph(
+                symbol: iosSymbol,
+                fallbackIcon:
+                    _composerSymbolFallbacks[iosSymbol] ??
+                    CupertinoIcons.circle,
+                pointSize: iosSymbolSize ?? kCupertinoNativeControlSymbolExtent,
+                color: iosSymbolColor ?? theme.buttonPrimaryText,
+              )
+            : child;
+        return Semantics(
+          key: key,
+          button: true,
+          enabled: onPressed != null,
+          label: semanticLabel,
+          onTap: onPressed,
+          excludeSemantics: true,
+          child: ComposerProminentButton(
+            onPressed: onPressed,
+            targetSize: size,
+            visualSize: effectiveVisualSize,
+            alignment: visualAlignment,
+            fill: buttonColor,
+            glyph: glyph,
+          ),
         );
       }
       final nativeButton = SizedBox.square(
@@ -5001,7 +5646,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required AlignmentGeometry visualAlignment,
     required Widget control,
   }) {
-    if (visualSize >= targetSize) return control;
+    if (visualSize >= targetSize) {
+      if (semanticLabel == null) return control;
+      // The label must reach VoiceOver here too, not only when the visual is
+      // smaller than its target; otherwise only the tooltip names the button.
+      return Semantics(
+        key: key,
+        button: true,
+        enabled: onPressed != null,
+        label: semanticLabel,
+        onTap: onPressed,
+        excludeSemantics: true,
+        child: control,
+      );
+    }
 
     return Semantics(
       key: key,
@@ -5162,6 +5820,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _showExpandTextModal() async {
     if (Platform.isIOS) {
       final l10n = AppLocalizations.of(context)!;
+      final draftKey = composerDraftKey(ref.read(composerDraftContextProvider));
+      bool ownsInput() =>
+          mounted &&
+          draftKey == composerDraftKey(ref.read(composerDraftContextProvider));
+      void applyText(String text) {
+        if (!ownsInput() || _controller.text == text) return;
+        _controller.value = TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        );
+      }
+
+      final changes = NativeSheetBridge.instance.events.listen((event) {
+        if (event is NativeSheetControlChanged &&
+            event.id == 'expanded-text-value' &&
+            event.value is String) {
+          applyText(event.value as String);
+        }
+      });
       setState(() => _expandModalOpen = true);
       try {
         final result = await NativeSheetBridge.instance.presentTextEditor(
@@ -5172,21 +5849,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ? l10n.queueDraftAction
               : l10n.send,
           valueId: 'expanded-text-value',
+          emitChanges: true,
           sendActionId: 'send-expanded-text',
           closeActionId: 'close-expanded-text',
           rethrowErrors: true,
         );
         final updatedText = result?.values['expanded-text-value'] as String?;
-        if (mounted && updatedText != null && _controller.text != updatedText) {
-          _controller.value = TextEditingValue(
-            text: updatedText,
-            selection: TextSelection.collapsed(offset: updatedText.length),
-          );
-        }
+        if (updatedText != null) applyText(updatedText);
         if (mounted) {
           setState(() => _expandModalOpen = false);
         }
-        if (result?.actionId == 'send-expanded-text' && mounted) {
+        if (result?.actionId == 'send-expanded-text' && ownsInput()) {
           _sendMessage();
         }
         return;
@@ -5195,6 +5868,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           return;
         }
         setState(() => _expandModalOpen = false);
+      } finally {
+        await changes.cancel();
       }
     }
 
@@ -5260,10 +5935,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _startVoice() async {
-    if (!widget.enabled) return;
+    if (!widget.enabled || _startingVoice) return;
+    _startingVoice = true;
+    final generation = ++_voiceStartGeneration;
+    final origin = ref.read(composerDraftContextProvider);
+    final baseSnapshot = _controller.snapshotDraft();
+    final baseText = _controller.text;
     try {
+      await _recordingSession?.close();
       final ok = await _voiceInputService.initialize();
-      if (!mounted) return;
+      if (!mounted || generation != _voiceStartGeneration) return;
       if (!ok) {
         _showVoiceUnavailable(
           AppLocalizations.of(context)?.errorMessage ??
@@ -5271,45 +5952,122 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         );
         return;
       }
+      var expectedSnapshot = baseSnapshot;
+      late final ComposerRecordingSession recording;
+      recording = await ComposerRecordingSession.begin(
+        origin,
+        stop: (session) => _stopVoiceListening(recording: session),
+        onSaveFailure: () => _showRecordingSaveFailure(recording),
+      );
+      _recordingSession = recording;
+      if (!mounted || generation != _voiceStartGeneration) {
+        await recording.close();
+        return;
+      }
       // Centralized permission + start
-      final stream = await _voiceInputService.beginListening();
-      if (!mounted) return;
+      final stream = await _voiceInputService.beginListening(
+        recording: recording.sink,
+      );
+      if (!mounted || generation != _voiceStartGeneration) {
+        await _voiceInputService.stopListening();
+        await recording.close();
+        return;
+      }
       _transcribingListenable?.removeListener(_handleTranscribingChanged);
       _transcribingListenable = _voiceInputService.transcribing
         ..addListener(_handleTranscribingChanged);
       setState(() {
         _isRecording = true;
-        _baseTextAtStart = _controller.text;
+        _recordingTranscriptionErrorId = null;
+        _recordingCaptureErrorId = null;
       });
       _textSub?.cancel();
-      _textSub = stream.listen(
-        (text) async {
-          final updated = _baseTextAtStart.isEmpty
-              ? text
-              : '${_baseTextAtStart.trimRight()} $text';
-          _controller.value = TextEditingValue(
-            text: updated,
-            selection: TextSelection.collapsed(offset: updated.length),
+      _textSub = stream
+          .asyncMap<void>((text) async {
+            final updated = baseText.isEmpty
+                ? text
+                : '${baseText.trimRight()} $text';
+            final copy = MentionTextEditingController();
+            copy.restoreDraft(baseSnapshot);
+            copy.value = TextEditingValue(
+              text: updated,
+              selection: TextSelection.collapsed(offset: updated.length),
+            );
+            final nextSnapshot = copy.snapshotDraft();
+            copy.dispose();
+            if (await _draftBinding?.applyDictation(
+                  origin,
+                  expectedSnapshot,
+                  nextSnapshot,
+                ) ==
+                true) {
+              expectedSnapshot = nextSnapshot;
+            }
+          })
+          .listen(
+            (_) {},
+            onDone: () {
+              unawaited(recording.close().catchError((Object _) {}));
+              if (!mounted) return;
+              setState(() => _isRecording = false);
+            },
+            onError: (Object error) async {
+              await recording.stopped;
+              if (!mounted) return;
+              final saved = (recording.writer?.savedBytes ?? 0) > 0;
+              setState(() {
+                _isRecording = false;
+                if (saved) {
+                  if (error is NativeSttException &&
+                      error.code == 'AUDIO_PRESERVATION_FAILED') {
+                    _recordingCaptureErrorId = recording.id;
+                  } else {
+                    _recordingTranscriptionErrorId = recording.id;
+                  }
+                }
+              });
+              if (!saved) {
+                _showVoiceUnavailable(
+                  AppLocalizations.of(context)!.errorMessage,
+                );
+              }
+            },
           );
-        },
-        onDone: () {
-          if (!mounted) return;
-          setState(() => _isRecording = false);
-        },
-        onError: (_) {
-          if (!mounted) return;
-          setState(() => _isRecording = false);
-        },
-      );
       _ensureFocusedIfEnabled();
+      if (!origin.temporary && !_voiceInputService.recordingRecoverySupported) {
+        unawaited(
+          origin.store?.recordings
+              .discard(recording.id)
+              .catchError((Object _) {}),
+        );
+        _showVoiceUnavailable(
+          AppLocalizations.of(context)!.recordingRecoveryUnavailable,
+        );
+      }
     } catch (_) {
+      await _recordingSession?.close().catchError((Object _) {});
+      if (!mounted) return;
       _showVoiceUnavailable(
         AppLocalizations.of(context)?.errorMessage ??
             'Failed to start voice input',
       );
-      if (!mounted) return;
       setState(() => _isRecording = false);
+    } finally {
+      _startingVoice = false;
     }
+  }
+
+  void _showRecordingSaveFailure(ComposerRecordingSession recording) {
+    if (!mounted || _isDeactivated) return;
+    final l10n = AppLocalizations.of(context)!;
+    AdaptiveSnackBar.show(
+      context,
+      message: l10n.recordingSaveFailed,
+      type: AdaptiveSnackBarType.error,
+      action: l10n.retry,
+      onActionPressed: () =>
+          unawaited(recording.flush().catchError((Object _) {})),
+    );
   }
 
   void _handleTranscribingChanged() {
@@ -5318,10 +6076,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     setState(() => _isTranscribing = value);
   }
 
-  Future<void> _stopVoiceListening() async {
+  Future<void> _stopVoiceListening({
+    ComposerRecordingSession? recording,
+  }) async {
+    ++_voiceStartGeneration;
+    final session = recording ?? _recordingSession;
     try {
       await _voiceInputService.stopListening();
     } finally {
+      await session?.close().catchError((Object _) {});
       if (mounted) {
         setState(() {
           _isTranscribing = false;
@@ -5335,17 +6098,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     await _stopVoiceListening();
     if (!mounted) return;
     ConduitHaptics.selectionClick();
-  }
-
-  Future<void> _stopVoiceAndSend() async {
-    if (_controller.text.trim().isEmpty) {
-      await _stopVoice();
-      return;
-    }
-    await _stopVoiceListening();
-    if (!mounted) return;
-    ConduitHaptics.lightImpact();
-    _sendMessage();
   }
 
   // When on-device STT is unavailable we rely on server transcription.

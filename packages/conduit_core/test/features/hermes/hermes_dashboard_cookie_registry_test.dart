@@ -92,6 +92,146 @@ void main() {
     check(merged[62]).equals(identity('hermes_session_at_x'));
   });
 
+  test('a Webapp listener\'s suffixed session cookies are retained', () {
+    final session = identity('hermes_session_at_0123456789abcdef');
+    final signIn = identity('hermes_webapp_signin_0123456789abcdef');
+    final other = identity('token');
+
+    // Refreshed in place: the gateway's cookies were recorded before.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {session, signIn, other},
+        baseline: {session, signIn, other},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+        recorded: {session},
+      ),
+    ).deepEquals({session, signIn});
+    // Only the Webapp's 16-hex suffix is dropped.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {identity('hermes_session_at_0123')},
+        baseline: {identity('hermes_session_at_0123')},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).isEmpty();
+  });
+
+  test('another gateway\'s cookies on the same host stay out', () {
+    // Gateway A's Webapp (port 9121) and gateway B's (port 9122) share the
+    // host's cookie jar; each names its cookies with its own suffix.
+    final mine = identity('hermes_session_at_aaaaaaaaaaaaaaaa');
+    final theirs = identity('hermes_session_at_bbbbbbbbbbbbbbbb');
+    final theirSignIn = identity('hermes_webapp_signin_bbbbbbbbbbbbbbbb');
+    final dashboard = identity('hermes_session_at');
+
+    // First sign-in into A: its cookie is new.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {mine, theirs, theirSignIn, dashboard},
+        baseline: {theirs, theirSignIn, dashboard},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).deepEquals({mine});
+    // A later sign-in refreshes A's cookie in place.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {mine, theirs, theirSignIn, dashboard},
+        baseline: {mine, theirs, theirSignIn, dashboard},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+        recorded: {mine},
+      ),
+    ).deepEquals({mine});
+    // The standalone dashboard keeps only its unsuffixed names.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {mine, theirs, dashboard},
+        baseline: {mine, theirs, dashboard},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).deepEquals({dashboard});
+  });
+
+  // A sign-in that reused the WebView's session for this gateway created no
+  // cookie, so none was recorded, and Sign Out left it signed in.
+  test('a session the record lacks is one only the gateway can end', () {
+    final mine = identity('hermes_session_at_aaaaaaaaaaaaaaaa');
+    final myRefresh = identity('hermes_session_rt_aaaaaaaaaaaaaaaa');
+    final theirs = identity('hermes_session_rt_bbbbbbbbbbbbbbbb');
+    final dashboard = identity('__Host-hermes_session_at');
+
+    // Nothing on record: any gateway's session could be this one's.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, myRefresh},
+        recorded: const {},
+      ),
+    ).isTrue();
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {theirs, dashboard},
+        recorded: const {},
+      ),
+    ).isTrue();
+    // Recorded, the record's deletion ends it.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, myRefresh, identity('token')},
+        recorded: {mine, myRefresh},
+      ),
+    ).isFalse();
+    // Cookies that hold no session ask nothing.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {
+          identity('token'),
+          identity('hermes_webapp_signin_aaaaaaaaaaaaaaaa'),
+          identity('hermes_session_at_x'),
+        },
+        recorded: const {},
+      ),
+    ).isFalse();
+  });
+
+  // Any unrecorded session on the host counted, so a second gateway (or the
+  // standalone dashboard) that could not be reached failed this one's Sign
+  // Out, though its own session was on record.
+  test('a record that names its gateway counts only that gateway', () {
+    final mine = identity('hermes_session_at_aaaaaaaaaaaaaaaa');
+    final myRefresh = identity('hermes_session_rt_aaaaaaaaaaaaaaaa');
+    final theirs = identity('hermes_session_rt_bbbbbbbbbbbbbbbb');
+    final dashboard = identity('hermes_session_at');
+    final dashboardRefresh = identity('__Secure-hermes_session_rt');
+
+    // Another gateway's session, or the standalone dashboard's, is not this
+    // one's to end.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, theirs, dashboard},
+        recorded: {mine},
+      ),
+    ).isFalse();
+    // One of this gateway's own that the record lacks still counts.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, myRefresh, theirs},
+        recorded: {mine},
+      ),
+    ).isTrue();
+    // A record of the standalone dashboard counts only unsuffixed ones.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {dashboard, theirs},
+        recorded: {dashboard},
+      ),
+    ).isFalse();
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {dashboard, dashboardRefresh, theirs},
+        recorded: {dashboard},
+      ),
+    ).isTrue();
+  });
+
   test('a refreshed session cookie moves to the end of the record', () {
     final merged = mergeHermesDashboardCookieIdentities(
       existing: [identity('hermes_session_at'), identity('a'), identity('b')],

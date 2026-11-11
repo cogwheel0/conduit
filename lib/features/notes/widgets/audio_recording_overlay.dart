@@ -371,7 +371,7 @@ class _AudioRecordingOverlayState extends State<AudioRecordingOverlay>
                               ? SizedBox(
                                   width: IconSize.md,
                                   height: IconSize.md,
-                                  child: const CircularProgressIndicator(
+                                  child: const AdaptiveProgressIndicator(
                                     strokeWidth: 2,
                                     color: Colors.white,
                                   ),

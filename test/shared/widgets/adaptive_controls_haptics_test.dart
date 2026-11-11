@@ -249,7 +249,7 @@ void main() {
 
     tester
         .widget<CNPopupMenuButton>(find.byType(CNPopupMenuButton))
-        .onSelected(0);
+        .onSelected!(0);
 
     expect(selected, isTrue);
     expect(hapticCalls(), isEmpty);

@@ -121,6 +121,8 @@ void main() {
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 27;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
 
     await tester.pumpWidget(
       _buildHarness(
@@ -128,6 +130,7 @@ void main() {
           actions: [
             ConduitContextMenuAction(
               cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+              sfSymbol: 'doc.on.clipboard',
               materialIcon: Icons.copy,
               label: 'Copy',
               onSelected: () async {},
@@ -144,6 +147,9 @@ void main() {
         ),
       ),
     );
+
+    expect(find.byType(NativeContextMenu), findsNothing);
+    expect(find.byType(CupertinoContextMenu), findsOneWidget);
 
     const previewKey = ValueKey<String>(
       'conversation-tile-context-preview-background',

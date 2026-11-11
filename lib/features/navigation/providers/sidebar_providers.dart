@@ -47,3 +47,38 @@ final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
     ),
   );
 });
+
+/// Asks an overlay sidebar to close, for code with no context under the
+/// drawer, such as the Android assistant opening a new chat.
+final sidebarOverlayDismissRequestProvider =
+    NotifierProvider<SidebarOverlayDismissRequest, int>(
+      SidebarOverlayDismissRequest.new,
+    );
+
+class SidebarOverlayDismissRequest extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}
+
+/// The backend history shown by the opt-in sidebar and its New Chat action.
+final sidebarHistoryTabProvider =
+    NotifierProvider<SidebarHistoryTab, SidebarTabId>(SidebarHistoryTab.new);
+
+class SidebarHistoryTab extends Notifier<SidebarTabId> {
+  @override
+  SidebarTabId build() => SidebarTabId.chats;
+
+  void select(SidebarTabId tab) => state = tab;
+}
+
+final sidebarSelectedHistoryTabProvider = Provider<SidebarTabId>((ref) {
+  final tabs = ref.watch(sidebarNavigationSnapshotProvider).tabs;
+  final selected = ref.watch(sidebarHistoryTabProvider);
+  return tabs.contains(selected)
+      ? selected
+      : tabs.firstWhere(
+          (tab) => tab == SidebarTabId.chats || tab == SidebarTabId.hermes,
+        );
+});

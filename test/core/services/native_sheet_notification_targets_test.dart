@@ -151,9 +151,13 @@ Future<_NativeSettings> _pumpApp(
     'features': {'webhooks': true},
   },
   int? targetCount = 0,
+  bool notificationsOn = true,
 }) async {
   if (advanced) {
     await PreferencesStore.put(PreferenceKeys.advancedFeaturesEnabled, true);
+  }
+  if (notificationsOn) {
+    await PreferencesStore.put(PreferenceKeys.notificationsEnabled, true);
   }
   final native = _NativeSettings(tester);
   final api = ApiService(serverConfig: _server, workerManager: WorkerManager());
@@ -280,7 +284,7 @@ void main() {
     final row = native
         .items(_detail)
         .singleWhere((item) => item.id == 'notification-targets');
-    expect(row.title, 'Webhook destinations');
+    expect(row.title, 'Webhook Destinations');
     expect(row.dismissOnSelect, isTrue);
     expect(row.actionId, 'notification-targets');
     expect(row.sfSymbol, 'bell.and.waves.left.and.right');
@@ -310,6 +314,27 @@ void main() {
     expect(ids(patches.first), _localToggles);
     expect(ids(patches.last), [..._localToggles, 'notification-targets']);
     expect(native.items(_detail).last.subtitle, '2 destinations');
+  });
+
+  // With notifications off the options under the switch could not do
+  // anything, so only the switch shows, as in Settings.
+  testWidgets('with notifications off only the switch shows, explained by '
+      'its footer', (tester) async {
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      notificationsOn: false,
+    );
+
+    await native.detailAppeared(_detail);
+
+    final patch = native.patches.lastWhere((p) => p.detailId == _detail);
+    expect(patch.sections, hasLength(1));
+    final master = patch.sections.single;
+    expect(master.items.map((item) => item.id), ['notifications-enabled']);
+    expect(master.items.single.value, isFalse);
+    expect(master.items.single.subtitle, isNull);
+    expect(master.footer, isNotNull);
   });
 
   testWidgets('an unreadable list leaves the row without a count', (

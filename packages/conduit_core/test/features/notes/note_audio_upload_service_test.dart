@@ -248,6 +248,37 @@ void main() {
       },
     );
 
+    test('a recording keeps the note page it was made on', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'conduit_note_audio_upload_test_',
+      );
+      addTearDown(() => _deleteDirectory(root));
+      final store = NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
+        idGenerator: () => 'upload-page',
+      );
+      final staged = await store.stage(
+        source: await _recordingFile(root, 'source.m4a'),
+        serverId: 'server-1',
+        accountId: 'user-1',
+        noteId: 'note-1',
+        fileName: 'recording.m4a',
+        pageId: 'p2',
+      );
+      check(staged.pageId).equals('p2');
+      check(
+        staged.transition(NoteAudioUploadStatus.uploading).pageId,
+      ).equals('p2');
+
+      final reloaded = await NoteAudioUploadStore(
+        applicationSupportDirectory: () async => root,
+        temporaryDirectory: () async => root,
+      ).loadForNote(serverId: 'server-1', accountId: 'user-1', noteId: 'note-1');
+
+      check(reloaded.single.pageId).equals('p2');
+    });
+
     test(
       'recovers an interrupted copy from its journaled cache name',
       () async {
@@ -434,6 +465,7 @@ void main() {
         accountId: 'user-1',
         noteId: 'deleted-note',
         fileName: 'recording.m4a',
+        pageId: 'p2',
       );
 
       final failed = staged.transition(
@@ -455,6 +487,10 @@ void main() {
       check(rebound.lastError).equals('attach interrupted');
       check(rebound.serverFileId).equals('server-file-rebound');
       check(rebound.createdAt).equals(staged.createdAt);
+      // The page it was made on goes with it: the replacement note may have
+      // that page too, and a note without it takes the recording on its main
+      // page.
+      check(rebound.pageId).equals('p2');
       check(await File(rebound.localPath).exists()).isTrue();
       check(
         await store.loadForNote(

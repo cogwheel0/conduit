@@ -1,3 +1,4 @@
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/features/sharing/providers/resource_access_controller.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -7,7 +8,6 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
-import 'package:conduit_core/features/chat/utils/chat_share_url.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -27,11 +27,47 @@ ResourceAccessController? _openAudience(
   dynamic ref,
   Conversation conversation,
 ) {
+  // A LibreChat link opens for whoever has it (signed in to the server,
+  // unless it allows anonymous viewing); there is no audience to choose.
+  if (isLibreChatConversation(conversation)) return null;
   return ResourceAccessController.open(
     ref,
     kind: ResourceKind.chat,
     resourceId: conversation.id,
   );
+}
+
+/// How long the share sheet waits to learn whether a LibreChat chat has a
+/// link before it shows what the chat itself knows.
+const Duration _libreChatLinkLookupTimeout = Duration(seconds: 5);
+
+/// Asks LibreChat for chat [conversationId]'s link for as long as the sheet
+/// waits. An answer that comes later is dropped, not recorded on the chat,
+/// so copying never updates a link the sheet did not show.
+Future<String?> _lookUpLibreChatLinkInTime(
+  dynamic ref,
+  String conversationId,
+) => chat.lookUpLibreChatShareLink(
+  ref,
+  conversationId,
+  timeout: _libreChatLinkLookupTimeout,
+);
+
+/// The share id of LibreChat chat [conversationId]'s link as its server
+/// knows it, empty when it has none; null when the server could not say.
+/// LibreChat's conversation does not carry its link, so one made in its web
+/// app or on another device is only known once looked up.
+Future<String?> _lookUpLibreChatLink(
+  dynamic ref,
+  String conversationId, {
+  Future<String?> Function(dynamic ref, String conversationId) lookUp =
+      _lookUpLibreChatLinkInTime,
+}) async {
+  try {
+    return await lookUp(ref, conversationId) ?? '';
+  } catch (_) {
+    return null;
+  }
 }
 
 Future<void> showChatShareSheet({
@@ -66,6 +102,31 @@ Future<void> _showNativeChatShareSheet({
   final l10n = AppLocalizations.of(context)!;
   final conversationId = conversationScopedId(conversation);
   var hasExistingShare = conversation.shareId?.isNotEmpty == true;
+  if (isLibreChatConversation(conversation)) {
+    // The native sheet cannot change once shown: find out first whether the
+    // chat has a link made elsewhere, so it offers to update or delete it.
+    final askedFor = container.read(activeLibreChatAccountProvider)?.id;
+    final found = await _lookUpLibreChatLink(container, conversationId);
+    if (found != null) hasExistingShare = found.isNotEmpty;
+    if (!context.mounted) return;
+    // Another account in use now would share or delete through its own
+    // server, which can hold a chat with the same id: no sheet.
+    if (container.read(activeLibreChatAccountProvider)?.id != askedFor) {
+      return;
+    }
+  }
+  // LibreChat asks its role's permission to make or update a link, not to
+  // delete one: a chat with a link and no permission offers only the delete.
+  // Read once the link is looked up, which gives permissions still loading
+  // as long to arrive: the sheet cannot change once shown.
+  final canPublish =
+      !isLibreChatConversation(conversation) ||
+      (container
+              .read(libreChatCapabilitiesProvider)
+              .asData
+              ?.value
+              .sharedLinks ??
+          false);
 
   void showMessage(
     String message, {
@@ -84,17 +145,9 @@ Future<void> _showNativeChatShareSheet({
   }
 
   Future<String> ensureShareUrl() async {
-    final api = container.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('API service not available');
-    }
-
-    final shareId = await chat.shareConversation(container, conversationId);
-    if (shareId == null || shareId.isEmpty) {
-      throw StateError('Share id missing');
-    }
+    final link = await chat.shareConversationLink(container, conversationId);
     hasExistingShare = true;
-    return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
+    return link.url;
   }
 
   /// Copies the link; [announce] is false when the sheet comes straight back
@@ -128,11 +181,9 @@ Future<void> _showNativeChatShareSheet({
 
   Future<void> deleteLink() async {
     try {
-      final api = container.read(apiServiceProvider);
-      if (api == null) {
-        throw StateError('API service not available');
-      }
-      await chat.deleteSharedConversation(container, conversationId);
+      // The delete reaches the chat's own server (Open WebUI or LibreChat)
+      // and checks for its client itself.
+      await chat.deleteConversationShareLink(container, conversationId);
       hasExistingShare = false;
       ConduitHaptics.success();
       showMessage(l10n.sharedLinkDeleted, type: AdaptiveSnackBarType.success);
@@ -164,22 +215,23 @@ Future<void> _showNativeChatShareSheet({
             ? l10n.shareChatExisting
             : l10n.shareChatDescription,
         sections: [
-          NativeSheetSectionConfig(
-            items: [
-              NativeSheetItemConfig(
-                id: 'copy-link',
-                title: hasExistingShare
-                    ? l10n.updateAndCopyLink
-                    : l10n.copyLink,
-                sfSymbol: 'doc.on.doc',
-              ),
-              NativeSheetItemConfig(
-                id: 'share-link',
-                title: l10n.shareSystemSheet,
-                sfSymbol: 'square.and.arrow.up',
-              ),
-            ],
-          ),
+          if (canPublish)
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: 'copy-link',
+                  title: hasExistingShare
+                      ? l10n.updateAndCopyLink
+                      : l10n.copyLink,
+                  sfSymbol: 'square.on.square',
+                ),
+                NativeSheetItemConfig(
+                  id: 'share-link',
+                  title: l10n.shareSystemSheet,
+                  sfSymbol: 'square.and.arrow.up',
+                ),
+              ],
+            ),
           if (hasExistingShare && audience != null)
             NativeSheetSectionConfig(
               items: [
@@ -248,10 +300,18 @@ class ChatShareSheet extends ConsumerStatefulWidget {
     super.key,
     required this.conversation,
     Future<ShareResult> Function(ShareParams params)? share,
-  }) : share = share ?? SharePlus.instance.share;
+    Future<String?> Function(dynamic ref, String conversationId)?
+    lookUpLibreChatLink,
+  }) : share = share ?? SharePlus.instance.share,
+       lookUpLibreChatLink =
+           lookUpLibreChatLink ?? _lookUpLibreChatLinkInTime;
 
   final Conversation conversation;
   final Future<ShareResult> Function(ShareParams params) share;
+
+  /// Asks LibreChat for a LibreChat chat's link without publishing it.
+  final Future<String?> Function(dynamic ref, String conversationId)
+  lookUpLibreChatLink;
 
   @override
   ConsumerState<ChatShareSheet> createState() => _ChatShareSheetState();
@@ -259,41 +319,60 @@ class ChatShareSheet extends ConsumerStatefulWidget {
 
 class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
   late final String _conversationSelectionId;
+
+  /// The app's container, which outlives the sheet: a request still out when
+  /// the sheet closes records its answer through it.
+  late final ProviderContainer _container;
   ResourceAccessController? _audience;
   String? _shareId;
   bool _isSharing = false;
   bool _isDeleting = false;
+  bool _isLookingUp = false;
 
   @override
   void initState() {
     super.initState();
     _conversationSelectionId = conversationScopedId(widget.conversation);
+    _container = ProviderScope.containerOf(context, listen: false);
     _shareId = widget.conversation.shareId;
     // Captured as the share flow opens, before any request or confirmation.
     _audience = _openAudience(ref, widget.conversation);
+    if (isLibreChatConversation(widget.conversation)) {
+      _isLookingUp = true;
+      _lookUpLink();
+    }
+  }
+
+  /// Finds a link the LibreChat chat got elsewhere before anything can be
+  /// copied, so copying never updates a link the sheet did not show.
+  Future<void> _lookUpLink() async {
+    final found = await _lookUpLibreChatLink(
+      _container,
+      _conversationSelectionId,
+      lookUp: widget.lookUpLibreChatLink,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (found != null) _shareId = found.isEmpty ? null : found;
+      _isLookingUp = false;
+    });
   }
 
   Future<String> _ensureShareUrl() async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('API service not available');
-    }
-
-    // Open WebUI re-snapshots an existing share each time the user copies the
+    // An existing share is snapshotted again each time the user copies the
     // link, so the URL points at the latest persisted conversation state.
-    var shareId = await chat.shareConversation(ref, _conversationSelectionId);
-    if (shareId == null || shareId.isEmpty) {
-      throw StateError('Server did not return a share ID');
-    }
+    final link = await chat.shareConversationLink(
+      _container,
+      _conversationSelectionId,
+    );
     if (mounted) {
-      setState(() => _shareId = shareId);
+      setState(() => _shareId = link.shareId);
     }
-
-    return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
+    return link.url;
   }
 
   Future<void> _copyLink() async {
-    if (_isSharing || _isDeleting) return;
+    if (_isSharing || _isDeleting || _isLookingUp) return;
     final l10n = AppLocalizations.of(context)!;
     setState(() => _isSharing = true);
     try {
@@ -314,7 +393,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
   }
 
   Future<void> _shareLink() async {
-    if (_isSharing || _isDeleting) return;
+    if (_isSharing || _isDeleting || _isLookingUp) return;
     final l10n = AppLocalizations.of(context)!;
     setState(() => _isSharing = true);
     try {
@@ -334,7 +413,10 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _isDeleting = true);
     try {
-      await chat.deleteSharedConversation(ref, _conversationSelectionId);
+      await chat.deleteConversationShareLink(
+        _container,
+        _conversationSelectionId,
+      );
       if (mounted) {
         setState(() => _shareId = null);
       }
@@ -369,6 +451,16 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
     final theme = context.conduitTheme;
     final shareId = _shareId;
     final hasExistingShare = shareId != null && shareId.isNotEmpty;
+    // LibreChat asks its role's permission to make or update a link, not to
+    // delete one: a chat with a link and no permission offers only the
+    // delete.
+    final canPublish =
+        !isLibreChatConversation(widget.conversation) ||
+        ref.watch(
+          libreChatCapabilitiesProvider.select(
+            (capabilities) => capabilities.asData?.value.sharedLinks ?? false,
+          ),
+        );
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -423,24 +515,28 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
                 height: 1.35,
               ),
             ),
-            const SizedBox(height: Spacing.lg),
-            ConduitButton(
-              key: const Key('chat-share-copy'),
-              text: hasExistingShare ? l10n.updateAndCopyLink : l10n.copyLink,
-              onPressed: _isDeleting ? null : _copyLink,
-              isLoading: _isSharing,
-              icon: CupertinoIcons.doc_on_clipboard,
-              isFullWidth: true,
-            ),
-            const SizedBox(height: Spacing.sm),
-            ConduitButton(
-              key: const Key('chat-share-system'),
-              text: l10n.shareSystemSheet,
-              onPressed: _isDeleting ? null : _shareLink,
-              isSecondary: true,
-              icon: CupertinoIcons.share,
-              isFullWidth: true,
-            ),
+            if (canPublish) ...[
+              const SizedBox(height: Spacing.lg),
+              ConduitButton(
+                key: const Key('chat-share-copy'),
+                text: hasExistingShare
+                    ? l10n.updateAndCopyLink
+                    : l10n.copyLink,
+                onPressed: _isDeleting || _isLookingUp ? null : _copyLink,
+                isLoading: _isSharing || _isLookingUp,
+                icon: CupertinoIcons.square_on_square,
+                isFullWidth: true,
+              ),
+              const SizedBox(height: Spacing.sm),
+              ConduitButton(
+                key: const Key('chat-share-system'),
+                text: l10n.shareSystemSheet,
+                onPressed: _isDeleting || _isLookingUp ? null : _shareLink,
+                isSecondary: true,
+                icon: CupertinoIcons.share,
+                isFullWidth: true,
+              ),
+            ],
             if (hasExistingShare && _audience != null) ...[
               const SizedBox(height: Spacing.lg),
               InsetGroupedList(

@@ -178,6 +178,149 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Vous pouvez garder plusieurs comptes Open WebUI connectés et passer de l’un à l’autre, et enregistrer plusieurs connexions Hermes. Les appels peuvent parler avec une voix en temps réel que vous pouvez interrompre. Open WebUI 0.12 fonctionne, y compris la connexion en deux étapes, et d’autres fonctions d’Open WebUI ne nécessitent plus Avancé.",
+      "bullets": [
+        {
+          "text": "Comptes : gardez plusieurs comptes Open WebUI connectés, sur un ou plusieurs serveurs, et changez depuis votre profil ou la nouvelle page Comptes en haut des Réglages. Ajoutez n’importe quel compte ou connexion depuis une seule feuille. Un serveur peut avoir plusieurs adresses, comme le réseau local, Tailscale et un proxy public ; l’app utilise la première qui répond.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes : enregistrez plusieurs connexions nommées, comme Maison et Recherche, et passez de l’une à l’autre depuis la barre latérale, les réglages ou Comptes. Une discussion dont la session appartient à une autre connexion propose d’y basculer.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Appels en temps réel : sur Open WebUI 0.12, Direct et le Hermes Desktop Gateway, les appels peuvent parler avec une voix en temps réel d’OpenAI, et parler par-dessus l’arrête. Choisissez un Fournisseur vocal dans les réglages audio pour les discussions Direct et Apple. La transcription et la synthèse vocale du serveur suivent le backend de chaque discussion.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12 : l’app fonctionne sans avertissement de compatibilité. La vérification en deux étapes à la connexion fonctionne, y compris la configuration et les codes de récupération. L’export des compétences, le partage de dossiers, les discussions temporaires imposées et l’approbation des outils suivent la version 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Fonctions d’Open WebUI : la file de brouillons, l’interpréteur de code, les branches, l’audience des discussions, les dossiers de projet, le partage, les membres des canaux et le calendrier ne nécessitent plus Avancé. Avancé ajoute la comparaison de modèles, les tâches planifiées, les webhooks et les contrôles des données. Les grandes discussions ne sont plus retéléchargées à chaque ouverture, et le niveau de raisonnement choisi est conservé.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Open WebUI 0.12.2 fonctionne, et les canaux affichent les applications qui y répondent et peuvent vous notifier uniquement pour les mentions. Les appels vocaux continuent malgré le bruit de fond et les gestes de l’avatar, et le bouton haut-parleur fonctionne dès le début des appels sur Android.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2 : l’app fonctionne sans avertissement de compatibilité. Les discussions lancées par un appel en temps réel reçoivent un titre et des tags générés, selon vos réglages de titres et de tags.",
+          "icon": "direct"
+        },
+        {
+          "text": "Canaux : les messages des applications affichent le nom de l’application, des cartes, des boutons et des liens. Appuyer sur un bouton l’envoie à l’application, et les réponses visibles uniquement par vous apparaissent sous le message jusqu’à ce que vous les ignoriez. Réglez un canal ou un message direct sur Mentions uniquement pour éviter badges et notifications, sauf si l’on vous mentionne.",
+          "icon": "direct"
+        },
+        {
+          "text": "Appels vocaux : le bruit de fond ne coupe plus la voix en temps réel en pleine phrase ; elle se met en pause et reprend si rien n’a été dit. Les gestes de l’avatar ne retardent plus les réponses de trois secondes. Sur Android, le bouton haut-parleur fonctionne dès le début de l’appel, et un appel ne bloque plus vos propres appels téléphoniques pendant ses deux premières minutes.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Nouveautés",
+      "intro": "Salut ! Open WebUI 0.12.4 fonctionne, et vous pouvez partager des réponses, marquer des chats comme non lus et lire les vidéos du chat d'un toucher. La dictée par le serveur garde chaque mot, le partage vers Conduit sur iOS apporte le vrai fichier, et le retour sur Android mène à la liste des chats.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4 : l'app fonctionne sans avertissement de compatibilité, et une phrase coupée par une pause pendant un appel en temps réel n'obtient qu'une seule réponse. Les dossiers restent ouverts ou fermés comme vous les avez laissés, ici et sur le web. Marquez un chat comme non lu depuis la liste des chats, et les chats marqués non lus sur le web le sont aussi ici. Les filtres prévus pour démarrer activés le sont dans les nouveaux chats, les images des outils MCP se chargent, chaque modèle propose le sélecteur d'effort de raisonnement, et une fonction peut proposer de passer le chat à un autre modèle.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats : les vidéos affichent une carte et ne se chargent que lorsque vous touchez Lire. « Partager… » dans le menu ⋯ d'une réponse partage son texte, et Copier comme Partager prennent la version affichée. Sur iOS, un appui long sur un long message garde Modifier, Copier et Supprimer visibles, et un long message de canal ne repousse plus les réponses de son fil hors de l'écran.",
+          "icon": "direct"
+        },
+        {
+          "text": "Partage et dictée : sur iOS, les captures d'écran, les documents de Fichiers et les images de Safari arrivent comme le vrai fichier, et le chat s'affiche même si les Réglages étaient ouverts. La dictée par le serveur garde tout ce que vous avez dit, jusqu'au dernier mot, même si vous touchez Arrêter tôt ou parlez plus de 90 secondes.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android et comptes : le retour mène à la liste des chats, et l'assistant ouvre un nouveau chat prêt et continue de fonctionner après un redémarrage. Un serveur ou une connexion Hermes modifiés prennent le nom de leur nouvelle adresse, et les fournisseurs Direct restent accessibles à côté de Hermes.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Open WebUI 0.13 et 0.12.5 fonctionnent : les apps MCP s'ouvrent dans le chat, les terminaux se mettent à jour en direct et affichent les ports dans l'app, et les notes peuvent avoir des pages. Écouter une réponse ouvre un lecteur que vous pouvez mettre en pause et faire avancer, les brouillons non envoyés survivent à un redémarrage, et une nouvelle barre latérale coulissante vous attend dans les réglages Apparence.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13 : l'app fonctionne sans avertissement de compatibilité, et les chats temporaires fonctionnent et continuent de répondre après une reconnexion. L'app d'un outil MCP s'ouvre directement dans le chat et vous demande avant chaque outil qu'elle lance. Les chats qui attendent l'approbation d'un outil affichent une main levée dans la liste des chats. Activez ou désactivez les outils de l'espace de travail, et les envois vers une base de connaissances respectent les limites de fichiers du serveur et disent pourquoi l'un a été refusé ; le propriétaire d'une base peut fixer ses propres Limites de fichiers. Les webhooks enregistrés sous 0.12 se modifient de nouveau.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal : avec Open WebUI 0.13, les fichiers et les ports se mettent à jour dès qu'ils changent. Un port s'ouvre dans une page de Conduit avec précédent, suivant, actualiser et Ouvrir dans le navigateur, et ses liens fonctionnent. Sur iOS, les aperçus passent aussi un proxy de connexion placé devant Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5 : l'app fonctionne sans avertissement de compatibilité. Le modèle choisi dans un chat est enregistré avec lui, et changer de modèle garde les outils et filtres que vous avez activés ou désactivés. Les réponses coupées par un redémarrage du serveur ne semblent plus en cours d'écriture. Les fichiers qu'un modèle affiche et les images qu'il crée via la Responses API apparaissent dans la réponse, et l'utilisation compte chaque étape d'une réponse et signale quand les chiffres peuvent être sous-estimés. Déplacer un chat dans un dossier garde sa date, et dans un chat partagé, Arrêter n'est proposé que pour votre propre réponse.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notes : avec Open WebUI 0.12.5, une note peut avoir plusieurs pages. Touchez le nom de la page sous le titre, ou Pages dans le menu, pour en changer ; les modifications sont enregistrées sur la page affichée. Les fichiers joints apparaissent comme des cartes dans le texte, et un nouvel enregistrement s'insère là où se trouve le curseur. Les pages s'ajoutent, se renomment et se déplacent sur le web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Barre latérale coulissante : activez-la dans les réglages Apparence. Le chat glisse sur le côté pour montrer votre historique, avec les onglets des backends en bas à côté de Nouveau chat, et Notes, Terminal et Canaux s'ouvrent à la place du chat avec un bouton Retour. Sur iOS, les menus, interrupteurs, alertes, bannières, la sélection de texte et la loupe sont désormais ceux du système.",
+          "icon": "polish"
+        },
+        {
+          "text": "Écoute et brouillons : Écouter sur une réponse ouvre un lecteur pour mettre en pause, arrêter et sauter de 15 secondes en arrière ou en avant, avec les voix du serveur comme celles de l'appareil, et la liste des voix se filtre par langue. Le texte et les enregistrements non envoyés restent avec chaque chat après un redémarrage, et un enregistrement récupéré peut être transcrit, exporté ou supprimé. Sur iOS, l'écran verrouillé affiche un enregistrement en cours avec un bouton Arrêter.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats et réglages : Générer un titre dans le menu d'un chat Open WebUI le nomme d'après la conversation. Choisissez et ordonnez les actions sous une réponse avec Actions sur les messages dans les réglages Discussion. Les réglages Apparence peuvent masquer le bouton Notes de la zone de saisie et l'arrière-plan des citations. Une icône de nuage s'affiche quand les mises à jour en direct d'un chat sont coupées, avec les détails et Réessayer, et les longs brouillons gardent les boutons de la zone de saisie visibles.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! LibreChat arrive en bêta : connectez-vous, discutez avec ses modèles et ses agents, et gardez son historique dans l'onglet Discussions. Hermes 0.23 fonctionne, avec les Salons, les chats épinglés et masqués, et une feuille Contexte et utilisation. Open WebUI 0.13.3 propose les agents de programmation de ses terminaux comme modèles, et Ordinateur ouvre le bureau d'un terminal depuis l'en-tête du chat.",
+      "bullets": [
+        {
+          "text": "LibreChat (Bêta) : connectez-vous à un serveur LibreChat par e-mail ou LDAP, vérification en deux étapes ou authentification unique, et basculez entre LibreChat et Open WebUI dans Comptes. Ses chats remplissent l'onglet Discussions et restent lisibles hors ligne. Choisissez ses spécifications de modèle, ses agents et ses modèles, joignez des fichiers, activez la recherche web, l'exécution de code, la recherche de fichiers et les serveurs MCP, répondez aux demandes d'approbation des outils, et insérez ses prompts avec /. Les réponses continuent pendant que vous êtes dans un autre chat. Les liens de partage, les branches, Dupliquer la discussion, les voix du serveur et les mémoires dans Personnalisation fonctionnent aussi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23 : les chats via Desktop Gateway et via le serveur API fonctionnent, et vous pouvez vous connecter à l'écouteur Webapp propre à une passerelle. Les approbations et les questions s'affichent de nouveau, et toutes les questions d'un échange arrivent dans un seul formulaire. Un chat commencé dans une autre app Hermes propose Continuer dans une copie, une exécution interrompue par un redémarrage reprend, et la réponse à un message que Hermes a enregistré pendant son redémarrage apparaît dès qu'elle est prête. Conduit demande votre accord avant qu'une connexion envoie des identifiants en HTTP non chiffré, et avant de passer à un modèle que Hermes veut vous faire confirmer.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chats Hermes : épinglez, archivez ou masquez un chat, créez une branche depuis n'importe quelle réponse, ou annulez le dernier échange. Dans un chat Desktop Gateway, modifier ou régénérer poursuit la même session, avec son contexte. Contexte et utilisation montre le remplissage de la fenêtre de contexte et les limites de votre abonnement, et compacte le chat. Une pastille au-dessus de la zone de saisie liste les sous-agents et processus en cours, à orienter, arrêter ou terminer. Un échange en échec affiche une carte qui indique ce qui n'a pas fonctionné et propose une correction, les fichiers modifiés apparaissent dans une carte de diff, les outils payants affichent leur prix, et le plan de l'agent reste au-dessus de la zone de saisie.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Salons et tâches Hermes : les connexions Desktop Gateway obtiennent les Salons, des chats de groupe réunissant de deux à six de vos bots. Leurs tâches planifiées peuvent être arrêtées en cours d'exécution ; vous choisissez quoi faire des Exécutions manquées, et Livrer à propose les applications de messagerie, les Chats des bots et les Chats de groupe. Les tâches du serveur API peuvent être modifiées, et l'effort de raisonnement que vous choisissez s'y applique désormais. Les serveurs MCP du catalogue demandent leurs clés quand vous les ajoutez, et avec plusieurs connexions, vous en changez depuis le nom en haut de la barre latérale.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 et 0.13.3 : l'app fonctionne sans avertissement de compatibilité. Sélectionnez un terminal dans un chat enregistré, et ses agents de programmation, comme Codex et Claude Code, apparaissent sous Agents de programmation dans le sélecteur de modèle. Ordinateur, dans l'en-tête du chat, ouvre le Bureau ou le Navigateur du terminal en plein écran : regardez pendant qu'une réponse est en cours, ou utilisez Prendre le contrôle pour taper, cliquer et naviguer. Désactivez-le dans Réglages > Discussion. Les rappels de mémoire et les listes de compétences que le serveur masque ne s'affichent plus comme des blocs d'outil.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct : les appels d'outils ne s'arrêtent plus après 8 tours. Le nouveau réglage Images par requête (10 par défaut) et le budget de documents s'appliquent désormais à chaque requête, si bien que les pièces jointes plus anciennes sont écartées au lieu de faire échouer tous les échanges suivants. La limite de contexte que vous choisissez pour un modèle Ollama local est envoyée à Ollama. Les étapes de raisonnement et d'outils restent quand vous rouvrez un chat, le remplissage du contexte dans l'utilisation est mesuré correctement, et les serveurs qui envoient des champs vides ne cassent plus le streaming.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS : sur iOS 26, les menus, alertes, feuilles et champs de recherche sont ceux du système, et les Réglages sont regroupés comme dans l'app Réglages. La voix et la lecture à voix haute flottent sur des îlots de verre : touchez la barre de lecture pour vous déplacer, sautez de 15 secondes et suivez le mot surligné. Les chats et les notes sont classés par date, l'utilisation d'une réponse s'ouvre dans une fenêtre contextuelle avec le remplissage du contexte, l'éditeur de notes a une barre d'outils en bas, et les pages de réglages se floutent sous la barre quand vous faites défiler.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats : les longs chats défilent sans que la barre de défilement saute, sur Android vous pouvez la faire glisser, et le chat reste en place pendant que vous ouvrez la barre latérale en la faisant glisser. Les longues lignes des blocs de code passent à la ligne, les colonnes des tableaux s'ajustent à leur contenu, les suggestions de suivi s'affichent en lignes complètes, et une réponse affiche Réflexion… avec le temps d'attente. Une seule vitesse règle désormais les voix cloud et celles de l'appareil, la connexion au tableau de bord Hermes ne devient plus blanche derrière le clavier, et toucher deux fois votre profil n'ouvre plus deux fois les Réglages.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

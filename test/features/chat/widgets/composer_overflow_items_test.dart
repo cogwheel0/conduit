@@ -6,8 +6,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/ios_keyboard_attachment_bridge.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
+import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
@@ -36,6 +38,31 @@ const _toggleFilter = ToggleFilter(
 
 void main() {
   final l10n = AppLocalizationsEn();
+
+  test('attach tiles draw one family of plain filled symbols', () {
+    final tiles = buildComposerOverflowAttachmentItems(
+      l10n: l10n,
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+        file: true,
+        serverFile: true,
+        photo: true,
+        camera: true,
+        web: true,
+      ),
+    );
+    // Every tile is filled at the panel's one size and scale; Server Files
+    // is a plain drive, not the networked one, whose stand and line read as
+    // a heavier, custom glyph beside the others.
+    expect(tiles.map((tile) => tile.sfSymbol), everyElement(endsWith('.fill')));
+    expect(
+      tiles
+          .singleWhere(
+            (tile) => tile.id == ComposerOverflowActionIds.serverFile,
+          )
+          .sfSymbol,
+      'externaldrive.fill',
+    );
+  });
 
   test('shared overflow items include selected model filters', () {
     final items = buildComposerOverflowItems(
@@ -227,7 +254,7 @@ void main() {
     // The native panel renders rows by section and sends this id back, which
     // the composer routes to the same handler as the Flutter panel's tile.
     expect(action.section, 'tools');
-    expect(action.label, 'Tool settings');
+    expect(action.label, 'Tool Settings');
     expect(action.selected, isFalse);
     expect(action.dismissesKeyboard, isTrue);
   });
@@ -330,7 +357,7 @@ void main() {
     for (final MapEntry(:key, :value) in states.entries) {
       test('is one features row, $key, in both menus', () {
         final item = flutterItems(value.offer).single;
-        expect(item.label, 'Code interpreter');
+        expect(item.label, 'Code Interpreter');
         expect(item.section, ComposerOverflowSection.features);
         expect(item.subtitle, value.subtitle);
         expect(item.selected, value.selected);
@@ -338,7 +365,7 @@ void main() {
 
         final action = nativeActions(value.offer).single;
         expect(action.id, 'codeInterpreter');
-        expect(action.label, 'Code interpreter');
+        expect(action.label, 'Code Interpreter');
         expect(action.section, 'features');
         expect(action.sfSymbol, 'curlybraces');
         expect(action.kind, IosKeyboardAttachmentActionKind.toggle);
@@ -508,13 +535,23 @@ void main() {
           final container = await pump(tester, block: null, advanced: false);
           await openPanel(tester);
 
-          expect(find.text('Code interpreter'), findsOneWidget);
-          await tester.tap(find.text('Code interpreter'));
+          expect(find.text('Code Interpreter'), findsOneWidget);
+          await tester.tap(find.text('Code Interpreter'));
           await tester.pumpAndSettle();
           expect(container.read(codeInterpreterEnabledProvider), isTrue);
 
-          // The panel's check mark and the composer's own indicator both show it.
-          expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+          // The panel's switch and the composer's own indicator both show it.
+          expect(
+            tester
+                .widget<AdaptiveSwitch>(
+                  find.descendant(
+                    of: find.widgetWithText(ToggleTile, 'Code Interpreter'),
+                    matching: find.byType(AdaptiveSwitch),
+                  ),
+                )
+                .value,
+            isTrue,
+          );
           expect(find.byIcon(Icons.code), findsWidgets);
         },
       );
@@ -526,13 +563,13 @@ void main() {
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         await tester.pump();
 
-        final pill = find.widgetWithText(GestureDetector, 'Code interpreter');
+        final pill = find.widgetWithText(GestureDetector, 'Code Interpreter');
         expect(pill, findsWidgets);
-        await tester.tap(find.text('Code interpreter').first);
+        await tester.tap(find.text('Code Interpreter').first);
         await tester.pump();
 
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
-        expect(find.text('Code interpreter'), findsNothing);
+        expect(find.text('Code Interpreter'), findsNothing);
       });
 
       testWidgets('a chosen interpreter that can no longer run says why, and '
@@ -540,7 +577,8 @@ void main() {
         final container = await pump(tester, block: null);
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         // The account loses the interpreter after it was chosen.
-        container.read(_block.notifier).block = CodeInterpreterBlock.noPermission;
+        container.read(_block.notifier).block =
+            CodeInterpreterBlock.noPermission;
         await tester.pump();
 
         final pill = find.byKey(
@@ -562,7 +600,7 @@ void main() {
             hasEnabledState: true,
             isEnabled: true,
             hasTapAction: true,
-            label: 'Code interpreter',
+            label: 'Code Interpreter',
             hint: l10n.codeInterpreterUnavailable,
           ),
         );
@@ -594,24 +632,25 @@ void main() {
           ),
           findsOneWidget,
         );
-        await tester.tap(find.text('Code interpreter'));
+        await tester.tap(find.text('Code Interpreter'));
         await tester.pumpAndSettle();
 
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
       });
 
-      testWidgets('a browser-engine server is explained only with Advanced on', (
-        tester,
-      ) async {
-        await pump(
-          tester,
-          block: CodeInterpreterBlock.unsupportedEngine,
-          advanced: false,
-        );
-        await openPanel(tester);
+      testWidgets(
+        'a browser-engine server is explained only with Advanced on',
+        (tester) async {
+          await pump(
+            tester,
+            block: CodeInterpreterBlock.unsupportedEngine,
+            advanced: false,
+          );
+          await openPanel(tester);
 
-        expect(find.text('Code interpreter'), findsNothing);
-      });
+          expect(find.text('Code Interpreter'), findsNothing);
+        },
+      );
 
       testWidgets('Hermes never shows it', (tester) async {
         final container = await pump(
@@ -622,7 +661,7 @@ void main() {
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         await tester.pump();
 
-        expect(find.text('Code interpreter'), findsNothing);
+        expect(find.text('Code Interpreter'), findsNothing);
       });
     });
   });
@@ -773,14 +812,13 @@ void main() {
 
     test('is an action row only when the command is available', () {
       expect(
-        items(
-          available: false,
-        ).any((item) => item.id == ComposerOverflowActionIds.compareModels),
+        items(available: false)
+            .any((item) => item.id == ComposerOverflowActionIds.compareModels),
         isFalse,
       );
-      final item = items(
-        available: true,
-      ).singleWhere((item) => item.id == ComposerOverflowActionIds.compareModels);
+      final item = items(available: true).singleWhere(
+        (item) => item.id == ComposerOverflowActionIds.compareModels,
+      );
       expect(item.kind, ComposerOverflowItemKind.action);
       expect(item.section, ComposerOverflowSection.features);
       expect(item.selected, isFalse);
@@ -788,9 +826,9 @@ void main() {
     });
 
     test('reaches the native iOS panel under the id the composer handles', () {
-      final action = nativeActions(
-        available: true,
-      ).singleWhere((action) => action.id == ComposerOverflowActionIds.compareModels);
+      final action = nativeActions(available: true).singleWhere(
+        (action) => action.id == ComposerOverflowActionIds.compareModels,
+      );
       expect(action.section, 'features');
       expect(action.selected, isFalse);
       expect(action.label, l10n.chatCompareModelsAction);

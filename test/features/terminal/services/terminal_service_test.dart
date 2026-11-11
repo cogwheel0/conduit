@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -233,6 +236,232 @@ void main() {
           {'type': 'auth', 'token': 'token'},
         );
       }
+    });
+
+    test('events sockets live next to the terminal API', () {
+      final service = TerminalService(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'events',
+            name: 'Events',
+            url: 'https://example.com/openwebui/',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+
+      expect(
+        service.buildEventsWebSocketUri(
+          TerminalServerInfo(
+            kind: TerminalServerKind.system,
+            selectionId: 'term-1',
+            systemServerId: 'term-1',
+            baseUrl: Uri.parse(
+              'https://example.com/openwebui/api/v1/terminals/term-1',
+            ),
+          ),
+        ),
+        Uri.parse('wss://example.com/openwebui/api/v1/terminals/term-1/events'),
+      );
+      expect(
+        service.buildEventsWebSocketUri(
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'http://10.0.0.5:8000/',
+            baseUrl: Uri.parse('http://10.0.0.5:8000/'),
+          ),
+        ),
+        Uri.parse('ws://10.0.0.5:8000/events'),
+      );
+    });
+
+    test('subscriptions and events follow the terminal protocol', () {
+      expect(buildTerminalEventsSubscribePayload(path: '/w/', ports: true), {
+        'type': 'subscribe',
+        'path': '/w/',
+        'ports': true,
+      });
+      expect(buildTerminalEventsSubscribePayload(ports: true), {
+        'type': 'subscribe',
+        'ports': true,
+      });
+
+      expect(
+        parseTerminalEvent('{"type":"fs:ready"}'),
+        isA<TerminalFilesChanged>(),
+      );
+      expect(
+        parseTerminalEvent(utf8.encode('{"type":"fs:change"}')),
+        isA<TerminalFilesChanged>(),
+      );
+      final ports = parseTerminalEvent(
+        '{"type":"ports:change","ports":[{"port":"3000","pid":7},'
+        '{"port":-1},{"process":"none"}]}',
+      );
+      expect(ports, isA<TerminalPortsChanged>());
+      final parsed = (ports! as TerminalPortsChanged).ports;
+      expect(parsed.map((port) => port.port), [3000]);
+      expect(parsed.single.pid, 7);
+      expect(
+        (parseTerminalEvent('{"type":"ports:change"}')! as TerminalPortsChanged)
+            .ports,
+        isEmpty,
+      );
+      for (final frame in <Object?>[
+        '{"type":"chat"}',
+        'output',
+        '[1,2]',
+        42,
+        null,
+      ]) {
+        expect(parseTerminalEvent(frame), isNull, reason: '$frame');
+      }
+    });
+
+    test('features count only what the terminal turns on', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final replies = <Object?>[
+        {
+          'features': {'terminal': false, 'events': true, 'browser': true},
+        },
+        // An older terminal: no events or browser flags at all.
+        {
+          'features': {'terminal': true, 'notebooks': true},
+        },
+        {
+          'features': {'events': 'true', 'browser': 1},
+        },
+        'not a config',
+      ];
+      final requests = <HttpRequest>[];
+      server.listen((request) async {
+        requests.add(request);
+        final reply = replies.removeAt(0);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(reply));
+        await request.response.close();
+      });
+      final terminal = TerminalServerInfo(
+        kind: TerminalServerKind.direct,
+        selectionId: 'local',
+        baseUrl: Uri.parse('http://127.0.0.1:${server.port}'),
+        apiKey: 'secret',
+      );
+      final service = TerminalService(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'features',
+            name: 'Features',
+            url: 'https://example.test',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+
+      final current = await service.getFeatures(terminal, sessionScopeId: 's');
+      expect(current.terminal, isFalse);
+      expect(current.events, isTrue);
+      expect(current.browser, isTrue);
+      expect(requests.single.uri.path, '/api/config');
+      expect(
+        requests.single.headers.value('authorization'),
+        'Bearer secret',
+      );
+
+      final older = await service.getFeatures(terminal);
+      expect(older.terminal, isTrue);
+      expect(older.events, isFalse);
+      expect(older.browser, isFalse);
+
+      final loose = await service.getFeatures(terminal);
+      expect(loose.events, isFalse);
+      expect(loose.browser, isFalse);
+
+      final unreadable = await service.getFeatures(terminal);
+      expect(unreadable.terminal, isTrue);
+      expect(unreadable.events, isFalse);
+    });
+
+    test('opens and closes browser sessions for one chat', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final requests = <({String method, String path, String? scope,
+          String? auth, Object? body})>[];
+      final replies = <Object?>[
+        {
+          'id': 'abc',
+          'token': 'cap-token',
+          'url': 'http://localhost:5173/',
+          'title': '',
+          'mode': 'proxy',
+          'chrome_available': false,
+        },
+        {'status': 'closed'},
+        // An older terminal routes the path nowhere useful.
+        {'detail': 'Not Found'},
+      ];
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        requests.add((
+          method: request.method,
+          path: request.uri.path,
+          scope: request.headers.value('x-session-id'),
+          auth: request.headers.value('authorization'),
+          body: body.isEmpty ? null : jsonDecode(body),
+        ));
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(replies.removeAt(0)));
+        await request.response.close();
+      });
+      final terminal = TerminalServerInfo(
+        kind: TerminalServerKind.direct,
+        selectionId: 'local',
+        baseUrl: Uri.parse('http://127.0.0.1:${server.port}'),
+        apiKey: 'secret',
+      );
+      final service = TerminalService(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'sessions',
+            name: 'Sessions',
+            url: 'https://example.test',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+
+      final session = await service.createBrowserSession(
+        terminal,
+        url: 'http://localhost:5173/',
+        sessionScopeId: 'chat-1',
+      );
+      expect(session.id, 'abc');
+      expect(session.token, 'cap-token');
+      expect(session.mode, 'proxy');
+      await service.closeBrowserSession(
+        terminal,
+        session.id,
+        sessionScopeId: 'chat-1',
+      );
+
+      expect(requests[0].method, 'POST');
+      expect(requests[0].path, '/browser/sessions');
+      expect(requests[0].body, {'url': 'http://localhost:5173/'});
+      expect(requests[1].method, 'DELETE');
+      expect(requests[1].path, '/browser/sessions/abc');
+      // The terminal only closes a session for the chat that opened it.
+      expect(requests.map((r) => r.scope), ['chat-1', 'chat-1']);
+      expect(requests.map((r) => r.auth), ['Bearer secret', 'Bearer secret']);
+
+      await expectLater(
+        service.createBrowserSession(
+          terminal,
+          url: 'http://localhost:5173/',
+          sessionScopeId: 'chat-1',
+        ),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 }
