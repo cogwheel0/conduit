@@ -6821,7 +6821,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "Na Androide môžete namiesto toho použiť distribútora UnifiedPush. Váš server potom posiela priamo jemu, bez relay Conduitu a bez Googlu.",
   "pushPrivacyOffTitle": "Vypnutie push",
-  "pushPrivacyOffBody": "Vypnutie push, odhlásenie alebo odstránenie účtu vymaže push kľúče tohto zariadenia, takže nič odoslané neskôr nemožno prečítať. Conduit tiež požiada server, aby toto zariadenie zabudol.",
+  "pushPrivacyOffBody": "Vypnutie push vymaže všetky push kľúče tohto zariadenia; odhlásenie z účtu alebo jeho odstránenie vymaže kľúče daného účtu. Nič, čo sa im neskôr pošle, nemožno prečítať. Conduit tiež požiada každý server, aby toto zariadenie zabudol.",
   "pushPrivacyReadMore": "Prečítať všetky podrobnosti",
   "pushAttentionChip": "Push vyžaduje pozornosť",
   "notificationScheduledTitle": "Naplánované úlohy",

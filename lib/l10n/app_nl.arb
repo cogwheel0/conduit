@@ -4898,7 +4898,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "Op Android kun je in plaats daarvan een UnifiedPush-distributor gebruiken. Je server stuurt dan rechtstreeks daarheen, zonder het Conduit-relais of Google.",
   "pushPrivacyOffTitle": "Push uitzetten",
-  "pushPrivacyOffBody": "Push uitzetten, uitloggen of een account verwijderen wist de pushsleutels van dit apparaat, zodat niets wat daarna wordt verstuurd nog leesbaar is. Conduit vraagt de server ook om dit apparaat te vergeten.",
+  "pushPrivacyOffBody": "Push uitzetten wist alle pushsleutels van dit apparaat; uitloggen bij een account of het verwijderen wist die van dat account. Wat daarna wordt verstuurd, is niet meer leesbaar. Conduit vraagt elke server ook om dit apparaat te vergeten.",
   "pushPrivacyReadMore": "Alle details lezen",
   "pushAttentionChip": "Push vraagt aandacht",
   "notificationScheduledTitle": "Geplande taken",
