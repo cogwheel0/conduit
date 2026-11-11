@@ -45,6 +45,22 @@ const _hermesWork = HermesConnectionProfile(
   documentTrustPrincipalId: 'p-work',
 );
 
+/// Which kind of account owns the Chats tab, which a test can change.
+final _primaryKind = NotifierProvider<_PrimaryKind, PrimaryAccountKind>(
+  () => _PrimaryKind(PrimaryAccountKind.openWebUi),
+);
+
+final class _PrimaryKind extends Notifier<PrimaryAccountKind> {
+  _PrimaryKind(this.initial);
+
+  final PrimaryAccountKind initial;
+
+  @override
+  PrimaryAccountKind build() => initial;
+
+  void set(PrimaryAccountKind kind) => state = kind;
+}
+
 /// The active account's auth status, which a test can change.
 final _authStatus = NotifierProvider<_AuthStatus, AuthStatus>(
   () => _AuthStatus(AuthStatus.authenticated),
@@ -198,7 +214,14 @@ void main() {
     );
     navigator
       ..primaryResults = List.of(primaryResults)
-      ..onPrimaryDone = settled.settle;
+      // As the switcher does: Open WebUI owns the Chats tab again, with the
+      // account in use.
+      ..onPrimaryDone = (id) {
+        container
+            .read(_primaryKind.notifier)
+            .set(PrimaryAccountKind.openWebUi);
+        settled.settle(id);
+      };
     final routerProvider = Provider<NotificationTapRouter>(
       (ref) => NotificationTapRouter(
         ref,
@@ -227,8 +250,13 @@ void main() {
         hermesEnabledProvider.overrideWithValue(hermesEnabled),
         authStatusProvider.overrideWith((ref) => ref.watch(_authStatus)),
         _authStatus.overrideWith(() => _AuthStatus(authStatus)),
-        primaryAccountKindProvider.overrideWithValue(
-          libreChat ? PrimaryAccountKind.libreChat : PrimaryAccountKind.openWebUi,
+        primaryAccountKindProvider.overrideWith((ref) => ref.watch(_primaryKind)),
+        _primaryKind.overrideWith(
+          () => _PrimaryKind(
+            libreChat
+                ? PrimaryAccountKind.libreChat
+                : PrimaryAccountKind.openWebUi,
+          ),
         ),
       ],
     );
@@ -407,6 +435,20 @@ void main() {
         check(navigator.calls).deepEquals(['sign-in']);
       });
 
+      test("a server that can't be reached is left to the app", () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.error,
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        // Its connection-issue page, with a retry, is the app's: no sign-in
+        // on top of it, and no chat that can't load.
+        check(navigator.calls).isEmpty();
+      });
+
       test('another account taking over while auth loads opens nothing', () async {
         final router = build(
           libreChat: true,
@@ -421,6 +463,25 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 60));
         settled.settle('acct-1');
         container.read(_authStatus.notifier).set(AuthStatus.authenticated);
+        await opening;
+        check(navigator.calls).isEmpty();
+      });
+
+      test('LibreChat taking the tab back while auth loads opens nothing', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.loading,
+        );
+        final opening = router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        // Parked again, its auth reads as signed out: no sign-in for it.
+        container
+            .read(_primaryKind.notifier)
+            .set(PrimaryAccountKind.libreChat);
+        container.read(_authStatus.notifier).set(AuthStatus.unauthenticated);
         await opening;
         check(navigator.calls).isEmpty();
       });
