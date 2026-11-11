@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/notifications/models/notification_target.dart';
@@ -503,9 +505,9 @@ class WebhookSettingsPages implements SettingsPageModule {
     AppLocalizations l10n,
   ) async {
     if (id == webhookRetryId) {
-      final owner = _targets.captureOwner();
-      if (owner != null) await _targets.refresh(owner: owner);
-      await _hydrateList(l10n);
+      // Read again away from the row queue, so a slow server holds up no
+      // other row of Settings.
+      unawaited(_retry(l10n));
       return true;
     }
     if (!id.startsWith('webhook.')) return false;
@@ -548,7 +550,7 @@ class WebhookSettingsPages implements SettingsPageModule {
         if (await _run(l10n, pageId, target, draft, (owner) async {
           await _targets.makeDefault(target.id, owner: owner);
         })) {
-          await _leave(l10n, pageId);
+          await _leave(pageId);
         }
       case 'test' when target != null:
         // A test goes to the destination as the server has it.
@@ -587,7 +589,7 @@ class WebhookSettingsPages implements SettingsPageModule {
           draft,
           (owner) => _targets.remove(target.id, owner: owner),
         )) {
-          await _leave(l10n, pageId);
+          await _leave(pageId);
         }
     }
     return true;
@@ -646,7 +648,7 @@ class WebhookSettingsPages implements SettingsPageModule {
         owner: owner,
       );
     });
-    if (saved) await _leave(l10n, pageId);
+    if (saved) await _leave(pageId);
   }
 
   /// Runs [action] for the account the list was opened for. When it is
@@ -713,11 +715,36 @@ class WebhookSettingsPages implements SettingsPageModule {
     return _applyPage(l10n, pageId, target: target, draft: draft);
   }
 
-  /// Back to the list, which reads the destinations again.
-  Future<void> _leave(AppLocalizations l10n, String pageId) async {
+  /// Reads the destinations again from the server, then the list.
+  Future<void> _retry(AppLocalizations l10n) async {
+    try {
+      final owner = _targets.captureOwner();
+      if (owner != null) await _targets.refresh(owner: owner);
+    } catch (error, stackTrace) {
+      // The list says the read failed, with Retry again.
+      DebugLogger.error(
+        'webhook-targets-retry-failed',
+        scope: 'settings/webhooks',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    try {
+      await _hydrateList(l10n);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'webhook-targets-list-failed',
+        scope: 'settings/webhooks',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// Back to the list, which reads the destinations again as it appears.
+  Future<void> _leave(String pageId) async {
     _drafts.remove(pageId);
     _notices.remove(pageId);
     await _surface.closeDetail(pageId);
-    await _hydrateList(l10n);
   }
 }

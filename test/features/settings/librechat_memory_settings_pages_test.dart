@@ -81,6 +81,21 @@ void main() {
     );
   });
 
+  testWidgets('an empty value goes to the server, which says whether it '
+      'takes it', (tester) async {
+    final rig = await _open(tester, {
+      'work': 'Engineer',
+    }, refusal: 'A memory needs a value.');
+    await rig.openPage(_work);
+
+    await rig.change(libreChatMemoryRowId('value', _work), '');
+    await rig.change(libreChatMemoryRowId('save', _work), true);
+
+    expect(rig.memories.saves.single.value, '');
+    expect(rig.rows(_work).first.title, 'A memory needs a value.');
+    expect(rig.closed, isEmpty);
+  });
+
   testWidgets("a refusal shows the server's reason and keeps the draft", (
     tester,
   ) async {
@@ -153,7 +168,8 @@ void main() {
     );
   });
 
-  testWidgets('a server that offers no memories says so', (tester) async {
+  testWidgets('a server that offers no memories says so, and is not asked '
+      'for them', (tester) async {
     final rig = await _open(
       tester,
       {},
@@ -163,20 +179,56 @@ void main() {
     expect(rig.rows(libreChatMemoriesPageId).map((row) => row.title), [
       _l10n.nativeSheetOptionUnavailable,
     ]);
+    expect(rig.memories.reads, 0);
+  });
+
+  testWidgets('a failed read says so and offers Retry, which reads again', (
+    tester,
+  ) async {
+    final rig = await _open(tester, {'work': 'Engineer'}, failedReads: 1);
+
+    expect(rig.rows(libreChatMemoriesPageId).map((row) => row.id), [
+      '$libreChatMemoriesPageId-notice',
+      libreChatMemoriesRetryId,
+    ]);
+
+    await rig.change(libreChatMemoriesRetryId, true);
+    // Retry reads again away from the row queue.
+    await rig.until(
+      () => rig
+          .rows(libreChatMemoriesPageId)
+          .any((row) => row.id == '${libreChatMemoryPagePrefix}work'),
+    );
+    expect(rig.memories.reads, 2);
   });
 }
 
 /// Memories kept in the test, standing in for the server.
 final class _FakeMemories extends LibreChatMemoriesController {
-  _FakeMemories(this.saved, {this.refusal});
+  _FakeMemories(this.saved, {this.refusal, this.failedReads = 0});
 
   final Map<String, String> saved;
   final String? refusal;
   final List<({String? originalKey, String key, String value})> saves = [];
   final List<String> deleted = [];
 
+  /// How many reads fail before one succeeds.
+  int failedReads;
+
+  /// How many times the memories were read.
+  int reads = 0;
+
   @override
-  Future<LibreChatMemoryState> build() async => LibreChatMemoryState(
+  Future<LibreChatMemoryState> build() async {
+    reads++;
+    if (failedReads > 0) {
+      failedReads--;
+      throw const LibreChatApiException(message: 'Unavailable');
+    }
+    return _read();
+  }
+
+  LibreChatMemoryState _read() => LibreChatMemoryState(
     memories: LibreChatMemories(
       memories: [
         for (final entry in saved.entries)
@@ -262,6 +314,15 @@ final class _Rig {
   Future<void> change(String id, Object? value) =>
       _settle(module.handleChange(id, value, _l10n));
 
+  /// Moves the test clock until [done], as work the module started without
+  /// waiting for it finishes.
+  Future<void> until(bool Function() done) async {
+    for (var i = 0; i < 500 && !done(); i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(done(), isTrue);
+  }
+
   Future<void> _settle(Future<Object?> work) async {
     var done = false;
     unawaited(work.whenComplete(() => done = true));
@@ -278,12 +339,20 @@ Future<_Rig> _open(
   Map<String, String> saved, {
   String? refusal,
   LibreChatCapabilities capabilities = _all,
+  int failedReads = 0,
 }) async {
-  final memories = _FakeMemories(saved, refusal: refusal);
+  final memories = _FakeMemories(
+    saved,
+    refusal: refusal,
+    failedReads: failedReads,
+  );
   final inCharge = NotifierProvider<_InCharge, LibreChatAccount?>(
     () => _InCharge(_account('u1')),
   );
   final container = ProviderContainer(
+    // A failed read stays failed, rather than retried by Riverpod, so the
+    // page's own handling of it shows.
+    retry: (_, _) => null,
     overrides: [
       libreChatCapabilitiesProvider.overrideWith((ref) async => capabilities),
       libreChatMemoriesProvider.overrideWith(() => memories),

@@ -28,6 +28,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart' show Scaffold;
 import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -316,7 +318,11 @@ void main() {
       expect(add.confirmActionId, nativeMemoryNewSaveId);
       expect(
         add.sections.expand((section) => section.items).map((item) => item.id),
-        [nativeMemoryNewContentId, nativeMemoryNewTypeId, nativeMemoryNewPathId],
+        [
+          nativeMemoryNewContentId,
+          nativeMemoryNewTypeId,
+          nativeMemoryNewPathId,
+        ],
       );
 
       await native.control(nativeMemoryNewContentId, 'Repo notes');
@@ -328,6 +334,23 @@ void main() {
       expect(native.api.adds, [
         (content: 'Repo notes', type: 'context', path: 'repos/a'),
       ]);
+    });
+
+    testWidgets('an Add Memory page left without Done starts empty the next '
+        'time', (tester) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+
+      await native.control(nativeMemoryNewContentId, 'Left behind');
+      await native.control(nativeMemoryNewTypeId, 'context');
+      // Back on the list, then Add Memory again.
+      await native.detailAppeared('memory-manage');
+      await native.control(nativeMemoryNewSaveId, true);
+      expect(native.api.adds, isEmpty);
+
+      await native.control(nativeMemoryNewContentId, 'Fresh');
+      await native.control(nativeMemoryNewSaveId, true);
+      expect(native.api.adds, [(content: 'Fresh', type: 'user', path: null)]);
     });
 
     testWidgets("a memory's page saves its type and path as they change", (
@@ -405,6 +428,20 @@ void main() {
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);
+
+      // The pages stay open with what was typed, and say why.
+      final changed = AppLocalizationsEn().personalizationMemoryAccountChanged;
+      final add = native.items('memory-add');
+      expect(add.first.title, changed);
+      expect(
+        add.singleWhere((row) => row.id == 'memory-add-content').value,
+        'from account A',
+      );
+      expect(native.items('memory-edit:m1').first.title, changed);
+      expect(
+        native.container.read(settingsPagesProvider).closeRequests.keys,
+        isNot(anyOf(contains('memory-add'), contains('memory-edit:m1'))),
+      );
 
       // The next account's own list works.
       await native.detailAppeared('memory-manage');

@@ -112,7 +112,9 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         (pages) => pages.closeRequests[widget.detailId],
       ),
       (previous, next) {
-        if (next != previous && mounted) _close();
+        // Only a new request closes the page; a count forgotten (Settings
+        // cleared) is not one.
+        if (next != null && next > (previous ?? 0) && mounted) _close();
       },
     );
     final detail = ref.watch(

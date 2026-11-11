@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/librechat/models/librechat_capabilities.dart';
 import 'package:conduit_core/features/librechat/models/librechat_prompts.dart';
@@ -30,12 +32,17 @@ String libreChatMemoryRowId(String field, String pageId) =>
 /// The memory switch of the memories page.
 const libreChatMemoriesEnabledId = 'librechat.enabled';
 
+/// The row that reads the memories again after a failed read.
+const libreChatMemoriesRetryId = 'librechat.retry';
+
 /// What the memories page shows: the switch, the budget, the memories.
+/// [capabilities] and [state] are null until they are read; a read that
+/// failed leaves them null with a [notice], and the page offers Retry.
 @visibleForTesting
 NativeSheetDetailConfig buildLibreChatMemoriesPage(
   AppLocalizations l10n, {
   required LibreChatMemoryState? state,
-  required LibreChatCapabilities capabilities,
+  required LibreChatCapabilities? capabilities,
   String? notice,
 }) {
   final memories = state?.memories;
@@ -55,10 +62,8 @@ NativeSheetDetailConfig buildLibreChatMemoriesPage(
             ),
           ],
         ),
-      if (state == null)
-        NativeSheetSectionConfig(items: [buildNativeLoadingItem(l10n)])
       // This server's interface keeps no memories, or not for this role.
-      else if (!capabilities.memories)
+      if (capabilities != null && !capabilities.memories)
         NativeSheetSectionConfig(
           items: [
             NativeSheetItemConfig(
@@ -67,6 +72,21 @@ NativeSheetDetailConfig buildLibreChatMemoriesPage(
               sfSymbol: 'exclamationmark.triangle',
               kind: NativeSheetItemKind.info,
             ),
+          ],
+        )
+      else if (state == null || capabilities == null)
+        NativeSheetSectionConfig(
+          items: [
+            // Not read yet; or the read failed, as the notice says.
+            if (notice == null)
+              buildNativeLoadingItem(l10n)
+            else
+              NativeSheetItemConfig(
+                id: libreChatMemoriesRetryId,
+                title: l10n.retry,
+                sfSymbol: 'arrow.clockwise',
+                accent: true,
+              ),
           ],
         )
       else ...[
@@ -217,7 +237,9 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
 
   /// The account the list was read for.
   String? _accountId;
-  LibreChatCapabilities _capabilities = LibreChatCapabilities.minimal;
+
+  /// What the server lets this account do with memories; null until read.
+  LibreChatCapabilities? _capabilities;
   final Map<String, ({String key, String value})> _drafts = {};
   final Map<String, String> _notices = {};
   String? _listNotice;
@@ -226,8 +248,12 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
   LibreChatMemoriesController get _memories =>
       _ref.read(libreChatMemoriesProvider.notifier);
 
+  /// The memories as last read. Looking does not read them: a server that
+  /// keeps none for this account is never asked.
   LibreChatMemoryState? get _state =>
-      _ref.read(libreChatMemoriesProvider).asData?.value;
+      _ref.read(libreChatMemoriesProvider.exists)
+      ? _ref.read(libreChatMemoriesProvider).asData?.value
+      : null;
 
   LibreChatMemory? _memory(String pageId) {
     if (!pageId.startsWith(libreChatMemoryPagePrefix)) return null;
@@ -272,15 +298,21 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
     // Listened to while they load, so they rebuild as what they watch
     // arrives rather than leave a read waiting on a replaced build.
     final capabilities = _ref.listen(libreChatCapabilitiesProvider, (_, _) {});
-    final memories = _ref.listen(libreChatMemoriesProvider, (_, _) {});
+    ProviderSubscription<Object?>? memories;
     try {
       const patience = Duration(seconds: 15);
-      _capabilities = await _ref
+      final allowed = await _ref
           .read(libreChatCapabilitiesProvider.future)
           .timeout(patience);
-      state = await _ref
-          .read(libreChatMemoriesProvider.future)
-          .timeout(patience);
+      _capabilities = allowed;
+      // Without leave to read memories the server refuses the list, so it
+      // is not asked; the page says memories are not available.
+      if (allowed.memories) {
+        memories = _ref.listen(libreChatMemoriesProvider, (_, _) {});
+        state = await _ref
+            .read(libreChatMemoriesProvider.future)
+            .timeout(patience);
+      }
     } catch (error, stackTrace) {
       DebugLogger.error(
         'librechat-memories-load-failed',
@@ -291,7 +323,7 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
       _listNotice = l10n.errorMessage;
     } finally {
       capabilities.close();
-      memories.close();
+      memories?.close();
     }
     await _surface.applyDetail(
       buildLibreChatMemoriesPage(
@@ -337,7 +369,7 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
       pageId: pageId,
       memory: memory,
       draft: draft,
-      canDelete: _capabilities.updateMemories,
+      canDelete: _capabilities?.updateMemories ?? false,
       notice: _notices[pageId],
     ),
   );
@@ -350,6 +382,12 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
   ) async {
     if (id == libreChatMemoriesEnabledId) {
       if (value is bool) await _setEnabled(l10n, value);
+      return true;
+    }
+    if (id == libreChatMemoriesRetryId) {
+      // Read again away from the row queue, so a slow server holds up no
+      // other row of Settings.
+      unawaited(_retry(l10n));
       return true;
     }
     if (!id.startsWith('librechat.')) return false;
@@ -405,7 +443,7 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
       await _applyPage(l10n, pageId, memory, draft);
       return;
     }
-    if (draft.value.trim().isEmpty) return;
+    // An empty value goes to the server too, which says whether it takes it.
     await _act(l10n, pageId, memory, draft, () async {
       await _memories.save(
         originalKey: memory?.key,
@@ -440,7 +478,25 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
     }
     _drafts.remove(pageId);
     _notices.remove(pageId);
+    // The list reads the memories again as it appears.
     await _surface.closeDetail(pageId);
-    await _hydrateList(l10n);
+  }
+
+  /// Reads the memories again after a failed read, then the list.
+  Future<void> _retry(AppLocalizations l10n) async {
+    if (_ref.read(libreChatCapabilitiesProvider).hasError) {
+      _ref.invalidate(libreChatCapabilitiesProvider);
+    }
+    _ref.invalidate(libreChatMemoriesProvider);
+    try {
+      await _hydrateList(l10n);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'librechat-memories-retry-failed',
+        scope: 'settings/librechat',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 }

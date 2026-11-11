@@ -2047,38 +2047,56 @@ NativeSheetItemConfig _nativeMemoryPathItem(
   placeholder: l10n.memoryPathHint,
 );
 
+/// Why a memory page's action did not run, shown at the top of the page.
+NativeSheetItemConfig _nativeMemoryNotice(String pageId, String notice) =>
+    NativeSheetItemConfig(
+      id: '$pageId-notice',
+      title: notice,
+      sfSymbol: 'exclamationmark.triangle',
+      kind: NativeSheetItemKind.info,
+    );
+
 /// The Add memory page. The text alone is added as soon as it is done;
 /// with [advanced] the page also has the type and path, and Done adds the
-/// memory with all three.
+/// memory with all three. [content], [type] and [path] are what the page
+/// holds, and [notice] why adding it did not go through.
 NativeSheetDetailConfig buildNativeMemoryAddDetail(
   AppLocalizations l10n, {
   bool advanced = false,
+  String content = '',
+  String type = ServerMemory.userType,
+  String? path,
+  String? notice,
 }) {
+  const pageId = 'memory-add';
   if (!advanced) {
     return NativeSheetDetailConfig(
-      id: 'memory-add',
+      id: pageId,
       title: l10n.addMemory,
       subtitle: l10n.memoryEditorDescription,
       discardPrompt: nativeDiscardPrompt(l10n),
       items: [
+        if (notice != null) _nativeMemoryNotice(pageId, notice),
         NativeSheetItemConfig(
           id: 'memory-add-content',
           title: l10n.addMemory,
           sfSymbol: 'plus.circle',
           kind: NativeSheetItemKind.multilineTextField,
-          value: '',
+          value: content,
           placeholder: l10n.memoryHint,
         ),
       ],
     );
   }
   return NativeSheetDetailConfig(
-    id: 'memory-add',
+    id: pageId,
     title: l10n.addMemory,
     discardPrompt: nativeDiscardPrompt(l10n),
     confirmActionId: nativeMemoryNewSaveId,
     confirmActionLabel: l10n.save,
     sections: [
+      if (notice != null)
+        NativeSheetSectionConfig(items: [_nativeMemoryNotice(pageId, notice)]),
       NativeSheetSectionConfig(
         footer: l10n.memoryEditorDescription,
         items: [
@@ -2087,19 +2105,15 @@ NativeSheetDetailConfig buildNativeMemoryAddDetail(
             title: l10n.addMemory,
             sfSymbol: 'quote.bubble',
             kind: NativeSheetItemKind.multilineTextField,
-            value: '',
+            value: content,
             placeholder: l10n.memoryHint,
           ),
         ],
       ),
       NativeSheetSectionConfig(
         items: [
-          _nativeMemoryTypeItem(
-            l10n,
-            id: nativeMemoryNewTypeId,
-            type: ServerMemory.userType,
-          ),
-          _nativeMemoryPathItem(l10n, id: nativeMemoryNewPathId, path: null),
+          _nativeMemoryTypeItem(l10n, id: nativeMemoryNewTypeId, type: type),
+          _nativeMemoryPathItem(l10n, id: nativeMemoryNewPathId, path: path),
         ],
       ),
     ],
@@ -2127,56 +2141,70 @@ List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
   AppLocalizations l10n,
   List<ServerMemory> memories, {
   bool advanced = false,
+}) => [
+  for (final memory in memories)
+    buildNativeMemoryEditDetail(l10n, memory, advanced: advanced),
+];
+
+/// The page of [memory]. [content] is the text the page holds, when it is
+/// not yet the memory's, and [notice] why a change to it did not go through.
+NativeSheetDetailConfig buildNativeMemoryEditDetail(
+  AppLocalizations l10n,
+  ServerMemory memory, {
+  bool advanced = false,
+  String? content,
+  String? notice,
 }) {
-  return [
-    for (final memory in memories)
-      NativeSheetDetailConfig(
-        id: 'memory-edit:${Uri.encodeComponent(memory.id)}',
-        title: l10n.editMemory,
-        discardPrompt: nativeDiscardPrompt(l10n),
-        sections: [
-          NativeSheetSectionConfig(
-            footer: l10n.memoryEditorDescription,
-            items: [
-              NativeSheetItemConfig(
-                id: 'memory-save:${Uri.encodeComponent(memory.id)}',
-                title: l10n.editMemory,
-                sfSymbol: 'quote.bubble',
-                kind: NativeSheetItemKind.multilineTextField,
-                value: memory.content,
-                placeholder: l10n.memoryHint,
-              ),
-            ],
-          ),
-          if (advanced)
-            NativeSheetSectionConfig(
-              items: [
-                _nativeMemoryTypeItem(
-                  l10n,
-                  id: '$nativeMemoryTypePrefix${Uri.encodeComponent(memory.id)}',
-                  type: memory.type,
-                ),
-                _nativeMemoryPathItem(
-                  l10n,
-                  id: '$nativeMemoryPathPrefix${Uri.encodeComponent(memory.id)}',
-                  path: memory.path,
-                ),
-              ],
-            ),
-          NativeSheetSectionConfig(
-            items: [
-              NativeSheetItemConfig(
-                id: 'memory-delete:${Uri.encodeComponent(memory.id)}',
-                title: l10n.deleteMemory,
-                subtitle: l10n.deleteMemoryConfirm,
-                sfSymbol: 'trash',
-                destructive: true,
-              ),
-            ],
+  final encoded = Uri.encodeComponent(memory.id);
+  final pageId = 'memory-edit:$encoded';
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: l10n.editMemory,
+    discardPrompt: nativeDiscardPrompt(l10n),
+    sections: [
+      if (notice != null)
+        NativeSheetSectionConfig(items: [_nativeMemoryNotice(pageId, notice)]),
+      NativeSheetSectionConfig(
+        footer: l10n.memoryEditorDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: 'memory-save:$encoded',
+            title: l10n.editMemory,
+            sfSymbol: 'quote.bubble',
+            kind: NativeSheetItemKind.multilineTextField,
+            value: content ?? memory.content,
+            placeholder: l10n.memoryHint,
           ),
         ],
       ),
-  ];
+      if (advanced)
+        NativeSheetSectionConfig(
+          items: [
+            _nativeMemoryTypeItem(
+              l10n,
+              id: '$nativeMemoryTypePrefix$encoded',
+              type: memory.type,
+            ),
+            _nativeMemoryPathItem(
+              l10n,
+              id: '$nativeMemoryPathPrefix$encoded',
+              path: memory.path,
+            ),
+          ],
+        ),
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'memory-delete:$encoded',
+            title: l10n.deleteMemory,
+            subtitle: l10n.deleteMemoryConfirm,
+            sfSymbol: 'trash',
+            destructive: true,
+          ),
+        ],
+      ),
+    ],
+  );
 }
 
 List<NativeSheetDetailConfig> buildNativeModelPromptLoadingDetails(

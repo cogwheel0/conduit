@@ -20,7 +20,7 @@ class SettingsPagesState {
   final Map<String, NativeSheetDetailConfig> pages;
 
   /// How many times each page was asked to close; a page that sees its
-  /// count change goes back to the page that opened it.
+  /// count go up goes back to the page that opened it.
   final Map<String, int> closeRequests;
 
   NativeSheetDetailConfig? operator [](String id) => pages[id];
@@ -35,11 +35,14 @@ class SettingsPages extends Notifier<SettingsPagesState> {
   @override
   SettingsPagesState build() => const SettingsPagesState();
 
-  /// Makes [details] known, replacing any earlier copy of each.
+  /// Makes [details] known, replacing any earlier copy of each. Close
+  /// requests carry on, so a page open now does not take a reset count for
+  /// a new one.
   void register(Iterable<NativeSheetDetailConfig> details) {
     if (details.isEmpty) return;
     state = SettingsPagesState(
       pages: {...state.pages, for (final detail in details) detail.id: detail},
+      closeRequests: state.closeRequests,
     );
   }
 

@@ -304,6 +304,69 @@ void main() {
     check(switchOn()).isFalse();
   });
 
+  testWidgets('a page opened again after an earlier close stays open when '
+      'Settings registers its pages again', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        settingsControllerProvider.overrideWithValue(_RecordingController()),
+      ],
+    );
+    addTearDown(container.dispose);
+    final pages = container.read(settingsPagesProvider.notifier);
+    pages.register([
+      NativeSheetDetailConfig(
+        id: 'memory-add',
+        title: 'Add Memory',
+        items: [const NativeSheetItemConfig(id: 'content', title: 'Text')],
+      ),
+    ]);
+    // An earlier Add Memory, saved and closed.
+    pages.requestClose('memory-add');
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('settings root'),
+          routes: [
+            GoRoute(
+              path: 'add',
+              builder: (_, _) =>
+                  const SettingsDetailPage(detailId: 'memory-add'),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    router.push('/add');
+    await tester.pumpAndSettle();
+
+    // The root describes its pages again, as after a profile refresh.
+    pages.register([
+      NativeSheetDetailConfig(
+        id: 'voice',
+        title: 'Voice',
+        items: [const NativeSheetItemConfig(id: 'speed', title: 'Speed')],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isEmpty();
+
+    // A save that closes it now does.
+    pages.requestClose('memory-add');
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isNotEmpty();
+  });
+
   testWidgets('a form asks before Back drops what was changed, and not when '
       'nothing was', (tester) async {
     NativeSheetDetailConfig form() => NativeSheetDetailConfig(

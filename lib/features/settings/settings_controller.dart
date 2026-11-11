@@ -111,6 +111,7 @@ class SettingsController {
   void _forgetPages() {
     _nativeSheetDraftValues.clear();
     _passwordVisit++;
+    _clearNewMemoryDraft();
     ref.read(settingsPagesProvider.notifier).clear();
   }
 
@@ -138,6 +139,7 @@ class SettingsController {
       case NativeSheetDismissed():
         _nativeSheetDraftValues.clear();
         _passwordVisit++;
+        _clearNewMemoryDraft();
         // The sheet forgets every page it was handed as it closes; so does
         // Settings, so the next time it opens, a page hands the sheet again
         // the pages its rows lead to rather than taking them as drawn.
@@ -163,6 +165,9 @@ class SettingsController {
       case NativeSheetDetailAppeared(:final detailId):
         // A password typed on an earlier visit is not combined with this one.
         if (detailId == 'password') _startPasswordVisit();
+        // Back on the memory list, an Add Memory page left without Done is
+        // gone: the next one starts empty, as it is drawn.
+        if (detailId == 'memory-manage') _clearNewMemoryDraft();
         final hydration = ref.read(nativeSheetHydrationServiceProvider);
         // The native sheet fills in its own Profile page as it opens.
         if (detailId == NativeSheetRoutes.profile &&
@@ -487,20 +492,27 @@ class SettingsController {
         final encoded = event.id.substring('memory-save:'.length);
         final memoryId = Uri.decodeComponent(encoded);
         if (value is String) {
-          await _runNativeMemoryAction(
+          final refusal = await _runNativeMemoryAction(
             (memories, owner) =>
                 memories.updateItem(memoryId, value, owner: owner),
           );
+          if (refusal != null) {
+            await _showMemoryEditRefusal(memoryId, refusal, content: value);
+          }
         }
         return;
       }
 
       if (event.id.startsWith('memory-delete:')) {
         final encoded = event.id.substring('memory-delete:'.length);
-        await _runNativeMemoryAction(
-          (memories, owner) =>
-              memories.deleteItem(Uri.decodeComponent(encoded), owner: owner),
+        final memoryId = Uri.decodeComponent(encoded);
+        final refusal = await _runNativeMemoryAction(
+          (memories, owner) => memories.deleteItem(memoryId, owner: owner),
         );
+        if (refusal != null) {
+          await _showMemoryEditRefusal(memoryId, refusal);
+          return;
+        }
         // The memory is gone, and so is its page.
         await _surface.closeDetail('memory-edit:$encoded');
         return;
@@ -671,9 +683,19 @@ class SettingsController {
           }
         case 'memory-add-content':
           if (value is String && value.trim().isNotEmpty) {
-            await _runNativeMemoryAction(
+            final refusal = await _runNativeMemoryAction(
               (memories, owner) => memories.add(value.trim(), owner: owner),
             );
+            if (refusal != null) {
+              await _surface.applyDetail(
+                buildNativeMemoryAddDetail(
+                  currentAppLocalizations(),
+                  content: value,
+                  notice: refusal,
+                ),
+              );
+              return;
+            }
             await _surface.closeDetail('memory-add');
           }
         case 'memory-clear-all':
@@ -1099,13 +1121,71 @@ class SettingsController {
 
   /// Runs a memory action from the native Memory list for the account that
   /// list was built for. With no list on record, or once the account has
-  /// changed, nothing is sent.
-  Future<void> _runNativeMemoryAction(
+  /// changed, nothing is sent. Returns why the action did not go through,
+  /// or null once it has.
+  Future<String?> _runNativeMemoryAction(
     Future<void> Function(UserMemories memories, MemoryOwner owner) action,
   ) async {
+    final l10n = currentAppLocalizations();
     final owner = ref.read(nativeSheetHydrationServiceProvider).memoryOwner;
-    if (owner == null) return;
-    await action(ref.read(userMemoriesProvider.notifier), owner);
+    if (owner == null) return l10n.personalizationMemoryAccountChanged;
+    try {
+      await action(ref.read(userMemoriesProvider.notifier), owner);
+      return null;
+    } on MemoryOwnerChangedException {
+      return l10n.personalizationMemoryAccountChanged;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-memory-action-failed',
+        scope: 'native/sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return l10n.errorMessage;
+    }
+  }
+
+  /// Keeps the page of memory [memoryId] open after a change that did not go
+  /// through, saying why, with [content] -- the text that was to be saved --
+  /// still in it.
+  Future<void> _showMemoryEditRefusal(
+    String memoryId,
+    String refusal, {
+    String? content,
+  }) async {
+    final l10n = currentAppLocalizations();
+    final memory = ref
+        .read(userMemoriesProvider)
+        .asData
+        ?.value
+        .where((candidate) => candidate.id == memoryId)
+        .firstOrNull;
+    final pageId = 'memory-edit:${Uri.encodeComponent(memoryId)}';
+    if (memory == null) {
+      // Not in the list read now, so there is nothing left to edit: the
+      // page only says why.
+      await _surface.applyDetailPatch(
+        detailId: pageId,
+        items: [
+          NativeSheetItemConfig(
+            id: '$pageId-notice',
+            title: refusal,
+            sfSymbol: 'exclamationmark.triangle',
+            kind: NativeSheetItemKind.info,
+          ),
+        ],
+      );
+      return;
+    }
+    await _surface.applyDetail(
+      buildNativeMemoryEditDetail(
+        l10n,
+        memory,
+        advanced: ref.read(appSettingsProvider).advancedFeaturesEnabled,
+        content: content,
+        notice: refusal,
+      ),
+    );
   }
 
   /// Turns push on or off from the Notifications page's switch. The page
@@ -1163,10 +1243,13 @@ class SettingsController {
   }
 
   /// The Add memory page's fields with Advanced on, kept until Done adds
-  /// the memory with all three.
+  /// the memory with all three, or until the page is left without it.
   String? _newMemoryContent;
   String? _newMemoryType;
   String? _newMemoryPath;
+
+  void _clearNewMemoryDraft() =>
+      _newMemoryContent = _newMemoryType = _newMemoryPath = null;
 
   /// The Advanced memory rows: the new memory's fields and Done, and one
   /// memory's type and path, saved as they change. Returns whether [id] was
@@ -1187,7 +1270,7 @@ class SettingsController {
         if (content.isEmpty) return true;
         final path = _newMemoryPath?.trim() ?? '';
         final type = _newMemoryType ?? ServerMemory.userType;
-        await _runNativeMemoryAction(
+        final refusal = await _runNativeMemoryAction(
           (memories, owner) => memories.add(
             content,
             type: type,
@@ -1195,7 +1278,20 @@ class SettingsController {
             owner: owner,
           ),
         );
-        _newMemoryContent = _newMemoryType = _newMemoryPath = null;
+        if (refusal != null) {
+          await _surface.applyDetail(
+            buildNativeMemoryAddDetail(
+              currentAppLocalizations(),
+              advanced: true,
+              content: _newMemoryContent ?? '',
+              type: type,
+              path: _newMemoryPath,
+              notice: refusal,
+            ),
+          );
+          return true;
+        }
+        _clearNewMemoryDraft();
         await _surface.closeDetail('memory-add');
         return true;
     }
@@ -1214,7 +1310,7 @@ class SettingsController {
         .where((candidate) => candidate.id == memoryId)
         .firstOrNull;
     if (memory == null) return true;
-    await _runNativeMemoryAction(
+    final refusal = await _runNativeMemoryAction(
       (memories, owner) => memories.updateItem(
         memory.id,
         memory.content,
@@ -1223,6 +1319,7 @@ class SettingsController {
         owner: owner,
       ),
     );
+    if (refusal != null) await _showMemoryEditRefusal(memory.id, refusal);
     return true;
   }
 

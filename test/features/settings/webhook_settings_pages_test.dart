@@ -63,10 +63,9 @@ void main() {
 
       session.wire.failLists = false;
       await session.change(webhookRetryId, true);
-
-      expect(
-        session.rows(webhookListPageId).map((row) => row.id),
-        contains(_ops),
+      // Retry reads again away from the row queue.
+      await session.until(
+        () => session.rows(webhookListPageId).any((row) => row.id == _ops),
       );
     });
   });
@@ -409,6 +408,15 @@ final class _Session {
 
   Future<void> change(String id, Object? value) =>
       _settle(module.handleChange(id, value, _l10n));
+
+  /// Moves the test clock until [done], as work the module started without
+  /// waiting for it finishes.
+  Future<void> until(bool Function() done) async {
+    for (var i = 0; i < 500 && !done(); i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(done(), isTrue);
+  }
 
   /// Waits for [work] while the test clock moves, so the requests it makes
   /// through the API's timers come back.
