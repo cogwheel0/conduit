@@ -5,30 +5,51 @@ import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/features/settings/views/settings_page_view.dart';
+import 'package:conduit/features/settings/views/settings_profile_editors.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
+import 'dart:async';
+
 import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart' show MaterialApp;
+import 'package:material_ui/material_ui.dart' show MaterialApp, Scaffold;
+import 'package:mocktail/mocktail.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
 User _user(String id) =>
     User(id: id, username: id, email: '$id@example.com', role: 'user');
 
-AccountMetadata _profile(String bio) => AccountMetadata(
+AccountMetadata _profile(String bio, {String name = 'Ada'}) => AccountMetadata(
   id: 'a',
   email: 'a@example.com',
-  name: 'Ada',
+  name: name,
   role: 'user',
   isActive: true,
   bio: bio,
 );
+
+/// The API of the one server signed in to; only its identity is read.
+final class _Api extends Mock implements ApiService {
+  _Api() {
+    when(() => serverConfig).thenReturn(
+      const ServerConfig(
+        id: 'server',
+        name: 'Server',
+        url: 'https://example.com',
+      ),
+    );
+  }
+}
 
 /// The signed-in Open WebUI user, swapped by a test.
 final class _SignedIn extends Notifier<User?> {
@@ -50,6 +71,10 @@ final class _Profile extends AccountProfile {
   final AccountMetadata? cached;
   final AccountMetadata? fresh;
   final List<({String password, String newPassword})> passwordChanges = [];
+  final List<String> savedNames = [];
+
+  /// Holds a password change back until completed, when set.
+  Completer<void>? passwordGate;
 
   @override
   Future<AccountMetadata?> build() async => cached;
@@ -68,6 +93,20 @@ final class _Profile extends AccountProfile {
     required String newPassword,
   }) async {
     passwordChanges.add((password: password, newPassword: newPassword));
+    await passwordGate?.future;
+  }
+
+  @override
+  Future<AccountMetadata> save({
+    required String name,
+    required String profileImageUrl,
+    String? bio,
+    String? gender,
+    String? dateOfBirth,
+    String? timezone,
+  }) async {
+    savedNames.add(name);
+    return _profile(bio ?? '', name: name);
   }
 }
 
@@ -138,8 +177,10 @@ Future<_Rig> _pump(
   final container = ProviderContainer(
     overrides: [
       currentUserProvider2.overrideWith((ref) => ref.watch(signedIn)),
-      apiServiceProvider.overrideWithValue(null),
+      apiServiceProvider.overrideWithValue(_Api()),
       accountProfileProvider.overrideWith(() => profile),
+      // The server allows a password change.
+      serverAboutInfoProvider.overrideWith((ref) async => null),
     ],
   );
   addTearDown(container.dispose);
@@ -147,6 +188,7 @@ Future<_Rig> _pump(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
+        navigatorKey: NavigationService.navigatorKey,
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: _App(home),
@@ -240,6 +282,27 @@ void main() {
       check(about(rig)).equals('Old');
     });
 
+    testWidgets('names the account as its profile does', (tester) async {
+      final rig = await open(
+        tester,
+        user: User(
+          id: 'a',
+          username: 'ada',
+          email: 'a@example.com',
+          role: 'user',
+        ),
+        cached: _profile('Old'),
+        fresh: _profile('New', name: 'Ada Lovelace'),
+      );
+
+      check(
+        rig
+            .rows(NativeSheetRoutes.profile)
+            .singleWhere((row) => row.id == 'profile-name')
+            .subtitle,
+      ).equals('Ada Lovelace');
+    });
+
     testWidgets('says it cannot be loaded with no profile at all', (
       tester,
     ) async {
@@ -291,6 +354,107 @@ void main() {
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
       check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
+    });
+
+    testWidgets('a change sent on a visit since left does not report on the '
+        'next', (tester) async {
+      final rig = await _pump(tester);
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+      final gate = rig.profile.passwordGate = Completer<void>();
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      check(rig.profile.passwordChanges).length.equals(1);
+
+      // Left and opened again while the change is still on its way.
+      rig.container.read(settingsControllerProvider).pageClosed('password');
+      rig.container
+          .read(settingsControllerProvider)
+          .handle(
+            const NativeSheetDetailAppeared(detailId: 'password'),
+            source: SettingsEventSource.flutter,
+          );
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      check(rig.page('password')!.subtitle).isNull();
+    });
+
+    testWidgets('a page left open as another account takes over gets its '
+        'form back', (tester) async {
+      final rig = await _pump(
+        tester,
+        home: const SettingsDetailPage(detailId: 'password'),
+      );
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+      await tester.pumpAndSettle();
+
+      rig.signIn(_user('b'));
+      await tester.pumpAndSettle();
+
+      check(rig.rows('password').map((row) => row.id))
+          .contains('current-password');
+    });
+  });
+
+  group('Profile editors', () {
+    /// A Profile page whose Name row opens its editor.
+    Future<_Rig> open(WidgetTester tester, {AccountMetadata? fresh}) async {
+      final rig = await _pump(
+        tester,
+        cached: _profile('Old'),
+        fresh: fresh,
+        home: Scaffold(
+          body: Consumer(
+            builder: (context, ref, _) => GestureDetector(
+              onTap: () =>
+                  editSettingsProfileField(context, ref, 'profile-name'),
+              child: const Text('Name'),
+            ),
+          ),
+        ),
+      );
+      await rig.container.read(accountProfileProvider.future);
+      return rig;
+    }
+
+    Future<void> rename(WidgetTester tester, String name) async {
+      await tester.tap(find.text('Name'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText), name);
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await tester.tap(find.text(_l10n.save));
+      await tester.pumpAndSettle();
+      // The message the edit ends with goes away by itself.
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    testWidgets('edit the copy kept while its refresh failed', (tester) async {
+      final rig = await open(tester);
+      await rig.container.read(accountProfileProvider.notifier).refresh();
+      check(rig.container.read(accountProfileProvider).hasError).isTrue();
+
+      await rename(tester, 'Grace');
+      await save(tester);
+
+      check(rig.profile.savedNames).deepEquals(['Grace']);
+    });
+
+    testWidgets('save nothing once another account took over', (tester) async {
+      final rig = await open(tester);
+
+      await rename(tester, 'Grace');
+      rig.signIn(_user('b'));
+      await tester.pump();
+      await save(tester);
+
+      check(rig.profile.savedNames).isEmpty();
     });
   });
 }

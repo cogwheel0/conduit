@@ -83,6 +83,10 @@ final settingsControllerProvider = Provider<SettingsController>(
 class SettingsController {
   WidgetRef? _widgetRef;
   final Map<String, String> _nativeSheetDraftValues = {};
+
+  /// Counts visits to the Change Password page, so a change sent on one
+  /// visit doesn't report on the next.
+  int _passwordVisit = 0;
   Future<void> _nativeSheetControlQueue = Future<void>.value();
 
   /// Hands over the app root's ref. Settings events that arrive before it
@@ -106,12 +110,13 @@ class SettingsController {
 
   void _forgetPages() {
     _nativeSheetDraftValues.clear();
+    _passwordVisit++;
     ref.read(settingsPagesProvider.notifier).clear();
   }
 
   /// A Flutter Settings page closed: what it held unsaved is forgotten.
   void pageClosed(String detailId) {
-    if (detailId == 'password') _forgetPasswordDraft();
+    if (detailId == 'password') _startPasswordVisit();
   }
 
   bool get _attached => _widgetRef?.context.mounted ?? false;
@@ -132,6 +137,7 @@ class SettingsController {
         unawaited(_handleNativeSheetLogoutRequested());
       case NativeSheetDismissed():
         _nativeSheetDraftValues.clear();
+        _passwordVisit++;
         break;
       case NativeSheetControlChanged(
         id: 'sign-out',
@@ -148,7 +154,7 @@ class SettingsController {
         );
       case NativeSheetDetailAppeared(:final detailId):
         // A password typed on an earlier visit is not combined with this one.
-        if (detailId == 'password') _forgetPasswordDraft();
+        if (detailId == 'password') _startPasswordVisit();
         final hydration = ref.read(nativeSheetHydrationServiceProvider);
         // The native sheet fills in its own Profile page as it opens.
         if (detailId == NativeSheetRoutes.profile &&
@@ -1057,6 +1063,7 @@ class SettingsController {
     // Whatever the outcome, the page starts over with it said on the page,
     // and nothing typed stays behind.
     _forgetPasswordDraft();
+    final visit = _passwordVisit;
     String outcome;
     if (confirm != next) {
       outcome = l10n.passwordsDoNotMatch;
@@ -1076,6 +1083,9 @@ class SettingsController {
         outcome = l10n.errorMessage;
       }
     }
+    // The page was left, or opened again, while the change was sent: the
+    // outcome is not put over what that visit shows.
+    if (visit != _passwordVisit) return;
     await _surface.applyDetail(
       buildNativePasswordDetail(
         l10n,
@@ -1089,6 +1099,13 @@ class SettingsController {
     _nativeSheetDraftValues.remove('current-password');
     _nativeSheetDraftValues.remove('new-password');
     _nativeSheetDraftValues.remove('confirm-password');
+  }
+
+  /// The Change Password page opened or closed: what was typed is forgotten,
+  /// and a change still being sent no longer reports on the page.
+  void _startPasswordVisit() {
+    _forgetPasswordDraft();
+    _passwordVisit++;
   }
 
   /// The page listing the accounts to sign out of, read again after one

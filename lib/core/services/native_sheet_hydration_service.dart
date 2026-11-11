@@ -1025,20 +1025,18 @@ class NativeSheetHydrationService {
   }
 
   /// Turns the Change Password page into a note that the server does not
-  /// allow it, when the server says so. An allowed change leaves the page as
-  /// it opened, so nothing typed into it is lost.
+  /// allow it, when the server says so. An allowed change leaves the form
+  /// as it is, so nothing typed into it is lost -- unless the page was
+  /// forgotten while open (another account took over) and shows a loading
+  /// row again: then it gets its form back.
   Future<void> _hydrateNativePasswordDetail(
     BuildContext context,
     AppLocalizations l10n,
   ) async {
+    var allowed = true;
     try {
       final about = await _ref.read(serverAboutInfoProvider.future);
-      if (!context.mounted || (about?.enablePasswordChangeForm ?? true)) {
-        return;
-      }
-      await _applyNativeDetail(
-        buildNativePasswordDetail(l10n, passwordChangeEnabled: false),
-      );
+      allowed = about?.enablePasswordChangeForm ?? true;
     } catch (error, stackTrace) {
       // The form stays; the server refuses a change it does not allow.
       DebugLogger.error(
@@ -1048,6 +1046,21 @@ class NativeSheetHydrationService {
         stackTrace: stackTrace,
       );
     }
+    if (!context.mounted || (allowed && !_passwordPageIsLoading())) return;
+    await _applyNativeDetail(
+      buildNativePasswordDetail(l10n, passwordChangeEnabled: allowed),
+    );
+  }
+
+  /// Whether the Flutter pages hold the Change Password page without its
+  /// form: the loading page a forgotten page is drawn as until described.
+  bool _passwordPageIsLoading() {
+    final page = _ref.read(settingsPagesProvider)['password'];
+    if (page == null) return false;
+    return ![
+      ...page.items,
+      for (final section in page.sections) ...section.items,
+    ].any((row) => row.id == 'current-password');
   }
 
   /// Fills in the Profile page the Flutter Settings pages draw. Its editors
@@ -1063,7 +1076,10 @@ class NativeSheetHydrationService {
       return;
     }
     final api = _ref.read(apiServiceProvider);
-    final cached = _ref.read(accountProfileProvider).asData?.value;
+    // The copy kept from before an earlier refresh that failed counts too,
+    // but never one left from another account.
+    final held = _ref.read(accountProfileProvider).value;
+    final cached = held?.id == user.id ? held : null;
     var refreshed = true;
     try {
       await _ref
@@ -1097,10 +1113,11 @@ class NativeSheetHydrationService {
         title: nativeProfileTitle(l10n),
         sections: buildNativeProfileDetailSections(
           l10n,
-          displayName: deriveUserDisplayName(
-            user,
-            fallback: l10n.userFallbackName,
-          ),
+          // The name the profile was just read with, which the Name editor
+          // starts from too.
+          displayName: profile.name.trim().isNotEmpty
+              ? profile.name.trim()
+              : deriveUserDisplayName(user, fallback: l10n.userFallbackName),
           accountProfile: profile,
         ),
       ),

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/account_profile_form.dart';
@@ -36,14 +37,19 @@ const settingsProfileEditorIds = {
 /// done, not as it was when the editor opened, so a save never writes back a
 /// copy older than the one the app holds; and nothing is saved once another
 /// account has taken over.
+///
+/// The profile the page shows may be the copy kept from before a refresh
+/// that is still running or failed; editing goes on from that copy, as long
+/// as it belongs to the account signed in.
 Future<void> editSettingsProfileField(
   BuildContext context,
   WidgetRef ref,
   String rowId,
 ) async {
   final l10n = AppLocalizations.of(context)!;
-  final profile = ref.read(accountProfileProvider).asData?.value;
-  if (profile == null) {
+  final account = _ProfileAccount.read(ref);
+  final profile = account?.profileIn(ref);
+  if (account == null || profile == null) {
     UiUtils.showMessage(context, l10n.unableToLoadProfile);
     return;
   }
@@ -56,8 +62,11 @@ Future<void> editSettingsProfileField(
   };
   final change = await edit;
   if (change == null || !context.mounted) return;
-  // Refreshed while the editor was open, the profile may hold newer fields.
-  final latest = ref.read(accountProfileProvider).asData?.value;
+  // Refreshed while the editor was open, the profile may hold newer fields;
+  // and the edit is for the account the editor opened on, or for none.
+  final latest = account == _ProfileAccount.read(ref)
+      ? account.profileIn(ref)
+      : null;
   if (latest == null || latest.id != profile.id) {
     UiUtils.showMessage(context, l10n.unableToLoadProfile);
     return;
@@ -100,6 +109,40 @@ Future<void> editSettingsProfileField(
     );
     if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
   }
+}
+
+/// The account a Profile edit is for: the user signed in, on the server
+/// they are signed in to.
+@immutable
+final class _ProfileAccount {
+  const _ProfileAccount(this.userId, this.serverId);
+
+  /// The account signed in now, or null with none.
+  static _ProfileAccount? read(WidgetRef ref) {
+    final userId = ref.read(currentUserProvider2)?.id;
+    final serverId = ref.read(apiServiceProvider)?.serverConfig.id;
+    if (userId == null || serverId == null) return null;
+    return _ProfileAccount(userId, serverId);
+  }
+
+  final String userId;
+  final String serverId;
+
+  /// The profile the app holds for this account. The copy kept from before a
+  /// refresh counts, but never one left from another account.
+  AccountMetadata? profileIn(WidgetRef ref) {
+    final profile = ref.read(accountProfileProvider).value;
+    return profile?.id == userId ? profile : null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ProfileAccount &&
+      other.userId == userId &&
+      other.serverId == serverId;
+
+  @override
+  int get hashCode => Object.hash(userId, serverId);
 }
 
 /// One edit to the profile. Null fields keep what the profile holds; the
