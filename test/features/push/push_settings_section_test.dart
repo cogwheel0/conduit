@@ -765,12 +765,12 @@ void main() {
       pushStateWith(const [], enabled: false),
       hasOpenWebUiAccount: false,
     );
-    expect(find.text('Channel messages'), findsNothing);
+    expect(find.text('Channel Messages'), findsNothing);
     expect(find.text('Scheduled tasks'), findsOneWidget);
     expect(find.byKey(const Key('push-enabled')), findsOneWidget);
 
     await _pump(tester, pushStateWith(const [], enabled: false));
-    expect(find.text('Channel messages'), findsOneWidget);
+    expect(find.text('Channel Messages'), findsOneWidget);
   });
 
   testWidgets('the kinds include scheduled tasks', (tester) async {

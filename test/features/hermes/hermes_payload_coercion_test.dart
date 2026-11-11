@@ -192,7 +192,7 @@ void main() {
         check(because: '$known', job(known).deliveryKnown).isTrue();
       }
       for (final unknown in <Object>[
-        _repeat('x', kMaxHermesJobStatusCharacters + 1),
+        _repeat('x', kMaxHermesJobDeliverCharacters + 1),
         const ['telegram'],
         7,
       ]) {

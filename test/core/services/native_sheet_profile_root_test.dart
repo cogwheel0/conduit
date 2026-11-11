@@ -329,6 +329,8 @@ void main() {
       );
       expect(_ids(sections)[1], [
         NativeSheetRoutes.appearance,
+        // The app's language, beside Appearance.
+        nativeAppLanguageId,
         NativeSheetRoutes.chats,
         NativeSheetRoutes.voice,
         NativeSheetRoutes.notificationSettings,

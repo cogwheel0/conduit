@@ -243,7 +243,7 @@ void main() {
           ),
         ],
       );
-      await tester.tap(find.byTooltip('Edit scheduled job'));
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
@@ -266,7 +266,7 @@ void main() {
       final fake = await pumpPage(tester, push: _push(PushStatus.on));
       final gate = Completer<void>();
       fake.jobNotifyGate = gate;
-      await tester.tap(find.text('New scheduled job'));
+      await tester.tap(find.text('New Scheduled Job'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(EditableText).at(0), 'Daily');
       await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
@@ -300,7 +300,7 @@ void main() {
         push: _push(PushStatus.on),
         scheduledKind: false,
       );
-      await tester.tap(find.text('New scheduled job'));
+      await tester.tap(find.text('New Scheduled Job'));
       await tester.pumpAndSettle();
       final toggle = tester.widget<AdaptiveSwitch>(
         find.descendant(
@@ -337,7 +337,7 @@ void main() {
           ),
         ],
       );
-      await tester.tap(find.byTooltip('Edit scheduled job'));
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('hermes-job-notify')), findsNothing);
       await tester.tap(find.text('Save'));
