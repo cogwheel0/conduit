@@ -6511,6 +6511,9 @@ abstract class NativeSheetFlutterApi {
 
   void onDetailAppeared(PlatformNativeSheetDetailAppearedEvent event);
 
+  /// Page [event]'s detail is gone: popped, or its sheet closed.
+  void onDetailLeft(PlatformNativeSheetDetailAppearedEvent event);
+
   void onModelPinToggled(PlatformNativeSheetModelPinToggledEvent event);
 
   void onReasoningEffortChanged(
@@ -6616,6 +6619,32 @@ abstract class NativeSheetFlutterApi {
               args[0]! as PlatformNativeSheetDetailAppearedEvent;
           try {
             api.onDetailAppeared(arg_event);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onDetailLeft$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final PlatformNativeSheetDetailAppearedEvent arg_event =
+              args[0]! as PlatformNativeSheetDetailAppearedEvent;
+          try {
+            api.onDetailLeft(arg_event);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

@@ -125,9 +125,22 @@ class SettingsController {
     ref.read(settingsPagesProvider.notifier).clear();
   }
 
-  /// A Flutter Settings page closed: what it held unsaved is forgotten.
-  void pageClosed(String detailId) {
+  /// A Settings page closed: what it held unsaved is forgotten, and its
+  /// module hears of it. A page closing as its tree goes passes the
+  /// [modules] it read while it was up, as no provider may be read then.
+  void pageClosed(String detailId, {List<SettingsPageModule>? modules}) {
     if (detailId == 'password') _startPasswordVisit();
+    final List<SettingsPageModule> owners;
+    if (modules != null) {
+      owners = modules;
+    } else if (_attached) {
+      owners = ref.read(settingsPageModulesProvider);
+    } else {
+      owners = const [];
+    }
+    for (final module in owners) {
+      if (module.ownsPage(detailId)) module.pageLeft(detailId);
+    }
   }
 
   bool get _attached => _widgetRef?.context.mounted ?? false;
@@ -146,7 +159,12 @@ class SettingsController {
     switch (event) {
       case NativeSheetLogoutRequested():
         unawaited(_handleNativeSheetLogoutRequested());
+      case NativeSheetDetailLeft(:final detailId):
+        pageClosed(detailId);
       case NativeSheetDismissed():
+        for (final module in ref.read(settingsPageModulesProvider)) {
+          module.settingsClosed();
+        }
         _nativeSheetDraftValues.clear();
         _passwordVisit++;
         _clearNewMemoryDraft();
@@ -460,25 +478,6 @@ class SettingsController {
           return;
         }
         final request = calendarNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
-
-      if (event.id == NativeSheetRoutes.chatDataControls) {
-        // As for Scheduled tasks: the sheet was built before this arrived, so
-        // a row that went stale (Advanced turned off, the account signed out)
-        // must not navigate. The page itself opens its file picker only after
-        // the user acts on it, never while this sheet is still up.
-        if (!ref.read(chatDataControlsEntryVisibleProvider)) {
-          _showNativeOptionUnavailable();
-          return;
-        }
-        final request = chatDataControlsNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
             request.routeName,

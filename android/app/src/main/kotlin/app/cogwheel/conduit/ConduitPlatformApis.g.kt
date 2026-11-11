@@ -5750,6 +5750,24 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
       }
     }
   }
+  /** Page [event]'s detail is gone: popped, or its sheet closed. */
+  fun onDetailLeft(eventArg: PlatformNativeSheetDetailAppearedEvent, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onDetailLeft$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(eventArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
+      }
+    }
+  }
   fun onModelPinToggled(eventArg: PlatformNativeSheetModelPinToggledEvent, callback: (Result<Unit>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""

@@ -5450,6 +5450,8 @@ protocol NativeSheetFlutterApiProtocol {
   func onLogoutRequested(completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onControlChanged(event eventArg: PlatformNativeSheetControlChangedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onDetailAppeared(event eventArg: PlatformNativeSheetDetailAppearedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  /// Page [event]'s detail is gone: popped, or its sheet closed.
+  func onDetailLeft(event eventArg: PlatformNativeSheetDetailAppearedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onModelPinToggled(event eventArg: PlatformNativeSheetModelPinToggledEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onReasoningEffortChanged(event eventArg: PlatformNativeSheetReasoningEffortChangedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onModelControlChanged(event eventArg: PlatformNativeSheetModelControlChangedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
@@ -5521,6 +5523,25 @@ class NativeSheetFlutterApi: NativeSheetFlutterApiProtocol {
   }
   func onDetailAppeared(event eventArg: PlatformNativeSheetDetailAppearedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onDetailAppeared\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([eventArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(()))
+      }
+    }
+  }
+  /// Page [event]'s detail is gone: popped, or its sheet closed.
+  func onDetailLeft(event eventArg: PlatformNativeSheetDetailAppearedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onDetailLeft\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([eventArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {

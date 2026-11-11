@@ -2812,6 +2812,16 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             )
         ) { _ in }
     }
+
+    /// Page [controller] is gone: popped, or its sheet closed.
+    fileprivate func markDetailLeft(_ controller: NativeDetailTableViewController) {
+        guard activeSheetMode == .profileMenu else { return }
+        flutterApi?.onDetailLeft(
+            event: PlatformNativeSheetDetailAppearedEvent(
+                detailId: controller.detailId
+            )
+        ) { _ in }
+    }
 }
 
 // MARK: - Edit profile helpers (Flutter account_settings_page parity)
@@ -5676,6 +5686,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         view.endEditing(true)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Gone, not covered by a page it opened: popped, or the sheet closed.
+        let sheetClosed = navigationController?.isBeingDismissed == true
+            || navigationController?.presentingViewController == nil
+        if isMovingFromParent || sheetClosed {
+            NativeSheetBridge.shared.markDetailLeft(self)
+        }
     }
 
     override func tableView(

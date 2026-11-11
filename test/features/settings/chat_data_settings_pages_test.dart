@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/chat/services/chat_backup_files.dart';
-import 'package:conduit/features/profile/views/chat_data_controls_page.dart';
+import 'package:conduit/features/settings/pages/chat_data_settings_pages.dart';
+import 'package:conduit/features/settings/settings_page_module.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/l10n/conduit_localizations.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
@@ -29,9 +31,11 @@ import 'package:conduit_core/testing.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart' show Rect;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+final AppLocalizations _l10n = AppLocalizationsEn();
 
 const _server = ServerConfig(
   id: 'server',
@@ -229,15 +233,81 @@ class _Settings extends AppSettingsNotifier {
   AppSettings build() => _settings;
 }
 
-final class _Session {
-  _Session(this.container, this.db, this.wire, this.files);
+typedef _Question = ({
+  String title,
+  String? message,
+  List<NativeSheetAlertAction> actions,
+});
 
+/// Settings as the page sees it: each question stays open until the test
+/// answers it, as a person would.
+final class _Surface extends SettingsSurface {
+  _Surface(super.ref);
+
+  final asked = <_Question>[];
+  Completer<String?>? _open;
+
+  bool get asking => _open != null && !_open!.isCompleted;
+
+  _Question get question => asked.last;
+
+  /// The label of the answer that goes ahead.
+  NativeSheetAlertAction get confirmation =>
+      question.actions.singleWhere((action) => action.id == 'go');
+
+  void answer(String? id) => _open!.complete(id);
+
+  @override
+  Future<String?> ask({
+    required String title,
+    String? message,
+    required List<NativeSheetAlertAction> actions,
+  }) {
+    asked.add((title: title, message: message, actions: actions));
+    return (_open = Completer<String?>()).future;
+  }
+}
+
+final class _Session {
+  _Session(this.tester, this.container, this.db, this.wire, this.files);
+
+  final WidgetTester tester;
   final ProviderContainer container;
   final AppDatabase db;
   final _Wire wire;
   final _Files files;
+  late final _Surface surface;
   Object epoch = Object();
   User user = _user();
+
+  /// The action under way, until it ends.
+  Future<Object?>? _running;
+
+  SettingsPageModule get module => container
+      .read(settingsPageModulesProvider)
+      .whereType<ChatDataSettingsPages>()
+      .single;
+
+  NativeSheetDetailConfig get page =>
+      container.read(settingsPagesProvider)[chatDataControlsPageId]!;
+
+  List<NativeSheetItemConfig> get rows => [
+    ...page.items,
+    for (final section in page.sections) ...section.items,
+  ];
+
+  Iterable<String> get titles => rows.map((row) => row.title);
+
+  NativeSheetItemConfig? row(String action) =>
+      rows.where((row) => row.id == chatDataRowId(action)).firstOrNull;
+
+  /// The section holding [action]'s row.
+  NativeSheetSectionConfig section(String action) => page.sections.singleWhere(
+    (section) => section.items.any((row) => row.id == chatDataRowId(action)),
+  );
+
+  /// The latest result, as the page reads it out.
+  String? get status => page.announcement;
 
   void switchAccount() {
     epoch = Object();
@@ -245,6 +315,58 @@ final class _Session {
     container
       ..invalidate(openWebUiAuthSessionEpochProvider)
       ..invalidate(currentUserProvider2);
+  }
+
+  /// The page appearing, as it opens or is described again.
+  Future<void> appear() async {
+    final opening = module.hydrate(chatDataControlsPageId, _l10n);
+    await _settle(() => _done(opening));
+  }
+
+  /// Taps the row of [action] and lets it run until it ends or asks.
+  Future<void> tap(String action) async {
+    final running = _running = module.handleChange(
+      chatDataRowId(action),
+      true,
+      _l10n,
+    );
+    await _settle(() => _done(running) || surface.asking);
+  }
+
+  /// Answers the open question with [id] and lets the action run on.
+  Future<void> answer(String? id) async {
+    surface.answer(id);
+    final running = _running;
+    await _settle(() => running == null || _done(running) || surface.asking);
+  }
+
+  /// Agrees to the open question.
+  Future<void> confirm() => answer('go');
+
+  /// Lets work that runs on settle: until [done], or a few frames more.
+  Future<void> settle() => _settle(() => false, turns: 40);
+
+  final _ends = Expando<bool>();
+
+  /// Whether [work] has ended; watched from the first time it is asked.
+  bool _done(Future<Object?> work) {
+    if (_ends[work] == null) {
+      _ends[work] = false;
+      unawaited(work.whenComplete(() => _ends[work] = true));
+    }
+    return _ends[work]!;
+  }
+
+  /// Real event-loop turns, so the network and file streams under the page
+  /// make progress, with the fake clock moving between them.
+  Future<void> _settle(bool Function() done, {int turns = 400}) async {
+    if (_running != null) _done(_running!);
+    for (var i = 0; i < turns && !done(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 25));
+    }
   }
 }
 
@@ -261,7 +383,7 @@ void main() {
   /// Opens the page for an account on [server], which the account list
   /// files under a server named as [server] is and reached at [addresses],
   /// by default only the one [server] is on.
-  Future<_Session> pumpPage(
+  Future<_Session> open(
     WidgetTester tester, {
     ServerConfig server = _server,
     List<String>? addresses,
@@ -270,10 +392,6 @@ void main() {
     String role = 'user',
     Future<void> Function(AppDatabase db)? seed,
   }) async {
-    tester.view
-      ..physicalSize = const Size(800, 3200)
-      ..devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
     _Engine.pulls.clear();
     _Engine.drains = 0;
 
@@ -288,7 +406,7 @@ void main() {
     addTearDown(api.dispose);
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    if (seed != null) await seed(db);
+    if (seed != null) await tester.runAsync(() => seed(db));
 
     late final _Session session;
     final container = ProviderContainer(
@@ -328,26 +446,24 @@ void main() {
         syncEngineProvider.overrideWith(_Engine.new),
         isChatStreamingProvider.overrideWithValue(false),
         chatBackupFilesProvider.overrideWithValue(files),
+        settingsSurfaceProvider.overrideWith(
+          (ref) => session.surface = _Surface(ref),
+        ),
       ],
     );
     addTearDown(container.dispose);
-    session = _Session(container, db, wire, files)..user = _user(role: role);
-    await container.read(userPermissionsProvider.future);
-
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        // A new tree each time: the page captures its container and owner when
-        // it opens, so a second pump must not reuse the first one's state.
-        key: UniqueKey(),
-        container: container,
-        child: MaterialApp(
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: const ChatDataControlsPage(),
-        ),
-      ),
+    session = _Session(tester, container, db, wire, files)
+      ..user = _user(role: role);
+    container.read(settingsSurfaceProvider);
+    await tester.runAsync(() => container.read(userPermissionsProvider.future));
+    await tester.runAsync(
+      () => container.read(openWebUiAccountsProvider.future),
     );
-    await _settle(tester);
+    // As the root registers it: loading, until it appears.
+    container.read(settingsPagesProvider.notifier).register([
+      NativeSheetDetailConfig(id: chatDataControlsPageId, title: ''),
+    ]);
+    await session.appear();
     return session;
   }
 
@@ -397,26 +513,14 @@ void main() {
     );
   }
 
-  Finder row(String key) => find.byKey(Key(key));
-
-  Future<void> tapRow(WidgetTester tester, String key) async {
-    await tester.tap(row(key));
-    await _settle(tester);
-  }
-
-  Future<void> confirm(WidgetTester tester, String label) async {
-    await tester.tap(find.widgetWithText(ConduitTextButton, label).last);
-    await _settle(tester);
-  }
-
-  String status(WidgetTester tester) =>
-      tester.widget<Text>(row('chat-data-status')).data!;
+  Future<T?> onDevice<T>(WidgetTester tester, Future<T> Function() work) =>
+      tester.runAsync(work);
 
   group('what the page says', () {
     testWidgets('names the account and server and what a backup leaves out', (
       tester,
     ) async {
-      await pumpPage(
+      final session = await open(
         tester,
         seed: (db) async {
           await seedServerChat(db, 's1');
@@ -425,13 +529,17 @@ void main() {
         },
       );
 
-      expect(find.text('Chats of Ava on Test Server'), findsOneWidget);
+      expect(session.titles, contains('Chats of Ava on Test Server'));
       expect(
-        find.textContaining('attached files and images themselves are not'),
-        findsOneWidget,
+        session.section('export').footer,
+        contains('attached files and images themselves are not'),
       );
-      expect(find.text('2 chats are only on this device'), findsOneWidget);
-      expect(row('chat-data-controls-unsynced'), findsOneWidget);
+      expect(session.titles, contains('2 chats are only on this device'));
+      // Sync Now sits with the warning.
+      expect(
+        session.section('sync').footer,
+        _l10n.chatDataControlsUnsyncedNote,
+      );
     });
 
     // Connecting names a server after the host it reached. With its address
@@ -440,7 +548,7 @@ void main() {
     testWidgets('names a server whose address was edited by the new host', (
       tester,
     ) async {
-      await pumpPage(
+      final session = await open(
         tester,
         server: _server.copyWith(
           name: '100.64.0.3',
@@ -449,27 +557,26 @@ void main() {
         seed: (db) => seedServerChat(db, 's1'),
       );
 
-      expect(find.text('Chats of Ava on 100.64.0.7'), findsOneWidget);
+      expect(session.titles, contains('Chats of Ava on 100.64.0.7'));
       expect(
-        find.text(
-          'Removes every chat of Ava from 100.64.0.7. '
-          'Chats only on this device are kept.',
-        ),
-        findsOneWidget,
+        session.section('delete').footer,
+        'Removes every chat of Ava from 100.64.0.7. '
+        'Chats only on this device are kept.',
       );
 
-      await tapRow(tester, 'chat-data-delete-all');
+      await session.tap('delete');
 
       expect(
-        find.textContaining('Delete all chats of Ava on 100.64.0.7?'),
-        findsOneWidget,
+        session.surface.question.message,
+        contains('Delete all chats of Ava on 100.64.0.7?'),
       );
-      expect(find.textContaining('100.64.0.3'), findsNothing);
+      expect(session.surface.question.message, isNot(contains('100.64.0.3')));
+      await session.answer('cancel');
     });
 
     testWidgets('names a server reached at another of its addresses as the '
         'account list does', (tester) async {
-      await pumpPage(
+      final session = await open(
         tester,
         server: _server.copyWith(
           name: 'lan.example',
@@ -478,37 +585,34 @@ void main() {
         addresses: ['http://lan.example', 'http://100.64.0.7:8080'],
       );
 
-      expect(find.text('Chats of Ava on lan.example'), findsOneWidget);
+      expect(session.titles, contains('Chats of Ava on lan.example'));
     });
 
     testWidgets('puts the delete action in its own group naming its reach', (
       tester,
     ) async {
-      await pumpPage(tester, seed: (db) => seedServerChat(db, 's1'));
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
+      );
 
-      final deleteGroup = row('chat-data-delete-group');
-      expect(deleteGroup, findsOneWidget);
+      final deleteGroup = session.section('delete');
+      expect(deleteGroup.items.map((row) => row.id), [chatDataRowId('delete')]);
       expect(
-        find.descendant(of: deleteGroup, matching: row('chat-data-delete-all')),
-        findsOneWidget,
+        deleteGroup.footer,
+        'Removes every chat of Ava from Test Server. '
+        'Chats only on this device are kept.',
       );
       expect(
-        find.text(
-          'Removes every chat of Ava from Test Server. '
-          'Chats only on this device are kept.',
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('It never replaces chats already on the server.'),
-        findsOneWidget,
+        session.section('import').footer,
+        contains('It never replaces chats already on the server.'),
       );
     });
 
     testWidgets('counts a chat with an unsent edit and a queued reply once', (
       tester,
     ) async {
-      await pumpPage(
+      final session = await open(
         tester,
         seed: (db) async {
           await seedServerChat(db, 's1');
@@ -531,72 +635,89 @@ void main() {
       );
 
       expect(
-        find.text("1 chat has changes the server hasn't received"),
-        findsOneWidget,
+        session.titles,
+        contains("1 chat has changes the server hasn't received"),
       );
     });
 
     testWidgets('shows no warning when everything is on the server', (
       tester,
     ) async {
-      await pumpPage(tester, seed: (db) => seedServerChat(db, 's1'));
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
+      );
 
-      expect(row('chat-data-controls-unsynced'), findsNothing);
+      expect(session.row('sync'), isNull);
+      expect(
+        session.rows.where(
+          (row) => row.id.endsWith('-local-only') || row.id.endsWith('-unsent'),
+        ),
+        isEmpty,
+      );
     });
 
     testWidgets(
       'offers nothing with Advanced off or after the account changed',
       (tester) async {
-        await pumpPage(tester, settings: const AppSettings());
-        expect(find.byKey(const ValueKey('advanced-required')), findsOneWidget);
-        expect(row('chat-data-export'), findsNothing);
+        final off = await open(tester, settings: const AppSettings());
+        expect(off.titles, [
+          _l10n.advancedRequiredMessage(_l10n.chatDataControlsTitle),
+        ]);
+        expect(off.row('export'), isNull);
 
-        final session = await pumpPage(tester);
-        expect(row('chat-data-export'), findsOneWidget);
+        final session = await open(tester);
+        expect(session.row('export'), isNotNull);
         session.switchAccount();
-        await _settle(tester);
+        // Described again, as the page is once another account signs in.
+        await session.appear();
 
         // The page was opened for the first account; it does not retarget.
-        expect(row('chat-data-controls-account-changed'), findsOneWidget);
-        expect(
-          find.text('The account changed. Go back and open Data Controls again.'),
-          findsOneWidget,
-        );
-        expect(row('chat-data-export'), findsNothing);
+        expect(session.titles, [
+          'The account changed. Go back and open Data Controls again.',
+        ]);
+        expect(session.row('export'), isNull);
+        await session.tap('export');
+        expect(session.wire.requests, isEmpty);
+
+        // Left and opened again, it acts on the account signed in now.
+        session.module.pageLeft(chatDataControlsPageId);
+        await session.appear();
+        expect(session.row('export'), isNotNull);
       },
     );
 
     testWidgets('hides the controls the account may not use', (tester) async {
-      await pumpPage(
+      final user = await open(
         tester,
         permissions: {
           'chat': {'import': false, 'export': false, 'delete': false},
         },
       );
 
-      expect(row('chat-data-export'), findsNothing);
-      expect(row('chat-data-import'), findsNothing);
-      expect(row('chat-data-delete-all'), findsNothing);
+      expect(user.row('export'), isNull);
+      expect(user.row('import'), isNull);
+      expect(user.row('delete'), isNull);
       // Archiving needs no permission of its own.
-      expect(row('chat-data-archive-all'), findsOneWidget);
+      expect(user.row('archive'), isNotNull);
 
-      await pumpPage(
+      final admin = await open(
         tester,
         permissions: {
           'chat': {'import': false, 'export': false, 'delete': false},
         },
         role: 'admin',
       );
-      expect(row('chat-data-export'), findsOneWidget);
-      expect(row('chat-data-import'), findsOneWidget);
-      expect(row('chat-data-delete-all'), findsOneWidget);
+      expect(admin.row('export'), isNotNull);
+      expect(admin.row('import'), isNotNull);
+      expect(admin.row('delete'), isNotNull);
     });
   });
 
   group('library backup', () {
     testWidgets('hands the whole server library to the file adapter once it '
         'arrived intact', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) => seedServerChat(db, 's1'),
       );
@@ -605,7 +726,7 @@ void main() {
         _line('b'),
       ];
 
-      await tapRow(tester, 'chat-data-export');
+      await session.tap('export');
 
       expect(session.wire.to('GET', '/api/v1/chats/all'), hasLength(1));
       final file = session.files.delivered.single;
@@ -618,29 +739,31 @@ void main() {
         'a',
         'b',
       ]);
-      expect(status(tester), 'Export ready. Chats saved: 2');
+      expect(session.status, 'Export ready. Chats saved: 2');
+      expect(session.section('export').footer, contains(session.status));
+      expect(session.row('export')!.pending, isFalse);
     });
 
     testWidgets('asks first when work is not on the server, and sends nothing '
         'if declined', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) => seedDeviceOnlyChat(db, 'local:one'),
       );
       session.wire.library = [_line('a')];
 
-      await tapRow(tester, 'chat-data-export');
+      await session.tap('export');
 
-      expect(find.text("Export the server's copy?"), findsOneWidget);
-      expect(find.textContaining('Ava'), findsWidgets);
+      expect(session.surface.question.title, "Export the server's copy?");
+      expect(session.surface.question.message, contains('Ava'));
       expect(session.wire.requests, isEmpty);
-      await tester.tap(find.widgetWithText(ConduitTextButton, 'Cancel').last);
-      await _settle(tester);
+      await session.answer('cancel');
       expect(session.wire.requests, isEmpty);
       expect(session.files.created, isEmpty);
 
-      await tapRow(tester, 'chat-data-export');
-      await confirm(tester, 'Export');
+      await session.tap('export');
+      expect(session.surface.confirmation.label, 'Export');
+      await session.confirm();
       expect(session.files.delivered, hasLength(1));
     });
 
@@ -651,11 +774,10 @@ void main() {
         WidgetTester tester,
         Completer<void> closing,
       ) async {
-        final session = await pumpPage(tester);
+        final session = await open(tester);
         session.wire.library = [_line('s1')];
         session.files.commitGate = closing.future;
-        await tester.tap(row('chat-data-export'));
-        await _settle(tester);
+        await session.tap('export');
         expect(session.files.created, hasLength(1));
         expect(session.files.delivered, isEmpty);
         return session;
@@ -666,10 +788,10 @@ void main() {
         final session = await startClosing(tester, closing);
 
         closing.complete();
-        await _settle(tester);
+        await session.settle();
 
         expect(session.files.delivered.single.committed, isTrue);
-        expect(status(tester), 'Export ready. Chats saved: 1');
+        expect(session.status, 'Export ready. Chats saved: 1');
       });
 
       testWidgets('does not deliver the old account file after an account '
@@ -680,7 +802,7 @@ void main() {
         session.switchAccount();
         await tester.pump();
         closing.complete();
-        await _settle(tester);
+        await session.settle();
 
         expect(session.files.delivered, isEmpty);
         expect(session.files.created.single.aborted, isTrue);
@@ -692,14 +814,18 @@ void main() {
         final closing = Completer<void>();
         final session = await startClosing(tester, closing);
 
-        await tester.tap(row('chat-data-cancel-export'));
+        await session.module.handleChange(
+          chatDataRowId('cancel-export'),
+          true,
+          _l10n,
+        );
         await tester.pump();
         closing.complete();
-        await _settle(tester);
+        await session.settle();
 
         expect(session.files.delivered, isEmpty);
         expect(session.files.created.single.aborted, isTrue);
-        expect(status(tester), 'Export stopped. Nothing was saved.');
+        expect(session.status, 'Export stopped. Nothing was saved.');
       });
 
       testWidgets('does not deliver it after the page was closed', (
@@ -708,9 +834,21 @@ void main() {
         final closing = Completer<void>();
         final session = await startClosing(tester, closing);
 
-        await tester.pumpWidget(const SizedBox.shrink());
+        session.module.pageLeft(chatDataControlsPageId);
         closing.complete();
-        await _settle(tester);
+        await session.settle();
+
+        expect(session.files.delivered, isEmpty);
+        expect(session.files.created.single.aborted, isTrue);
+      });
+
+      testWidgets('does not deliver it after Settings closed', (tester) async {
+        final closing = Completer<void>();
+        final session = await startClosing(tester, closing);
+
+        session.module.settingsClosed();
+        closing.complete();
+        await session.settle();
 
         expect(session.files.delivered, isEmpty);
         expect(session.files.created.single.aborted, isTrue);
@@ -718,73 +856,89 @@ void main() {
     });
 
     testWidgets('a cut-off export saves and shares nothing', (tester) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.wire
         ..library = [_line('a')]
         ..libraryCutOff = '{"id":"b","chat":{"hist';
 
-      await tapRow(tester, 'chat-data-export');
+      await session.tap('export');
 
       expect(session.files.delivered, isEmpty);
       expect(session.files.created.single.aborted, isTrue);
       expect(session.files.created.single.committed, isFalse);
-      expect(status(tester), startsWith('Nothing was saved.'));
+      expect(session.status, startsWith('Nothing was saved.'));
     });
 
     testWidgets('stopping an export in progress discards it', (tester) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.wire
         ..library = [_line('a'), _line('b')]
         ..libraryGate = Completer<void>();
 
-      await tester.tap(row('chat-data-export'));
-      await _settle(tester);
-      expect(find.text('Exporting… chats read: 1'), findsOneWidget);
-      // The progress and its Cancel sit in the row that started them.
-      expect(
-        find.descendant(
-          of: row('chat-data-export'),
-          matching: row('chat-data-progress'),
-        ),
-        findsOneWidget,
+      final running = session._running = session.module.handleChange(
+        chatDataRowId('export'),
+        true,
+        _l10n,
       );
-      await tester.tap(row('chat-data-cancel-export'));
-      await _settle(tester);
+      await session._settle(
+        () =>
+            session._done(running) ||
+            session.row('export')?.subtitle == 'Exporting… chats read: 1',
+      );
+      // The progress sits in the row that started it, with Cancel by it;
+      // every other row waits.
+      final export = session.row('export')!;
+      expect(export.subtitle, 'Exporting… chats read: 1');
+      expect(export.pending, isTrue);
+      expect(export.disabled, isFalse);
+      expect(session.row('cancel-export'), isNotNull);
+      expect(session.row('archive')!.disabled, isTrue);
 
-      expect(status(tester), 'Export stopped. Nothing was saved.');
+      await session.module.handleChange(
+        chatDataRowId('cancel-export'),
+        true,
+        _l10n,
+      );
+      await session._settle(() => session._done(running));
+
+      expect(session.status, 'Export stopped. Nothing was saved.');
       expect(session.files.delivered, isEmpty);
       expect(session.files.created.single.aborted, isTrue);
+      expect(session.row('cancel-export'), isNull);
     });
 
     testWidgets('a refused export request leaves no file behind and says why', (
       tester,
     ) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.wire.libraryStatus = 403;
 
-      await tapRow(tester, 'chat-data-export');
+      await session.tap('export');
 
-      expect(status(tester), 'This account is not allowed to do that.');
+      expect(session.status, 'This account is not allowed to do that.');
       expect(session.files.delivered, isEmpty);
       expect(session.files.created.single.aborted, isTrue);
     });
 
     testWidgets('an empty library is reported, not shared', (tester) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.wire.library = [];
 
-      await tapRow(tester, 'chat-data-export');
+      await session.tap('export');
 
-      expect(status(tester), 'The server has no chats to export.');
+      expect(session.status, 'The server has no chats to export.');
       expect(session.files.delivered, isEmpty);
     });
 
     testWidgets('Sync now sends what the device holds, then counts again', (
       tester,
     ) async {
-      await pumpPage(tester, seed: (db) => seedDeviceOnlyChat(db, 'local:one'));
+      final session = await open(
+        tester,
+        seed: (db) => seedDeviceOnlyChat(db, 'local:one'),
+      );
 
-      await tapRow(tester, 'chat-data-sync');
+      await session.tap('sync');
 
       expect(_Engine.drains, 1);
       expect(_Engine.pulls, contains('data-controls'));
@@ -818,7 +972,7 @@ void main() {
         'confirmed file once, and stores what the server created', (
       tester,
     ) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.files.nextPick = PickedChatFile(
         name: 'chats.json',
         read: () async => fileBytes,
@@ -847,15 +1001,19 @@ void main() {
         },
       ];
 
-      await tapRow(tester, 'chat-data-import');
+      await session.tap('import');
 
       // Chosen and validated, but nothing is sent until the user agrees.
-      expect(find.text('Import these chats?'), findsOneWidget);
-      expect(find.textContaining('Chats: 1. Messages: 1.'), findsOneWidget);
-      expect(find.textContaining('Ava on Test Server'), findsWidgets);
+      expect(session.surface.question.title, 'Import these chats?');
+      expect(
+        session.surface.question.message,
+        contains('Chats: 1. Messages: 1.'),
+      );
+      expect(session.surface.question.message, contains('Ava on Test Server'));
       expect(session.wire.requests, isEmpty);
+      expect(session.surface.confirmation.label, 'Import');
 
-      await confirm(tester, 'Import');
+      await session.confirm();
 
       final sent = session.wire.bodies.single;
       expect(jsonDecode(utf8.decode(sent)), {
@@ -882,55 +1040,60 @@ void main() {
           },
         ],
       });
-      expect(status(tester), 'Import finished. Chats imported: 1');
-      expect((await session.db.chatsDao.getChat('new-1'))?.bodySynced, isTrue);
+      expect(session.status, 'Import finished. Chats imported: 1');
+      final stored = await onDevice(
+        tester,
+        () => session.db.chatsDao.getChat('new-1'),
+      );
+      expect(stored?.bodySynced, isTrue);
     });
 
     testWidgets('declining the confirmation sends nothing', (tester) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.files.nextPick = PickedChatFile(
         name: 'chats.json',
         read: () async => fileBytes,
       );
 
-      await tapRow(tester, 'chat-data-import');
-      await tester.tap(find.widgetWithText(ConduitTextButton, 'Cancel').last);
-      await _settle(tester);
+      await session.tap('import');
+      await session.answer('cancel');
 
       expect(session.wire.requests, isEmpty);
+      expect(session.row('import')!.pending, isFalse);
     });
 
-    testWidgets('a refused file stays on screen with the reason and sends '
+    testWidgets('a refused file stays on the page with the reason and sends '
         'nothing', (tester) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.files.nextPick = PickedChatFile(
         name: 'notes.json',
         read: () async => Uint8List.fromList(utf8.encode('{"not":"chats"}')),
       );
 
-      await tapRow(tester, 'chat-data-import');
+      await session.tap('import');
 
-      expect(find.text('File: notes.json'), findsOneWidget);
+      expect(session.titles, contains('File: notes.json'));
       expect(
-        find.text('That file is not an Open WebUI chat export.'),
-        findsOneWidget,
+        session.titles,
+        contains('That file is not an Open WebUI chat export.'),
       );
       expect(session.wire.requests, isEmpty);
-      expect(find.text('Import these chats?'), findsNothing);
+      expect(session.surface.asked, isEmpty);
 
       session.files.nextPick = PickedChatFile(
         name: 'chats.json',
         read: () async => fileBytes,
       );
-      await tapRow(tester, 'chat-data-choose-another');
-      expect(find.text('Import these chats?'), findsOneWidget);
+      await session.tap('choose-another');
+      expect(session.surface.question.title, 'Import these chats?');
       expect(session.files.picks, 2);
+      await session.answer('cancel');
     });
 
     testWidgets('a file past the limit is refused without being read', (
       tester,
     ) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       var read = false;
       session.files.nextPick = PickedChatFile(
         name: 'huge.json',
@@ -941,13 +1104,13 @@ void main() {
         },
       );
 
-      await tapRow(tester, 'chat-data-import');
+      await session.tap('import');
 
       expect(
-        find.text('That file is too large to import in one step.'),
-        findsOneWidget,
+        session.titles,
+        contains('That file is too large to import in one step.'),
       );
-      expect(find.text('File: huge.json'), findsOneWidget);
+      expect(session.titles, contains('File: huge.json'));
       expect(read, isFalse);
       expect(session.wire.requests, isEmpty);
     });
@@ -955,7 +1118,7 @@ void main() {
     testWidgets('names the chat in the file the server would refuse', (
       tester,
     ) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.files.nextPick = PickedChatFile(
         name: 'chats.json',
         read: () async => Uint8List.fromList(
@@ -968,18 +1131,18 @@ void main() {
         ),
       );
 
-      await tapRow(tester, 'chat-data-import');
+      await session.tap('import');
 
       expect(
-        find.text('Chat number 2 in the file cannot be imported.'),
-        findsOneWidget,
+        session.titles,
+        contains('Chat number 2 in the file cannot be imported.'),
       );
     });
 
     testWidgets('no answer is reported as unknown and is not sent again', (
       tester,
     ) async {
-      final session = await pumpPage(tester);
+      final session = await open(tester);
       session.files.nextPick = PickedChatFile(
         name: 'chats.json',
         read: () async => fileBytes,
@@ -989,11 +1152,11 @@ void main() {
         type: DioExceptionType.receiveTimeout,
       );
 
-      await tapRow(tester, 'chat-data-import');
-      await confirm(tester, 'Import');
+      await session.tap('import');
+      await session.confirm();
 
       expect(
-        status(tester),
+        session.status,
         contains('not known whether the chats were imported'),
       );
       expect(session.wire.to('POST', '/api/v1/chats/import'), hasLength(1));
@@ -1003,7 +1166,7 @@ void main() {
   group('changing every chat', () {
     testWidgets('archive all asks first, then follows the server on this '
         'device', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) async {
           await seedServerChat(db, 's1');
@@ -1012,75 +1175,75 @@ void main() {
         },
       );
 
-      await tapRow(tester, 'chat-data-archive-all');
+      await session.tap('archive');
       expect(
-        find.text(
-          'Archive all your chats on the server? You can unarchive them later.',
-        ),
-        findsOneWidget,
+        session.surface.question.message,
+        'Archive all your chats on the server? You can unarchive them later.',
       );
-      // Nothing is running while the question is open.
-      expect(find.text('Waiting for sync to settle…'), findsNothing);
-      expect(row('chat-data-progress'), findsNothing);
+      // Nothing runs while the question is open.
+      expect(session.row('archive')!.pending, isFalse);
+      expect(session.row('archive')!.subtitle, isNull);
       expect(session.wire.requests, isEmpty);
-      await confirm(tester, 'Archive All');
+      expect(session.surface.confirmation.label, 'Archive All');
+      await session.confirm();
 
       expect(
         session.wire.to('POST', '/api/v1/chats/archive/all'),
         hasLength(1),
       );
-      expect(status(tester), 'All chats archived.');
-      expect((await session.db.chatsDao.getChat('s1'))!.archived, isTrue);
-      expect((await session.db.chatsDao.getChat('shared'))!.archived, isFalse);
-      expect(
-        (await session.db.chatsDao.getChat('local:one'))!.archived,
-        isFalse,
+      expect(session.status, 'All chats archived.');
+      final archived = await onDevice(
+        tester,
+        () async => [
+          for (final id in ['s1', 'shared', 'local:one'])
+            (await session.db.chatsDao.getChat(id))!.archived,
+        ],
       );
+      expect(archived, [true, false, false]);
     });
 
     testWidgets('a server that says no changes nothing', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) => seedServerChat(db, 's1'),
       );
       session.wire.bulkAnswer = false;
 
-      await tapRow(tester, 'chat-data-archive-all');
-      await confirm(tester, 'Archive All');
+      await session.tap('archive');
+      await session.confirm();
 
-      expect(status(tester), 'The server could not do that. Nothing changed.');
-      expect((await session.db.chatsDao.getChat('s1'))!.archived, isFalse);
+      expect(session.status, 'The server could not do that. Nothing changed.');
+      final s1 = await onDevice(
+        tester,
+        () => session.db.chatsDao.getChat('s1'),
+      );
+      expect(s1!.archived, isFalse);
     });
 
-    testWidgets('removing share links names its button and is not shown as '
+    testWidgets('removing share links names its answer and is not shown as '
         'destructive', (tester) async {
-      await pumpPage(tester, seed: (db) => seedServerChat(db, 's1'));
-
-      await tapRow(tester, 'chat-data-unshare-all');
-      final button = tester.widget<ConduitTextButton>(
-        find.widgetWithText(ConduitTextButton, 'Remove Links').last,
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
       );
-      expect(button.isDestructive, isFalse);
-      await confirm(tester, 'Remove Links');
 
-      // The result reads out as a live region under the group that ran it.
-      final status = row('chat-data-status');
-      expect(status, findsOneWidget);
-      expect(
-        find.ancestor(
-          of: status,
-          matching: find.byWidgetPredicate(
-            (w) => w is Semantics && (w.properties.liveRegion ?? false),
-          ),
-        ),
-        findsOneWidget,
-      );
+      await session.tap('unshare');
+      final answer = session.surface.confirmation;
+      expect(answer.label, 'Remove Links');
+      expect(answer.style, NativeSheetAlertStyle.normal);
+      await session.confirm();
+
+      // The result is read out, and shown under the group that ran it.
+      expect(session.status, isNotNull);
+      expect(session.page.announcement, session.status);
+      expect(session.section('unshare').footer, contains(session.status));
+      expect(session.section('export').footer, isNot(contains(session.status)));
     });
 
     testWidgets('delete all names the target and keeps device-only chats', (
       tester,
     ) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) async {
           await seedServerChat(db, 's1');
@@ -1089,24 +1252,35 @@ void main() {
         },
       );
 
-      await tapRow(tester, 'chat-data-delete-all');
+      await session.tap('delete');
 
       expect(
-        find.textContaining('Delete all chats of Ava on Test Server?'),
-        findsOneWidget,
+        session.surface.question.message,
+        contains('Delete all chats of Ava on Test Server?'),
       );
-      expect(find.textContaining('Not yet sent to the server'), findsNothing);
-      await confirm(tester, 'Delete All Chats');
+      expect(
+        session.surface.question.message,
+        isNot(contains('Not yet sent to the server')),
+      );
+      final answer = session.surface.confirmation;
+      expect(answer.label, 'Delete All Chats');
+      expect(answer.style, NativeSheetAlertStyle.destructive);
+      await session.confirm();
 
       expect(session.wire.to('DELETE', '/api/v1/chats/'), hasLength(1));
-      expect(await session.db.chatsDao.getChat('s1'), isNull);
-      expect(await session.db.chatsDao.getChat('shared'), isNotNull);
-      expect(await session.db.chatsDao.getChat('local:one'), isNotNull);
+      final left = await onDevice(
+        tester,
+        () async => [
+          for (final id in ['s1', 'shared', 'local:one'])
+            await session.db.chatsDao.getChat(id) != null,
+        ],
+      );
+      expect(left, [false, true, true]);
     });
 
     testWidgets('delete all says what unsent work it would discard and needs '
         'that choice', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) async {
           await seedServerChat(db, 's1');
@@ -1118,21 +1292,28 @@ void main() {
         },
       );
 
-      await tapRow(tester, 'chat-data-delete-all');
+      await session.tap('delete');
       expect(
-        find.textContaining(
-          'chats with changes: 1; chats with queued replies: 0',
-        ),
-        findsOneWidget,
+        session.surface.question.message,
+        contains('chats with changes: 1; chats with queued replies: 0'),
       );
-      await tester.tap(find.widgetWithText(ConduitTextButton, 'Cancel').last);
-      await _settle(tester);
+      await session.answer('cancel');
       expect(session.wire.requests, isEmpty);
-      expect(await session.db.chatsDao.getChat('s1'), isNotNull);
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNotNull,
+      );
 
-      await tapRow(tester, 'chat-data-delete-all');
-      await confirm(tester, 'Discard and Delete All Chats');
-      expect(await session.db.chatsDao.getChat('s1'), isNull);
+      await session.tap('delete');
+      expect(
+        session.surface.confirmation.label,
+        'Discard and Delete All Chats',
+      );
+      await session.confirm();
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNull,
+      );
       expect(session.wire.to('DELETE', '/api/v1/chats/'), hasLength(1));
     });
 
@@ -1140,35 +1321,42 @@ void main() {
         'after the user confirmed a delete that would discard none', (
       tester,
     ) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) => seedServerChat(db, 's1'),
       );
 
-      await tapRow(tester, 'chat-data-delete-all');
-      expect(find.textContaining('Not yet sent to the server'), findsNothing);
-      // An edit lands while the confirmation is open.
-      await tester.runAsync(
+      await session.tap('delete');
+      expect(
+        session.surface.question.message,
+        isNot(contains('Not yet sent to the server')),
+      );
+      // An edit lands while the question is open.
+      await onDevice(
+        tester,
         () => session.db.chatsDao.updateEnvelopeWithOutbox(
           's1',
           title: const Value('edited'),
           enqueue: true,
         ),
       );
-      await confirm(tester, 'Delete All Chats');
+      await session.confirm();
 
       expect(
-        status(tester),
+        session.status,
         'Unsent changes appeared on this device while this waited. '
         'Nothing was deleted. Review and try again.',
       );
       expect(session.wire.requests, isEmpty);
-      expect(await session.db.chatsDao.getChat('s1'), isNotNull);
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNotNull,
+      );
     });
 
     testWidgets('delete all is refused while a reply is running, even when '
         'the user would discard unsent work', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) async {
           await seedServerChat(db, 's1');
@@ -1188,22 +1376,27 @@ void main() {
         },
       );
 
-      await tapRow(tester, 'chat-data-delete-all');
+      await session.tap('delete');
 
+      expect(session.surface.asked, isEmpty);
       expect(
-        status(tester),
+        session.status,
         'A reply is still running. Stop it, then try again.',
       );
-      expect(find.text('Delete All Chats'), findsOneWidget);
+      expect(session.row('delete')!.title, 'Delete All Chats');
+      expect(session.row('delete')!.disabled, isFalse);
       expect(session.wire.requests, isEmpty);
-      expect(await session.db.chatsDao.getChat('s1'), isNotNull);
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNotNull,
+      );
     });
 
     testWidgets('delete all refuses a response the server is still running '
         'after its request was acknowledged, and deletes once it ended', (
       tester,
     ) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) => seedServerChat(db, 's1'),
       );
@@ -1214,54 +1407,54 @@ void main() {
         ..setActive('s1');
       expect(session.container.read(isChatStreamingProvider), isFalse);
 
-      await tapRow(tester, 'chat-data-delete-all');
-      await confirm(tester, 'Delete All Chats');
+      await session.tap('delete');
+      if (session.surface.asking) await session.confirm();
 
       expect(
-        status(tester),
+        session.status,
         'A reply is still running. Stop it, then try again.',
       );
       expect(session.wire.requests, isEmpty);
-      expect(await session.db.chatsDao.getChat('s1'), isNotNull);
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNotNull,
+      );
 
       active.setInactive('s1');
-      await tapRow(tester, 'chat-data-delete-all');
-      await confirm(tester, 'Delete All Chats');
+      await session.tap('delete');
+      await session.confirm();
 
       expect(session.wire.to('DELETE', '/api/v1/chats/'), hasLength(1));
-      expect(await session.db.chatsDao.getChat('s1'), isNull);
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNull,
+      );
     });
 
     testWidgets('delete all refuses a response that started while the user '
         'was confirming', (tester) async {
-      final session = await pumpPage(
+      final session = await open(
         tester,
         seed: (db) => seedServerChat(db, 's1'),
       );
 
-      await tapRow(tester, 'chat-data-delete-all');
-      expect(find.textContaining('Delete all chats of Ava'), findsOneWidget);
+      await session.tap('delete');
+      expect(
+        session.surface.question.message,
+        contains('Delete all chats of Ava'),
+      );
       session.container.read(activeChatIdsProvider.notifier).setActive('s1');
-      await confirm(tester, 'Delete All Chats');
+      await session.confirm();
 
       expect(
-        status(tester),
+        session.status,
         'A reply is still running. Stop it, then try again.',
       );
       expect(session.wire.requests, isEmpty);
-      expect(await session.db.chatsDao.getChat('s1'), isNotNull);
+      expect(
+        await onDevice(tester, () => session.db.chatsDao.getChat('s1')),
+        isNotNull,
+      );
     });
   });
-}
-
-/// Lets the work the page started settle: real event-loop turns, so the
-/// network and file streams under it make progress, with frames between them.
-/// Stops short of waiting for spinners that never stop.
-Future<void> _settle(WidgetTester tester) async {
-  for (var i = 0; i < 40; i++) {
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 5)),
-    );
-    await tester.pump(const Duration(milliseconds: 25));
-  }
 }

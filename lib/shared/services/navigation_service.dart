@@ -46,13 +46,6 @@ const NativeSheetNavigationRequest calendarNativeSheetNavigationRequest = (
   extra: NativeSheetNavigationOrigin(),
 );
 
-/// Data controls open the same way, from the native Settings sheet.
-const NativeSheetNavigationRequest
-chatDataControlsNativeSheetNavigationRequest = (
-  routeName: RouteNames.chatDataControls,
-  extra: NativeSheetNavigationOrigin(),
-);
-
 /// Service for handling navigation throughout the app.
 ///
 /// With GoRouter in place, this class mostly provides convenient wrappers

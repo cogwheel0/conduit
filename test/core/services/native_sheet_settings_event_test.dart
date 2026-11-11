@@ -12,7 +12,7 @@ import 'package:conduit/platform/quick_actions_service.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatDataControlsEntryVisibleProvider, chatWakelockCoordinatorProvider;
+    show chatWakelockCoordinatorProvider;
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
@@ -415,55 +415,6 @@ void main() {
 
         // The server or the account can change while the sheet is open; a
         // row that went stale must not navigate.
-        expect(opened, visible ? 1 : 0);
-        if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
-        // The sheet has already closed, so a stale row says why nothing
-        // opened instead of failing silently.
-        expect(
-          find.text(_unavailable),
-          visible ? findsNothing : findsOneWidget,
-        );
-      },
-    );
-  }
-
-  for (final visible in <bool>[true, false]) {
-    testWidgets(
-      visible
-          ? 'the native Data controls action opens the page from the sheet'
-          : 'the native Data controls action does nothing once hidden',
-      (tester) async {
-        Object? extra;
-        var opened = 0;
-        await pumpApp(
-          tester,
-          routes: [
-            GoRoute(
-              path: Routes.chatDataControls,
-              name: RouteNames.chatDataControls,
-              builder: (_, state) {
-                opened++;
-                extra = state.extra;
-                return const SizedBox.shrink();
-              },
-            ),
-          ],
-          overrides: [
-            chatDataControlsEntryVisibleProvider.overrideWithValue(visible),
-          ],
-        );
-
-        NativeSheetBridge.instance.onControlChanged(
-          PlatformNativeSheetControlChangedEvent(
-            id: NativeSheetRoutes.chatDataControls,
-            value: true,
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // Advanced or the account can change while the sheet is open; a row
-        // that went stale must not navigate. The sheet has already closed, so
-        // the page opens with no second transition over it.
         expect(opened, visible ? 1 : 0);
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing

@@ -21,6 +21,7 @@ import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../settings_controller.dart';
+import '../settings_page_module.dart';
 import '../settings_pages.dart';
 import 'settings_option_picker.dart';
 import 'settings_profile_editors.dart';
@@ -48,11 +49,12 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   /// when it closes, after `ref` can no longer be read.
   late final NativeSheetHydrationService _hydration;
   late final SettingsController _controller;
+  late final List<SettingsPageModule> _modules;
 
   @override
   void dispose() {
     _hydration.stopFollowing(widget.detailId);
-    _controller.pageClosed(widget.detailId);
+    _controller.pageClosed(widget.detailId, modules: _modules);
     super.dispose();
   }
 
@@ -63,6 +65,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     // this first frame is done.
     _hydration = ref.read(nativeSheetHydrationServiceProvider);
     _controller = ref.read(settingsControllerProvider);
+    _modules = ref.read(settingsPageModulesProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _appeared();
     });

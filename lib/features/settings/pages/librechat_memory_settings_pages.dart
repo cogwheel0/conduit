@@ -232,7 +232,7 @@ NativeSheetDetailConfig buildLibreChatMemoryPage(
 /// The LibreChat account's memories: the page listing them, each memory's
 /// page, and the page adding one. Every change goes to the account the list
 /// was opened for, and is read back from its server.
-class LibreChatMemorySettingsPages implements SettingsPageModule {
+class LibreChatMemorySettingsPages extends SettingsPageModule {
   LibreChatMemorySettingsPages(this._ref);
 
   final Ref _ref;

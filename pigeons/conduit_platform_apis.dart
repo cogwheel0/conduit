@@ -1261,6 +1261,9 @@ abstract class NativeSheetFlutterApi {
   void onLogoutRequested();
   void onControlChanged(PlatformNativeSheetControlChangedEvent event);
   void onDetailAppeared(PlatformNativeSheetDetailAppearedEvent event);
+
+  /// Page [event]'s detail is gone: popped, or its sheet closed.
+  void onDetailLeft(PlatformNativeSheetDetailAppearedEvent event);
   void onModelPinToggled(PlatformNativeSheetModelPinToggledEvent event);
   void onReasoningEffortChanged(
     PlatformNativeSheetReasoningEffortChangedEvent event,

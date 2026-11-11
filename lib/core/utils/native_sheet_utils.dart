@@ -425,8 +425,9 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         sfSymbol: 'server.rack',
       ),
     if (visibility.showChatDataControls)
-      _nativeRootPageItem(
-        NativeSheetRoutes.chatDataControls,
+      // A page of Settings's own: it opens inside Settings.
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.chatDataControls,
         title: l10n.chatDataControlsTitle,
         sfSymbol: 'externaldrive',
       ),

@@ -370,7 +370,7 @@ NativeSheetDetailConfig buildWebhookPage(
 /// The webhook destination pages: the list, each destination's page, and
 /// the page adding one. Changes wait on each page as a draft until Done,
 /// and every action goes to the account the list was opened for.
-class WebhookSettingsPages implements SettingsPageModule {
+class WebhookSettingsPages extends SettingsPageModule {
   WebhookSettingsPages(this._ref);
 
   final Ref _ref;

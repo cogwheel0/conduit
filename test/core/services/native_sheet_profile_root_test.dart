@@ -207,13 +207,13 @@ void main() {
       expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
     });
 
-    test('Advanced rows use their own symbols and close the sheet', () {
+    test('Advanced rows use their own symbols; those still Flutter pages '
+        'close the sheet', () {
       final sections = _root(visibility: _everything);
 
       final expected = {
         NativeSheetRoutes.scheduledTasks: 'clock.arrow.circlepath',
         NativeSheetRoutes.personalConnections: 'server.rack',
-        NativeSheetRoutes.chatDataControls: 'externaldrive',
       };
       for (final MapEntry(:key, :value) in expected.entries) {
         final item = _item(sections, key);
@@ -221,6 +221,11 @@ void main() {
         expect(item.dismissOnSelect, isTrue, reason: key);
         expect(item.actionId, key, reason: key);
       }
+      // Data Controls is a page of Settings's own, opened inside it.
+      final dataControls = _item(sections, NativeSheetRoutes.chatDataControls);
+      expect(dataControls.sfSymbol, 'externaldrive');
+      expect(dataControls.dismissOnSelect, isFalse);
+      expect(dataControls.actionId, isNull);
     });
 
     test('the Advanced and places groups go with their last row', () {

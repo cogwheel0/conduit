@@ -122,7 +122,8 @@ class NativeSheetRoutes {
   static const personalConnections = 'open-personal-connections';
   static const scheduledTasks = 'open-scheduled-tasks';
   static const calendar = 'open-calendar';
-  static const chatDataControls = 'open-chat-data-controls';
+  /// The Chat Data Controls page, Settings's own.
+  static const chatDataControls = 'chat-data-controls';
   static const helpAbout = 'help-about';
   static const about = 'about';
   static const notificationSettings = 'notification-settings';
@@ -793,6 +794,12 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   void onDetailAppeared(PlatformNativeSheetDetailAppearedEvent event) {
     if (event.detailId.isEmpty) return;
     _events.add(NativeSheetDetailAppeared(detailId: event.detailId));
+  }
+
+  @override
+  void onDetailLeft(PlatformNativeSheetDetailAppearedEvent event) {
+    if (event.detailId.isEmpty) return;
+    _events.add(NativeSheetDetailLeft(detailId: event.detailId));
   }
 
   @override
@@ -1541,6 +1548,14 @@ final class NativeSheetControlChanged extends NativeSheetEvent {
 /// A native detail screen became visible (push). Used to lazy-load heavy payloads.
 final class NativeSheetDetailAppeared extends NativeSheetEvent {
   const NativeSheetDetailAppeared({required this.detailId});
+
+  final String detailId;
+}
+
+/// A page is gone: popped, or its sheet closed. A page covered by one it
+/// opened has not left.
+final class NativeSheetDetailLeft extends NativeSheetEvent {
+  const NativeSheetDetailLeft({required this.detailId});
 
   final String detailId;
 }

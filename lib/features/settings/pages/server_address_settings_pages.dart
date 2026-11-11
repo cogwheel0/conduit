@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
-import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show addressChangeReplyGuardProvider, addressChangeStopRepliesProvider;
@@ -506,7 +505,7 @@ final class _Editor {
 ///
 /// A proxy that wants its own sign-in hands the edit to the connection page,
 /// which signs in through it in a page of its own.
-class ServerAddressSettingsPages implements SettingsPageModule {
+class ServerAddressSettingsPages extends SettingsPageModule {
   ServerAddressSettingsPages(this._ref);
 
   final Ref _ref;
