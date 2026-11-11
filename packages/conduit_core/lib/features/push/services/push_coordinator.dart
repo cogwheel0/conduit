@@ -365,12 +365,19 @@ class PushCoordinator extends _$PushCoordinator {
     // Chose UnifiedPush but it can't be set up yet (no distributor): a
     // setup that can't start leaves the old subscription, so the FCM ones
     // are removed here. The user chose to stop going through Google.
-    if (transport == PushAndroidTransport.unifiedPush) {
+    // Read from the state, not [transport]: the user may have picked
+    // another one while the pass above ran.
+    bool stillUnifiedPush() =>
+        ref.mounted &&
+        state.enabled &&
+        state.androidTransport == PushAndroidTransport.unifiedPush;
+    if (stillUnifiedPush()) {
       final stale = [
         for (final MapEntry(:key, :value) in _records.entries)
           if (value.transport == PushTransport.fcm) key,
       ];
       for (final scope in stale) {
+        if (!stillUnifiedPush()) break;
         await _release(
           scope,
           target: _target(scope),
@@ -381,7 +388,8 @@ class PushCoordinator extends _$PushCoordinator {
         await _reconcileAll(full: false, everyTarget: true);
       }
     }
-    if (!ref.mounted) return;
+    // A newer choice decides about Firebase itself.
+    if (!ref.mounted || state.androidTransport != transport) return;
     // Moved off FCM: Firebase stops starting at launch.
     if (state.effectiveTransport != PushTransport.fcm &&
         !_records.values.any((r) => r.transport == PushTransport.fcm)) {
