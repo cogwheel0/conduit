@@ -30,7 +30,8 @@ class Chats extends Table {
 
   // ---- Phase 1 amendments A1/A2/A3/A5 ----
   /// A1: unread-dot state; server `last_read_at` arrives only on LIST items;
-  /// merge rule is `max(local, server)`, never lowered.
+  /// merge rule is `max(local, server)`, lowered only by Open WebUI's explicit
+  /// unread (0). See `ChatsDao.mergeServerLastReadAt`.
   IntColumn get lastReadAt => integer().nullable()();
 
   /// A2: `ChatResponse` envelope fields.

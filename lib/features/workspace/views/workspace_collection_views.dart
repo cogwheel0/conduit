@@ -195,7 +195,10 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
               child: collection.items.isEmpty
                   ? _emptyState(context, section, canCreate: canCreate)
                   : RefreshIndicator(
-                      onRefresh: binding.onRefresh,
+                      onRefresh: () {
+                        ConduitHaptics.lightImpact();
+                        return binding.onRefresh();
+                      },
                       child: ListView.builder(
                         key: Key('workspace-list-${section.name}'),
                         padding: EdgeInsets.only(
@@ -373,27 +376,12 @@ class _WorkspaceIosCollectionShellState
         permitted: widget.permitted,
         canCreate: canCreate,
       ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Material(
-              color: Colors.transparent,
-              child: CustomScrollView(
-                controller: _scrollController,
-                slivers: slivers,
-              ),
-            ),
-          ),
-          if (PlatformInfo.isIOS)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: ConduitChromeGradientFade.top(
-                contentHeight: nativeTopInset,
-              ),
-            ),
-        ],
+      body: Material(
+        color: Colors.transparent,
+        child: CustomScrollView(
+          controller: _scrollController,
+          slivers: slivers,
+        ),
       ),
     );
   }

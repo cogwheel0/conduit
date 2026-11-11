@@ -1,13 +1,19 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show kDirectTransport;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -2657,6 +2663,298 @@ void main() {
     check(input.listening).isTrue();
     await controller.stop();
   });
+
+  group('realtime voice', () {
+    late _FakeVoiceInputService input;
+    late _RealtimeBridge bridge;
+    late _RealtimeAudio audio;
+
+    setUp(() {
+      input = _FakeVoiceInputService();
+      bridge = _RealtimeBridge();
+      audio = _RealtimeAudio();
+    });
+
+    ProviderContainer realtimeContainer({
+      bool offersRealtime = true,
+      VoiceCallKitPort? callKit,
+      Future<void>? routeFound,
+      void Function()? onRouteAsked,
+    }) {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(_FakeTextToSpeechService()),
+          voiceCallKitProvider.overrideWithValue(
+            callKit ?? _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+          realtimePcmAudioFactoryProvider.overrideWithValue(() => audio),
+          realtimeCallRouteResolverProvider.overrideWithValue((
+            _, {
+            newChat = false,
+          }) async {
+            onRouteAsked?.call();
+            await routeFound;
+            return offersRealtime
+                ? (bridge: bridge, hermes: null, block: null)
+                : (
+                    bridge: null,
+                    hermes: null,
+                    block: RealtimeCallBlock.standardChosen,
+                  );
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('a call with a realtime voice talks through it, not turn by turn',
+        () async {
+      final container = realtimeContainer();
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      final result = await controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
+
+      check(result).equals(ChatVoiceModeStartResult.started);
+      check(input.beginCalls).equals(0);
+      check(audio.started).isTrue();
+      check(container.read(chatVoiceModeControllerProvider).phase)
+          .equals(ChatVoiceModePhase.listening);
+
+      bridge.inbox.add({
+        'type': 'conversation.item.input_audio_transcription.completed',
+        'item_id': 'item-1',
+        'transcript': 'Hello',
+      });
+      await pumpEventQueue();
+      check(container.read(chatVoiceModeControllerProvider).transcript)
+          .equals('Hello');
+
+      await controller.toggleMute();
+      check(container.read(chatVoiceModeControllerProvider).isMuted).isTrue();
+      check(audio.captureEnabled).equals(false);
+
+      await controller.stop();
+      check(bridge.wasClosed).isTrue();
+      check(audio.stopped).isTrue();
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isFalse();
+    });
+
+    test('a realtime call follows its own chat and ends when another opens',
+        () {
+      // The first turn of a call started without a chat creates one.
+      check(realtimeCallChatAfter(null, 'local:new', createdByCall: true))
+          .equals((ends: false, chatId: 'local:new'));
+      // A new chat gets its server id in place.
+      check(realtimeCallChatAfter('local:new', 'chat-1', remapped: true))
+          .equals((ends: false, chatId: 'chat-1'));
+      check(realtimeCallChatAfter('chat-1', 'chat-1'))
+          .equals((ends: false, chatId: 'chat-1'));
+      check(realtimeCallChatAfter('chat-1', 'chat-2').ends).isTrue();
+      check(realtimeCallChatAfter('chat-1', null).ends).isTrue();
+      check(realtimeCallChatAfter('direct-local:a', 'direct-local:b').ends)
+          .isTrue();
+      // A chat the user opens is not the call's, even before it has one.
+      check(realtimeCallChatAfter(null, 'chat-2').ends).isTrue();
+      check(realtimeCallChatAfter('local:new', 'chat-2').ends).isTrue();
+    });
+
+    test('opening another chat ends a realtime call', () async {
+      // Direct chats, which this container keeps open.
+      Conversation chat(String id) => Conversation(
+        id: id,
+        title: 'Chat',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        metadata: const {'backend': kDirectTransport},
+      );
+      final container = realtimeContainer();
+      final active = container.read(activeConversationProvider.notifier)
+        ..set(chat('direct-local:a'));
+      await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isTrue();
+
+      active.set(chat('direct-local:b'));
+      await _until(
+        () => !container.read(chatVoiceModeControllerProvider).isActive,
+      );
+      check(bridge.wasClosed).isTrue();
+    });
+
+    test('hanging up while it connects ends the call at once', () async {
+      bridge.opening = Completer<void>();
+      final container = realtimeContainer();
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      final starting = controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
+      await _until(() => audio.started);
+      final stopping = controller.stop();
+      await pumpEventQueue();
+
+      // Ended before the start queued ahead of the stop finished.
+      check(bridge.wasClosed).isTrue();
+      check(audio.stopped).isTrue();
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      await stopping;
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isFalse();
+    });
+
+    test('ending it from the system call UI while it connects ends it at once',
+        () async {
+      bridge.opening = Completer<void>();
+      final callKit = _AvailableCallKitService();
+      addTearDown(callKit.dispose);
+      final container = realtimeContainer(callKit: callKit);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      final starting = controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
+      await _until(() => audio.started);
+      callKit.emit(const VoiceCallKitEnded('call-1'));
+      await pumpEventQueue();
+
+      check(bridge.wasClosed).isTrue();
+      check(audio.stopped).isTrue();
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      await _until(
+        () => !container.read(chatVoiceModeControllerProvider).isActive,
+      );
+      // The system ended the call; it is not ended again.
+      check(callKit.endedCallIds).isEmpty();
+    });
+
+    test('unmuting a paused call brings its answers back', () async {
+      final container = realtimeContainer();
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false, admittedModel: _model);
+      await controller.pause();
+      await controller.toggleMute();
+
+      bridge.inbox.add({
+        'type': 'conversation.item.input_audio_transcription.completed',
+        'item_id': 'item-1',
+        'transcript': 'Hello',
+      });
+      await pumpEventQueue();
+
+      check(bridge.sent).any(
+        (it) => it.deepEquals({'type': 'bridge.respond', 'item_id': 'item-1'}),
+      );
+      await controller.stop();
+    });
+
+    test('a chat opened right after the call is asked for cancels it',
+        () async {
+      Conversation chat(String id) => Conversation(
+        id: id,
+        title: 'Chat',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        metadata: const {'backend': kDirectTransport},
+      );
+      final container = realtimeContainer();
+      final active = container.read(activeConversationProvider.notifier)
+        ..set(chat('direct-local:a'));
+
+      final starting = container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+      active.set(chat('direct-local:b'));
+
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      check(bridge.opened).isFalse();
+    });
+
+    test('a chat opened while the call sets up cancels it', () async {
+      // Direct chats, which this container keeps open.
+      Conversation chat(String id) => Conversation(
+        id: id,
+        title: 'Chat',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        metadata: const {'backend': kDirectTransport},
+      );
+      final routeFound = Completer<void>();
+      var routeAsked = false;
+      final container = realtimeContainer(
+        routeFound: routeFound.future,
+        onRouteAsked: () => routeAsked = true,
+      );
+      final active = container.read(activeConversationProvider.notifier)
+        ..set(chat('direct-local:a'));
+
+      final starting = container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+      await _until(() => routeAsked);
+      active.set(chat('direct-local:b'));
+      routeFound.complete();
+
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      check(bridge.opened).isFalse();
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isFalse();
+    });
+
+    test('a realtime voice that cannot start says why', () async {
+      bridge.refusal = 'Call permission denied';
+      final container = realtimeContainer();
+
+      final result = await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+
+      check(result).equals(ChatVoiceModeStartResult.failed);
+      final snapshot = container.read(chatVoiceModeControllerProvider);
+      check(snapshot.errorKind).equals(ChatVoiceModeError.message);
+      check(snapshot.errorMessage).equals('Call permission denied');
+    });
+
+    test('without a realtime voice the call is turn by turn', () async {
+      final container = realtimeContainer(offersRealtime: false);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
+
+      check(input.beginCalls).isGreaterThan(0);
+      check(audio.started).isFalse();
+      await controller.stop();
+    });
+  });
 }
 
 const _usableHermesConfig = HermesConfig(
@@ -2988,7 +3286,7 @@ class _FakeTextToSpeechService implements VoiceModeSpeech {
   Future<bool> initialize({
     String? deviceVoice,
     String? serverVoice,
-    double speechRate = 0.5,
+    double speed = 1.0,
     double pitch = 1.0,
     double volume = 1.0,
     TtsEngine engine = TtsEngine.device,
@@ -3328,4 +3626,93 @@ Future<void> _until(bool Function() condition) async {
     await Future<void>.delayed(const Duration(milliseconds: 20));
   }
   throw StateError('Condition was not met.');
+}
+
+final class _RealtimeBridge implements RealtimeBridgeTransport {
+  final inbox = StreamController<Map<String, Object?>>();
+  final _closed = Completer<String?>();
+  String? refusal;
+  var opened = false;
+  final sent = <Map<String, Object?>>[];
+
+  /// Holds the connection open until it completes, or the call closes it.
+  Completer<void>? opening;
+
+  bool get wasClosed => _closed.isCompleted;
+
+  @override
+  Future<RealtimeBridgeReady> open() async {
+    opened = true;
+    final refusal = this.refusal;
+    if (refusal != null) {
+      if (!_closed.isCompleted) _closed.complete(refusal);
+      throw RealtimeBridgeException(refusal);
+    }
+    final opening = this.opening;
+    if (opening != null) {
+      await Future.any([opening.future, _closed.future]);
+      if (_closed.isCompleted) {
+        throw const RealtimeBridgeException('The call ended.');
+      }
+    }
+    return (model: 'gpt-realtime', voice: 'marin');
+  }
+
+  @override
+  Stream<Map<String, Object?>> get events => inbox.stream;
+
+  @override
+  void send(Map<String, Object?> command) => sent.add(command);
+
+  @override
+  Future<String?> get closed => _closed.future;
+
+  @override
+  Future<void> close() async {
+    if (!_closed.isCompleted) _closed.complete(null);
+  }
+}
+
+final class _RealtimeAudio implements RealtimePcmAudioPort {
+  var started = false;
+  var stopped = false;
+  bool? captureEnabled;
+
+  @override
+  Future<void> start() async => started = true;
+
+  @override
+  Stream<Uint8List> get captureFrames => const Stream.empty();
+
+  @override
+  Stream<RealtimePlaybackReport> get reports => const Stream.empty();
+
+  @override
+  Stream<String> get failures => const Stream.empty();
+
+  @override
+  void setCaptureEnabled(bool enabled) => captureEnabled = enabled;
+
+  @override
+  void enqueue({
+    required String responseId,
+    required String itemId,
+    required int contentIndex,
+    required Uint8List pcm,
+  }) {}
+
+  @override
+  void endResponse(String responseId) {}
+
+  @override
+  void setPlaybackPaused(bool paused) {}
+
+  @override
+  Future<List<RealtimeRenderedItem>> clear(int clearId) async => const [];
+
+  @override
+  Duration get outputLatency => Duration.zero;
+
+  @override
+  Future<void> stop() async => stopped = true;
 }

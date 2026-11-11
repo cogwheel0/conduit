@@ -57,8 +57,9 @@ class CodeEntryField extends StatelessWidget {
     if (PlatformInfo.isIOS) {
       input = CupertinoTextField(
         controller: controller,
-        placeholder: hint,
+        placeholder: maybePlaceholderClearOfCaret(hint),
         placeholderStyle: hintStyle,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: style,
         minLines: minLines,
         maxLines: maxLines,
@@ -82,6 +83,7 @@ class CodeEntryField extends StatelessWidget {
     } else {
       input = TextField(
         controller: controller,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: style,
         minLines: minLines,
         maxLines: maxLines,
@@ -99,7 +101,9 @@ class CodeEntryField extends StatelessWidget {
               enabledBorder: error == null
                   ? null
                   : OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppBorderRadius.input),
+                      borderRadius: BorderRadius.circular(
+                        AppBorderRadius.input,
+                      ),
                       borderSide: BorderSide(color: theme.error),
                     ),
             ),

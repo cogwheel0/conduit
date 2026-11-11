@@ -139,7 +139,7 @@ class AsyncErrorBoundary extends ConsumerWidget {
         // Loading state
         if (snapshot.connectionState == ConnectionState.waiting) {
           return loadingWidget ??
-              const Center(child: CircularProgressIndicator());
+              const Center(child: AdaptiveProgressIndicator());
         }
 
         // Error state
@@ -271,7 +271,7 @@ class StreamErrorBoundary<T> extends ConsumerWidget {
         // Loading state
         if (!snapshot.hasData) {
           return loadingWidget ??
-              const Center(child: CircularProgressIndicator());
+              const Center(child: AdaptiveProgressIndicator());
         }
 
         // Success state

@@ -23,6 +23,8 @@ import 'platform/android_ime_inset_resync.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
+import 'platform/realtime_pcm_audio.dart';
+import 'platform/webrtc_realtime_media.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
@@ -71,6 +73,12 @@ import 'platform/carplay_service.dart';
 import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatRegistryProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -82,16 +90,24 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
+import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeLibreChatPersonalizationActionId,
+        nativeNoVoiceProviderId,
+        nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
         nativeAccountSignOutActionId,
         nativeAccountSwitchActionId,
         nativeDirectEditActionId,
         nativeHermesUseActionId,
+        nativeLibreChatSignOutActionId,
+        nativeLibreChatUseActionId,
         nativeAdvancedFeaturesId,
+        nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
+        nativeCitationBackgroundId,
         nativeMemoryEditorActionPrefix,
         nativeMemoryEditorNewActionId,
         nativeNotificationTargetsActionId;
@@ -158,9 +174,16 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+import 'features/hermes/widgets/hermes_model_switch_prompt.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
+
+import 'features/chat/services/chat_handoff_host.dart';
+
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
+
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
 import 'features/profile/widgets/account_sheet.dart'
@@ -215,6 +238,12 @@ Future<void> _configureUserAgent() async {
 
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      const ['noVNC', 'pako'],
+      await rootBundle.loadString('assets/computer/novnc-LICENSE.txt'),
+    );
+  });
+  LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
     yield LicenseEntryWithLineBreaks(const [
       'Open WebUI icon',
@@ -223,6 +252,13 @@ void _registerBundledLicenses() {
     ], notice);
   });
 }
+
+/// Whether this device runs realtime voice calls' audio: the native engine
+/// and WebRTC exist on iOS and Android.
+bool get _hasRealtimeAudio =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android);
 
 void main() {
   // Diagnostics have no destination until a host gives them one.
@@ -459,6 +495,9 @@ void main() {
                       accessHeaders: accessHeaders,
                     ),
           ),
+          hostHermesDashboardSignOutProvider.overrideWithValue(
+            HermesDashboardRestBridge.signOutOf,
+          ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           uiRequestPortProvider.overrideWithValue(const FlutterUiRequests()),
           hermesConnectionSwitchPromptProvider.overrideWith(
@@ -467,6 +506,24 @@ void main() {
                   ref.read(uiRequestPortProvider),
                   name,
                 ),
+          ),
+          hermesModelSwitchPromptProvider.overrideWith(
+            (ref) =>
+                (held) => confirmHermesModelSwitch(
+                  ref.read(uiRequestPortProvider),
+                  held,
+                ),
+          ),
+          chatHandoffPromptProvider.overrideWith(
+            (ref) =>
+                (modelName) => confirmChatHandoff(
+                  ref.read(uiRequestPortProvider),
+                  modelName,
+                ),
+          ),
+          chatHandoffOpenerProvider.overrideWith(
+            (ref) =>
+                (model, prompt) => openChatHandoffInApp(ref, model, prompt),
           ),
           routeNavigatorProvider.overrideWithValue(const GoRouterNavigator()),
           openExternalUrlProvider.overrideWithValue(
@@ -504,6 +561,14 @@ void main() {
           ),
           voiceModePlatformProvider.overrideWithValue(
             const FlutterVoiceModePlatform(),
+          ),
+          // A realtime voice needs the native echo-cancelled audio engine.
+          realtimePcmAudioFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? MethodChannelRealtimePcmAudio() : null,
+          ),
+          // Hermes's GPT-Live calls run over WebRTC.
+          realtimeWebRtcMediaFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? WebRtcRealtimeMedia() : null,
           ),
         ],
       );
@@ -595,7 +660,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   /// The native Settings rows for accounts and connections. Returns whether
   /// [actionId] was one of them.
-  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+  Future<bool> _handleNativeAccountAction(
+    String actionId,
+    Object? value,
+  ) async {
     final context = NavigationService.context;
     switch (actionId) {
       case nativeAccountSwitchActionId:
@@ -624,6 +692,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;
         await useHermesConnection(context, ref, value);
+        return true;
+      case nativeLibreChatUseActionId:
+        if (context == null || value is! String) return true;
+        await switchToLibreChatAccount(context, ref, value);
+        return true;
+      case nativeLibreChatSignOutActionId:
+        if (context == null || value is! String) return true;
+        final registry = await ref.read(libreChatRegistryProvider.future);
+        final account = registry.byId(value);
+        if (account == null || !context.mounted) return true;
+        await signOutOfLibreChatAccount(context, account);
         return true;
       case nativeDirectEditActionId:
         if (context == null || value is! String) return true;
@@ -790,6 +869,25 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == nativeLibreChatPersonalizationActionId) {
+        // As for Scheduled tasks: a row from a sheet built while LibreChat
+        // was in charge must not navigate once it no longer is.
+        if (ref.read(primaryAccountKindProvider) !=
+            PrimaryAccountKind.libreChat) {
+          _showNativeOptionUnavailable();
+          return;
+        }
+        // As the other rows' pages: the sheet slides away, not the page in.
+        final request = libreChatPersonalizationNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
       if (event.id == NativeSheetRoutes.calendar) {
         // As for Scheduled tasks: the sheet was built before this arrived, so
         // a row that went stale (the account or its permission changed) must
@@ -887,6 +985,64 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'message-actions-reorder' && value is List) {
+        final selected = ref.read(appSettingsProvider).inlineMessageActions;
+        if (selected == null) return;
+        final ordered = value
+            .whereType<String>()
+            .map((id) => id.replaceFirst('message-action:', ''))
+            .toList();
+        if (value.length != selected.length ||
+            ordered.length != selected.length ||
+            ordered.toSet().length != selected.length ||
+            !ordered.every(selected.contains)) {
+          return;
+        }
+        // UIKit has already moved its row. Reloading the detail during its
+        // move animation would disturb the displayed cells.
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(ordered);
+        return;
+      }
+      if (event.id == 'message-actions-automatic' && value is bool) {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(
+              value ? null : defaultInlineMessageActions,
+            );
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+      if (event.id == 'message-actions-reset') {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(null);
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+      if (event.id.startsWith('message-action:') && value is bool) {
+        final id = event.id.substring('message-action:'.length);
+        final context = NavigationService.context;
+        if (context == null ||
+            !context.mounted ||
+            !messageActionSettings(AppLocalizations.of(context)!)
+                .any((action) => action.id == id)) {
+          return;
+        }
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setMessageActionVisible(id, value);
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+
       if (event.id.startsWith('quick-pill:')) {
         final pillId = event.id.substring('quick-pill:'.length);
         if (value is! bool) return;
@@ -977,14 +1133,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setVoiceSilenceDuration(ms);
           }
-        case 'tts-speech-rate':
-          final rate = switch (value) {
-            final double d => d,
-            final int i => i.toDouble(),
-            _ => double.tryParse('$value'),
-          };
-          if (rate != null) {
-            await ref.read(appSettingsProvider.notifier).setTtsSpeechRate(rate);
+        case 'tts-speed':
+          final speed = double.tryParse('$value');
+          if (speed != null) {
+            await ref.read(appSettingsProvider.notifier).setTtsSpeed(speed);
           }
         case 'tts-preview':
           final text = value is String ? value : null;
@@ -1060,6 +1212,29 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
           }
+        case 'voice-call-mode':
+          final mode = VoiceCallMode.values
+              .where((mode) => mode.name == value)
+              .firstOrNull;
+          if (mode != null) {
+            await ref.read(appSettingsProvider.notifier).setVoiceCallMode(mode);
+            await _refreshNativeVoiceDetail();
+          }
+        case 'voice-provider-connection':
+          if (value is String) {
+            await _chooseNativeVoiceProvider(value);
+            await _refreshNativeVoiceDetail(NativeSheetRoutes.voiceProvider);
+          }
+        case final id when nativeVoiceProviderFieldIds.containsKey(id):
+          final current = ref.read(appSettingsProvider).directVoiceProvider;
+          if (value is String && current != null) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setDirectVoiceProvider(
+                  current.withField(nativeVoiceProviderFieldIds[id]!, value),
+                );
+            await _refreshNativeVoiceDetail(NativeSheetRoutes.voiceProvider);
+          }
         case 'theme-light':
           switch (value) {
             case 'system':
@@ -1071,6 +1246,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             case 'dark':
               ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.dark);
           }
+          await _refreshNativeAppearanceDetail();
         case 'language':
           if (value == 'system') {
             await ref.read(appLocaleProvider.notifier).setLocale(null);
@@ -1083,9 +1259,22 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         case 'theme-palette':
           if (value is String && value.isNotEmpty) {
             await ref.read(appThemePaletteProvider.notifier).setPalette(value);
+            await _refreshNativeAppearanceDetail();
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
+        case 'computer-enabled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setComputerEnabled(value);
+          }
+        case 'composer-notes-button':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setShowComposerNotesButton(value);
+          }
         case 'send-on-enter':
           if (value is bool) {
             await ref.read(appSettingsProvider.notifier).setSendOnEnter(value);
@@ -1095,6 +1284,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setTemporaryChatByDefault(value);
+          }
+        case nativeSlidingSidebarId:
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setSlidingSidebarEnabled(value);
           }
         case nativeAdvancedFeaturesId:
           if (value is bool) {
@@ -1113,6 +1308,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setCitationShowTitles(value);
           }
+        case nativeCitationBackgroundId:
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setCitationBackground(value);
+          }
         case 'disable-haptics-streaming':
           if (value is bool) {
             await ref
@@ -1125,6 +1326,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationsEnabled(value);
             _syncNotificationPrefsToServer(enabled: value);
+            // The options under the switch come and go with it.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
             if (value) {
               // Best-effort OS permission on opt-in; OS governs delivery.
               await ref
@@ -1150,6 +1357,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationSound(value);
             _syncNotificationPrefsToServer(sound: value);
+            // Always play sound can be changed only while Sound is on.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
           }
         case 'notification-sound-always':
           if (value is bool) {
@@ -1208,10 +1421,46 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
-  Future<void> _refreshNativeVoiceDetail() {
+  /// Makes the connection with [profileId] the Voice provider, or clears it.
+  Future<void> _chooseNativeVoiceProvider(String profileId) async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (profileId == nativeNoVoiceProviderId) {
+      await notifier.setDirectVoiceProvider(null);
+      return;
+    }
+    // Connections still loading are not gone: the choice waits for them.
+    final profiles = ref.read(directConnectionProfilesProvider).value;
+    if (profiles == null) return;
+    final profile = profiles
+        .where(canBeVoiceProvider)
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    await notifier.setDirectVoiceProvider(
+      profile == null
+          ? null
+          : DirectVoiceProviderSettings.forConnection(
+              profile,
+              current: ref.read(appSettingsProvider).directVoiceProvider,
+            ),
+    );
+  }
+
+  /// Redraws Appearance after its scheme or palette changed, so its rows show
+  /// the choice -- the palette's name and swatch, the scheme tiles painted in
+  /// the new palette -- rather than the rows the sheet was opened with.
+  Future<void> _refreshNativeAppearanceDetail() {
     return ref
         .read(nativeSheetHydrationServiceProvider)
-        .hydrateDetail(NativeSheetRoutes.voice);
+        .hydrateDetail(NativeSheetRoutes.appearance);
+  }
+
+  /// Redraws the Voice pages from [detailId], the one the change came from.
+  Future<void> _refreshNativeVoiceDetail([
+    String detailId = NativeSheetRoutes.voice,
+  ]) {
+    return ref
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(detailId);
   }
 
   Future<void> _saveNativePasswordDraft(String id, Object? value) async {

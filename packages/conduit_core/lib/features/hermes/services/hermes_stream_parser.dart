@@ -10,6 +10,19 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
+/// Shown with the answer when Hermes ran out of steps and wrapped up early.
+const String kHermesBudgetExhaustedNotice =
+    'Hermes reached its step limit, so it wrapped up early.';
+
+/// Shown with the answer when a Responses turn ended `incomplete`.
+const String kHermesIncompleteNotice =
+    'Hermes stopped before finishing, so this answer may be incomplete.';
+
+/// Shown when a Hermes restart interrupted a run (`run.interrupted`, or a run
+/// whose outcome Conduit had to acknowledge as unknown).
+const String kHermesRunInterruptedMessage =
+    'Hermes restarted, so this run was interrupted.';
+
 // Keep the lexical decoder ceiling above the typed-output traversal ceiling so
 // a moderately over-nested terminal output can still become a useful typed
 // error. It remains finite before `jsonDecode` constructs any containers.
@@ -19,8 +32,18 @@ const int _maxHermesStreamJsonDepth = 256;
 ///
 /// Reuses the shared [SseFrameScanner] for byte-level framing (split frames,
 /// CRLF, multibyte UTF-8) and layers Hermes-specific decoding on top.
-Stream<HermesRunEvent> parseHermesRunStream(Stream<List<int>> chunks) =>
-    _parseHermesStream(chunks, parseHermesRunFrame);
+///
+/// Hermes v0.21.7+ numbers every run event with `seq`; [onSequence] receives
+/// each one so a dropped stream can resume with `Last-Event-ID`.
+Stream<HermesRunEvent> parseHermesRunStream(
+  Stream<List<int>> chunks, {
+  void Function(int seq)? onSequence,
+}) => _parseHermesStream(
+  chunks,
+  onSequence == null
+      ? parseHermesRunFrame
+      : (frame) => parseHermesRunFrame(frame, onSequence: onSequence),
+);
 
 /// Parses the OpenAI-compatible `/v1/responses` stream with `openai_dart`.
 ///
@@ -104,7 +127,9 @@ Iterable<HermesRunEvent> parseHermesResponseFrame(SseFrame frame) sync* {
 
   if (type == 'error' || type.startsWith('response.')) {
     try {
-      final event = OpenAiResponsesCodec.decodeStreamEvent(payload);
+      final event = OpenAiResponsesCodec.decodeStreamEvent(
+        withoutHermesCommentary(payload),
+      );
       yield* _mapOpenAiResponseEvent(event);
       return;
     } catch (_) {
@@ -170,13 +195,13 @@ Iterable<HermesRunEvent> _mapOpenAiResponseEvent(
       yield const HermesRunDone();
 
     case openai.ResponseIncompleteEvent(:final response):
+      // Hermes reports a turn that stopped short (for example on its step
+      // budget) as incomplete; its text is still a usable answer.
       yield HermesResponseCreated(response.id);
-      yield HermesRunError(
-        OpenAiResponsesCodec.statusError(
-              response,
-              subject: 'Hermes response',
-            ) ??
-            'The Hermes response was incomplete.',
+      final text = OpenAiResponsesCodec.content(response).text;
+      if (text.isNotEmpty) yield HermesFinalOutput(text);
+      yield HermesRunNotice(
+        _incompleteNotice(response.incompleteDetails?.reason),
       );
       yield const HermesRunDone();
 
@@ -198,10 +223,10 @@ Iterable<HermesRunEvent> _mapOpenAiResponseEvent(
 
 Iterable<HermesRunEvent> _mapTerminalResponse(openai.Response response) sync* {
   yield HermesResponseCreated(response.id);
-  final statusError = OpenAiResponsesCodec.statusError(
-    response,
-    subject: 'Hermes response',
-  );
+  final incomplete = response.status == openai.ResponseStatus.incomplete;
+  final statusError = incomplete
+      ? null
+      : OpenAiResponsesCodec.statusError(response, subject: 'Hermes response');
   if (statusError != null) {
     yield HermesRunError(statusError);
     yield const HermesRunDone();
@@ -209,11 +234,57 @@ Iterable<HermesRunEvent> _mapTerminalResponse(openai.Response response) sync* {
   }
   final content = OpenAiResponsesCodec.content(response);
   if (content.reasoning.isNotEmpty) {
-    yield HermesReasoningDelta(content.reasoning);
+    yield HermesReasoningDelta(content.reasoning, terminal: true);
   }
   if (content.text.isNotEmpty) yield HermesFinalOutput(content.text);
+  if (incomplete) {
+    yield HermesRunNotice(
+      _incompleteNotice(response.incompleteDetails?.reason),
+    );
+  }
   yield const HermesRunDone();
 }
+
+String _incompleteNotice(Object? reason) {
+  if (reason is! String ||
+      !RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(reason)) {
+    return kHermesIncompleteNotice;
+  }
+  return 'Hermes stopped before finishing ($reason), so this answer may be '
+      'incomplete.';
+}
+
+/// Drops Responses message items Hermes marks `phase: "commentary"`.
+///
+/// Hermes v2026.9.24+ lists mid-turn commentary as separate message items,
+/// including in the final `response.output`; it is progress, not part of the
+/// answer. Checked on the raw JSON because the SDK may drop unknown keys.
+Map<String, dynamic> withoutHermesCommentary(Map<String, dynamic> payload) {
+  final response = payload['response'];
+  if (response is Map) {
+    final filtered = _withoutCommentaryOutput(response);
+    if (identical(filtered, response)) return payload;
+    return <String, dynamic>{...payload, 'response': filtered};
+  }
+  return _withoutCommentaryOutput(payload).cast<String, dynamic>();
+}
+
+Map _withoutCommentaryOutput(Map response) {
+  final output = response['output'];
+  if (output is! List || !output.any(_isHermesCommentaryItem)) {
+    return response;
+  }
+  return <String, dynamic>{
+    ...response.cast<String, dynamic>(),
+    'output': [
+      for (final item in output)
+        if (!_isHermesCommentaryItem(item)) item,
+    ],
+  };
+}
+
+bool _isHermesCommentaryItem(Object? item) =>
+    item is Map && item['phase'] == 'commentary';
 
 HermesToolProgress? _sdkToolProgress(
   openai.OutputItem item, {
@@ -227,13 +298,39 @@ HermesToolProgress? _sdkToolProgress(
   );
 }
 
+/// The approvals and questions a run still waits on (`GET /v1/runs/{id}`
+/// `pending_controls`, v0.22.3+), as the events that first showed them: a
+/// stream that dropped for good, or a run saved during a restart, can still
+/// show and answer them.
+List<HermesRunEvent> hermesPendingControlEvents(Object? controls) {
+  if (controls is! List) return const [];
+  final events = <HermesRunEvent>[];
+  for (final control in controls.whereType<Map>().take(16)) {
+    final kind = control['kind'];
+    if (kind != 'approval' && kind != 'clarify') continue;
+    final String data;
+    try {
+      data = jsonEncode(control);
+    } catch (_) {
+      continue;
+    }
+    events.addAll(
+      parseHermesRunFrame(SseFrame(event: '$kind.request', data: data)),
+    );
+  }
+  return events;
+}
+
 /// Decodes a single SSE [frame] into zero or more [HermesRunEvent]s.
 ///
 /// Decoding is intentionally tolerant: the Hermes runs API mixes OpenAI
 /// chat-completion chunks, Responses-API event types, and bespoke
 /// `tool.*` / `approval.*` events depending on version. Unrecognized frames
 /// yield nothing rather than throwing.
-Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
+Iterable<HermesRunEvent> parseHermesRunFrame(
+  SseFrame frame, {
+  void Function(int seq)? onSequence,
+}) sync* {
   final raw = frame.data.trim();
   final declaredEvent = frame.event?.trim().toLowerCase();
   final frameEventType = declaredEvent == null || declaredEvent.isEmpty
@@ -263,6 +360,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     } catch (_) {
       return;
     }
+    final seq = data['seq'];
+    if (onSequence != null && seq is int && seq >= 0) onSequence(seq);
   }
 
   final eventType =
@@ -337,9 +436,19 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
-    yield HermesRunError(
-      _fallbackResponseStatusError('incomplete', responseMap ?? data) ??
-          'The Hermes response was incomplete.',
+    final output = _extractHermesTerminalOutput(
+      responseMap?['output'] ?? data['output'],
+    );
+    if (output == null) {
+      yield const HermesRunError(
+        'The Hermes response output exceeded Conduit\'s size or shape limit.',
+      );
+      return;
+    }
+    if (output.isNotEmpty) yield HermesFinalOutput(output);
+    final details = (responseMap ?? data)['incomplete_details'];
+    yield HermesRunNotice(
+      _incompleteNotice(details is Map ? details['reason'] : null),
     );
     yield const HermesRunDone();
     return;
@@ -352,6 +461,39 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     yield HermesRunError(
       _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.',
     );
+    return;
+  }
+
+  // Since v0.22 a turn that ran out of steps ends `run.failed` with no
+  // `error` but with its wrap-up `output` and a `turn_exit_reason`. Keep the
+  // output; a budget stop is a note, not a failure.
+  if (eventType == 'run.failed' &&
+      (data.containsKey('output') || data.containsKey('turn_exit_reason'))) {
+    final output = _extractHermesTerminalOutput(data['output']);
+    if (output == null) {
+      yield const HermesRunError(
+        'The Hermes response output exceeded Conduit\'s size or shape limit.',
+      );
+      return;
+    }
+    if (output.isNotEmpty) yield HermesFinalOutput(output);
+    final exitReason = _strictString(data['turn_exit_reason']) ?? '';
+    if (!_isTruthyError(data['error']) &&
+        (exitReason.startsWith('budget_exhausted') ||
+            exitReason.startsWith('max_iterations_reached('))) {
+      yield const HermesRunNotice(kHermesBudgetExhaustedNotice);
+    } else {
+      yield HermesRunError(_failureMessage(data['error']));
+    }
+    yield const HermesRunDone();
+    return;
+  }
+
+  // A Hermes restart interrupted the run (v0.23+). Its `error` field is a
+  // fixed server sentence; show Conduit's own explanation instead.
+  if (eventType == 'run.interrupted') {
+    yield const HermesRunError(kHermesRunInterruptedMessage);
+    yield const HermesRunDone();
     return;
   }
 
@@ -368,13 +510,67 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   // An answered or lapsed gate is not a new one. The runs API follows every
   // approval with `approval.responded`, carrying only `run_id`, which would
   // otherwise decode as a fresh request for the same gate and put the
-  // answered card back up until the run ends (issue #769).
-  if (_approvalOutcomeEvents.contains(eventType)) return;
+  // answered card back up until the run ends (issue #769). Hermes v0.22.1+
+  // sends `approval.settled` / `clarify.settled` with the prompt's id, also
+  // when the prompt times out, so the matching card can close.
+  if (_approvalOutcomeEvents.contains(eventType)) {
+    if (eventType == 'approval.settled' || eventType == 'clarify.settled') {
+      final promptId = validateHermesOpaqueIdentifier(data['prompt_id']);
+      if (promptId != null) {
+        yield HermesPromptSettled(
+          promptId: promptId,
+          kind: eventType == 'clarify.settled' ? 'clarify' : 'approval',
+        );
+      }
+    }
+    return;
+  }
+
+  // A question for the user (Hermes v0.22.3+, when the operator enables
+  // clarify for the API server). Answered by prompt id and generation, like
+  // an approval; never mistaken for one.
+  if (eventType == 'clarify.request') {
+    final promptId = validateHermesOpaqueIdentifier(data['prompt_id']);
+    final generation = data['execution_generation'];
+    final question = _strictString(data['question']);
+    if (promptId != null &&
+        generation is int &&
+        generation >= 0 &&
+        question != null) {
+      yield HermesDecisionRequested(
+        kind: HermesDecisionKind.clarification,
+        requestId: promptId,
+        prompt: question,
+        raw: data,
+      );
+    }
+    return;
+  }
 
   // Human-approval gate.
   if ((eventType?.contains('approval') ?? false) ||
       data.containsKey('approval_id') ||
       data.containsKey('approvalId')) {
+    // Hermes v0.22.1+ names each prompt and the execution generation that
+    // owns it; the approval answer must echo both exactly.
+    final promptId = data['prompt_id'];
+    final generation = data['execution_generation'];
+    if (promptId is String && generation is int && generation >= 0) {
+      final canonicalId = validateHermesOpaqueIdentifier(promptId);
+      if (canonicalId != null) {
+        yield HermesApprovalRequested(
+          approvalId: canonicalId,
+          summary:
+              _strictString(data['description']) ??
+              _strictString(data['summary']) ??
+              _strictString(data['command']) ??
+              _strictString(data['message']),
+          executionGeneration: generation,
+          raw: data,
+        );
+        return;
+      }
+    }
     // Approval identifiers are protocol control values, not display text.
     // Never call toString() on an arbitrary JSON container before the bounded
     // opaque-id validator gets a chance to reject it.
@@ -551,6 +747,7 @@ String extractHermesOutputText(
       final rawType = value['type'];
       final type = rawType is String ? rawType : null;
       if (type != null && type.contains('function')) continue;
+      if (value['phase'] == 'commentary') continue;
       schedule(value['text'] ?? value['content'], current.depth + 1);
       continue;
     }
@@ -722,10 +919,15 @@ bool _isTerminal(String status) =>
     status == 'incomplete' ||
     status == 'cancelled' ||
     status == 'canceled' ||
-    status == 'stopped';
+    status == 'stopped' ||
+    status == 'interrupted';
 
 /// Whether an `error` field represents a real failure (vs. a falsy marker like
 /// `false` / `"False"` / `"None"` that some events include).
+/// Whether a Hermes `error` field is a real error: Python servers send
+/// `False`, `None`, `0` or `{}` on events that did not fail.
+bool hermesErrorIsTruthy(Object? error) => _isTruthyError(error);
+
 bool _isTruthyError(dynamic error) {
   if (error == null) return false;
   if (error is bool) return error;
@@ -769,6 +971,8 @@ String? _terminalRunStatusError(String status, dynamic error) {
       return 'Hermes run was cancelled.';
     case 'stopped':
       return 'Hermes run was stopped.';
+    case 'interrupted':
+      return kHermesRunInterruptedMessage;
     default:
       return null;
   }
@@ -815,4 +1019,6 @@ const Set<String> _approvalOutcomeEvents = {
   'approval.resolved',
   'approval.expire',
   'approval.expired',
+  'approval.settled',
+  'clarify.settled',
 };

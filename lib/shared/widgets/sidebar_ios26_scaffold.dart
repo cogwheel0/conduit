@@ -14,6 +14,7 @@ class SidebarIos26Scaffold extends StatelessWidget {
     this.bottomNavigationBar,
     required this.body,
     this.leading,
+    this.middle,
     this.actions,
     this.showNativeView = true,
   });
@@ -21,6 +22,10 @@ class SidebarIos26Scaffold extends StatelessWidget {
   final AdaptiveBottomNavigationBar? bottomNavigationBar;
   final Widget body;
   final Widget? leading;
+
+  /// Centred between [leading] and [actions], in the room they leave.
+  final Widget? middle;
+
   final List<AdaptiveAppBarAction>? actions;
   final bool showNativeView;
 
@@ -54,8 +59,11 @@ class SidebarIos26Scaffold extends StatelessWidget {
     final textColor = context.conduitTheme.textPrimary;
     final hasNavigationBar = leading != null || actions?.isNotEmpty == true;
     final toolbarActions = actions ?? const <AdaptiveAppBarAction>[];
+    final clusterItems = sidebarToolbarClusterItems(toolbarActions);
     final toolbarActionsWidth = toolbarActions.isEmpty
         ? 0.0
+        : clusterItems != null
+        ? conduitToolbarClusterWidth(context, clusterItems.length)
         : (toolbarActions.length * TouchTarget.minimum) +
               ((toolbarActions.length - 1) * Spacing.sm);
 
@@ -65,8 +73,16 @@ class SidebarIos26Scaffold extends StatelessWidget {
           ? ConduitAdaptiveCupertinoNavigationBar(
               textScaler: MediaQuery.textScalerOf(context),
               leading: leading ?? const SizedBox.shrink(),
+              middle: middle,
               trailing: toolbarActions.isEmpty
                   ? null
+                  : composeNativeViews && clusterItems != null
+                  // The chat header's glass group: one capsule, the same
+                  // glyph size, and one reshape when the actions change.
+                  ? ConduitToolbarActionCluster(
+                      key: const ValueKey<String>('sidebar-toolbar-actions'),
+                      items: clusterItems,
+                    )
                   : SizedBox(
                       width: toolbarActionsWidth,
                       height: TouchTarget.minimum,
@@ -105,6 +121,45 @@ class SidebarIos26Scaffold extends StatelessWidget {
   }
 }
 
+/// [actions] as the items of a [ConduitToolbarActionCluster], or null when
+/// one of them cannot be a plain glyph in it (a titled or prominent action,
+/// or more than three).
+///
+/// Each item is keyed by its symbol, unique in one bar, so a change of
+/// actions (search opening, a tab with its own create action) reshapes the
+/// glass once instead of rebuilding every control.
+@visibleForTesting
+List<ConduitToolbarClusterItem>? sidebarToolbarClusterItems(
+  List<AdaptiveAppBarAction> actions,
+) {
+  if (actions.isEmpty || actions.length > 3) return null;
+  final symbols = <String>{};
+  final items = <ConduitToolbarClusterItem>[];
+  for (final action in actions) {
+    final symbol = action.iosSymbol;
+    if (symbol == null ||
+        action.title != null ||
+        action.prominent ||
+        !symbols.add(symbol)) {
+      return null;
+    }
+    items.add(
+      ConduitToolbarClusterItem(
+        id: symbol,
+        fallbackIcon: action.icon,
+        action: ConduitNativeToolbarAction(
+          iosSymbol: symbol,
+          accessibilityLabel: action.semanticLabel ?? symbol,
+          onPressed: action.onPressed,
+          enabled: action.onPressed != null,
+          tintColor: action.tintColor,
+        ),
+      ),
+    );
+  }
+  return items;
+}
+
 class _NativeToolbarActions extends StatelessWidget {
   const _NativeToolbarActions({required this.actions});
 
@@ -112,14 +167,9 @@ class _NativeToolbarActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The native group reads brightness only when it is created, so rebuild
-    // it when the appearance or action tints change; otherwise a light/dark
-    // switch leaves a light glass pill behind dark-mode icons.
+    // The group updates its brightness and each changed button's tint in
+    // place, so a theme or palette switch keeps the same native view.
     return CNGlassButtonGroup.fromWidgets(
-      key: ValueKey<Object>((
-        CupertinoTheme.brightnessOf(context),
-        Object.hashAll(actions.map((action) => action.tintColor)),
-      )),
       spacing: 8,
       spacingForGlass: 36,
       buttonWidgets: [

@@ -8,6 +8,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/note.dart';
@@ -20,14 +21,16 @@ import 'package:conduit_core/features/navigation/models/sidebar_navigation_model
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_monogram_avatar.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/theme_providers.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
-import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
+import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,13 +46,24 @@ void main() {
     final controllers = SidebarTestSidebarHarnessControllers(
       initialTab: SidebarTabId.notes,
     );
-    await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        initialLocation: Routes.notes,
+      ),
+    );
     await tester.pumpAndSettle();
 
     final context = tester.element(find.byType(SidebarPage));
     final l10n = AppLocalizations.of(context)!;
     expect(find.text(l10n.noNotesYet), findsOneWidget);
-    expect(find.text(l10n.createNote), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(NotesListTab),
+        matching: find.text(l10n.createNote),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('notes and channels use flat chat-style sidebar rows', (
@@ -82,6 +96,7 @@ void main() {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: controllers,
+        initialLocation: Routes.notes,
         conversations: [conversation],
         notes: const [note],
         channels: const [channel],
@@ -106,21 +121,19 @@ void main() {
       find.descendant(of: noteRow, matching: find.text('Flat Note')),
     );
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Chats'));
-    await tester.pumpAndSettle();
+    await sidebarTestGoBack(tester);
+    await sidebarTestOpenSidebar(tester);
     final chatRect = tester.getRect(
       find.byKey(
         ValueKey<String>('drawer-chat-${conversationScopedId(conversation)}'),
       ),
     );
     final chatTitle = tester.widget<Text>(find.text('Flat Chat'));
-    expect(noteRect.left, chatRect.left);
-    expect(noteRect.right, chatRect.right);
     expect(noteRect.height, chatRect.height);
     expect(noteTitle.style?.fontSize, AppTypography.sidebarTitleStyle.fontSize);
     expect(noteTitle.style?.fontSize, chatTitle.style?.fontSize);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
+    await sidebarTestSelectDestination(tester, 'Channels');
     await tester.pumpAndSettle();
     final channelRow = find.byKey(
       const ValueKey<String>('channel-sidebar-row-flat-channel'),
@@ -138,8 +151,6 @@ void main() {
     final channelTitle = tester.widget<Text>(
       find.descendant(of: channelRow, matching: find.text('Flat Channel')),
     );
-    expect(channelRect.left, chatRect.left);
-    expect(channelRect.right, chatRect.right);
     expect(channelRect.height, chatRect.height);
     expect(
       channelTitle.style?.fontSize,
@@ -165,6 +176,7 @@ void main() {
       sidebarTestBuildHarness(
         controllers: controllers,
         channels: const [channel],
+        initialLocation: Routes.channels,
       ),
     );
     await tester.pumpAndSettle();
@@ -178,9 +190,71 @@ void main() {
     );
   });
 
-  testWidgets('note rows show last-edited metadata instead of descriptions', (
-    tester,
-  ) async {
+  // Open WebUI 0.12.1 ChannelItem.svelte: a channel set to mentions only
+  // shows no unread badge.
+  testWidgets('a muted channel hides its unread badge and offers the '
+      'notification setting', (tester) async {
+    final controllers = SidebarTestSidebarHarnessControllers(
+      initialTab: SidebarTabId.channels,
+    );
+    const muted = Channel(
+      id: 'muted-channel',
+      name: 'Muted Channel',
+      unreadCount: 3,
+      isChannelMuted: true,
+    );
+    const loud = Channel(
+      id: 'loud-channel',
+      name: 'Loud Channel',
+      unreadCount: 4,
+    );
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        channels: const [muted, loud],
+        initialLocation: Routes.channels,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final mutedRow = find.byKey(
+      const ValueKey<String>('channel-sidebar-row-muted-channel'),
+    );
+    final loudRow = find.byKey(
+      const ValueKey<String>('channel-sidebar-row-loud-channel'),
+    );
+    expect(
+      find.descendant(of: mutedRow, matching: find.text('3')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: loudRow, matching: find.text('4')),
+      findsOneWidget,
+    );
+    final label = tester.getSemantics(mutedRow).label;
+    expect(label, contains('Mentions Only'));
+    expect(label, isNot(contains('unread')));
+
+    final actions = tester
+        .widget<ConduitContextMenu>(
+          find.ancestor(
+            of: mutedRow,
+            matching: find.byType(ConduitContextMenu),
+          ),
+        )
+        .actions;
+    expect(actions.take(2).map((action) => action.label), [
+      'All Messages',
+      'Mentions Only',
+    ]);
+    // The current choice carries the check.
+    expect(actions[1].materialIcon, Icons.check_rounded);
+    expect(actions[0].materialIcon, isNot(Icons.check_rounded));
+  });
+
+  testWidgets('note rows are titles only: no date, no description, and '
+      'no Notes title over the list', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers(
       initialTab: SidebarTabId.notes,
     );
@@ -195,7 +269,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      sidebarTestBuildHarness(controllers: controllers, notes: const [note]),
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        notes: const [note],
+        initialLocation: Routes.notes,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -208,40 +286,31 @@ void main() {
     final tileContent = tester.widget<SidebarListTileContent>(
       find.descendant(of: row, matching: find.byType(SidebarListTileContent)),
     );
-    final lastEditedFinder = find.descendant(
-      of: row,
-      matching: find.byKey(
-        const ValueKey<String>('note-sidebar-last-edited-hierarchy-note'),
-      ),
-    );
-    final lastEdited = tester.widget<Text>(lastEditedFinder);
     final theme = tester.element(row).conduitTheme;
 
     expect(title.style?.fontWeight, FontWeight.w400);
     expect(tileContent.titleFontWeight, FontWeight.w400);
-    expect(title.style?.color, theme.textSecondary);
-    expect(lastEdited.data, 'Jan 1');
-    expect(lastEdited.style?.fontSize, AppTypography.bodySmallStyle.fontSize);
-    expect(lastEdited.style?.fontSize, lessThan(title.style!.fontSize!));
+    expect(title.style?.color, theme.textPrimary);
+    // The section headers date the notes; the rows carry only their titles.
+    expect(tileContent.trailing, isNull);
+    expect(tileContent.subtitle, isNull);
     expect(
-      lastEdited.style?.color,
-      theme.textSecondary.withValues(alpha: Alpha.secondary),
-    );
-    expect(
-      tester.getCenter(lastEditedFinder).dx,
-      greaterThan(
-        tester
-            .getCenter(
-              find.descendant(of: row, matching: find.text('Project brief')),
-            )
-            .dx,
-      ),
+      find.descendant(of: row, matching: find.byType(Text)),
+      findsOneWidget,
     );
     expect(
       find.descendant(
         of: row,
         matching: find.text('Supporting description for the note'),
       ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('notes-large-title')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-collapsed-title')),
       findsNothing,
     );
   });
@@ -251,7 +320,12 @@ void main() {
       initialTab: SidebarTabId.channels,
     );
 
-    await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        initialLocation: Routes.channels,
+      ),
+    );
 
     final initialChannelState = tester.state(find.byType(ChannelListTab));
 
@@ -271,39 +345,37 @@ void main() {
     expect(channelStateWithNotesAgain, same(initialChannelState));
   });
 
-  testWidgets('profile app bar leading stays visible across sidebar tabs', (
-    tester,
-  ) async {
-    final controllers = SidebarTestSidebarHarnessControllers();
-    const user = User(
-      id: 'user-1',
-      username: 'ava',
-      email: 'ava@example.com',
-      name: 'Ava',
-      role: 'user',
-    );
-
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(controllers: controllers, currentUser: user),
-    );
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-
-    await tester.tap(sidebarTestBottomNavTabLabel('Terminal'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-  });
+  testWidgets(
+    'settings are available whenever a destination reopens the sidebar',
+    (tester) async {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          currentUser: const User(
+            id: 'demo',
+            username: 'demo',
+            name: 'Demo Account',
+            email: 'demo@example.test',
+            role: 'user',
+          ),
+        ),
+      );
+      for (final label in ['Terminal', 'Notes', 'Channels']) {
+        await sidebarTestSelectDestination(tester, label);
+        await sidebarTestOpenSidebar(tester);
+        expect(
+          find.byType(SidebarProfileAppBarLeading).hitTestable(),
+          findsOneWidget,
+        );
+        expect(
+          find
+              .byKey(const ValueKey<String>('sidebar-create-button'))
+              .hitTestable(),
+          findsOneWidget,
+        );
+      }
+    },
+  );
 
   testWidgets('Hermes-only profile entry renders without an OpenWebUI user', (
     tester,
@@ -314,6 +386,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
         ],
         child: MaterialApp(
@@ -341,6 +415,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
           hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
         ],
@@ -356,6 +432,48 @@ void main() {
     expect(
       tester.widget<UserAvatar>(find.byType(UserAvatar)).fallbackText,
       'HL',
+    );
+  });
+
+  testWidgets('LibreChat in charge names and draws the button, over Hermes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(true),
+          hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
+          primaryAccountKindProvider.overrideWithValue(
+            PrimaryAccountKind.libreChat,
+          ),
+          primaryUserProvider.overrideWithValue(
+            const PrimaryUserSummary(
+              kind: PrimaryAccountKind.libreChat,
+              id: 'u1',
+              displayName: 'Dev',
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // No photo: its initials on a neutral disc, as an Open WebUI user
+    // without one gets.
+    expect(find.byType(UserAvatar), findsNothing);
+    expect(
+      tester
+          .widget<SidebarMonogramAvatar>(find.byType(SidebarMonogramAvatar))
+          .initials,
+      'DE',
     );
   });
 
@@ -386,6 +504,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(false),
           preferredBackendProvider.overrideWith(
             SidebarTestDirectPreferredBackendController.new,
@@ -442,6 +562,8 @@ void main() {
         currentUserProvider2.overrideWithValue(user),
         currentUserProvider.overrideWith((ref) async => user),
         apiServiceProvider.overrideWithValue(null),
+        // The Settings root names the app's language.
+        appLocaleProvider.overrideWithValue(null),
         hermesOnlyModeProvider.overrideWithValue(false),
         accountProfileProvider.overrideWith(_ServerAccountProfile.new),
         sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
@@ -499,6 +621,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             personalConnectionsEntryVisibleProvider.overrideWithValue(visible),
@@ -540,7 +664,7 @@ void main() {
         // dismisses the sheet and reports the id the app handles.
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Personal connections');
+          expect(item.title, 'Personal Connections');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.personalConnections);
         }
@@ -567,6 +691,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             scheduledTasksEntryVisibleProvider.overrideWithValue(visible),
@@ -608,7 +734,7 @@ void main() {
         // dismisses the sheet and reports the id the app handles.
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Scheduled tasks');
+          expect(item.title, 'Scheduled Tasks');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.scheduledTasks);
         }
@@ -635,6 +761,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             calendarAvailableProvider.overrideWithValue(visible),
@@ -703,6 +831,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             chatDataControlsEntryVisibleProvider.overrideWithValue(visible),
@@ -742,7 +872,7 @@ void main() {
         }
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Data controls');
+          expect(item.title, 'Data Controls');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.chatDataControls);
         }
@@ -767,6 +897,8 @@ void main() {
         currentUserProvider2.overrideWithValue(user),
         currentUserProvider.overrideWith((ref) async => user),
         apiServiceProvider.overrideWithValue(null),
+        // The Settings root names the app's language.
+        appLocaleProvider.overrideWithValue(null),
         hermesOnlyModeProvider.overrideWithValue(false),
         accountProfileProvider.overrideWith(_UnreachableAccountProfile.new),
         sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
@@ -835,6 +967,8 @@ void main() {
           currentUserProvider2.overrideWithValue(user),
           currentUserProvider.overrideWith((ref) async => user),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(false),
           // Never loaded, and the refresh fails: no profile to edit.
           accountProfileProvider.overrideWith(_UnloadedAccountProfile.new),
@@ -862,7 +996,7 @@ void main() {
     expect(find.text('Settings destination'), findsOneWidget);
   });
 
-  testWidgets('sidebar material app bar uses the compact toolbar height', (
+  testWidgets('sidebar header keeps the profile above its navigation', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -878,9 +1012,10 @@ void main() {
       sidebarTestBuildHarness(controllers: controllers, currentUser: user),
     );
 
-    final appBar = tester.widget<AppBar>(find.byType(AppBar));
-
-    expect(appBar.toolbarHeight, kTextTabBarHeight);
+    expect(
+      tester.getBottomLeft(find.byType(SidebarProfileAppBarLeading)).dy,
+      lessThan(tester.getTopLeft(sidebarTestDestinationLabel('Notes')).dy),
+    );
   });
 
   testWidgets('closing expanded search clears the active filter', (
@@ -933,7 +1068,9 @@ void main() {
     expect(find.text('Alpha Chat'), findsNothing);
     expect(find.text('Beta Chat'), findsNothing);
 
-    await tester.tap(find.byType(ConduitAdaptiveAppBarIconButton));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-search-button')),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Alpha Chat'), findsOneWidget);

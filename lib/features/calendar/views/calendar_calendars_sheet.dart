@@ -10,6 +10,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/utility_components.dart';
 import 'calendar_color_dot.dart';
@@ -55,6 +56,10 @@ const _calendarColors = <({String hex, String name})>[
   (hex: '#8b5cf6', name: 'purple'),
   (hex: '#14b8a6', name: 'teal'),
 ];
+
+/// [color] as the `#rrggbb` form the presets use; the picker gives no alpha.
+String _calendarHex(Color color) =>
+    '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
 
 class CalendarsSheet extends ConsumerStatefulWidget {
   const CalendarsSheet({
@@ -402,6 +407,24 @@ class _CalendarsSheetState extends ConsumerState<CalendarsSheet> {
                   onTap: _busy
                       ? null
                       : () => setState(() => _color = color.hex),
+                ),
+              // Any other colour, from the system picker, as Calendar offers.
+              if (PlatformUiCapabilities.usesNativeIOS26)
+                SizedBox.square(
+                  dimension: TouchTarget.minimum,
+                  child: Center(
+                    child: CNColorWell(
+                      key: const Key('calendar-new-color-custom'),
+                      color: parseCalendarColor(_color)!,
+                      supportsAlpha: false,
+                      enabled: !_busy,
+                      size: IconSize.xl,
+                      title: l10n.calendarColorName('custom'),
+                      semanticLabel: l10n.calendarColorName('custom'),
+                      onChanged: (color) =>
+                          setState(() => _color = _calendarHex(color)),
+                    ),
+                  ),
                 ),
             ],
           ),

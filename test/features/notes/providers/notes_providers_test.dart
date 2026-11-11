@@ -29,7 +29,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
 import 'package:go_router/go_router.dart';
+
+import '../../../support/native_database.dart';
 
 const _testUser = User(
   id: 'user-1',
@@ -104,12 +107,21 @@ class _RecordingVoiceInputService extends VoiceInputService {
   /// new wrapper over the current controller.
   StreamController<String>? activeRun;
 
+  /// What the server makes of the speech a stop hands over. Like the real
+  /// service, the stop delivers it and ends the run before it returns.
+  String? transcriptOnStop;
+
   @override
   Stream<String> get textStream =>
       activeRun?.stream ?? const Stream<String>.empty();
 
   @override
   bool get isSupportedPlatform => true;
+
+  /// The note's server transcribes, which server-only dictation needs: a
+  /// chat backend without transcription uses the device instead.
+  @override
+  bool get hasServerStt => true;
 
   @override
   Future<bool> initialize({bool forceLocalStt = false}) async => true;
@@ -119,6 +131,7 @@ class _RecordingVoiceInputService extends VoiceInputService {
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
     bool holdServerRecorderForResponseWait = false,
+    VoiceInputRecording? recording,
   }) async {
     beginListeningPreferences.add(preference);
     beginListeningUsesServer.add(prefersServerOnly);
@@ -131,6 +144,11 @@ class _RecordingVoiceInputService extends VoiceInputService {
   @override
   Future<void> stopListening() async {
     stopCalls++;
+    final transcript = transcriptOnStop;
+    final run = activeRun;
+    if (transcript == null || run == null) return;
+    run.add(transcript);
+    await run.close();
   }
 
   @override
@@ -450,6 +468,46 @@ void main() {
       );
     }
 
+    testWidgets('stopping dictation keeps what was being said', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final originalOnError = FlutterError.onError;
+      addTearDown(() => FlutterError.onError = originalOnError);
+      FlutterError.onError = (details) {
+        if (details.exceptionAsString().contains(
+          'ListTile background color or ink splashes may be invisible',
+        )) {
+          return;
+        }
+        originalOnError?.call(details);
+      };
+      final voice = _RecordingVoiceInputService()
+        ..updatePreference(SttPreference.serverOnly);
+      await tester.pumpWidget(
+        _noteEditorHarness(
+          db: db,
+          syncEngine: _NoDrainSyncEngine(),
+          noteJson: _deletedNoteJson(),
+          extraOverrides: [voiceInputServiceProvider.overrideWithValue(voice)],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.mic_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dictation'));
+      await tester.pumpAndSettle();
+
+      // Server dictation has no text until the stop sends it (#752).
+      voice.transcriptOnStop = 'call the plumber';
+      await tester.tap(find.byIcon(Icons.stop_rounded));
+      await tester.pumpAndSettle();
+
+      check(voice.stopCalls).equals(1);
+      final editor = tester.widget<FleatherEditor>(find.byType(FleatherEditor));
+      check(editor.controller.document.toPlainText())
+          .contains('call the plumber');
+    });
+
     testWidgets('checkbox toggles autosave canonical markdown', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -713,7 +771,7 @@ void main() {
         // Closing the active database forces the back-navigation autosave to
         // fail after recovery has already cleared its dedicated retry callback.
         final failedDb = db;
-        await failedDb.close();
+        await pumpDatabaseOperation(tester, failedDb.close);
         db = AppDatabase(NativeDatabase.memory());
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
