@@ -64,10 +64,10 @@
 		D2A0B2352F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2342F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift */; };
 		D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */; };
 		D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */; };
-		DBC0D65B545D5CC5996C5879 /* PushBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ACFF262BA737A4AE4CBFBFE /* PushBridge.swift */; };
-		E433D197A968E0CBAB1D23AF /* PushConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAE9782FF2DE370E5BD733C /* PushConfigStore.swift */; };
 		D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */; };
 		D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */; };
+		DBC0D65B545D5CC5996C5879 /* PushBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ACFF262BA737A4AE4CBFBFE /* PushBridge.swift */; };
+		E433D197A968E0CBAB1D23AF /* PushConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAE9782FF2DE370E5BD733C /* PushConfigStore.swift */; };
 		E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
@@ -169,9 +169,9 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9DAE9782FF2DE370E5BD733C /* PushConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushConfigStore.swift; sourceTree = "<group>"; };
 		A04921B42167D44E7743CEF7 /* PushPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPresentation.swift; sourceTree = "<group>"; };
-		AC7D2CBF69CF34CF044B10F1 /* PushPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayload.swift; sourceTree = "<group>"; };
 		A617F3027B9E43159B000002 /* NativeTextMagnifierBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextMagnifierBridge.swift; sourceTree = "<group>"; };
 		A617F3027B9E43159B000022 /* NativeTextSelectionMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextSelectionMenuBridge.swift; sourceTree = "<group>"; };
+		AC7D2CBF69CF34CF044B10F1 /* PushPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayload.swift; sourceTree = "<group>"; };
 		C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentInvocationStore.swift; sourceTree = "<group>"; };
 		C071A11CC4D0ABEE7C4B9101 /* NotificationService.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotificationService/NotificationService.profile.xcconfig; sourceTree = "<group>"; };
 		C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitBridgeHost.swift; sourceTree = "<group>"; };
@@ -205,11 +205,11 @@
 		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
 		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
 		D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.profile.xcconfig; sourceTree = "<group>"; };
+		D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingActivityBridge.swift; sourceTree = "<group>"; };
+		D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ConduitWidget/ConduitRecordingActivity.swift; sourceTree = "<group>"; };
 		D3CBDE5CA7708CCABB6B66BE /* sk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = sk; path = sk.lproj/Localizable.strings; sourceTree = "<group>"; };
 		E382C99DDDB3724F17BA1B50 /* cs */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = cs; path = cs.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		E536BB32010750795CF717F1 /* NotificationService.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotificationService/NotificationService.debug.xcconfig; sourceTree = "<group>"; };
-		D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingActivityBridge.swift; sourceTree = "<group>"; };
-		D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ConduitWidget/ConduitRecordingActivity.swift; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageViewerBridge.swift; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };

@@ -50,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SVGKit/SVGKit.git",
       "state" : {
-        "revision" : "58152b9f7c85eab239160b36ffdfd364aa43d666",
-        "version" : "3.0.0"
+        "revision" : "0e14a78b7d1e3a3b0d5920203802dbeb0ca49b37",
+        "version" : "3.0.2"
       }
     },
     {
@@ -68,8 +68,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
-        "version" : "1.15.0"
+        "revision" : "e3da04078777e6a1b72ce19981fbd6539b0847d8",
+        "version" : "1.17.0"
       }
     }
   ],
