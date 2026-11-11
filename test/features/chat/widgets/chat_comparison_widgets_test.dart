@@ -320,7 +320,7 @@ void main() {
     check(pager.evaluate()).isEmpty();
     // Slot 0's saved merge appears with its heading while the original text
     // is still shown.
-    check(find.text('Merged response').evaluate()).isNotEmpty();
+    check(find.text('Merged Response').evaluate()).isNotEmpty();
     check(find.textContaining('Both runs agree').evaluate()).isNotEmpty();
     check(find.text('13 is a prime number.').evaluate()).isNotEmpty();
   });

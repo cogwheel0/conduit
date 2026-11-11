@@ -331,21 +331,41 @@ void main() {
   });
 
   group('group-wide generation settings', () {
+    // Mirrors the controller: a model that does not advertise support takes
+    // the parameter only when it holds its own pick.
     ComparisonModelProfile model(
       String id, {
-      bool supports = true,
+      bool advertises = true,
       String? picker,
       Set<String> accepts = const {'low', 'medium', 'high'},
     }) => ComparisonModelProfile(
       modelId: id,
-      supportsReasoningEffort: supports,
+      advertisesReasoningEffort: advertises,
+      supportsReasoningEffort: advertises || picker != null,
       pickerReasoningEffort: picker,
       acceptsReasoningEffort: accepts.contains,
     );
 
-    test('a chat override must be readable by every model', () {
+    test('a chat override blocks models that would not be sent it', () {
+      // A model that does not advertise support is sent only its own pick
+      // (issue #611), so it cannot share a saved value it did not pick. A
+      // model that cannot read the value, an explicit refusal or a scale
+      // without it, blocks the group too.
       final reasoner = model('reasoner');
-      final plain = model('plain', supports: false);
+      final refuses = model('refuses', accepts: const <String>{});
+      final plain = model('plain', advertises: false);
+      for (final order in [
+        [reasoner, refuses],
+        [refuses, reasoner],
+      ]) {
+        final conflict = findComparisonSettingsConflict(
+          chatParams: {'reasoning_effort': 'high'},
+          models: order,
+        );
+        check(conflict).isNotNull();
+        check(conflict!.source).equals(ComparisonConflictSource.chatOverride);
+        check(conflict.modelIds).deepEquals(['refuses']);
+      }
       for (final order in [
         [reasoner, plain],
         [plain, reasoner],
@@ -358,13 +378,22 @@ void main() {
         check(conflict!.source).equals(ComparisonConflictSource.chatOverride);
         check(conflict.modelIds).deepEquals(['plain']);
       }
-      // Removing the override clears it, whichever model sits first.
+    });
+
+    test('a chat override admits an undeclared model that picked it', () {
+      final reasoner = model('reasoner');
       check(
         findComparisonSettingsConflict(
-          chatParams: const {},
-          models: [plain, reasoner],
+          chatParams: {'reasoning_effort': 'high'},
+          models: [reasoner, model('plain', advertises: false, picker: 'high')],
         ),
       ).isNull();
+      final conflict = findComparisonSettingsConflict(
+        chatParams: {'reasoning_effort': 'high'},
+        models: [reasoner, model('plain', advertises: false, picker: 'low')],
+      );
+      check(conflict).isNotNull();
+      check(conflict!.modelIds).deepEquals(['plain']);
     });
 
     test('a value one model cannot take is a conflict', () {
@@ -401,7 +430,7 @@ void main() {
       check(
         findComparisonSettingsConflict(
           chatParams: const {},
-          models: [model('a', supports: false), model('b')],
+          models: [model('a', advertises: false), model('b')],
         ),
       ).isNull();
       // Order never decides which model's choice the others inherit.
@@ -409,7 +438,7 @@ void main() {
         findComparisonSettingsConflict(
           chatParams: const {},
           models: [
-            model('a', supports: false),
+            model('a', advertises: false),
             model('b', picker: 'high'),
           ],
         ),
@@ -419,7 +448,7 @@ void main() {
           chatParams: const {},
           models: [
             model('b', picker: 'high'),
-            model('a', supports: false),
+            model('a', advertises: false),
           ],
         ),
       ).isNotNull();

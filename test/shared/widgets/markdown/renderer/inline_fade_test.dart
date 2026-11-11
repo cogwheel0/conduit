@@ -6,6 +6,7 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/latex_preprocessor.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/latex_rendering_server.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
@@ -142,6 +143,9 @@ void main() {
     'renderWithRanges keeps offsets aligned across a LaTeX placeholder so the '
     'fade split lands after it',
     (tester) async {
+      LatexRenderingServer.debugReset();
+      LatexRenderingServer.debugStartOverride = () async {};
+      addTearDown(LatexRenderingServer.debugReset);
       late ConduitMarkdownStyle style;
       final preprocessor = LatexPreprocessor();
       await tester.pumpWidget(

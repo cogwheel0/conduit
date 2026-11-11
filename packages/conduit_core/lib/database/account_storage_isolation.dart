@@ -50,7 +50,10 @@ bool conversationUsesOpenWebUiStorage(Conversation? conversation) {
   if (conversation == null) return false;
   final storage = chatStorageKindOf(conversation);
   if (storage == ChatStorageKind.openWebUi) return true;
-  if (storage == ChatStorageKind.directLocal) return false;
+  if (storage == ChatStorageKind.directLocal ||
+      storage == ChatStorageKind.libreChat) {
+    return false;
+  }
   final backend = conversation.metadata['backend'];
   if (backend == kDirectTransport || isNativeHermesConversation(conversation)) {
     return false;
@@ -1154,6 +1157,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       ref.invalidate(conversationsProvider);
       ref.invalidate(foldersProvider);
       ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      ref.read(pendingApprovalChatIdsProvider.notifier).setAll(const {});
     } catch (error, stackTrace) {
       DebugLogger.error(
         'visible-state-provider-reset-failed',

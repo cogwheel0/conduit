@@ -17,11 +17,13 @@ final class ModelLogoCatalog {
     List<(String, String)> families = const [],
     Map<String, String> hosts = const {},
     Map<String, String> models = const {},
+    Map<String, String> names = const {},
   }) : logos = Map.unmodifiable(logos),
        _labAliases = Map.unmodifiable(labAliases),
        _families = List.unmodifiable(families),
        _hosts = Map.unmodifiable(hosts),
-       _models = Map.unmodifiable(models);
+       _models = Map.unmodifiable(models),
+       _names = Map.unmodifiable(names);
 
   /// Parses `catalog.json`. Malformed sections are skipped, not fatal.
   factory ModelLogoCatalog.fromJson(Map<String, dynamic> json) {
@@ -41,6 +43,7 @@ final class ModelLogoCatalog {
       families: families,
       hosts: strings(json['hosts']),
       models: strings(json['models']),
+      names: strings(json['names']),
     );
   }
 
@@ -50,6 +53,15 @@ final class ModelLogoCatalog {
   final List<(String, String)> _families;
   final Map<String, String> _hosts;
   final Map<String, String> _models;
+  final Map<String, String> _names;
+
+  /// The models.dev display name for a bare model id (`gpt-5-mini` →
+  /// `GPT-5 Mini`), or `null` when models.dev doesn't list it. A provider
+  /// prefix is not stripped here; see `modelDisplayName`.
+  String? modelNameFor(String modelId) {
+    final key = modelId.trim().toLowerCase();
+    return key.isEmpty ? null : _names[key];
+  }
 
   /// The logo id for a model, or `null` for the lettered fallback.
   ///

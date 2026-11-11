@@ -222,6 +222,9 @@ class FolderLocks extends ChatLocks {}
 /// Lock domain for note rows.
 class NoteLocks extends ChatLocks {}
 
+/// Lock domain for the writes of one chat's title, keyed by its server id.
+class ChatTitleLocks extends ChatLocks {}
+
 /// Fresh instance per database identity so locks never leak across servers.
 @Riverpod(keepAlive: true)
 ConversationLocks chatLocks(Ref ref) {
@@ -249,3 +252,12 @@ NoteLocks noteLocks(Ref ref) {
   ref.watch(appDatabaseProvider);
   return NoteLocks();
 }
+
+/// Orders a rename the user makes and a title generated for them, so neither
+/// overwrites the other while the first is still reaching the server. A
+/// distinct domain from [chatLocksProvider], which guards the chat's rows and
+/// is not held across a server request. One instance for the app, keyed by
+/// server chat ids: a lock taken before the database changes still orders
+/// the writes made after it.
+@Riverpod(keepAlive: true)
+ChatTitleLocks chatTitleLocks(Ref ref) => ChatTitleLocks();

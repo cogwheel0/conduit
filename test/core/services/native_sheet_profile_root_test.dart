@@ -93,11 +93,13 @@ List<NativeSheetSectionConfig> _root({
   NativeProfileRootAccount? account = _account,
   NativeProfileRootVisibility visibility = const NativeProfileRootVisibility(),
   int? otherAccountCount = 0,
+  String appLanguageTag = 'system',
 }) => buildNativeProfileRootSections(
   _l10n,
   account: account,
   visibility: visibility,
   card: _card,
+  appLanguageTag: appLanguageTag,
   otherAccountCount: otherAccountCount,
 );
 
@@ -107,15 +109,15 @@ void main() {
       final sections = _root(visibility: _everything);
 
       expect(_ids(sections), [
-        [nativeAccountsDetailId, nativeAccountAddActionId],
+        [NativeSheetRoutes.profile, nativeAccountsDetailId],
         [
-          NativeSheetRoutes.profile,
           NativeSheetRoutes.notificationSettings,
           NativeSheetRoutes.aiMemory,
           NativeSheetRoutes.dataConnection,
         ],
         [
           NativeSheetRoutes.appearance,
+          nativeAppLanguageId,
           NativeSheetRoutes.chats,
           NativeSheetRoutes.voice,
         ],
@@ -125,33 +127,83 @@ void main() {
           NativeSheetRoutes.personalConnections,
           NativeSheetRoutes.chatDataControls,
         ],
-        [NativeSheetRoutes.helpAbout],
+        [NativeSheetRoutes.helpAbout, 'buy-me-a-coffee', 'github-sponsors'],
         [nativeSignOutActionId],
-        ['buy-me-a-coffee', 'github-sponsors'],
       ]);
-      expect(sections[1].title, _l10n.accountSettingsTitle);
+      // As in the Settings app, no group has a heading; footers explain the
+      // groups that need it.
+      expect(sections.map((section) => section.title), everyElement(isNull));
       final advanced = sections[4];
-      expect(advanced.title, _l10n.advancedFeatures);
       expect(advanced.footer, _l10n.profileAdvancedFooter);
-      expect(sections.last.title, _l10n.supportConduit);
+      expect(sections[5].footer, _l10n.supportConduitFooter);
     });
 
-    test('the account card leads to Accounts, with Add account under it', () {
+    test('every row symbol is an outline', () {
+      final sections = _root(visibility: _everything);
+
+      final symbols = [
+        for (final section in sections)
+          for (final item in section.items) item.sfSymbol,
+      ];
+      expect(
+        symbols.where(
+          (symbol) => symbol.endsWith('.fill') || symbol.contains('filled'),
+        ),
+        isEmpty,
+      );
+      // Voice's waveform stands bare, like the rows around it: in a ring it
+      // was the one ringed glyph of its group. The native sheet draws its
+      // thin bars a little larger instead.
+      final voice = sections
+          .expand((section) => section.items)
+          .singleWhere((item) => item.id == NativeSheetRoutes.voice);
+      expect(voice.sfSymbol, 'waveform');
+      // One symbol per row, so no two rows read as the same place.
+      expect(symbols.toSet(), hasLength(symbols.length));
+    });
+
+    // The card and a Profile row both showed the account and read as two
+    // ways to one page. The card is the profile now, as the Settings app's
+    // card is its account, and Accounts has a row of its own.
+    test('the account card opens its profile, with Accounts and Add account '
+        'under it', () {
       final sections = _root();
 
-      final card = _item(sections, nativeAccountsDetailId);
+      final card = sections.first.items.first;
+      expect(card.id, NativeSheetRoutes.profile);
       expect(card.title, 'Ada');
       expect(card.subtitle, 'Home Lab +1');
       expect(card.usesProfileAvatar, isTrue);
       // Pushed inside the sheet, not a page behind it.
       expect(card.dismissOnSelect, isFalse);
-      final add = _item(sections, nativeAccountAddActionId);
-      expect(add.title, _l10n.accountsAddAccount);
-      expect(add.accent, isTrue);
-      expect(add.dismissOnSelect, isTrue);
-      // An action, not a page: no chevron.
-      expect(add.showsDisclosure, isFalse);
-      expect(add.actionId, nativeAccountAddActionId);
+      final ids = _ids(sections).expand((ids) => ids).toList();
+      expect(ids.where((id) => id == NativeSheetRoutes.profile), hasLength(1));
+      final accounts = _item(sections, nativeAccountsDetailId);
+      expect(accounts.title, _l10n.accountsTitle);
+      expect(accounts.usesProfileAvatar, isFalse);
+      expect(accounts.dismissOnSelect, isFalse);
+      // Adding an account ends the Accounts page, as in Mail, rather than
+      // sitting beside the row that leads there.
+      expect(ids, isNot(contains(nativeAccountAddActionId)));
+      expect(ids, isNot(contains(nativeAccountsAddItemId)));
+    });
+
+    test('every root symbol is an outline of one family', () {
+      final sections = _root(visibility: _everything);
+
+      // Sparkles are solid stars, the one glyph that read as filled, and the
+      // brain alone was as wide as the column; the head with its brain sits
+      // in it like its neighbours.
+      expect(
+        _item(sections, NativeSheetRoutes.aiMemory).sfSymbol,
+        'brain.head.profile',
+      );
+      final symbols = [
+        for (final section in sections)
+          for (final item in section.items) item.sfSymbol,
+      ];
+      expect(symbols, isNot(contains('sparkles')));
+      expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
     });
 
     test('Advanced rows use their own symbols and close the sheet', () {
@@ -174,18 +226,14 @@ void main() {
       final sections = _root();
 
       expect(
-        sections.map((section) => section.title),
-        isNot(contains(_l10n.advancedFeatures)),
+        sections.map((section) => section.footer),
+        isNot(contains(_l10n.profileAdvancedFooter)),
       );
       final ids = _ids(sections).expand((ids) => ids).toList();
       expect(ids, isNot(contains(NativeSheetRoutes.calendar)));
       expect(ids, isNot(contains(NativeSheetRoutes.workspace)));
       expect(ids, isNot(contains(NativeSheetRoutes.scheduledTasks)));
-      // Only the account's and support titles remain as section headings.
-      expect(
-        sections.where((section) => section.title != null).map((s) => s.title),
-        [_l10n.accountSettingsTitle, _l10n.supportConduit],
-      );
+      expect(_ids(sections), hasLength(5));
     });
 
     test('with several accounts, Sign out leaves only the active one', () {
@@ -221,6 +269,16 @@ void main() {
       expect(_item(sections, nativeSignOutActionId).title, _l10n.signOut);
     });
 
+    test('the app language is picked on the root, beside Appearance', () {
+      final sections = _root(appLanguageTag: 'de');
+
+      final language = _item(sections, nativeAppLanguageId);
+      expect(language.title, _l10n.appLanguage);
+      expect(language.kind, NativeSheetItemKind.searchablePicker);
+      expect(language.value, 'de');
+      expect(language.options.map((option) => option.id), contains('system'));
+    });
+
     // Next to a usable Hermes or Direct backend Settings stays open with no
     // Open WebUI account; the card still leads to all of them.
     test('without an Open WebUI account, its rows go and the card stays', () {
@@ -240,10 +298,26 @@ void main() {
       ]) {
         expect(ids, isNot(contains(id)), reason: id);
       }
-      expect(_ids(sections).first, [
-        nativeAccountsDetailId,
-        nativeAccountAddActionId,
-      ]);
+      expect(_ids(sections).first, [nativeAccountsDetailId]);
+    });
+
+    test('with LibreChat in charge, Personalization opens its Flutter page',
+        () {
+      const libreChat = NativeProfileRootVisibility(
+        showLibreChatPersonalization: true,
+      );
+      final item = _item(
+        _root(account: null, visibility: libreChat),
+        nativeLibreChatPersonalizationActionId,
+      );
+      expect(item.title, _l10n.personalization);
+      expect(item.dismissOnSelect, isTrue);
+      expect(item.actionId, nativeLibreChatPersonalizationActionId);
+      // An Open WebUI account signed in has its own AI & Memory instead.
+      expect(
+        _ids(_root(visibility: libreChat)).expand((ids) => ids),
+        isNot(contains(nativeLibreChatPersonalizationActionId)),
+      );
     });
   });
 
@@ -273,8 +347,9 @@ void main() {
 
       expect(page.id, nativeAccountsDetailId);
       expect(page.title, _l10n.accountsTitle);
-      expect(page.trailingActionId, nativeAccountAddActionId);
-      expect(page.trailingActionSfSymbol, 'plus');
+      // Add Account is the page's last row, so the bar has no second way.
+      expect(page.trailingActionId, isNull);
+      expect(page.trailingActionSfSymbol, isNull);
       expect(_ids(page.sections).take(2), [
         [
           '$nativeAccountServerActionId:home',
@@ -291,6 +366,10 @@ void main() {
       expect(server.avatarName, 'Home Lab');
       expect(server.actionId, nativeAccountServerActionId);
       expect(server.actionValue, 'home');
+      expect(
+        _item(page.sections, '$nativeAccountServerActionId:work').avatarName,
+        'Work',
+      );
 
       // The one in use stays put.
       final active = _item(
@@ -314,6 +393,26 @@ void main() {
 
     // A switch left the active account signed out: it is switched to again,
     // which opens its sign-in.
+    // Initials of "127.0.0.1" read "12"; a server known only by its address
+    // shows a server symbol instead.
+    test('a server known only by its address shows a server symbol', () {
+      final local = OpenWebUiServer(
+        id: 'local',
+        name: '127.0.0.1',
+        endpoints: [
+          OpenWebUiEndpoint(id: 'local-1', url: 'http://127.0.0.1:8091'),
+        ],
+      );
+      final page = accountsPage(
+        accounts: [_entry('ada-local', local, name: 'Ada', isActive: true)],
+      );
+
+      final server = _item(page.sections, '$nativeAccountServerActionId:local');
+      expect(server.title, '127.0.0.1');
+      expect(server.avatarName, isNull);
+      expect(server.sfSymbol, 'server.rack');
+    });
+
     test('the active account, signed out, is switched to', () {
       final page = accountsPage(
         accounts: [
@@ -370,7 +469,8 @@ void main() {
         '$nativeHermesUseActionId:hermes-laptop',
       );
       expect(laptop.checked, isFalse);
-      expect(laptop.subtitle, 'Desktop Gateway · 10.0.0.6');
+      // Plain HTTP to another machine: its credentials travel unencrypted.
+      expect(laptop.subtitle, 'Desktop Gateway · 10.0.0.6 · Not encrypted');
       expect(laptop.sfSymbol, 'desktopcomputer');
       expect(laptop.actionId, nativeHermesUseActionId);
       expect(laptop.actionValue, 'hermes-laptop');
@@ -403,6 +503,34 @@ void main() {
         _ids(page.sections).expand((ids) => ids),
         isNot(contains('accounts-direct-add')),
       );
+    });
+
+    test('ends on Add Account, before Sign Out of All Accounts', () {
+      for (final accounts in [
+        <OpenWebUiAccountEntry>[],
+        [_entry('alex-home', _home, name: 'Alex', isActive: true)],
+        [
+          _entry('alex-home', _home, name: 'Alex', isActive: true),
+          _entry('alex-work', _work, name: 'Alex L.'),
+        ],
+      ]) {
+        final ids = _ids(accountsPage(accounts: accounts).sections);
+        final addAt = ids.indexWhere(
+          (section) => section.contains(nativeAccountsAddItemId),
+        );
+        expect(ids[addAt], [nativeAccountsAddItemId]);
+        expect(addAt, ids.length - (accounts.length > 1 ? 2 : 1));
+      }
+      final add = _item(accountsPage().sections, nativeAccountsAddItemId);
+      expect(add.title, _l10n.accountsAddAccount);
+      expect(add.sfSymbol, 'plus.circle');
+      expect(add.accent, isTrue);
+      expect(add.dismissOnSelect, isTrue);
+      // An action, not a page: no chevron.
+      expect(add.showsDisclosure, isFalse);
+      expect(add.actionId, nativeAccountAddActionId);
+      // Any kind: the sheet opens on Open WebUI.
+      expect(add.actionValue, isTrue);
     });
 
     test('an empty card offers to add its first, on its own tab', () {
@@ -504,10 +632,42 @@ void main() {
       id,
     );
 
-    expect(row(profile(' Hello '), 'profile-name').subtitle, 'Ada · Hello');
+    // The name row holds the name; the About text has a row of its own.
+    expect(row(profile(' Hello '), 'profile-name').subtitle, 'Ada');
     expect(row(profile(' Hello '), 'profile-about').subtitle, 'Hello');
     expect(row(profile(''), 'profile-name').subtitle, 'Ada');
     expect(row(null, 'profile-about').subtitle, _l10n.notSet);
+  });
+
+  test('the profile details row says the gender and birthday set, else '
+      'what it holds', () {
+    AccountMetadata profile({String? gender, String? dateOfBirth}) =>
+        AccountMetadata(
+          id: 'user-1',
+          email: 'ada@example.com',
+          name: 'Ada',
+          role: 'user',
+          isActive: true,
+          gender: gender,
+          dateOfBirth: dateOfBirth,
+        );
+    String? details(AccountMetadata? profile) => _item(
+      buildNativeProfileDetailSections(
+        _l10n,
+        displayName: 'Ada',
+        accountProfile: profile,
+      ),
+      'profile-details',
+    ).subtitle;
+
+    expect(
+      details(profile(gender: 'female', dateOfBirth: '2001-02-03')),
+      '${_l10n.genderFemale} · Feb 3, 2001',
+    );
+    expect(details(profile(gender: 'Nonbinary')), 'Nonbinary');
+    expect(details(profile(dateOfBirth: '2001-02-03')), 'Feb 3, 2001');
+    expect(details(profile()), _l10n.profileDetailsSummary);
+    expect(details(null), _l10n.profileDetailsSummary);
   });
 
   test('a refreshed profile reaches the sheet only when an edited field '
@@ -543,7 +703,10 @@ void main() {
     );
 
     expect(nativeProfileSheetFieldsDiffer(shown, copy()), isFalse);
-    expect(nativeProfileSheetFieldsDiffer(shown, copy(timezone: 'CET')), isFalse);
+    expect(
+      nativeProfileSheetFieldsDiffer(shown, copy(timezone: 'CET')),
+      isFalse,
+    );
     expect(nativeProfileSheetFieldsDiffer(shown, copy(bio: 'New')), isTrue);
     expect(nativeProfileSheetFieldsDiffer(shown, copy(gender: null)), isTrue);
     expect(

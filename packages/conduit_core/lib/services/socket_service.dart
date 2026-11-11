@@ -11,6 +11,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'package:conduit_core/features/integrations/personal_tool_admissions.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
+import 'package:conduit_core/models/chat_handoff.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_health.dart';
 
@@ -29,6 +30,10 @@ typedef SocketChannelEventHandler = void Function(
   Map<String, dynamic> event,
   void Function(dynamic response)? ack,
 );
+
+/// Receives an `events:app` payload: an app reply that only the signed-in
+/// user may see (Open WebUI 0.12.1).
+typedef SocketAppEventHandler = void Function(Map<String, dynamic> event);
 
 enum SocketReplayGapReason {
   eventLimit,
@@ -51,6 +56,14 @@ typedef SocketToolExecutionHandler = Future<Object?> Function(
   Map<String, dynamic> call, {
   required List<PersonalToolAdmission> admitted,
   required bool Function() isActive,
+});
+
+/// Decides a `chat:handoff` event that arrived for [chatId] and [messageId]
+/// carrying [data], and returns the reply to acknowledge it with.
+typedef SocketChatHandoffHandler = Future<Map<String, dynamic>> Function({
+  required String? chatId,
+  required String? messageId,
+  required Object? data,
 });
 
 typedef SocketFactory = io.Socket Function(
@@ -140,6 +153,7 @@ class SocketService {
 
   final Map<String, _ChatEventRegistration> _chatEventHandlers = {};
   final Map<String, _ChannelEventRegistration> _channelEventHandlers = {};
+  final Map<String, SocketAppEventHandler> _appEventHandlers = {};
   final Map<String, List<void Function(dynamic)>> _dynamicEventHandlers = {};
   int _handlerSeed = 0;
 
@@ -584,6 +598,14 @@ class SocketService {
   set toolExecutionHandler(SocketToolExecutionHandler? handler) =>
       _toolExecutionHandler = handler;
 
+  SocketChatHandoffHandler? _chatHandoffHandler;
+
+  /// Who answers `chat:handoff` events for this service, or null for nobody;
+  /// a call then gets an `unsupported` reply. Set by the owner that ties the
+  /// service to an account, and cleared with it.
+  set chatHandoffHandler(SocketChatHandoffHandler? handler) =>
+      _chatHandoffHandler = handler;
+
   /// Records the personal connections the chat request for [messageId] in
   /// [chatId] sent over [sessionId], which is what lets Open WebUI's
   /// `execute:tool` callbacks for that completion reach them. Called where the
@@ -824,42 +846,12 @@ class SocketService {
         .setTimeout(20000)
         .setPath(path);
 
-    // Merge Authorization (if any) with user-defined custom headers for the
-    // Socket.IO handshake. Avoid overriding reserved headers.
-    final Map<String, String> extraHeaders = {
-      ConduitUserAgent.headerName: ConduitUserAgent.value,
-    };
+    final extraHeaders = openWebUiWebSocketHeaders(
+      serverConfig,
+      authToken: _authToken,
+    );
     if (_authToken != null && _authToken!.isNotEmpty) {
-      extraHeaders['Authorization'] = 'Bearer $_authToken';
       builder.setAuth({'token': _authToken});
-    }
-    if (serverConfig.customHeaders.isNotEmpty) {
-      final reserved = {
-        'authorization',
-        'content-type',
-        'accept',
-        // Socket/WebSocket reserved or managed by client/runtime
-        'host',
-        'origin',
-        'connection',
-        'upgrade',
-        'sec-websocket-key',
-        'sec-websocket-version',
-        'sec-websocket-extensions',
-        'sec-websocket-protocol',
-        'user-agent',
-      };
-      serverConfig.customHeaders.forEach((key, value) {
-        final lower = key.toLowerCase();
-        if (!reserved.contains(lower) && value.isNotEmpty) {
-          // Do not overwrite Authorization we already set from authToken
-          if (lower == 'authorization' &&
-              extraHeaders.containsKey('Authorization')) {
-            return;
-          }
-          extraHeaders[key] = value;
-        }
-      });
     }
     if (extraHeaders.isNotEmpty) {
       builder.setExtraHeaders(extraHeaders);
@@ -1020,6 +1012,18 @@ class SocketService {
     );
   }
 
+  /// Registers [handler] for `events:app`. Open WebUI sends that event to the
+  /// asking user's sessions alone, never to a channel room, with an app reply
+  /// that is not stored: the private error of a failed app mention.
+  SocketEventSubscription addAppEventHandler(SocketAppEventHandler handler) {
+    final id = _nextHandlerId();
+    _appEventHandlers[id] = handler;
+    return SocketEventSubscription(
+      () => _appEventHandlers.remove(id),
+      handlerId: id,
+    );
+  }
+
   void clearChatEventHandlers() {
     _chatEventHandlers.clear();
     if (_backgroundLeaseHandlerIds.isNotEmpty) {
@@ -1162,6 +1166,7 @@ class SocketService {
     _clearBufferedReplayState();
     _chatEventHandlers.clear();
     _channelEventHandlers.clear();
+    _appEventHandlers.clear();
     _dynamicEventHandlers.clear();
     _backgroundActivityLeases = 0;
     _backgroundLeaseHandlerIds.clear();
@@ -1225,6 +1230,7 @@ class SocketService {
       ..on('chat-events', _handleChatEvent)
       ..on('events:channel', _handleChannelEvent)
       ..on('channel-events', _handleChannelEvent)
+      ..on('events:app', _handleAppEvent)
       ..on('connect', _handleConnect)
       ..on('connect_error', _handleConnectError)
       ..on('reconnect_attempt', _handleReconnectAttempt)
@@ -1239,6 +1245,7 @@ class SocketService {
       ..off('chat-events', _handleChatEvent)
       ..off('events:channel', _handleChannelEvent)
       ..off('channel-events', _handleChannelEvent)
+      ..off('events:app', _handleAppEvent)
       ..off('connect', _handleConnect)
       ..off('connect_error', _handleConnectError)
       ..off('reconnect_attempt', _handleReconnectAttempt)
@@ -1524,10 +1531,14 @@ class SocketService {
     final event = map['data'];
     final type = event is Map ? event['type'] : null;
     final unsupported = switch (type) {
+      // Names Conduit and what it does instead, so a function can stop
+      // waiting on a browser (docs/open-webui-functions.md).
       'execute' => const <String, dynamic>{
         'error':
             'Conduit does not support client-side JavaScript execution. '
             'Use a server-side tool or the Open WebUI browser client.',
+        'client': conduitClientName,
+        'capabilities': conduitEventCapabilities,
       },
       'execute:python' => const <String, dynamic>{
         'stdout': '',
@@ -1537,6 +1548,16 @@ class SocketService {
             'Open WebUI browser client.',
         'result': null,
       },
+      // Conduit runs no terminal of its own, so there is no AGENTS.md to
+      // read, and no user terminal open for the shell tools.
+      'request:terminal' => const <String, dynamic>{},
+      'request:terminal:state' => const <String, dynamic>{'connected': false},
+      // MCP elicitation has no form here; cancelling lets the tool go on.
+      'request:elicitation' => const <String, dynamic>{'action': 'cancel'},
+      // Conduit shows no voice avatar, so a gesture has nothing to play.
+      'voice:play_animation' => const <String, dynamic>{
+        'status': 'unavailable',
+      },
       _ => null,
     };
     if (unsupported != null &&
@@ -1545,11 +1566,22 @@ class SocketService {
       ackFn(unsupported);
       return;
     }
+    // Says an interactive request was answered or timed out on the server.
+    // Conduit's prompts keep their own deadline, so there is nothing to do.
+    if (type == 'request:interaction:done') return;
 
     // A direct tool call is consumed here for the same reason: the server
     // blocks until this session answers, whichever chat is open.
     if (type == 'execute:tool') {
       _handleExecuteTool(event as Map, chatId, messageId, ackFn);
+      return;
+    }
+
+    // So is a handoff, so that a replay cannot ask the user twice.
+    if (type == chatHandoffEventType) {
+      if (sessionId == null || sessionId == this.sessionId) {
+        _handleChatHandoff(chatId, messageId, (event as Map)['data'], ackFn);
+      }
       return;
     }
 
@@ -1600,6 +1632,28 @@ class SocketService {
     if (bufferScope != null) {
       _bufferChatEvent(bufferScope, map, ackFn);
     }
+  }
+
+  /// Passes a `chat:handoff` event to [chatHandoffHandler] and answers a call
+  /// with its reply: always exactly once, and as unsupported or failed when
+  /// there is no handler or it throws.
+  void _handleChatHandoff(
+    String? chatId,
+    String? messageId,
+    Object? data,
+    void Function(dynamic response)? ack,
+  ) {
+    final handler = _chatHandoffHandler;
+    Future<Map<String, dynamic>> run() async {
+      if (handler == null) return ChatHandoffRefusal.unsupported.reply;
+      try {
+        return await handler(chatId: chatId, messageId: messageId, data: data);
+      } catch (_) {
+        return ChatHandoffRefusal.failed.reply;
+      }
+    }
+
+    unawaited(run().then((reply) => ack?.call(reply)));
   }
 
   /// Answers an `execute:tool` call for a direct tool server.
@@ -1892,6 +1946,29 @@ class SocketService {
       } catch (_) {}
     }
   }
+
+  void _handleAppEvent(dynamic data, [dynamic ack]) {
+    final payload = data is List && data.isNotEmpty ? data.first : data;
+    final map = _coerceToMap(payload);
+    if (map == null) return;
+    for (final handler in List<SocketAppEventHandler>.from(
+      _appEventHandlers.values,
+    )) {
+      try {
+        handler(map);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'app-event-handler-failed',
+          scope: 'socket/app',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+  }
+
+  @visibleForTesting
+  void debugHandleAppEvent(dynamic data) => _handleAppEvent(data);
 
   bool _shouldDeliver(
     String? registeredConversationId,
@@ -2203,4 +2280,40 @@ final class _BufferedChatReplay {
 /// answered, times out or loses its connection.
 class _ToolCallScope {
   bool active = true;
+}
+
+/// The headers of a WebSocket handshake with an Open WebUI server: the
+/// session's bearer token, if any, and the server's custom headers, except
+/// those the handshake or the runtime owns.
+Map<String, String> openWebUiWebSocketHeaders(
+  ServerConfig serverConfig, {
+  String? authToken,
+}) {
+  final headers = <String, String>{
+    ConduitUserAgent.headerName: ConduitUserAgent.value,
+  };
+  if (authToken != null && authToken.isNotEmpty) {
+    headers['Authorization'] = 'Bearer $authToken';
+  }
+  const reserved = {
+    'authorization',
+    'content-type',
+    'accept',
+    // Socket/WebSocket reserved or managed by client/runtime
+    'host',
+    'origin',
+    'connection',
+    'upgrade',
+    'sec-websocket-key',
+    'sec-websocket-version',
+    'sec-websocket-extensions',
+    'sec-websocket-protocol',
+    'user-agent',
+  };
+  serverConfig.customHeaders.forEach((key, value) {
+    if (!reserved.contains(key.toLowerCase()) && value.isNotEmpty) {
+      headers[key] = value;
+    }
+  });
+  return headers;
 }

@@ -55,7 +55,7 @@ void main() {
     check(find.byType(TextField).evaluate()).length.equals(2);
 
     await tester.enterText(find.byType(TextField).first, 'Parity room');
-    await tester.tap(find.widgetWithText(ConduitTextButton, 'Create channel'));
+    await tester.tap(find.widgetWithText(ConduitTextButton, 'Create Channel'));
     await tester.pumpAndSettle();
 
     check((await result)?.name).equals('Parity room');

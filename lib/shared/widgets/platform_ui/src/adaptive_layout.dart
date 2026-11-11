@@ -12,6 +12,7 @@ class AdaptiveAppBarAction {
     this.iosSymbol,
     this.icon,
     this.title,
+    this.semanticLabel,
     this.onPressed,
     this.spacerAfter = ToolbarSpacerType.none,
     this.prominent = false,
@@ -20,7 +21,12 @@ class AdaptiveAppBarAction {
 
   final String? iosSymbol;
   final IconData? icon;
+
+  /// Shown as the button's text in place of its icon.
   final String? title;
+
+  /// Names an icon-only action for assistive technology without showing it.
+  final String? semanticLabel;
 
   /// Null keeps the action visible while rendering it disabled.
   final VoidCallback? onPressed;
@@ -189,6 +195,7 @@ class AdaptiveScaffold extends StatelessWidget {
     this.endDrawerEnableOpenDragGesture = true,
     this.scaffoldKey,
     this.tabBarHidden = false,
+    this.backgroundColor,
   });
 
   final AdaptiveAppBar? appBar;
@@ -206,6 +213,11 @@ class AdaptiveScaffold extends StatelessWidget {
   final bool endDrawerEnableOpenDragGesture;
   final GlobalKey<ScaffoldState>? scaffoldKey;
   final bool tabBarHidden;
+
+  /// The page colour behind everything, including the strip the keyboard
+  /// covers. Without it the iOS keyboard's rounded corners show the default
+  /// scaffold colour around a differently coloured page.
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -275,6 +287,7 @@ class AdaptiveScaffold extends StatelessWidget {
     content = Material(type: MaterialType.transparency, child: content);
 
     Widget page = CupertinoPageScaffold(
+      backgroundColor: backgroundColor,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset ?? !useNativeTabBar,
       navigationBar: navigationBar,
       child: content,
@@ -331,6 +344,18 @@ class AdaptiveScaffold extends StatelessWidget {
   }
 
   Widget _cupertinoAction(AdaptiveAppBarAction action, Color? fallbackTint) {
+    if (PlatformUiCapabilities.usesNativeIOS26 && action.title != null) {
+      return AdaptiveButton(
+        label: action.title!,
+        onPressed: action.onPressed,
+        color: action.tintColor ?? fallbackTint,
+        style: action.prominent
+            ? AdaptiveButtonStyle.prominentGlass
+            : AdaptiveButtonStyle.glass,
+        minSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+      );
+    }
     if (PlatformUiCapabilities.usesNativeIOS26 &&
         action.iosSymbol != null &&
         action.title == null) {
@@ -353,7 +378,10 @@ class AdaptiveScaffold extends StatelessWidget {
       onPressed: action.onPressed,
       child: action.title != null
           ? Text(action.title!)
-          : Icon(action.icon ?? CupertinoIcons.circle),
+          : Icon(
+              action.icon ?? CupertinoIcons.circle,
+              semanticLabel: action.semanticLabel,
+            ),
     );
   }
 
@@ -375,6 +403,7 @@ class AdaptiveScaffold extends StatelessWidget {
                             )
                           : IconButton(
                               onPressed: action.onPressed,
+                              tooltip: action.semanticLabel,
                               icon: Icon(action.icon ?? Icons.circle),
                             ),
                     )
@@ -402,6 +431,7 @@ class AdaptiveScaffold extends StatelessWidget {
               ));
     return Scaffold(
       key: scaffoldKey,
+      backgroundColor: backgroundColor,
       appBar: materialAppBar,
       body: body,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
@@ -695,6 +725,7 @@ class AdaptiveTooltip extends StatelessWidget {
   const AdaptiveTooltip({
     super.key,
     required this.message,
+    this.excludeFromSemantics,
     this.preferBelow = true,
     this.verticalOffset,
     this.padding,
@@ -708,6 +739,7 @@ class AdaptiveTooltip extends StatelessWidget {
   });
 
   final String message;
+  final bool? excludeFromSemantics;
   final bool preferBelow;
   final double? verticalOffset;
   final EdgeInsetsGeometry? padding;
@@ -722,6 +754,7 @@ class AdaptiveTooltip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: message,
+    excludeFromSemantics: excludeFromSemantics,
     preferBelow: preferBelow,
     verticalOffset: verticalOffset,
     padding: padding,
@@ -740,6 +773,7 @@ class AdaptiveContextMenuAction {
     required this.title,
     required this.onPressed,
     this.icon,
+    this.iosSymbol,
     this.isDestructive = false,
     this.isDisabled = false,
   });
@@ -747,6 +781,7 @@ class AdaptiveContextMenuAction {
   final String title;
   final VoidCallback onPressed;
   final dynamic icon;
+  final String? iosSymbol;
   final bool isDestructive;
   final bool isDisabled;
 }
@@ -1002,4 +1037,17 @@ class _AdaptiveExpansionTileState extends State<AdaptiveExpansionTile> {
       ],
     );
   }
+}
+
+/// A layer that paints nothing, for a surface that draws its own background:
+/// text fields and switch ink inside it then draw on that surface instead of
+/// on the page beneath it.
+class AdaptiveTransparentLayer extends StatelessWidget {
+  const AdaptiveTransparentLayer({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      Material(type: MaterialType.transparency, child: child);
 }

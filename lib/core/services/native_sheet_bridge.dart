@@ -114,6 +114,7 @@ class NativeSheetRoutes {
   static const appearance = 'appearance';
   static const chats = 'chats';
   static const voice = 'voice';
+  static const voiceProvider = 'voice-provider';
   static const aiMemory = 'ai-memory';
   static const dataConnection = 'data-connection';
   static const hermes = 'hermes';
@@ -150,6 +151,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Object? _modelPinToggleHandlerOwner;
   Future<void> Function(String value)? _reasoningEffortChangedHandler;
   Object? _reasoningEffortChangedHandlerOwner;
+  Future<void> Function(String key, String value)? _modelControlChangedHandler;
+  Object? _modelControlChangedHandlerOwner;
   Object? _reasoningEffortUpdateOwner;
   Future<void> _reasoningEffortUpdateQueue = Future<void>.value();
   NativeSheetThemeConfig? _lastTheme;
@@ -241,14 +244,34 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     bool allowsCustomReasoningEffort = true,
     String customReasoningEffortTitle = 'Custom effort',
     String customReasoningEffortHint = 'Enter effort',
+    List<PlatformNativeSheetModelControl> modelControls =
+        const <PlatformNativeSheetModelControl>[],
+    String modelControlDefaultTitle = 'Default',
     Future<void> Function(String modelId)? onTogglePinned,
     Future<void> Function(String value)? onReasoningEffortChanged,
+    Future<void> Function(String key, String value)? onModelControlChanged,
     bool rethrowErrors = false,
   }) async {
     final normalizedPresentationId = presentationId.trim();
     if (!_isIOS || models.isEmpty || normalizedPresentationId.isEmpty) {
       return null;
     }
+    // One selector is up at a time: its control picks go to its handler
+    // until it closes. A second one the platform refuses leaves the open
+    // one's handler in place.
+    final previousControlHandler = _modelControlChangedHandler;
+    final previousControlHandlerOwner = _modelControlChangedHandlerOwner;
+    final controlHandlerOwner = Object();
+    _modelControlChangedHandler = onModelControlChanged;
+    _modelControlChangedHandlerOwner = controlHandlerOwner;
+    void restorePreviousControlHandler() {
+      if (!identical(_modelControlChangedHandlerOwner, controlHandlerOwner)) {
+        return;
+      }
+      _modelControlChangedHandler = previousControlHandler;
+      _modelControlChangedHandlerOwner = previousControlHandlerOwner;
+    }
+
     final previousPinToggleHandler = _modelPinToggleHandler;
     final previousPinToggleHandlerOwner = _modelPinToggleHandlerOwner;
     final previousEffortHandler = _reasoningEffortChangedHandler;
@@ -282,6 +305,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           allowsCustomReasoningEffort: allowsCustomReasoningEffort,
           customReasoningEffortTitle: customReasoningEffortTitle,
           customReasoningEffortHint: customReasoningEffortHint,
+          modelControls: modelControls,
+          modelControlDefaultTitle: modelControlDefaultTitle,
         ),
       );
       shouldClearPinToggleHandler = true;
@@ -291,6 +316,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       return null;
     } on PlatformException catch (error, stackTrace) {
       if (!shouldClearPinToggleHandler) {
+        restorePreviousControlHandler();
         _restorePreviousModelPinToggleHandler(
           owner: pinToggleHandlerOwner,
           previousHandler: previousPinToggleHandler,
@@ -313,6 +339,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       return null;
     } catch (error, stackTrace) {
       if (!shouldClearPinToggleHandler) {
+        restorePreviousControlHandler();
         _restorePreviousModelPinToggleHandler(
           owner: pinToggleHandlerOwner,
           previousHandler: previousPinToggleHandler,
@@ -334,6 +361,11 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       if (rethrowErrors) rethrow;
       return null;
     } finally {
+      if (shouldClearPinToggleHandler &&
+          identical(_modelControlChangedHandlerOwner, controlHandlerOwner)) {
+        _modelControlChangedHandler = null;
+        _modelControlChangedHandlerOwner = null;
+      }
       if (shouldClearPinToggleHandler &&
           identical(_modelPinToggleHandlerOwner, pinToggleHandlerOwner)) {
         _modelPinToggleHandler = null;
@@ -414,6 +446,29 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
   }
 
+  /// Shows [controls] as the selector [presentationId]'s control rows again,
+  /// as the account holds them.
+  Future<void> updateModelSelectorModelControls({
+    required String presentationId,
+    required List<PlatformNativeSheetModelControl> controls,
+  }) async {
+    final normalizedPresentationId = presentationId.trim();
+    if (!_isIOS || normalizedPresentationId.isEmpty) return;
+    try {
+      await _api.updateModelSelectorModelControls(
+        normalizedPresentationId,
+        controls,
+      );
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'updateModelSelectorModelControls',
+        error,
+        stackTrace,
+        data: {'controlCount': controls.length},
+      );
+    }
+  }
+
   void _restorePreviousModelPinToggleHandler({
     required Object owner,
     required Future<void> Function(String modelId)? previousHandler,
@@ -438,12 +493,15 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     _reasoningEffortUpdateOwner = previousUpdateOwner;
   }
 
+  /// Returns the selected ID, or null on dismissal, unsupported input, or suppressed errors.
+  /// [filterAllLabel] enables group filtering; [rethrowErrors] preserves presentation failures.
   Future<String?> presentOptionsSelector({
     required String title,
     required List<NativeSheetOptionConfig> options,
     String? subtitle,
     String? selectedOptionId,
     bool searchable = true,
+    String? filterAllLabel,
     bool rethrowErrors = false,
   }) async {
     if (!_isIOS || options.isEmpty) return null;
@@ -454,6 +512,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           subtitle: subtitle,
           selectedOptionId: selectedOptionId,
           searchable: searchable,
+          filterAllLabel: filterAllLabel,
           options: options.map((option) => option.toPlatform()).toList(),
         ),
       );
@@ -520,6 +579,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     String valueId = 'text',
     String sendActionId = 'send',
     String closeActionId = 'close',
+    bool emitChanges = false,
     bool rethrowErrors = false,
   }) async {
     if (!_isIOS) return null;
@@ -533,6 +593,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           valueId: valueId,
           sendActionId: sendActionId,
           closeActionId: closeActionId,
+          emitChanges: emitChanges,
         ),
       );
       return raw == null ? null : NativeSheetActionResult.fromPlatform(raw);
@@ -690,6 +751,27 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     unawaited(_handleReasoningEffortChanged(event.value));
   }
 
+  @override
+  void onModelControlChanged(
+    PlatformNativeSheetModelControlChangedEvent event,
+  ) {
+    if (event.key.isEmpty || event.value.isEmpty) return;
+    unawaited(_handleModelControlChanged(event.key, event.value));
+  }
+
+  Future<void> _handleModelControlChanged(String key, String value) async {
+    try {
+      await _modelControlChangedHandler?.call(key, value);
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'onModelControlChanged',
+        error,
+        stackTrace,
+        data: {'key': key},
+      );
+    }
+  }
+
   Future<void> _handleReasoningEffortChanged(String value) async {
     try {
       await _reasoningEffortChangedHandler?.call(value);
@@ -780,16 +862,19 @@ class NativeSheetSectionConfig {
     required this.items,
     this.title,
     this.footer,
+    this.reorderActionId,
   });
 
   final String? title;
   final String? footer;
+  final String? reorderActionId;
   final List<NativeSheetItemConfig> items;
 
   Map<String, Object?> toMap() {
     return {
       'title': title,
       'footer': footer,
+      if (reorderActionId != null) 'reorderActionId': reorderActionId,
       'items': items.map((item) => item.toMap()).toList(),
     };
   }
@@ -1028,6 +1113,7 @@ class NativeSheetItemConfig {
     this.checked = false,
     this.accent = false,
     this.usesProfileAvatar = false,
+    this.filterAllLabel,
   });
 
   final String id;
@@ -1077,8 +1163,12 @@ class NativeSheetItemConfig {
   /// this row's own title and subtitle.
   final bool usesProfileAvatar;
 
+  /// Enables the picker filter pill; this is its unfiltered label.
+  final String? filterAllLabel;
+
   Map<String, Object?> toMap() {
     return {
+      if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
       'id': id,
       'title': title,
       'subtitle': subtitle,
@@ -1123,12 +1213,20 @@ enum NativeSheetItemKind {
   dropdown,
   searchablePicker,
   toggle,
+
+  /// One of a few values. On iOS a one-line row whose value at the trailing
+  /// edge opens a menu, as a Settings form's menu picker does; the
+  /// subtitle, if any, runs under the title.
   segment,
   slider,
   info,
   readOnlyText,
   source,
   statusUpdate,
+
+  /// Preview tiles for a few looks (System, Light, Dark), each painted from
+  /// its option's swatches, with a label and a selection mark under it.
+  appearanceTiles,
 }
 
 class NativeSheetOptionConfig {
@@ -1142,20 +1240,33 @@ class NativeSheetOptionConfig {
     this.ancestorHasMoreSiblings = const <bool>[],
     this.showBranch = false,
     this.hasMoreSiblings = false,
+    this.filterGroup,
+    this.swatches,
+    this.darkSwatches,
   });
 
   final String id;
   final String label;
   final String? subtitle;
   final String? sfSymbol;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, shown as
+  /// small discs beside its label in light appearance; [darkSwatches] in
+  /// dark. Null for an ordinary option.
+  final List<int>? swatches;
+  final List<int>? darkSwatches;
   final bool enabled;
   final bool destructive;
   final List<bool> ancestorHasMoreSiblings;
   final bool showBranch;
   final bool hasMoreSiblings;
 
+  /// Label in the picker filter menu. Empty keeps an option in every group.
+  final String? filterGroup;
+
   Map<String, Object?> toMap() {
     return {
+      if (filterGroup != null) 'filterGroup': filterGroup,
       'id': id,
       'label': label,
       'subtitle': subtitle,
@@ -1165,6 +1276,8 @@ class NativeSheetOptionConfig {
       'ancestorHasMoreSiblings': ancestorHasMoreSiblings,
       'showBranch': showBranch,
       'hasMoreSiblings': hasMoreSiblings,
+      if (swatches != null) 'swatches': swatches,
+      if (darkSwatches != null) 'darkSwatches': darkSwatches,
     };
   }
 }
@@ -1318,6 +1431,7 @@ extension on NativeSheetSectionConfig {
     return PlatformNativeSheetSection(
       title: title,
       footer: footer,
+      reorderActionId: reorderActionId,
       items: items.map((item) => item.toPlatform()).toList(),
     );
   }
@@ -1434,6 +1548,7 @@ extension on NativeSheetItemConfig {
       checked: checked,
       accent: accent,
       usesProfileAvatar: usesProfileAvatar,
+      filterAllLabel: filterAllLabel,
     );
   }
 }
@@ -1459,6 +1574,8 @@ extension on NativeSheetItemKind {
       NativeSheetItemKind.source => PlatformNativeSheetItemKind.source,
       NativeSheetItemKind.statusUpdate =>
         PlatformNativeSheetItemKind.statusUpdate,
+      NativeSheetItemKind.appearanceTiles =>
+        PlatformNativeSheetItemKind.appearanceTiles,
     };
   }
 }
@@ -1475,6 +1592,9 @@ extension on NativeSheetOptionConfig {
       ancestorHasMoreSiblings: ancestorHasMoreSiblings,
       showBranch: showBranch,
       hasMoreSiblings: hasMoreSiblings,
+      filterGroup: filterGroup,
+      swatchesArgb: swatches,
+      darkSwatchesArgb: darkSwatches,
     );
   }
 }

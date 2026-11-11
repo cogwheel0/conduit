@@ -245,7 +245,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "JWT",
+  "jwt": "トークン",
   "usernameOrEmail": "ユーザー名またはメール",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -374,6 +374,122 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInAccountPendingApproval": "アカウントは管理者の承認待ちです。承認されたらもう一度お試しください。",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "このアカウントは 2 段階認証を使用しています。もう一度サインインして、認証アプリのコードを入力してください。",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "サインインを確認",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "認証アプリを設定",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "認証アプリを復旧",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "認証アプリに表示される 6 桁のコードを入力してください。",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "保存した復旧コードのいずれかを入力してください。",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "このアカウントを認証アプリに追加し、表示される 6 桁のコードを入力してください。",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "管理者がこのアカウントの 2 段階認証をリセットしました。受け取った復旧トークンを入力してください。",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "認証コード",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "復旧コード",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "復旧トークン",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "復旧コードを使用",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "認証コードを使用",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "サインインに戻る",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "認証アプリに追加",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "セットアップキー",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "セットアップキーをコピー",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "認証アプリ用の QR コード",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "認証アプリを準備しています…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "セットアップキーを読み込めませんでした。",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "追加できるアプリがありませんでした。代わりにセットアップキーを認証アプリにコピーしてください。",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "復旧コードを保存",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "認証アプリを失った場合、各コードで 1 回サインインできます。安全な場所に保管してください。再表示されません。",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "復旧コードをコピー",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "このコードは使用できませんでした。確認してもう一度お試しください。",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "この手順の有効期限が切れました。サインインに戻ってやり直してください。",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "試行回数が多すぎます。数分待ってから、もう一度サインインしてください。",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "コードを確認できませんでした。もう一度お試しください。",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
+  },
   "serverRedirectingHttps": "サーバーがリクエストをリダイレクトしています。サーバーの HTTPS 設定を確認してください。",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."
@@ -432,6 +548,21 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "保存した下書きを読み込めませんでした。置き換える前にもう一度お試しください。",
+  "composerDraftSaveFailed": "このデバイスに下書きを保存できませんでした。アプリを開いたまま、もう一度お試しください。",
+  "savedRecording": "保存済みの録音",
+  "recordingDiscard": "録音を破棄",
+  "recordingTranscriptionFailed": "文字起こしに失敗しました。録音は保存されています。",
+  "recordingDiscardConfirmation": "この録音を破棄してもよろしいですか？",
+  "recordingDiscardFailed": "この録音を破棄できませんでした。もう一度お試しください。",
+  "recordingCaptureInterrupted": "録音が中断されました。保存された音声は一部が欠けている可能性があります。",
+  "recordingLoadFailed": "録音を読み込めませんでした。再試行",
+  "recordingSaveFailed": "このデバイスに録音を保存できませんでした。アプリを開いたまま再試行してください。",
+  "transcribeOnServer": "サーバーで文字起こし",
+  "transcribeOnDevice": "デバイスで文字起こし",
+  "recordingRecoveryUnavailable": "この音声認識では録音を保持できません。文字起こししたテキストは引き続き下書きに保存されます。音声を保持するには、サーバーでの音声認識を選択してください。",
+  "exportRecording": "録音を書き出す",
+  "recordingExportFailed": "この録音を書き出せませんでした。もう一度お試しください。",
   "voiceInput": "音声入力",
   "@voiceInput": {
     "description": "Label for voice input feature."
@@ -749,6 +880,7 @@
     "description": "Action to start a new chat."
   },
   "more": "その他",
+  "done": "完了",
   "@more": {
     "description": "Opens additional actions or content."
   },
@@ -811,6 +943,14 @@
   "failedToUpdateArchive": "アーカイブの更新に失敗しました",
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
+  },
+  "markAsUnread": "未読にする",
+  "@markAsUnread": {
+    "description": "Context action that marks a chat unread so it shows the unread dot again."
+  },
+  "failedToMarkChatUnread": "チャットを未読にできませんでした",
+  "@failedToMarkChatUnread": {
+    "description": "Error notice when marking a chat unread fails."
   },
   "unarchive": "アーカイブ解除",
   "@unarchive": {
@@ -994,6 +1134,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "15秒戻る",
+  "ttsSkipForward": "15秒進む",
   "ttsListen": "聞く",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -1056,6 +1198,10 @@
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
+  "usageIncomplete": "一部のステップで使用量が報告されなかったため、これらの数値は実際より少ない可能性があります。",
+  "@usageIncomplete": {
+    "description": "Note under a reply's usage figures when the server marks its usage incomplete: some steps reported none"
+  },
   "usageQueueTime": "キュー時間",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"
@@ -1067,6 +1213,28 @@
   "usageTotalTokens": "合計トークン",
   "@usageTotalTokens": {
     "description": "Label for total token count"
+  },
+  "usageContextWindow": "コンテキストウィンドウ",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
   },
   "edit": "編集",
   "@edit": {
@@ -1092,11 +1260,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Open WebUI の設定から JWT トークンを取得してください。API キー (sk-...) はストリーミングに対応していません。",
+  "tokenHint": "Web 版 Open WebUI から JWT セッショントークンをコピーして、ここに貼り付けてください。管理者は「設定 › アカウント › API キー」で確認できます。API キー (sk-…) は使用できません。",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "API キー (sk-...) はサポートされていません。代わりに JWT トークンを使用してください。",
+  "apiKeyNotSupported": "API キー (sk-…) ではサインインできません。代わりに JWT トークンを貼り付けてください。",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -1244,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "アクセントパレット",
+  "themePalette": "カラーパレット",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "モノクローム",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Conduit 向けに設計されたクリーンなニュートラルテーマ。",
+  "themePaletteConduitDescription": "白と黒だけで、アクセントカラーはありません。",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1350,6 +1518,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "下書きをメモとして保存",
+  "showComposerNotesButtonDescription": "入力中は＋メニューに「メモとして保存」が表示され、メッセージを送信せずにメモとして残せます。",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1376,6 +1546,13 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "アクションを自動選択",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "メッセージアクション",
+  "messageActionsDescription": "回答の下に表示するアクションを選択します。有効なアクションをドラッグして順序を変更できます。それ以外のアクションは「その他」に残ります。",
+  "messageActionsInline": "回答の下",
+  "messageActionsReorder": "ドラッグして並べ替え",
+  "messageActionsReset": "初期設定に戻す",
   "chatSettings": "チャット",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -1436,7 +1613,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "文字起こしのために録音を常に Open WebUI サーバーへ送信します。",
+  "sttEngineServerDescription": "録音をチャットのサーバー（Open WebUI、Hermes、Direct と Apple のチャットでは音声プロバイダー）に送信して文字起こしします。",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1502,7 +1679,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "常に Open WebUI サーバーに音声をリクエストします。",
+  "ttsEngineServerDescription": "チャットのサーバー（Open WebUI、Hermes、Direct と Apple のチャットでは音声プロバイダー）で音声を生成します。",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1514,6 +1691,36 @@
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
   },
+  "voiceProviderTitle": "音声プロバイダー",
+  "voiceProviderDescription": "「音声入力」または「テキスト読み上げ」が「サーバー」に設定されている場合、Direct と Apple のチャットはこの接続を使用します。",
+  "voiceProviderConnection": "接続",
+  "voiceProviderNone": "なし",
+  "voiceProviderNoConnections": "ここで選択するには、OpenAI 互換の Direct 接続を追加してください。",
+  "voiceProviderTranscriptionModel": "文字起こしモデル",
+  "voiceProviderSpeechModel": "音声合成モデル",
+  "voiceProviderModelsHint": "プロバイダーが提示するモデル名を使用してください。空欄にした方向は、代わりにこのデバイスで処理されます。",
+  "voiceProviderRealtimeModel": "リアルタイムモデル",
+  "voiceProviderRealtimeInstructions": "指示",
+  "voiceProviderRealtimeInstructionsHint": "空欄にすると Conduit の指示を使用します。",
+  "voiceProviderRealtimeFooter": "Direct と Apple のチャットの通話ではこの音声が話し、上の文字起こしモデルを使ってあなたの発言を聞き取ります。",
+  "voiceCallModeTitle": "通話",
+  "voiceCallModeRealtime": "リアルタイム",
+  "voiceCallModeStandard": "標準",
+  "voiceCallModeRealtimeDescription": "チャットのサーバーまたは音声プロバイダーにリアルタイム音声がある場合は、その音声と会話します。話の途中で割り込むこともできます。それ以外の通話は標準になります。",
+  "voiceCallModeStandardDescription": "通話ではあなたの発言を聞き取って送信し、回答を読み上げます。",
+  "voiceCallNoticeTranscriptionFailed": "うまく聞き取れませんでした。もう一度話してください。",
+  "voiceCallNoticeReplyIncomplete": "音声の返答が途中で途切れました。",
+  "voiceCallNoticeTranscriptNotSaved": "通話の一部をチャットに保存できませんでした。",
+  "voiceReplySpokenLabel": "{model} · 音声",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
+  },
   "ttsSettings": "テキスト読み上げ",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."
@@ -1522,9 +1729,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "読み上げ速度",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "再生速度",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "ピッチ",
   "@ttsPitch": {
@@ -1538,6 +1756,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "すべての言語",
+  "ttsSearchVoices": "音声を検索",
   "ttsSystemDefault": "システム既定",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
@@ -2028,7 +2248,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "認証中...",
+  "ssoAuthenticating": "サインイン中…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2036,7 +2256,7 @@
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "ログインページを読み込み中...",
+  "ssoLoadingLogin": "サインインページを読み込み中…",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -2080,7 +2300,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "認証ページを読み込み中...",
+  "proxyAuthLoading": "サインインページを読み込み中…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2092,7 +2312,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "プロキシでサインインしてください。認証が完了したら、続行をタップしてサインインに進みます。",
+  "proxyAuthHelpTextSimple": "このページでプロキシにサインインしてから、「続行」をタップしてOpen WebUIにサインインします。",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -2678,6 +2898,21 @@
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
+  "channelNotifyAllMessages": "すべてのメッセージ",
+  "channelNotifyMentionsOnly": "メンションのみ",
+  "channelAppBadge": "アプリ",
+  "channelAppOnlyVisibleToYou": "あなただけに表示されています",
+  "channelAppDismiss": "閉じる",
+  "channelAppErrorFallback": "アプリはこの操作を完了できませんでした。",
+  "channelAppDownload": "{filename} をダウンロード",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "メッセージ...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"
@@ -2974,6 +3209,10 @@
   "socketNotConnected": "未接続",
   "socketConnected": "接続済み",
   "socketDisconnected": "切断済み",
+  "liveConnectionDetails": "リアルタイム更新が切断されています。接続の詳細を表示します。",
+  "liveConnectionDetailsTitle": "リアルタイム更新",
+  "liveConnectionDetailsMessage": "リアルタイム更新が切断されています。返信やチャットの変更が遅れる場合があります。接続を確認するか、再接続をお試しください。",
+  "liveConnectionRetryFailed": "リアルタイム更新はまだ切断されています。接続アイコンをタップして再試行してください。",
   "socketLatencyLabel": "レイテンシ",
   "socketReconnectsLabel": "再接続",
   "socketLastHeartbeat": "最後のハートビート: {time}",
@@ -3454,6 +3693,8 @@
   "settingsCategoryServer": "サーバー",
   "settingsCategorySupport": "サポート",
   "settingsDataAndConnection": "データと接続",
+  "slidingSidebar": "サイドバーのタブをまとめる",
+  "slidingSidebarDescription": "ノート、ターミナル、チャンネルをタブではなくチャット一覧の上に表示し、スマートフォンではチャットの一部が見えたままになります。",
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
@@ -4509,11 +4750,9 @@
   "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
   "connectOpenWebUITitle": "Connect to Open WebUI",
   "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
+  "backendChooserOpenWebUISubtitle": "サーバーにサインインして、チャットやノートなどを同期できます。",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "ツールを使い、過去のセッションを覚えている自分専用のエージェントとチャットできます。",
   "hermesApprovalRequired": "Approval required",
   "hermesApprovalFallback": "The agent is requesting permission to continue.",
   "openWebUiPromptOther": "その他",
@@ -4638,8 +4877,8 @@
   "syncDirectHistory": "Open WebUI history",
   "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
   "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
+  "backendChooserDirectTitle": "モデルプロバイダ",
+  "backendChooserDirectSubtitle": "OpenAI、OpenRouter、Ollama を通じてチャットできます。キーはこのデバイスに保存されます。",
   "testDirectConnection": "Test connection",
   "directConnectionTestUnavailable": "Connection testing is not available yet.",
   "finishDirectSetup": "Start chatting",
@@ -4663,6 +4902,8 @@
   "reasoningEffortMaximum": "Maximum",
   "reasoningEffortNone": "なし",
   "customReasoningEffort": "Custom effort",
+  "retryWithoutReasoningEffort": "Effort を使わずに再試行",
+  "reasoningEffortClearIncomplete": "Effort 設定を完全に解除できませんでした。この再試行では使わずに続行します。",
   "customReasoningEffortHint": "Enter a provider-supported effort",
   "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
   "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",
@@ -4747,12 +4988,110 @@
   "hermesMcpServers": "MCP サーバー",
   "hermesSignOut": "Hermes からサインアウト",
   "hermesActionFailed": "Hermes の操作に失敗しました。",
+  "hermesSignOutFailed": "Hermes ダッシュボードからサインアウトできませんでした。接続を確認してもう一度お試しください。",
   "hermesToolsetUpdateFailed": "Hermes のツールセットの更新に失敗しました。",
   "hermesJobStateLabel": "状態",
   "hermesJobDeliveryLabel": "配信",
   "hermesJobLastLabel": "前回",
   "hermesJobNextLabel": "次回",
   "hermesJobRunHistory": "実行履歴",
+  "hermesJobStop": "停止",
+  "hermesJobStopping": "停止中…",
+  "hermesJobStopped": "実行を停止しました。",
+  "hermesJobFinishedBeforeStop": "停止する前に実行が完了しました。",
+  "hermesJobNothingToStop": "実行中の処理はありません。",
+  "hermesJobStopFailed": "実行を停止できませんでした。",
+  "hermesJobStopUnsupported": "実行中のジョブを停止するには Hermes を更新してください。",
+  "hermesJobRunning": "実行中",
+  "hermesJobLastCancelled": "前回の実行を停止しました：{reason}",
+  "@hermesJobLastCancelled": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesJobLastCancelledNoReason": "前回の実行を停止しました",
+  "hermesJobCatchUpLabel": "見逃した実行",
+  "hermesJobCatchUpHint": "Hermes が動作していなかった間に見逃した実行の扱い。",
+  "hermesJobCatchUpDefault": "Hermes の既定",
+  "hermesJobCatchUpRunOnce": "見逃した分を1回実行",
+  "hermesJobCatchUpSkip": "見逃した分をスキップ",
+  "hermesJobDeliverLabel": "配信先",
+  "hermesJobDeliverLocal": "Hermes に保存",
+  "hermesJobDeliverMessaging": "メッセージアプリ",
+  "hermesJobDeliverBotChats": "ボットチャット",
+  "hermesJobDeliverGroupChats": "グループチャット",
+  "hermesJobDeliverBotChat": "ボットチャット：{name}",
+  "@hermesJobDeliverBotChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverGroupChat": "グループチャット：{name}",
+  "@hermesJobDeliverGroupChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverNeedsHomeChannel": "先に Hermes でホームチャンネルを設定してください。",
+  "hermesJobDeliverRoomHint": "グループチャットでは、ジョブが @ でメンションしたボットだけが起動します。",
+  "hermesRoomsTitle": "ルーム",
+  "hermesRoomNew": "新しいルーム",
+  "hermesRoomCreateHint": "ボットを2〜6体選んでください。各ボットはルームでそれぞれ自分として応答します。",
+  "hermesRoomNameHint": "ルーム名",
+  "hermesRoomCreateFailed": "ルームを作成できませんでした。",
+  "hermesRoomNeedsBots": "ルームには、この接続上のボットが2体以上必要です。",
+  "hermesRoomMessageHint": "ルームにメッセージ（@でボットをメンション）",
+  "hermesRoomScheduled": "スケジュール",
+  "hermesRoomEveryone": "全員",
+  "hermesRoomBotCount": "{count, plural, other{{count}体のボット}}",
+  "@hermesRoomBotCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomWorking": "作業中",
+  "hermesRoomWaiting": "待機中",
+  "hermesRoomQuiet": "{elapsed}応答なし",
+  "@hermesRoomQuiet": {"placeholders": {"elapsed": {"type": "String"}}},
+  "hermesRoomNeedsYou": "あなたの応答待ち",
+  "hermesRoomTurnFailed": "ターンに失敗しました",
+  "hermesRoomTurnCancelled": "ターンがキャンセルされました",
+  "hermesRoomTurnDeferred": "ターンが延期されました",
+  "hermesRoomMemberUnavailable": "ボットを利用できません",
+  "hermesRoomStopped": "ルームを停止しました",
+  "hermesRoomDisbanded": "ルームを解散しました",
+  "hermesRoomAuthorityLost": "別のゲートウェイがこのルームを引き継ぎました",
+  "hermesRoomWorkLimit": "ターンの上限に達しました",
+  "hermesRoomRoutedTo": "{names}に割り当て",
+  "@hermesRoomRoutedTo": {"placeholders": {"names": {"type": "String"}}},
+  "hermesRoomRoutedEveryone": "全員に割り当て",
+  "hermesRoomRoutedFallback": "応答者を選べなかったため、全員が応答します",
+  "hermesRoomAssigned": "{lead}が{names}に任せました",
+  "@hermesRoomAssigned": {"placeholders": {"lead": {"type": "String"}, "names": {"type": "String"}}},
+  "hermesRoomLeadTaking": "{lead}が対応します",
+  "@hermesRoomLeadTaking": {"placeholders": {"lead": {"type": "String"}}},
+  "hermesRoomContinued": "続行しました",
+  "hermesRoomHandoff": "{from}が{to}に依頼",
+  "@hermesRoomHandoff": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+  "hermesRoomPaused": "{count, plural, other{{count}件のメッセージ後に一時停止}}",
+  "@hermesRoomPaused": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRetryPrompt": "{name}のターンは明確な結果なく終了しました。",
+  "@hermesRoomRetryPrompt": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomLoadFailed": "このルームを読み込めませんでした。",
+  "hermesRoomRefreshFailed": "ルームを更新できませんでした。",
+  "hermesRoomGone": "このルームは利用できなくなりました。",
+  "hermesRoomNotRunning": "Hermes は現在このルームを実行していないため、メッセージを受け付けられません。",
+  "hermesRoomSendUnclear": "Hermes がメッセージを確認しませんでした。もう一度送信してください。二重に投稿されることはありません。",
+  "hermesRoomStoppedCount": "{count, plural, =0{実行中のものはありませんでした} other{{count}件のタスクを停止しました}}",
+  "@hermesRoomStoppedCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRefused": "Hermes が拒否しました: {reason}",
+  "@hermesRoomRefused": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesRoomActionFailed": "うまくいきませんでした。もう一度お試しください。",
+  "hermesRoomInfoTitle": "ルーム情報",
+  "hermesRoomPurpose": "目的",
+  "hermesRoomPurposeHint": "このルームの目的を一行で",
+  "hermesRoomNotes": "共有メモ",
+  "hermesRoomNotesHint": "すべてのボットが覚えておくべき事項",
+  "hermesRoomNotesTooLong": "共有メモが長すぎます。",
+  "hermesRoomWhoAnswers": "誰も指名していないメッセージに誰が応答するか",
+  "hermesRoomRoutingEveryoneHint": "すべてのボットが順番に応答します。",
+  "hermesRoomRoutingLead": "リーダーボット",
+  "hermesRoomRoutingLeadHint": "リーダーが担当者を選びます。@メンションは引き続き指名したボットに直接届きます。",
+  "hermesRoomRoutingAuto": "自動",
+  "hermesRoomRoutingAutoHint": "簡単なモデル呼び出しで宛先を選びます。@メンションは引き続き指名したボットに直接届きます。",
+  "hermesRoomLead": "リーダー",
+  "hermesRoomMembers": "ボット",
+  "hermesRoomMembersFixed": "ルーム作成後はボットを追加・削除できません。",
+  "hermesRoomStopWork": "すべての作業を停止",
+  "hermesRoomDisband": "ルームを解散",
+  "hermesRoomDisbandTitle": "「{name}」を解散しますか？",
+  "@hermesRoomDisbandTitle": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomDisbandMessage": "作業は停止し、ルームは完全に削除されます。",
+  "hermesRoomRenameTitle": "ルーム名を変更",
   "hermesApprovalAllowOnce": "1 回だけ許可",
   "hermesApprovalAllowSession": "セッション中は許可",
   "hermesApprovalAlwaysAllow": "常に許可",
@@ -4771,6 +5110,7 @@
   "hermesFastTierOff": "オフ",
   "hermesTurnSteer": "誘導",
   "hermesTurnSendNext": "次を送信",
+  "hermesSteerUncertain": "Hermes は誘導を確認できませんでした。誘導を再送信する前に返信を確認してください。",
   "hermesTurnControlsUnsupported": "安全なターン制御を有効にするには Hermes をアップグレードしてください。",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "あと{count}行を表示",
@@ -4783,7 +5123,7 @@
   "colorScheme": "カラースキーム",
   "channelEmptyHint": "チャンネルを作成してグループ会話を始めましょう。",
   "passwordChangeDescription": "アカウントのパスワードを更新",
-  "profileDetailsSummary": "自己紹介、性別、生年月日",
+  "profileDetailsSummary": "性別、生年月日",
   "notificationRequiresMaster": "この設定を変更するには通知をオンにしてください。",
   "notificationRequiresSound": "この設定を変更するにはサウンドをオンにしてください。",
   "enabled": "オン",
@@ -4835,7 +5175,7 @@
   "hermesSessionDeleteFailed": "会話を削除できませんでした。",
   "hermesSessionLoadFailed": "この会話を読み込めませんでした。接続を確認して、もう一度お試しください。",
   "hermesMemoryKeyFieldLabel": "メモリキー",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Deny", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
+  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "拒否", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
   ,"directMcpContentAction": "MCP content"
   ,"directMcpContentTitle": "MCP content"
   ,"directMcpContentServer": "MCP server"
@@ -4860,9 +5200,9 @@
   ,"directMcpContentTooLarge": "This content is too large to insert."
   ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
   ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpInsecureCredentialsTitle": "暗号化せずに認証情報を送信しますか？"
+  ,"directMcpInsecureCredentialsMessage": "このサーバーは暗号化されていない HTTP を使用しています。ベアラートークン、OAuth トークン、カスタムヘッダーがネットワーク上で読み取られたり変更されたりするおそれがあります。"
+  ,"directMcpInsecureCredentialsConfirm": "暗号化せずに送信"
   ,"hermesSessionTooLarge": "この会話は大きすぎるため、このデバイスでは読み込めません。"
   ,"hermesSessionNotFound": "この会話は Hermes サーバー上で利用できなくなりました。"
   ,"hermesSessionLoadFailedDetail": "この会話を読み込めませんでした: {detail}"
@@ -4895,6 +5235,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
+  "citationBackground": "引用を強調表示",
+  "citationBackgroundDescription": "回答内の引用に背景色を付けて、本文から見分けやすくします。",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",
   "directContextCompactionDescription": "これらのモデルはコンテキストウィンドウを報告しません。Conduit はリクエストが大きくなりすぎる前に、選択した上限を使って古いメッセージを圧縮します。",
@@ -4975,6 +5317,12 @@
   "webSearchRegionAuto": "デバイスに合わせる",
   "webSearchRegionWorldwide": "全世界",
   "directModelToolsUnsupported": "このモデルはツールを使用できないため、Web 検索を実行できません。Web 検索とツールをすべてオフにしてから、もう一度お試しください。",
+  "directImagesPerRequest": "リクエストあたりの画像数",
+  "directImagesPerRequestFooter": "各メッセージでは、このチャットの新しい画像からこの数まで送信します。古い画像は含まれません。画像が多すぎるとしてモデルがリクエストを拒否する場合は、この数を減らしてください。",
+  "directImagesPerRequestSaveFailed": "「リクエストあたりの画像数」を保存できませんでした。もう一度お試しください。",
+  "directModelTooManyImages": "このモデルが 1 回のリクエストで受け付ける画像は、このチャットが送信した数より少なくなっています。ダイレクト接続の設定で「リクエストあたりの画像数」を減らしてから、もう一度お試しください。このメッセージだけでモデルが受け付ける数より多くの画像が含まれている場合は、画像を減らして送信し直してください。",
+  "directToolLoopNoAnswer": "モデルが回答せずにツールを使い続けました。もう一度お試しいただくか、Web 検索とツールをオフにしてください。",
+  "directContextLimitOllamaNote": "自分のサーバーで動く Ollama モデルでは、ここで選んだ上限が、Ollama がモデルを読み込むときのコンテキストウィンドウにもなります。ウィンドウを大きくするとメモリを多く使います。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 個のモデル}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} / {total}",
@@ -4982,6 +5330,13 @@
   "saveImage": "画像を保存",
   "imageSaved": "画像を保存しました",
   "imageSaveFailed": "画像を保存できませんでした。",
+  "videoSaved": "動画を保存しました",
+  "videoSaveFailed": "動画を保存できませんでした。",
+  "videoFullscreen": "全画面",
+  "videoDownload": "動画をダウンロード",
+  "videoPlay": "再生",
+  "videoPause": "一時停止",
+  "videoOpenInBrowser": "ブラウザーで開く",
   "settingsTitle": "設定",
   "profileTitle": "プロフィール",
   "aiAndMemoryTitle": "AIとメモリ",
@@ -5007,6 +5362,11 @@
   "personalToolSettingsOwnerChanged": "ログイン中のアカウントが変更されたため、何も保存されませんでした。設定を開き直して続行してください。",
   "personalToolSettingsInvalid": "サーバーがこれらの値を受け付けませんでした。",
   "noteReadOnlyNotice": "このノートは読み取り専用です。閲覧のみ可能で、変更はできません。",
+  "notePages": "ページ",
+  "notePagesDescription": "読む・編集するページを選んでください。ページの追加・名前変更・移動はウェブ版の Open WebUI で行えます。",
+  "notePageChipLabel": "ページ {page}。ノートのページを表示します。",
+  "notePageRemoved": "開いていたページは削除されました。ノートの最初のページを表示しています。",
+  "notePageMissingNotice": "このページは別の場所で削除されました。未保存のテキストはここに残っています。別のノートとして保存するか、破棄してください。",
   "noteAccessUnverifiedNotice": "このノートを編集できるか確認するため、再接続してください。",
   "noteAccessRevokedNotice": "このノートを編集できなくなりました。未保存の変更はここに保持されています。",
   "noteSaveAsOwnNote": "自分のノートとして保存",
@@ -5531,7 +5891,7 @@
   "chatMergeChooseDescription": "統合する応答を選択してください。2 つ以上選択する必要があります。元の応答はそのまま残ります。",
   "folderProjectComparisonFallbackNotice": "このプロジェクトに保存されているモデルをすべて使用することはできないため、チャットはそれより少ないモデルで開始されます。比較で使用するモデルは、ちょうど 2 つです。",
   "advancedFeaturesFooter": "モデル比較、チャットごとの設定、ツール設定、スケジュールタスク、個人用接続、Webhook、データ管理を追加します。オフにしても非表示になるだけで、設定済みのものは引き続き動作します。",
-  "profileAdvancedFooter": "「設定 > チャット」で詳細設定がオンになっているため表示されています。",
+  "profileAdvancedFooter": "「チャット」で詳細設定がオンになっているため表示されています。",
   "advancedRequiredTitle": "詳細設定の機能です",
   "advancedRequiredMessage": "{feature} は詳細設定の機能です。使用するには詳細設定をオンにしてください。設定済みのものは引き続き動作します。",
   "advancedTurnOn": "詳細設定をオンにする",
@@ -5580,7 +5940,7 @@
   "calendarRemoveEnd": "終了時刻を削除",
   "calendarEventReadOnlyNotInvited": "この予定は変更できません。",
   "calendarFieldOrganizer": "主催者",
-  "calendarColorName": "{color, select, blue{青} green{緑} amber{琥珀色} red{赤} purple{紫} teal{ティール} other{色}}",
+  "calendarColorName": "{color, select, blue{青} green{緑} amber{琥珀色} red{赤} purple{紫} teal{ティール} custom{カスタムカラー} other{色}}",
   "calendarVisibilityFooter": "チェックしたカレンダーの予定が表示されます。カレンダーをタップすると、その予定の表示/非表示を切り替えられます。",
   "personalizationMemoryTypeUserDescription": "あなたに関する好み、事実、または指示。",
   "personalizationMemoryTypeContextDescription": "今後のチャットで念頭に置く背景情報。",
@@ -5640,12 +6000,25 @@
   "hermesDeleteConnectionTitle": "接続を削除しますか？",
   "hermesDeleteConnectionMessage": "この端末から {name} とその認証情報が削除されます。",
   "hermesDeleteConnectionFailed": "この接続を削除できませんでした。",
+  "hermesInsecureCredentialsMessage": "このサーバーは暗号化されていない HTTP を使用しています。API キー、サインイン用トークン、アクセスヘッダーがネットワーク上で読み取られたり変更されたりするおそれがあります。",
+  "hermesNotEncrypted": "暗号化なし",
   "hermesSwitchConnectionFailed": "この接続に切り替えられませんでした。",
   "hermesSwitchConnectionTitle": "接続を切り替え",
   "hermesSwitchConnectionPromptTitle": "{name} に切り替えますか？",
   "hermesSwitchConnectionPromptMessage": "このチャットの Hermes セッションは {name} のものです。切り替えて続けるか、現在の接続のまま新しいセッションを始めてください。",
   "hermesSwitchConnectionConfirm": "切り替える",
   "hermesKeepCurrentConnection": "現在の接続のまま",
+  "hermesModelSwitchConfirmTitle": "{model} に切り替えますか？",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes は、このチャットをそのモデルに切り替える前に確認を求めています。",
+  "hermesModelSwitchConfirmAction": "切り替えて送信",
+  "hermesModelSwitchKeepCurrent": "現在のモデルのまま",
   "accountsTitle": "アカウント",
   "accountsAddAccount": "アカウントを追加",
   "accountsManage": "アカウントを管理",
@@ -5683,5 +6056,349 @@
   "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。",
   "accountsAddressConfirmTitle": "このアドレスを確認しますか？",
   "accountsAddressConfirmMessage": "{host} がこのサーバーであることを確かめるため、Conduit はこのデバイスに保存されたアカウントのセッションをそこへ送信します。このアドレスを信頼できる場合のみ続行してください。",
-  "accountsAddressConfirmAction": "アドレスを確認"
+  "accountsAddressConfirmAction": "アドレスを確認",
+  "chatHandoffPromptTitle": "{model} に切り替えますか？",
+  "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
+  "chatHandoffStartNewChat": "新しいチャットを開始",
+  "chatHandoffStayHere": "このままにする",
+  "chatWaitingForApproval": "承認待ち",
+  "generateTitleNone": "サーバーはこのチャットのタイトルを作成しませんでした。タイトル生成がオフになっている可能性があります。",
+  "generateTitleFailed": "タイトルを生成できませんでした。もう一度お試しください。",
+  "workspaceToolActivate": "有効にする",
+  "workspaceToolDeactivate": "無効にする",
+  "workspaceKnowledgeLimitsTitle": "ファイルの上限",
+  "workspaceKnowledgeLimitsFooter": "上限を空欄にすると、サーバーの上限だけが使われます。サーバーの上限は常に適用されます。",
+  "workspaceKnowledgeMaxFileCount": "最大ファイル数",
+  "workspaceKnowledgeMaxFileSize": "最大ファイルサイズ (MB)",
+  "workspaceKnowledgeLimitDefault": "サーバーの上限",
+  "workspaceKnowledgeLimitInvalid": "各上限は 0 より大きい整数で入力するか、空欄にしてください。",
+  "workspaceToolToggleSaveFirst": "ツールを有効または無効にする前に、変更を保存するか破棄してください。",
+  "mcpAppPreviewDescription": "{serverName} のインタラクティブなアプリです。開くとここで使えます。",
+  "mcpAppOpen": "アプリを開く",
+  "mcpAppToolCallTitle": "このツール呼び出しを許可しますか？",
+  "mcpAppToolCallMessage": "アプリは {serverName} に次の内容で {toolName} を実行させようとしています:",
+  "mcpAppToolCallAllow": "許可",
+  "mcpAppLoadFailed": "アプリを読み込めませんでした: {reason}",
+  "mcpAppDidNotStart": "アプリが起動しませんでした。",
+  "mcpAppOpenLinkTitle": "このリンクを開きますか？",
+  "mcpAppOpenLinkConfirm": "開く",
+  "terminalPortPreviewForward": "進む",
+  "terminalPortPreviewReload": "再読み込み",
+  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
+  "modelMenuAllModels": "すべてのモデル…",
+  "citationPreviewOpen": "開く",
+  "chatUnreadState": "未読",
+  "codeCopied": "コピーしました",
+  "onboardingWelcomeTitle": "Conduitへようこそ",
+  "onboardingWelcomeSubtitle": "自分のサーバー、このデバイス、またはAPI経由でAIとチャットできます。",
+  "backendChooserFooter": "接続はあとから設定で追加できます。",
+  "serverAddressFooter": "Webブラウザで開いているアドレスを入力してください。",
+  "signInChangeServer": "変更",
+  "signInContinueWithSso": "SSOで続ける",
+  "mutualTlsChooseFile": "選択…",
+  "thinkingElapsedSeconds": "{seconds}秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes}分{seconds}秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "コピーしました",
+  "composerAddAttachment": "添付ファイルを追加",
+  "composerShowKeyboard": "キーボードを表示",
+  "composerAttachUploads": "アップロード済み",
+  "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。",
+  "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、あなたが伝えた内容をアシスタントが覚えておけます。",
+  "composerAttachServerFiles": "サーバーのファイル",
+  "codeBlockPlainText": "プレーンテキスト",
+  "codeBlockWrapLines": "行を折り返す",
+  "workspacePromptHistoryDiffTooLarge": "これらのバージョンは長すぎるため比較できません。",
+  "composerSaveDraftAsNote": "メモとして保存",
+  "composerSaveDraftAsNoteDescription": "このメッセージを送信せずに、新しいメモとして残します。",
+  "authFieldServer": "サーバ",
+  "authFieldEmail": "メール",
+  "authFieldName": "名前",
+  "authFieldRequired": "必須",
+  "authFieldOptional": "任意",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "トークン",
+  "composerAttachPhotos": "写真",
+  "modelPickerAppleOnDeviceSubtitle": "このデバイス上で動作、オフライン可",
+  "modelPickerApplePccSubtitle": "Appleのプライベートサーバ上で動作",
+  "accountsSavedServers": "保存済みのサーバー",
+  "computerEnabledDescription": "チャットでデスクトップとブラウザのセッションを表示・操作します。",
+  "computerTrackpadHint": "スライドでカーソル移動。タップでクリック、長押しでドラッグ、2本指でスクロール。",
+  "computerShortcut": "キーボードショートカット",
+  "computerInputFailed": "コンピュータに送信できませんでした。もう一度お試しください。",
+  "computerQualityLow": "データ使用量を抑える",
+  "computerDesktopSite": "デスクトップ用サイト",
+  "computerAudioUnavailable": "この接続またはデバイスではデスクトップ音声を利用できません。",
+  "computerSound": "サウンド",
+  "computerTabs": "ブラウザーのタブ",
+  "computerNewTab": "新しいタブ",
+  "computerCloseTab": "タブを閉じる",
+  "computerRefreshTabs": "タブを更新",
+  "computerNoTabs": "タブがありません",
+  "computerTabsWatchHint": "タブを変更するには操作を引き継いでください。応答が停止するため、続けるには新しいメッセージを送信してください。",
+  "computerTabsUnavailable": "タブを読み込めませんでした。更新してください。",
+  "computerTitle": "コンピューター",
+  "computerConnecting": "コンピューターに接続中…",
+  "computerReconnecting": "再接続中…",
+  "computerDisconnected": "コンピューターとの接続が切れました",
+  "computerBrowserStartHint": "このタブのライブ表示を開始するには、操作を引き継いでください。",
+  "computerBrowserUnavailable": "ライブブラウザーには、このターミナルに Chrome または Chromium が必要です。",
+  "computerStopFailed": "現在の応答を停止できませんでした。閲覧を続けながら再試行できます。",
+  "computerStopping": "応答を停止中…",
+  "computerTakeControl": "操作を引き継ぐ",
+  "computerTrackpadMode": "トラックパッドモード",
+  "computerRecenterPointer": "ポインタを中央に戻す",
+  "computerClick": "クリック",
+  "computerRightClick": "右クリック",
+  "computerDoubleClick": "ダブルクリック",
+  "computerStartDrag": "ドラッグ開始",
+  "computerEndDrag": "ドラッグ終了",
+  "computerShowKeyboard": "キーボードを表示",
+  "computerHideKeyboard": "キーボードを隠す",
+  "computerAgentWorking": "エージェントが作業中",
+  "computerDesktop": "デスクトップ",
+  "computerBrowser": "ブラウザー",
+  "computerForward": "進む",
+  "computerReload": "ページを再読み込み",
+  "computerAddress": "アドレスに移動",
+  "computerTypeText": "コンピューターに入力",
+  "computerSend": "送信",
+  "computerZoom": "拡大",
+  "libreChatTemporaryChatOff": "LibreChat はすべてのチャットを保存します。送信するには一時チャットをオフにしてください。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "ベータ",
+  "libreChatChooserSubtitle": "LibreChat サーバーにサインインして、チャットやエージェントなどを同期します。",
+  "libreChatAddAccount": "LibreChat アカウントを追加",
+  "libreChatFileSearch": "ファイル検索",
+  "libreChatFileSearchDescription": "アップロードしたファイルから答えを探します。",
+  "libreChatMcpConnect": "LibreChat で接続",
+  "libreChatApprovalRun": "{tool} の実行を許可しますか？",
+  "libreChatQuestionProgress": "質問 {current} / {total}",
+  "libreChatAnswerFailed": "回答を送信できませんでした。もう一度お試しください。",
+  "libreChatApprovalRespond": "応答する",
+  "libreChatApprovalArguments": "引数（JSON）",
+  "libreChatAddAccountMessage": "LibreChat サーバーのアドレスを入力してください。",
+  "libreChatInvalidAddress": "chat.example.com のようなサーバーアドレスを入力してください。",
+  "libreChatUnreachable": "サーバーに接続できませんでした。アドレスと接続を確認してください。",
+  "libreChatNotLibreChat": "このサーバーは LibreChat ではありません。アドレスを確認してください。",
+  "libreChatIsOpenWebUi": "これは Open WebUI サーバーです。Open WebUI タブから追加してください。",
+  "libreChatPasswordSignInOff": "このサーバーではシングルサインオンでのみサインインできます。",
+  "libreChatGoogleUnsupported": "Google はアプリ内でのサインインを許可していません。別の方法でサインインしてください。",
+  "libreChatSsoUnfinished": "サインインが完了しませんでした。もう一度お試しください。",
+  "libreChatChangeServer": "別のサーバーを使用",
+  "libreChatSessionEnded": "{server} のセッションが終了しました。もう一度サインインしてください。",
+  "libreChatDuplicateChat": "チャットを複製",
+  "libreChatCopyFailed": "チャットをコピーできませんでした。接続を確認してもう一度お試しください。",
+  "libreChatMemoryKeyLabel": "キー",
+  "libreChatMemoryKeyHint": "例: preferences",
+  "libreChatMemoryKeyRequired": "メモリにキーを付けてください。",
+  "libreChatMemoryUsage": "{limit} トークン中 {used} 使用",
+  "hermesReadOnlySessionNotice": "このチャットは別の Hermes アプリで始まりました。ここで読むことはできますが、Hermes では Conduit が始めたチャットにしか返信できません。",
+  "hermesReadOnlySessionNoticeFrom": "このチャットは {source} で始まりました。ここで読むことはできますが、Hermes では Conduit が始めたチャットにしか返信できません。",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "コピーで続ける",
+  "hermesContinueInCopyFailed": "このチャットをコピーできませんでした。もう一度お試しください。",
+  "hermesContinueHere": "ここで続ける",
+  "hermesContinueHereFailed": "このチャットをここで続けられませんでした。もう一度お試しください。",
+  "hermesContinueChoiceExplanation": "ここで続けると、もう一方のアプリではこのチャットが終了し、次のメッセージで新しいチャットが始まります。コピーではそのチャットはそのまま残りますが、以前のメッセージはこのデバイスにのみ保存されます。保持されるのは最新のメッセージ最大 1,000 件（1 MB）までで、最近開いた 32 件のコピーに限られます。",
+  "hermesSessionHide": "非表示",
+  "hermesSessionUnhide": "再表示",
+  "hermesSessionUpdateFailed": "このチャットを更新できませんでした。もう一度お試しください。",
+  "hermesSessionHiddenNotice": "チャットを非表示にしました。Hermes の設定の「非表示のチャット」にあります。",
+  "hermesHiddenChatsTitle": "非表示のチャット",
+  "hermesHiddenChatsDescription": "このデバイスで Hermes の一覧から非表示にしたチャットです。タップして開くか、再表示して一覧に戻します。",
+  "hermesHiddenChatsEmpty": "このデバイスで非表示にしたチャットはありません。",
+  "hermesHiddenChatsLoadError": "非表示のチャットを読み込めませんでした。",
+  "hermesBranchFromHere": "ここから分岐",
+  "hermesBranchFailed": "このチャットを分岐できませんでした。もう一度お試しください。",
+  "hermesUndoLastTurn": "最後のやり取りを取り消す",
+  "hermesUndoLastTurnDone": "最後のやり取りを取り消しました。",
+  "hermesUndoLastTurnFailed": "最後のやり取りを取り消せませんでした。もう一度お試しください。",
+  "hermesArchivedLoadError": "アーカイブ済みのチャットを読み込めませんでした。",
+  "hermesClarifyProgress": "{total} 件中 {answered} 件完了",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "回答を送信できませんでした。もう一度お試しください。",
+  "hermesClarifyAlreadySettled": "この質問は別の場所で回答済みか期限切れのため、回答は送信されませんでした。",
+  "hermesClarifyAnswerOrSkip": "各質問に回答するか、スキップしてください。",
+  "hermesClarifyOtherAnswer": "または自分で回答を入力",
+  "hermesClarifySkip": "スキップ",
+  "hermesClarifySkipped": "スキップ済み",
+  "hermesClarifyRecommended": "おすすめ",
+  "hermesChangedFiles": "{count, plural, other{{count} 件のファイルを変更}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, other{他 {count} 件のファイル}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "変更されたファイル",
+  "hermesDiffLineCounts": "追加行: {added}、削除行: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "{limit} 中 約 {spent} 使用済み",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "約 {spent} 使用済み",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "上限 {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "この呼び出しはこのチャットの利用上限を超えます。許可できるのは今回のみです。",
+  "hermesApprovalCost": "推定コスト: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "計画",
+  "hermesPlanProgress": "{total} 件中 {done} 件完了",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "計画を表示",
+  "hermesPlanHide": "計画を隠す",
+  "hermesContextUsage": "コンテキストと使用量",
+  "hermesContextWindow": "コンテキストウィンドウ",
+  "hermesContextUsed": "{max} トークン中 {used}",
+  "@hermesContextUsed": {"placeholders": {"used": {"type": "String", "example": "32,768"}, "max": {"type": "String", "example": "131,072"}}},
+  "hermesContextPercentFull": "{percent}% 使用中",
+  "@hermesContextPercentFull": {"placeholders": {"percent": {"type": "int", "example": "25"}}},
+  "hermesContextEstimatedNote": "推定値",
+  "hermesContextRequestEstimate": "1 リクエストあたり約 {tokens} トークン",
+  "@hermesContextRequestEstimate": {"placeholders": {"tokens": {"type": "String", "example": "13,036"}}},
+  "hermesContextNoWindow": "この接続ではコンテキストウィンドウを取得できません。",
+  "hermesContextBreakdown": "内訳",
+  "hermesContextSystemPrompt": "システムプロンプト",
+  "hermesContextToolDefinitions": "ツール定義",
+  "hermesContextSubagentDefinitions": "サブエージェント定義",
+  "hermesContextConversation": "会話",
+  "hermesContextTotals": "このチャットの累計",
+  "hermesContextInput": "入力トークン",
+  "hermesContextOutput": "出力トークン",
+  "hermesContextReasoning": "推論トークン",
+  "hermesContextCacheRead": "キャッシュから読み込み",
+  "hermesContextCacheWrite": "キャッシュに書き込み",
+  "hermesContextCacheHits": "キャッシュヒット",
+  "hermesContextCalls": "モデル呼び出し",
+  "hermesContextCompactions": "圧縮回数",
+  "hermesContextCost": "コスト",
+  "hermesContextCostEstimated": "コスト（推定）",
+  "hermesContextPlan": "プランの使用量",
+  "hermesContextGaugeDay": "今日",
+  "hermesContextGaugeWeek": "今週",
+  "hermesContextGaugeMonth": "今月",
+  "hermesContextGaugeTopTier": "最上位モデル",
+  "hermesContextUsedPercent": "{percent}% 使用済み",
+  "@hermesContextUsedPercent": {"placeholders": {"percent": {"type": "int", "example": "63"}}},
+  "hermesContextResets": "リセット: {time}",
+  "@hermesContextResets": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextLeftOf": "{total} 中 残り {remaining}",
+  "@hermesContextLeftOf": {"placeholders": {"remaining": {"type": "String", "example": "$12.00"}, "total": {"type": "String", "example": "$20.00"}}},
+  "hermesContextRenews": "更新日: {date}",
+  "@hermesContextRenews": {"placeholders": {"date": {"type": "String", "example": "Dec 1"}}},
+  "hermesContextTopUp": "チャージしたクレジット",
+  "hermesContextRateLimited": "レート制限中",
+  "hermesContextRateLimitedUntil": "{time} までレート制限中",
+  "@hermesContextRateLimitedUntil": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextUsageLevel": "このモデルの消費量: {level}",
+  "@hermesContextUsageLevel": {"placeholders": {"level": {"type": "String", "example": "medium"}}},
+  "hermesContextLevelFree": "無料",
+  "hermesContextLevelLow": "低",
+  "hermesContextLevelMedium": "中",
+  "hermesContextLevelTopTier": "最上位",
+  "hermesContextCompactSection": "圧縮",
+  "hermesContextCompactHint": "Hermes が古いメッセージを要約してコンテキストを空けます。最近のメッセージはそのまま残ります。",
+  "hermesContextCompactFocus": "重視する内容（任意）",
+  "hermesContextCompactNow": "今すぐ圧縮",
+  "hermesContextCompacted": "チャットを圧縮しました。",
+  "hermesContextCompactedTokens": "トークン: 約{before} → 約{after}",
+  "@hermesContextCompactedTokens": {"placeholders": {"before": {"type": "String", "example": "12,351"}, "after": {"type": "String", "example": "4,020"}}},
+  "hermesContextCompactedMessages": "メッセージ: {before} → {after}",
+  "@hermesContextCompactedMessages": {"placeholders": {"before": {"type": "int", "example": "24"}, "after": {"type": "int", "example": "8"}}},
+  "hermesContextCompactUnchanged": "まだ圧縮するものはありません。",
+  "hermesContextCompactRefused": "変更しませんでした。要約が元のメッセージより長くなるためです。",
+  "hermesContextCompactAborted": "圧縮に失敗しました。メッセージは削除されていません。",
+  "hermesContextCompactPending": "圧縮中です。完了するとチャットが更新されます。",
+  "hermesContextCompactBusy": "別の圧縮が実行中です。しばらくしてからもう一度お試しください。",
+  "hermesContextCompactWait": "返信が終わるのを待ってから圧縮してください。",
+  "hermesContextCompactFailed": "このチャットを圧縮できませんでした。もう一度お試しください。",
+  "hermesContextLoadFailed": "コンテキストと使用量を読み込めませんでした。",
+  "hermesErrorProvider": "モデルプロバイダーが応答できませんでした",
+  "hermesErrorEndpoint": "モデルサーバーに接続できませんでした",
+  "hermesErrorConnection": "返信のストリームが途切れました",
+  "hermesErrorAuth": "プロバイダーが Hermes の認証情報を拒否しました",
+  "hermesErrorBilling": "クレジットがありません",
+  "hermesErrorUsageLimit": "プランの上限に達しました",
+  "hermesErrorFreeTier": "無料枠ではこれを実行できません",
+  "hermesErrorRateLimit": "レート制限に達しました",
+  "hermesErrorContextOverflow": "このチャットはモデルには長すぎます",
+  "hermesErrorModel": "モデルを利用できません",
+  "hermesErrorPolicy": "ポリシーによりブロックされました",
+  "hermesErrorTruncated": "返信が途中で切れました",
+  "hermesErrorBadReply": "モデルが使用できない返信を送りました",
+  "hermesErrorWorkspace": "チャットの作業フォルダーが見つかりません",
+  "hermesErrorSession": "このチャットはここでは続けられません",
+  "hermesErrorBusy": "Hermes はこのチャットを処理中です",
+  "hermesErrorGateway": "Hermes で問題が発生しました",
+  "hermesErrorDisk": "Hermes のディスク容量が不足しています",
+  "hermesErrorUnknown": "Hermes はこの返信を完了できませんでした",
+  "hermesErrorBlocking": "解決するまで続行できません",
+  "hermesErrorDegraded": "チャットは続けられます",
+  "hermesErrorResetsAt": "{time} にリセットされます",
+  "@hermesErrorResetsAt": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesErrorPartialKept": "ここまでの返信は上に残っています。",
+  "hermesErrorContinue": "続ける",
+  "hermesErrorCompact": "チャットを圧縮",
+  "hermesErrorSwitchModel": "{model} に切り替える",
+  "@hermesErrorSwitchModel": {"placeholders": {"model": {"type": "String", "example": "Hermes 4 70B"}}},
+  "hermesErrorOpenProviderSettings": "{provider} の設定を開く",
+  "@hermesErrorOpenProviderSettings": {"placeholders": {"provider": {"type": "String", "example": "OpenRouter"}}},
+  "hermesErrorOpenBilling": "請求ページを開く",
+  "hermesErrorUseCredits": "クレジットを使う",
+  "hermesErrorActionFailed": "実行できませんでした。もう一度お試しください。",
+  "hermesBackgroundAgentCount": "{count, plural, other{エージェント{count}件}}",
+  "@hermesBackgroundAgentCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundProcessCount": "{count, plural, other{プロセス{count}件}}",
+  "@hermesBackgroundProcessCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundWorkShow": "バックグラウンドの作業を表示",
+  "hermesBackgroundWorkTitle": "バックグラウンドの作業",
+  "hermesBackgroundWorkEmpty": "バックグラウンドで実行中のものはありません。",
+  "hermesBackgroundAgents": "エージェント",
+  "hermesBackgroundProcesses": "プロセス",
+  "hermesSubagentQueued": "待機中",
+  "hermesSubagentLastTool": "最後のツール: {tool}",
+  "@hermesSubagentLastTool": {"placeholders": {"tool": {"type": "String"}}},
+  "hermesSubagentFinished": "このエージェントは終了しました。",
+  "hermesSubagentOutput": "ライブ出力",
+  "hermesSubagentNoOutput": "まだ出力はありません。",
+  "hermesSubagentOutputTruncated": "出力の最新部分を表示しています。",
+  "hermesSubagentOutputFailed": "出力を読み込めませんでした。",
+  "hermesSubagentSteerHint": "このエージェントに伝える",
+  "hermesSubagentSteer": "指示する",
+  "hermesSubagentSteerQueued": "キューに追加しました。エージェントがもう一度ステップを進めた場合にのみ読まれます。",
+  "hermesSubagentSteerRejected": "このエージェントはもう指示を受け付けません。",
+  "hermesSubagentStop": "エージェントを停止",
+  "hermesSubagentStopped": "エージェントに停止を依頼しました。",
+  "hermesBackgroundActionFailed": "うまくいきませんでした。もう一度お試しください。",
+  "hermesProcessKill": "強制終了",
+  "hermesProcessKillLabel": "プロセスを強制終了",
+  "hermesProcessKillTitle": "このプロセスを強制終了しますか？",
+  "hermesProcessKillMessage": "Hermes はこのコマンドと、それが起動したものをすべて停止しようとします:\n{command}\n一部のプロセスは実行され続ける場合があります。",
+  "@hermesProcessKillMessage": {"placeholders": {"command": {"type": "String"}}},
+  "hermesProcessKilled": "プロセスを強制終了しました。",
+  "hermesProcessAlreadyStopped": "すでに停止していました。",
+  "hermesProcessKillFailed": "強制終了できませんでした: {error}",
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "コーディングエージェント",
+  "modelControlServiceTier": "サービスティア",
+  "scheduledTaskTerminalSearchHint": "ターミナルを検索",
+  "scheduledTaskWorkingFolderLabel": "作業フォルダ",
+  "scheduledTaskWorkingFolderHint": "ターミナルの既定",
+  "scheduledTaskTerminalRequired": "このエージェントを実行するターミナルを選択してください。",
+  "scheduledTaskAgentNeedsChat": "エージェントの結果は新しいチャットに送られます。",
+  "scheduledTaskAgentsLoading": "このターミナルのエージェントを読み込み中…"
 }

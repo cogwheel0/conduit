@@ -1,0 +1,3 @@
+event: message
+data: {"final":true,"reconcile":true,"reconcileReason":"terminal_payload_missing","terminalStatus":"complete","generationCreatedAt":1792322400000,"conversation":{"conversationId":"c6"},"generationProtocolVersion":2}
+

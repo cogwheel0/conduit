@@ -176,6 +176,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           unawaited(_recoverColdHermesCheckpointIfNeeded(active));
         }
       });
+      // A check of earlier cut-off answers waits while the chat is listed as
+      // running a task: once the listing clears, the chat is checked again,
+      // since no copy of it may follow.
+      ref.listen<Set<String>>(activeChatIdsProvider, (previous, next) {
+        final chatId = ref.read(activeConversationProvider)?.id;
+        if (chatId == null ||
+            !(previous?.contains(chatId) ?? false) ||
+            next.contains(chatId)) {
+          return;
+        }
+        _recheckEarlierAnswers();
+      });
       _conversationListener = ref.listen(activeConversationProvider, (
         previous,
         next,
@@ -241,11 +253,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               serverMessages,
               source: 'active conversation update',
             );
+          } else {
+            _recheckEarlierAnswers();
           }
           return;
         }
 
         final modelRebindGeneration = ++_modelRebindGeneration;
+        _answersFinishedWithoutTask.clear();
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
@@ -254,7 +269,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         if (next != null) {
           final nextMessages = _restoreLiveTransportRunState(
-            _preserveFreshLocalMessageState(next.messages),
+            _preserveFreshLocalMessageState(
+              _withOthersRunningReply(next.messages),
+            ),
             next,
             settleOrphanedDirect: true,
           );
@@ -267,9 +284,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _syncStreamingProfileWithState();
           final restoredHermesCheckpoint =
               nextMessages.isNotEmpty &&
-                  nextMessages.last.role == 'assistant' &&
-                  nextMessages.last.isStreaming &&
-                  nextMessages.last.metadata?['transport'] == kHermesTransport
+                  _isColdHermesCheckpoint(nextMessages.last)
               ? nextMessages.last
               : null;
           if (restoredHermesCheckpoint != null) {
@@ -284,6 +299,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           // Update selected model if conversation has a different model
           _updateModelForConversation(next, generation: modelRebindGeneration);
+          if (isLibreChatConversation(next)) {
+            unawaited(_followLibreChatGenerationOnOpen(ref, next));
+          }
 
           if (_hasOpenWebUiTaskRecoverableTail(next, requireStreaming: false)) {
             if (_shouldProtectLocalStreamingState) {
@@ -297,6 +315,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             }
           } else {
             _stopRemoteTaskMonitor();
+            unawaited(_finishEarlierAnswersWithoutTask(next));
           }
         } else {
           state = [];
@@ -338,15 +357,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _configurePassiveConversationSync(activeConversation);
     _configureDbMessagesWatch(activeConversation);
     final initialMessages = _restoreLiveTransportRunState(
-      activeConversation?.messages ?? const [],
+      _withOthersRunningReply(activeConversation?.messages ?? const []),
       activeConversation,
       settleOrphanedDirect: true,
     );
     final initialHermesCheckpoint =
         initialMessages.isNotEmpty &&
-            initialMessages.last.role == 'assistant' &&
-            initialMessages.last.isStreaming &&
-            initialMessages.last.metadata?['transport'] == kHermesTransport
+            _isColdHermesCheckpoint(initialMessages.last)
         ? initialMessages.last
         : null;
     if (activeConversation != null && initialHermesCheckpoint != null) {
@@ -374,14 +391,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               ref.read(activeConversationProvider),
               activeConversation,
             ) ||
-            !_hasOpenWebUiTaskRecoverableTail(
-              activeConversation,
-              requireStreaming: false,
-            ) ||
             _shouldProtectLocalStreamingState) {
           return;
         }
         unawaited(_detectActiveOnOpen(activeConversation));
+      });
+    }
+    // A LibreChat chat already open when the messages are first read
+    // follows a reply its server is still writing, as opening it does.
+    if (activeConversation != null &&
+        isLibreChatConversation(activeConversation)) {
+      Future.microtask(() {
+        if (_disposed ||
+            !isSameStoredConversation(
+              ref.read(activeConversationProvider),
+              activeConversation,
+            )) {
+          return;
+        }
+        unawaited(_followLibreChatGenerationOnOpen(ref, activeConversation));
       });
     }
     return initialMessages;
@@ -435,6 +463,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _openWebUiContextChangedSinceConversation = true;
     _captureActiveOpenWebUiContext();
+    // Which answers ran no task was the earlier account's finding; the next
+    // one may see its own still running.
+    _answersFinishedWithoutTask.clear();
 
     final active = ref.read(activeConversationProvider);
     if (!conversationUsesOpenWebUiStorage(active)) return;
@@ -627,7 +658,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       )) {
         return;
       }
-      _adoptServerMessages(conversation.messages, source: 'database watch');
+      // Rows read from the LibreChat database carry its provenance, stamped
+      // here as on every LibreChat load: stored metadata is never trusted
+      // for it.
+      final adopted =
+          chatStorageKindOf(watchedConversation) == ChatStorageKind.libreChat
+          ? stampLibreChatProvenance(conversation)
+          : conversation;
+      _adoptServerMessages(adopted.messages, source: 'database watch');
     } catch (error, stackTrace) {
       DebugLogger.error(
         'db-adopt-failed',
@@ -647,16 +685,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         return null;
       }
     }
+    if (storage == ChatStorageKind.libreChat) {
+      try {
+        return ref
+            .read(chatDatabaseRepositoryProvider)
+            .libreChatLocation
+            ?.database;
+      } catch (_) {
+        return null;
+      }
+    }
     // Database dependencies unavailable (e.g. teardown or test harness
     // without an active server) resolve to null.
     return _readAppDatabaseOrNull(ref);
   }
 
+  /// The database local turn echoes and pause checkpoints go to. Never
+  /// LibreChat's: its server keeps every turn, and its rows arrive by pull.
   AppDatabase? _maybeDatabase() {
     final active = ref.read(activeConversationProvider);
-    return _databaseForStorage(
-      chatStorageKindOf(active) ?? ChatStorageKind.openWebUi,
-    );
+    final storage = chatStorageKindOf(active) ?? ChatStorageKind.openWebUi;
+    if (storage == ChatStorageKind.libreChat) return null;
+    return _databaseForStorage(storage);
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -959,8 +1009,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> storedMessages, {
     required String source,
   }) {
-    final serverMessages = _keepRunningComparisonAnswers(storedMessages);
+    final serverMessages = _keepRunningComparisonAnswers(
+      _withOthersRunningReply(_withoutAnswersFinishedHere(storedMessages)),
+    );
     if (!_shouldAdoptServerMessages(serverMessages)) {
+      _recheckEarlierAnswers();
       return;
     }
 
@@ -1011,6 +1064,33 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+    // Another person's reply this copy is the first to show running is
+    // followed to its end: no event of this account's would end it here.
+    // A monitor still on another reply, one a branch change replaced, moves
+    // to this one.
+    if (_tailIsAnotherPersons &&
+        (state.lastOrNull?.isStreaming ?? false) &&
+        _remoteTaskMonitorMessageId != state.last.id) {
+      _engageReopenedTailMonitor(state.last.id);
+    }
+    // After adoption: the copy may be the first to show the answers.
+    _recheckEarlierAnswers();
+  }
+
+  /// Checks again whether an earlier turn's answers a restart cut off can be
+  /// finished, for each new copy of the open chat: a check this visit made
+  /// may have failed, or found a task that has since ended, such as the
+  /// reply to a later prompt, which the copy now holds. A reply of this
+  /// account's still streaming at the end is the task monitor's to follow.
+  /// Another person's runs under a task this account's list never shows, so
+  /// it does not hold the check up.
+  void _recheckEarlierAnswers() {
+    final active = ref.read(activeConversationProvider);
+    if (active == null) return;
+    final tail = state.lastOrNull;
+    final userId = ref.read(currentUserProvider2)?.id;
+    if (tail != null && tail.isStreaming && tail.isWrittenBy(userId)) return;
+    unawaited(_finishEarlierAnswersWithoutTask(active));
   }
 
   void _configurePassiveConversationSync(Conversation? conversation) {
@@ -1408,11 +1488,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> messages,
     Conversation? conversation, {
     bool settleOrphanedDirect = false,
-  }) => _restoreLiveHermesRunState(
-    _restoreLiveDirectRunState(
-      messages,
+  }) => _restoreLiveLibreChatRunState(
+    ref,
+    _restoreLiveHermesRunState(
+      _restoreLiveDirectRunState(
+        messages,
+        conversation,
+        settleOrphaned: settleOrphanedDirect,
+      ),
       conversation,
-      settleOrphaned: settleOrphanedDirect,
     ),
     conversation,
   );
@@ -1571,18 +1655,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  /// Whether [message] is a Hermes reply cold recovery asks after: one still
+  /// streaming, or one whose run was saved during a restart and had not run
+  /// when its stream ended.
+  static bool _isColdHermesCheckpoint(ChatMessage message) =>
+      message.role == 'assistant' &&
+      (message.isStreaming ||
+          message.metadata?[kHermesRunAwaitingAnswerKey] == true) &&
+      message.metadata?['transport'] == kHermesTransport;
+
+  /// What a recovered checkpoint with [status] ends with, as the live
+  /// recovery shows it: an error, or a note beside a wrap-up or a
+  /// stopped-short answer, which is still the answer.
   ChatMessageError? _coldHermesTerminalError(String status) {
-    return switch (status) {
-      'completed' => null,
-      'cancelled' || 'canceled' => const ChatMessageError(
-        content: 'Hermes run was cancelled.',
-      ),
-      'stopped' => const ChatMessageError(content: 'Hermes run was stopped.'),
-      'incomplete' => const ChatMessageError(
-        content: 'Hermes stopped this response before it completed.',
-      ),
-      _ => const ChatMessageError(content: 'Hermes run failed.'),
-    };
+    final message = hermesRecoveredRunError(status);
+    return message == null ? null : ChatMessageError(content: message);
   }
 
   void _settleColdHermesCheckpoint(
@@ -1590,21 +1677,61 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ChatMessage checkpoint, {
     String? authoritativeContent,
     ChatMessageError? error,
+    String? notice,
   }) {
     if (!owner.isActive(ref)) return;
+    final streaming = state.any(
+      (message) => message.id == checkpoint.id && message.isStreaming,
+    );
     updateMessageById(checkpoint.id, (current) {
       if (current.metadata?['transport'] != kHermesTransport) return current;
+      // Settled: no longer waiting for its answer.
+      final metadata = Map<String, dynamic>.from(current.metadata!)
+        ..remove(kHermesRunAwaitingAnswerKey);
+      final history = [
+        for (final status in current.statusHistory)
+          if (status.action != kHermesRunAwaitingAction) status,
+      ];
+      final noted =
+          notice == null ||
+              history.any(
+                (status) =>
+                    status.action == kHermesRunNoticeAction &&
+                    status.description == notice,
+              )
+          ? history
+          : [
+              ...history,
+              ChatStatusUpdate(
+                action: kHermesRunNoticeAction,
+                description: notice,
+                done: true,
+                occurredAt: DateTime.now(),
+              ),
+            ];
       return current.copyWith(
         content: authoritativeContent != null && authoritativeContent.isNotEmpty
             ? authoritativeContent
             : current.content,
         error: error,
+        statusHistory: noted,
+        metadata: metadata,
       );
     });
-    finishStreamingMessage(
-      checkpoint.id,
-      ownerConversationId: owner.scopedConversationId,
-      requireConversationOwner: true,
+    if (streaming) {
+      finishStreamingMessage(
+        checkpoint.id,
+        ownerConversationId: owner.scopedConversationId,
+        requireConversationOwner: true,
+      );
+      return;
+    }
+    // A reply waiting for its saved run had stopped streaming, so finishing
+    // it does nothing: its answer is put in the chat and saved here, or a
+    // reload would bring back the empty reply and ask again.
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(
+      state.indexWhere((message) => message.id == checkpoint.id),
     );
   }
 
@@ -1615,9 +1742,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }) async {
     if (_disposed || state.isEmpty) return;
     final checkpoint = state.last;
+    // A reply whose run was saved during a restart and had not run yet is
+    // asked after again, though its stream ended.
+    final awaiting = checkpoint.metadata?[kHermesRunAwaitingAnswerKey] == true;
     if (checkpoint.role != 'assistant' ||
         (expectedMessageId != null && checkpoint.id != expectedMessageId) ||
-        !checkpoint.isStreaming ||
+        !(checkpoint.isStreaming || awaiting) ||
         isRestoredHermesDesktopRunningMessage(checkpoint) ||
         checkpoint.metadata?['transport'] != kHermesTransport ||
         _hasLiveHermesProjection(conversation, checkpoint) ||
@@ -1628,7 +1758,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final owner = _HermesConversationOwner.capture(ref, conversation);
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) {
-      if (settleUnrecoverable) {
+      // No service yet (its credentials may still be loading): a reply
+      // waiting for its saved run keeps waiting, so a later one can ask.
+      if (settleUnrecoverable && !awaiting) {
         _settleColdHermesCheckpoint(
           owner,
           checkpoint,
@@ -1752,9 +1884,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         checkpoint,
         authoritativeContent: recovered.text,
         error: _coldHermesTerminalError(recovered.status),
+        notice: hermesRecoveredRunNotice(recovered.status),
       );
     } catch (_) {
-      if (!cancelToken.isCancelled &&
+      // A reply still waiting for its answer keeps waiting: the next open
+      // asks again.
+      if (!awaiting &&
+          !cancelToken.isCancelled &&
           !_disposed &&
           generation == _coldHermesRecoveryGeneration &&
           identical(ref.read(hermesApiServiceProvider), service) &&
@@ -1984,6 +2120,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       'chat:message:files',
       'chat:message:embeds',
       'chat:message:follow_ups',
+      'chat:message:voice',
       'chat:outlet',
       'chat:completed',
       'chat:title',
@@ -2495,6 +2632,198 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// an OpenWebUI-backed chat, but its lifecycle remains owned by that provider
   /// and must never start an OpenWebUI task poll. A null transport marker is a
   /// normal OpenWebUI preseed/resume shape and therefore remains eligible.
+  /// Finishes the answers of this account that the server still reports as
+  /// not done while it runs no task of the account's for the chat.
+  ///
+  /// Open WebUI 0.12.5 marks a reply `done: false` itself when it starts and
+  /// done when it ends, so a reply cut off by a server restart is never done.
+  /// Its web client takes such replies as finished once no task runs, and so
+  /// does this: a multi-model answer would otherwise show as still being
+  /// written for good. Another person's reply in a shared chat may be running
+  /// under their task, which this account's task list does not show.
+  ///
+  /// [ids] are the answers the task lookup was made for; an answer that shows
+  /// up while it is answered may run under a task that started since, and
+  /// waits for the next check.
+  void _finishAnswersWithoutTask([Iterable<String>? ids]) {
+    // Still this account's now: a copy that came in meanwhile may name
+    // another owner for an answer that named no author.
+    final current = _answersThisAccountRuns();
+    _answersFinishedWithoutTask.addAll(
+      ids == null ? current : ids.where(current.toSet().contains),
+    );
+    final next = _withoutAnswersFinishedHere(state);
+    if (!identical(next, state)) state = next;
+  }
+
+  /// The answers the server reports as not done that ran under this
+  /// account's tasks, so that none running means they are finished. In a
+  /// shared chat another person's answer may run under their task, which
+  /// this account's list omits: each answer goes by its own author.
+  ///
+  /// With [inMessage], only that message's comparison. With
+  /// [beforeLastTurn], only the turns before the answers that end the list.
+  List<String> _answersThisAccountRuns({
+    String? inMessage,
+    bool beforeLastTurn = false,
+  }) {
+    final userId = ref.read(currentUserProvider2)?.id;
+    // A message that names no author is the chat owner's, as the web client
+    // takes it.
+    final owner = ref.read(activeConversationProvider)?.userId;
+    var end = state.length;
+    if (beforeLastTurn) {
+      while (end > 0 && state[end - 1].role == 'assistant') {
+        end -= 1;
+      }
+    }
+    return <String>[
+      for (final message in state.take(end))
+        if (inMessage == null || message.id == inMessage)
+          if (message.metadata?[kMessageUnfinishedAnswersMetadataKey]
+              case final List<Object?> unfinished)
+            for (final id in unfinished.whereType<String>())
+              if (_isThisAccounts(
+                _answerAuthor(message, id, owner),
+                userId,
+              ))
+                id,
+    ];
+  }
+
+  /// Who wrote answer [id] of [message]'s comparison: the list names only
+  /// the authors the server gave, and another answer that names none is the
+  /// owner's, whoever wrote the one shown.
+  static String? _answerAuthor(ChatMessage message, String id, String? owner) {
+    final authors =
+        message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+    final named = authors is Map ? authors[id] : null;
+    if (named is String) return named;
+    return id == message.id ? message.authorUserId ?? owner : owner;
+  }
+
+  static bool _isThisAccounts(String? author, String? userId) =>
+      author == null || userId == null || author == userId;
+
+  /// Finishes answers of an earlier turn that the server still reports as
+  /// not done once the chat runs no task of this account's: a chat whose
+  /// last message is not an answer, say a prompt sent after a comparison a
+  /// server restart cut off, has nothing for [_detectActiveOnOpen] to resume.
+  /// The chat's tasks are asked for only when such answers show.
+  Future<void> _finishEarlierAnswersWithoutTask(
+    Conversation conversation,
+  ) async {
+    // A copy of the chat that arrives while its tasks are asked for is
+    // checked once that ask is done, whatever it finds.
+    if (_earlierAnswersCheckFor == conversation.id) {
+      _earlierAnswersRecheckQueued = true;
+      return;
+    }
+    // Asked only for answers this account's tasks ran: another person's in a
+    // shared chat stays as the server has it whatever this account runs.
+    // While a reply streams at the end, its turn is the task monitor's: an
+    // answer of this account's in it may have started on another client and
+    // be stored before its task is listed. Only earlier turns are asked about.
+    final eligible = _answersThisAccountRuns(
+      beforeLastTurn: state.lastOrNull?.isStreaming ?? false,
+    );
+    if (!_conversationUsesOpenWebUiContext(conversation) ||
+        _shouldProtectLocalStreamingState ||
+        eligible.isEmpty) {
+      return;
+    }
+    final chatId = conversation.id;
+    // The chat's listing as active is not asked: it may be another person's
+    // task in a shared chat, or one a missed event left behind, and the
+    // server's list of this account's own tasks is what decides for its own
+    // answers.
+    final api = _readApiServiceOrNull(ref);
+    if (api is! ApiService) return;
+    final owner = captureOpenWebUiCompletionOwner(
+      ref,
+      chatId: chatId,
+      api: api,
+    );
+    if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+    _earlierAnswersCheckFor = chatId;
+    _earlierAnswersRecheckQueued = false;
+    try {
+      final List<String> taskIds;
+      try {
+        taskIds = await api.getTaskIdsByChat(chatId);
+      } catch (_) {
+        // Unknown: the answers stay as the server has them until the chat's
+        // next copy checks again.
+        return;
+      }
+      if (taskIds.isNotEmpty ||
+          _disposed ||
+          activeOpenWebUiChatIdForMutation(ref, owner) == null ||
+          _shouldProtectLocalStreamingState) {
+        return;
+      }
+      _finishAnswersWithoutTask(eligible);
+    } finally {
+      if (_earlierAnswersCheckFor == chatId) {
+        _earlierAnswersCheckFor = null;
+        if (_earlierAnswersRecheckQueued && !_disposed) {
+          _earlierAnswersRecheckQueued = false;
+          _recheckEarlierAnswers();
+        }
+      }
+    }
+  }
+
+  /// The chat [_finishEarlierAnswersWithoutTask] is asking the tasks of,
+  /// which it does once at a time; another chat opened meanwhile is asked
+  /// about at once.
+  String? _earlierAnswersCheckFor;
+
+  /// Whether a copy of the chat arrived while its tasks were asked for, to be
+  /// checked once the ask is done.
+  bool _earlierAnswersRecheckQueued = false;
+
+  /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
+  /// server keeps them not done for good, so each later copy of it would
+  /// show them running again; they stay finished here.
+  final Set<String> _answersFinishedWithoutTask = <String>{};
+
+  /// [messages] with the answers finished here no longer listed as
+  /// unfinished; [messages] itself when none was.
+  List<ChatMessage> _withoutAnswersFinishedHere(List<ChatMessage> messages) {
+    if (_answersFinishedWithoutTask.isEmpty) return messages;
+    var changed = false;
+    final next = <ChatMessage>[
+      for (final message in messages)
+        switch (message.metadata?[kMessageUnfinishedAnswersMetadataKey]) {
+          final List<Object?> unfinished
+              when unfinished.any(_answersFinishedWithoutTask.contains) =>
+            () {
+              changed = true;
+              final left = [
+                for (final id in unfinished)
+                  if (!_answersFinishedWithoutTask.contains(id)) id,
+              ];
+              return message.copyWith(
+                // The answer shown is finished too when it is one of these;
+                // another person's live answer runs on.
+                isStreaming:
+                    !_answersFinishedWithoutTask.contains(message.id) &&
+                    message.isStreaming,
+                metadata: <String, dynamic>{...message.metadata!}
+                  ..remove(kMessageUnfinishedAnswersMetadataKey)
+                  ..addAll({
+                    if (left.isNotEmpty)
+                      kMessageUnfinishedAnswersMetadataKey: left,
+                  }),
+              );
+            }(),
+          _ => message,
+        },
+    ];
+    return changed ? next : messages;
+  }
+
   bool _hasOpenWebUiTaskRecoverableTail(
     Conversation? conversation, {
     bool requireStreaming = true,
@@ -2541,7 +2870,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // authoritative until dispatch finalizes them; a Drift echo emitted during
     // preflight must not roll an optimistic turn back to the previous tip.
     final transport = state.last.metadata?['transport'];
-    if (transport == kDirectTransport || transport == kHermesTransport) {
+    if (transport == kDirectTransport ||
+        transport == kHermesTransport ||
+        transport == kLibreChatTransport) {
       return true;
     }
     if (_activeStreamingTransportMessageId != lastMessageId) {
@@ -2600,6 +2931,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   @visibleForTesting
   bool get debugHasRemoteTaskMonitor => _remoteTaskMonitorMessageId != null;
+
+  @visibleForTesting
+  String? get debugRemoteTaskMonitorMessageId => _remoteTaskMonitorMessageId;
 
   @visibleForTesting
   bool get debugHasRemoteTaskPollScheduled =>
@@ -2695,12 +3029,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// in-flight chat would otherwise render as an empty/partial response.
   Future<void> _detectActiveOnOpen(Conversation conversation) async {
     final chatId = conversation.id;
-    if (_disposed ||
-        isTemporaryChat(chatId) ||
-        !_hasOpenWebUiTaskRecoverableTail(
-          conversation,
-          requireStreaming: false,
-        )) {
+    if (_disposed || isTemporaryChat(chatId)) return;
+    if (!_hasOpenWebUiTaskRecoverableTail(
+      conversation,
+      requireStreaming: false,
+    )) {
+      await _finishEarlierAnswersWithoutTask(conversation);
       return;
     }
     // A genuine local stream owns this chat. A restored `isStreaming` value,
@@ -2728,6 +3062,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
     String? resumeTaskId;
+    // The answers the lookup below is for: one that shows up meanwhile may
+    // run under a task that started since.
+    final eligible = _answersThisAccountRuns();
     var isActive = ref.read(activeChatIdsProvider).contains(chatId);
     if (!isActive) {
       try {
@@ -2762,6 +3099,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
+      // A restored streaming tail settles through the final fetch below:
+      // finished first, it would leave nothing to retry that fetch should it
+      // fail. Its answers are finished once the fetch succeeds.
+      _finishAnswersWithoutTask(
+        openedAsStreaming
+            ? eligible.where((id) => id != openedMessageId)
+            : eligible,
+      );
       if (!openedAsStreaming) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
@@ -2772,16 +3117,37 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // local checkpoint was finalized. Zero tasks is therefore a terminal
       // signal for an already-streaming restored tail: fetch the final branch
       // instead of waiting forever for a task this process never observed.
+      // Another person's reply runs under a task this account's list never
+      // shows: it runs on, or is done, as the server's copy of it says.
+      final othersReply = !openedTail.isWrittenBy(
+        ref.read(currentUserProvider2)?.id,
+      );
       final reconciled = await _refreshReopenedStreamFromServer(
         api: api,
         owner: owner,
         expectedLocalMessageId: openedMessageId,
-        streaming: false,
+        streaming: othersReply ? null : false,
         source: 'cold-open completion',
         persist: true,
       );
+      if (reconciled && othersReply && _hasStreamingAssistant) {
+        // The reply that runs may be a newer one of theirs that the copy ends
+        // on: the monitor follows the reply shown.
+        _engageReopenedTailMonitor(state.last.id);
+        return;
+      }
       if (reconciled) {
+        final reopenedRemoteId = _boundRemoteMessageId;
         _cancelMessageStream();
+        // The reopened answer itself; the rest of its comparison, which the
+        // final copy may first show, is checked by a fresh lookup, since an
+        // answer in it may have started after this one.
+        _finishAnswersWithoutTask(<String>{
+          ...eligible,
+          openedMessageId,
+          ?reopenedRemoteId,
+        });
+        _recheckEarlierAnswers();
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
           _hasStreamingAssistant) {
         _engageReopenedTailMonitor(openedMessageId);
@@ -2870,6 +3236,52 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _engageReopenedTailMonitor(state.last.id);
   }
 
+  /// Whether the reply at the end is another person's, in a chat shared with
+  /// Allow replies. It runs under their task, which this account's task list
+  /// never shows, so that list says nothing of whether it is done.
+  bool get _tailIsAnotherPersons {
+    final tail = state.lastOrNull;
+    return tail != null &&
+        tail.role == 'assistant' &&
+        !tail.isWrittenBy(ref.read(currentUserProvider2)?.id);
+  }
+
+  /// Whether the server's copy [message] says it is still running: a
+  /// checkpoint a Conduit client keeps while it writes, or `done: false`,
+  /// which Open WebUI's web client keeps instead (on the answer itself, or in
+  /// the list of its comparison's unfinished answers).
+  static bool _serverReportsRunning(ChatMessage message) {
+    if (message.isStreaming) return true;
+    if (message.metadata?[kMessageServerUnfinishedMetadataKey] == true) {
+      return true;
+    }
+    final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
+    return unfinished is List && unfinished.contains(message.id);
+  }
+
+  /// [messages] with the reply at the end shown running when it is another
+  /// person's and the server reports it still running. A reply written in Open
+  /// WebUI's web client keeps no `isStreaming`; it is running while its copy is
+  /// not done, as the web client takes it. [messages] itself otherwise.
+  List<ChatMessage> _withOthersRunningReply(List<ChatMessage> messages) {
+    final tail = messages.lastOrNull;
+    if (tail == null ||
+        tail.role != 'assistant' ||
+        tail.isStreaming ||
+        tail.isWrittenBy(ref.read(currentUserProvider2)?.id) ||
+        !_serverReportsRunning(tail)) {
+      return messages;
+    }
+    final transport = tail.metadata?['transport'];
+    if (transport == kDirectTransport || transport == kHermesTransport) {
+      return messages;
+    }
+    return List<ChatMessage>.unmodifiable(<ChatMessage>[
+      ...messages.sublist(0, messages.length - 1),
+      tail.copyWith(isStreaming: true),
+    ]);
+  }
+
   void _engageReopenedTailMonitor(String messageId) {
     _reopenedStreamingMessageId = messageId;
     _ensureRemoteTaskMonitor();
@@ -2892,11 +3304,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.last.id == _boundRemoteMessageId;
   }
 
+  /// With [streaming] null, the reply is left running or finished as the
+  /// server's copy of it says (see [_serverReportsRunning]).
   Future<bool> _refreshReopenedStreamFromServer({
     required ApiService api,
     required OpenWebUiCompletionOwner owner,
     required String expectedLocalMessageId,
-    required bool streaming,
+    required bool? streaming,
     required String source,
     bool persist = false,
   }) async {
@@ -2907,7 +3321,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         return false;
       }
       final adopted = _reconcileReopenedServerSnapshot(
-        serverConversation.messages,
+        _withoutAnswersFinishedHere(serverConversation.messages),
         expectedLocalMessageId: expectedLocalMessageId,
         streaming: streaming,
         source: source,
@@ -2928,7 +3342,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _reconcileReopenedServerSnapshot(
     List<ChatMessage> serverMessages, {
     required String expectedLocalMessageId,
-    required bool streaming,
+    required bool? streaming,
     required String source,
   }) {
     if (serverMessages.isEmpty || state.isEmpty) return false;
@@ -2962,13 +3376,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
     if (serverIndex < 0) return false;
+    final live =
+        streaming ?? _serverReportsRunning(serverMessages[serverIndex]);
     // Open WebUI advances history.currentId on every streamed upsert. The
     // assistant being resumed must therefore be the fetched active-branch tip;
     // never mark an older assistant and the current tip as streaming together.
-    if (streaming && serverIndex != serverMessages.length - 1) return false;
+    if (live && serverIndex != serverMessages.length - 1) return false;
 
     final authoritativeServerTail = serverMessages[serverIndex];
-    if (!streaming &&
+    if (!live &&
         (authoritativeServerTail.content.trim().isEmpty ||
             _shouldPreserveLocalAssistantContent(
               localTail,
@@ -2992,7 +3408,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     var serverTail = mergedServerMessages[serverIndex];
     final foreignLiveBinding =
-        streaming &&
+        live &&
         remoteId != null &&
         serverTail.id == remoteId &&
         serverTail.id != localTail.id;
@@ -3002,13 +3418,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // server id once transport ownership is released.
       serverTail = serverTail.copyWith(id: localTail.id);
     }
-    serverTail = serverTail.copyWith(isStreaming: streaming);
+    serverTail = serverTail.copyWith(isStreaming: live);
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
+    // Following another person's reply as the server's copy has it: a newer
+    // reply of theirs that the copy ends on, and reports still running,
+    // shows running too, as on open. That is read from the copy itself, as
+    // `live` is: the merge with local state above may keep a marker the copy
+    // has dropped. (`_withOthersRunningReply` returns the list it is given
+    // when the tail does not run.)
+    final othersNewerReplyRuns =
+        streaming == null &&
+        serverIndex != serverMessages.length - 1 &&
+        !identical(_withOthersRunningReply(serverMessages), serverMessages);
+    if (othersNewerReplyRuns) {
+      reconciled[reconciled.length - 1] = reconciled.last.copyWith(
+        isStreaming: true,
+      );
+    }
     state = List<ChatMessage>.unmodifiable(reconciled);
 
-    if (streaming && state.last.role == 'assistant') {
+    if ((live || othersNewerReplyRuns) && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();
       _streamingContentTimer = null;
       _streamingBuffer = StringBuffer(state.last.content);
@@ -3450,6 +3881,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     var completionNeedsRetry = false;
     var completionGraceActive = false;
     try {
+      // The answers this lookup is for, before it is answered.
+      final answersBeforeLookup = _answersThisAccountRuns();
       // Check both task status and server message state
       final taskIds = await api.getTaskIdsByChat(activeConversation.id);
       taskLookupSucceeded = true;
@@ -3459,6 +3892,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
       hasActiveTasks = taskIds.isNotEmpty;
       final reopenedTail = _isReopenedStreamingTail;
+      // Another person's reply is not finished by this account's list being
+      // empty: the server's copy of it decides, below.
+      final othersReply = _tailIsAnotherPersons;
 
       if (hasActiveTasks) {
         _observedRemoteTask = true;
@@ -3474,6 +3910,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // empty registry observations before treating that checkpoint as done.
       // This retains eventual settlement without racing task registration.
       final tasksDone =
+          !othersReply &&
           !hasActiveTasks &&
           (_observedRemoteTask ||
               (reopenedTail &&
@@ -3529,8 +3966,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // server task runs. A reattached socket only sees future events, so its
       // transport protection must not suppress snapshots that fill the gap
       // accumulated while another chat (or no app process) owned the screen.
+      // Another person's reply is left to the branch below: a task of this
+      // account's in the chat says nothing of whether theirs runs.
       if (_hasStreamingAssistant &&
           hasActiveTasks &&
+          !othersReply &&
           (unprotectedResumeNeedsSnapshot || protectedResumeNeedsSnapshot)) {
         final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
         if (_shouldProtectLocalStreamingState &&
@@ -3550,6 +3990,41 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             generation != _taskStatusGeneration ||
             activeOpenWebUiChatIdForMutation(ref, owner) == null) {
           return;
+        }
+      }
+
+      // Another person's reply, whatever tasks this account runs in the chat:
+      // it runs on, or is done, as the server's copy of it says, as Open
+      // WebUI's web client takes it. Asked no more often than a stalled
+      // resume is.
+      if (_hasStreamingAssistant &&
+          othersReply &&
+          (_lastReopenedSnapshotAt == null ||
+              now.difference(_lastReopenedSnapshotAt!) >=
+                  _reopenedSocketStallThreshold)) {
+        final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
+        final followed = await _refreshReopenedStreamFromServer(
+          api: api,
+          owner: owner,
+          expectedLocalMessageId: expectedMessageId,
+          streaming: null,
+          source: 'another person\'s reply poll',
+        );
+        if (_disposed ||
+            generation != _taskStatusGeneration ||
+            activeOpenWebUiChatIdForMutation(ref, owner) == null) {
+          return;
+        }
+        if (followed && !_hasStreamingAssistant) {
+          _cancelMessageStream();
+          schedulePullChatNow(ref, owner.chatId);
+          _recheckEarlierAnswers();
+        } else if (followed &&
+            _tailIsAnotherPersons &&
+            _remoteTaskMonitorMessageId != state.last.id) {
+          // The copy ends on a newer reply of theirs, still running: it is
+          // followed in its turn.
+          _engageReopenedTailMonitor(state.last.id);
         }
       }
 
@@ -3582,7 +4057,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           return;
         }
         if (reconciled) {
+          // The polled answer may carry the server's id by now, which the
+          // stream's binding holds until it is cancelled.
+          final polledRemoteId = _boundRemoteMessageId;
           _cancelMessageStream();
+          // The account runs no task in the chat any more: answers a server
+          // restart cut off are finished, as on open. Only those the lookup
+          // was made for and the polled answer itself; the rest of the final
+          // copy, which may first show the answer's comparison unfinished or
+          // one another session started since, is checked by a fresh lookup.
+          _finishAnswersWithoutTask(<String>{
+            ...answersBeforeLookup,
+            expectedMessageId,
+            ?polledRemoteId,
+          });
+          _recheckEarlierAnswers();
         } else {
           completionNeedsRetry = true;
         }
@@ -3779,6 +4268,30 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
+    // A chat started with a coding agent reopens with it once its terminal
+    // offers it again; until then the current model stays, as before.
+    if (isTerminalAgentModelId(conversationModelId)) {
+      try {
+        final agent = await resolveTerminalAgentModel(
+          ref,
+          conversationModelId,
+          chatId: conversation.id,
+        );
+        if (agent == null || !stillOwnsSelection()) return;
+        ref
+            .read(selectedTerminalIdProvider.notifier)
+            .set(terminalAgentTerminalId(agent));
+        ref.read(selectedModelProvider.notifier).set(agent, allowHidden: true);
+      } catch (error) {
+        DebugLogger.warning(
+          'agent-model-restore-failed',
+          scope: 'chat/agents',
+          data: {'error': error.runtimeType.toString()},
+        );
+      }
+      return;
+    }
+
     // Open WebUI persists the provider-facing id for direct models. Prefer the
     // current trusted synthetic model that owns that wire id before considering
     // a same-id server model, matching Open WebUI's direct-model last-wins rule.
@@ -3933,18 +4446,32 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _syncConversationStateAfterStreamingUpdate();
   }
 
-  /// Settles every answer still streaming in the turn that ends the list:
-  /// the explicit stop of a whole multi-model turn. Completes once their
-  /// settled state is stored (see [settleStoppedSlotMessages]).
+  /// Settles this account's answers still streaming in the turn that ends
+  /// the list: the explicit stop of a whole multi-model turn. Completes once
+  /// their settled state is stored (see [settleStoppedSlotMessages]).
+  ///
+  /// In a chat shared with Allow replies the turn can hold another person's
+  /// answer, even as the one shown. Only they can stop it, so it runs on and
+  /// is neither settled nor stored here. This account's answers among the
+  /// turn's versions stop with the chat's tasks and are finished here.
   Future<bool> settleTrailingStreamingAnswers() {
     releaseAllSlotTransports();
+    final userId = ref.read(currentUserProvider2)?.id;
     final ids = <String>[];
+    final versions = <String>[];
     for (var index = state.length - 1; index >= 0; index -= 1) {
       final message = state[index];
       if (message.role != 'assistant') break;
-      if (message.isStreaming) ids.add(message.id);
+      if (message.isStreaming && message.isWrittenBy(userId)) {
+        ids.add(message.id);
+      }
+      versions.addAll(_answersThisAccountRuns(inMessage: message.id));
     }
-    return settleStoppedSlotMessages(ids);
+    final settled = settleStoppedSlotMessages(ids);
+    // Only once the answers shown are settled: those are stored only while
+    // they still show running.
+    if (versions.isNotEmpty) _finishAnswersWithoutTask(versions);
+    return settled;
   }
 
   /// Ends the answers [messageIds] whose tasks the server was told to stop, and
@@ -4369,6 +4896,69 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     state = next;
   }
 
+  /// Ids [renameMessage] replaced, old to new.
+  final Map<String, String> _renamedMessageIds = <String, String>{};
+
+  /// The id message [id] goes by now: the server's, once it renamed one
+  /// minted here, so a page holding the first id can still find it.
+  String currentMessageId(String id) {
+    var current = id;
+    for (var hops = 0; hops < 4; hops++) {
+      final next = _renamedMessageIds[current];
+      if (next == null) break;
+      current = next;
+    }
+    return current;
+  }
+
+  /// Gives message [fromId] the id [toId] its server assigned, and points
+  /// every parent and child reference at it. Does nothing when [fromId] is
+  /// not shown or [toId] already is.
+  void renameMessage(String fromId, String toId) {
+    if (fromId == toId ||
+        !state.any((message) => message.id == fromId) ||
+        state.any((message) => message.id == toId)) {
+      return;
+    }
+    _renamedMessageIds[fromId] = toId;
+    String swap(String id) => id == fromId ? toId : id;
+    state = [
+      for (final message in state)
+        _withRenamedReferences(
+          message.id == fromId ? message.copyWith(id: toId) : message,
+          swap,
+        ),
+    ];
+  }
+
+  static ChatMessage _withRenamedReferences(
+    ChatMessage message,
+    String Function(String id) swap,
+  ) {
+    final metadata = message.metadata;
+    if (metadata == null) return message;
+    final parent = metadata['parentId'];
+    final children = metadata['childrenIds'];
+    final nextParent = parent is String ? swap(parent) : parent;
+    final nextChildren = children is List
+        ? [
+            for (final child in children)
+              if (child is String) swap(child) else child,
+          ]
+        : children;
+    if (nextParent == parent &&
+        (children is! List || listEquals(children, nextChildren as List))) {
+      return message;
+    }
+    return message.copyWith(
+      metadata: <String, dynamic>{
+        ...metadata,
+        'parentId': ?nextParent,
+        'childrenIds': ?nextChildren,
+      },
+    );
+  }
+
   Future<void> resumeAfterOpenWebUiToolCall({
     required String messageId,
     required String callId,
@@ -4383,8 +4973,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.indexWhere((message) => message.id == messageId) == -1) {
       return;
     }
+    // A coding agent (Open WebUI 0.13.1) waits on its request inside the
+    // turn that is still running: the server hands that turn the answer and
+    // starts nothing, so no task comes back, yet the reply goes on.
+    final agentRequest =
+        taskIds.isEmpty &&
+        isOpenWebUiAgentRequest(
+          state.firstWhere((message) => message.id == messageId).output,
+          callId,
+        );
     final resumeTailOwnsTask =
-        taskIds.isNotEmpty &&
+        (taskIds.isNotEmpty || agentRequest) &&
         state.isNotEmpty &&
         state.last.id == messageId &&
         state.last.role == 'assistant';
@@ -4425,7 +5024,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    if (taskIds.isEmpty) {
+    if (taskIds.isEmpty && !resumeTailOwnsTask) {
       try {
         final pulled = await ref
             .read(syncEngineProvider.notifier)
@@ -4446,7 +5045,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     await _attachResumeSocketStream(
       conversation,
       state.last,
-      taskId: taskIds.first,
+      taskId: taskIds.firstOrNull,
     );
     if (!_disposed &&
         ref.read(activeConversationProvider)?.id == conversation.id &&
@@ -4751,7 +5350,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _scheduleStreamingContentFrame(reason: reason);
       return;
     }
-    final elapsed = DateTime.now().difference(lastFlushAt);
+    // `clock` rather than `DateTime.now()`, so under fake time the window
+    // closes on the same clock that runs the timer below.
+    final elapsed = clock.now().difference(lastFlushAt);
     final remaining = streamingContentUpdateInterval - elapsed;
     if (remaining <= Duration.zero) {
       _scheduleStreamingContentFrame(reason: reason);
@@ -4821,7 +5422,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _streamingCoalescedUpdateCount += coalescedUpdates;
       return;
     }
-    _lastStreamingContentFlushAt = DateTime.now();
+    _lastStreamingContentFlushAt = clock.now();
     _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
     _streamingVisibleFlushCount += 1;
     _streamingCoalescedUpdateCount += coalescedUpdates;
@@ -5541,6 +6142,11 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
             .where((model) => model.isNotEmpty)
             .toList(growable: false)
       : const <String>[];
+  final voice = messageVoiceRecord(message);
+  final metadata = voice == null
+      ? message.metadata
+      : (Map<String, dynamic>.of(message.metadata!)
+          ..remove(kMessageVoiceMetadataKey));
   return MessageRowData(
     id: message.id,
     chatId: chatId,
@@ -5573,8 +6179,10 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       // A user turn's saved model list is what makes Open WebUI render its
       // answers as a comparison; without it the saved merge is hidden.
       if (userModels.isNotEmpty) 'models': userModels,
-      if (message.metadata != null && message.metadata!.isNotEmpty)
-        'metadata': message.metadata,
+      if (metadata != null && metadata.isNotEmpty) 'metadata': metadata,
+      // Open WebUI reads a call's spoken transcripts from `meta.voice` and
+      // replays them to the chat model; metadata only mirrors them.
+      if (voice != null) 'meta': <String, dynamic>{'voice': voice},
       if (message.output != null && message.output!.isNotEmpty)
         'output': message.output,
       'files': ?sanitizedFiles,

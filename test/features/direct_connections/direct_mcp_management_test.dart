@@ -81,7 +81,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('MCP servers'), findsOneWidget);
+    expect(find.text('MCP Servers'), findsOneWidget);
     expect(find.text('Home MCP'), findsOneWidget);
     expect(find.textContaining('token=secret'), findsNothing);
     expect(find.textContaining('http://192.168.1.4:3000/mcp'), findsOneWidget);
@@ -111,7 +111,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('No MCP servers yet'));
+    await tester.tap(find.text('No MCP Servers Yet'));
     expect(additions, 1);
   });
 
@@ -180,8 +180,8 @@ void main() {
       find.text('Could not load MCP servers from secure storage.'),
       findsOneWidget,
     );
-    expect(find.text('No MCP servers yet'), findsNothing);
-    await tester.tap(find.text('Add connection').last);
+    expect(find.text('No MCP Servers Yet'), findsNothing);
+    await tester.tap(find.text('Add Connection').last);
     expect(additions, 1);
   });
 
@@ -232,7 +232,7 @@ void main() {
       'new',
       editorKey: const ValueKey('same-route-editor'),
     );
-    expect(find.text('Add MCP server'), findsOneWidget);
+    expect(find.text('Add MCP Server'), findsOneWidget);
 
     await _pumpOAuthEditor(
       tester,
@@ -241,7 +241,7 @@ void main() {
       server.id,
       editorKey: const ValueKey('same-route-editor'),
     );
-    expect(find.text('Edit MCP server'), findsOneWidget);
+    expect(find.text('Edit MCP Server'), findsOneWidget);
     expect(find.text('OAuth UI'), findsOneWidget);
     expect(find.text('https://resource.example/mcp'), findsOneWidget);
     expect(find.text('This MCP server no longer exists.'), findsNothing);
@@ -262,7 +262,7 @@ void main() {
 
     expect(find.textContaining('auth.example'), findsOneWidget);
     expect(find.textContaining('tools.read'), findsOneWidget);
-    expect(find.text('Reconnect in browser'), findsOneWidget);
+    expect(find.text('Reconnect in Browser'), findsOneWidget);
     expect(find.text('Disconnect OAuth'), findsOneWidget);
     expect(find.textContaining('access-ui-secret'), findsNothing);
     expect(find.textContaining('refresh-ui-secret'), findsNothing);
@@ -271,7 +271,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('direct-mcp-oauth-disconnect')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Connect in browser'), findsOneWidget);
+    expect(find.text('Connect in Browser'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('direct-mcp-oauth-details')),
       findsNothing,
@@ -295,7 +295,7 @@ void main() {
     addTearDown(coordinator.close);
     await _pumpOAuthEditor(tester, store, coordinator, server.id);
 
-    expect(find.text('Always allowed tools'), findsOneWidget);
+    expect(find.text('Always Allowed Tools'), findsOneWidget);
     expect(find.text('Lookup'), findsOneWidget);
     expect(find.text('Search'), findsOneWidget);
     expect(find.textContaining('a' * 64), findsNothing);
@@ -312,7 +312,7 @@ void main() {
     await tester.tap(revokeAll);
     await tester.pumpAndSettle();
     expect((await store.load()).single.rememberedApprovals, isEmpty);
-    expect(find.text('Always allowed tools'), findsNothing);
+    expect(find.text('Always Allowed Tools'), findsNothing);
   });
 
   testWidgets('Save strips credentials when path transfer is declined', (
@@ -379,7 +379,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Connect in browser'), findsOneWidget);
+    expect(find.text('Connect in Browser'), findsOneWidget);
 
     await store.upsert(
       server.copyWith(oauthTokens: _managementOAuthTokens(server.endpoint)),
@@ -389,7 +389,7 @@ void main() {
     await container.read(directMcpServersProvider.notifier).reload();
     await tester.pumpAndSettle();
 
-    expect(find.text('Reconnect in browser'), findsOneWidget);
+    expect(find.text('Reconnect in Browser'), findsOneWidget);
     expect(find.textContaining('auth.example'), findsOneWidget);
     expect(find.textContaining('access-ui-secret'), findsNothing);
     expect(find.textContaining('refresh-ui-secret'), findsNothing);
@@ -427,7 +427,7 @@ void main() {
     final connect = find.byKey(const ValueKey('direct-mcp-oauth-connect'));
     await tester.ensureVisible(connect);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Connect in browser'));
+    await tester.tap(find.text('Connect in Browser'));
     await tester.pump();
     expect(find.text('Cancel'), findsOneWidget);
     expect(coordinator.isPending(server.id), isTrue);

@@ -10,8 +10,136 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 
 void main() {
+  group('knowledge base file limits (Open WebUI 0.13)', () {
+    test('an upload is checked with its count and largest size', () async {
+      final requests = <RequestOptions>[];
+      final adapter = _RecordingAdapter((request) {
+        requests.add(request);
+        return _json({'status': true});
+      });
+
+      await _api(
+        adapter,
+      ).validateWorkspaceKnowledgeUpload('kb-1', count: 3, largestFileSize: 42);
+
+      check(requests.single.method).equals('POST');
+      check(requests.single.path).equals('/api/v1/knowledge/kb-1/files/validate');
+      check(requests.single.data as Map).deepEquals({
+        'count': 3,
+        'file_size': 42,
+        'removed_file_ids': <String>[],
+      });
+    });
+
+    test('a refusal carries the server reason', () async {
+      for (final status in [400, 413]) {
+        final adapter = _RecordingAdapter(
+          (_) => _json({
+            'detail': 'Knowledge base file limit exceeded (5 files maximum).',
+          }, statusCode: status),
+        );
+
+        await check(
+          _api(adapter).validateWorkspaceKnowledgeUpload('kb-1', count: 9),
+        ).throws<KnowledgeUploadRefused>(
+          (it) => it
+              .has((e) => e.reason, 'reason')
+              .equals('Knowledge base file limit exceeded (5 files maximum).'),
+        );
+      }
+    });
+
+    test('a server without the check is asked once and then left alone', () async {
+      var calls = 0;
+      final adapter = _RecordingAdapter((_) {
+        calls++;
+        return _json({'detail': 'Not Found'}, statusCode: 404);
+      });
+      final api = _api(adapter);
+
+      await api.validateWorkspaceKnowledgeUpload('kb-1', count: 1);
+      await api.validateWorkspaceKnowledgeUpload('kb-1', count: 1);
+
+      check(calls).equals(1);
+    });
+
+    test('limits are sent only when set, and read back from meta', () {
+      const plain = WorkspaceKnowledgeForm(name: 'Docs');
+      check(plain.toJson().containsKey('meta')).isFalse();
+
+      const limited = WorkspaceKnowledgeForm(
+        name: 'Docs',
+        limits: (maxFileCount: 50, maxFileSize: null),
+      );
+      check(limited.toJson()['meta'] as Map).deepEquals({
+        'max_file_count': 50,
+        'max_file_size': null,
+      });
+
+      final summary = WorkspaceKnowledgeSummary.fromJson({
+        'id': 'kb-1',
+        'name': 'Docs',
+        'user_id': 'u',
+        'meta': {'max_file_count': 50, 'max_file_size': 0},
+      });
+      check(summary.maxFileCount).equals(50);
+      check(summary.maxFileSize).isNull();
+    });
+  });
+
+  group('MCP App requests (Open WebUI 0.13)', () {
+    const app = OpenWebUiMcpApp(
+      serverId: 'maps',
+      toolName: 'show_map',
+      binding: 'b',
+    );
+
+    test('go to the app RPC with the binding', () async {
+      final requests = <RequestOptions>[];
+      final adapter = _RecordingAdapter((request) {
+        requests.add(request);
+        return _json({'html': '<p></p>'});
+      });
+
+      final result = await _api(adapter).runMcpAppRequest(
+        app,
+        method: 'resources/read',
+        params: {'uri': 'ui://maps/tile'},
+      );
+
+      check(result).deepEquals({'html': '<p></p>'});
+      check(
+        requests.single.path,
+      ).equals('/api/v1/tools/id/server%3Amcp%3Amaps/mcp/app/rpc');
+      check(requests.single.data as Map).deepEquals({
+        'tool_name': 'show_map',
+        'binding': 'b',
+        'method': 'resources/read',
+        'params': {'uri': 'ui://maps/tile'},
+      });
+    });
+
+    test("a refusal carries the server's reason", () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'detail': 'Invalid app binding. Run the tool again.',
+        }, statusCode: 403),
+      );
+
+      await check(
+        _api(adapter).runMcpAppRequest(app, method: 'ui/resource'),
+      ).throws<McpAppRpcException>(
+        (it) => it
+            .has((e) => e.message, 'message')
+            .equals('Invalid app binding. Run the tool again.'),
+      );
+    });
+  });
+
   test('model list uses exact route and workspace query names', () async {
     final adapter = _RecordingAdapter((request) {
       check(request.method).equals('GET');

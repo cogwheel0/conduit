@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
@@ -36,6 +37,49 @@ void main() {
     );
   });
 
+  test('a draft that can be kept as a note shows + on any backend', () {
+    // Save as Note lives only in the + panel.
+    for (final (hermes, direct, libreChat) in [
+      (true, false, false),
+      (false, true, false),
+      (false, false, true),
+    ]) {
+      expect(
+        shouldShowComposerOverflowButton(
+          isHermesComposer: hermes,
+          isDirectComposer: direct,
+          directSupportsImages: false,
+          isLibreChatComposer: libreChat,
+          draftNoteAvailable: true,
+        ),
+        isTrue,
+        reason: 'hermes: $hermes, direct: $direct, libreChat: $libreChat',
+      );
+    }
+  });
+
+  test('LibreChat overflow follows its uploads and tools', () {
+    expect(
+      shouldShowComposerOverflowButton(
+        isHermesComposer: false,
+        isDirectComposer: false,
+        directSupportsImages: true,
+        isLibreChatComposer: true,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldShowComposerOverflowButton(
+        isHermesComposer: false,
+        isDirectComposer: false,
+        directSupportsImages: false,
+        isLibreChatComposer: true,
+        libreChatHasOverflowActions: true,
+      ),
+      isTrue,
+    );
+  });
+
   testWidgets('Hermes image capability reveals only local attachment actions', (
     tester,
   ) async {
@@ -62,16 +106,45 @@ void main() {
       find.byType(ComposerAttachmentKeyboard),
     );
     expect(sheet.localAttachmentsOnly, isTrue);
-    expect(find.text('File'), findsOneWidget);
-    expect(find.text('Photo'), findsOneWidget);
+    expect(find.text('Files'), findsOneWidget);
+    expect(find.text('Photos'), findsOneWidget);
     expect(find.text('Camera'), findsOneWidget);
-    expect(find.text('Files'), findsNothing);
+    expect(find.text('Server Files'), findsNothing);
     expect(find.text('Web Page'), findsNothing);
     expect(find.text('Tools'), findsNothing);
 
-    await tester.tap(find.text('Photo'));
+    await tester.tap(find.text('Photos'));
     await tester.pumpAndSettle();
     expect(photoCalls, 1);
+  });
+
+  testWidgets('a Hermes draft without attachments reaches Save as Note '
+      'through +', (tester) async {
+    await _pumpComposer(
+      tester,
+      capabilities: const HermesCapabilities(),
+      notesEnabled: true,
+    );
+    // Nothing to attach and no draft: no +.
+    expect(find.byIcon(Icons.add), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'Paper lantern');
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.add), findsOneWidget);
+    // With nothing to attach, the button names what it offers.
+    final handle = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Save as Note'), findsOneWidget);
+    expect(find.bySemanticsLabel('Add Attachment'), findsNothing);
+    handle.dispose();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('composer-save-draft-as-note'));
+    expect(
+      find.descendant(of: row, matching: find.text('Save as Note')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Hermes images fail closed when capability is absent', (
@@ -109,8 +182,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      expect(find.text('File'), findsOneWidget);
-      expect(find.text('Photo'), findsNothing);
+      expect(find.text('Files'), findsOneWidget);
+      expect(find.text('Photos'), findsNothing);
       expect(find.text('Camera'), findsNothing);
 
       capabilities.complete(const HermesCapabilities(inputImages: true));
@@ -173,6 +246,7 @@ Future<void> _pumpComposer(
   VoidCallback? onWebAttachment,
   bool desktopGateway = false,
   bool isStreaming = false,
+  bool notesEnabled = false,
 }) async {
   assert((capabilities == null) != (pendingCapabilities == null));
 
@@ -193,6 +267,14 @@ Future<void> _pumpComposer(
         apiServiceProvider.overrideWithValue(null),
         webSearchAvailableProvider.overrideWithValue(true),
         imageGenerationAvailableProvider.overrideWithValue(true),
+        if (notesEnabled) ...[
+          notesFeatureEnabledProvider.overrideWith(
+            _EnabledNotesFeatureNotifier.new,
+          ),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(showComposerNotesButton: true),
+          ),
+        ],
       ],
       child: MaterialApp(
         localizationsDelegates: conduitLocalizationsDelegates,
@@ -214,4 +296,9 @@ Future<void> _pumpComposer(
   if (pendingCapabilities == null) {
     await tester.pumpAndSettle();
   }
+}
+
+final class _EnabledNotesFeatureNotifier extends NotesFeatureEnabledNotifier {
+  @override
+  bool build() => true;
 }

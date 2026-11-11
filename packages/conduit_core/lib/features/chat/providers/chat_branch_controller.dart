@@ -72,6 +72,19 @@ enum ChatForkAvailability {
 }
 
 final chatForkAvailabilityProvider = Provider<ChatForkAvailability>((ref) {
+  // A LibreChat chat branches on its own server, which keeps every message
+  // the open chat shows.
+  final active = ref.watch(activeConversationProvider);
+  if (isLibreChatConversation(active)) {
+    if (ref.watch(libreChatSyncEngineProvider) == null) {
+      return ChatForkAvailability.hidden;
+    }
+    if (!ref.watch(isOnlineProvider)) return ChatForkAvailability.offline;
+    if (ref.watch(isChatStreamingProvider)) {
+      return ChatForkAvailability.responseRunning;
+    }
+    return ChatForkAvailability.available;
+  }
   if (!ref.watch(chatBranchControlsProvider)) {
     return ChatForkAvailability.hidden;
   }
@@ -234,6 +247,8 @@ Future<ChatBranchSelection> selectChatBranch(
         messageId: messageId,
         alternativeTo: alternativeTo,
       );
+  // A model pick names the prompts it was made over by id, so it keeps
+  // applying to those on this branch too, and to no others.
   if (selection.changed && _branchMutationContextIsCurrent(ref, token)) {
     try {
       unawaited(

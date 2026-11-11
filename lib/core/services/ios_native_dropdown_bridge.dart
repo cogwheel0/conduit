@@ -1,5 +1,4 @@
-import 'dart:io' show Platform;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -29,6 +28,55 @@ class IosNativeDropdownBridge {
 
   final NativeDropdownHostApi _api = NativeDropdownHostApi();
 
+  Future<bool>? _contextMenuInitialization;
+
+  /// Coalesce simultaneous checks, but recheck a later host view.
+  Future<bool> initializeContextMenu() =>
+      _contextMenuInitialization ??= _initializeContextMenu().whenComplete(
+        () => _contextMenuInitialization = null,
+      );
+
+  Future<bool> _initializeContextMenu() async {
+    try {
+      return await _api.initializeContextMenu();
+    } catch (error, stackTrace) {
+      _logNativeDropdownBridgeError('initializeContextMenu', error, stackTrace);
+      return false;
+    }
+  }
+
+  /// Presents a PNG at global logical bounds; nil means dismissal without selection.
+  /// Presentation errors propagate so the caller can activate its fallback.
+  Future<String?> showContextMenu({
+    required int requestId,
+    required Rect sourceRect,
+    required List<IosNativeDropdownOption> options,
+    required Uint8List previewPng,
+  }) async {
+    try {
+      return await _api.showContextMenu(
+        requestId,
+        PlatformDropdownRequest(
+          options: options.map((option) => option.toPlatform()).toList(),
+          sourceRect: _rectToPlatform(sourceRect),
+        ),
+        previewPng,
+      );
+    } catch (error, stackTrace) {
+      _logNativeDropdownBridgeError('showContextMenu', error, stackTrace);
+      rethrow;
+    }
+  }
+
+  /// Cancels only the identified request; cancellation errors are logged and suppressed.
+  Future<void> cancelContextMenu(int requestId) async {
+    try {
+      await _api.cancelContextMenu(requestId);
+    } catch (error, stackTrace) {
+      _logNativeDropdownBridgeError('cancelContextMenu', error, stackTrace);
+    }
+  }
+
   Future<String?> show({
     required List<IosNativeDropdownOption> options,
     String? title,
@@ -37,7 +85,11 @@ class IosNativeDropdownBridge {
     Rect? sourceRect,
     bool rethrowErrors = false,
   }) async {
-    if (!Platform.isIOS || options.isEmpty) return null;
+    // The target platform rather than the host's, so that the presentation
+    // and its fallbacks run in widget tests that target iOS.
+    if (defaultTargetPlatform != TargetPlatform.iOS || options.isEmpty) {
+      return null;
+    }
     try {
       return await _api.show(
         PlatformDropdownRequest(

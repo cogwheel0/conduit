@@ -33,6 +33,27 @@ void main() {
     );
   }
 
+  testWidgets('the route colour also fills the strip under the keyboard', (
+    tester,
+  ) async {
+    const grouped = Color(0xFFF2F2F7);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: AdaptiveRouteShell(
+          backgroundColor: grouped,
+          body: Center(child: TextField()),
+        ),
+      ),
+    );
+
+    // The keyboard's rounded corners show the scaffold behind the inset
+    // page; it must be the page's colour, not the default white.
+    final scaffold = tester.widget<CupertinoPageScaffold>(
+      find.byType(CupertinoPageScaffold),
+    );
+    check(scaffold.backgroundColor).equals(grouped);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('a text field in an iOS route body has a Material ancestor', (
     tester,
   ) async {

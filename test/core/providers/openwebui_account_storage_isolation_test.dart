@@ -64,6 +64,20 @@ class _ServerSelection extends Notifier<ServerConfig> {
   void set(ServerConfig server) => state = server;
 }
 
+/// An active account that can be none at all, as while Open WebUI is parked
+/// for another account backend.
+class _ParkableServerSelection extends Notifier<ServerConfig?> {
+  @override
+  ServerConfig? build() => _server;
+
+  void set(ServerConfig? server) => state = server;
+}
+
+final _parkableServerSelectionProvider =
+    NotifierProvider<_ParkableServerSelection, ServerConfig?>(
+      _ParkableServerSelection.new,
+    );
+
 class _ApiSelection extends Notifier<ApiService?> {
   @override
   ApiService? build() => null;
@@ -1998,6 +2012,62 @@ void main() {
       check(harness.container.read(openWebUiDatabaseAccessProvider))
           .equals(OpenWebUiDatabaseAccessPhase.open);
       check(harness.markerStore.read(_server.id)).isNotNull();
+    });
+
+    test('parking Open WebUI closes the account database and keeps it',
+        () async {
+      // What AuthStateManager.parkActiveAccount does: the barrier is told,
+      // then no account is active, then auth settles signed out.
+      final purged = <String>[];
+      final harness = await _harness(
+        activeServerOverride: activeServerProvider.overrideWith(
+          (ref) async => ref.watch(_parkableServerSelectionProvider),
+        ),
+        databasePurge: (serverId) async => purged.add(serverId),
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      final selection = harness.container.read(
+        _parkableServerSelectionProvider.notifier,
+      );
+      Future<void> settle() async {
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+          await isolation.settled;
+        }
+      }
+
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.loading, isLoading: true),
+      );
+      isolation.beginAccountSwitch();
+      selection.set(null);
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await settle();
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+      check(harness.container.read(appDatabaseProvider)).isNull();
+      check(purged).isEmpty();
+      check(harness.markerStore.read(_server.id)).isNotNull();
+
+      // Un-parked, the account opens with its data.
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.loading, isLoading: true),
+      );
+      isolation.beginAccountSwitch();
+      selection.set(_server);
+      harness.auth.publish(_authenticated('token-a', _userA));
+      await settle();
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+      check(purged).isEmpty();
     });
 
     test(

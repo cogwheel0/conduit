@@ -1,6 +1,7 @@
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -120,6 +121,28 @@ class AuthActions {
         rememberCredentials: rememberCredentials,
       ),
     );
+  }
+
+  /// The secret to add to an authenticator app for an `enroll` step of a
+  /// sign-in that [login] or [ldapLogin] stopped with
+  /// [OpenWebUiTwoStepRequired].
+  Future<OpenWebUiTwoStepSetup> startTwoStepEnrollment(
+    OpenWebUiTwoStepChallenge challenge,
+  ) => _auth.startTwoStepEnrollment(challenge);
+
+  Future<OpenWebUiTwoStepSession> submitTwoStepCode(
+    OpenWebUiTwoStepChallenge challenge,
+    String code, {
+    bool recovery = false,
+  }) => _auth.submitTwoStepCode(challenge, code, recovery: recovery);
+
+  Future<OpenWebUiTwoStepChallenge> redeemTwoStepResetToken(
+    OpenWebUiTwoStepChallenge challenge,
+    String resetToken,
+  ) => _auth.redeemTwoStepResetToken(challenge, resetToken);
+
+  Future<bool> finishTwoStepSignIn(OpenWebUiTwoStepSession session) {
+    return _completeOpenWebUiAuth(() => _auth.finishTwoStepSignIn(session));
   }
 
   Future<bool> silentLogin() {

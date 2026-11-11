@@ -3,10 +3,230 @@ import Darwin
 import Flutter
 import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor
+  func testNativeProfilePresentationIsSingleUntilDismissed() throws {
+    let presenter = ProfilePresentationTestController()
+    let host = SelectionMenuTestHost(
+      messenger: SelectionMenuTestMessenger(), controller: presenter)
+    let bridge = NativeSheetBridge.shared
+    bridge.attach(to: host)
+    defer { _ = try? bridge.dismiss() }
+    let config = PlatformNativeProfileSheetConfig(
+      profile: PlatformNativeProfileSheetUser(
+        displayName: "Test Account", email: "", initials: "TA",
+        avatarIsTemplate: false, avatarHeaders: [:]),
+      editProfileLabel: "Edit Profile", menuItems: [], supportItems: [],
+      sections: [], detailSheets: [])
+
+    let burst = expectation(description: "All presentation requests finish")
+    burst.expectedFulfillmentCount = 8
+    for _ in 0..<8 {
+      bridge.presentProfileMenu(config: config) { result in
+        XCTAssertEqual(try? result.get(), true)
+        burst.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 2)
+    XCTAssertEqual(presenter.presentations.count, 1)
+
+    XCTAssertTrue(try bridge.dismiss())
+    let reopened = expectation(description: "Settings can reopen after dismissal")
+    bridge.presentProfileMenu(config: config) { result in
+      XCTAssertEqual(try? result.get(), true)
+      reopened.fulfill()
+    }
+    waitForExpectations(timeout: 2)
+    XCTAssertEqual(presenter.presentations.count, 2)
+  }
+
+  /// Verifies coordinate scaling and rejects malformed channel payloads.
+  func testTextMagnifierMapsFullViewCoordinates() throws {
+    let payload: [String: Any] = [
+      "viewWidth": 400.0, "viewHeight": 800.0,
+      "x": 120.0, "y": 500.0,
+      "caretX": 118.0, "caretY": 490.0,
+      "caretWidth": 2.0, "caretHeight": 20.0,
+    ]
+    let geometry = try XCTUnwrap(NativeTextMagnifierGeometry(
+      payload, in: CGRect(x: 10, y: 20, width: 200, height: 400)
+    ))
+    XCTAssertEqual(geometry.point, CGPoint(x: 70, y: 270))
+    XCTAssertEqual(geometry.caretRect, CGRect(x: 69, y: 265, width: 1, height: 10))
+    for (key, value) in [
+      ("viewWidth", 0.0), ("viewHeight", -1.0), ("x", Double.nan),
+      ("y", Double.infinity), ("caretWidth", -2.0), ("caretHeight", -1.0),
+    ] {
+      var invalid = payload
+      invalid[key] = value
+      XCTAssertNil(NativeTextMagnifierGeometry(invalid, in: CGRect(x: 0, y: 0, width: 400, height: 800)))
+    }
+    XCTAssertNil(NativeTextMagnifierGeometry([:], in: .zero))
+  }
+
+
+  /// Checks action delivery and exactly-once cancellation during app resignation.
+  @MainActor
+  func testNativeSelectionMenuKeepsChosenActionWhenAppResigns() throws {
+    guard #available(iOS 17.4, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+
+    for chosen in [0, 1, nil] {
+      let messenger = SelectionMenuTestMessenger()
+      let host = SelectionMenuTestHost(messenger: messenger, controller: controller)
+      let bridge = NativeTextSelectionMenuBridge()
+      bridge.attach(to: host)
+      let codec = FlutterStandardMethodCodec.sharedInstance()
+      var replies: [Int?] = []
+      let call = FlutterMethodCall(methodName: "show", arguments: [
+        "session": 1, "labels": ["Copy", "Ask Conduit"],
+        "rect": [20.0, 100.0, 160.0, 24.0],
+        "viewWidth": 390.0, "viewHeight": 844.0,
+      ])
+      let handler = try XCTUnwrap(messenger.handler)
+      handler(codec.encode(call)) { data in
+        guard let data else { XCTFail("Missing menu reply"); return }
+        replies.append((try? codec.decodeEnvelope(data)) as? Int)
+      }
+      let anchor = try XCTUnwrap(controller.view.subviews.last)
+      let interaction = try XCTUnwrap(anchor.interactions.first as? UIEditMenuInteraction)
+      let menu = try XCTUnwrap(bridge.editMenuInteraction(
+        interaction,
+        menuFor: UIEditMenuConfiguration(identifier: NSNumber(value: 1), sourcePoint: .zero),
+        suggestedActions: []))
+      if let chosen {
+        let action = try XCTUnwrap(menu.children[chosen] as? UIAction)
+        UIButton(primaryAction: action).performPrimaryAction()
+      }
+
+      // The app can resign after the action is chosen but before UIKit's
+      // dismissal animation completes. A second dismissal must not reply twice.
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      XCTAssertEqual(replies, [chosen])
+    }
+  }
+
+  /// Checks that host replacement isolates queued actions and animations.
+  @MainActor
+  func testNativeSelectionMenuIgnoresCallbacksFromPreviousHost() throws {
+    guard #available(iOS 17.4, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let call = codec.encode(FlutterMethodCall(methodName: "show", arguments: [
+      "session": 1, "labels": ["Copy"],
+      "rect": [20.0, 100.0, 160.0, 24.0],
+      "viewWidth": 390.0, "viewHeight": 844.0,
+    ]))
+    for staleAction in [true, false] {
+      let oldMessenger = SelectionMenuTestMessenger()
+      let oldHost = SelectionMenuTestHost(messenger: oldMessenger, controller: controller)
+      let bridge = NativeTextSelectionMenuBridge()
+      bridge.attach(to: oldHost)
+      try XCTUnwrap(oldMessenger.handler)(call) { _ in }
+      let anchor = try XCTUnwrap(controller.view.subviews.last)
+      let interaction = try XCTUnwrap(anchor.interactions.first as? UIEditMenuInteraction)
+      let configuration = UIEditMenuConfiguration(
+        identifier: NSNumber(value: 1), sourcePoint: .zero)
+      let menu = try XCTUnwrap(bridge.editMenuInteraction(
+        interaction, menuFor: configuration, suggestedActions: []))
+      let oldAction = try XCTUnwrap(menu.children.first as? UIAction)
+      let animator = SelectionMenuTestAnimator()
+      bridge.editMenuInteraction(
+        interaction, willDismissMenuFor: configuration, animator: animator)
+
+      let newMessenger = SelectionMenuTestMessenger()
+      let newHost = SelectionMenuTestHost(messenger: newMessenger, controller: controller)
+      bridge.attach(to: newHost)
+      var replies: [Int?] = []
+      // A new engine starts its session counter again.
+      try XCTUnwrap(newMessenger.handler)(call) { data in
+        guard let data else { XCTFail("Missing menu reply"); return }
+        replies.append((try? codec.decodeEnvelope(data)) as? Int)
+      }
+      if staleAction {
+        UIButton(primaryAction: oldAction).performPrimaryAction()
+      } else {
+        animator.completion?()
+        XCTAssertTrue(replies.isEmpty, "Old dismissal must not close the new menu")
+      }
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      XCTAssertEqual(replies, [nil], "Old actions must not act on the new menu")
+    }
+  }
+
+  /// Verifies a rejected replacement cannot leave a previous native menu open.
+  @MainActor
+  func testNativeSelectionMenuDismissesBeforeRejectingReplacement() throws {
+    guard #available(iOS 16.0, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+    let messenger = SelectionMenuTestMessenger()
+    let host = SelectionMenuTestHost(messenger: messenger, controller: controller)
+    let bridge = NativeTextSelectionMenuBridge()
+    bridge.attach(to: host)
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let handler = try XCTUnwrap(messenger.handler)
+    var args: [String: Any] = [
+      "session": 1, "labels": ["Copy"],
+      "rect": [20.0, 100.0, 160.0, 24.0],
+      "viewWidth": 390.0, "viewHeight": 844.0,
+    ]
+    var oldReplies = 0
+    handler(codec.encode(FlutterMethodCall(methodName: "show", arguments: args))) { _ in
+      oldReplies += 1
+    }
+    let anchor = try XCTUnwrap(controller.view.subviews.last)
+    args["session"] = 2
+    args["labels"] = [String]()
+    var rejected = false
+    handler(codec.encode(FlutterMethodCall(methodName: "show", arguments: args))) { data in
+      rejected = data.map { codec.decodeEnvelope($0) is FlutterError } ?? false
+    }
+    XCTAssertTrue(rejected)
+    XCTAssertEqual(oldReplies, 1)
+    XCTAssertNil(anchor.superview)
+    NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+  }
 
   func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
     // flutter_callkit_incoming reaches the callbacks with
@@ -609,6 +829,49 @@ class RunnerTests: XCTestCase {
     wait(for: [applied], timeout: 1)
   }
 
+  @MainActor
+  func testNativeVoiceLanguageFilterKeepsOnlySelectedUnknownVoice() throws {
+    let payload: [String: Any] = [
+      "title": "Voices", "filterAllLabel": "All languages", "selectedOptionId": "cloud",
+      "options": [
+        ["id": "default", "label": "System default", "filterGroup": ""],
+        ["id": "iris", "label": "Iris", "filterGroup": "French"],
+        ["id": "maple", "label": "Maple", "filterGroup": "English"],
+        ["id": "cloud", "label": "Cloud voice"],
+        ["id": "other", "label": "Other cloud voice"],
+      ],
+    ]
+    func texts(in view: UIView) -> [String] {
+      (view as? UILabel).flatMap(\.text).map { [$0] } ?? view.subviews.flatMap { texts(in: $0) }
+    }
+    for (filter, expected) in [
+      (nil as String?, ["System default", "Iris", "Maple", "Cloud voice", "Other cloud voice"]),
+      ("French", ["System default", "Iris", "Cloud voice"]),
+    ] {
+      let controller = try XCTUnwrap(NativeOptionsSelectorTableViewController.makeForTesting(payload, filterGroup: filter))
+      let table = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? UITableView }.first)
+      let source = try XCTUnwrap(table.dataSource)
+      if filter == "French" {
+        let search = try XCTUnwrap(controller.navigationItem.searchController)
+        let updater = try XCTUnwrap(controller as? UISearchResultsUpdating)
+        search.searchBar.text = "unmatched"
+        updater.updateSearchResults(for: search)
+        XCTAssertEqual(source.tableView(table, numberOfRowsInSection: 0), 0)
+        search.searchBar.text = nil
+        updater.updateSearchResults(for: search)
+      }
+      let count = source.tableView(table, numberOfRowsInSection: 0)
+      XCTAssertEqual(count, expected.count)
+      var labels: [String] = []
+      for row in 0..<count {
+        let cell = source.tableView(table, cellForRowAt: IndexPath(row: row, section: 0))
+        labels.append(contentsOf: texts(in: cell.contentView))
+        XCTAssertEqual(cell.accessoryType, labels.last == "Cloud voice" ? .checkmark : .none)
+      }
+      XCTAssertEqual(labels, expected)
+    }
+  }
+
   func testNativeSheetModelUpdateRejectsStalePresentation() {
     var didApply = false
 
@@ -657,6 +920,7 @@ class RunnerTests: XCTestCase {
     // opens under the sheet.
     for actionId in [
       "account-switch", "account-add", "account-sign-out", "account-direct-edit",
+      "account-librechat-use", "account-librechat-sign-out",
     ] {
       XCTAssertTrue(
         nativeSheetSelectionWaitsForDismiss(actionId: actionId),
@@ -1789,6 +2053,533 @@ class RunnerTests: XCTestCase {
     XCTAssertGreaterThan(maximumWorkload, oneFile)
     XCTAssertLessThanOrEqual(maximumWorkload, 120)
     XCTAssertEqual(untrustedCounts, maximumWorkload)
+  }
+
+  func testShareContentTypeSkipsFileURLStandInsForTheFilesOwnType() {
+    // Files registers the document's type next to its URL. Loading the URL
+    // type as a file staged a "file URL.dat" plist instead of the PDF.
+    XCTAssertEqual(
+      nativeShareContentTypeIdentifier(
+        registeredTypeIdentifiers: [
+          "com.adobe.pdf",
+          "public.file-url",
+          "public.url",
+        ],
+        conformingTo: .data
+      ),
+      "com.adobe.pdf"
+    )
+    XCTAssertNil(nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: ["public.file-url", "public.url"],
+      conformingTo: .data
+    ))
+    // `com.apple.uikit.image` is the object, not an image format.
+    XCTAssertEqual(
+      nativeShareContentTypeIdentifier(
+        registeredTypeIdentifiers: [
+          "com.apple.uikit.image",
+          "public.heic",
+          "public.png",
+        ],
+        conformingTo: .image
+      ),
+      "public.heic"
+    )
+    XCTAssertNil(nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: ["com.adobe.pdf"],
+      conformingTo: .image
+    ))
+  }
+
+  func testShareContentTypeLoadsTheDocumentBytesAndName() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "native-share-pdf-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pdfURL = directory.appendingPathComponent("Report.pdf")
+    let pdf = UIGraphicsPDFRenderer(
+      bounds: CGRect(x: 0, y: 0, width: 100, height: 100)
+    ).pdfData { context in context.beginPage() }
+    try pdf.write(to: pdfURL)
+    let provider = try XCTUnwrap(NSItemProvider(contentsOf: pdfURL))
+
+    let identifier = try XCTUnwrap(nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: provider.registeredTypeIdentifiers,
+      conformingTo: .data
+    ))
+    let loaded = expectation(description: "file representation")
+    var loadedName: String?
+    var loadedBytes: Data?
+    provider.loadFileRepresentation(forTypeIdentifier: identifier) { url, _ in
+      loadedName = url?.lastPathComponent
+      loadedBytes = url.flatMap { try? Data(contentsOf: $0) }
+      loaded.fulfill()
+    }
+    let referenced = expectation(description: "file URL")
+    var referencedName: String?
+    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+      referencedName = url?.lastPathComponent
+      referenced.fulfill()
+    }
+    wait(for: [loaded, referenced], timeout: 10)
+
+    XCTAssertEqual(loadedBytes, pdf)
+    XCTAssertNil(nativeShareImageType(of: pdf))
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: try XCTUnwrap(loadedName),
+        preferredName: referencedName
+      ),
+      "Report.pdf"
+    )
+  }
+
+  func testShareSourceFileNameKeepsTheSendersNameWithTheLoadedExtension() {
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "PDF document.pdf",
+        preferredName: "Report.PDF"
+      ),
+      "Report.PDF"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "PDF document.pdf",
+        preferredName: nil
+      ),
+      "PDF document.pdf"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "HEIF Image.heic",
+        preferredName: "IMG_0001"
+      ),
+      "IMG_0001.heic"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "JPEG image.jpeg",
+        preferredName: "photo.jpg"
+      ),
+      "photo.jpg"
+    )
+    // The name must describe the bytes that were loaded, not the original.
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "JPEG image.jpeg",
+        preferredName: "photo.HEIC"
+      ),
+      "photo.HEIC.jpeg"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "PNG image.png",
+        preferredName: "Screenshot at 10.16.42"
+      ),
+      "Screenshot at 10.16.42.png"
+    )
+  }
+
+  func testShareEncodesOnlyInMemoryImagesWithinThePixelBudget() {
+    // The largest iPad screenshot, landscape.
+    XCTAssertTrue(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 2752,
+      pixelHeight: 2064
+    ))
+    XCTAssertTrue(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 4096,
+      pixelHeight: 4096
+    ))
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 4097,
+      pixelHeight: 4096
+    ))
+    // A 48 MP photo would need about 195 MB of decoded pixels.
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 8064,
+      pixelHeight: 6048
+    ))
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 0,
+      pixelHeight: 4096
+    ))
+  }
+
+  func testShareDetectsAnArchivedInMemoryImageAndEncodesTheObject() throws {
+    let image = UIGraphicsImageRenderer(
+      size: CGSize(width: 40, height: 30)
+    ).image { context in
+      UIColor.red.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+    }
+    // The screenshot editor shares a UIImage object under an image type.
+    let provider = NSItemProvider(
+      item: image,
+      typeIdentifier: UTType.png.identifier
+    )
+
+    let loaded = expectation(description: "file representation")
+    var loadedName: String?
+    var loadedIsArchive = false
+    provider.loadFileRepresentation(
+      forTypeIdentifier: UTType.png.identifier
+    ) { url, _ in
+      loadedName = url?.lastPathComponent
+      loadedIsArchive = url.map(nativeShareFileIsArchivedObject(at:)) ?? false
+      loaded.fulfill()
+    }
+    let item = expectation(description: "item")
+    var loadedItem: NSSecureCoding?
+    provider.loadItem(forTypeIdentifier: UTType.png.identifier) { value, _ in
+      loadedItem = value
+      item.fulfill()
+    }
+    wait(for: [loaded, item], timeout: 10)
+
+    XCTAssertEqual(
+      (try XCTUnwrap(loadedName) as NSString).pathExtension,
+      "png"
+    )
+    XCTAssertTrue(loadedIsArchive)
+    let object = try XCTUnwrap(loadedItem as? UIImage)
+    let png = try XCTUnwrap(nativeShareEncodedImage(
+      object,
+      typeIdentifier: UTType.png.identifier
+    ))
+    XCTAssertEqual(png.fileExtension, "png")
+    XCTAssertEqual(nativeShareImageType(of: png.data), .png)
+    let jpeg = try XCTUnwrap(nativeShareEncodedImage(
+      object,
+      typeIdentifier: UTType.jpeg.identifier
+    ))
+    XCTAssertEqual(jpeg.fileExtension, "jpg")
+    XCTAssertEqual(nativeShareImageType(of: jpeg.data), .jpeg)
+    XCTAssertNil(nativeShareImageType(of: Data("not an image".utf8)))
+
+    // Real files stay on the file path, including formats ImageIO can't read.
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "native-share-archive-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pngURL = directory.appendingPathComponent("photo.png")
+    try png.data.write(to: pngURL)
+    let svgURL = directory.appendingPathComponent("logo.svg")
+    try Data("<svg xmlns=\"http://www.w3.org/2000/svg\"/>".utf8)
+      .write(to: svgURL)
+    XCTAssertFalse(nativeShareFileIsArchivedObject(at: pngURL))
+    XCTAssertFalse(nativeShareFileIsArchivedObject(at: svgURL))
+  }
+
+  func testShareLoneLinkIsASingleWebAddressWithoutAPageTitle() throws {
+    let imageURL = try XCTUnwrap(URL(string: "https://example.com/a.png"))
+    func link() -> NSItemProvider {
+      NSItemProvider(item: imageURL as NSURL, typeIdentifier: "public.url")
+    }
+    func item(
+      _ providers: [NSItemProvider],
+      contentText: String? = nil
+    ) -> NSExtensionItem {
+      let item = NSExtensionItem()
+      item.attachments = providers
+      item.attributedContentText = contentText.map(NSAttributedString.init)
+      return item
+    }
+
+    // Safari's long-press Share on an image.
+    let safariImage = link()
+    XCTAssertTrue(
+      nativeShareLoneLinkProvider(in: [item([safariImage])]) === safariImage
+    )
+    XCTAssertNotNil(
+      nativeShareLoneLinkProvider(in: [item([link()], contentText: " \n")])
+    )
+    // A page share carries the page title next to its address.
+    XCTAssertNil(nativeShareLoneLinkProvider(
+      in: [item([link()], contentText: "Safari share test")]
+    ))
+    let titled = item([link()])
+    titled.attributedTitle = NSAttributedString(string: "Photos")
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [titled]))
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([link(), link()])]))
+    XCTAssertNil(nativeShareLoneLinkProvider(
+      in: [item([link()]), item([link()])]
+    ))
+    XCTAssertNil(nativeShareLoneLinkProvider(in: []))
+
+    let withText = link()
+    withText.registerItem(forTypeIdentifier: "public.plain-text") {
+      completion, _, _ in
+      completion?("A caption" as NSString, nil)
+    }
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([withText])]))
+    let file = NSItemProvider(
+      item: URL(fileURLWithPath: "/tmp/a.png") as NSURL,
+      typeIdentifier: "public.file-url"
+    )
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([file])]))
+    let image = NSItemProvider(
+      item: Data() as NSData,
+      typeIdentifier: UTType.png.identifier
+    )
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([image])]))
+  }
+
+  func testShareLinkedImageQualifiesOnlyHttpsAddressesOfImageFiles() {
+    func qualifies(_ address: String) -> Bool {
+      URL(string: address).map(nativeShareLinkedImageQualifies) ?? false
+    }
+
+    XCTAssertTrue(qualifies("https://upload.wikimedia.org/a/b/Photo.png"))
+    XCTAssertTrue(qualifies("https://example.com/photo.JPG?w=800#top"))
+    XCTAssertTrue(qualifies("https://example.com/photo.jpeg"))
+    XCTAssertTrue(qualifies("https://example.com/loop.gif"))
+    XCTAssertTrue(qualifies("https://example.com/photo.webp"))
+    XCTAssertTrue(qualifies("HTTPS://example.com/IMG_0001.HEIC"))
+
+    XCTAssertFalse(qualifies("http://example.com/photo.png"))
+    XCTAssertFalse(qualifies("https://example.com/index.html"))
+    XCTAssertFalse(qualifies("https://example.com/image"))
+    XCTAssertFalse(qualifies("https://example.com/logo.svg"))
+    XCTAssertFalse(qualifies("https://example.com/photo.png.html"))
+    // Only the path counts, not the query.
+    XCTAssertFalse(qualifies("https://example.com/view?file=photo.png"))
+    XCTAssertFalse(qualifies("https:///photo.png"))
+    XCTAssertFalse(qualifies("file:///tmp/photo.png"))
+    XCTAssertFalse(qualifies("data:image/png;base64,iVBORw0KGgo="))
+  }
+
+  func testShareLinkedImageRedirectsStayOnHttpsAndStopAfterFive() {
+    let https = URL(string: "https://cdn.example.com/photo.png")
+    let http = URL(string: "http://cdn.example.com/photo.png")
+
+    XCTAssertTrue(
+      nativeShareLinkedImageRedirectAllowed(to: https, redirectCount: 1)
+    )
+    XCTAssertTrue(
+      nativeShareLinkedImageRedirectAllowed(to: https, redirectCount: 5)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageRedirectAllowed(to: https, redirectCount: 6)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageRedirectAllowed(to: http, redirectCount: 1)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageRedirectAllowed(to: nil, redirectCount: 1)
+    )
+  }
+
+  func testShareLinkedImageFitsTheImageAllowance() {
+    let limit: Int64 = 20 * 1024 * 1024
+
+    // No Content-Length: the bytes are counted as they arrive.
+    XCTAssertTrue(
+      nativeShareLinkedImageFits(byteCount: -1, allowedBytes: limit)
+    )
+    XCTAssertTrue(
+      nativeShareLinkedImageFits(byteCount: limit, allowedBytes: limit)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageFits(byteCount: limit + 1, allowedBytes: limit)
+    )
+    XCTAssertFalse(nativeShareLinkedImageFits(byteCount: 1, allowedBytes: 0))
+  }
+
+  func testShareLinkedImageResponseNeedsSuccessAndAnImageType() {
+    XCTAssertTrue(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: "image/png"
+    ))
+    XCTAssertTrue(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 203,
+      mimeType: "IMAGE/WEBP"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 302,
+      mimeType: "image/png"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 403,
+      mimeType: "image/png"
+    ))
+    // A /wiki/File:Photo.png page.
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: "text/html"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: "application/octet-stream"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: nil
+    ))
+  }
+
+  func testShareDownloadedImageTypeComesFromTheBytes() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "native-share-linked-type-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let image = linkedImageTestImage()
+    let png = directory.appendingPathComponent("png")
+    try XCTUnwrap(image.pngData()).write(to: png)
+    let jpeg = directory.appendingPathComponent("jpeg")
+    try XCTUnwrap(image.jpegData(compressionQuality: 0.8)).write(to: jpeg)
+    let html = directory.appendingPathComponent("File:Photo.png")
+    try Data("<!doctype html><title>File:Photo.png</title>".utf8)
+      .write(to: html)
+    let empty = directory.appendingPathComponent("empty")
+    try Data().write(to: empty)
+
+    XCTAssertEqual(nativeShareDownloadedImageType(at: png), .png)
+    XCTAssertEqual(nativeShareDownloadedImageType(at: jpeg), .jpeg)
+    XCTAssertNil(nativeShareDownloadedImageType(at: html))
+    XCTAssertNil(nativeShareDownloadedImageType(at: empty))
+    XCTAssertNil(nativeShareDownloadedImageType(
+      at: directory.appendingPathComponent("missing")
+    ))
+  }
+
+  func testShareLinkedImageSessionKeepsNoCookiesCacheOrCredentials() {
+    let configuration = NativeShareLinkedImageDownload.sessionConfiguration()
+
+    XCTAssertNil(configuration.httpCookieStorage)
+    XCTAssertFalse(configuration.httpShouldSetCookies)
+    XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+    XCTAssertNil(configuration.urlCredentialStorage)
+    XCTAssertNil(configuration.urlCache)
+    XCTAssertEqual(configuration.timeoutIntervalForRequest, 10)
+    XCTAssertEqual(configuration.timeoutIntervalForResource, 15)
+  }
+
+  func testShareLinkedImageDownloadKeepsOnlyARealImage() throws {
+    let png = try XCTUnwrap(linkedImageTestImage().pngData())
+    let photo = "https://images.example.com/photo.png"
+    LinkedImageStubProtocol.replies = [
+      photo: .init(mimeType: "image/png", body: png),
+      "http://images.example.com/photo.png": .init(
+        mimeType: "image/png",
+        body: png
+      ),
+      "https://example.com/moved.png": .init(redirect: photo),
+      "https://example.com/insecure.png": .init(
+        redirect: "http://images.example.com/photo.png"
+      ),
+      "https://example.com/untyped.png": .init(
+        mimeType: "application/octet-stream",
+        body: png
+      ),
+      "https://example.com/wiki/File:Photo.png": .init(
+        mimeType: "text/html",
+        body: Data("<!doctype html>".utf8)
+      ),
+      "https://example.com/mislabelled.png": .init(
+        mimeType: "image/png",
+        body: Data("<!doctype html>".utf8)
+      ),
+      "https://example.com/gone.png": .init(
+        status: 404,
+        mimeType: "image/png",
+        body: png
+      ),
+    ]
+    for hop in 1...6 {
+      LinkedImageStubProtocol.replies["https://example.com/hop\(hop).png"] =
+        .init(
+          redirect: hop == 1 ? photo : "https://example.com/hop\(hop - 1).png"
+        )
+    }
+
+    let result = try XCTUnwrap(linkedImageDownload(photo))
+    XCTAssertEqual(result.type, .png)
+    XCTAssertEqual(try Data(contentsOf: result.fileURL), png)
+    XCTAssertNotNil(linkedImageDownload("https://example.com/moved.png"))
+    XCTAssertNotNil(linkedImageDownload("https://example.com/hop5.png"))
+
+    XCTAssertNil(linkedImageDownload("https://example.com/hop6.png"))
+    XCTAssertNil(linkedImageDownload("https://example.com/insecure.png"))
+    XCTAssertNil(linkedImageDownload("https://example.com/untyped.png"))
+    XCTAssertNil(
+      linkedImageDownload("https://example.com/wiki/File:Photo.png")
+    )
+    XCTAssertNil(linkedImageDownload("https://example.com/mislabelled.png"))
+    XCTAssertNil(linkedImageDownload("https://example.com/gone.png"))
+  }
+
+  func testShareLinkedImageDownloadStopsAtTheSizeLimit() throws {
+    let png = try XCTUnwrap(linkedImageTestImage().pngData())
+    let allowance = Int64(png.count)
+    let declared = "https://example.com/declared.png"
+    let oversized = "https://example.com/oversized.png"
+    let undeclared = "https://example.com/undeclared.png"
+    LinkedImageStubProtocol.replies = [
+      declared: .init(mimeType: "image/png", body: png, length: allowance),
+      // Refused on the Content-Length alone, before any of the body.
+      oversized: .init(
+        mimeType: "image/png",
+        body: png,
+        length: allowance + 1
+      ),
+      undeclared: .init(mimeType: "image/png", body: png),
+    ]
+
+    XCTAssertNotNil(linkedImageDownload(declared, allowedBytes: allowance))
+    XCTAssertNotNil(linkedImageDownload(undeclared, allowedBytes: allowance))
+    XCTAssertNil(linkedImageDownload(oversized, allowedBytes: allowance))
+    // Without a Content-Length, the bytes are counted as they arrive.
+    XCTAssertNil(linkedImageDownload(undeclared, allowedBytes: allowance - 1))
+  }
+
+  private func linkedImageTestImage() -> UIImage {
+    UIGraphicsImageRenderer(
+      size: CGSize(width: 24, height: 16)
+    ).image { context in
+      UIColor.blue.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 24, height: 16))
+    }
+  }
+
+  private func linkedImageDownload(
+    _ address: String,
+    allowedBytes: Int64 = 20 * 1024 * 1024
+  ) -> NativeShareLinkedImageDownload.Result? {
+    guard let url = URL(string: address) else { return nil }
+    let configuration = NativeShareLinkedImageDownload.sessionConfiguration()
+    configuration.protocolClasses = [LinkedImageStubProtocol.self]
+    let download = NativeShareLinkedImageDownload(
+      url: url,
+      allowedBytes: allowedBytes,
+      configuration: configuration
+    )
+    let finished = expectation(description: "download \(address)")
+    var result: NativeShareLinkedImageDownload.Result?
+    download.start { value in
+      result = value
+      finished.fulfill()
+    }
+    wait(for: [finished], timeout: 10)
+    if let result {
+      addTeardownBlock { download.removeFile() }
+      XCTAssertTrue(FileManager.default.fileExists(atPath: result.fileURL.path))
+    }
+    return result
   }
 
   func testShareEnvelopeRejectsAStagedFileFromAnotherImportId() throws {
@@ -3037,6 +3828,41 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(gate.deliver(["type": "result"], token: token))
   }
 
+  func testDictationAudioOverflowReportsOneFailureAndStopsContinuousOutput() throws {
+    let input = try XCTUnwrap(AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false
+    ))
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: input, frameCapacity: 480))
+    buffer.frameLength = 480
+    buffer.floatChannelData?[0].initialize(repeating: 0, count: 480)
+    let entered = DispatchSemaphore(value: 0)
+    let resume = DispatchSemaphore(value: 0)
+    let overflow = expectation(description: "overflow reported")
+    var events: [[String: Any]] = []
+    let emitter = try NativeDictationAudioEmitter(format: input) { event in
+      if events.isEmpty {
+        entered.signal()
+        _ = resume.wait(timeout: .now() + 5)
+      }
+      events.append(event)
+      if event["type"] as? String == "error" { overflow.fulfill() }
+    }
+    emitter.append(buffer)
+    XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+    // The worker holds one lease; three more fill the pool. Later appends
+    // cannot wait for it and must report a single truncated-recording error.
+    for _ in 0..<5 { emitter.append(buffer) }
+    resume.signal()
+    wait(for: [overflow], timeout: 2)
+    // The worker has released its leases. An admitted buffer must still be suppressed.
+    emitter.append(buffer)
+    emitter.close()
+    let errors = events.filter { $0["type"] as? String == "error" }
+    XCTAssertEqual(errors.count, 1)
+    XCTAssertEqual(errors.first?["code"] as? String, "AUDIO_PRESERVATION_FAILED")
+    XCTAssertEqual(events.last?["type"] as? String, "error")
+  }
+
   func testNativeSttStopAcknowledgementTimeoutDoesNotCancelDeferredCleanup() async {
     let cleanupCanFinish = NativeSttShutdownCompletion()
     let cleanup = Task {
@@ -3460,7 +4286,6 @@ class RunnerTests: XCTestCase {
       "scoped"
     )
   }
-
 }
 
 private func testCookie(
@@ -3641,5 +4466,109 @@ private final class TestLockedCounter {
     let result = storedValue
     lock.unlock()
     return result
+  }
+}
+
+/// Serves canned replies to the linked image download, keyed by address.
+private final class LinkedImageStubProtocol: URLProtocol {
+  struct Reply {
+    var status = 200
+    var mimeType: String?
+    var body = Data()
+    var length: Int64?
+    var redirect: String?
+  }
+
+  static var replies: [String: Reply] = [:]
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+    request
+  }
+
+  override func startLoading() {
+    guard let url = request.url,
+          let reply = Self.replies[url.absoluteString]
+    else {
+      client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+      return
+    }
+    if let redirect = reply.redirect, let target = URL(string: redirect) {
+      let response = HTTPURLResponse(
+        url: url,
+        statusCode: 302,
+        httpVersion: "HTTP/1.1",
+        headerFields: ["Location": redirect]
+      )!
+      client?.urlProtocol(
+        self,
+        wasRedirectedTo: URLRequest(url: target),
+        redirectResponse: response
+      )
+      return
+    }
+    var headers: [String: String] = [:]
+    headers["Content-Type"] = reply.mimeType
+    headers["Content-Length"] = reply.length.map { "\($0)" }
+    let response = HTTPURLResponse(
+      url: url,
+      statusCode: reply.status,
+      httpVersion: "HTTP/1.1",
+      headerFields: headers
+    )!
+    client?.urlProtocol(
+      self,
+      didReceive: response,
+      cacheStoragePolicy: .notAllowed
+    )
+    client?.urlProtocol(self, didLoad: reply.body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
+private final class ProfilePresentationTestController: UIViewController {
+  var presentations: [UIViewController] = []
+
+  override func present(
+    _ viewControllerToPresent: UIViewController, animated: Bool,
+    completion: (() -> Void)? = nil
+  ) {
+    presentations.append(viewControllerToPresent)
+    completion?()
+  }
+}
+
+private final class SelectionMenuTestMessenger: NSObject, FlutterBinaryMessenger {
+  var handler: FlutterBinaryMessageHandler?
+
+  func send(onChannel channel: String, message: Data?) {}
+  func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {}
+  func setMessageHandlerOnChannel(
+    _ channel: String, binaryMessageHandler handler: FlutterBinaryMessageHandler?
+  ) -> FlutterBinaryMessengerConnection {
+    self.handler = handler
+    return 1
+  }
+  func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) {}
+}
+
+private final class SelectionMenuTestAnimator: NSObject, UIEditMenuInteractionAnimating {
+  var completion: (() -> Void)?
+  func addAnimations(_ animations: @escaping () -> Void) { animations() }
+  func addCompletion(_ completion: @escaping () -> Void) { self.completion = completion }
+}
+
+private final class SelectionMenuTestHost: ConduitBridgeHost {
+  let messenger: FlutterBinaryMessenger
+  let presentingViewController: UIViewController?
+  let activeWindowScene: UIWindowScene? = nil
+  let appGroupIdentifier: String? = nil
+
+  init(messenger: FlutterBinaryMessenger, controller: UIViewController) {
+    self.messenger = messenger
+    presentingViewController = controller
   }
 }

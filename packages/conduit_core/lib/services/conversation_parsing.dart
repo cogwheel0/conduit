@@ -3,8 +3,12 @@ import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show kChatStorageKindMetadataKey;
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -65,7 +69,7 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'chatParams': _chatParams(chatObject),
     'messages': const <Map<String, dynamic>>[],
     'metadata': {
-      ..._coerceJsonMap(chatData['metadata']),
+      ..._withoutLibreChatProvenance(_coerceJsonMap(chatData['metadata'])),
       if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
     },
     'pinned': pinned,
@@ -210,7 +214,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'chatParams': _chatParams(chatObject),
     'messages': messages,
     'metadata': {
-      ..._coerceJsonMap(chatData['metadata']),
+      ..._withoutLibreChatProvenance(_coerceJsonMap(chatData['metadata'])),
       if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
       // The full saved `chat.models` list; `model` above projects only its
       // first entry. A multi-model chat keeps one id per slot, in order.
@@ -286,9 +290,20 @@ void _addVersionsFromSiblings(
         answer['id'].toString(),
   ];
   if (unfinished.isNotEmpty) {
+    final authors = <String, String>{
+      for (final answer in [
+        msgData,
+        ...siblings.whereType<Map<String, dynamic>>(),
+      ])
+        if (unfinished.contains(answer['id']?.toString()) &&
+            answer['user_id'] is String &&
+            (answer['user_id'] as String).isNotEmpty)
+          answer['id'].toString(): answer['user_id'] as String,
+    };
     parsed['metadata'] = <String, dynamic>{
       ..._coerceJsonMap(parsed['metadata']),
       kMessageUnfinishedAnswersMetadataKey: unfinished,
+      if (authors.isNotEmpty) kMessageUnfinishedAnswerAuthorsMetadataKey: authors,
     };
   }
 }
@@ -519,6 +534,26 @@ Map<String, dynamic>? _extractErrorData(
   return null;
 }
 
+/// [metadata] without LibreChat-owned keys or a LibreChat backend marker,
+/// which only a LibreChat sync may write, and without a claim on the store
+/// the chat lives in, which only the app's own loads may stamp.
+Map<String, dynamic> _withoutLibreChatProvenance(
+  Map<String, dynamic> metadata,
+) {
+  if (metadata['backend'] != kLibreChatTransport &&
+      !metadata.keys.any(isLibreChatMetadataKey) &&
+      !metadata.containsKey(kChatStorageKindMetadataKey)) {
+    return metadata;
+  }
+  return <String, dynamic>{
+    for (final entry in metadata.entries)
+      if (!isLibreChatMetadataKey(entry.key) &&
+          entry.key != kChatStorageKindMetadataKey &&
+          !(entry.key == 'backend' && entry.value == kLibreChatTransport))
+        entry.key: entry.value,
+  };
+}
+
 Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   Map<String, dynamic> msgData, {
   Map<String, dynamic>? historyMsg,
@@ -537,17 +572,35 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   if (metadata['transport'] == 'hermesRun') {
     metadata.remove('transport');
   }
+  // Nor LibreChat ones: its stop, regenerate and approval routes follow the
+  // same markers.
+  metadata.removeWhere((key, _) => isLibreChatMetadataKey(key));
+  if (metadata['transport'] == kLibreChatTransport) {
+    metadata.remove('transport');
+  }
 
   // Derived from this snapshot's `done` flags by _addVersionsFromSiblings. A
   // copy that came back round-trip through the server is stale, and would keep
   // answers live that the server has since finished.
   metadata.remove(kMessageUnfinishedAnswersMetadataKey);
+  metadata.remove(kMessageUnfinishedAnswerAuthorsMetadataKey);
+  metadata.remove(kMessageServerUnfinishedMetadataKey);
+  if (role == 'assistant' && _answerReportedUnfinished(msgData, historyMsg)) {
+    metadata[kMessageServerUnfinishedMetadataKey] = true;
+  }
 
   if (role == 'assistant' &&
       _extractErrorData(msgData, historyMsg) != null &&
       !_isDirectTransport(metadata)) {
     metadata['openwebuiRecoverableError'] =
         (historyMsg?['done'] ?? msgData['done']) != true;
+  }
+
+  // The server's word wins; without it, an author a local checkpoint kept
+  // stays.
+  final rawAuthor = historyMsg?['user_id'] ?? msgData['user_id'];
+  if (rawAuthor is String && rawAuthor.trim().isNotEmpty) {
+    metadata[kMessageAuthorIdMetadataKey] = rawAuthor.trim();
   }
 
   final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];
@@ -591,6 +644,13 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     final merged = _extractMergedResponse(msgData, historyMsg);
     if (merged != null) metadata[kMessageMergedMetadataKey] = merged;
   }
+
+  // What a realtime call spoke for this message. Open WebUI stores it in the
+  // message's `meta`, which is the only copy read back.
+  metadata.remove(kMessageVoiceMetadataKey);
+  final meta = historyMsg?['meta'] ?? msgData['meta'];
+  final voice = meta is Map ? meta['voice'] : null;
+  if (voice is Map) metadata[kMessageVoiceMetadataKey] = _coerceJsonMap(voice);
 
   // The user's thumbs up (1) or down (-1), and the evaluation record it was
   // filed under. Open WebUI keeps both on the message, so a rating made in
@@ -1156,9 +1216,17 @@ _resolveDirectReplayForMessage(
       (metadata?[kConduitDirectRawAssistantContentMetadataKey] as String)
           .trim()
           .isEmpty;
+  final presentation =
+      _restoreStrippedDirectPresentation(
+        content,
+        replay: replay,
+        outputItems: outputItems,
+        metadata: metadata,
+      ) ??
+      content;
   return (
     content: _reconcileDirectReplayContent(
-      content,
+      presentation,
       metadata: metadata,
       replayText: replay.text,
       preserveIncompletePresentation: preserveIncompletePresentation,
@@ -1167,6 +1235,54 @@ _resolveDirectReplayForMessage(
     replay: replay,
     preserveIncompletePresentation: preserveIncompletePresentation,
   );
+}
+
+/// Rebuilds the reasoning and tool sections of a direct answer that was
+/// stored with only its mirror text, or returns null when [content] is not
+/// that stripped form.
+///
+/// Until the mirror recognised tool calls from every direct adapter, a turn
+/// whose tools came from the OpenAI-compatible or Apple adapter was persisted
+/// with `content` set to the mirror text alone (`persistedMessageContent`).
+/// Its raw reasoning is still in the metadata and its tool calls in the
+/// output, so both sections come back here, laid out as
+/// `DirectStreamingAccumulator.render` lays them out. The reasoning's
+/// duration was never stored, so the section has none.
+String? _restoreStrippedDirectPresentation(
+  String content, {
+  required ConduitDirectReplayOutputMirror replay,
+  required List<Map<String, dynamic>> outputItems,
+  required Map<String, dynamic>? metadata,
+}) {
+  if (content != replay.text) return null;
+  final rawReasoning =
+      metadata?[kConduitDirectRawAssistantReasoningMetadataKey];
+  final reasoning = rawReasoning is String ? rawReasoning.trim() : '';
+  final results = <String, Map<String, dynamic>>{
+    for (final item in outputItems)
+      if (item['type'] == 'function_call_output')
+        item['call_id'] as String: item,
+  };
+  final blocks = <SemanticMessageBlock>[
+    if (reasoning.isNotEmpty)
+      SemanticDetailsBlock.reasoning(text: reasoning, done: true),
+    for (final item in outputItems)
+      if (item['type'] == 'function_call')
+        SemanticDetailsBlock.toolCall(
+          id: item['id'] as String,
+          name: item['name'] as String,
+          arguments: item['arguments'],
+          done: results.containsKey(item['id']),
+          result: results[item['id']]?['output'],
+          isError: results[item['id']]?['error'] == true,
+        ),
+  ];
+  if (blocks.isEmpty) return null;
+  return <String>[
+    for (final block in blocks) renderSemanticMessageBlocks([block]),
+    if (!replay.isIncompleteAnswerSentinel)
+      renderSemanticMessageBlocks([SemanticTextBlock(replay.text)]),
+  ].where((part) => part.isNotEmpty).join('\n');
 }
 
 /// Direct connections talk to the provider without Open WebUI, so their model

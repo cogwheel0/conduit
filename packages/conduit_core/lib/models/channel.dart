@@ -45,6 +45,10 @@ sealed class Channel with _$Channel {
     @Default(0) @JsonKey(name: 'unread_count') int unreadCount,
     @JsonKey(name: 'last_message_at') int? lastMessageAt,
 
+    /// Whether the signed-in user set this channel to notify for mentions
+    /// only (Open WebUI 0.12.1). Its messages still count as unread.
+    @Default(false) @JsonKey(name: 'is_channel_muted') bool isChannelMuted,
+
     /// Member user IDs (group/dm channels only).
     @JsonKey(name: 'user_ids') List<String>? userIds,
 

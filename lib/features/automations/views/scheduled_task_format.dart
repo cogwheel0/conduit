@@ -103,4 +103,7 @@ String automationIssueText(AppLocalizations l10n, AutomationDraftIssue issue) =>
         l10n.scheduledTaskFolderUnavailableIssue,
       AutomationDraftIssue.scheduleIncomplete =>
         l10n.scheduledTaskScheduleIncomplete,
+      AutomationDraftIssue.terminalRequired =>
+        l10n.scheduledTaskTerminalRequired,
+      AutomationDraftIssue.agentNeedsChat => l10n.scheduledTaskAgentNeedsChat,
     };

@@ -104,6 +104,88 @@ void main() {
     expect(encodeCalls, 0);
   });
 
+  test('a direct message takes more than four images by default', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_direct_media_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final pending = <FileUploadState>[];
+    for (var index = 0; index < 5; index++) {
+      final file = File('${directory.path}/pending-$index.png');
+      await file.writeAsBytes([index]);
+      pending.add(_pendingImage(file, reportedBytes: 1));
+    }
+    final current = File('${directory.path}/current.png');
+    await current.writeAsBytes([9]);
+    final container = _directContainer(
+      attachments: [...pending, _pendingImage(current, reportedBytes: 1)],
+      encoder: (file) async => 'data:image/png;base64,AQ==',
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: current.path, fileName: 'current.png', fileSize: 1);
+
+    final stored = container
+        .read(attachedFilesProvider)
+        .where((attachment) => attachment.file.path == current.path)
+        .single;
+    expect(stored.status, FileUploadStatus.completed);
+  });
+
+  test(
+    'direct images per message follow the Images per request setting',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_direct_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final first = File('${directory.path}/first.png');
+      final second = File('${directory.path}/second.png');
+      final current = File('${directory.path}/current.png');
+      for (final file in [first, second, current]) {
+        await file.writeAsBytes([1]);
+      }
+      var encodeCalls = 0;
+      final container = _directContainer(
+        attachments: [
+          _pendingImage(first, reportedBytes: 1),
+          _pendingImage(second, reportedBytes: 1),
+          _pendingImage(current, reportedBytes: 1),
+        ],
+        encoder: (file) async {
+          encodeCalls++;
+          return 'data:image/png;base64,AQ==';
+        },
+        extraOverrides: [
+          directMaxImagesPerRequestProvider.overrideWith(
+            () => _FixedDirectMaxImages(2),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(mediaUploadControllerProvider)
+            .upload(
+              filePath: current.path,
+              fileName: 'current.png',
+              fileSize: 1,
+            ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('up to 2 images per message'),
+          ),
+        ),
+      );
+      expect(encodeCalls, 0);
+    },
+  );
+
   test('failed images do not consume the direct image count', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_direct_media_',
@@ -112,7 +194,7 @@ void main() {
     final current = File('${directory.path}/current.png');
     await current.writeAsBytes([1]);
     final failed = [
-      for (var index = 0; index < kDirectMaxImages; index++)
+      for (var index = 0; index < kDefaultDirectMaxImagesPerRequest; index++)
         _failedImage(File('${directory.path}/deleted-$index.png')),
     ];
     var encodeCalls = 0;
@@ -3503,7 +3585,7 @@ void main() {
           isA<HermesChatInputException>().having(
             (error) => error.message,
             'message',
-            contains('Responses file input'),
+            contains("Hermes can't read PDF attachments"),
           ),
         ),
       );
@@ -3756,6 +3838,15 @@ Future<void> _truncate(File file, int length) async {
   } finally {
     await handle.close();
   }
+}
+
+final class _FixedDirectMaxImages extends DirectMaxImagesPerRequestController {
+  _FixedDirectMaxImages(this.count);
+
+  final int count;
+
+  @override
+  int build() => count;
 }
 
 final class _SeededAttachedFilesNotifier extends AttachedFilesNotifier {

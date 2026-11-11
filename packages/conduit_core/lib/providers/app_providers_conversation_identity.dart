@@ -8,14 +8,14 @@ void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
   final folderConversationRefresh = ref.read(
     _folderConversationRefreshTickProvider.notifier,
   );
-  final syncEngine = ref.read(syncEngineProvider.notifier);
+  final PrimarySync sync = ref.read(primarySyncProvider);
   // Invoke the notifier synchronously while the caller's provider/widget ref
   // is still known to be alive. Scheduling the invocation itself in a detached
   // Future leaves a teardown window where the owner can be disposed before
   // [requestPull] gets a chance to read its Riverpod dependencies.
   Future<PullResult?> pull;
   try {
-    pull = syncEngine.requestPull(reason: 'cache-refresh');
+    pull = sync.requestPull(reason: 'cache-refresh');
   } catch (error, stackTrace) {
     DebugLogger.error(
       'refresh-cache-failed',
@@ -113,7 +113,7 @@ void _submitReconcilePull(
   );
   Future<PullResult?> pull;
   try {
-    pull = ref.read(syncEngineProvider.notifier).requestPull(reason: reason);
+    pull = ref.read(primarySyncProvider).requestPull(reason: reason);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'reconcile-pull-failed',
@@ -167,6 +167,11 @@ ChatStorageKind? chatStorageKindOf(Conversation? conversation) {
 
 bool isDirectLocalConversation(Conversation? conversation) =>
     chatStorageKindOf(conversation) == ChatStorageKind.directLocal;
+
+/// Whether [conversation] lives in a LibreChat account's database. Such a
+/// chat never reaches Open WebUI's database, API or socket.
+bool isLibreChatConversation(Conversation? conversation) =>
+    chatStorageKindOf(conversation) == ChatStorageKind.libreChat;
 
 /// Whether [conversation] is a process-local direct shell that has not yet
 /// acquired durable storage provenance.

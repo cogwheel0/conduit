@@ -7,9 +7,8 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/horizontal_gesture_ownership.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../../shared/widgets/horizontal_overflow_fade.dart';
 
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -20,6 +19,12 @@ import '../../terminal/providers/terminal_providers.dart';
 
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatComposerOptionsProvider;
+import '../../librechat/widgets/librechat_composer_support.dart'
+    show libreChatComposerTools;
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -53,7 +58,7 @@ class ToggleTile extends StatelessWidget {
   final ConduitThemeExtension theme;
 
   /// A command row that opens something: announced as a button, never as a
-  /// toggle, and marked with a chevron instead of a checkmark.
+  /// toggle, and marked with a chevron instead of a switch.
   final bool isAction;
 
   /// A row that only explains itself, such as an option the server cannot
@@ -62,8 +67,8 @@ class ToggleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // A flat menu row: plain glyph, regular-weight title, and a
-    // checkmark only while the option is on.
+    // A flat menu row: plain glyph, regular-weight title, and a switch that
+    // shows whether the option is on before it is tapped (as in Settings).
     void handleTap() {
       ConduitHaptics.selectionClick();
       onToggle();
@@ -122,27 +127,30 @@ class ToggleTile extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: Spacing.sm),
-                  SizedBox(
-                    width: IconSize.small,
-                    child: isAction
-                        ? Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.chevron_forward
-                                : Icons.chevron_right,
-                            color: theme.textSecondary,
-                            size: IconSize.small,
-                          )
-                        : selected
-                        ? Icon(
-                            Platform.isIOS
-                                ? CupertinoIcons.checkmark_alt
-                                : Icons.check_rounded,
-                            color: theme.textPrimary,
-                            size: IconSize.small,
-                          )
-                        : null,
-                  ),
+                  const SizedBox(width: Spacing.md),
+                  if (isAction)
+                    SizedBox(
+                      width: IconSize.small,
+                      child: Icon(
+                        Platform.isIOS
+                            ? CupertinoIcons.chevron_forward
+                            : Icons.chevron_right,
+                        color: theme.textTertiary,
+                        size: IconSize.small,
+                      ),
+                    )
+                  else
+                    // The row takes the tap and carries the toggled state;
+                    // the switch only shows it.
+                    IgnorePointer(
+                      child: ExcludeSemantics(
+                        child: AdaptiveSwitch(
+                          key: const ValueKey<String>('toggle-tile-switch'),
+                          value: selected,
+                          onChanged: enabled ? (_) {} : null,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -195,6 +203,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onToolSettings,
     this.onCompareModels,
     this.compareModelsHasMessage = true,
+    this.onSaveDraftAsNote,
   });
 
   /// Restricts the sheet to device-local attachment actions supplied by the
@@ -220,6 +229,10 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   /// Whether the composer holds a message to compare. Until it does, the
   /// command stays visible but off and says why.
   final bool compareModelsHasMessage;
+
+  /// Keeps the typed message as a new note instead of sending it. Null hides
+  /// the command (no message, notes off, or the Chats setting turned off).
+  final VoidCallback? onSaveDraftAsNote;
 
   @override
   ConsumerState<ComposerAttachmentKeyboard> createState() =>
@@ -253,7 +266,12 @@ class _ComposerAttachmentKeyboardState
         : ref.watch(directModelRegistryProvider).resolve(selectedModel);
     final directMode = directBinding != null;
     final directToolsAvailable = directBindingSupportsLocalMcp(directBinding);
-    final restrictedMode = directMode || widget.localAttachmentsOnly;
+    // LibreChat takes uploads and its own tools, and none of Open WebUI's
+    // integrations.
+    final libreChatMode =
+        selectedModel != null && isLibreChatModel(selectedModel);
+    final restrictedMode =
+        directMode || libreChatMode || widget.localAttachmentsOnly;
     // Direct and local-only backends have no OpenWebUI integrations to
     // discover. Resolve the request lazily because direct provenance is only
     // available once providers can be read during build.
@@ -273,7 +291,7 @@ class _ComposerAttachmentKeyboardState
             mcpContent: directMode && widget.onMcpContent != null,
           ),
         ).where((item) {
-          if (widget.localAttachmentsOnly) {
+          if (widget.localAttachmentsOnly || libreChatMode) {
             return item.enabled &&
                 (item.id == ComposerOverflowActionIds.file ||
                     item.id == ComposerOverflowActionIds.photo ||
@@ -350,6 +368,10 @@ class _ComposerAttachmentKeyboardState
         ? directToolsAvailable
               ? ref.watch(directMcpToolsProvider)
               : const AsyncData<List<Tool>>([])
+        : libreChatMode
+        ? ref
+              .watch(libreChatComposerOptionsProvider)
+              .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.watch(toolsListProvider);
     final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()
@@ -494,35 +516,54 @@ class _ComposerAttachmentKeyboardState
           );
 
     final listItems = <Widget>[
-      SizedBox(
-        height: MediaQuery.textScalerOf(context).scale(_attachmentTileHeight),
-        child: HorizontalOverflowFade(
-          child: HorizontalScrollGestureBoundary(
-            child: ListView.separated(
-              key: const ValueKey('composer-attachment-action-strip'),
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-              itemCount: attachments.length,
-              separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-              // Tiles widen to fit longer localized labels.
-              itemBuilder: (_, index) => ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minWidth: _attachmentTileWidth,
-                  maxWidth: _attachmentTileMaxWidth,
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // The same grid as the native iOS panel: equal columns that all
+            // fit, balanced rows (3 + 2 rather than 4 + 1).
+            final rows = composerAttachmentGridRows(
+              count: attachments.length,
+              availableWidth: constraints.maxWidth,
+            );
+            final columns = rows.isEmpty ? 0 : rows.first;
+            var index = 0;
+            final rowWidgets = <Widget>[];
+            for (final count in rows) {
+              final tiles = attachments.sublist(index, index + count);
+              index += count;
+              rowWidgets.add(
+                Row(
+                  // A name that wraps makes only its own tile taller.
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var column = 0; column < columns; column++) ...[
+                      if (column > 0)
+                        const SizedBox(width: _attachmentTileSpacing),
+                      Expanded(
+                        child: column < tiles.length
+                            ? tiles[column]
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ],
                 ),
-                child: IntrinsicWidth(child: attachments[index]),
-              ),
-            ),
-          ),
+              );
+            }
+            return Column(
+              key: const ValueKey('composer-attachment-action-grid'),
+              children: withVerticalSpacing(rowWidgets, _attachmentTileSpacing),
+            );
+          },
         ),
       ),
       if (featureTiles.isNotEmpty) ...[
-        const SizedBox(height: Spacing.sm),
+        const SizedBox(height: Spacing.sm + Spacing.xs),
         ...featureTiles,
       ],
       if (!restrictedMode && widget.onCompareModels != null)
         ..._buildCompareModelsTiles(l10n),
+      if (widget.onSaveDraftAsNote != null) ..._buildSaveDraftAsNoteTiles(l10n),
       if (!widget.localAttachmentsOnly) ...[
         const SizedBox(height: Spacing.sm),
         _buildSectionLabel(l10n.tools),
@@ -573,8 +614,10 @@ class _ComposerAttachmentKeyboardState
     return Material(
       key: const ValueKey('composer-attachment-keyboard'),
       color: theme.surfaceBackground,
+      // As tall as its rows, up to the keyboard height it stands in for; a
+      // host that reserves the keyboard's space still gets it filled.
       child: Container(
-        height: widget.height,
+        constraints: BoxConstraints(maxHeight: widget.height),
         decoration: BoxDecoration(
           border: Border(
             top: BorderSide(color: theme.dividerColor, width: BorderWidth.thin),
@@ -596,6 +639,7 @@ class _ComposerAttachmentKeyboardState
           top: false,
           child: ListView.builder(
             key: const ValueKey('composer-attachment-panel-scroll'),
+            shrinkWrap: true,
             padding: const EdgeInsets.only(top: Spacing.md),
             itemCount: listItems.length,
             itemBuilder: (_, i) => Padding(
@@ -664,6 +708,34 @@ class _ComposerAttachmentKeyboardState
             isAction: true,
             enabled: item.enabled,
             onToggle: widget.onCompareModels!,
+            theme: theme,
+          ),
+        ),
+    ];
+  }
+
+  /// "Save as Note", built from the same item the native iOS panel renders.
+  List<Widget> _buildSaveDraftAsNoteTiles(AppLocalizations l10n) {
+    final theme = context.conduitTheme;
+    return [
+      for (final item in buildComposerOverflowDraftNoteItems(
+        l10n: l10n,
+        available: true,
+      ))
+        Padding(
+          padding: const EdgeInsets.only(top: Spacing.xxs),
+          child: ToggleTile(
+            key: const ValueKey<String>('composer-save-draft-as-note'),
+            glyph: _buildIconGlyph(
+              icon: item.iconFor(useCupertino: Platform.isIOS),
+              selected: false,
+              theme: theme,
+            ),
+            title: item.label,
+            subtitle: item.subtitle,
+            selected: false,
+            isAction: true,
+            onToggle: widget.onSaveDraftAsNote!,
             theme: theme,
           ),
         ),
@@ -775,19 +847,14 @@ class _ComposerAttachmentKeyboardState
     }
   }
 
-  static const double _attachmentTileWidth = 78;
-  static const double _attachmentTileMaxWidth = 160;
-  static const double _attachmentTileHeight = 58;
+  static const double _attachmentTileSpacing = Spacing.sm;
 
-  /// Attach tile: a filled rounded square holding its icon and
-  /// label, so a row of them reads as one control group.
+  /// Attach tile: a flat rounded key holding the icon, with its name beneath
+  /// it, the same as the native iOS panel.
   Widget _buildAction({
     required ComposerOverflowItem item,
     VoidCallback? onTap,
   }) {
-    final theme = context.conduitTheme;
-    final bool enabled = onTap != null;
-    final Color foreground = enabled ? theme.textPrimary : theme.iconDisabled;
     final VoidCallback? handleTap = onTap == null
         ? null
         : () {
@@ -796,49 +863,11 @@ class _ComposerAttachmentKeyboardState
             Future.microtask(onTap);
           };
 
-    // The labelled node replaces the InkWell's, so it must carry the tap.
-    return Semantics(
-      button: true,
-      enabled: enabled,
+    return ComposerAttachmentKey(
+      key: ValueKey<String>('composer-attachment-key:${item.id}'),
+      icon: item.iconFor(useCupertino: Platform.isIOS),
       label: item.label,
-      excludeSemantics: true,
       onTap: handleTap,
-      child: Opacity(
-        opacity: enabled ? 1.0 : Alpha.disabled,
-        child: Material(
-          color: theme.surfaceContainer,
-          borderRadius: BorderRadius.circular(AppBorderRadius.md + 2),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: handleTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    item.iconFor(useCupertino: Platform.isIOS),
-                    color: foreground,
-                    size: IconSize.message,
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  Text(
-                    item.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: AppTypography.labelSmallStyle.copyWith(
-                      color: foreground,
-                      height: 1.1,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -926,4 +955,151 @@ class _ComposerAttachmentKeyboardState
       size: IconSize.message,
     );
   }
+}
+
+/// One attach panel tile: a flat rounded key holding [icon], with [label]
+/// beneath it so a long name never crowds the key's edges. The key darkens
+/// the moment a finger lands. Mirrors the native iOS panel's tiles.
+class ComposerAttachmentKey extends StatefulWidget {
+  const ComposerAttachmentKey({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  static const double keyHeight = 56;
+  static const double cornerRadius = 14;
+
+  /// Cupertino and Material glyphs draw a little inside their box; at 24 pt
+  /// they match the native panel's 22 pt (Title 2) SF Symbols.
+  static const double glyphSize = 24;
+
+  @override
+  State<ComposerAttachmentKey> createState() => _ComposerAttachmentKeyState();
+}
+
+class _ComposerAttachmentKeyState extends State<ComposerAttachmentKey> {
+  bool _pressed = false;
+
+  bool get _enabled => widget.onTap != null;
+
+  void _setPressed(bool value) {
+    if (_pressed == value || !_enabled) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  void didUpdateWidget(ComposerAttachmentKey oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_enabled && _pressed) _pressed = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final foreground = _enabled ? theme.textPrimary : theme.iconDisabled;
+    // The same quiet monochrome fill as the suggestion buttons, a step
+    // stronger while pressed.
+    final fill = theme.textPrimary.withValues(
+      alpha: _pressed ? (isDark ? 0.20 : 0.11) : (isDark ? 0.12 : 0.05),
+    );
+
+    // The labelled node replaces the gesture's, so it must carry the tap.
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: _enabled,
+      label: widget.label,
+      excludeSemantics: true,
+      onTap: widget.onTap,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _setPressed(true),
+        onTapUp: (_) => _setPressed(false),
+        onTapCancel: () => _setPressed(false),
+        onTap: widget.onTap,
+        child: Opacity(
+          opacity: _enabled ? 1.0 : Alpha.disabled,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnimatedContainer(
+                key: const ValueKey<String>('composer-attachment-key-fill'),
+                // Instant on touch-down; a short ease back on release.
+                duration: _pressed
+                    ? Duration.zero
+                    : context.motionDuration(const Duration(milliseconds: 200)),
+                curve: Curves.easeOut,
+                height: MediaQuery.textScalerOf(context)
+                    .scale(ComposerAttachmentKey.keyHeight),
+                decoration: ShapeDecoration(
+                  color: fill,
+                  shape: RoundedSuperellipseBorder(
+                    borderRadius: BorderRadius.circular(
+                      ComposerAttachmentKey.cornerRadius,
+                    ),
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  widget.icon,
+                  color: foreground,
+                  size: MediaQuery.textScalerOf(
+                    context,
+                  ).scale(ComposerAttachmentKey.glyphSize),
+                ),
+              ),
+              const SizedBox(height: 6),
+              // A long localized name wraps instead of truncating, so every
+              // tile can share one column width.
+              Text(
+                widget.label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: AppTypography.labelSmallStyle.copyWith(
+                  color: foreground,
+                  height: 1.15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// How many attachment tiles each row of the attach panel holds: every tile
+/// at least [minimumTileWidth] wide so none is cut off, and the rows balanced
+/// so five tiles that cannot share one row split three and two. Mirrors
+/// `attachmentGridRows` in the native iOS panel.
+@visibleForTesting
+List<int> composerAttachmentGridRows({
+  required int count,
+  required double availableWidth,
+  double spacing = Spacing.sm,
+  double minimumTileWidth = 62,
+}) {
+  if (count <= 0) return const <int>[];
+  final fitting = ((availableWidth + spacing) / (minimumTileWidth + spacing))
+      .floor();
+  final maxColumns = fitting < 1 ? 1 : fitting;
+  final rowCount = (count / maxColumns).ceil();
+  final columns = (count / rowCount).ceil();
+  final rows = <int>[];
+  var remaining = count;
+  while (remaining > 0) {
+    final take = remaining < columns ? remaining : columns;
+    rows.add(take);
+    remaining -= take;
+  }
+  return rows;
 }
