@@ -75,9 +75,13 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
       }
       return HermesDashboardResponse(response.status, response.body);
     }
+    // Dio's response stream doesn't pass a cancel on to the connection, so
+    // stopping at the limit cancels the request itself.
+    final cancel = CancelToken();
     final response = await _dio.request<ResponseBody>(
       uri.toString(),
       data: body,
+      cancelToken: cancel,
       options: Options(
         method: method,
         headers: await _headers(authenticated: true),
@@ -88,7 +92,7 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
         receiveDataWhenStatusError: true,
       ),
     );
-    final bytes = await _readDashboardBody(response.data);
+    final bytes = await _readDashboardBody(response.data, cancel);
     final status = response.statusCode ?? 0;
     if (status == 401 &&
         retry == 0 &&
@@ -105,12 +109,17 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
     );
   }
 
-  /// [body], up to [kMaxHermesDesktopFrameBytes].
-  Future<List<int>> _readDashboardBody(ResponseBody? body) async {
+  /// [body], up to [kMaxHermesDesktopFrameBytes]. Past that, [cancel] stops
+  /// the download.
+  Future<List<int>> _readDashboardBody(
+    ResponseBody? body,
+    CancelToken cancel,
+  ) async {
     if (body == null) return const <int>[];
     final bytes = BytesBuilder(copy: false);
     await for (final chunk in body.stream) {
       if (bytes.length + chunk.length > kMaxHermesDesktopFrameBytes) {
+        cancel.cancel('The Hermes dashboard answer is too large.');
         throw const HermesResponseTooLargeException();
       }
       bytes.add(chunk);

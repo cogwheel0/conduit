@@ -27,6 +27,9 @@ final class _ChunkedGateway implements HttpClientAdapter {
   final String? text;
   int sent = 0;
 
+  /// Whether the client cancelled the request.
+  bool cancelled = false;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -37,8 +40,10 @@ final class _ChunkedGateway implements HttpClientAdapter {
       return ResponseBody.fromString(jsonEncode({'auth_required': false}), 200);
     }
     if (text != null) return ResponseBody.fromString(text!, status);
+    unawaited(cancelFuture?.then((_) => cancelled = true));
     Stream<Uint8List> body() async* {
-      for (var i = 0; i < chunks; i++) {
+      // Like a socket, it stops sending once the request is cancelled.
+      for (var i = 0; i < chunks && !cancelled; i++) {
         // As a network would: a chunk at a time, so a reader that stops
         // stops the rest.
         await Future<void>.delayed(Duration.zero);
@@ -110,7 +115,10 @@ void main() {
     await check(
       service.dashboardRequest('GET', '/api/x'),
     ).throws<HermesResponseTooLargeException>();
-    // Stopped at the limit, not after holding the whole body.
+    // Stopped at the limit, not after holding the whole body, and the
+    // download itself is cancelled rather than read to its end unseen.
+    check(gateway.cancelled).isTrue();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
     check(gateway.sent).isLessThan(gateway.chunks);
   });
 
