@@ -1,8 +1,12 @@
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_section_header.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/color_tokens.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -108,6 +112,202 @@ void main() {
         );
       }
       expect(find.byKey(_chevronKey), findsNothing);
+    }
+  });
+
+  testWidgets('a trailing control sits on the title\'s line and leaves the '
+      'header as tall as the others', (tester) async {
+    tester.view.physicalSize = const Size(_windowWidth, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const controlKey = ValueKey<String>('trailing-control');
+    const glyphKey = ValueKey<String>('trailing-glyph');
+    var controlTaps = 0;
+    var rowTaps = 0;
+    var toggles = 0;
+
+    for (final scale in [1.0, 2.0]) {
+      for (final isFirst in [true, false]) {
+        final reason = 'scale $scale, first $isFirst';
+        Future<Rect> pumpHeader({required bool withControl}) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: AppTheme.light(TweakcnThemes.conduit),
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: const Size(_windowWidth, 874),
+                  textScaler: TextScaler.linear(scale),
+                ),
+                child: Scaffold(
+                  body: Align(
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: _windowWidth,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SidebarSectionHeader(
+                            title: 'Folders',
+                            isFirst: isFirst,
+                            isExpanded: true,
+                            onToggle: () => toggles++,
+                            trailing: withControl
+                                ? GestureDetector(
+                                    key: controlKey,
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => controlTaps++,
+                                    child: const Center(
+                                      child: SizedBox.square(
+                                        key: glyphKey,
+                                        dimension: IconSize.small,
+                                      ),
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          // The section's first row, right below the header.
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => rowTaps++,
+                            child: const SizedBox(
+                              width: _windowWidth,
+                              height: TouchTarget.minimum,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          return tester.getRect(find.byType(SidebarSectionHeader));
+        }
+
+        final plain = await pumpHeader(withControl: false);
+        final header = await pumpHeader(withControl: true);
+        expect(header.height, plain.height, reason: reason);
+
+        final glyph = tester.getRect(find.byKey(glyphKey));
+        final title = tester.getRect(find.text('Folders'));
+        expect(
+          glyph.center.dy,
+          moreOrLessEquals(title.center.dy, epsilon: 0.5),
+          reason: reason,
+        );
+        // Over the rows' trailing controls, which end on their content edge.
+        expect(
+          glyph.center.dx,
+          _windowWidth - kSidebarRowContentInset - TouchTarget.minimum / 2,
+          reason: reason,
+        );
+
+        // The control is laid out a touch target wide and as tall as the
+        // header, takes taps from the header's top edge to its bottom edge,
+        // and the row below keeps its own.
+        expect(
+          tester.getSize(find.byKey(controlKey)),
+          Size(TouchTarget.minimum, header.height),
+          reason: reason,
+        );
+        final x = glyph.center.dx;
+        for (final y in [header.top + 1, glyph.center.dy, header.bottom - 1]) {
+          final before = controlTaps;
+          await tester.tapAt(Offset(x, y));
+          expect(controlTaps, before + 1, reason: '$reason, y $y');
+        }
+        final rowTapsBefore = rowTaps;
+        await tester.tapAt(Offset(x, header.bottom + 1));
+        expect(rowTaps, rowTapsBefore + 1, reason: reason);
+        expect(toggles, 0, reason: reason);
+      }
+    }
+  });
+
+  testWidgets('on iOS, a compact icon button takes taps and is announced '
+      'over the header\'s height', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    tester.view.physicalSize = const Size(_windowWidth, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final semantics = tester.ensureSemantics();
+    try {
+      var presses = 0;
+      var toggles = 0;
+
+      for (final isFirst in [true, false]) {
+        final reason = 'first $isFirst';
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.conduit),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: _windowWidth,
+                  // A sidebar list gives its headers unbounded height.
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SidebarSectionHeader(
+                        title: 'Folders',
+                        isFirst: isFirst,
+                        isExpanded: true,
+                        onToggle: () => toggles++,
+                        trailing: ConduitIconButton(
+                          icon: Icons.create_new_folder_outlined,
+                          tooltip: 'New Folder',
+                          isCompact: true,
+                          onPressed: () => presses++,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        final header = tester.getRect(find.byType(SidebarSectionHeader));
+        final x = tester.getCenter(find.byType(Icon)).dx;
+        // The button is round, so its edges count along the symbol's column.
+        for (final y in [header.top + 2, header.bottom - 2]) {
+          final before = presses;
+          await tester.tapAt(Offset(x, y));
+          await tester.pumpAndSettle();
+          expect(presses, before + 1, reason: '$reason, y $y');
+        }
+
+        // The symbol's node, which takes the tap, lies over the box that takes
+        // the taps, not where the symbol is drawn.
+        final node = tester.getSemantics(find.byType(Icon));
+        expect(
+          node.getSemanticsData().hasAction(SemanticsAction.tap),
+          isTrue,
+          reason: reason,
+        );
+        var rect = node.rect;
+        for (SemanticsNode? n = node; n != null; n = n.parent) {
+          if (n.transform case final transform?) {
+            rect = MatrixUtils.transformRect(transform, rect);
+          }
+        }
+        expect(
+          rect,
+          Rect.fromLTRB(
+            _windowWidth - kSidebarRowContentInset - TouchTarget.minimum,
+            header.top,
+            _windowWidth - kSidebarRowContentInset,
+            header.bottom,
+          ),
+          reason: reason,
+        );
+      }
+      expect(toggles, 0);
+    } finally {
+      semantics.dispose();
     }
   });
 
