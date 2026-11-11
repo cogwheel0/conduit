@@ -1334,6 +1334,9 @@ class TtsManager {
 
     if (_activeSession?.id != session.id) return; // stopped meanwhile
     await _player.stop();
+    // Each await hands the shared player to whoever runs next: a session
+    // stopped or replaced meanwhile must not set the queue or start playback.
+    if (_activeSession?.id != session.id) return;
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
@@ -1343,6 +1346,7 @@ class TtsManager {
         initialIndex: 0,
         initialPosition: Duration.zero,
       );
+      if (_activeSession?.id != session.id) return;
       await _playQueuedAudio(session);
     } catch (e) {
       // Reset flag on error to avoid suppressing future pause events
@@ -1758,7 +1762,6 @@ class TtsManager {
   }
 
   void _resetPlaybackState() {
-    _isTransitioningChunks = false; // a stop mid-transition must not leak it
     _currentChunkIndex = -1;
     _serverCurrentIndex = -1;
     _serverLastEnqueuedIndex = -1;
