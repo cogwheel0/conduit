@@ -141,6 +141,8 @@ void main() {
       await tester.pump();
       expect(find.text('Hello world'), findsOneWidget);
 
+      // The cadence window is timed on the binding's fake clock, so it is
+      // still open here however long the machine stalled since the flush.
       notifier.bufferLastMessageContent(
         'Progressive reasoning',
         immediate: false,
@@ -275,37 +277,71 @@ void main() {
           notifier.appendToLastMessage(' c');
           expect(emissions, isEmpty);
 
-          final flushedNotBefore = DateTime.now();
           await tester.pump();
           expect(emissions, <String?>['Hello a b c']);
           expect(find.text('Hello a b c'), findsOneWidget);
 
           notifier.appendToLastMessage(' d');
           notifier.appendToLastMessage(' e');
-          // The cadence clock is `DateTime.now()` (real wall time) while
-          // `Timer` runs on the binding's fake clock, so "the window is still
-          // open" is only knowable in real time. In practice the gap here is
-          // sub-millisecond; the guard keeps a stalled machine from flaking the
-          // strict assertion while the unconditional ones below still run.
-          final cadenceWindowStillOpen =
-              DateTime.now().difference(flushedNotBefore) <
-              streamingContentUpdateInterval;
+          // The cadence window is timed on `clock`, which the binding fakes
+          // along with `Timer`, so no time has passed since the flush however
+          // long the machine stalled.
           await tester.pump();
-          if (cadenceWindowStillOpen) {
-            expect(
-              emissions,
-              <String?>['Hello a b c'],
-              reason:
-                  'a delta inside the cadence window waits for the timer, '
-                  'not for the next frame',
-            );
-          }
+          expect(
+            emissions,
+            <String?>['Hello a b c'],
+            reason:
+                'a delta inside the cadence window waits for the timer, '
+                'not for the next frame',
+          );
 
           // Elapsing the interval fires the cadence timer, which schedules the
           // frame; `pump(duration)` then runs that frame in the same call.
           await tester.pump(streamingContentUpdateInterval);
           expect(emissions, <String?>['Hello a b c', 'Hello a b c d e']);
           expect(find.text('Hello a b c d e'), findsOneWidget);
+
+          subscription.close();
+          notifier.clearMessages();
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump(const Duration(milliseconds: 1));
+          container.dispose();
+          await tester.pump(const Duration(milliseconds: 1));
+        },
+      );
+
+      testWidgets(
+        'a delta after the cadence window has passed lands on the next frame',
+        (tester) async {
+          final container = buildContainer();
+          final notifier = container.read(chatMessagesProvider.notifier);
+          notifier.setMessages([streamingTail()]);
+
+          final emissions = <String?>[];
+          final subscription = container.listen<String?>(
+            streamingContentProvider,
+            (_, next) => emissions.add(next),
+            fireImmediately: false,
+          );
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: const MaterialApp(home: _StreamingContentProbe()),
+            ),
+          );
+
+          notifier.appendToLastMessage(' a');
+          await tester.pump();
+          expect(emissions, <String?>['Hello a']);
+
+          // Only fake time passes here; a cadence timed on the wall clock
+          // would still see an open window and wait for another timer.
+          await tester.pump(streamingContentUpdateInterval);
+          notifier.appendToLastMessage(' b');
+          await tester.pump();
+          expect(emissions, <String?>['Hello a', 'Hello a b']);
+          expect(find.text('Hello a b'), findsOneWidget);
 
           subscription.close();
           notifier.clearMessages();

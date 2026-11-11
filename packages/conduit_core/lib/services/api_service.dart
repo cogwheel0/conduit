@@ -27,6 +27,8 @@ import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/knowledge_base_file.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/model_controls.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/prompt.dart';
@@ -39,9 +41,11 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/notifications/models/notification_target.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/network/same_origin_redirect_interceptor.dart';
+import 'package:conduit_core/network/upload_timeout.dart';
 export 'package:conduit_core/network/same_origin_redirect_interceptor.dart'
     show isCredentialSafeRedirectTarget, nextSameOriginRedirectRequest;
 
@@ -50,11 +54,12 @@ import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart'
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 
 import 'package:conduit_core/error/api_error_interceptor.dart';
 
 import 'package:conduit_core/sync/sync_api_client.dart'
-    show SyncTerminalException;
+    show SyncRejectedException, SyncTerminalException;
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'package:conduit_core/services/connectivity_service.dart';
 
@@ -112,8 +117,6 @@ part 'api_service_workspace_knowledge.dart';
 const bool _traceApiLogs = false;
 const int _conversationWorkerByteThreshold = 50 * 1024;
 const int _conversationSummaryWorkerItemThreshold = 24;
-const int _fileUploadTimeoutBytesPerSecondFloor = 128 * 1024;
-const Duration _minimumFileUploadTimeout = Duration(minutes: 5);
 
 Future<void> _cancelPublicHealthResponse(Response<dynamic>? response) async {
   final body = response?.data;
@@ -221,15 +224,6 @@ void _traceApi(String message) {
     return;
   }
   DebugLogger.log(message, scope: 'api/trace');
-}
-
-Duration _fileUploadTimeoutForBytes(int bytes) {
-  final estimatedUploadSeconds =
-      (bytes / _fileUploadTimeoutBytesPerSecondFloor).ceil() + 120;
-  final timeout = Duration(seconds: estimatedUploadSeconds);
-  return timeout < _minimumFileUploadTimeout
-      ? _minimumFileUploadTimeout
-      : timeout;
 }
 
 @visibleForTesting

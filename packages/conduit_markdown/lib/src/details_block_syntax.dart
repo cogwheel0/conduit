@@ -34,6 +34,21 @@ class DetailsBlockSyntax extends md.BlockSyntax {
   @override
   RegExp get pattern => _blockStartPattern;
 
+  /// How many `<details>` opened in [lines] are still open after the last
+  /// one, counted per line as [parse] counts them. [parse] takes a block
+  /// whose count never returns to zero up to its *last* `</details>`, so a
+  /// positive result means an outer block is still unterminated even when
+  /// [parse] returned a section for it.
+  static int unclosedDepth(Iterable<String> lines) {
+    var depth = 0;
+    for (final line in lines) {
+      depth +=
+          _openingTagPattern.allMatches(line).length -
+          _closingTagPattern.allMatches(line).length;
+    }
+    return depth;
+  }
+
   @override
   bool canParse(md.BlockParser parser) =>
       pattern.hasMatch(parser.current.content);

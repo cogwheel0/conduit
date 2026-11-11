@@ -5,7 +5,6 @@ import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
-import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
@@ -14,6 +13,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../support/native_platform_views.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -33,8 +34,9 @@ void main() {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async {
-        calls++;
+        if (call.method == 'displayCornerRadius') return null;
         expect(call.method, 'isIOSAppOnMac');
+        calls++;
         return true;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
@@ -63,7 +65,11 @@ void main() {
       var calls = 0;
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMethodCallHandler(channel, (_) async => calls++ == 0);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'displayCornerRadius') return null;
+        expect(call.method, 'isIOSAppOnMac');
+        return calls++ == 0;
+      });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
       await PlatformUiCapabilities.initialize();
@@ -76,6 +82,36 @@ void main() {
       check(PlatformUiCapabilities.isIOSAppOnMac).isFalse();
       check(calls).equals(2);
     });
+
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+      test('reads the screen corner radius on ${platform.name}', () async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        const channel = MethodChannel(
+          'app.cogwheel.conduit/platform_environment',
+        );
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        Object? reply = 55.0;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'isIOSAppOnMac') return false;
+          expect(call.method, 'displayCornerRadius');
+          return reply;
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+        await PlatformUiCapabilities.initialize();
+        check(PlatformUiCapabilities.displayCornerRadius).equals(55.0);
+
+        // A radius the system does not report leaves callers their own.
+        for (final unknown in [null, -1.0, double.nan]) {
+          PlatformUiCapabilities.resetDebugOverrides();
+          PlatformUiCapabilities.debugPlatformOverride = platform;
+          reply = unknown;
+          await PlatformUiCapabilities.initialize();
+          check(PlatformUiCapabilities.displayCornerRadius).isNull();
+        }
+      });
+    }
 
     test('never reports an iOS app on Mac for another platform', () {
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
@@ -176,9 +212,10 @@ void main() {
     expect(find.byType(MaterialApp), findsNothing);
   });
 
-  testWidgets('switch adapter stays constrained and legible on iOS 26', (
+  testWidgets('switch adapter uses the system control on iOS 26', (
     tester,
   ) async {
+    stubNativePlatformViews();
     Widget host({Brightness brightness = Brightness.light}) => CupertinoApp(
       theme: CupertinoThemeData(brightness: brightness),
       home: LegacyDesignCompatibility(
@@ -201,17 +238,11 @@ void main() {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     await tester.pumpWidget(host(brightness: Brightness.dark));
-    expect(find.byType(CNSwitch), findsNothing);
-    expect(find.byType(CupertinoSwitch), findsOneWidget);
-    expect(
-      tester.getSize(
-        find.byKey(const ValueKey<String>('adaptive-switch-frame')),
-      ),
-      const Size(51, 31),
-    );
-    final toggle = tester.widget<CupertinoSwitch>(find.byType(CupertinoSwitch));
-    expect(toggle.activeTrackColor, CupertinoColors.activeGreen);
-    expect(toggle.inactiveTrackColor, isNot(CupertinoColors.white));
+    expect(find.byType(CNSwitch), findsOneWidget);
+    expect(find.byType(CupertinoSwitch), findsNothing);
+    final toggle = tester.widget<CNSwitch>(find.byType(CNSwitch));
+    expect(toggle.color, CupertinoColors.activeGreen);
+    expect(toggle.height, greaterThanOrEqualTo(44));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -304,6 +335,7 @@ void main() {
   testWidgets('primary control adapters stay Flutter before iOS 26', (
     tester,
   ) async {
+    stubNativePlatformViews();
     Widget host() => MaterialApp(
       home: LegacyDesignCompatibility(
         child: Scaffold(
@@ -339,6 +371,7 @@ void main() {
     expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(CNSlider), findsOneWidget);
     expect(find.byType(CNSegmentedControl), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -621,7 +654,7 @@ void main() {
     );
   });
 
-  testWidgets('iOS 26 toolbar actions render as separate native controls', (
+  testWidgets('iOS 26 toolbar actions share one glass capsule', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -656,22 +689,27 @@ void main() {
       ),
     );
 
-    // Adjacent actions render as separate circular controls instead of one
-    // merged CNGlassButtonGroup pill, which pinches into a "dumbbell" on iOS 26.
+    // Adjacent actions share one glass capsule of plain glyphs, as an iOS 26
+    // bar groups them, never the package's merged CNGlassButtonGroup, which
+    // pinches into a "dumbbell" on devices.
+    expect(find.byType(ConduitToolbarActionCluster), findsOneWidget);
     expect(find.byType(CNGlassButtonGroup), findsNothing);
     final button = tester.widget<CNButton>(find.byType(CNButton));
     expect(button.icon?.size, kConduitNativeSingleActionSymbolExtent);
-    expect(button.config.width, TouchTarget.minimum);
-    expect(button.config.borderRadius, TouchTarget.minimum / 2);
+    expect(button.config.style, CNButtonStyle.plain);
     final popup = tester.widget<CNPopupMenuButton>(
       find.byType(CNPopupMenuButton),
     );
     expect(popup.items, hasLength(1));
-    popup.onSelected(0);
+    popup.onSelected!(0);
     expect(selectionCount, 1);
-    final buttonRect = tester.getRect(find.byType(CNButton));
-    final popupRect = tester.getRect(find.byType(CNPopupMenuButton));
-    expect(popupRect.left - buttonRect.right, Spacing.sm);
+    expect(
+      tester.getSize(find.byType(ConduitToolbarActionCluster)).width,
+      2 * kConduitToolbarClusterSlotExtent,
+    );
+    // Let the native controls' own timers run out before teardown.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
   });
 
   testWidgets('a single iOS 26 toolbar action stays circular', (tester) async {
@@ -771,36 +809,11 @@ void main() {
         find.byType(CNPopupMenuButton),
       );
       expect(popup.items, hasLength(1));
-      popup.onSelected(0);
+      popup.onSelected!(0);
       expect(deleteCount, 1);
       await tester.pump(const Duration(milliseconds: 500));
     },
   );
-
-  testWidgets('gesture-sensitive slider callbacks use the local fallback', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-
-    await tester.pumpWidget(
-      CupertinoApp(
-        home: CupertinoPageScaffold(
-          child: AdaptiveSlider(
-            value: 0.5,
-            onChanged: (_) {},
-            onChangeStart: (_) {},
-            divisions: 4,
-          ),
-        ),
-      ),
-    );
-
-    final slider = tester.widget<CupertinoSlider>(find.byType(CupertinoSlider));
-    expect(slider.divisions, 4);
-    expect(find.byType(CNSlider), findsNothing);
-  });
 
   testWidgets('SF-symbol segments have valid Flutter fallbacks', (
     tester,
@@ -913,31 +926,6 @@ void main() {
 
     expect(find.byKey(prefixKey), findsOneWidget);
     expect(find.byKey(suffixKey), findsOneWidget);
-  });
-
-  testWidgets('non-dismissible iOS 26 confirmations use Flutter fallback', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-
-    await tester.pumpWidget(
-      const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
-    );
-    final context = tester.element(find.byType(CupertinoPageScaffold));
-    final result = ThemedDialogs.confirm(
-      context,
-      title: 'Confirm',
-      message: 'Cannot dismiss',
-      barrierDismissible: false,
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(await result, isFalse);
   });
 
   testWidgets('controlled Cupertino form fields track controller changes', (

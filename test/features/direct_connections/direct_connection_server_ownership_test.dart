@@ -129,18 +129,18 @@ void main() {
         'new-secret',
       );
       await tester.scrollUntilVisible(
-        find.text('Test connection'),
+        find.text('Test Connection'),
         500,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text('Test connection'));
+      await tester.tap(find.text('Test Connection'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('Use credentials with new server?'), findsOneWidget);
       remoteController.setSnapshot(accountB);
       await tester.pump();
-      await tester.tap(find.text('Use credentials'));
+      await tester.tap(find.text('Use Credentials'));
       await tester.pumpAndSettle();
 
       expect(localController.probeCalls, 0);
@@ -224,7 +224,7 @@ void main() {
 
       expect(find.text('Use credentials with new server?'), findsOneWidget);
       container.read(epochSource.notifier).rotate();
-      await tester.tap(find.text('Use credentials'));
+      await tester.tap(find.text('Use Credentials'));
       await tester.pumpAndSettle();
 
       expect(remoteController.updateCalls, 0);

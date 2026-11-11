@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +13,7 @@ import 'package:conduit_core/features/automations/providers/automation_providers
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -538,12 +540,10 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
   Widget _editButton(AppLocalizations l10n) {
     final onPressed = _deleting ? null : _edit;
     if (PlatformInfo.isIOS) {
-      return CupertinoButton(
+      return ConduitAdaptiveAppBarTextButton(
         key: const Key('scheduled-task-edit'),
-        padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-        minimumSize: const Size(0, TouchTarget.minimum),
+        label: l10n.edit,
         onPressed: onPressed,
-        child: Text(l10n.edit),
       );
     }
     return TextButton(
@@ -582,6 +582,7 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
           ].join(' · ');
     final modelName =
         models?.where((m) => m.id == task.modelId).firstOrNull?.name ??
+        terminalAgentDisplayName(task.modelId) ??
         task.modelId;
     final lastRunTitle = lastRunAt != null
         ? l10n.scheduledTaskLastRun(lastRunAt)

@@ -1,0 +1,9 @@
+event: message
+data: {"sync":true,"resumeState":{"runSteps":[{"id":"step_text","runId":"r2","index":0,"stepDetails":{"type":"message_creation","message_creation":{"message_id":"r2"}}}],"aggregatedContent":[{"type":"text","text":"One, two"}],"responseMessageId":"r2","userMessage":{"messageId":"u2","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c2","text":"Count to four","isCreatedByUser":true},"conversationId":"c2","titleEvent":{"event":"title","data":{"conversationId":"c2","title":"Counting"}}},"pendingEvents":[{"event":"on_message_delta","data":{"id":"step_text","delta":{"content":[{"type":"text","text":", three"}]}}}]}
+
+event: message
+data: {"event":"on_message_delta","data":{"id":"step_text","delta":{"content":[{"type":"text","text":", four."}]}}}
+
+event: message
+data: {"final":true,"conversation":{"conversationId":"c2","title":"Counting","endpoint":"Ollama"},"title":"Counting","requestMessage":{"messageId":"u2","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c2","text":"Count to four","isCreatedByUser":true},"responseMessage":{"messageId":"r2","parentMessageId":"u2","conversationId":"c2","isCreatedByUser":false,"text":"One, two, three, four.","content":[{"type":"text","text":"One, two, three, four."}]},"generationProtocolVersion":2}
+

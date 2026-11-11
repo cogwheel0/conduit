@@ -259,13 +259,18 @@ void main() {
       String? reasoningEffort,
       List<String>? toolIds,
       String model = 'gpt-5',
+      Map<String, dynamic>? modelItemExtra,
     }) async {
       final adapter = _FakeAdapter.json({'task_id': 'task-1', 'status': true});
       final api = _buildApiServiceForTest(adapter);
       await api.sendMessageSession(
         messages: _minimalMessages,
         model: model,
-        modelItem: {'id': model, 'name': model},
+        modelItem: <String, dynamic>{
+          'id': model,
+          'name': model,
+          ...?modelItemExtra,
+        },
         userSettings: userSettings,
         chatParams: chatParams,
         reasoningEffort: reasoningEffort,
@@ -453,23 +458,138 @@ void main() {
     });
 
     test(
-      'a saved reasoning effort keeps the unsupported-model translation',
+      'a saved reasoning effort is not sent to an undeclared model',
       () async {
-        // A model that cannot take an effort never receives one, saved or not.
+        // Issue #611: the chat's value may have been picked for another
+        // model. A model that does not advertise support gets only its own
+        // pick, and here the picker holds none.
         final body = await sentBody(
           model: 'plain-chat-model',
           chatParams: {'reasoning_effort': 'low'},
+          reasoningEffort: 'automatic',
         );
 
         check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
       },
     );
 
+    for (final saved in <Object?>[null, '']) {
+      test(
+        'a saved ${saved == null ? 'null' : 'empty'} effort sends nothing '
+        'to an undeclared model',
+        () async {
+          // Picking Automatic saves null on the chat.
+          final body = await sentBody(
+            model: 'plain-chat-model',
+            chatParams: {'reasoning_effort': saved, 'temperature': 0.5},
+            reasoningEffort: 'automatic',
+          );
+
+          check(paramsOf(body)).deepEquals({'temperature': 0.5});
+        },
+      );
+    }
+
+    for (final saved in <Object?>[null, 'automatic']) {
+      test(
+        'a saved default ($saved) outranks an undeclared model\'s own pick',
+        () async {
+          // A comparison is admitted on the chat's default and sends this
+          // one request's value to every answer, so the first model's pick
+          // must not ride along.
+          final body = await sentBody(
+            model: 'plain-chat-model',
+            chatParams: {'reasoning_effort': saved, 'temperature': 0.5},
+            reasoningEffort: 'high',
+          );
+
+          check(paramsOf(body)).deepEquals({'temperature': 0.5});
+        },
+      );
+    }
+
+    test(
+      'an undeclared model gets its own pick over the saved value',
+      () async {
+        // The request matches what the model's picker shows.
+        final body = await sentBody(
+          model: 'plain-chat-model',
+          chatParams: {'reasoning_effort': 'high'},
+          reasoningEffort: 'low',
+        );
+
+        check(paramsOf(body)['reasoning_effort']).equals('low');
+      },
+    );
+
+    test('an explicit picker pick is sent to an undeclared model (opt-in)', () async {
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        reasoningEffort: 'minimal',
+      );
+
+      check(paramsOf(body)['reasoning_effort']).equals('minimal');
+    });
+
+    test('a saved or picked effort is stripped for an explicitly refusing model', () async {
+      // The server said this model cannot take the parameter: not even a
+      // chat-saved override or a stale picker value may send it (#779).
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        chatParams: {'reasoning_effort': 'high'},
+        reasoningEffort: 'high',
+        modelItemExtra: {
+          'capabilities': {'reasoning_effort': false},
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
+    test('a declared empty supported_efforts set refuses the effort too', () async {
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        chatParams: {'reasoning_effort': 'high'},
+        modelItemExtra: {
+          'capabilities': {
+            'reasoning': {'supported_efforts': <String>[]},
+          },
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
+    test('the user-level default is not leaked to an undeclared model', () async {
+      // Issue #613 stays fixed: without an explicit pick the parameter is
+      // still withheld from models that do not advertise support. A real
+      // send passes the picker's "automatic", never null.
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        reasoningEffort: 'automatic',
+        userSettings: {
+          'ui': {
+            'params': {'reasoning_effort': 'high'},
+          },
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
     test(
       'a saved "automatic" effort is dropped, as the picker value is',
       () async {
+        // An explicit automatic outranks the global default too (normalized
+        // "automatic" is what a queued retry-without-effort freezes into the
+        // settings snapshot for its replay).
         final body = await sentBody(
           chatParams: {'reasoning_effort': 'automatic', 'temperature': 0.5},
+          userSettings: {
+            'ui': {
+              'params': {'reasoning_effort': 'medium'},
+            },
+          },
         );
 
         check(paramsOf(body)).deepEquals({'temperature': 0.5});
@@ -865,6 +985,128 @@ void main() {
           ),
         ),
       );
+    });
+
+    group('an error status for a saved chat', () {
+      // Sent without a socket session, Open WebUI 0.12 answers a provider
+      // error with its status, or a 400, and saves the error on the reply.
+      // A reply that already ran answers 409. 0.11 sent a JSON null instead.
+      Map<String, dynamic> chatWithReply(Map<String, dynamic>? reply) => {
+        'id': 'chat-1',
+        'chat': {
+          'history': {
+            'messages': {
+              'user-1': {'id': 'user-1', 'role': 'user', 'content': 'hi'},
+              'assistant-1': ?reply,
+            },
+          },
+        },
+      };
+
+      Future<ChatCompletionSession> send(_QueuedFakeAdapter adapter) =>
+          _buildApiServiceForTest(adapter).sendMessageSession(
+            messages: _minimalMessages,
+            model: _model,
+            conversationId: 'chat-1',
+            responseMessageId: 'assistant-1',
+          );
+
+      test('reads the saved error instead of failing', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'error': {'message': 'Incorrect API key provided'},
+          }, statusCode: 401),
+          _FakeAdapter.json(
+            chatWithReply({
+              'id': 'assistant-1',
+              'role': 'assistant',
+              'content': '',
+              'error': {'content': 'Incorrect API key provided'},
+              'done': true,
+            }),
+          ),
+        ]);
+
+        final session = await send(adapter);
+
+        check(session.transport).equals(ChatCompletionTransport.httpStream);
+        check(await session.byteStream!.toList()).isEmpty();
+        check(adapter.requests.map((r) => '${r.method} ${r.path}'))
+            .deepEquals([
+              'POST /api/chat/completions',
+              'GET /api/v1/chats/chat-1',
+            ]);
+      });
+
+      test('reads a reply that already ran instead of failing on 409',
+          () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'detail': 'Message already exists or has an invalid ID.',
+          }, statusCode: 409),
+          _FakeAdapter.json(
+            chatWithReply({
+              'id': 'assistant-1',
+              'role': 'assistant',
+              'content': 'Hello!',
+              'done': true,
+            }),
+          ),
+        ]);
+
+        final session = await send(adapter);
+
+        check(session.transport).equals(ChatCompletionTransport.httpStream);
+      });
+
+      test('still fails while the reply is running, so a retry waits for '
+          'it to finish', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'detail': 'Message already exists or has an invalid ID.',
+          }, statusCode: 409),
+          _FakeAdapter.json(
+            chatWithReply({
+              'id': 'assistant-1',
+              'role': 'assistant',
+              'content': 'Hel',
+              'done': false,
+            }),
+          ),
+        ]);
+
+        await check(send(adapter)).throws<ChatCompletionHttpException>(
+          (it) => it.has((e) => e.statusCode, 'status').equals(409),
+        );
+      });
+
+      test('still fails when the server saved nothing', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Model not found'}, statusCode: 400),
+          _FakeAdapter.json(chatWithReply(null)),
+        ]);
+
+        await check(send(adapter)).throws<Exception>(
+          (it) => it
+              .has((e) => e.toString(), 'message')
+              .contains('Chat completion failed (400): Model not found'),
+        );
+      });
+
+      test('a temporary chat fails without reading any chat', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'boom'}, statusCode: 400),
+        ]);
+
+        await check(
+          _buildApiServiceForTest(adapter).sendMessageSession(
+            messages: _minimalMessages,
+            model: _model,
+            conversationId: 'local:temp',
+          ),
+        ).throws<Exception>();
+        check(adapter.requests).length.equals(1);
+      });
     });
 
     // 3. httpStream classification from text/event-stream response
@@ -1531,6 +1773,56 @@ void main() {
           'content_type': 'application/pdf',
         },
         {'type': 'note', 'id': 'note-1', 'name': 'scratch-note'},
+      ]);
+    });
+
+    test('keeps generated videos out of request files', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {
+            'role': 'user',
+            'content': 'Animate this clip',
+            'files': [
+              {
+                'type': 'file',
+                'id': 'upload-1',
+                'url': 'upload-1',
+                'name': 'holiday.mp4',
+                'content_type': 'video/mp4',
+              },
+            ],
+          },
+          {
+            'role': 'assistant',
+            'content': 'Here it is.',
+            'files': [
+              {
+                'type': 'video',
+                'url': '/api/v1/files/generated-1/content',
+                'content_type': 'video/mp4',
+                'filename': 'render.mp4',
+              },
+              {'type': 'video', 'url': 'https://cdn.example.com/clip.webm'},
+              {'type': 'image', 'url': 'https://cdn.example.com/still.png'},
+            ],
+          },
+          {'role': 'user', 'content': 'Make it longer'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-generated-video',
+        sessionId: 'sess-generated-video',
+      );
+
+      check(payload['files']).isA<List<dynamic>>().deepEquals(const [
+        {
+          'type': 'file',
+          'id': 'upload-1',
+          'url': 'upload-1',
+          'name': 'holiday.mp4',
+          'content_type': 'video/mp4',
+        },
       ]);
     });
 

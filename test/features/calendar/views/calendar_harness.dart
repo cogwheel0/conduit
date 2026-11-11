@@ -6,6 +6,7 @@ import 'package:conduit/features/navigation/providers/conversation_selection_pro
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
@@ -592,11 +593,11 @@ Future<CalendarSession> pumpCalendar(
         routerConfig: router,
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        // As in the app, legacy-design widgets read its theme through this.
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(alwaysUse24HourFormat: alwaysUse24HourFormat),
-          child: child!,
+          data: MediaQuery.of(context)
+              .copyWith(alwaysUse24HourFormat: alwaysUse24HourFormat),
+          child: LegacyDesignCompatibility(child: child!),
         ),
       ),
     ),

@@ -54,12 +54,30 @@ jobs:
         with:
           persist-credentials: false
 
+      # GitHub's generated PR list goes in a collapsed section, so a
+      # hand-written changelog can be added above it after the release is up.
+      - name: Generate Collapsed Release Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body)"
+          {
+            echo '<details>'
+            echo '<summary>All changes</summary>'
+            echo
+            printf '%s\n' "$notes"
+            echo
+            echo '</details>'
+          } > "$RUNNER_TEMP/release-notes.md"
+
       - name: Create Release with Notes
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          generateReleaseNotes: true
+          bodyFile: ${{ runner.temp }}/release-notes.md
           makeLatest: true
 
   build-android:

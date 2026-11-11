@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show LibreChatReplyRunningException;
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -55,10 +57,15 @@ class UserMessageBubble extends ConsumerStatefulWidget {
   final bool isStreaming;
   final String? modelName;
   final VoidCallback? onCopy;
-  final VoidCallback onDelete;
+  /// Deletes the message; null where messages cannot be deleted.
+  final VoidCallback? onDelete;
 
   /// Another user's chat (shared folder): only copy is offered.
   final bool readOnly;
+
+  /// Whether the message may be edited and sent again. False in a coding
+  /// agent's chat, which only a new message continues.
+  final bool allowsEdit;
   final VoidCallback? onEdit;
   final VoidCallback? onRegenerate;
   final VoidCallback? onLike;
@@ -71,12 +78,13 @@ class UserMessageBubble extends ConsumerStatefulWidget {
     this.isStreaming = false,
     this.modelName,
     this.onCopy,
-    required this.onDelete,
+    this.onDelete,
     this.onEdit,
     this.onRegenerate,
     this.onLike,
     this.onDislike,
     this.readOnly = false,
+    this.allowsEdit = true,
   });
 
   @override
@@ -166,8 +174,15 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     return file['type'] == 'note';
   }
 
+  /// Hermes file descriptors carry metadata only: the file itself went to
+  /// Hermes (or stayed on the device) and has no server URL to load.
   bool _isHermesLocalFileReference(dynamic file) {
-    return file is Map && file['source'] == 'hermes_local';
+    return file is Map &&
+        const {
+          'hermes_local',
+          'hermes_desktop_file',
+          'hermes_responses_file',
+        }.contains(file['source']);
   }
 
   _UserFilePartitions? _currentFilePartitions() {
@@ -201,6 +216,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       // before MIME/URL handling so even an image content type or malformed URL
       // can never reach a network-backed attachment widget.
       if (_isHermesLocalFileReference(file)) {
+        localReferenceFiles.add(file);
+        continue;
+      }
+      // A LibreChat document stays on its server, which the Open WebUI file
+      // card cannot ask about: it shows by its name and size.
+      if (file['libreChatFileId'] != null && !isImageFile(file)) {
         localReferenceFiles.add(file);
         continue;
       }
@@ -576,14 +597,18 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         ? ''
         : LocaleDisplayFormatters.bytes(context, size);
     final extension = FileTypeUtils.extensionFromName(filename);
-    final id = file is Map ? file['id']?.toString() ?? '' : '';
+    final id = file is Map
+        ? (file['id'] ?? file['libreChatFileId'])?.toString() ?? ''
+        : '';
 
     return Semantics(
       container: true,
       label: sizeLabel.isEmpty ? filename : '$filename, $sizeLabel',
       child: ExcludeSemantics(
         child: Container(
-          key: ValueKey('hermes-local-file-$id'),
+          key: id.isEmpty
+              ? ObjectKey(file)
+              : ValueKey('hermes-local-file-$id'),
           constraints: const BoxConstraints(maxWidth: 280),
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.sm,
@@ -748,16 +773,18 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final l10n = AppLocalizations.of(context)!;
 
     return [
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.allowsEdit)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
+          sfSymbol: 'pencil',
           materialIcon: Icons.edit_outlined,
           label: l10n.edit,
           onBeforeClose: () => ConduitHaptics.selectionClick(),
           onSelected: () async => _startInlineEdit(),
         ),
       ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+        cupertinoIcon: CupertinoIcons.square_on_square,
+        sfSymbol: 'square.on.square',
         materialIcon: Icons.content_copy,
         label: l10n.copy,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -767,15 +794,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           }
         },
       ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.onDelete != null)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.delete,
+          sfSymbol: 'trash',
           materialIcon: Icons.delete_outline,
           label: l10n.delete,
           destructive: true,
           onBeforeClose: () => ConduitHaptics.mediumImpact(),
           onSelected: () async {
-            widget.onDelete();
+            widget.onDelete?.call();
           },
         ),
     ];
@@ -821,7 +849,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           // Display images outside and above the text bubble (iMessage style)
           // Prioritize files array over attachmentIds to avoid duplication
           if (attachmentContent != null)
-            ConduitContextMenu(actions: actions, child: attachmentContent),
+            ConduitContextMenu(
+              key: ValueKey(widget.message.id),
+              actions: actions,
+              useNativeMenu: true,
+              child: attachmentContent,
+            ),
 
           // Display text bubble if there's text content
           if (hasText) const SizedBox(height: Spacing.xs),
@@ -833,7 +866,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
                     child: ConduitContextMenu(
+                      key: ValueKey(widget.message.id),
                       actions: actions,
+                      useNativeMenu: true,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
                         padding: const EdgeInsets.symmetric(
@@ -1037,6 +1072,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     // send skipped its outbox drain and the reply waited for the next
     // five-minute sync. The scope's container outlives the bubble.
     final container = ProviderScope.containerOf(context, listen: false);
+    // A LibreChat reply still running refuses the edit before anything
+    // changes: the editor stays open with it, to send once the reply is done.
+    var keepEditing = false;
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
@@ -1049,6 +1087,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         messageId: messageId,
         newText: newText,
       );
+    } on LibreChatReplyRunningException {
+      keepEditing = true;
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
+        );
+      }
     } catch (error, stackTrace) {
       DebugLogger.error(
         'inline-edit-failed',
@@ -1058,12 +1106,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         data: {'messageId': widget.message.id?.toString()},
       );
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.errorMessage,
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && !keepEditing) {
         setState(() {
           _isEditing = false;
         });

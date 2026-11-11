@@ -178,6 +178,149 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "What's new",
+      "intro": "Hi! You can keep several Open WebUI accounts signed in and switch between them, and save several Hermes connections. Calls can talk with a realtime voice you can interrupt. Open WebUI 0.12 works, including two-step sign-in, and more Open WebUI features no longer need Advanced.",
+      "bullets": [
+        {
+          "text": "Accounts: keep several Open WebUI accounts signed in, on one server or several, and switch from your profile or the new Accounts page at the top of Settings. Add any account or connection from one sheet. A server can have several addresses, such as LAN, Tailscale and a public proxy; the app uses the first one that answers.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: save several named connections, such as Home and Research, and switch between them from the sidebar, settings or Accounts. A chat whose session belongs to another connection offers to switch to it.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Realtime calls: on Open WebUI 0.12, Direct and the Hermes Desktop Gateway, calls can talk with an OpenAI realtime voice, and speaking over it stops it. Choose a Voice provider in Audio settings for Direct and Apple chats. Server speech to text and text to speech follow each chat's own backend.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: the app works without a compatibility warning. Two-step verification at sign-in works, including setup and recovery codes. Skill export, folder sharing, enforced temporary chats and tool approvals follow 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI features: the draft queue, code interpreter, branches, chat audience, project folders, sharing, channel members and calendar no longer need Advanced. Advanced adds model comparison, scheduled tasks, webhooks and data controls. Large chats no longer download again on every open, and the reasoning effort you choose sticks.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.12.2 works, and channels show the apps that answer in them and can notify you for mentions only. Voice calls keep going through background noise and avatar gestures, and the speaker button works from the start of Android calls.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: the app works without a compatibility warning. Chats a realtime call starts get a generated title and tags, following your title and tag settings.",
+          "icon": "direct"
+        },
+        {
+          "text": "Channels: messages from apps show the app's name, cards, buttons and links. Pressing a button sends it to the app, and replies only you can see appear under the message until you dismiss them. Set a channel or direct message to Mentions only to skip badges and notifications unless you're mentioned.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voice calls: background noise no longer cuts off a realtime voice mid-sentence; it pauses, and carries on if nothing was said. Avatar gestures no longer hold up replies for three seconds. On Android, the speaker button works from the start of a call, and a call no longer blocks your own phone calls for its first two minutes.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.12.4 works, and you can share answers, mark chats unread, and tap to play videos in chat. Server dictation keeps every word, sharing to Conduit on iOS brings the real file, and back on Android goes to the chat list.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: the app works without a compatibility warning, and a sentence split by a pause in a realtime call is answered once. Folders stay open or closed as you left them, here and on the web. Mark a chat unread from the chat list, and chats marked unread on the web show unread here. Filters set to start enabled are on in new chats, images from MCP tools load, every model offers the Effort picker, and a function can ask to move the chat to another model.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats: videos show a card and load when you tap Play. Share… in a response's ⋯ menu sends its text, and Copy and Share both take the version on screen. On iOS, long-pressing a long message keeps Edit, Copy and Delete in view, and a long channel message no longer pushes its thread replies off screen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sharing and dictation: on iOS, screenshots, Files documents and images from Safari arrive as the real file, and the chat shows even if Settings was open. Server dictation keeps everything you said, to the last word, even if you tap stop early or talk for longer than 90 seconds.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android and accounts: back goes to the chat list, and the assistant opens on a ready new chat and keeps working after a reboot. An edited server or Hermes connection is named after its new address, and Direct providers stay in reach next to Hermes.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.13 and 0.12.5 work: MCP Apps open in chats, terminals update live and preview ports in the app, and notes can have pages. Listening to a response opens a player you can pause and skip, unsent drafts survive a restart, and there's a new sliding sidebar in Appearance settings.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: the app works without a compatibility warning, and temporary chats work and keep replying after a reconnect. An MCP tool's app opens right in the chat and asks you before each tool it runs. Chats waiting for a tool approval show a raised hand in the chat list. Switch workspace tools off and on, and knowledge base uploads follow the server's file limits and say why one was refused; a base's owner can set File limits of its own. Webhooks saved on 0.12 can be edited again.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: on Open WebUI 0.13, files and ports update as they change. A port opens in Conduit's own page with back, forward, reload and Open in browser, and links on it work. On iOS, previews also get through a sign-in proxy in front of Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: the app works without a compatibility warning. The model you pick in a chat is saved with it, and switching models keeps the tools and filters you turned on or off. Answers cut off by a server restart no longer show as still being written. Files a model shows and images it makes through the Responses API appear in the reply, and usage counts every step of a reply and says when its figures may be low. Moving a chat to a folder keeps its date, and in a shared chat Stop is offered only for your own reply.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notes: on Open WebUI 0.12.5 a note can have several pages. Tap the page name under the title, or Pages in the menu, to switch; edits save to the page you're on. Attached files show as cards in the text, and a new recording goes in where the cursor is. Pages are added, renamed and moved on the web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sliding sidebar: turn it on in Appearance settings. The chat slides aside to show your history, with backend tabs at the bottom next to New Chat, and Notes, Terminal and Channels open in place of the chat with a back button. On iOS, menus, switches, alerts, banners, text selection and the magnifier are now the system's own.",
+          "icon": "polish"
+        },
+        {
+          "text": "Listening and drafts: Listen on a response opens a player to pause, stop and jump 15 seconds back or forward, with server and device voices alike, and the voice list filters by language. Unsent text and recordings stay with each chat after a restart, and a recovered recording can be transcribed, exported or discarded. On iOS, the Lock Screen shows a recording in progress with a Stop button.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats and settings: Generate Title in an Open WebUI chat's menu names it from the conversation. Pick and order the actions under a response with Message actions in Chat settings. Appearance settings can hide the composer's Notes button and the background behind citations. A cloud icon shows when a chat's live updates disconnect, with details and Retry, and long drafts keep the composer's buttons in view.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "What's new",
+      "intro": "Hi! LibreChat arrives as a beta: sign in, chat with its models and agents, and keep its history in the Chats tab. Hermes 0.23 works, with Rooms, pinned and hidden chats, and a Context & Usage sheet. Open WebUI 0.13.3 offers its terminals' coding agents as models, and Computer opens a terminal's desktop from the chat header.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): sign in to a LibreChat server with email or LDAP, two-step verification or single sign-on, and switch between it and Open WebUI in Accounts. Its chats fill the Chats tab and stay readable offline. Pick its model specs, agents and models, attach files, turn on web search, code, file search and MCP servers, answer tool approvals, and insert its prompts with /. Replies keep running while you're in another chat. Share links, branching, Duplicate Chat, server voices and memories in Personalization work too.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: Desktop Gateway and API server chats work, and you can connect to a gateway's own Webapp listener. Approvals and questions show up again, and all of a turn's questions come in one form. A chat started in another Hermes app offers Continue in a Copy, a run cut off by a restart picks up again, and the answer to a message Hermes saved while restarting appears once it's ready. Conduit asks before a connection sends credentials over plain HTTP, and before switching to a model Hermes wants you to confirm.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes chats: pin, archive or hide a chat, branch from any reply, or undo the last turn. Editing or regenerating in a Desktop Gateway chat keeps going in the same session, with its context. Context & Usage shows how full the context window is and your plan's limits, and compacts the chat. A chip above the composer lists running subagents and processes to steer, stop or kill. A failed turn shows a card that says what broke and offers a fix, edited files show as a diff card, paid tools show their price, and the agent's plan stays above the composer.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes rooms and jobs: Desktop Gateway connections get Rooms, group chats with two to six of your bots. Their scheduled jobs can be stopped mid-run, choose what happens to Missed Runs, and Deliver To messaging apps, Bot Chats and Group Chats. API server jobs can be edited, and the reasoning effort you pick now applies there. Catalog MCP servers ask for their keys when you add them, and with several connections you switch from the name at the top of the sidebar.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 and 0.13.3: the app works without a compatibility warning. Select a terminal in a saved chat and its coding agents, such as Codex and Claude Code, appear under Coding Agents in the model picker. Computer in the chat header opens the terminal's Desktop or Browser full screen: watch while a reply runs, or Take Control to type, click and browse. Turn it off under Settings > Chat. Memory recalls and skill lists the server hides no longer show up as tool blocks.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: tool calls no longer stop after 8 rounds. A new Images per request setting (10 by default) and the document budget now apply per request, so older attachments are left out instead of every later turn failing. The context limit you pick for a local Ollama model is sent to Ollama. Reasoning and tool steps stay when you reopen a chat, context fill in usage is measured correctly, and servers that send empty fields no longer break the stream.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: on iOS 26, menus, alerts, sheets and search fields are the system's own, and Settings is grouped like the Settings app. Voice and read-aloud float on glass islands: tap the track to seek, skip 15 seconds, and follow the highlighted word. Chats and notes are listed by date, a response's usage opens in a popover with context fill, the note editor has a bottom toolbar, and settings pages blur under the bar as you scroll.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: long chats scroll without the scrollbar jumping, the Android scrollbar can be dragged, and the chat stays put while you drag the sidebar open. Code blocks wrap long lines, table columns fit their content, follow-up suggestions show as full rows, and a reply says Thinking… with the time waited. One speed now sets both cloud and device voices, Hermes' dashboard sign-in no longer goes blank behind the keyboard, and tapping your profile twice no longer opens Settings twice.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -446,6 +446,40 @@ void main() {
       expect(_collectLatexSegments(document.nodes), isEmpty);
     });
 
+    test('renders math against emphasis, apostrophes, hyphens, quotes and '
+        'CJK', () {
+      final document = compilePreparedMarkdownSync(
+        "**\$E=mc^2\$** for the \$n\$-th \$x\$'s \"\$y\$\" "
+        '\$a\$-\$b\$ 数学\$z\$是',
+      );
+
+      expect(_collectLatexSegments(document.nodes).map((s) => s.tex), [
+        'E=mc^2',
+        'n',
+        'x',
+        'y',
+        'a',
+        'b',
+        'z',
+      ]);
+    });
+
+    test('keeps shell parameters and prices before those characters prose', () {
+      for (final text in [
+        r'Use "$@" instead of "$*" to keep arguments apart.',
+        r"Set IFS=$'\n' or IFS=$'\t'.",
+        r'between $5-$10 each',
+        r'5$和10$之间',
+        r'echo $PREFIX$(date +%s)',
+      ]) {
+        expect(
+          compilePreparedMarkdownSync(text).hasLatex,
+          isFalse,
+          reason: text,
+        );
+      }
+    });
+
     test(
       'assigns stable node ids and precompiles grouped tool call blocks',
       () {
@@ -502,6 +536,38 @@ void main() {
       );
     });
 
+    test('keeps an MCP App a tool call showed (Open WebUI 0.13)', () {
+      const app = {
+        'type': 'mcp_app',
+        'server_id': 'maps',
+        'tool_name': 'show_map',
+        'binding': 'b',
+        'arguments': {'city': 'Oslo'},
+        'result': {'content': <Object>[]},
+      };
+      final embeds = const HtmlEscape(HtmlEscapeMode.attribute)
+          .convert(jsonEncode([app]));
+      final document = compilePreparedMarkdownSync(
+        [
+          '<details type="tool_calls" done="true" name="show_map" '
+              'embeds="$embeds">',
+          '</details>',
+        ].join('\n'),
+      );
+
+      final toolCallData = (document.nodes.first as CompiledMarkdownElement)
+          .detailsData!
+          .toolCallData!;
+      expect(toolCallData.embedSources, isEmpty);
+      expect(toolCallData.mcpApps, [app]);
+      expect(toolCallData.hasEmbeds, isTrue);
+      // It survives the trip from the compile isolate.
+      expect(
+        CompiledMarkdownToolCallData.fromMap(toolCallData.toMap()),
+        toolCallData,
+      );
+    });
+
     test('compiles semantic tool call detail payloads', () {
       final document = compilePreparedMarkdownSync(
         [
@@ -534,6 +600,24 @@ void main() {
           document.blocks.first as CompiledMarkdownDetailsBlock;
       expect(detailsBlock.detailsData, detailsData);
       expect(detailsBlock.toolCallData, toolCallData);
+    });
+
+    test('keeps Open WebUI file paths among tool call images', () {
+      final document = compilePreparedMarkdownSync(
+        [
+          '<details type="tool_calls" done="true" name="qr" '
+              'arguments="{}" result="&quot;done&quot;" '
+              'files="[{&quot;type&quot;:&quot;image&quot;,&quot;url&quot;:&quot;/api/v1/files/a/content&quot;},'
+              '&quot;/api/v1/files/b/content&quot;,&quot;/etc/passwd&quot;]">',
+          '</details>',
+        ].join('\n'),
+      );
+
+      final detailsElement = document.nodes.first as CompiledMarkdownElement;
+      expect(detailsElement.detailsData!.toolCallData!.imageUrls, <String>[
+        '/api/v1/files/a/content',
+        '/api/v1/files/b/content',
+      ]);
     });
 
     test('tool error results survive worker serialization', () {

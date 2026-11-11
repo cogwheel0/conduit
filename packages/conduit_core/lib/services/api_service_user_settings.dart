@@ -125,9 +125,10 @@ mixin _UserSettingsApi on _ApiServiceBase {
     });
   }
 
-  /// Persists the notification preferences that Open WebUI stores server-side.
-  /// These live at the top level of the user settings object (not under `ui`).
-  /// Only non-null values are written so callers can update a subset.
+  /// Persists the notification preferences that Open WebUI stores server-side,
+  /// under `ui` where its web client reads and writes them (and where Open
+  /// WebUI 0.13.1 checks whether to notify a Tether desktop). Only non-null
+  /// values are written so callers can update a subset.
   Future<ServerUserSettings> updateUserNotificationSettings({
     bool? notificationEnabled,
     bool? notificationSound,
@@ -138,15 +139,17 @@ mixin _UserSettingsApi on _ApiServiceBase {
       final settings = _deepCloneJsonMap(
         await getUserSettings(authSnapshot: authSnapshot),
       );
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
       if (notificationEnabled != null) {
-        settings['notificationEnabled'] = notificationEnabled;
+        ui['notificationEnabled'] = notificationEnabled;
       }
       if (notificationSound != null) {
-        settings['notificationSound'] = notificationSound;
+        ui['notificationSound'] = notificationSound;
       }
       if (notificationSoundAlways != null) {
-        settings['notificationSoundAlways'] = notificationSoundAlways;
+        ui['notificationSoundAlways'] = notificationSoundAlways;
       }
+      settings['ui'] = ui;
 
       _traceApi('Updating user notification settings');
       final response = await _postUserSettings(
@@ -223,6 +226,32 @@ mixin _UserSettingsApi on _ApiServiceBase {
       );
       final data = _coerceResponseMap(response.data) ?? settings;
       return ServerUserSettings.fromJson(data);
+    });
+  }
+
+  /// Saves the user's pick for [modelId]'s [controlKey] (null to clear it)
+  /// where the web client keeps it, `ui.params.model_controls`, and returns
+  /// every pick as stored.
+  Future<ModelControlChoices> updateUserModelControlChoice({
+    required String modelId,
+    required String controlKey,
+    required String? value,
+  }) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = settingsWithModelControlChoice(
+        _deepCloneJsonMap(await getUserSettings(authSnapshot: authSnapshot)),
+        modelId: modelId,
+        controlKey: controlKey,
+        value: value,
+      );
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      return modelControlChoicesFromSettings(
+        _coerceResponseMap(response.data) ?? settings,
+      );
     });
   }
 

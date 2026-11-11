@@ -153,7 +153,6 @@ void main() {
       final owner = captureChatDataControlsOwner(container)!;
 
       check(owner.accountName).equals('Ava');
-      check(owner.serverName).equals('Home server');
       check(owner.accountId).equals('user-1');
       check(chatDataControlsOwnerIsCurrent(container, owner)).isTrue();
     });

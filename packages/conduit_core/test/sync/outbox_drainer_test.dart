@@ -199,6 +199,17 @@ class RecordingSyncApiClient implements SyncApiClient {
   }
 
   @override
+  Future<bool> updateFolderExpanded(String id, bool isExpanded) async {
+    calls.add('updateFolderExpanded:$id');
+    events.add('updateFolderExpanded:$id');
+    await Future<void>.delayed(Duration.zero);
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return false;
+    server.updateFolderExpanded(id, isExpanded);
+    return true;
+  }
+
+  @override
   Future<bool> deleteFolder(String id, {bool deleteContents = false}) async {
     calls.add('deleteFolder:$id');
     events.add('deleteFolder:$id');

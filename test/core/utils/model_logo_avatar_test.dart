@@ -50,13 +50,38 @@ void main() {
   );
 
   test('a server model cannot claim a bundled logo through metadata', () {
+    // Claiming a Direct identity in metadata buys neither a remote id's
+    // maker nor a connection host's logo.
     const spoofed = Model(
-      id: 'gpt-4o',
-      name: 'GPT-4o',
-      metadata: {'backend': 'direct', 'remoteModelId': 'gpt-4o'},
+      id: 'my-finetune',
+      name: 'My finetune',
+      metadata: {
+        'backend': 'direct',
+        'remoteModelId': 'gpt-4o',
+        'directBaseHost': 'api.groq.com',
+      },
     );
-
     check(modelLogoIdFromUrl(resolveModelIconUrlForModel(null, spoofed)))
         .isNull();
+
+    // A model an admin customized keeps the server's avatar, whatever its
+    // metadata claims.
+    const customized = Model(
+      id: 'gpt-4o',
+      name: 'GPT-4o',
+      metadata: {
+        'backend': 'direct',
+        'remoteModelId': 'gpt-4o',
+        'info': {'id': 'gpt-4o'},
+      },
+    );
+    check(modelLogoIdFromUrl(resolveModelIconUrlForModel(null, customized)))
+        .isNull();
+  });
+
+  test('an uncustomized server model shows its maker by its own id', () {
+    const plain = Model(id: 'openai/gpt-5-mini', name: 'openai/gpt-5-mini');
+    check(modelLogoIdFromUrl(resolveModelIconUrlForModel(null, plain)))
+        .equals('openai');
   });
 }

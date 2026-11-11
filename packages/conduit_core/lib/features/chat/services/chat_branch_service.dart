@@ -174,6 +174,7 @@ typedef _Node = ({
 /// Longest preview kept per message: enough for a two-line subtitle, small
 /// enough that a long chat's graph stays cheap to pass between isolates.
 const int _previewLength = 160;
+final _previewWords = RegExp('\\S{1,${_previewLength + 1}}');
 
 /// A message's text on one line, shortened to [_previewLength]. Only plain text
 /// parts count; attachments and other parts have nothing to show here.
@@ -191,7 +192,19 @@ String _previewOf(Object? content) {
   } else {
     return '';
   }
-  final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  // Read only enough normalized text to distinguish a full preview from a
+  // truncated one. Bound each match too: a single word can be megabytes long.
+  final preview = StringBuffer();
+  for (final match in _previewWords.allMatches(text.trim())) {
+    if (preview.isNotEmpty) preview.write(' ');
+    final word = match[0]!;
+    final remaining = _previewLength + 1 - preview.length;
+    preview.write(
+      word.length > remaining ? word.substring(0, remaining) : word,
+    );
+    if (preview.length > _previewLength) break;
+  }
+  final collapsed = preview.toString();
   if (collapsed.length <= _previewLength) return collapsed;
   // Never cut a surrogate pair in half.
   final lead = collapsed.codeUnitAt(_previewLength - 1);

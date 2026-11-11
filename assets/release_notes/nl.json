@@ -178,6 +178,149 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Nieuw",
+      "intro": "Hoi! Je kunt meerdere Open WebUI-accounts ingelogd houden en ertussen wisselen, en meerdere Hermes-verbindingen bewaren. Gesprekken kunnen praten met een realtime stem die je kunt onderbreken. Open WebUI 0.12 werkt, inclusief inloggen in twee stappen, en meer Open WebUI-functies hebben Geavanceerd niet meer nodig.",
+      "bullets": [
+        {
+          "text": "Accounts: houd meerdere Open WebUI-accounts ingelogd, op één of meer servers, en wissel via je profiel of de nieuwe pagina Accounts bovenaan Instellingen. Voeg elk account of elke verbinding toe vanuit één venster. Een server kan meerdere adressen hebben, zoals LAN, Tailscale en een openbare proxy; de app gebruikt het eerste dat antwoordt.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: bewaar meerdere verbindingen met een naam, zoals Thuis en Onderzoek, en wissel ertussen via de zijbalk, de instellingen of Accounts. Een chat waarvan de sessie bij een andere verbinding hoort, biedt aan daarnaar over te schakelen.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Realtime gesprekken: met Open WebUI 0.12, Direct en de Hermes Desktop Gateway kunnen gesprekken praten met een realtime stem van OpenAI, en door erdoorheen te praten stopt hij. Kies een Spraakprovider in de audio-instellingen voor Direct- en Apple-chats. Spraak-naar-tekst en tekst-naar-spraak via de server volgen de backend van elke chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: de app werkt zonder compatibiliteitswaarschuwing. Verificatie in twee stappen bij het inloggen werkt, inclusief instellen en herstelcodes. Vaardigheden exporteren, mappen delen, verplichte tijdelijke chats en goedkeuring van tools volgen 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI-functies: de conceptwachtrij, code-interpreter, vertakkingen, chatpubliek, projectmappen, delen, kanaalleden en agenda hebben Geavanceerd niet meer nodig. Geavanceerd voegt modelvergelijking, geplande taken, webhooks en gegevensbeheer toe. Grote chats worden niet meer bij elke opening opnieuw gedownload, en het gekozen redeneerniveau blijft bewaard.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.12.2 werkt, en kanalen tonen de apps die erin antwoorden en kunnen je alleen bij vermeldingen een melding sturen. Spraakgesprekken gaan door ondanks achtergrondgeluid en avatargebaren, en de luidsprekerknop werkt vanaf het begin van Android-gesprekken.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: de app werkt zonder compatibiliteitswaarschuwing. Chats die een realtime gesprek start, krijgen een gegenereerde titel en tags, volgens je instellingen voor titels en tags.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanalen: berichten van apps tonen de naam van de app, kaarten, knoppen en links. Een knop indrukken stuurt die naar de app, en antwoorden die alleen jij ziet verschijnen onder het bericht tot je ze sluit. Zet een kanaal of direct bericht op Alleen vermeldingen om badges en meldingen over te slaan, tenzij je wordt vermeld.",
+          "icon": "direct"
+        },
+        {
+          "text": "Spraakgesprekken: achtergrondgeluid kapt de realtime stem niet meer midden in een zin af; hij pauzeert en gaat verder als er niets is gezegd. Avatargebaren houden antwoorden niet meer drie seconden op. Op Android werkt de luidsprekerknop vanaf het begin van een gesprek, en een gesprek blokkeert de eerste twee minuten niet meer je eigen telefoongesprekken.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.12.4 werkt, en je kunt antwoorden delen, chats als ongelezen markeren en video's in de chat met een tik afspelen. Dicteren via de server houdt elk woord, delen naar Conduit op iOS brengt het echte bestand, en terug op Android gaat naar de chatlijst.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: de app werkt zonder compatibiliteitswaarschuwing, en een zin die een pauze in een realtime gesprek opsplitst, krijgt maar één antwoord. Mappen blijven open of dicht zoals je ze achterliet, hier en op het web. Markeer een chat als ongelezen vanuit de chatlijst, en chats die op het web als ongelezen zijn gemarkeerd, staan hier ook ongelezen. Filters die in nieuwe chats ingeschakeld starten, staan aan, afbeeldingen van MCP-tools laden, elk model biedt de keuze voor het redeneerniveau, en een functie kan voorstellen de chat naar een ander model te verplaatsen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats: video's tonen een kaart en laden pas als je op Afspelen tikt. ‘Delen…’ in het ⋯-menu van een antwoord deelt de tekst, en Kopiëren en Delen nemen allebei de versie op het scherm. Op iOS blijven Wijzigen, Kopiëren en Verwijderen in beeld als je een lang bericht lang indrukt, en een lang kanaalbericht duwt de antwoorden in de thread niet meer van het scherm.",
+          "icon": "direct"
+        },
+        {
+          "text": "Delen en dicteren: op iOS komen schermafbeeldingen, documenten uit Bestanden en afbeeldingen uit Safari aan als het echte bestand, en de chat verschijnt ook als Instellingen open stond. Dicteren via de server houdt alles wat je zei, tot het laatste woord, ook als je vroeg op stop tikt of langer dan 90 seconden praat.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android en accounts: terug gaat naar de chatlijst, en de assistent opent een klaarstaande nieuwe chat en blijft werken na een herstart. Een bewerkte server of Hermes-verbinding krijgt de naam van het nieuwe adres, en Direct-providers blijven bereikbaar naast Hermes.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.13 en 0.12.5 werken: MCP-apps openen in de chat, terminals werken live bij en tonen poorten in de app, en notities kunnen pagina's hebben. Luisteren naar een antwoord opent een speler die je kunt pauzeren en doorspoelen, niet-verstuurde concepten overleven een herstart, en in de weergave-instellingen staat een nieuwe uitschuifbare zijbalk klaar.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: de app werkt zonder compatibiliteitswaarschuwing, en tijdelijke chats werken en blijven antwoorden na een nieuwe verbinding. De app van een MCP-tool opent direct in de chat en vraagt het je voor elke tool die hij uitvoert. Chats die wachten op goedkeuring van een tool tonen een opgestoken hand in de chatlijst. Zet tools in de werkruimte uit en aan, en uploads naar een kennisbank volgen de bestandslimieten van de server en zeggen waarom er een werd geweigerd; de eigenaar van een kennisbank kan eigen Bestandslimieten instellen. Webhooks die op 0.12 zijn opgeslagen, kun je weer bewerken.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: met Open WebUI 0.13 werken bestanden en poorten bij zodra ze veranderen. Een poort opent in een eigen pagina van Conduit met terug, vooruit, herladen en Openen in browser, en de links erop werken. Op iOS komen voorbeelden ook door een inlogproxy vóór Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: de app werkt zonder compatibiliteitswaarschuwing. Het model dat je in een chat kiest, wordt met de chat opgeslagen, en bij een ander model blijven de tools en filters die je aan- of uitzette zoals ze waren. Antwoorden die een herstart van de server afbrak, lijken niet meer eindeloos bezig. Bestanden die een model toont en afbeeldingen die het via de Responses API maakt, verschijnen in het antwoord, en het gebruik telt elke stap van een antwoord en meldt wanneer de cijfers te laag kunnen zijn. Een chat naar een map verplaatsen houdt de datum, en in een gedeelde chat zie je Stop alleen bij je eigen antwoord.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notities: met Open WebUI 0.12.5 kan een notitie meerdere pagina's hebben. Tik op de paginanaam onder de titel, of op Pagina's in het menu, om te wisselen; wijzigingen worden opgeslagen op de pagina waar je bent. Bijgevoegde bestanden verschijnen als kaarten in de tekst, en een nieuwe opname komt waar de cursor staat. Pagina's voeg je toe, hernoem je en verplaats je op het web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Uitschuifbare zijbalk: zet hem aan in de weergave-instellingen. De chat schuift opzij en toont je geschiedenis, met backend-tabs onderaan naast Nieuwe chat, en Notities, Terminal en Kanalen openen in plaats van de chat met een terugknop. Op iOS zijn menu's, schakelaars, dialoogvensters, banners, tekstselectie en het vergrootglas nu die van het systeem.",
+          "icon": "polish"
+        },
+        {
+          "text": "Luisteren en concepten: Luisteren bij een antwoord opent een speler om te pauzeren, te stoppen en 15 seconden terug of vooruit te springen, met stemmen van de server én van het apparaat, en de stemmenlijst filtert op taal. Niet-verstuurde tekst en opnames blijven na een herstart bij elke chat, en een herstelde opname kun je transcriberen, exporteren of weggooien. Op iOS toont het toegangsscherm een lopende opname met een stopknop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats en instellingen: Titel genereren in het menu van een Open WebUI-chat geeft hem een naam op basis van het gesprek. Kies en orden de acties onder een antwoord met Berichtacties in de chatinstellingen. In de weergave-instellingen kun je de Notities-knop in het invoerveld en de achtergrond achter bronvermeldingen verbergen. Een wolkpictogram verschijnt als de live-updates van een chat wegvallen, met details en Opnieuw proberen, en bij lange concepten blijven de knoppen van het invoerveld in beeld.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Nieuw",
+      "intro": "Hoi! LibreChat is er als bèta: log in, chat met de modellen en agents, en bewaar de geschiedenis in het tabblad Chats. Hermes 0.23 werkt, met Ruimtes, vastgepinde en verborgen chats, en het scherm Context en gebruik. Open WebUI 0.13.3 biedt de codeeragents van zijn terminals aan als modellen, en Computer opent het bureaublad van een terminal vanuit de kop van de chat.",
+      "bullets": [
+        {
+          "text": "LibreChat (Bèta): log in op een LibreChat-server met e-mail of LDAP, verificatie in twee stappen of single sign-on, en wissel in Accounts tussen deze server en Open WebUI. De chats vullen het tabblad Chats en blijven offline leesbaar. Kies de modelspecificaties, agents en modellen van LibreChat, voeg bestanden toe, zet webzoeken, code, bestanden zoeken en MCP-servers aan, beantwoord goedkeuringsvragen voor tools, en voeg prompts in met /. Antwoorden lopen door terwijl je in een andere chat zit. Deellinks, vertakkingen, Chat dupliceren, stemmen van de server en herinneringen in Personalisatie werken ook.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: chats via de Desktop Gateway en de API-server werken, en je kunt verbinden met de eigen Webapp-listener van een gateway. Goedkeuringen en vragen verschijnen weer, en alle vragen van een beurt komen in één formulier. Een chat die in een andere Hermes-app is gestart, biedt Doorgaan in een kopie aan, een run die door een herstart werd afgebroken, gaat weer verder, en het antwoord op een bericht dat Hermes tijdens een herstart bewaarde, verschijnt zodra het klaar is. Conduit vraagt het eerst voordat een verbinding inloggegevens via onversleutelde HTTP stuurt, en voordat het overschakelt naar een model dat Hermes je wil laten bevestigen.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes-chats: pin een chat vast, archiveer of verberg hem, maak een vertakking vanaf elk antwoord, of maak de laatste beurt ongedaan. Bewerken of opnieuw genereren in een Desktop Gateway-chat gaat verder in dezelfde sessie, met de context erbij. Context en gebruik toont hoe vol het contextvenster is en wat de limieten van je abonnement zijn, en compacteert de chat. Een chip boven het invoerveld toont lopende subagents en processen, die je kunt bijsturen, stoppen of beëindigen. Een mislukte beurt toont een kaart die zegt wat er misging en een oplossing biedt, gewijzigde bestanden verschijnen als diffkaart, betaalde tools tonen hun prijs, en het plan van de agent blijft boven het invoerveld staan.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes-ruimtes en -jobs: Desktop Gateway-verbindingen krijgen Ruimtes, groepschats met twee tot zes van je bots. Hun geplande jobs kun je midden in een run stoppen, je kiest wat er met Gemiste uitvoeringen gebeurt, en via Bezorgen bij gaan ze naar berichtenapps, Botchats en Groepschats. Jobs op de API-server kun je bewerken, en het redeneerniveau dat je kiest, geldt daar nu ook. MCP-servers uit de catalogus vragen om hun sleutels als je ze toevoegt, en met meerdere verbindingen wissel je via de naam bovenaan de zijbalk.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 en 0.13.3: de app werkt zonder compatibiliteitswaarschuwing. Kies een terminal in een opgeslagen chat, en de codeeragents ervan, zoals Codex en Claude Code, verschijnen onder Codeeragents in de modelkiezer. Computer in de kop van de chat opent het Bureaublad of de Browser van de terminal op volledig scherm: kijk mee terwijl een antwoord loopt, of kies Bediening overnemen om te typen, te klikken en te browsen. Zet het uit onder Instellingen > Chat. Opgehaalde herinneringen en lijsten met skills die de server verbergt, verschijnen niet meer als toolblokken.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: toolaanroepen stoppen niet meer na 8 rondes. De nieuwe instelling Afbeeldingen per verzoek (standaard 10) en het documentbudget gelden nu per verzoek, zodat oudere bijlagen worden weggelaten in plaats van dat elke volgende beurt mislukt. De contextlimiet die je kiest voor een lokaal Ollama-model, wordt naar Ollama gestuurd. Redeneren en toolstappen blijven bewaard als je een chat opnieuw opent, de contextvulling in het gebruik wordt goed gemeten, en servers die lege velden sturen, breken de stream niet meer af.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: op iOS 26 zijn menu's, meldingen, panelen en zoekvelden die van het systeem, en Instellingen is gegroepeerd zoals de app Instellingen. Spraakgesprekken en voorlezen zweven op glazen eilanden: tik op de balk om te spoelen, sla 15 seconden over en volg het gemarkeerde woord. Chats en notities staan op datum, het gebruik van een antwoord opent in een popover met de contextvulling, de notitie-editor heeft een werkbalk onderaan, en instellingenpagina's vervagen onder de balk als je scrolt.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: lange chats scrollen zonder dat de scrollbalk verspringt, op Android kun je de scrollbalk slepen, en de chat blijft staan terwijl je de zijbalk opentrekt. Codeblokken breken lange regels af, tabelkolommen passen zich aan hun inhoud aan, vervolgsuggesties verschijnen als volledige rijen, en een antwoord toont Denken... met de wachttijd. Eén snelheid geldt nu voor zowel cloud- als apparaatstemmen, de dashboard-aanmelding van Hermes wordt niet meer leeg achter het toetsenbord, en twee keer op je profiel tikken opent Instellingen niet meer twee keer.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
