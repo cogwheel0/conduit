@@ -53,6 +53,18 @@ enum ChatVoiceModeError {
 
 enum ChatVoiceModeStartResult { started, alreadyActive, cancelled, failed }
 
+/// Something worth telling the user mid-call that does not end it.
+enum ChatVoiceModeNotice {
+  /// The user's words could not be made out.
+  transcriptionFailed,
+
+  /// The voice's reply stopped before it finished.
+  replyIncomplete,
+
+  /// Part of what was said could not be saved into the chat.
+  transcriptNotSaved,
+}
+
 @immutable
 class ChatVoiceModeSnapshot {
   const ChatVoiceModeSnapshot({
@@ -71,6 +83,8 @@ class ChatVoiceModeSnapshot {
     this.isCollapsed = false,
     this.isMuted = false,
     this.isSpeakerphoneEnabled = false,
+    this.notice,
+    this.noticeCount = 0,
   });
 
   final ChatVoiceModePhase phase;
@@ -90,6 +104,11 @@ class ChatVoiceModeSnapshot {
   final bool isCollapsed;
   final bool isMuted;
   final bool isSpeakerphoneEnabled;
+
+  /// The latest notice of the call; [noticeCount] grows with each, so the
+  /// same notice twice is shown twice.
+  final ChatVoiceModeNotice? notice;
+  final int noticeCount;
 
   bool get isActive {
     return switch (phase) {
@@ -132,6 +151,8 @@ class ChatVoiceModeSnapshot {
     bool? isCollapsed,
     bool? isMuted,
     bool? isSpeakerphoneEnabled,
+    ChatVoiceModeNotice? notice,
+    int? noticeCount,
   }) {
     return ChatVoiceModeSnapshot(
       phase: phase ?? this.phase,
@@ -160,6 +181,8 @@ class ChatVoiceModeSnapshot {
       isMuted: isMuted ?? this.isMuted,
       isSpeakerphoneEnabled:
           isSpeakerphoneEnabled ?? this.isSpeakerphoneEnabled,
+      notice: notice ?? this.notice,
+      noticeCount: noticeCount ?? this.noticeCount,
     );
   }
 }

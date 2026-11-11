@@ -26,6 +26,13 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   static const MethodChannel _iosVoiceAudioRouteChannel = MethodChannel(
     'app.cogwheel.conduit/voice_audio_route',
   );
+
+  /// The Telecom call flutter_callkit_incoming hosts an Android call in, as
+  /// `TelecomCallBridge.kt` answers for it.
+  static const MethodChannel _androidTelecomCallChannel = MethodChannel(
+    'app.cogwheel.conduit/telecom_call',
+  );
+
   static ChatVoiceAudioSessionCoordinator? _iosFailureHandlerOwner;
 
   /// The configuration the shared session goes back to once a call is over.
@@ -99,6 +106,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   bool _speakerphoneEnabled = false;
   bool _speakerphoneChosenByUser = false;
   bool? _accessoryAttached;
+
+  /// The flutter_callkit_incoming call this call runs under on Android, which
+  /// the plugin hosts in Telecom (see [_routeAndroidTelecomCall]).
+  String? _androidCallKitCallId;
 
   /// The session mode of the call phase last configured, or null when no call
   /// has configured the session. The speaker button re-applies the phase's
@@ -313,6 +324,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
 
   @override
   Future<void> setActiveCallKitCallId(String callId) async {
+    if (_isAndroid) {
+      _androidCallKitCallId = callId;
+      return;
+    }
     if (!Platform.isIOS) return;
     final accepted = await _iosVoiceAudioRouteChannel.invokeMethod<bool>(
       'setActiveCallKitCallId',
@@ -452,6 +467,7 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
       _speakerphoneChosenByUser = false;
       _pendingSpeakerphoneRequests = 0;
       _accessoryAttached = null;
+      _androidCallKitCallId = null;
       _defaultRouteAwaitingConfirmation = false;
       _teardownsRunning--;
       if (_teardownsRunning == 0) {
@@ -927,6 +943,7 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
       operation: 'set-in-communication',
       phase: phase,
     );
+    await _routeAndroidTelecomCall(phase: phase);
     if (_speakerphoneEnabled) {
       final loudspeaker = await _routeAndroidToLoudspeaker(
         manager,
@@ -979,6 +996,39 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
       );
     }
     return (applied: modeSet && loudspeaker != true, loudspeaker: loudspeaker);
+  }
+
+  /// Asks Telecom to move the call to the route [_speakerphoneEnabled] asks
+  /// for, when flutter_callkit_incoming hosts the call there.
+  ///
+  /// The plugin places Android calls in Telecom as self-managed calls, which
+  /// makes Telecom the audio mode owner. AudioService then ignores this app's
+  /// own communication-device and speakerphone requests, so the speaker button
+  /// could not leave the earpiece until Telecom dropped the call, two minutes
+  /// in (issue #846). The platform calls that follow still go out: they are
+  /// what holds the route once Telecom lets go mid-call, and their read-back
+  /// shows wherever Telecom put the call.
+  Future<void> _routeAndroidTelecomCall({required String phase}) async {
+    final callId = _androidCallKitCallId;
+    if (callId == null) return;
+    final outcome = await _safeAndroidRouteCall(
+      () => _androidTelecomCallChannel.invokeMapMethod<Object?, Object?>(
+        'routeAudio',
+        <String, Object?>{'callId': callId, 'speaker': _speakerphoneEnabled},
+      ),
+      operation: 'route-telecom-call',
+      phase: phase,
+    );
+    if (outcome == null) return;
+    DebugLogger.info(
+      'android-telecom-route',
+      scope: 'voice/audio-route',
+      data: {
+        'phase': phase,
+        'speakerphone': _speakerphoneEnabled,
+        'loudspeaker': outcome['loudspeaker'],
+      },
+    );
   }
 
   /// Whether the platform reports the Android call on the built-in speaker, or

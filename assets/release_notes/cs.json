@@ -178,6 +178,149 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Novinky",
+      "intro": "Ahoj! Můžeš mít přihlášeno několik účtů Open WebUI a přepínat mezi nimi a uložit si několik připojení Hermes. Hovory mohou mluvit hlasem v reálném čase, který můžeš přerušit. Open WebUI 0.12 funguje včetně dvoufázového přihlášení a další funkce Open WebUI už nevyžadují volbu Pokročilé.",
+      "bullets": [
+        {
+          "text": "Účty: měj přihlášeno několik účtů Open WebUI na jednom nebo více serverech a přepínej mezi nimi z profilu nebo z nové stránky Účty v horní části Nastavení. Jakýkoli účet nebo připojení přidáš z jednoho panelu. Server může mít několik adres, například LAN, Tailscale a veřejnou proxy; aplikace použije první, která odpoví.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: ulož si několik pojmenovaných připojení, třeba Domov a Výzkum, a přepínej mezi nimi z postranního panelu, nastavení nebo stránky Účty. Chat, jehož relace patří jinému připojení, nabídne přepnutí na něj.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hovory v reálném čase: v Open WebUI 0.12, Direct a Hermes Desktop Gateway mohou hovory mluvit hlasem OpenAI v reálném čase a když do něj promluvíš, ztichne. Pro chaty Direct a Apple vyber Poskytovatele hlasu v nastavení zvuku. Převod řeči na text a textu na řeč na serveru se řídí backendem každého chatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: aplikace funguje bez upozornění na kompatibilitu. Dvoufázové ověření při přihlášení funguje včetně nastavení a záložních kódů. Export dovedností, sdílení složek, vynucené dočasné chaty a schvalování nástrojů odpovídají verzi 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Funkce Open WebUI: fronta konceptů, interpret kódu, větve, publikum chatu, projektové složky, sdílení, členové kanálů a kalendář už nevyžadují volbu Pokročilé. Pokročilé přidává porovnání modelů, plánované úlohy, webhooky a správu dat. Velké chaty se už při každém otevření nestahují znovu a zvolená úroveň uvažování zůstane.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.12.2 funguje a kanály ukazují aplikace, které v nich odpovídají, a mohou tě upozorňovat jen na zmínky. Hlasové hovory pokračují i přes hluk v pozadí a gesta avatara a tlačítko reproduktoru funguje od začátku hovorů v Androidu.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: aplikace funguje bez upozornění na kompatibilitu. Chaty, které zahájí hovor v reálném čase, dostanou vygenerovaný název a štítky podle tvého nastavení názvů a štítků.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanály: zprávy od aplikací ukazují název aplikace, karty, tlačítka a odkazy. Stisknutím tlačítka ho pošleš aplikaci a odpovědi, které vidíš jen ty, se objeví pod zprávou, dokud je nezavřeš. Nastav kanál nebo přímou zprávu na Jen zmínky a vyhneš se odznakům a oznámením, pokud tě někdo nezmíní.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hlasové hovory: hluk v pozadí už neutne hlas v reálném čase uprostřed věty; hlas se pozastaví a pokračuje, pokud nic nezaznělo. Gesta avatara už nezdržují odpovědi o tři sekundy. V Androidu funguje tlačítko reproduktoru od začátku hovoru a hovor už během prvních dvou minut neblokuje tvé vlastní telefonní hovory.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.12.4 funguje a odpovědi můžeš sdílet, chaty označit jako nepřečtené a videa v chatu přehrát klepnutím. Diktování přes server si nechá každé slovo, sdílení do Conduitu na iOS přinese skutečný soubor a zpět na Androidu vede na seznam chatů.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: aplikace funguje bez upozornění na kompatibilitu a větu rozdělenou pauzou v hovoru v reálném čase zodpoví jen jednou. Složky zůstanou otevřené nebo zavřené tak, jak jsi je nechal, tady i na webu. Označ chat jako nepřečtený ze seznamu chatů a chaty označené jako nepřečtené na webu se tak zobrazí i tady. Filtry nastavené, aby začínaly zapnuté, jsou v nových chatech zapnuté, obrázky z nástrojů MCP se načtou, každý model nabízí volbu Effort a funkce může navrhnout přesun chatu na jiný model.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chaty: videa ukazují kartu a načtou se, až klepneš na Přehrát. „Sdílet…“ v nabídce ⋯ u odpovědi sdílí její text a Kopírovat i Sdílet berou verzi na obrazovce. Na iOS po podržení dlouhé zprávy zůstanou Upravit, Kopírovat a Smazat vidět a dlouhá zpráva v kanálu už nevytlačí odpovědi ve vlákně z obrazovky.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sdílení a diktování: na iOS přijdou snímky obrazovky, dokumenty ze Souborů a obrázky ze Safari jako skutečný soubor a chat se ukáže, i když bylo otevřené Nastavení. Diktování přes server si nechá všechno, co jsi řekl, do posledního slova, i když klepneš na stop brzy nebo mluvíš déle než 90 sekund.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android a účty: zpět vede na seznam chatů a asistent otevře připravený nový chat a funguje i po restartu. Upravený server nebo připojení Hermes dostane jméno podle nové adresy a poskytovatelé Direct zůstanou po ruce vedle Hermesu.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.13 a 0.12.5 fungují: aplikace MCP se otevírají v chatu, terminály se aktualizují živě a ukazují porty přímo v aplikaci a poznámky můžou mít stránky. Poslech odpovědi otevře přehrávač, který můžeš pozastavit a přetáčet, neodeslané koncepty přežijí restart a v nastavení Vzhled čeká nový vysouvací postranní panel.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: aplikace funguje bez upozornění na kompatibilitu a dočasné chaty fungují a odpovídají i po opětovném připojení. Aplikace nástroje MCP se otevře přímo v chatu a před každým nástrojem, který spustí, se tě zeptá. Chaty čekající na schválení nástroje ukazují v seznamu chatů zdviženou ruku. Nástroje v pracovním prostoru můžeš vypínat a zapínat a nahrávání do znalostní báze dodržuje limity souborů serveru a řekne, proč byl soubor odmítnut; vlastník báze si může nastavit vlastní Limity souborů. Webhooky uložené v 0.12 jde znovu upravit.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminál: s Open WebUI 0.13 se soubory a porty aktualizují hned, jak se změní. Port se otevře na vlastní stránce Conduitu se zpět, vpřed, obnovit a Otevřít v prohlížeči a odkazy na ní fungují. Na iOS projdou náhledy i přes přihlašovací proxy před Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: aplikace funguje bez upozornění na kompatibilitu. Model, který v chatu vybereš, se uloží s ním a změna modelu zachová nástroje a filtry, které jsi zapnul nebo vypnul. Odpovědi přerušené restartem serveru už nevypadají, že se pořád píšou. Soubory, které model ukáže, a obrázky, které vytvoří přes Responses API, se objeví v odpovědi a využití počítá každý krok odpovědi a upozorní, když můžou být čísla nižší. Přesun chatu do složky zachová jeho datum a ve sdíleném chatu je Zastavit nabídnuto jen u tvé vlastní odpovědi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Poznámky: s Open WebUI 0.12.5 může mít poznámka několik stránek. Mezi nimi přepneš klepnutím na název stránky pod nadpisem nebo na Stránky v nabídce; úpravy se uloží na stránku, kde právě jsi. Přiložené soubory se v textu ukážou jako karty a nová nahrávka se vloží tam, kde je kurzor. Stránky se přidávají, přejmenovávají a přesouvají na webu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Vysouvací postranní panel: zapni ho v nastavení Vzhled. Chat se odsune stranou a ukáže historii, se záložkami backendů dole vedle Nový chat, a Poznámky, Terminál a Kanály se otevřou místo chatu s tlačítkem zpět. Na iOS jsou nabídky, přepínače, dialogy, bannery, výběr textu a lupa teď systémové.",
+          "icon": "polish"
+        },
+        {
+          "text": "Poslech a koncepty: Poslechnout u odpovědi otevře přehrávač, který umí pozastavit, zastavit a skočit o 15 sekund zpět nebo vpřed, s hlasy serveru i zařízení, a seznam hlasů jde filtrovat podle jazyka. Neodeslaný text a nahrávky zůstanou po restartu u každého chatu a obnovenou nahrávku můžeš přepsat na text, exportovat nebo zahodit. Na iOS ukazuje zamčená obrazovka probíhající nahrávání s tlačítkem Stop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chaty a nastavení: Vygenerovat název v nabídce chatu Open WebUI ho pojmenuje podle konverzace. Akce pod odpovědí vybereš a seřadíš v Akce zpráv v nastavení Chat. V nastavení Vzhled můžeš skrýt tlačítko Poznámky v poli zprávy a pozadí citací. Ikona mráčku se ukáže, když se odpojí živé aktualizace chatu, s podrobnostmi a Zkusit znovu, a u dlouhých konceptů zůstanou tlačítka pole zprávy vidět.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Novinky",
+      "intro": "Ahoj! LibreChat přichází jako beta: přihlas se, chatuj s jeho modely a agenty a jeho historii máš na kartě Chaty. Hermes 0.23 funguje a přináší Místnosti, připnuté a skryté chaty a panel Kontext a využití. Open WebUI 0.13.3 nabízí programovací agenty svých terminálů jako modely a Počítač otevře plochu terminálu ze záhlaví chatu.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): přihlas se k serveru LibreChat e-mailem nebo přes LDAP, s dvoufázovým ověřením nebo přes jednotné přihlášení a na stránce Účty mezi ním a Open WebUI přepínej. Jeho chaty zaplní kartu Chaty a dají se číst i offline. Vybírej jeho specifikace modelů, agenty a modely, přikládej soubory, zapínej vyhledávání na webu, interpret kódu, hledání v souborech a MCP servery, odpovídej na žádosti o schválení nástrojů a vkládej jeho prompty přes /. Odpovědi běží dál, i když jsi v jiném chatu. Fungují i odkazy ke sdílení, větvení, Duplikovat chat, hlasy serveru a paměti v nastavení Personalizace.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: chaty přes Desktop Gateway a API server fungují a můžeš se připojit k vlastnímu listeneru Webapp na bráně. Schválení a otázky se zase zobrazují a všechny otázky jednoho tahu přijdou v jednom formuláři. Chat začatý v jiné aplikaci Hermes nabídne Pokračovat v kopii, běh přerušený restartem se znovu rozběhne a odpověď na zprávu, kterou Hermes uložil během restartu, se objeví, jakmile bude hotová. Conduit se zeptá, než připojení pošle přihlašovací údaje přes nešifrované HTTP a než přepne na model, u kterého Hermes žádá tvoje potvrzení.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chaty Hermes: připni, archivuj nebo skryj chat, založ větev z kterékoli odpovědi nebo vrať zpět poslední tah. Úprava nebo nové vygenerování v chatu přes Desktop Gateway pokračuje ve stejné relaci i s jejím kontextem. Kontext a využití ukáže zaplnění kontextového okna a limity tvého tarifu a umí chat zhustit. Štítek nad polem zprávy vypíše běžící podagenty a procesy, které můžeš nasměrovat, zastavit nebo ukončit. Neúspěšný tah ukáže kartu, která řekne, co se pokazilo, a nabídne opravu, upravené soubory se zobrazí jako karta s rozdíly, placené nástroje ukazují svou cenu a plán agenta zůstává nad polem zprávy.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Místnosti a úlohy Hermes: připojení přes Desktop Gateway dostanou Místnosti, skupinové chaty se dvěma až šesti tvými boty. Jejich naplánované úlohy jde zastavit uprostřed běhu, v nastavení Zmeškaná spuštění vybereš, co se má stát, a u položky Doručit do zvolíš aplikace pro zasílání zpráv, Chaty s boty a Skupinové chaty. Úlohy na API serveru jde upravovat a Effort, který vybereš, se tam teď uplatní. MCP servery z katalogu si při přidání řeknou o své klíče a s několika připojeními přepínáš přes název nahoře v postranním panelu.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 a 0.13.3: aplikace funguje bez upozornění na kompatibilitu. Vyber v uloženém chatu terminál a jeho programovací agenti, třeba Codex a Claude Code, se objeví ve výběru modelu pod Programovací agenti. Počítač v záhlaví chatu otevře plochu nebo prohlížeč terminálu na celou obrazovku: sleduj, zatímco běží odpověď, nebo klepni na Převzít ovládání a piš, klikej a procházej web. Vypneš ho v Nastavení > Chat. Vyvolání pamětí a seznamy Skills, které server skrývá, se už nezobrazují jako bloky nástrojů.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: volání nástrojů se už nezastaví po 8 kolech. Nové nastavení Obrázky na požadavek (ve výchozím stavu 10) a rozpočet na dokumenty teď platí pro každý požadavek zvlášť, takže se starší přílohy vynechají, místo aby selhal každý další tah. Limit kontextu, který vybereš pro lokální model Ollama, se předá Ollamě. Kroky přemýšlení a nástrojů po opětovném otevření chatu zůstanou, zaplnění kontextu ve využití se měří správně a servery, které posílají prázdná pole, už nerozbijí stream.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: na iOS 26 jsou nabídky, dialogy, panely a vyhledávací pole systémové a Nastavení je rozdělené do skupin jako v aplikaci Nastavení. Hlas a předčítání plují na skleněných ostrůvcích: klepnutím na časovou osu přetočíš, můžeš skočit o 15 sekund a sledovat zvýrazněné slovo. Chaty a poznámky jsou seřazené podle data, využití odpovědi se otevře v bublině se zaplněním kontextu, editor poznámek má dole panel nástrojů a stránky nastavení se při posouvání pod lištou rozmazávají.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chaty: dlouhé chaty se posouvají bez poskakování posuvníku, posuvník na Androidu jde táhnout a chat zůstane na místě, když vytahuješ postranní panel. Bloky kódu zalamují dlouhé řádky, sloupce tabulek se přizpůsobí obsahu, návrhy dalších dotazů se ukazují jako celé řádky a odpověď ukazuje Přemýšlím… i s dobou čekání. Jedna rychlost teď nastavuje hlasy z cloudu i ze zařízení, přihlášení k nástěnce Hermes už za klávesnicí nezůstane prázdné a dvojí klepnutí na profil už neotevře Nastavení dvakrát.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

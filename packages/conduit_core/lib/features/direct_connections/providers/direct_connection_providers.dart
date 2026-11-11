@@ -26,6 +26,7 @@ import 'package:conduit_core/features/direct_connections/models/ollama_keep_aliv
 import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit_core/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_cache_store.dart';
@@ -180,6 +181,51 @@ final directContextLengthOverridesProvider =
   }
   return (modelId, contextLength);
 }
+
+/// How many images one Direct request carries; the newest images in a chat
+/// are sent and older ones are left out.
+class DirectMaxImagesPerRequestController extends Notifier<int> {
+  Future<void> _mutationQueue = Future<void>.value();
+
+  @override
+  int build() {
+    final stored = PreferencesStore.getInt(
+      PreferenceKeys.directMaxImagesPerRequest,
+    );
+    if (stored == null ||
+        stored < kMinDirectMaxImagesPerRequest ||
+        stored > kMaxDirectMaxImagesPerRequest) {
+      return kDefaultDirectMaxImagesPerRequest;
+    }
+    return stored;
+  }
+
+  Future<void> set(int count) {
+    if (count < kMinDirectMaxImagesPerRequest ||
+        count > kMaxDirectMaxImagesPerRequest) {
+      throw ArgumentError.value(count, 'count');
+    }
+    final result = _mutationQueue.then<void>(
+      (_) => _persist(count),
+      onError: (Object _, StackTrace _) => _persist(count),
+    );
+    _mutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<void> _persist(int count) async {
+    await PreferencesStore.put(PreferenceKeys.directMaxImagesPerRequest, count);
+    if (ref.mounted) state = count;
+  }
+}
+
+final directMaxImagesPerRequestProvider =
+    NotifierProvider<DirectMaxImagesPerRequestController, int>(
+      DirectMaxImagesPerRequestController.new,
+    );
 
 abstract class _QueuedBoolPreferenceController extends Notifier<bool> {
   Future<void> _mutationQueue = Future<void>.value();
@@ -424,7 +470,13 @@ final directProviderAdapterRegistryProvider =
       final pool = ref.watch(directHttpClientPoolProvider);
       return DirectProviderAdapterRegistry([
         OpenAiCompatibleAdapter(clientPool: pool),
-        OllamaAdapter(clientPool: pool),
+        OllamaAdapter(
+          clientPool: pool,
+          // Read per request so a changed limit applies to the next one
+          // without rebuilding the adapters.
+          contextWindowFor: (directModelId) =>
+              ref.read(directContextLengthOverridesProvider)[directModelId],
+        ),
         ...ref.watch(hostDirectProviderAdaptersProvider),
       ]);
     });

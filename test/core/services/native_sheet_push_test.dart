@@ -161,6 +161,8 @@ Future<_NativeSettings> _pumpApp(
   if (advanced) {
     await PreferencesStore.put(PreferenceKeys.advancedFeaturesEnabled, true);
   }
+  // With notifications off the page shows only their switch.
+  await PreferencesStore.put(PreferenceKeys.notificationsEnabled, true);
   final native = _NativeSettings(tester);
   final api = ApiService(serverConfig: _server, workerManager: WorkerManager());
   addTearDown(api.dispose);

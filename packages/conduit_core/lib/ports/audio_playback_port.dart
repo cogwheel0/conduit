@@ -26,6 +26,11 @@ abstract interface class AudioPlaybackPort {
 
   int? get currentIndex;
 
+  Duration get position;
+
+  /// Reads clip metadata without replacing the active playback queue.
+  Future<Duration?> durationOf(AudioClip clip);
+
   AudioProcessingState get processingState;
 
   /// Replaces the queue and seeks to [initialIndex].
@@ -88,6 +93,12 @@ class NullAudioPlayback implements AudioPlaybackPort {
 
   @override
   AudioProcessingState get processingState => AudioProcessingState.idle;
+
+  @override
+  Duration get position => Duration.zero;
+
+  @override
+  Future<Duration?> durationOf(AudioClip clip) async => null;
 
   @override
   Future<void> setClips(

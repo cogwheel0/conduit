@@ -54,14 +54,15 @@ void main() {
       check(updated.pinnedModelIds).deepEquals(['new-model']);
     });
 
-    test('parses top-level notification preferences', () {
+    test('reads notification preferences where the web keeps them, under '
+        'ui, else the top-level copy earlier builds wrote', () {
       final settings = ServerUserSettings.fromJson({
+        'ui': {'notificationEnabled': false, 'notificationSoundAlways': true},
         'notificationEnabled': true,
         'notificationSound': false,
-        'notificationSoundAlways': true,
       });
 
-      check(settings.notificationEnabled).equals(true);
+      check(settings.notificationEnabled).equals(false);
       check(settings.notificationSound).equals(false);
       check(settings.notificationSoundAlways).equals(true);
     });
@@ -203,6 +204,44 @@ void main() {
       check(config.ttsVoice).equals('alloy');
       check(config.ttsSplitOn).equals('punctuation');
       check(config.oauthProviders.github).equals('GitHub');
+    });
+
+    test('reads realtime calls from Open WebUI 0.12 and keeps them cached', () {
+      final config = BackendConfig.fromJson({
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'realtime': {
+            'enabled': true,
+            'model': 'gpt-realtime-2.1-mini',
+            'voice': 'marin',
+          },
+        },
+      });
+
+      check(config.enableRealtimeCall).equals(true);
+      check(config.realtimeCallModel).equals('gpt-realtime-2.1-mini');
+      check(config.realtimeCallVoice).equals('marin');
+
+      // The app caches the flat form and reads it back on the next launch.
+      final cached = BackendConfig.fromJson(config.toJson());
+      check(cached.enableRealtimeCall).equals(true);
+      check(cached.realtimeCallModel).equals('gpt-realtime-2.1-mini');
+      check(cached.realtimeCallVoice).equals('marin');
+    });
+
+    test('a server without realtime calls leaves them unknown', () {
+      // Open WebUI 0.11 and signed-out configs send no `audio.realtime`.
+      final config = BackendConfig.fromJson({
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'tts': {'engine': 'openai'},
+        },
+      });
+
+      check(config.enableRealtimeCall).isNull();
+      check(config.realtimeCallModel).isNull();
+      check(BackendConfig.fromJson(config.toJson()).enableRealtimeCall)
+          .isNull();
     });
 
     test('explicit nested audio feature flags override engine inference', () {

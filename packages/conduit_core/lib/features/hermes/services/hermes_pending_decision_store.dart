@@ -2,8 +2,10 @@ import 'dart:convert';
 
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
 import 'package:conduit_core/utils/unicode_prefix.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -30,6 +32,7 @@ final class HermesPendingDesktopDecision {
     this.mcpAction,
     this.choices = const <String>[],
     this.multiSelect = false,
+    this.questions = const <HermesClarifyQuestion>[],
     this.profile,
     this.connectionId,
   });
@@ -45,6 +48,9 @@ final class HermesPendingDesktopDecision {
   final String? mcpAction;
   final List<String> choices;
   final bool multiSelect;
+
+  /// A clarify form's questions, with the answers already locked.
+  final List<HermesClarifyQuestion> questions;
 
   /// Profile that owns the session, when it is not the connection's own (a Bot
   /// Mode chat). Persisted because the in-memory session→profile map is empty
@@ -86,12 +92,14 @@ final class HermesPendingDesktopDecision {
     if (mcpAction != null) 'mcp_action': mcpAction,
     if (choices.isNotEmpty) 'choices': choices,
     if (multiSelect) 'multi_select': true,
+    if (questions.isNotEmpty)
+      'questions': [for (final question in questions) question.toJson()],
     if (profile != null) 'profile': profile,
     if (connectionId != null) 'connection_id': connectionId,
   });
 
   static HermesPendingDesktopDecision? fromStorage(String source) {
-    if (source.length > 8192) return null;
+    if (source.length > kMaxHermesPendingDecisionCharacters) return null;
     try {
       final value = jsonDecode(source);
       if (value is! Map) return null;
@@ -116,13 +124,24 @@ final class HermesPendingDesktopDecision {
           expiresAt == null) {
         return null;
       }
+      // Earlier builds saved a clarify form question by question
+      // (`srq-x/q1`). Hermes answers only the whole form, which a resume
+      // shows again, so such a card can no longer be answered.
+      if (kind == HermesPendingDesktopDecisionKind.clarification &&
+          requestId.contains('/')) {
+        return null;
+      }
       final prompt = value['prompt'];
       final mcpServer = validateHermesBoundedString(
         value['mcp_server'],
         maxCharacters: 128,
       );
       final mcpAction = switch (value['mcp_action']) {
-        'authorize' || 'enable' || 'install' => value['mcp_action']!.toString(),
+        'authorize' ||
+        'connect' ||
+        'enable' ||
+        'install' ||
+        'reconnect' => value['mcp_action']!.toString(),
         _ => null,
       };
       final choices = _sanitizeChoices(value['choices']);
@@ -133,11 +152,26 @@ final class HermesPendingDesktopDecision {
         requestId: requestId,
         kind: kind,
         expiresAt: expiresAt,
-        prompt: prompt is String && prompt.length <= 512 ? prompt : null,
+        // The bound the sanitizer keeps (512 scalars, so up to 1024 UTF-16
+        // units): a prompt read back is the prompt saved.
+        prompt:
+            prompt is String &&
+                prompt.length <= 1024 &&
+                prompt.runes.length <= 512
+            ? prompt
+            : null,
         mcpServer: mcpServer,
         mcpAction: mcpAction,
         choices: choices,
         multiSelect: value['multi_select'] == true,
+        // Sanitized again as read: a record saved by an earlier build may
+        // hold an answer this one redacts.
+        questions: kind == HermesPendingDesktopDecisionKind.clarification
+            ? _sanitizeQuestions(
+                hermesClarifyQuestions(value['questions']),
+                const <String>[],
+              )
+            : const <HermesClarifyQuestion>[],
         // Same validation the RPC layer applies before a profile can scope a
         // request, so a tampered store cannot redirect one.
         profile: switch (validateHermesBoundedString(
@@ -159,6 +193,12 @@ final class HermesPendingDesktopDecision {
   }
 }
 
+/// The longest stored record: a clarify form's questions and choices. Six
+/// questions of a text, six choices and an answer, each at most 512 scalars
+/// of up to two UTF-16 units, come to about 49,000 before JSON adds keys and
+/// escapes.
+const int kMaxHermesPendingDecisionCharacters = 131072;
+
 /// Restart-safe presentation state only. Sensitive answers are deliberately
 /// absent; Hermes remains authoritative for whether a request is resolved.
 final class HermesPendingDecisionStore {
@@ -170,7 +210,10 @@ final class HermesPendingDecisionStore {
   // zone alive (see SecureCredentialStorage).
   static Future<void>? _writes;
 
-  static Future<void> upsert({
+  /// Saves a decision shown in a chat. Resolves to whether that changed a
+  /// saved decision: a new one, or one whose content differs. A replay that
+  /// only renews the expiry changes nothing.
+  static Future<bool> upsert({
     required String origin,
     required String storedSessionId,
     required String runtimeId,
@@ -181,6 +224,7 @@ final class HermesPendingDecisionStore {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Iterable<HermesClarifyQuestion> questions = const [],
     Iterable<String> sensitiveValues = const <String>[],
     String? profile,
     String? connectionId,
@@ -195,7 +239,7 @@ final class HermesPendingDecisionStore {
         stored == null ||
         runtime == null ||
         request == null) {
-      return;
+      return false;
     }
     final records = _read();
     final identity =
@@ -213,10 +257,16 @@ final class HermesPendingDecisionStore {
       if (candidate.identity == legacyIdentity) legacy = candidate;
     }
     previous ??= legacy;
-    final sanitizedChoices = _sanitizeChoices(choices)
-        .map((choice) => _sanitizePrompt(choice, sensitiveValues))
-        .whereType<String>()
-        .toList(growable: false);
+    // Bounded again after redaction, which can lengthen a choice: what is
+    // saved is what reads back, so a replay compares equal.
+    final sanitizedChoices = _sanitizeChoices([
+      for (final choice in _sanitizeChoices(choices))
+        ?_sanitizePrompt(choice, sensitiveValues),
+    ]);
+    final sanitizedQuestions = kind ==
+            HermesPendingDesktopDecisionKind.clarification
+        ? _sanitizeQuestions(questions, sensitiveValues)
+        : const <HermesClarifyQuestion>[];
     final record = HermesPendingDesktopDecision(
       origin: origin,
       storedSessionId: stored,
@@ -234,7 +284,13 @@ final class HermesPendingDecisionStore {
           : null,
       mcpAction:
           kind == HermesPendingDesktopDecisionKind.mcpSetup &&
-              const {'authorize', 'enable', 'install'}.contains(mcpAction)
+              const {
+                'authorize',
+                'connect',
+                'enable',
+                'install',
+                'reconnect',
+              }.contains(mcpAction)
           ? mcpAction
           : null,
       choices: sanitizedChoices.isEmpty
@@ -245,7 +301,14 @@ final class HermesPendingDecisionStore {
           (sanitizedChoices.isEmpty
               ? previous?.multiSelect ?? multiSelect
               : multiSelect),
+      questions: sanitizedQuestions.isEmpty
+          ? previous?.questions ?? const <HermesClarifyQuestion>[]
+          : sanitizedQuestions,
     );
+    final changed =
+        previous == null ||
+        previous.identity != record.identity ||
+        !_sameContent(previous, record);
     records
       ..removeWhere(
         (candidate) =>
@@ -254,9 +317,25 @@ final class HermesPendingDecisionStore {
       )
       ..add(record);
     await _write(records);
+    return changed;
   });
 
-  static Future<void> resolve({
+  /// Whether [a] and [b] save the same decision, whatever their expiry.
+  static bool _sameContent(
+    HermesPendingDesktopDecision a,
+    HermesPendingDesktopDecision b,
+  ) {
+    // toStorage writes its keys in one order, so equal content encodes alike.
+    String content(HermesPendingDesktopDecision record) => jsonEncode(
+      Map<String, Object?>.from(jsonDecode(record.toStorage()) as Map)
+        ..remove('expires_at'),
+    );
+    return content(a) == content(b);
+  }
+
+
+  /// Removes a saved decision; resolves to whether one was saved.
+  static Future<bool> resolve({
     required String origin,
     required String runtimeId,
     required String requestId,
@@ -322,6 +401,7 @@ final class HermesPendingDecisionStore {
               mcpAction: record.mcpAction,
               choices: record.choices,
               multiSelect: record.multiSelect,
+              questions: record.questions,
               // A rebind (compaction lineage) must not drop the owning bot
               // profile, or the rebound decision answers under the connection.
               profile: record.profile,
@@ -356,11 +436,15 @@ final class HermesPendingDecisionStore {
     );
   }
 
-  static Future<void> _remove(
+  static Future<bool> _remove(
     bool Function(HermesPendingDesktopDecision record) predicate,
   ) => _serialize(() async {
-    final records = _read()..removeWhere(predicate);
+    final records = _read();
+    final before = records.length;
+    records.removeWhere(predicate);
+    if (records.length == before) return false;
     await _write(records);
+    return true;
   });
 
   static List<HermesPendingDesktopDecision> _read() {
@@ -388,10 +472,10 @@ final class HermesPendingDecisionStore {
     );
   }
 
-  static Future<void> _serialize(Future<void> Function() operation) {
+  static Future<T> _serialize<T>(Future<T> Function() operation) {
     final result = (_writes ?? Future<void>.value()).then((_) => operation());
     late final Future<void> tail;
-    tail = result.catchError((_) {}).whenComplete(() {
+    tail = result.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
       if (identical(_writes, tail)) _writes = null;
     });
     _writes = tail;
@@ -412,6 +496,43 @@ List<String> _sanitizeChoices(Object? value) {
   return List.unmodifiable(result);
 }
 
+/// A form's questions with secrets redacted from their text and choices.
+List<HermesClarifyQuestion> _sanitizeQuestions(
+  Iterable<HermesClarifyQuestion> questions,
+  Iterable<String> sensitiveValues,
+) {
+  final result = <HermesClarifyQuestion>[];
+  for (final question in questions.take(kMaxHermesClarifyQuestions)) {
+    final text = _sanitizePrompt(question.text, sensitiveValues);
+    if (text == null) continue;
+    result.add(
+      HermesClarifyQuestion(
+        id: question.id,
+        text: text,
+        choices: List.unmodifiable([
+          // A restored form answers with the stored choice: one the store
+          // would cut, redact or reflow is left out instead of sent altered.
+          for (final choice in question.choices)
+            if (_sanitizePrompt(choice, sensitiveValues) == choice) choice,
+        ]),
+        multiSelect: question.multiSelect,
+        locked: question.locked,
+        lockedAnswer: question.lockedAnswer == null
+            ? null
+            : _sanitizePrompt(question.lockedAnswer, sensitiveValues),
+      ),
+    );
+  }
+  return List.unmodifiable(result);
+}
+
+/// [text] as a saved decision keeps it: [sensitiveValues] and credentials
+/// redacted from the whole of it, then bounded. Null when nothing is left.
+String? hermesRedactPendingDecisionText(
+  String text,
+  Iterable<String> sensitiveValues,
+) => _sanitizePrompt(text, sensitiveValues);
+
 String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
   if (value == null || value.trim().isEmpty) return null;
   final secrets =
@@ -425,16 +546,27 @@ String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
     sensitiveValues: secrets,
     maxVisibleScalars: 512,
   );
-  safe = safe
+  // A whole Authorization or Cookie value goes, scheme and all, as do quoted
+  // and Bearer credentials.
+  safe = redactCredentialLabels(safe)
       .replaceAllMapped(
-        RegExp(
-          r'\b(authorization|cookie|api[-_ ]?key|access[-_ ]?token|password|secret)\b\s*[:=]\s*[^\s,;]+',
-          caseSensitive: false,
-        ),
+        RegExp(r'\b(cookie)\b\s*[:=][^\r\n]*', caseSensitive: false),
         (match) => '${match.group(1)}: [REDACTED]',
       )
       .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+  // A lone surrogate is stored as a six-character escape: it becomes the
+  // replacement character, so the field's budget holds in JSON too.
+  safe = String.fromCharCodes([
+    for (final rune in safe.runes)
+      rune >= 0xD800 && rune <= 0xDFFF ? 0xFFFD : rune,
+  ]);
+  // A marker can outgrow what it replaced: the field keeps its budget, so a
+  // record stays within what is read back.
+  final scalars = safe.runes;
+  if (scalars.length > 512) {
+    safe = String.fromCharCodes(scalars.take(512)).trim();
+  }
   return safe.isEmpty ? null : safe;
 }

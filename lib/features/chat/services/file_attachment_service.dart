@@ -18,6 +18,10 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatApiServiceProvider;
 
 // The attachment state moved to the core with the send pipeline that reads
 // it; the app's pickers and widgets keep importing it from here.
@@ -624,11 +628,22 @@ final fileAttachmentServiceProvider = Provider<dynamic>((ref) {
       selectedModel != null &&
       ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
   final hermesEnabled = selectedModel != null && isHermesModel(selectedModel);
+  // A LibreChat model's files go to its signed-in server. Read only while
+  // one is selected, so other models never sign LibreChat's session in.
+  final libreChatEnabled =
+      selectedModel != null &&
+      isLibreChatModel(selectedModel) &&
+      ref.watch(libreChatApiServiceProvider) != null;
 
   // OpenWebUI uploads require an API, while direct/Hermes attachments are
   // prepared locally before their provider-specific dispatch.
   final apiService = ref.watch(apiServiceProvider);
-  if (apiService == null && !directEnabled && !hermesEnabled) return null;
+  if (apiService == null &&
+      !directEnabled &&
+      !hermesEnabled &&
+      !libreChatEnabled) {
+    return null;
+  }
 
   return FileAttachmentService();
 });

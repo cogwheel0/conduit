@@ -113,7 +113,7 @@ void main() {
     expect(find.text('editor:$_home'), findsOneWidget);
   });
 
-  testWidgets('sidebar switcher names the active connection and switches', (
+  testWidgets('header switcher names the active connection and switches', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -122,17 +122,16 @@ void main() {
         child: const MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: HermesConnectionSwitcherTile()),
+          home: Scaffold(body: HermesConnectionHeaderSwitcher()),
         ),
       ),
     );
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
-      tester.element(find.byType(HermesConnectionSwitcherTile)),
+      tester.element(find.byType(HermesConnectionHeaderSwitcher)),
     );
 
     expect(find.text('Home agent'), findsOneWidget);
-    expect(find.text('HA'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('hermes-connection-switcher')),
@@ -145,7 +144,44 @@ void main() {
 
     check(container.read(hermesConfigProvider).connectionId).equals(_work);
     expect(find.text('Work agent'), findsOneWidget);
-    expect(find.text('WA'), findsOneWidget);
+  });
+
+  testWidgets('header shows no switcher with one connection saved', (
+    tester,
+  ) async {
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(<String, Object?>{
+        PreferenceKeys.hermesEnabled: true,
+        PreferenceKeys.hermesConnections: HermesConnectionsDocument(
+          connections: const [
+            HermesConnectionProfile(
+              id: _home,
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+          ],
+        ).encode(),
+        PreferenceKeys.hermesActiveConnectionId: _home,
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [secureStorageProvider.overrideWithValue(secrets)],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: HermesConnectionHeaderSwitcher()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home agent'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('hermes-connection-switcher')),
+      findsNothing,
+    );
   });
 
   testWidgets('edits an inactive connection without switching to it', (
@@ -271,7 +307,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Test connection'));
+    await tester.tap(find.text('Test Connection'));
     await tester.pumpAndSettle();
     check(
       gateway.probed.single.desktopCredentials?.nativeTokens?.refreshToken,

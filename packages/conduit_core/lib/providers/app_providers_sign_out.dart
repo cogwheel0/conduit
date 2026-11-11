@@ -110,6 +110,7 @@ final class SignOutCoordinator {
     final directProfiles = _ref.read(directConnectionProfilesProvider.notifier);
     final directMcpServers = _ref.read(directMcpServersProvider.notifier);
     final hermesConfig = _ref.read(hermesConfigProvider.notifier);
+    final libreChatRegistry = _ref.read(libreChatRegistryProvider.notifier);
     final directRuns = _ref.read(directRunRegistryProvider);
     FullAppDataClearOutcome? outcome;
     var directLocalPurgeCompleted = false;
@@ -129,6 +130,9 @@ final class SignOutCoordinator {
           directProfiles.blockMutationsForAppDataClear(),
           directMcpServers.blockMutationsForAppDataClear(),
           hermesConfig.blockMutationsForAppDataClear(),
+          // LibreChat's session stops before its storage goes, so it neither
+          // keeps serving nor renews into what is being wiped.
+          libreChatRegistry.blockForAppDataClear(),
         ]);
         // Armed before anything is wiped: a process death mid-clear must not
         // bring surviving Direct profiles back on restart. Failing to arm it
@@ -147,6 +151,7 @@ final class SignOutCoordinator {
         directProfiles.resumeMutationsAfterAppDataClearAbort();
         directMcpServers.resumeMutationsAfterAppDataClearAbort();
         hermesConfig.resumeMutationsAfterAppDataClearAbort();
+        libreChatRegistry.resumeAfterAppDataClearAbort();
         rethrow;
       }
     }
@@ -162,6 +167,32 @@ final class SignOutCoordinator {
     final inactiveSessions = await _ref
         .read(authStateManagerProvider.notifier)
         .inactiveAccountSessions();
+    // LibreChat's sessions live in the storage the clear empties; read them
+    // first so their servers can be told too.
+    final libreChatAccounts = await _ref
+        .read(libreChatAccountsProvider)
+        .sessionsForSignOut();
+
+    // Deletes LibreChat's databases and forgets its accounts, then lets new
+    // ones be added. When that fails LibreChat stays stopped for this run,
+    // and the next start forgets what is left before any of it signs in.
+    Future<void> forgetLibreChatAccounts() async {
+      try {
+        await _ref
+            .read(libreChatAccountsProvider)
+            .forgetAfterSignOut(libreChatAccounts);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'sign-out-librechat-cleanup-failed',
+          scope: 'auth/sign-out',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        await markLibreChatClearPending();
+        return;
+      }
+      libreChatRegistry.finishAppDataClear();
+    }
 
     try {
       outcome = await _ref
@@ -181,6 +212,7 @@ final class SignOutCoordinator {
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
           await _purgeAccountDatabases();
+          await forgetLibreChatAccounts();
           unawaited(
             _ref
                 .read(authStateManagerProvider.notifier)
@@ -201,6 +233,9 @@ final class SignOutCoordinator {
           ]);
           directMcpServers.revokeRuntimeAfterIncompleteAppDataClear();
           hermesConfig.revokeRuntimeAfterIncompleteAppDataClear();
+          // LibreChat's accounts are its own to clear, whatever became of
+          // the rest; it stays stopped if that fails too.
+          await forgetLibreChatAccounts();
           // Awaited last: it persists the restart marker that keeps surviving
           // Direct profiles hidden, and must be durable before returning.
           await directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
@@ -211,6 +246,7 @@ final class SignOutCoordinator {
           directProfiles.resumeMutationsAfterAppDataClearAbort();
           directMcpServers.resumeMutationsAfterAppDataClearAbort();
           hermesConfig.resumeMutationsAfterAppDataClearAbort();
+          libreChatRegistry.resumeAfterAppDataClearAbort();
       }
     } finally {
       final committedClearStillNeedsDirectPurge =
@@ -228,6 +264,7 @@ final class SignOutCoordinator {
         directProfiles.resumeMutationsAfterAppDataClearAbort();
         directMcpServers.resumeMutationsAfterAppDataClearAbort();
         hermesConfig.resumeMutationsAfterAppDataClearAbort();
+        libreChatRegistry.resumeAfterAppDataClearAbort();
       }
     }
   }

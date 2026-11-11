@@ -363,6 +363,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       context,
       _ref.read,
       HermesSessionSummary(id: sessionId, title: sessionTitle),
+      invalidate: _ref.invalidate,
     );
   }
 

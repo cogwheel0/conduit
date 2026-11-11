@@ -133,6 +133,8 @@ Future<_Harness> _pump(
   required AccountMetadata? cached,
   Future<List<OpenWebUiAccountEntry>>? accounts,
   List<Override> overrides = const [],
+  FocusNode? inputFocus,
+  VoidCallback? onPresent,
 }) async {
   final storage = _MockOptimizedStorageService();
   when(storage.getThemeMode).thenReturn(null);
@@ -158,6 +160,7 @@ Future<_Harness> _pump(
       personalConnectionsEntryVisibleProvider.overrideWithValue(false),
       chatDataControlsEntryVisibleProvider.overrideWithValue(false),
       sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
+        onPresent?.call();
         harness.presented.add(config);
         return true;
       }),
@@ -195,7 +198,14 @@ Future<_Harness> _pump(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        home: Scaffold(
+          body: Column(
+            children: [
+              if (inputFocus != null) TextField(focusNode: inputFocus),
+              const SidebarProfileAppBarLeading(),
+            ],
+          ),
+        ),
       ),
     ),
   );
@@ -248,6 +258,30 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       ..setMockMethodCallHandler(_nativeSheetChannel, null)
       ..setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, null);
+  });
+
+  testWidgets('dismisses the chat keyboard before presenting native settings', (
+    tester,
+  ) async {
+    final inputFocus = FocusNode();
+    addTearDown(inputFocus.dispose);
+    bool? focusedWhenPresented;
+    final harness = await _pump(
+      tester,
+      cached: _profile(),
+      inputFocus: inputFocus,
+      onPresent: () => focusedWhenPresented = inputFocus.hasFocus,
+    );
+    inputFocus.requestFocus();
+    await tester.pump();
+    expect(inputFocus.hasFocus, isTrue);
+
+    await _tapAvatar(tester);
+    harness.profiles.pending!.complete(_profile());
+    await tester.pump();
+
+    expect(focusedWhenPresented, isFalse);
+    expect(inputFocus.hasFocus, isFalse);
   });
 
   testWidgets('a cached profile opens the sheet before the refresh returns, '

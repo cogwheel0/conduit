@@ -52,6 +52,251 @@ void main() {
     expect(replies[1]['result'], isNull);
   });
 
+  test('terminal and MCP requests are answered without a chat listener', () async {
+    // Open WebUI 0.12 waits up to 5 s for a terminal's AGENTS.md and up to
+    // 240 s for an MCP elicitation before going on with the turn.
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <String, dynamic>{};
+    for (final (type, data) in [
+      (
+        'request:terminal',
+        {'terminal_id': 't1', 'path': '/files/cwd', 'session_id': 'local-session'},
+      ),
+      ('request:terminal:state', {'terminal_id': 't1', 'session_id': 'local-session'}),
+      ('request:elicitation', {'mode': 'form', 'message': 'Pick one', 'server_name': 'mcp'}),
+    ]) {
+      service.debugHandleChatEvent({
+        'chat_id': 'background-chat',
+        'message_id': 'assistant',
+        'data': {'type': type, 'data': data},
+      }, (dynamic result) => replies[type] = result);
+    }
+
+    expect(replies['request:terminal'], isEmpty);
+    expect(replies['request:terminal:state'], {'connected': false});
+    expect(replies['request:elicitation'], {'action': 'cancel'});
+
+    // The server's note that such a request is over needs no handling.
+    var delivered = 0;
+    service.addChatEventHandler(
+      conversationId: 'background-chat',
+      handler: (_, _) => delivered += 1,
+    );
+    service.debugHandleChatEvent({
+      'chat_id': 'background-chat',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'request:interaction:done',
+        'data': {'interaction_id': 'interaction-1'},
+      },
+    });
+    expect(delivered, 0);
+  });
+
+  test('a voice avatar gesture is answered as unavailable', () async {
+    // Open WebUI 0.12.1 waits up to 3 s for each gesture in a voice call.
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <dynamic>[];
+    var delivered = 0;
+    service.addChatEventHandler(
+      conversationId: 'voice-chat',
+      handler: (_, _) => delivered += 1,
+    );
+
+    service.debugHandleChatEvent({
+      'chat_id': 'voice-chat',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'voice:play_animation',
+        'data': {'name': 'wave', 'model_id': 'model-1'},
+      },
+    }, replies.add);
+
+    expect(replies, [
+      {'status': 'unavailable'},
+    ]);
+    expect(delivered, 0);
+  });
+
+  test('the execute reply names Conduit and what it does instead', () async {
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    final replies = <dynamic>[];
+
+    service.debugHandleChatEvent({
+      'chat_id': 'chat-1',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'execute',
+        'data': {'code': 'return true'},
+      },
+    }, replies.add);
+
+    // The error is unchanged for functions that already read it.
+    expect(replies, [
+      {
+        'error':
+            'Conduit does not support client-side JavaScript execution. '
+            'Use a server-side tool or the Open WebUI browser client.',
+        'client': 'conduit',
+        'capabilities': ['chat:handoff'],
+      },
+    ]);
+  });
+
+  group('a chat handoff', () {
+    Map<String, dynamic> handoff({String? session}) => {
+      'chat_id': 'chat-1',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'chat:handoff',
+        'data': {
+          'model_id': 'coder',
+          'prompt': 'Review this diff',
+          'session_id': ?session,
+        },
+      },
+    };
+
+    Future<(SocketService, io.Socket)> connected() async {
+      final factory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: factory.create,
+      );
+      addTearDown(service.dispose);
+      await service.connect();
+      return (service, factory.sockets.single);
+    }
+
+    test('is answered with the handler reply, and only there', () async {
+      final (service, _) = await connected();
+      final calls = <(String?, String?, Object?)>[];
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) async {
+            calls.add((chatId, messageId, data));
+            return {'handled': true};
+          };
+      var delivered = 0;
+      service.addChatEventHandler(
+        conversationId: 'chat-1',
+        handler: (_, _) => delivered += 1,
+      );
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(handoff(), replies.add);
+      await _flushMicrotasks(3);
+
+      expect(calls, hasLength(1));
+      expect(calls.single.$1, 'chat-1');
+      expect(calls.single.$2, 'assistant');
+      expect(calls.single.$3, {
+        'model_id': 'coder',
+        'prompt': 'Review this diff',
+      });
+      expect(replies, [
+        {'handled': true},
+      ]);
+      expect(delivered, 0);
+      expect(service.debugBufferedScopeCount, 0);
+    });
+
+    test('sent without waiting for a reply is still decided', () async {
+      final (service, _) = await connected();
+      var calls = 0;
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) async {
+            calls += 1;
+            return {'handled': true};
+          };
+
+      service.debugHandleChatEvent(handoff());
+      await _flushMicrotasks(3);
+
+      expect(calls, 1);
+    });
+
+    test('is refused as unsupported without a handler', () async {
+      final (service, _) = await connected();
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(handoff(), replies.add);
+      await _flushMicrotasks(3);
+
+      expect(replies, [
+        {'handled': false, 'reason': 'unsupported'},
+      ]);
+    });
+
+    test('is refused as failed when the handler throws', () async {
+      final (service, _) = await connected();
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) =>
+              Future.error(StateError('boom'));
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(handoff(), replies.add);
+      await _flushMicrotasks(3);
+
+      expect(replies, [
+        {'handled': false, 'reason': 'failed'},
+      ]);
+    });
+
+    test('for another session is ignored', () async {
+      final (service, socket) = await connected();
+      socket.id = 'local-session';
+      var calls = 0;
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) async {
+            calls += 1;
+            return {'handled': true};
+          };
+      var delivered = 0;
+      service.addChatEventHandler(
+        conversationId: 'chat-1',
+        handler: (_, _) => delivered += 1,
+      );
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(
+        handoff(session: 'other-session'),
+        replies.add,
+      );
+      await _flushMicrotasks(3);
+      expect(calls, 0);
+      expect(replies, isEmpty);
+      expect(delivered, 0);
+
+      service.debugHandleChatEvent(
+        handoff(session: 'local-session'),
+        replies.add,
+      );
+      await _flushMicrotasks(3);
+      expect(calls, 1);
+      expect(replies, hasLength(1));
+    });
+  });
+
   group('a direct tool call is always answered once', () {
     const admission = PersonalToolAdmission(
       kind: PersonalConnectionKind.toolServer,

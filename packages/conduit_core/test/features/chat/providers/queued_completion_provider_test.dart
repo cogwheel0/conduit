@@ -11,6 +11,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -638,5 +639,179 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     check(container.read(queuedCompletionActionsProvider)).identicalTo(actions);
+  });
+
+  Future<int> enqueueCompletionWithSnapshot(
+    String chatId,
+    String assistantMessageId,
+    OpenWebUiChatSettingsSnapshot snapshot,
+  ) {
+    return db.transaction(
+      () => db.outboxDao.enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: chatId,
+        payload: {
+          'assistantMessageId': assistantMessageId,
+          'model': 'm',
+          'toolIds': <String>[],
+          'filterIds': null,
+          'systemPrompt': null,
+          'sessionIdOverride': null,
+          'chatSettings': snapshot.toJson(),
+        },
+      ),
+    );
+  }
+
+  group('surfaced info carries the snapshot-frozen reasoning effort (#779)', () {
+    test('a parked completion exposes the effort frozen in its snapshot', () async {
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': 'high'},
+        ),
+      );
+      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .equals('high');
+      // The chat's value never reaches a model that does not advertise
+      // support (issue #611).
+      check(info)
+          .isNotNull()
+          .has(
+            (i) => i.frozenPickedReasoningEffort,
+            'frozenPickedReasoningEffort',
+          )
+          .isNull();
+    });
+
+    test('the picker value is kept apart for an undeclared model', () async {
+      // A model that does not advertise support is sent only the picker's
+      // value, while one that does is sent the chat's over it.
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': 'high'},
+          reasoningEffort: 'low',
+        ),
+      );
+      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .equals('high');
+      check(info)
+          .isNotNull()
+          .has(
+            (i) => i.frozenPickedReasoningEffort,
+            'frozenPickedReasoningEffort',
+          )
+          .equals('low');
+    });
+
+    test(
+      'a frozen automatic effort — as left by a prior without-effort '
+      'recovery — exposes nothing',
+      () async {
+        final seq = await enqueueCompletionWithSnapshot(
+          'c1',
+          'a1',
+          OpenWebUiChatSettingsSnapshot(
+            params: const {'temperature': 0.5, 'reasoning_effort': 'automatic'},
+          ),
+        );
+        await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+        final info = await firstInfo(
+          makeContainer(online: true, chatId: 'c1'),
+          'a1',
+        );
+        check(info)
+            .isNotNull()
+            .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+            .isNull();
+      },
+    );
+
+    test('a default saved on the chat outranks the admitted pick', () async {
+      // Picking Automatic saves null on the chat; no model is then sent the
+      // picker's value, so nothing frozen can be what the provider rejected.
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': null},
+          reasoningEffort: 'high',
+        ),
+      );
+      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has(
+            (i) => i.frozenPickedReasoningEffort,
+            'frozenPickedReasoningEffort',
+          )
+          .isNull();
+    });
+
+    test('the admitted picker value counts when the chat params hold none', () async {
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(reasoningEffort: 'minimal'),
+      );      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .equals('minimal');
+    });
+
+    test('a pending completion exposes no frozen effort', () async {
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': 'high'},
+        ),
+      );
+      await db.outboxDao.markOfflineDeferred(seq, nextAttemptAt: 0);
+
+      final info = await firstInfo(
+        makeContainer(online: false, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.phase, 'phase')
+          .equals(QueuedCompletionPhase.pending);
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .isNull();
+    });
   });
 }

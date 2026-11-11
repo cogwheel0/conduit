@@ -16,6 +16,8 @@ import '../../../core/utils/current_localizations.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/channels/providers/channel_socket_handler.dart';
+import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart'
@@ -245,6 +247,14 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   }
 
   void _onChannelEvent(Map<String, dynamic> event) {
+    // A mute set here or in another session reaches every channel in the
+    // list, open or not, as in Open WebUI's layout handler.
+    if (parseChannelMuteEvent(event) case final mute?) {
+      ref
+          .read(channelsListProvider.notifier)
+          .setMuted(mute.channelId, mute.isChannelMuted);
+      return;
+    }
     final userId = _currentUserId;
     // Until the current user resolves we can't run the self-author filter, so
     // skip rather than risk notifying the user for their own messages.
@@ -256,23 +266,76 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       currentUserId: userId,
       scope: scope,
     );
-    if (notification != null) _route(notification);
+    if (notification != null) {
+      unawaited(
+        _routeChannelMessage(notification, userId, _messageContent(event)),
+      );
+    }
   }
 
-  void _route(AppNotification notification) {
+  /// The message's own text. The notification's body is a cleaned preview
+  /// capped at 200 characters, which can cut off or rewrite a mention.
+  static String _messageContent(Map<String, dynamic> event) {
+    final envelope = event['data'];
+    final data = envelope is Map ? envelope['data'] : null;
+    final content = data is Map ? data['content'] : null;
+    return content is String ? content : '';
+  }
+
+  /// Routes a channel message by the channel's notification setting. Like Open
+  /// WebUI, the setting is read from the channel list, or from the channel
+  /// itself when the list does not hold it yet, and a message whose channel
+  /// cannot be read is not notified.
+  Future<void> _routeChannelMessage(
+    AppNotification notification,
+    String userId,
+    String content,
+  ) async {
+    final muted = await _isChannelMuted(notification.sourceId);
+    if (muted == null || !ref.mounted || _currentUserId != userId) return;
+    _route(
+      notification,
+      alert: shouldNotifyChannelMessage(
+        isMuted: muted,
+        content: content,
+        userId: userId,
+      ),
+    );
+  }
+
+  Future<bool?> _isChannelMuted(String channelId) async {
+    for (final channel in ref.read(channelsListProvider).value ?? const []) {
+      if (channel.id == channelId) return channel.isChannelMuted;
+    }
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return null;
+    try {
+      return Channel.fromJson(await api.getChannel(channelId)).isChannelMuted;
+    } catch (e, st) {
+      DebugLogger.error(
+        'channel notification setting unavailable',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/channel',
+      );
+      return null;
+    }
+  }
+
+  void _route(AppNotification notification, {bool alert = true}) {
     unawaited(
-      ref.read(notificationRouterProvider).route(notification).catchError((
-        Object e,
-        StackTrace st,
-      ) {
-        DebugLogger.error(
-          'notification routing failed',
-          error: e,
-          stackTrace: st,
-          scope: 'notifications/center',
-        );
-        return NotificationSurface.suppressed;
-      }),
+      ref
+          .read(notificationRouterProvider)
+          .route(notification, alert: alert)
+          .catchError((Object e, StackTrace st) {
+            DebugLogger.error(
+              'notification routing failed',
+              error: e,
+              stackTrace: st,
+              scope: 'notifications/center',
+            );
+            return NotificationSurface.suppressed;
+          }),
     );
   }
 }

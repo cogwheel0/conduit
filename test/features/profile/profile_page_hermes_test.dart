@@ -59,9 +59,11 @@ void main() {
     expect(find.byKey(const Key('settings-category-app')), findsNothing);
     expect(find.byKey(const Key('settings-category-ai')), findsNothing);
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
-    // Connections -- Open WebUI's included -- are reached through Accounts.
+    // Connections -- Open WebUI's included -- are reached through Accounts,
+    // whose last row adds one; the card leads there.
     expect(find.text('Connect to Open WebUI'), findsNothing);
-    expect(find.text('Add account'), findsOneWidget);
+    expect(find.text('Add Account'), findsNothing);
+    expect(find.byKey(const Key('settings-accounts')), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);
     await tester.pumpAndSettle();

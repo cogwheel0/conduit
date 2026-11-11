@@ -370,7 +370,7 @@ void main() {
       tester,
     ) async {
       final l10n = await _loadL10n(tester);
-      expect(workspaceAccessSummary(l10n, const []), 'Only you');
+      expect(workspaceAccessSummary(l10n, const []), 'Only You');
       expect(
         workspaceAccessSummary(l10n, [_user('a')]),
         'Shared with 1 person or group',
@@ -381,7 +381,7 @@ void main() {
       );
       expect(
         workspaceAccessSummary(l10n, [_user('a'), _publicGrant]),
-        'Everyone on this server',
+        'Everyone on This Server',
       );
     });
   });

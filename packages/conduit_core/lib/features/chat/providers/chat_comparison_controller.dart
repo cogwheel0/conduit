@@ -75,6 +75,7 @@ final comparisonRuntimeAvailableProvider = Provider<bool>((ref) {
       (active == null || conversationUsesOpenWebUiStorage(active)) &&
       model != null &&
       !isHermesModel(model) &&
+      !isLibreChatModel(model) &&
       !hasReservedDirectIdentity(model) &&
       ref.watch(directModelRegistryProvider).resolve(model) == null;
 });
@@ -88,6 +89,8 @@ final comparisonCommandAvailableProvider = Provider<bool>((ref) {
   )) {
     return false;
   }
+  // Open WebUI answers a coding agent only in a chat it has to itself.
+  if (ref.watch(activeChatUsesTerminalAgentProvider)) return false;
   return ref.watch(comparisonRuntimeAvailableProvider);
 });
 
@@ -97,6 +100,7 @@ CodeInterpreterBlock? _codeInterpreterBlockForModel(dynamic ref, Model model) {
   if (api == null ||
       !ref.read(isAuthenticatedProvider2) ||
       isHermesModel(model) ||
+      isLibreChatModel(model) ||
       hasReservedDirectIdentity(model)) {
     return CodeInterpreterBlock.notOpenWebUi;
   }
@@ -113,10 +117,16 @@ CodeInterpreterBlock? _codeInterpreterBlockForModel(dynamic ref, Model model) {
 ComparisonModelProfile _comparisonProfileFor(dynamic ref, Model model) {
   final policy = reasoningEffortPolicyForModel(ref.read, model);
   final picker = reasoningEffortForModel(ref.read, model);
+  // A model that does not advertise support still carries the parameter when
+  // the user picked an explicit effort for it (issue #779); only automatic
+  // sends nothing.
+  final hasExplicitEffort = picker != kAutomaticReasoningEffort;
   return ComparisonModelProfile(
     modelId: model.id,
-    supportsReasoningEffort: model.supportsReasoningEffort,
-    pickerReasoningEffort: picker == kAutomaticReasoningEffort ? null : picker,
+    advertisesReasoningEffort: model.advertisesReasoningEffort,
+    supportsReasoningEffort:
+        model.advertisesReasoningEffort || hasExplicitEffort,
+    pickerReasoningEffort: hasExplicitEffort ? picker : null,
     acceptsReasoningEffort: (effort) =>
         policy.effectiveConfiguredEffort(effort) == effort,
   );
@@ -144,6 +154,8 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
   List<String>? toolIds,
   bool isVoiceMode = false,
   void Function()? onCommitted,
+  void Function(ChatSendPlaceholderHandle handle)?
+  onAssistantPlaceholderCreated,
 }) async {
   final activeAtSendStart = ref.read(activeConversationProvider);
   final sendMutationOwner = captureChatMutationOwner(ref, activeAtSendStart);
@@ -171,6 +183,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
       models.any(
         (model) =>
             isHermesModel(model) ||
+            isLibreChatModel(model) ||
             hasReservedDirectIdentity(model) ||
             directRegistry.resolve(model) != null,
       )) {
@@ -302,6 +315,14 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
     requireSourceContext: () =>
         _requireChatMutationOpenWebUiAuthSession(ref, sendMutationOwner),
   );
+  // Temporary Chat may have been switched on while the files were looked up,
+  // before the turn shows: this turn would still be saved, so it is refused
+  // as it would have been at the start.
+  if (ref.read(temporaryChatEnabledProvider)) {
+    throw const ComparisonAdmissionException(
+      ComparisonAdmissionFailure.unavailable,
+    );
+  }
   final durableFiles = <Map<String, dynamic>>[
     ...durableAttachmentFiles,
     ...contextFiles,
@@ -390,6 +411,8 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
         mutationOwner: sendMutationOwner,
       ),
   ];
+
+  onAssistantPlaceholderCreated?.call(handles.first);
 
   void withdrawOptimisticTurn() {
     if (!chatMutationTokenStillActive(ref, sendMutationOwner)) return;
@@ -843,6 +866,7 @@ Future<void> runComparisonCompletion(
       api: api,
       userSettings: userSettingsData,
       selectedToolIds: toolIds,
+      personalConnectionsAvailable: _personalConnectionsAvailable(ref),
       admitted: admittedToolServers,
     );
   } catch (_) {}

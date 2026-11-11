@@ -6,6 +6,7 @@ import 'package:conduit/features/automations/views/scheduled_task_editor_page.da
 import 'package:conduit/features/automations/views/scheduled_tasks_page.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
@@ -94,6 +95,16 @@ final class AutomationWire implements HttpClientAdapter {
   final List<Map<String, dynamic>> tasks;
   final Map<String, List<Map<String, dynamic>>> runs = {};
   final requests = <RequestOptions>[];
+
+  /// The server terminals `/api/v1/terminals/` lists.
+  final terminals = <Map<String, dynamic>>[];
+
+  /// Whether `/api/v1/terminals/` fails, as when the server is unreachable.
+  bool terminalsFail = false;
+
+  /// What `/api/v1/automations/models` lists for a terminal, or null for a
+  /// terminal that cannot be asked.
+  List<Map<String, dynamic>>? agents = const [];
   int pageSize = 30;
   bool channelWrite = true;
   ({int status, String detail})? rejectWrites;
@@ -142,6 +153,17 @@ final class AutomationWire implements HttpClientAdapter {
     }
     if (path.contains('/channels/')) {
       return _json({'id': 'c', 'write_access': channelWrite});
+    }
+    if (path.endsWith('/automations/models')) {
+      final listed = agents;
+      return listed == null
+          ? _json({'detail': 'Terminal unreachable'}, 502)
+          : _json(listed);
+    }
+    if (path.endsWith('/terminals/')) {
+      return terminalsFail
+          ? _json({'detail': 'Terminals unavailable'}, 503)
+          : _json(terminals);
     }
     if (path.endsWith('/list')) {
       final query = options.uri.queryParameters;
@@ -375,6 +397,7 @@ Future<AutomationSession> pumpAutomations(
     'features': {'automations': true, 'channels': true},
   },
   bool serverEnabled = true,
+  String? serverVersion,
   String role = 'user',
   List<Map<String, dynamic>>? tasks,
   List<Model>? models,
@@ -475,6 +498,7 @@ Future<AutomationSession> pumpAutomations(
           BackendConfig(
             serverId: automationTestServer.id,
             enableAutomations: serverEnabled,
+            version: serverVersion,
           ),
         ),
       ),
@@ -508,6 +532,8 @@ Future<AutomationSession> pumpAutomations(
         routerConfig: router,
         localizationsDelegates: localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        // As in the app, legacy-design widgets read its theme through this.
+        builder: (context, child) => LegacyDesignCompatibility(child: child!),
       ),
     ),
   );

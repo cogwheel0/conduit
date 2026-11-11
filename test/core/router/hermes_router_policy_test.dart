@@ -162,7 +162,9 @@ void main() {
         Routes.directConnections,
         Routes.directConnectionEditorPath('new'),
         Routes.hermesSettings,
+        Routes.hermesSessions,
         Routes.hermesJobs,
+        Routes.hermesHiddenSessions,
         Routes.about,
         // Device-level notifications and push cover Hermes and Direct.
         Routes.notificationSettings,
@@ -232,6 +234,13 @@ void main() {
             .redirect(_MockBuildContext(), state);
 
         check(redirect).isNull();
+
+        when(() => state.uri).thenReturn(Uri.parse(Routes.hermesSessions));
+        check(
+          container
+              .read(routerNotifierProvider)
+              .redirect(_MockBuildContext(), state),
+        ).isNull();
 
         when(() => state.uri).thenReturn(Uri.parse(Routes.authentication));
         check(

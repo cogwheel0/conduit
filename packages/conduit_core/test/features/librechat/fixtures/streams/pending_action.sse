@@ -1,0 +1,9 @@
+event: message
+data: {"created":true,"message":{"messageId":"u3","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c3","text":"Echo hi","isCreatedByUser":true},"streamId":"c3"}
+
+event: message
+data: {"event":"on_run_step","data":{"id":"step_echo","runId":"r3","index":0,"stepDetails":{"type":"tool_calls","tool_calls":[{"id":"call_echo","name":"echo_mcp_everything","args":"{\"message\":\"hi\"}"}]}}}
+
+event: message
+data: {"event":"on_pending_action","data":{"actionId":"act_1","streamId":"c3","conversationId":"c3","runId":"r3","responseMessageId":"r3","createdAt":1792322400000,"payload":{"type":"tool_approval","action_requests":[{"name":"echo_mcp_everything","arguments":{"message":"hi"},"tool_call_id":"call_echo","description":"Review echo before it runs."}],"review_configs":[{"action_name":"echo_mcp_everything","tool_call_id":"call_echo","allowed_decisions":["approve","reject","edit","respond"]}]}}}
+

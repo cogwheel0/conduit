@@ -7,6 +7,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show knowledgeLimitsSupportedProvider;
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -93,6 +95,8 @@ class _WorkspaceKnowledgeFormState
     extends ConsumerState<_WorkspaceKnowledgeForm> {
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
+  late final TextEditingController _maxFileCountController;
+  late final TextEditingController _maxFileSizeController;
   late List<WorkspaceAccessGrantInput> _grants;
 
   late final WorkspaceEditorSession _session;
@@ -107,6 +111,16 @@ class _WorkspaceKnowledgeFormState
   /// The file browser is manageable in both detail and edit for local, writable
   /// bases; external/connected bases are always read-only.
   bool get _filesReadOnly => _isExternal || !_writeAccess;
+
+  /// A base's own file limits (Open WebUI 0.13 and later), which the server
+  /// takes only from its owner or an admin, and never for an external base.
+  bool get _limitsAvailable {
+    if (_isExternal || !ref.watch(knowledgeLimitsSupportedProvider)) {
+      return false;
+    }
+    if (_session.isCreate) return true;
+    return _canDeleteUnderlying;
+  }
 
   bool get _canDeleteUnderlying {
     final summary = widget.summary;
@@ -125,6 +139,12 @@ class _WorkspaceKnowledgeFormState
     _descriptionController = TextEditingController(
       text: widget.summary?.description ?? '',
     );
+    _maxFileCountController = TextEditingController(
+      text: widget.summary?.maxFileCount?.toString() ?? '',
+    );
+    _maxFileSizeController = TextEditingController(
+      text: widget.summary?.maxFileSize?.toString() ?? '',
+    );
     _grants = [
       for (final grant in widget.summary?.accessGrants ?? const [])
         WorkspaceAccessGrantInput.fromGrant(grant),
@@ -137,6 +157,8 @@ class _WorkspaceKnowledgeFormState
     _session.dispose();
     _nameController.dispose();
     _descriptionController.dispose();
+    _maxFileCountController.dispose();
+    _maxFileSizeController.dispose();
     super.dispose();
   }
 
@@ -154,11 +176,22 @@ class _WorkspaceKnowledgeFormState
       _session.setError(l10n.workspaceKnowledgeNameRequired);
       return;
     }
+    WorkspaceKnowledgeLimits? limits;
+    if (_limitsAvailable) {
+      final maxFileCount = _parseLimit(_maxFileCountController.text);
+      final maxFileSize = _parseLimit(_maxFileSizeController.text);
+      if (maxFileCount == null || maxFileSize == null) {
+        _session.setError(l10n.workspaceKnowledgeLimitInvalid);
+        return;
+      }
+      limits = (maxFileCount: maxFileCount.value, maxFileSize: maxFileSize.value);
+    }
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     final form = WorkspaceKnowledgeForm(
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
       accessGrants: _grants,
+      limits: limits,
     );
     await WorkspaceEditorMutationCoordinator.run<WorkspaceKnowledgeDetail>(
       context: context,
@@ -174,6 +207,15 @@ class _WorkspaceKnowledgeFormState
           : notifier.updateItem(widget.summary!.id, form),
       resourceId: (result) => result.summary.id,
     );
+  }
+
+  /// A limit as typed: no limit when empty, null when it is not a whole
+  /// number above zero.
+  static ({int? value})? _parseLimit(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return (value: null);
+    final parsed = int.tryParse(trimmed);
+    return parsed != null && parsed > 0 ? (value: parsed) : null;
   }
 
   Future<void> _manageAccess() async {
@@ -391,6 +433,42 @@ class _WorkspaceKnowledgeFormState
                 ),
               ],
             ),
+            if (_limitsAvailable) ...[
+              SizedBox(height: sectionGap),
+              WorkspaceEditorFieldGroup(
+                key: const Key('workspace-knowledge-limits'),
+                title: l10n.workspaceKnowledgeLimitsTitle,
+                footer: l10n.workspaceKnowledgeLimitsFooter,
+                children: [
+                  WorkspaceEditorField(
+                    fieldKey: 'workspace-knowledge-max-file-count',
+                    controller: _maxFileCountController,
+                    label: l10n.workspaceKnowledgeMaxFileCount,
+                    hint: l10n.workspaceKnowledgeLimitDefault,
+                    detailValue: _maxFileCountController.text.isEmpty
+                        ? l10n.workspaceKnowledgeLimitDefault
+                        : null,
+                    isDetail: _session.isDetail,
+                    enabled: !_fieldsReadOnly,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                  WorkspaceEditorField(
+                    fieldKey: 'workspace-knowledge-max-file-size',
+                    controller: _maxFileSizeController,
+                    label: l10n.workspaceKnowledgeMaxFileSize,
+                    hint: l10n.workspaceKnowledgeLimitDefault,
+                    detailValue: _maxFileSizeController.text.isEmpty
+                        ? l10n.workspaceKnowledgeLimitDefault
+                        : null,
+                    isDetail: _session.isDetail,
+                    enabled: !_fieldsReadOnly,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _markDirty(),
+                  ),
+                ],
+              ),
+            ],
             SizedBox(height: sectionGap),
             _accessTile(l10n),
             if (!_session.isCreate && summary != null) ...[

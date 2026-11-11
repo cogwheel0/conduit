@@ -5,6 +5,7 @@ import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// Submitted values from the channel create/edit form.
@@ -89,6 +90,7 @@ Future<ChannelFormResult?> showChannelFormDialog(
                 autofocus: true,
                 textInputAction: TextInputAction.next,
                 onSubmitted: (_) => FocusScope.of(dialogContext).nextFocus(),
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: AppTypography.bodyMediumStyle.copyWith(
                   color: theme.textPrimary,
                 ),
@@ -99,6 +101,7 @@ Future<ChannelFormResult?> showChannelFormDialog(
               const SizedBox(height: Spacing.md),
               TextField(
                 controller: descriptionController,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: AppTypography.bodyMediumStyle.copyWith(
                   color: theme.textPrimary,
                 ),
@@ -110,14 +113,22 @@ Future<ChannelFormResult?> showChannelFormDialog(
               ),
               if (includePrivacyToggle) ...[
                 const SizedBox(height: Spacing.sm),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(l10n.channelPrivate),
-                  value: isPrivate,
-                  onChanged: (value) {
-                    ConduitHaptics.selectionClick();
-                    setDialogState(() => isPrivate = value);
-                  },
+                MergeSemantics(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: ExcludeSemantics(child: Text(l10n.channelPrivate)),
+                    trailing: AdaptiveSwitch(
+                      value: isPrivate,
+                      semanticLabel: l10n.channelPrivate,
+                      onChanged: (value) {
+                        setDialogState(() => isPrivate = value);
+                      },
+                    ),
+                    onTap: () {
+                      ConduitHaptics.selectionClick();
+                      setDialogState(() => isPrivate = !isPrivate);
+                    },
+                  ),
                 ),
               ],
             ],

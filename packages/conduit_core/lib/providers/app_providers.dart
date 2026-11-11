@@ -36,6 +36,12 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show isLibreChatToolId;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/models/server_config.dart';
@@ -58,6 +64,8 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/models/chat_handoff.dart';
+import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 
@@ -75,7 +83,9 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 
+import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -107,6 +117,8 @@ import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/primary_sync.dart';
+import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 
 export 'package:conduit_core/providers/storage_providers.dart';

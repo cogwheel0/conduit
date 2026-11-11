@@ -5,33 +5,6 @@ import 'package:meta/meta.dart';
 const int kChatTranscriptPageSize = 50;
 const int kChatTranscriptMaxTraversalRows = 10000;
 
-/// Returns the bounded presentation suffix without changing canonical order.
-List<T> latestTranscriptWindow<T>(List<T> complete, int loadedCount) {
-  if (complete.isEmpty || loadedCount <= 0) return const [];
-  final count = loadedCount.clamp(1, complete.length).toInt();
-  return List<T>.unmodifiable(complete.sublist(complete.length - count));
-}
-
-/// How many of the [total] messages the timeline shows: the paging state's
-/// [loadedCount], or a first page while paging has not caught up with a
-/// transcript that just loaded.
-int renderedTranscriptCount({required int total, required int loadedCount}) {
-  if (loadedCount == 0 && total > 0) {
-    return total < kChatTranscriptPageSize ? total : kChatTranscriptPageSize;
-  }
-  return loadedCount < total ? loadedCount : total;
-}
-
-/// Whether to load the next older page: the user has scrolled the timeline
-/// themselves, older messages exist, none are loading, and the oldest
-/// loaded row is on screen.
-bool shouldLoadOlderTranscriptPage({
-  required bool hasUserScrolled,
-  required bool hasOlder,
-  required bool isLoadingOlder,
-  required bool oldestLoadedRowVisible,
-}) => hasUserScrolled && hasOlder && !isLoadingOlder && oldestLoadedRowVisible;
-
 @immutable
 final class MessageWindowCursor {
   const MessageWindowCursor(this.messageId);
@@ -61,69 +34,6 @@ final class MessageRowWindow {
   final bool semanticBoundaryTruncated;
 }
 
-@immutable
-final class ChatTranscriptPagingState {
-  const ChatTranscriptPagingState({
-    this.hasOlder = false,
-    this.isLoadingOlder = false,
-    this.loadedCount = kChatTranscriptPageSize,
-    this.oldestMessageId,
-    this.generation = 0,
-    this.error,
-  });
-
-  final bool hasOlder;
-  final bool isLoadingOlder;
-  final int loadedCount;
-  final String? oldestMessageId;
-  final int generation;
-  final Object? error;
-
-  ChatTranscriptPagingState copyWith({
-    bool? hasOlder,
-    bool? isLoadingOlder,
-    int? loadedCount,
-    String? oldestMessageId,
-    bool clearOldestMessageId = false,
-    int? generation,
-    Object? error,
-    bool clearError = false,
-  }) {
-    return ChatTranscriptPagingState(
-      hasOlder: hasOlder ?? this.hasOlder,
-      isLoadingOlder: isLoadingOlder ?? this.isLoadingOlder,
-      loadedCount: loadedCount ?? this.loadedCount,
-      oldestMessageId: clearOldestMessageId
-          ? null
-          : oldestMessageId ?? this.oldestMessageId,
-      generation: generation ?? this.generation,
-      error: clearError ? null : error ?? this.error,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) {
-    return identical(this, other) ||
-        other is ChatTranscriptPagingState &&
-            other.hasOlder == hasOlder &&
-            other.isLoadingOlder == isLoadingOlder &&
-            other.loadedCount == loadedCount &&
-            other.oldestMessageId == oldestMessageId &&
-            other.generation == generation &&
-            other.error == error;
-  }
-
-  @override
-  int get hashCode => Object.hash(
-    hasOlder,
-    isLoadingOlder,
-    loadedCount,
-    oldestMessageId,
-    generation,
-    error,
-  );
-}
-
 /// An in-session viewport anchor.
 ///
 /// Anchors live only in ChatPage's bounded in-memory LRU. They are never
@@ -135,7 +45,6 @@ final class ChatScrollAnchor {
   const ChatScrollAnchor({
     required this.messageId,
     required this.offsetWithinMessage,
-    required this.loadedCount,
   });
 
   final String messageId;
@@ -144,5 +53,4 @@ final class ChatScrollAnchor {
   /// [messageId]'s row. Negative means the row begins above that inset;
   /// positive means it begins below it.
   final double offsetWithinMessage;
-  final int loadedCount;
 }

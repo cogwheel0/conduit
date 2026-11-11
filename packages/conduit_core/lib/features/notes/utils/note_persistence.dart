@@ -53,6 +53,9 @@ bool isCurrentNoteEditorSession(
 /// [noteId] is the id the editor was opened with, whose keep-alive detail is
 /// invalidated; the durable write goes to [writeId] (the loaded note's id,
 /// which may be the server id a `local:` one was remapped to).
+///
+/// [pageId] names the page of a paged note (Open WebUI 0.12.5+) the content
+/// belongs to; without it the content goes to the note's only page.
 Future<Note?> persistNoteUpdate(
   dynamic ref, {
   required String noteId,
@@ -62,6 +65,7 @@ Future<Note?> persistNoteUpdate(
   required String title,
   required Map<String, dynamic> data,
   Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
+  String? pageId,
   Object? authEpoch,
   String? accountId,
   ApiAuthSnapshot? authSnapshot,
@@ -92,6 +96,7 @@ Future<Note?> persistNoteUpdate(
       title: title,
       data: data,
       dataFrom: dataFrom,
+      pageId: pageId,
       owner: owner,
     );
   } else {
@@ -103,6 +108,7 @@ Future<Note?> persistNoteUpdate(
         noteId,
         title: title,
         data: data,
+        pageId: data.containsKey('content') ? pageId : null,
         authSnapshot: owner.authSnapshot,
         cancelToken: cancelToken,
       ),

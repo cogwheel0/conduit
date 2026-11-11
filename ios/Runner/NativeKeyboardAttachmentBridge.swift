@@ -65,6 +65,23 @@ private struct NativeKeyboardAttachmentAction: Equatable {
         selected = payload["selected"] as? Bool ?? false
         dismissesKeyboard = payload["dismissesKeyboard"] as? Bool ?? true
     }
+
+    /// Everything that shapes how the row is laid out. When only the rest (a
+    /// toggle's state) changes, the panel updates the row in place, so its
+    /// switch slides instead of the panel being rebuilt under the finger.
+    var layoutIdentity: [String] {
+        [
+            id,
+            label,
+            subtitle ?? "",
+            section,
+            sectionTitle ?? "",
+            kind == .toggle ? "toggle" : "command",
+            sfSymbol,
+            enabled ? "enabled" : "disabled",
+            dismissesKeyboard ? "dismisses" : "stays",
+        ]
+    }
 }
 
 /// Presents the chat attachment picker as a native iOS keyboard replacement.
@@ -427,8 +444,16 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     static let defaultHeight: CGFloat = 300
     static let minimumHeight: CGFloat = 170
     private static let panelCornerRadius: CGFloat = 26
+    /// The last row's own 8 pt padding plus this sits just above the home
+    /// indicator's inset, so the panel ends with its content.
+    private static let bottomContentInset: CGFloat = 6
 
     private let onSelect: (NativeKeyboardAttachmentAction) -> Void
+    private var currentActions: [NativeKeyboardAttachmentAction] = []
+    /// The rows on screen, by action id, for in-place state updates.
+    private var tilesByID: [String: NativeKeyboardAttachmentTile] = [:]
+    /// The width the tile grid's columns were chosen for.
+    private var gridWidth: CGFloat = 0
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
     private var preferredHeight = defaultHeight
@@ -509,7 +534,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
             stackTopConstraint,
             stackView.bottomAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.bottomAnchor,
-                constant: -24
+                constant: -Self.bottomContentInset
             ),
             stackView.widthAnchor.constraint(
                 equalTo: scrollView.frameLayoutGuide.widthAnchor,
@@ -523,17 +548,42 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         nil
     }
 
-    /// Keeps space for the composer when rotation or window resizing reduces
-    /// the available height, then restores the preferred height as space grows.
+    /// Sizes the panel to its content, never taller than the keyboard it
+    /// replaces nor half the window (so the composer keeps its space on
+    /// rotation), and never shorter than `minimumHeight`. A panel with a single
+    /// tool row no longer leaves most of a keyboard's height empty.
     override func layoutSubviews() {
+        // Rotation or a resized window changes how many tiles fit a row.
+        if !currentActions.isEmpty, abs(currentPanelWidth - gridWidth) > 1 {
+            update(actions: currentActions)
+        }
         if let window = sizingWindow ?? self.window, window.bounds.height > 0 {
-            let height = min(preferredHeight, window.bounds.height / 2)
+            let bottomInset = window.safeAreaInsets.bottom
+            if scrollView.contentInset.bottom != bottomInset {
+                scrollView.contentInset.bottom = bottomInset
+            }
+            let width = bounds.width > 0 ? bounds.width : window.bounds.width
+            let ceiling = min(preferredHeight, window.bounds.height / 2)
+            let fitted = fittedHeight(forWidth: width, bottomInset: bottomInset)
+            let height = min(ceiling, max(fitted, Self.minimumHeight))
             if heightConstraint.constant != height {
                 heightConstraint.constant = height
                 invalidateIntrinsicContentSize()
             }
+            scrollView.alwaysBounceVertical = fitted > height + 0.5
         }
         super.layoutSubviews()
+    }
+
+    /// The height that shows every section without scrolling.
+    private func fittedHeight(forWidth width: CGFloat, bottomInset: CGFloat) -> CGFloat {
+        let contentWidth = max(0, width - 2 * horizontalContentInset)
+        let stackHeight = stackView.systemLayoutSizeFitting(
+            CGSize(width: contentWidth, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        return ceil(topContentInset + stackHeight + Self.bottomContentInset + bottomInset)
     }
 
     /// Adjusts content padding when the vertical layout becomes compact or regular.
@@ -550,14 +600,30 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     /// Rebuilds the ordered attachment, feature, and tool sections from the
     /// latest Flutter configuration.
     func update(actions: [NativeKeyboardAttachmentAction]) {
+        if canUpdateInPlace(to: actions) {
+            currentActions = actions
+            for action in actions {
+                tilesByID[action.id]?.apply(action, animated: window != nil)
+            }
+            return
+        }
+
+        currentActions = actions
+        gridWidth = currentPanelWidth
+        tilesByID = [:]
         stackView.arrangedSubviews.forEach { view in
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
 
-        var attachmentStrip: UIScrollView?
+        var attachmentGrid: UIView?
 
         let grouped = Dictionary(grouping: actions, by: \.section)
+        // List rows centre their symbol on the first tile's, so the rows'
+        // symbols stand in the grid's first column.
+        let listIconCenter = grouped["attachments"].map { attachments in
+            firstAttachmentTileCenter(count: attachments.count)
+        }
         let preferredOrder = ["attachments", "features", "tools"]
         let sectionKeys = preferredOrder.filter { grouped[$0] != nil }
             + grouped.keys
@@ -573,15 +639,28 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 addSectionTitle(title)
             }
             if key == "attachments" {
-                attachmentStrip = addAttachmentRow(sectionActions)
+                attachmentGrid = addAttachmentGrid(sectionActions)
             } else {
-                addListSection(sectionActions)
+                addListSection(sectionActions, iconCenter: listIconCenter)
             }
         }
 
-        if let strip = attachmentStrip {
-            stackView.setCustomSpacing(8, after: strip)
+        if let grid = attachmentGrid {
+            stackView.setCustomSpacing(14, after: grid)
         }
+        setNeedsLayout()
+    }
+
+    /// Whether [actions] differ from the rows on screen only in state, so the
+    /// rows can be updated where they are.
+    private func canUpdateInPlace(to actions: [NativeKeyboardAttachmentAction]) -> Bool {
+        guard !tilesByID.isEmpty,
+              abs(currentPanelWidth - gridWidth) <= 1,
+              actions.count == currentActions.count
+        else {
+            return false
+        }
+        return actions.map(\.layoutIdentity) == currentActions.map(\.layoutIdentity)
     }
 
     /// Preserves the measured keyboard height independently of the panel's
@@ -611,75 +690,131 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         stackView.setCustomSpacing(2, after: label)
     }
 
-    /// Attach tiles: a filled rounded square holding icon and label.
-    private var attachmentRowScrollHeight: CGFloat {
-        traitCollection.verticalSizeClass == .compact ? 52 : 58
+    /// The panel's width, or its window's before the first layout.
+    private var currentPanelWidth: CGFloat {
+        if bounds.width > 0 { return bounds.width }
+        let window = sizingWindow ?? self.window
+        return window?.bounds.width ?? UIScreen.main.bounds.width
     }
 
-    /// Adds the horizontally scrolling strip of attachment tiles.
+    /// Attach tiles: a flat rounded key holding the icon, its name below.
+    /// Tall enough to hold a 22 pt symbol with the key's air around it.
+    private var attachmentTileHeight: CGFloat {
+        traitCollection.verticalSizeClass == .compact ? 48 : 56
+    }
+
+    private static let attachmentTileSpacing: CGFloat = 8
+
+    /// How far a key's name may reach past the key into the gap beside it.
+    static let labelOutset: CGFloat = attachmentTileSpacing / 2
+    private static let attachmentTileMinimumWidth: CGFloat = 62
+
+    /// How many tiles each row holds: every tile fits the width (no tile cut
+    /// off at the edge), and rows are balanced, so five tiles that cannot sit
+    /// in one row split three and two rather than four and one.
+    static func attachmentGridRows(
+        count: Int,
+        availableWidth: CGFloat,
+        spacing: CGFloat = attachmentTileSpacing,
+        minimumTileWidth: CGFloat = attachmentTileMinimumWidth
+    ) -> [Int] {
+        guard count > 0 else { return [] }
+        let fitting = Int((availableWidth + spacing) / (minimumTileWidth + spacing))
+        let maxColumns = max(1, fitting)
+        let rowCount = Int(ceil(Double(count) / Double(maxColumns)))
+        let columns = Int(ceil(Double(count) / Double(rowCount)))
+        var rows: [Int] = []
+        var remaining = count
+        while remaining > 0 {
+            let take = min(columns, remaining)
+            rows.append(take)
+            remaining -= take
+        }
+        return rows
+    }
+
+    /// How far the first attachment tile's centre is from the content's
+    /// leading edge, for a grid of [count] tiles at the current width.
+    private func firstAttachmentTileCenter(count: Int) -> CGFloat {
+        let available = currentPanelWidth - 2 * horizontalContentInset
+        let columns = CGFloat(
+            Self.attachmentGridRows(count: count, availableWidth: available).first ?? 1
+        )
+        let spacing = Self.attachmentTileSpacing
+        let tileWidth = (available - (columns - 1) * spacing) / max(columns, 1)
+        return tileWidth / 2
+    }
+
+    /// Adds the attachment tiles as a grid of equal-width columns.
     @discardableResult
-    private func addAttachmentRow(_ actions: [NativeKeyboardAttachmentAction]) -> UIScrollView {
-        let scroll = UIScrollView()
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.alwaysBounceHorizontal = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.clipsToBounds = false
+    private func addAttachmentGrid(_ actions: [NativeKeyboardAttachmentAction]) -> UIView {
+        let grid = UIStackView()
+        grid.axis = .vertical
+        grid.spacing = Self.attachmentTileSpacing
+        grid.alignment = .fill
 
-        let row = UIStackView()
-        row.axis = .horizontal
-        row.alignment = .fill
-        row.spacing = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let rows = Self.attachmentGridRows(
+            count: actions.count,
+            availableWidth: currentPanelWidth - 2 * horizontalContentInset
+        )
+        let columns = rows.first ?? 0
 
-        let rowHeight = attachmentRowScrollHeight
-        scroll.addSubview(row)
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-            row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-            row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            // The strip is as tall as its tiles, which grow with Dynamic Type.
-            scroll.frameLayoutGuide.heightAnchor.constraint(
-                equalTo: scroll.contentLayoutGuide.heightAnchor
-            ),
-        ])
-
-        actions.forEach { action in
-            let button = NativeKeyboardAttachmentTile(action: action, style: .grid)
-            button.addAction(UIAction { [weak self] _ in
-                self?.onSelect(action)
-            }, for: .touchUpInside)
-            row.addArrangedSubview(button)
-            // Compact by default; wider for long localized labels ("Appareil
-            // photo") and taller for larger text, within these bounds.
-            let preferredWidth = button.widthAnchor.constraint(equalToConstant: 78)
-            preferredWidth.priority = .defaultLow - 1
-            let preferredHeight = button.heightAnchor.constraint(equalToConstant: rowHeight)
-            preferredHeight.priority = .defaultLow - 1
-            NSLayoutConstraint.activate([
-                preferredWidth,
-                preferredHeight,
-                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 78),
-                button.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
-                button.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight),
-            ])
+        var index = 0
+        for rowCount in rows {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = Self.attachmentTileSpacing
+            row.distribution = .fillEqually
+            // A name that wraps to two lines makes only its own tile taller.
+            row.alignment = .top
+            for action in actions[index..<(index + rowCount)] {
+                let button = NativeKeyboardAttachmentTile(
+                    action: action,
+                    style: .grid(keyHeight: attachmentTileHeight)
+                )
+                button.addAction(UIAction { [weak self] _ in
+                    self?.onSelect(action)
+                }, for: .touchUpInside)
+                tilesByID[action.id] = button
+                row.addArrangedSubview(button)
+            }
+            // A shorter last row keeps the columns of the rows above it.
+            for _ in rowCount..<columns {
+                let spacer = UIView()
+                spacer.isAccessibilityElement = false
+                row.addArrangedSubview(spacer)
+            }
+            index += rowCount
+            grid.addArrangedSubview(row)
         }
 
-        stackView.addArrangedSubview(scroll)
-        return scroll
+        stackView.addArrangedSubview(grid)
+        return grid
     }
 
     /// Adds the feature and tool rows with their current selection state.
-    private func addListSection(_ actions: [NativeKeyboardAttachmentAction]) {
+    /// With [iconCenter], each row's symbol is centred that far from the
+    /// content's leading edge.
+    private func addListSection(
+        _ actions: [NativeKeyboardAttachmentAction],
+        iconCenter: CGFloat?
+    ) {
         let sectionStack = UIStackView()
         sectionStack.axis = .vertical
         sectionStack.spacing = 0
 
         actions.forEach { action in
-            let button = NativeKeyboardAttachmentTile(action: action, style: .list)
-            button.addAction(UIAction { [weak self] _ in
+            let button = NativeKeyboardAttachmentTile(
+                action: action,
+                style: .list(iconCenter: iconCenter)
+            )
+            button.addAction(UIAction { [weak self, weak button] _ in
+                // The switch answers the finger at once; the state Flutter
+                // sends back then confirms it (or puts it back if refused).
+                button?.flipToggleOptimistically()
                 self?.onSelect(action)
             }, for: .touchUpInside)
+            tilesByID[action.id] = button
             sectionStack.addArrangedSubview(button)
         }
 
@@ -689,13 +824,21 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
 
 private final class NativeKeyboardAttachmentTile: UIControl {
     enum Style {
-        case grid
-        case list
+        /// A flat key holding the icon, with the name beneath it, so a long
+        /// name never crowds the key's edges.
+        case grid(keyHeight: CGFloat)
+        /// A menu row: symbol, title and subtitle, and a switch for an
+        /// option or a chevron for a command. With `iconCenter`, the symbol
+        /// is centred that far from the row's leading edge (on the first
+        /// attach tile's centre); without, it starts on the edge.
+        case list(iconCenter: CGFloat?)
     }
 
-    private let action: NativeKeyboardAttachmentAction
+    private var action: NativeKeyboardAttachmentAction
     private let style: Style
     private weak var listTitleLabel: UILabel?
+    private weak var highlightView: UIView?
+    private weak var toggleSwitch: UISwitch?
 
     init(action: NativeKeyboardAttachmentAction, style: Style) {
         self.action = action
@@ -707,10 +850,10 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         backgroundColor = .clear
 
         switch style {
-        case .grid:
-            buildGridContent()
-        case .list:
-            buildListContent()
+        case let .grid(keyHeight):
+            buildGridContent(keyHeight: keyHeight)
+        case let .list(iconCenter):
+            buildListContent(iconCenter: iconCenter)
         }
     }
 
@@ -718,9 +861,52 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         nil
     }
 
-    /// Titles get a second line at accessibility text sizes.
+    /// Takes a new state for the same row: a toggle's switch slides to it.
+    func apply(_ newAction: NativeKeyboardAttachmentAction, animated: Bool) {
+        action = newAction
+        guard let toggleSwitch else { return }
+        if toggleSwitch.isOn != newAction.selected {
+            toggleSwitch.setOn(newAction.selected, animated: animated)
+        }
+        updateListAccessibility()
+    }
+
+    /// Slides a toggle's switch as soon as the row is tapped, before Flutter
+    /// confirms the new state. A refused change sends no new state, so if
+    /// none has arrived shortly after, the switch slides back to the last
+    /// state Flutter reported.
+    func flipToggleOptimistically() {
+        guard let toggleSwitch, action.enabled else { return }
+        toggleSwitch.setOn(!toggleSwitch.isOn, animated: true)
+
+        pendingReconcile?.cancel()
+        let reconcile = DispatchWorkItem { [weak self] in
+            guard let self, let toggleSwitch = self.toggleSwitch else { return }
+            if toggleSwitch.isOn != self.action.selected {
+                toggleSwitch.setOn(self.action.selected, animated: true)
+            }
+        }
+        pendingReconcile = reconcile
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.reconcileDelay,
+            execute: reconcile
+        )
+    }
+
+    private var pendingReconcile: DispatchWorkItem?
+    private static let reconcileDelay: TimeInterval = 1.0
+
+    deinit {
+        pendingReconcile?.cancel()
+    }
+
+    /// Titles get a second line at accessibility text sizes; keys take the
+    /// shadow of the new appearance.
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+            updateKeyShadow()
+        }
         guard previousTraitCollection?.preferredContentSizeCategory
             != traitCollection.preferredContentSizeCategory
         else {
@@ -733,16 +919,20 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 2 : 1
     }
 
-    private weak var highlightView: UIView?
-
+    /// The pressed shade lands with the finger and eases away on release.
     override var isHighlighted: Bool {
         didSet {
-            UIView.animate(withDuration: 0.14) {
-                self.highlightView?.alpha = self.isHighlighted ? 1 : 0
-                if self.style == .grid {
-                    self.alpha = self.action.enabled
-                        ? (self.isHighlighted ? 0.7 : 1)
-                        : 0.48
+            guard oldValue != isHighlighted else { return }
+            let target: CGFloat = isHighlighted ? 1 : 0
+            if isHighlighted {
+                highlightView?.alpha = target
+            } else {
+                UIView.animate(
+                    withDuration: 0.2,
+                    delay: 0,
+                    options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]
+                ) {
+                    self.highlightView?.alpha = target
                 }
             }
         }
@@ -752,30 +942,98 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         action.enabled ? .label : .tertiaryLabel
     }
 
-    private func buildGridContent() {
-        let background: UIView
-        if #available(iOS 26.0, *) {
-            background = UIVisualEffectView(effect: UIGlassEffect())
-        } else {
-            background = UIView()
-            background.backgroundColor = .secondarySystemFill
+    /// A key on the panel, in the manner of the keyboard it replaces: solid
+    /// white in light mode, as the keyboard's letter keys are, and a lifted
+    /// grey in dark, with no glass of its own (the panel is already the
+    /// glass). At the size of these keys a translucent white sank into the
+    /// light panel, so light keys are opaque and sit on a soft shadow.
+    private static let keyFill = UIColor { traits in
+        if #unavailable(iOS 26.0) {
+            return .tertiarySystemFill
         }
-        background.translatesAutoresizingMaskIntoConstraints = false
-        background.isUserInteractionEnabled = false
-        background.layer.cornerRadius = 14
-        background.layer.cornerCurve = .continuous
-        background.clipsToBounds = true
-        addSubview(background)
+        return traits.userInterfaceStyle == .dark
+            ? UIColor(white: 1, alpha: 0.18)
+            : .white
+    }
+
+    /// The light key's shadow: a one-point drop with a little blur, enough
+    /// to lift a white key off the light panel. Dark keys carry none, as the
+    /// dark keyboard's do; their fill already stands off the panel.
+    private static let keyShadowOpacity: Float = 0.12
+    private static let keyShadowRadius: CGFloat = 1.5
+    private static let keyShadowOffset = CGSize(width: 0, height: 1)
+    private static let keyCornerRadius: CGFloat = 14
+
+    private weak var keyView: UIView?
+
+    private func updateKeyShadow() {
+        guard let key = keyView else { return }
+        let lifted: Bool
+        if #available(iOS 26.0, *) {
+            lifted = traitCollection.userInterfaceStyle != .dark
+        } else {
+            lifted = false
+        }
+        key.layer.shadowColor = UIColor.black.cgColor
+        key.layer.shadowOpacity = lifted ? Self.keyShadowOpacity : 0
+        key.layer.shadowRadius = Self.keyShadowRadius
+        key.layer.shadowOffset = Self.keyShadowOffset
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if let key = keyView, key.bounds.width > 0 {
+            key.layer.shadowPath = UIBezierPath(
+                roundedRect: key.bounds,
+                cornerRadius: Self.keyCornerRadius
+            ).cgPath
+        }
+    }
+
+    /// Laid over a key or row while it is pressed.
+    private static let pressedShade = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 1, alpha: 0.12)
+            : UIColor(white: 0, alpha: 0.08)
+    }
+
+    private func buildGridContent(keyHeight: CGFloat) {
+        let key = UIView()
+        key.translatesAutoresizingMaskIntoConstraints = false
+        key.isUserInteractionEnabled = false
+        key.backgroundColor = Self.keyFill
+        key.layer.cornerRadius = Self.keyCornerRadius
+        key.layer.cornerCurve = .continuous
+        // Not clipped, so the key's shadow shows; the pressed shade takes
+        // the key's corners itself.
+        addSubview(key)
+        keyView = key
+        updateKeyShadow()
+
+        let highlight = UIView()
+        highlight.translatesAutoresizingMaskIntoConstraints = false
+        highlight.isUserInteractionEnabled = false
+        highlight.backgroundColor = Self.pressedShade
+        highlight.layer.cornerRadius = Self.keyCornerRadius
+        highlight.layer.cornerCurve = .continuous
+        highlight.alpha = 0
+        key.addSubview(highlight)
+        highlightView = highlight
 
         let icon = UIImageView(image: UIImage(systemName: action.sfSymbol))
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        // Title 2 (22 pt, following Dynamic Type): the glyph should hold its
+        // key the way a keyboard key's letter does, not float small in it.
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            textStyle: .body,
+            textStyle: .title2,
             scale: .medium
         )
         icon.tintColor = foreground
         icon.contentMode = .scaleAspectFit
+        key.addSubview(icon)
 
         let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
         label.text = action.label
         label.font = UIFont.systemFont(
             ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize,
@@ -784,43 +1042,47 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         label.adjustsFontForContentSizeCategory = true
         label.textColor = foreground
         label.textAlignment = .center
-        label.numberOfLines = 1
-        label.lineBreakMode = .byTruncatingTail
+        // A long localized name ("Fichiers du serveur") wraps rather than
+        // truncates, so every key can share one column width.
+        label.numberOfLines = 2
+        label.lineBreakMode = .byWordWrapping
+        label.allowsDefaultTighteningForTruncation = true
+        addSubview(label)
 
         isAccessibilityElement = true
         accessibilityLabel = action.label
         accessibilityTraits = .button
 
-        let stack = UIStackView(arrangedSubviews: [icon, label])
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 3
-        stack.isUserInteractionEnabled = false
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
+        // The name may use half of the gap to each neighbour, so a two-word
+        // name like "Server Files" still fits on one line.
+        let labelOutset = NativeKeyboardAttachmentInputView.labelOutset
         NSLayoutConstraint.activate([
-            background.leadingAnchor.constraint(equalTo: leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor),
-            background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
-            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 6),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
+            key.leadingAnchor.constraint(equalTo: leadingAnchor),
+            key.trailingAnchor.constraint(equalTo: trailingAnchor),
+            key.topAnchor.constraint(equalTo: topAnchor),
+            key.heightAnchor.constraint(equalToConstant: keyHeight),
+            highlight.leadingAnchor.constraint(equalTo: key.leadingAnchor),
+            highlight.trailingAnchor.constraint(equalTo: key.trailingAnchor),
+            highlight.topAnchor.constraint(equalTo: key.topAnchor),
+            highlight.bottomAnchor.constraint(equalTo: key.bottomAnchor),
+            icon.centerXAnchor.constraint(equalTo: key.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: key.centerYAnchor),
+            label.topAnchor.constraint(equalTo: key.bottomAnchor, constant: 6),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -labelOutset),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: labelOutset),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
     /// A flat menu row: plain symbol, regular-weight title, and a trailing
-    /// checkmark while a toggle is on, or a chevron on a command that opens
-    /// something.
-    private func buildListContent() {
+    /// switch on an option, or a chevron on a command that opens something.
+    /// With [iconCenter], the symbol column reaches that far plus half the
+    /// symbol's width, so the symbol's centre lands on the first tile's.
+    private func buildListContent(iconCenter: CGFloat?) {
         let highlight = UIView()
         highlight.translatesAutoresizingMaskIntoConstraints = false
         highlight.isUserInteractionEnabled = false
-        highlight.backgroundColor = .tertiarySystemFill
+        highlight.backgroundColor = Self.pressedShade
         highlight.layer.cornerRadius = 12
         highlight.layer.cornerCurve = .continuous
         highlight.alpha = 0
@@ -855,45 +1117,62 @@ private final class NativeKeyboardAttachmentTile: UIControl {
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
         textStack.axis = .vertical
-        textStack.spacing = 0
+        textStack.spacing = 1
 
-        let isCommand = action.kind == .command
-        let accessory = UIImageView(
-            image: UIImage(systemName: isCommand ? "chevron.right" : "checkmark")
-        )
-        accessory.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            textStyle: isCommand ? .footnote : .subheadline,
-            scale: .medium
-        )
-        accessory.tintColor = isCommand ? .secondaryLabel : .label
-        accessory.contentMode = .scaleAspectFit
-        accessory.isHidden = !isCommand && !action.selected
-        accessory.translatesAutoresizingMaskIntoConstraints = false
+        let accessory: UIView
+        if action.kind == .toggle {
+            // The same switch as Settings, so an option shows whether it is
+            // on before it is tapped. The row takes the tap; the switch
+            // only shows the state.
+            let toggle = UISwitch()
+            toggle.isOn = action.selected
+            toggle.isEnabled = action.enabled
+            toggle.isUserInteractionEnabled = false
+            toggle.isAccessibilityElement = false
+            toggle.setContentHuggingPriority(.required, for: .horizontal)
+            toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
+            toggleSwitch = toggle
+            accessory = toggle
+        } else {
+            let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+            chevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+                textStyle: .footnote,
+                scale: .medium
+            )
+            chevron.tintColor = .tertiaryLabel
+            chevron.contentMode = .scaleAspectFit
+            chevron.translatesAutoresizingMaskIntoConstraints = false
+            chevron.widthAnchor.constraint(equalToConstant: 20).isActive = true
+            accessory = chevron
+        }
 
-        let row = UIStackView(arrangedSubviews: [icon, textStack, accessory])
+        let iconColumn = UIView()
+        iconColumn.translatesAutoresizingMaskIntoConstraints = false
+        iconColumn.isUserInteractionEnabled = false
+        iconColumn.addSubview(icon)
+        let iconWidth = Self.listIconWidth
+        let center = max(iconCenter ?? iconWidth / 2, iconWidth / 2)
+        NSLayoutConstraint.activate([
+            iconColumn.widthAnchor.constraint(equalToConstant: center + iconWidth / 2),
+            icon.centerXAnchor.constraint(equalTo: iconColumn.leadingAnchor, constant: center),
+            icon.centerYAnchor.constraint(equalTo: iconColumn.centerYAnchor),
+            icon.topAnchor.constraint(greaterThanOrEqualTo: iconColumn.topAnchor),
+            icon.bottomAnchor.constraint(lessThanOrEqualTo: iconColumn.bottomAnchor),
+        ])
+
+        let row = UIStackView(arrangedSubviews: [iconColumn, textStack, accessory])
         row.axis = .horizontal
         row.alignment = .center
         row.spacing = 12
+        row.setCustomSpacing(16, after: textStack)
         row.isUserInteractionEnabled = false
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
 
-        // Below required so the stack's zero-width hiding constraint wins
-        // when the option is off, without an Auto Layout conflict.
-        let accessoryWidth = accessory.widthAnchor.constraint(equalToConstant: 20)
-        accessoryWidth.priority = .defaultHigh
-
-        // A toggle reads its on/off state as its value; without a state
-        // label, a selected option at least reads as selected.
         isAccessibilityElement = true
         accessibilityLabel = action.label
         accessibilityHint = action.subtitle
-        if action.kind == .toggle, let state = action.stateLabel, !state.isEmpty {
-            accessibilityValue = state
-            accessibilityTraits = .button
-        } else {
-            accessibilityTraits = action.selected ? [.button, .selected] : .button
-        }
+        updateListAccessibility()
 
         NSLayoutConstraint.activate([
             highlight.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -8),
@@ -902,11 +1181,28 @@ private final class NativeKeyboardAttachmentTile: UIControl {
             highlight.bottomAnchor.constraint(equalTo: bottomAnchor),
             row.leadingAnchor.constraint(equalTo: leadingAnchor),
             row.trailingAnchor.constraint(equalTo: trailingAnchor),
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
-            icon.widthAnchor.constraint(equalToConstant: 22),
-            accessoryWidth,
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            icon.widthAnchor.constraint(equalToConstant: Self.listIconWidth),
+            iconColumn.heightAnchor.constraint(equalTo: row.heightAnchor),
         ])
+    }
+
+    /// The box a list row's symbol is centred in.
+    private static let listIconWidth: CGFloat = 22
+
+    /// A toggle reads its on/off state as its value; without a state label, a
+    /// selected option at least reads as selected.
+    private func updateListAccessibility() {
+        guard case .list = style else { return }
+        if action.kind == .toggle, let state = action.stateLabel, !state.isEmpty {
+            accessibilityValue = state
+            accessibilityTraits = .button
+        } else {
+            accessibilityValue = nil
+            accessibilityTraits = action.selected ? [.button, .selected] : .button
+        }
     }
 }
 

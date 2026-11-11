@@ -306,6 +306,42 @@ mixin _ChannelsApi on _ApiServiceBase {
     return response.data as bool;
   }
 
+  /// Sets whether the current user hears about every message in a channel
+  /// or only about mentions (Open WebUI 0.12.1). Returns the stored value.
+  ///
+  /// The server also sends a `channel:mute` event to the user's sessions.
+  Future<bool> updateMemberMuteStatus(
+    String channelId, {
+    required bool isChannelMuted,
+  }) async {
+    _traceApi('Updating mute status in channel: $channelId');
+    final response = await _dio.post(
+      '/api/v1/channels/$channelId/members/mute',
+      data: {'is_channel_muted': isChannelMuted},
+    );
+    final data = response.data;
+    return data is Map && data['is_channel_muted'] is bool
+        ? data['is_channel_muted'] as bool
+        : isChannelMuted;
+  }
+
+  /// Presses the button [actionId] on the app message [messageId] (Open WebUI
+  /// 0.12.1, routers/apps.py). Returns the app's answer: `{type: 'ack'}`, or
+  /// a reply with `type`, `visibility`, `title`, `content`, `embeds`, ...
+  Future<Map<String, dynamic>> createAppInteraction(
+    String appId, {
+    required String messageId,
+    required String actionId,
+  }) async {
+    _traceApi('Sending app interaction: $appId/$messageId');
+    final response = await _dio.post(
+      '/api/v1/apps/${Uri.encodeComponent(appId)}/interactions',
+      data: {'message_id': messageId, 'action_id': actionId},
+    );
+    final data = response.data;
+    return data is Map<String, dynamic> ? data : const <String, dynamic>{};
+  }
+
   /// Fetches a single message with thread info and reactions.
   Future<Map<String, dynamic>?> getChannelMessage(
     String channelId,

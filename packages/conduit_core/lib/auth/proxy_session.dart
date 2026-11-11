@@ -198,15 +198,10 @@ ApiService _defaultCreateApi({
   authToken: authToken,
 );
 
-/// Merges proxy cookies into headers without leaving alternate-cased Cookie
-/// fields or duplicate cookie names. Newly captured values are authoritative.
-Map<String, String> mergeCapturedProxyCookiesIntoHeaders({
-  required Map<String, String> headers,
-  required Map<String, String> capturedCookies,
-}) {
-  final mergedHeaders = Map<String, String>.from(headers);
-  final mergedCookies = <String, String>{};
-
+/// The cookies in [headers]' Cookie fields, whatever their case, by name;
+/// a later value for a name wins.
+Map<String, String> cookiesFromHeaders(Map<String, String> headers) {
+  final cookies = <String, String>{};
   for (final entry in headers.entries) {
     if (entry.key.toLowerCase() != 'cookie') continue;
     for (final component in entry.value.split(';')) {
@@ -214,9 +209,20 @@ Map<String, String> mergeCapturedProxyCookiesIntoHeaders({
       if (separator <= 0) continue;
       final name = component.substring(0, separator).trim();
       if (name.isEmpty) continue;
-      mergedCookies[name] = component.substring(separator + 1).trim();
+      cookies[name] = component.substring(separator + 1).trim();
     }
   }
+  return cookies;
+}
+
+/// Merges proxy cookies into headers without leaving alternate-cased Cookie
+/// fields or duplicate cookie names. Newly captured values are authoritative.
+Map<String, String> mergeCapturedProxyCookiesIntoHeaders({
+  required Map<String, String> headers,
+  required Map<String, String> capturedCookies,
+}) {
+  final mergedHeaders = Map<String, String>.from(headers);
+  final mergedCookies = cookiesFromHeaders(headers);
 
   mergedHeaders.removeWhere((key, _) => key.toLowerCase() == 'cookie');
   mergedCookies.addAll(capturedCookies);

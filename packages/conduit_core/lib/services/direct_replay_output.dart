@@ -78,8 +78,10 @@ List<Map<String, dynamic>>? buildConduitDirectReplayOutput({
 /// Recognizes only the exact versioned shape emitted above.
 ///
 /// Requiring exact standard fields prevents an ordinary Open WebUI Responses
-/// message from being mistaken for Conduit's replay channel. A direct Ollama
-/// Cloud turn may also contain Conduit-owned function-call pairs; every
+/// message from being mistaken for Conduit's replay channel. A direct turn
+/// that ran tools also contains Conduit-owned function-call pairs, under
+/// whatever call id the adapter used (`ollama-…` from Ollama Cloud, the
+/// provider's own id from the OpenAI-compatible and Apple adapters); every
 /// sibling item is validated before the mirror is trusted.
 ConduitDirectReplayOutputMirror? parseConduitDirectReplayOutput(
   List<Map<String, dynamic>> output,
@@ -151,6 +153,10 @@ ConduitDirectReplayOutputMirror? parseConduitDirectReplayOutput(
   );
 }
 
+/// The exact items `DirectStreamingAccumulator.toolOutput` writes. Open WebUI's
+/// own tool items differ in shape, not just id: its `function_call` carries
+/// `arguments` as a JSON string, and its `function_call_output` has `id` and
+/// `status` fields, so neither passes here.
 bool _isConduitDirectToolOutputItem(Map<String, dynamic> item) {
   final type = item['type'];
   if (type == 'function_call') {
@@ -165,7 +171,7 @@ bool _isConduitDirectToolOutputItem(Map<String, dynamic> item) {
           'status',
         }) &&
         id is String &&
-        id.startsWith('ollama-') &&
+        id.isNotEmpty &&
         callId == id &&
         item['name'] is String &&
         item['arguments'] is Map &&
@@ -179,7 +185,7 @@ bool _isConduitDirectToolOutputItem(Map<String, dynamic> item) {
     final callId = item['call_id'];
     return hasAllowedKeys &&
         callId is String &&
-        callId.startsWith('ollama-') &&
+        callId.isNotEmpty &&
         (item['error'] == null || item['error'] is bool);
   }
   return false;
