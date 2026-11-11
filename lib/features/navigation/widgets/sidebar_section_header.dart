@@ -28,6 +28,10 @@ const double kSidebarSectionHeaderInset = Spacing.md;
 ///
 /// A section that cannot collapse keeps the chevron's column empty, so every
 /// section title starts on one edge.
+///
+/// A trailing control sits in the column of the rows' own trailing controls
+/// (a folder's disclosure button), centred on the title's line, and leaves
+/// the header as tall as one without it.
 class SidebarSectionHeader extends StatelessWidget {
   const SidebarSectionHeader({
     super.key,
@@ -54,7 +58,14 @@ class SidebarSectionHeader extends StatelessWidget {
   /// Opens or closes the section.
   final VoidCallback? onToggle;
 
-  /// A compact control at the trailing end, such as New Folder.
+  /// A compact control at the trailing end, such as New Folder: laid out
+  /// [TouchTarget.minimum] wide and as tall as the header, it should centre
+  /// its content.
+  ///
+  /// At the default text size a later section's header is about 44 pt tall,
+  /// but the first section's is about 40 pt, below the toolbar's tighter
+  /// spacing. The control keeps that shorter target rather than make the
+  /// header taller than the others.
   final Widget? trailing;
 
   final Key? chevronKey;
@@ -87,13 +98,14 @@ class SidebarSectionHeader extends StatelessWidget {
       ),
     );
 
+    final topSpacing = isFirst
+        ? kSidebarFirstSectionTopSpacing
+        : kSidebarSectionTopSpacing;
     final row = Padding(
       padding: EdgeInsetsDirectional.only(
         start: kSidebarSectionHeaderInset,
         end: kSidebarSectionHeaderInset,
-        top: isFirst
-            ? kSidebarFirstSectionTopSpacing
-            : kSidebarSectionTopSpacing,
+        top: topSpacing,
         bottom: kSidebarSectionHeaderBottomSpacing,
       ),
       child: Row(
@@ -117,22 +129,60 @@ class SidebarSectionHeader extends StatelessWidget {
           ),
           const SizedBox(width: Spacing.xxs),
           Expanded(child: titleText),
-          if (trailing case final trailing?) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing,
-          ],
+          // Room for the trailing control, which the stack below lays over
+          // the row so that it does not make the row taller.
+          if (trailing != null)
+            const SizedBox(
+              width:
+                  Spacing.sm +
+                  TouchTarget.minimum +
+                  kSidebarRowContentInset -
+                  kSidebarSectionHeaderInset,
+            ),
         ],
       ),
     );
 
-    if (!collapsible) return row;
+    final header = switch (trailing) {
+      null => row,
+      final Widget trailing => Stack(
+        clipBehavior: Clip.none,
+        children: [
+          row,
+          PositionedDirectional(
+            top: 0,
+            bottom: 0,
+            end: kSidebarRowContentInset,
+            width: TouchTarget.minimum,
+            // The control takes taps across the header's whole height, so
+            // no row below takes any part of its target, while its content,
+            // centred on the header, is drawn down on the title's line: half
+            // the difference between the space above the title and the
+            // space below it. Merged above the move, it is one node for
+            // assistive technologies, over the same box that takes taps.
+            child: MergeSemantics(
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  (topSpacing - kSidebarSectionHeaderBottomSpacing) / 2,
+                ),
+                transformHitTests: false,
+                child: trailing,
+              ),
+            ),
+          ),
+        ],
+      ),
+    };
+
+    if (!collapsible) return header;
     // The whole header toggles, not just its title; a trailing control
     // keeps its own taps.
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _toggle,
       excludeFromSemantics: true,
-      child: row,
+      child: header,
     );
   }
 

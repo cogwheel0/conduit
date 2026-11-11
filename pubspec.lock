@@ -309,10 +309,10 @@ packages:
     dependency: "direct main"
     description:
       name: cupertino_native_better
-      sha256: "2101f42f1f255f1ff63d01d5700a902c1bf5a029a8da8efc44dcc20d06777fad"
+      sha256: "117a6b6e4a76367599351dc39f17dda0504a1d769b8f4389fe5cfc229c9d5aec"
       url: "https://pub.dev"
     source: hosted
-    version: "2.5.1"
+    version: "2.5.2"
   cupertino_ui:
     dependency: "direct main"
     description:
