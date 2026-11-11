@@ -1424,7 +1424,11 @@ class VoiceInputService implements VoiceModeInput {
           VoiceTranscriptEvent(text: _currentText, isFinal: true),
         );
       } else {
-        throw StateError('Empty transcription result');
+        // The VAD also cuts noise, coughs and echo into segments that the
+        // server transcribes to nothing (Hermes answers silence with an empty
+        // transcript on purpose). That is no utterance, not a recognition
+        // error: the listen just ends instead of failing the voice call.
+        _completedTranscriptIsSendable = false;
       }
     } catch (error) {
       _reportRecognitionError(error);
