@@ -5,6 +5,8 @@ import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart'
+    show HermesDashboardUnavailable;
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart'
     show kMaxHermesJsonResponseBytes, kMaxHermesJsonResponseCharacters;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -448,6 +450,15 @@ final class HermesDashboardPushBackend extends HermesPushBackend {
     } on DioException {
       throw const PushBackendException(
         PushFailure(PushFailureReason.serverUnreachable),
+      );
+    } on HermesDashboardUnavailable {
+      // Not a sign-in problem: this device can't send the dashboard's
+      // gateway headers, and signing in again would not change that.
+      throw const PushBackendException(
+        PushFailure(
+          PushFailureReason.serverRejected,
+          detail: 'dashboard_unavailable',
+        ),
       );
     } on StateError {
       // The dashboard client throws this when its sign-in is missing or

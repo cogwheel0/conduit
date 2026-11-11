@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart'
     show kMaxHermesJsonResponseBytes;
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart'
+    show HermesDashboardUnavailable;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/services/hermes_push_backend.dart';
@@ -366,6 +368,15 @@ void main() {
           .equals(PushProbeOutcome.signInNeeded);
     });
 
+    test('a dashboard this device cannot reach is a failure, not sign-in', () async {
+      dashboard.unavailable = true;
+      final probe = await backend.probe();
+      check(probe.outcome).equals(PushProbeOutcome.failed);
+      check(probe.failure).isNotNull()
+        ..has((f) => f.reason, 'reason').equals(PushFailureReason.serverRejected)
+        ..has((f) => f.detail, 'detail').equals('dashboard_unavailable');
+    });
+
     test('ops go to the events route for the profile', () async {
       final backend = HermesDashboardPushBackend(
         client: dashboard,
@@ -548,6 +559,7 @@ final class _Dashboard implements HermesDashboardClient {
   Map<String, Object?>? hubRow;
   int hubStatus = 200;
   bool signedOut = false;
+  bool unavailable = false;
   bool gatewayIsRunning = false;
   HermesDashboardResponse installResponse = const HermesDashboardResponse(
     200,
@@ -566,6 +578,9 @@ final class _Dashboard implements HermesDashboardClient {
     Map<String, dynamic>? query,
   }) async {
     if (signedOut) throw StateError('Hermes sign-in is required.');
+    if (unavailable) {
+      throw HermesDashboardUnavailable('No safe way to add the headers here.');
+    }
     final suffix = query == null || query.isEmpty
         ? ''
         : '?${query.entries.map((e) => '${e.key}=${e.value}').join('&')}';
