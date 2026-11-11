@@ -210,10 +210,31 @@ void main() {
     check(notification.sourceId).equals(turn.sessionId);
     check(notification.group).equals('hermes:${turn.sessionId}');
     check(notification.dedupKey).equals(
-      'hermes:conn-1|hermes:${turn.sessionId}:assistant-1',
+      'hermes:conn-1|hermes:${turn.sessionId}:assistant-1:${turn.runId}',
     );
     // The push for this turn keys on the server's turn id.
     check(notification.sharesPushDedupKey).isFalse();
+  });
+
+  test('a regenerated reply notifies as a new one', () async {
+    Future<HermesTurnCompletion> run(String reply) async {
+      final container = _container(
+        _ScriptedHermesApi(<HermesRunEvent>[
+          HermesTokenDelta(reply),
+          const HermesRunDone(),
+        ]),
+      );
+      addTearDown(container.dispose);
+      return (await _runTurn(container)).single;
+    }
+
+    // Both write into assistant-1 of the same session.
+    final first = await run('First answer.');
+    final regenerated = await run('Second answer.');
+    check(regenerated.message.id).equals(first.message.id);
+    check(
+      appNotificationForHermesTurn(regenerated)!.dedupKey,
+    ).not((it) => it.equals(appNotificationForHermesTurn(first)!.dedupKey));
   });
 
   test('a turn in a native Hermes chat is watched for push', () async {

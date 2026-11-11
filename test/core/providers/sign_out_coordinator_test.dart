@@ -400,6 +400,7 @@ void main() {
   test(
     'failed direct-local purge keeps destructive-clear barriers closed',
     () async {
+      final signedOut = <String?>[];
       final container = ProviderContainer(
         overrides: [
           authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
@@ -410,6 +411,7 @@ void main() {
           directLocalDatabasePurgeProvider.overrideWithValue(
             () => Future<void>.error(StateError('delete failed')),
           ),
+          hostSignedOutProvider.overrideWithValue(signedOut.add),
         ],
       );
       addTearDown(container.dispose);
@@ -438,6 +440,8 @@ void main() {
           assistantMessageId: 'assistant',
         ), 'profile'),
       ).throws<StateError>();
+      // Signed out all the same: no account's notifications stay posted.
+      check(signedOut).deepEquals([null]);
     },
   );
 

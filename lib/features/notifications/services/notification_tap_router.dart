@@ -12,7 +12,9 @@ import 'package:conduit_core/features/notifications/models/notification_scope.da
 import 'package:conduit_core/features/notifications/services/cp1_notification_mapper.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/current_localizations.dart';
@@ -39,6 +41,14 @@ abstract interface class NotificationTapNavigator {
   /// Makes [connectionId] the Hermes connection in use, with Hermes on, as
   /// the Accounts page does. Returns whether it is.
   Future<bool> useHermesConnection(String connectionId);
+
+  /// While LibreChat owns the Chats tab: gives the tab back to Open WebUI
+  /// with [accountId] in use, as the Accounts page does. [force] stops a
+  /// reply still being written.
+  Future<PrimarySwitchResult> useOpenWebUiForChats(
+    String accountId, {
+    required bool force,
+  });
 
   /// Says the notification's account or connection is no longer here.
   void showTargetUnavailable();
@@ -180,9 +190,13 @@ class NotificationTapRouter {
   /// said why not when it was removed or the switch failed.
   Future<bool> _enterOpenWebUiAccount(String accountId) async {
     final entries = await _ref.read(openWebUiAccountsProvider.future);
-    if (!entries.any((entry) => entry.id == accountId)) {
+    final entry = entries.where((entry) => entry.id == accountId).firstOrNull;
+    if (entry == null) {
       _navigator.showTargetUnavailable();
       return false;
+    }
+    if (_ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      return _takeTabFromLibreChat(accountId, hasSession: entry.hasSession);
     }
     final OpenWebUiAccountChangeResult? result;
     try {
@@ -209,6 +223,45 @@ class NotificationTapRouter {
         return false;
       case OpenWebUiAccountChangeResult.done ||
           OpenWebUiAccountChangeResult.alreadyActive:
+        return _awaitSettledAccount(accountId);
+    }
+  }
+
+  /// While LibreChat owns the Chats tab, Open WebUI is parked and none of its
+  /// accounts is in use: [accountId] takes the tab back the way the accounts
+  /// page does, so the tab and the account in use agree.
+  Future<bool> _takeTabFromLibreChat(
+    String accountId, {
+    required bool hasSession,
+  }) async {
+    PrimarySwitchResult result;
+    try {
+      result = await _navigator.useOpenWebUiForChats(accountId, force: false);
+      if (result == PrimarySwitchResult.blockedByActiveReply) {
+        if (!await _navigator.confirmSwitchStopsReply()) return false;
+        result = await _navigator.useOpenWebUiForChats(accountId, force: true);
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'primary-switch-failed',
+        scope: 'notifications/center',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _navigator.showError();
+      return false;
+    }
+    switch (result) {
+      case PrimarySwitchResult.unknownAccount:
+        _navigator.showTargetUnavailable();
+        return false;
+      case PrimarySwitchResult.blockedByActiveReply:
+        return false;
+      case PrimarySwitchResult.done:
+        if (!hasSession) {
+          _navigator.openSignIn();
+          return false;
+        }
         return _awaitSettledAccount(accountId);
     }
   }
@@ -283,6 +336,14 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       connectionId,
     );
   }
+
+  @override
+  Future<PrimarySwitchResult> useOpenWebUiForChats(
+    String accountId, {
+    required bool force,
+  }) => _ref
+      .read(primaryAccountSwitcherProvider)
+      .useOpenWebUi(accountId, force: force);
 
   @override
   void showTargetUnavailable() =>

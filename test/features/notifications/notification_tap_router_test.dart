@@ -7,11 +7,17 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-OpenWebUiAccountEntry _entry(String id, {bool active = false}) =>
+OpenWebUiAccountEntry _entry(
+  String id, {
+  bool active = false,
+  bool hasSession = true,
+}) =>
     OpenWebUiAccountEntry(
       account: OpenWebUiAccount(id: id, serverId: '$id-server', userId: 'u'),
       server: OpenWebUiServer(
@@ -21,7 +27,7 @@ OpenWebUiAccountEntry _entry(String id, {bool active = false}) =>
       ),
       summary: const OpenWebUiAccountSummary(name: 'Ada'),
       isActive: active,
-      hasSession: true,
+      hasSession: hasSession,
     );
 
 const _hermesHome = HermesConnectionProfile(
@@ -85,6 +91,22 @@ class _RecordingNavigator implements NotificationTapNavigator {
   bool confirmAnswer = true;
   bool hermesSwitchSucceeds = true;
 
+  /// What handing the Chats tab to Open WebUI answers, in order.
+  List<PrimarySwitchResult> primaryResults = [];
+  void Function(String accountId) onPrimaryDone = (_) {};
+  final List<(String, bool)> primarySwitches = [];
+
+  @override
+  Future<PrimarySwitchResult> useOpenWebUiForChats(
+    String accountId, {
+    required bool force,
+  }) async {
+    primarySwitches.add((accountId, force));
+    final result = primaryResults.removeAt(0);
+    if (result == PrimarySwitchResult.done) onPrimaryDone(accountId);
+    return result;
+  }
+
   @override
   Future<bool> confirmSwitchStopsReply() async {
     calls.add('confirm');
@@ -144,6 +166,9 @@ void main() {
     OpenWebUiAccountsController? controller,
     String? activeHermesId = 'conn-home',
     bool hermesEnabled = true,
+    bool libreChat = false,
+    List<PrimarySwitchResult> primaryResults = const [],
+    Set<String> signedOut = const {},
   }) {
     navigator = _RecordingNavigator();
     settled = _SettledAccount(activeAccountId);
@@ -151,6 +176,9 @@ void main() {
       List.of(results),
       onSwitched: (id) => settled.settle(id),
     );
+    navigator
+      ..primaryResults = List.of(primaryResults)
+      ..onPrimaryDone = settled.settle;
     final routerProvider = Provider<NotificationTapRouter>(
       (ref) => NotificationTapRouter(
         ref,
@@ -163,8 +191,12 @@ void main() {
         settledActiveAccountIdProvider.overrideWith(() => settled),
         openWebUiAccountsProvider.overrideWith(
           (ref) async => [
-            _entry('acct-1', active: activeAccountId == 'acct-1'),
-            _entry('acct-2', active: activeAccountId == 'acct-2'),
+            for (final id in ['acct-1', 'acct-2'])
+              _entry(
+                id,
+                active: activeAccountId == id,
+                hasSession: !signedOut.contains(id),
+              ),
           ],
         ),
         openWebUiAccountsControllerProvider.overrideWithValue(
@@ -173,6 +205,9 @@ void main() {
         hermesConnectionsProvider.overrideWithValue([_hermesHome, _hermesWork]),
         hermesActiveConnectionIdProvider.overrideWithValue(activeHermesId),
         hermesEnabledProvider.overrideWithValue(hermesEnabled),
+        primaryAccountKindProvider.overrideWithValue(
+          libreChat ? PrimaryAccountKind.libreChat : PrimaryAccountKind.openWebUi,
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -280,6 +315,74 @@ void main() {
         tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
       );
       check(navigator.calls).isEmpty();
+    });
+
+    group('while LibreChat owns the Chats tab', () {
+      test('Open WebUI takes the tab back, then the chat opens', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.primarySwitches).deepEquals([('acct-2', false)]);
+        check(accounts.switches).isEmpty();
+        check(navigator.calls).deepEquals(['chat:c2']);
+      });
+
+      test('a reply in the way asks, then switches with force', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [
+            PrimarySwitchResult.blockedByActiveReply,
+            PrimarySwitchResult.done,
+          ],
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(
+          navigator.primarySwitches,
+        ).deepEquals([('acct-2', false), ('acct-2', true)]);
+        check(navigator.calls).deepEquals(['confirm', 'chat:c2']);
+      });
+
+      test('keeping the reply leaves LibreChat in charge', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.blockedByActiveReply],
+        );
+        navigator.confirmAnswer = false;
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.primarySwitches).deepEquals([('acct-2', false)]);
+        check(navigator.calls).deepEquals(['confirm']);
+      });
+
+      test('an account signed out of opens its sign-in', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          signedOut: {'acct-2'},
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.calls).deepEquals(['sign-in']);
+      });
+
+      test('an account gone meanwhile says so', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.unknownAccount],
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.calls).deepEquals(['unavailable']);
+      });
     });
 
     test('a tap from before scopes opens in the active account', () async {

@@ -166,6 +166,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
+import 'features/notifications/providers/notification_socket_listener.dart'
+    show notificationRouterProvider;
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
@@ -474,6 +476,17 @@ void main() {
           // signing out of everything clears them all.
           hostSignedOutProvider.overrideWith((ref) {
             return (accountId) {
+              // One still being routed (waiting on its sound or claim) for
+              // that account shows nothing either.
+              if (ref.read(notificationRouterProvider.exists)) {
+                ref
+                    .read(notificationRouterProvider)
+                    .signedOut(
+                      accountId == null
+                          ? null
+                          : NotificationScope.openWebUi(accountId).value,
+                    );
+              }
               final local = ref.read(localNotificationServiceProvider);
               final clearing = accountId == null
                   ? local.cancelAll()

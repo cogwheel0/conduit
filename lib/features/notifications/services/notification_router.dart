@@ -133,6 +133,24 @@ class NotificationRouter {
   /// later, by then perhaps with the app in the background.
   late final _CountedMessages _countedByPush = _CountedMessages(_now);
 
+  /// Sign-outs so far, of everything and by scope.
+  int _allSignOuts = 0;
+  final Map<String, int> _scopeSignOuts = <String, int>{};
+
+  /// Tells the router [scope] was signed out of, or everything when null. A
+  /// notification for it still being routed (waiting on its sound or its
+  /// claim) then shows nothing.
+  void signedOut(String? scope) {
+    if (scope == null) {
+      _allSignOuts++;
+    } else {
+      _scopeSignOuts.update(scope, (count) => count + 1, ifAbsent: () => 1);
+    }
+  }
+
+  (int, int) _signOutMark(String scope) =>
+      (_allSignOuts, _scopeSignOuts[scope] ?? 0);
+
   /// Routes [notification] through the gating chain and dispatches it. Returns
   /// the surface taken, primarily for tests and diagnostics.
   ///
@@ -149,6 +167,8 @@ class NotificationRouter {
     bool alert = true,
   }) async {
     final settings = _readSettings();
+    final signOuts = _signOutMark(notification.scope);
+    bool signedOutSince() => _signOutMark(notification.scope) != signOuts;
 
     // 1. Master toggle: the switch of the account the notification belongs
     // to, not the active account's. Hermes and Direct follow the
@@ -242,6 +262,7 @@ class NotificationRouter {
     if (!alert) return NotificationSurface.suppressed;
     if (settings.notificationSound && settings.notificationSoundAlways) {
       await _sound.play();
+      if (signedOutSince()) return NotificationSurface.suppressed;
     }
 
     // 7. Exactly one primary surface, chosen by lifecycle. Unlike Open WebUI's
@@ -261,6 +282,7 @@ class NotificationRouter {
         if (!alreadyClaimed && !await _claim(notification.dedupKey, '$id')) {
           return NotificationSurface.suppressed;
         }
+        if (signedOutSince()) return NotificationSurface.suppressed;
         await _localNotifications.show(
           notification,
           playSound: settings.notificationSound,
