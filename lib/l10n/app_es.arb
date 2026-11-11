@@ -4898,7 +4898,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "En Android puedes usar en su lugar un distribuidor de UnifiedPush. Tu servidor le envía directamente, sin el relé de Conduit ni Google.",
   "pushPrivacyOffTitle": "Desactivar push",
-  "pushPrivacyOffBody": "Desactivar push borra todas las claves push de este dispositivo; cerrar sesión en una cuenta o quitarla borra las de esa cuenta. Nada de lo que se les envíe después se puede leer. Conduit también pide a los servidores de las cuentas afectadas que olviden este dispositivo.",
+  "pushPrivacyOffBody": "Desactivar push borra todas las claves push de este dispositivo; desactivarlo para una cuenta, cerrar sesión en ella o quitarla borra las de esa cuenta. Nada de lo que se les envíe después se puede leer. Conduit también pide a los servidores de las cuentas afectadas que olviden este dispositivo.",
   "pushPrivacyReadMore": "Leer todos los detalles",
   "pushAttentionChip": "Push necesita atención",
   "notificationScheduledTitle": "Tareas programadas",
