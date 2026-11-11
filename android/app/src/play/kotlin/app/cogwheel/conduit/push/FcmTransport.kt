@@ -75,25 +75,31 @@ internal object FcmTransport {
         // The manifest keeps auto-init off until now; from here on FCM
         // refreshes the token by itself. Not before a deletion still running
         // has ended: Firebase's own sync could fetch the token it is about to
-        // invalidate. And not when FCM was released meanwhile.
-        fun tokenAfterOptIn(): Task<String> {
-            if (PushRuntime.config(appContext).fcmOptedIn) messaging.isAutoInitEnabled = true
-            return messaging.token
+        // invalidate.
+        fun fetchToken() {
+            messaging.isAutoInitEnabled = true
+            messaging.token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    callback(Result.success(task.result))
+                } else {
+                    val message = task.exception?.message ?: "FCM did not issue a token"
+                    callback(Result.failure(FlutterError("fcm_token_failed", message, null)))
+                }
+            }
         }
         val deletion = pendingDeletion
-        val token = if (deletion == null || deletion.isComplete) {
-            tokenAfterOptIn()
-        } else {
-            // Wait for the deletion whether or not it succeeds, then ask for a
-            // token: it is a new one.
-            deletion.continueWithTask { tokenAfterOptIn() }
+        if (deletion == null || deletion.isComplete) {
+            fetchToken()
+            return
         }
-        token.addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                callback(Result.success(task.result))
+        // Wait for the deletion whether or not it succeeds, then ask for a
+        // token: it is a new one. Released again meanwhile (push turned off),
+        // this request is stale and gets no token; a later one opts in again.
+        deletion.addOnCompleteListener {
+            if (PushRuntime.config(appContext).fcmOptedIn) {
+                fetchToken()
             } else {
-                val message = task.exception?.message ?: "FCM did not issue a token"
-                callback(Result.failure(FlutterError("fcm_token_failed", message, null)))
+                callback(Result.success(null))
             }
         }
     }
