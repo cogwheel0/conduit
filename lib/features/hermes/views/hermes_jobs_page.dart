@@ -344,6 +344,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
     // For the notify step, which can end after the page is gone.
     final container = ProviderScope.containerOf(context, listen: false);
+    final active = ref.read(hermesActiveConnectionIdProvider);
     final connectionId = _pushConnectionId(ref);
     final hint = _notifyUnavailableHint(ref, l10n, connectionId);
     // A new job notifies by default where push reaches this connection.
@@ -354,7 +355,10 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
       notifyUnavailableHint: hint,
     );
     if (result == null || !mounted || _creating) return;
-    if (ref.read(hermesApiServiceProvider) == null) {
+    // Another connection became active while the editor was open (say, by
+    // opening a notification): the job was meant for the one before.
+    if (ref.read(hermesApiServiceProvider) == null ||
+        ref.read(hermesActiveConnectionIdProvider) != active) {
       UiUtils.showMessage(context, l10n.hermesJobCreateFailed, isError: true);
       return;
     }
@@ -865,6 +869,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
     final l10n = _l10n(context);
     // For the notify step, which can end after the page is gone.
     final container = ProviderScope.containerOf(context, listen: false);
+    final active = ref.read(hermesActiveConnectionIdProvider);
     // A job whose delivery targets could not be read offers no switch: it
     // would write them back without the unread ones.
     final connectionId = job.deliveryKnown ? _pushConnectionId(ref) : null;
@@ -883,6 +888,11 @@ class _JobCardState extends ConsumerState<_JobCard> {
           HermesBackendMode.desktopGateway,
     );
     if (result == null || !mounted) return;
+    // The job is on the connection that was active when the editor opened.
+    if (ref.read(hermesActiveConnectionIdProvider) != active) {
+      UiUtils.showMessage(context, l10n.hermesJobUpdateFailed, isError: true);
+      return;
+    }
     final notify = result.notify;
     final changesNotify =
         connectionId != null && notify != null && notify != notifies;

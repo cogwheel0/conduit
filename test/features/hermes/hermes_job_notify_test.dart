@@ -110,7 +110,9 @@ void main() {
                 ),
               ),
             ),
-            hermesActiveConnectionIdProvider.overrideWithValue(_connection),
+            hermesActiveConnectionIdProvider.overrideWith(
+              (ref) => ref.watch(_activeConnection),
+            ),
             pushStateIfUsedProvider.overrideWithValue(push),
             pushCoordinatorProvider.overrideWith(() => fake),
           ],
@@ -150,6 +152,29 @@ void main() {
       expect(fake.calls, [
         'setHermesJobNotify $_connection job-new true',
       ]);
+    });
+
+    testWidgets('a job is not made on a connection switched to meanwhile', (
+      tester,
+    ) async {
+      final fake = await pumpPage(tester, push: _push(PushStatus.on));
+      await tester.tap(find.text('New Scheduled Job'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText).at(0), 'Daily');
+      await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HermesJobsPage)),
+      );
+      // Say, a notification from another connection was opened.
+      container.read(_activeConnection.notifier).set('conn-other');
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final jobs = container.read(hermesJobsProvider.notifier) as _Jobs;
+      expect(jobs.creates, 0);
+      expect(fake.calls, isEmpty);
+      expect(find.text('Could not create scheduled job.'), findsOneWidget);
     });
 
     testWidgets('no Notify me until push works for the connection', (
@@ -353,6 +378,18 @@ void main() {
   });
 }
 
+/// The active Hermes connection, which a test can switch.
+final _activeConnection = NotifierProvider<_ActiveConnection, String?>(
+  _ActiveConnection.new,
+);
+
+final class _ActiveConnection extends Notifier<String?> {
+  @override
+  String? build() => _connection;
+
+  void set(String? id) => state = id;
+}
+
 final class _Jobs extends HermesJobsController {
   _Jobs(this.jobs, {this.answersJob = true});
 
@@ -361,6 +398,8 @@ final class _Jobs extends HermesJobsController {
   /// Whether creating answers the job, or (like some servers) nothing that
   /// names it.
   final bool answersJob;
+
+  int creates = 0;
 
   @override
   Future<List<HermesJob>> build() async => jobs;
@@ -382,7 +421,7 @@ final class _Jobs extends HermesJobsController {
     required String schedule,
     String? deliver,
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
-  }) async => answersJob
+  }) async => ++creates > 0 && answersJob
       ? HermesJob(
           id: 'job-new',
           name: name,
