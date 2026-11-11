@@ -48,6 +48,8 @@ import '../profile/widgets/account_sheet.dart'
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
 import 'settings_page_module.dart';
+import 'pages/server_address_settings_pages.dart'
+    show serverAddressesAddAccountActionId, serverAddressesPageId;
 import 'settings_pages.dart';
 
 /// Which Settings an event came from.
@@ -208,6 +210,17 @@ class SettingsController {
     Object? value,
   ) async {
     final context = NavigationService.context;
+    // Sign Out from an account row's menu, on the server's page: the
+    // Settings sheet closes first, as the sign-out page's own rows do.
+    const signOutOfPrefix = '$nativeAccountSignOutOfActionId:';
+    if (actionId.startsWith(signOutOfPrefix)) {
+      final bridge = NativeSheetBridge.instance;
+      if (bridge.settingsSheetOpen) await bridge.dismiss();
+      return _handleNativeAccountAction(
+        nativeAccountSignOutOfActionId,
+        actionId.substring(signOutOfPrefix.length),
+      );
+    }
     switch (actionId) {
       case nativeAccountSwitchActionId:
         if (context == null || value is! String) return true;
@@ -223,14 +236,9 @@ class SettingsController {
               : AccountKind.openWebUi,
         );
         return true;
-      case nativeAccountServerActionId:
-        if (value is! String) return true;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            RouteNames.serverAddresses,
-            extra: value,
-          ),
-        );
+      case serverAddressesAddAccountActionId:
+        if (context == null || value is! String) return true;
+        openAddAccount(context, ref, serverId: value);
         return true;
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;
@@ -259,6 +267,10 @@ class SettingsController {
         if (entry == null || !context.mounted) return true;
         await signOutOfSavedAccount(context, ref, entry);
         await _refreshSignOutPage();
+        // Its server's page no longer lists it, and goes with its last one.
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail(serverAddressesPageId(entry.server.id));
         return true;
       case nativeAccountSignOutActionId:
         if (context == null) return true;

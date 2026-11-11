@@ -1089,6 +1089,7 @@ class NativeSheetDetailConfig {
     this.discardPrompt,
     this.busy = false,
     this.announcement,
+    this.edited = false,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1123,6 +1124,11 @@ class NativeSheetDetailConfig {
   /// action's outcome, shown on the page as well.
   final String? announcement;
 
+  /// Holds changes not yet saved, made on this page or on the pages it
+  /// leads to, as the page's owner counts them: leaving asks
+  /// [discardPrompt] whatever was changed here since it appeared.
+  final bool edited;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1145,6 +1151,7 @@ class NativeSheetDetailConfig {
       },
       if (busy) 'busy': busy,
       if (announcement != null) 'announcement': announcement,
+      if (edited) 'edited': edited,
     };
   }
 }
@@ -1700,6 +1707,7 @@ extension on NativeSheetDetailConfig {
       discardCancelLabel: discardPrompt?.keepLabel,
       busy: busy ? true : null,
       announcement: announcement,
+      edited: edited ? true : null,
     );
   }
 }

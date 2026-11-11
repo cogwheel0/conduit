@@ -826,6 +826,9 @@ private struct NativeSheetDetail {
     let busy: Bool
     /// Read out by VoiceOver as the page is described with it.
     let announcement: String?
+    /// Holds changes not yet saved, as Dart counts them, here or on the
+    /// pages it leads to: leaving asks the discard question.
+    let edited: Bool
 
     init(
         id: String,
@@ -840,7 +843,8 @@ private struct NativeSheetDetail {
         trailingActionSfSymbol: String? = nil,
         discardPrompt: NativeSheetDiscardPrompt? = nil,
         busy: Bool = false,
-        announcement: String? = nil
+        announcement: String? = nil,
+        edited: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -855,6 +859,7 @@ private struct NativeSheetDetail {
         self.discardPrompt = discardPrompt
         self.busy = busy
         self.announcement = announcement
+        self.edited = edited
     }
 
     init?(_ payload: [String: Any]) {
@@ -882,6 +887,7 @@ private struct NativeSheetDetail {
         discardPrompt = NativeSheetDiscardPrompt(payload)
         busy = payload["busy"] as? Bool ?? false
         announcement = payload["announcement"] as? String
+        edited = payload["edited"] as? Bool ?? false
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -1077,6 +1083,7 @@ private extension PlatformNativeSheetDetail {
         payload["discardCancelLabel"] = discardCancelLabel
         payload["busy"] = busy
         payload["announcement"] = announcement
+        payload["edited"] = edited
         return payload
     }
 }
@@ -1752,7 +1759,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 trailingActionId: existing.trailingActionId,
                 trailingActionSfSymbol: existing.trailingActionSfSymbol,
                 discardPrompt: existing.discardPrompt,
-                busy: existing.busy
+                busy: existing.busy,
+                edited: existing.edited
             )
             self.detailPayloads[detailId] = patched
             if self.activeDetailTableController?.detailId == detailId {
@@ -5495,7 +5503,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     var blocksLeaving: Bool {
         guard detail.discardPrompt != nil else { return false }
         let confirms = detail.confirmActionId.map { !$0.isEmpty } ?? false
-        return !pendingTextValues.isEmpty || (confirms && controlEdits)
+        return detail.edited
+            || !pendingTextValues.isEmpty
+            || (confirms && controlEdits)
     }
 
     /// Asks the page's discard question, then runs [leave] once the user

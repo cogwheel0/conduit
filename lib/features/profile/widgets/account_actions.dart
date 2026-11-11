@@ -14,120 +14,21 @@ import 'package:dio/dio.dart' show DioException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:go_router/go_router.dart';
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart';
-import 'package:conduit_core/features/push/models/push_target.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../../shared/widgets/user_avatar.dart';
-import '../../../shared/widgets/utility_components.dart';
 import '../../../core/utils/account_display.dart';
 import '../../auth/views/server_connection_page.dart'
     show ServerConnectionHandoff;
 import '../../hermes/widgets/hermes_connection_switcher.dart';
-import '../../push/widgets/push_attention_chip.dart';
 import 'account_sheet.dart';
 
 export '../../../core/utils/account_display.dart';
 export 'account_sheet.dart' show AccountKind;
-
-/// The avatar of an account the app is not signed in to: the image saved the
-/// last time it was active when that image travels with it (a data URL, as
-/// Open WebUI stores uploaded pictures), else its initial.
-class SavedAccountAvatar extends StatelessWidget {
-  const SavedAccountAvatar({
-    super.key,
-    required this.entry,
-    required this.size,
-  });
-
-  final OpenWebUiAccountEntry entry;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final image = entry.summary.profileImage;
-    final characters = accountDisplayName(entry, l10n).characters;
-    return UserAvatar(
-      size: size,
-      imageUrl: image != null && image.startsWith('data:image') ? image : null,
-      fallbackText: characters.isEmpty ? 'U' : characters.first.toUpperCase(),
-    );
-  }
-}
-
-/// A saved Open WebUI account as a row under its server: its avatar, who it
-/// is, and a check when it is the active one. Tapping switches to it; a long
-/// press signs out of it. [showSignOut] adds a sign-out button as well, for
-/// the server's own page.
-class SavedAccountRow extends ConsumerWidget {
-  const SavedAccountRow({
-    super.key,
-    required this.entry,
-    this.showSignOut = false,
-  });
-
-  final OpenWebUiAccountEntry entry;
-  final bool showSignOut;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-    final name = accountDisplayName(entry, l10n);
-    void signOut() =>
-        signOutOfSavedAccount(context, ref, entry, anchorContext: context);
-    return Semantics(
-      customSemanticsActions: {
-        CustomSemanticsAction(label: l10n.accountsSignOutOf(name)): signOut,
-      },
-      child: GestureDetector(
-        onLongPress: signOut,
-        child: UtilityRow(
-          title: name,
-          subtitle: accountSubtitle(entry, l10n),
-          leading: SavedAccountAvatar(entry: entry, size: IconSize.xl),
-          selected: entry.isActive,
-          preserveTrailingSemantics: true,
-          // The active account signed out -- its session expired, next to a
-          // usable Hermes or Direct backend that keeps this page open -- is
-          // switched to as any other, which opens its sign-in.
-          onTap: entry.isActive && entry.hasSession
-              ? null
-              : () => switchToSavedAccount(context, ref, entry.id),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              PushAttentionChip(scope: PushTarget.openWebUiScope(entry.id)),
-              if (entry.isActive)
-                ActiveCheckmark(semanticLabel: l10n.accountsActive),
-              if (showSignOut)
-                AdaptiveButton.icon(
-                  key: Key('accounts-sign-out-${entry.id}'),
-                  semanticLabel: l10n.accountsSignOutOf(name),
-                  icon: UiUtils.platformIcon(
-                    ios: CupertinoIcons.square_arrow_left,
-                    android: Icons.logout,
-                  ),
-                  iconColor: theme.error,
-                  style: AdaptiveButtonStyle.plain,
-                  // A row of a scrolling list: no native view per row.
-                  useNative: false,
-                  onPressed: signOut,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// The check that marks the account or connection in use.
 class ActiveCheckmark extends StatelessWidget {

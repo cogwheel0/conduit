@@ -2,6 +2,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'pages/librechat_memory_settings_pages.dart';
+import 'pages/server_address_settings_pages.dart';
 import 'pages/webhook_settings_pages.dart';
 
 /// A group of Settings pages kept together: which pages it draws, how it
@@ -23,5 +24,9 @@ abstract class SettingsPageModule {
 }
 
 final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
-  (ref) => [WebhookSettingsPages(ref), LibreChatMemorySettingsPages(ref)],
+  (ref) => [
+    WebhookSettingsPages(ref),
+    LibreChatMemorySettingsPages(ref),
+    ServerAddressSettingsPages(ref),
+  ],
 );

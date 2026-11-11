@@ -256,7 +256,6 @@ NativeSheetDetailConfig readNativeAccountsDetail(
   // are they rows.
   final apple = read(applePccPlatformSupportedProvider);
   final libreChatSession = read(libreChatSessionProvider).value;
-  final push = read(pushStateIfUsedProvider);
   return buildNativeAccountsDetail(
     l10n,
     libreChatEnabled: read(libreChatBackendEnabledProvider),
@@ -277,14 +276,19 @@ NativeSheetDetailConfig readNativeAccountsDetail(
     directProfiles: read(directConnectionProfilesProvider).value,
     appleOnDevice: apple && read(appleOnDeviceEnabledProvider),
     applePcc: apple && read(applePccEnabledProvider),
-    // As the Flutter Accounts page marked them: where push is on and an
-    // account or connection's setup needs the user.
-    pushAttention: {
-      if (push != null && push.enabled)
-        for (final target in push.targets.values)
-          if (pushTargetNeedsAttention(target)) target.scope,
-    },
+    pushAttention: readNativePushAttention(read),
   );
+}
+
+/// The push scopes whose setup needs the user, where push is on: the
+/// account rows say so, as the Flutter account rows' chip did.
+Set<String> readNativePushAttention(NativeSheetProviderReader read) {
+  final push = read(pushStateIfUsedProvider);
+  return {
+    if (push != null && push.enabled)
+      for (final target in push.targets.values)
+        if (pushTargetNeedsAttention(target)) target.scope,
+  };
 }
 
 /// Waits for what the native Accounts page shows from secure storage:
@@ -949,6 +953,20 @@ class NativeSheetHydrationService {
           detailSheets: [
             readNativeAccountSignOutDetail(_ref.read, l10n),
             readNativeAddAccountDetail(_ref.read, l10n),
+            // Each server's page, filled in as it appears.
+            for (final serverId in {
+              for (final entry
+                  in _ref.read(openWebUiAccountsProvider).value ??
+                      const <OpenWebUiAccountEntry>[])
+                entry.server.id,
+            })
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id:
+                    '$nativeServerAddressesPagePrefix'
+                    '${Uri.encodeComponent(serverId)}',
+                title: l10n.accountsServerAddresses,
+              ),
           ],
         );
         return;

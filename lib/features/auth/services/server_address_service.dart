@@ -986,3 +986,22 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
       ? const ServerAddressSaved()
       : ServerAddressNotSaved(l10n.proxyAuthFailed);
 }
+
+/// Where the address editor route goes: the address [endpointId] of the
+/// saved server [serverId], or a new one when null. With [draft], the edit
+/// was handed over from Settings to sign in through a proxy, and the
+/// connection page carries on with it.
+@immutable
+class ServerAddressEditorRequest {
+  const ServerAddressEditorRequest({
+    required this.serverId,
+    this.endpointId,
+    this.draft,
+  });
+
+  final String serverId;
+
+  /// The address to edit; null adds one.
+  final String? endpointId;
+  final ServerAddressDraft? draft;
+}

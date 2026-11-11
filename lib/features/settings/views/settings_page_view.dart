@@ -184,7 +184,9 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     final detail = widget.detail;
     if (detail.discardPrompt == null) return false;
     final confirms = detail.confirmActionId?.isNotEmpty ?? false;
-    return _pendingText.isNotEmpty || (confirms && _controlEdits);
+    return detail.edited ||
+        _pendingText.isNotEmpty ||
+        (confirms && _controlEdits);
   }
 
   @override

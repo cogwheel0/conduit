@@ -2350,6 +2350,7 @@ class PlatformNativeSheetDetail {
     this.discardCancelLabel,
     this.busy,
     this.announcement,
+    this.edited,
   });
 
   String id;
@@ -2389,6 +2390,10 @@ class PlatformNativeSheetDetail {
   /// Read out by assistive technology as the page is described with it.
   String? announcement;
 
+  /// Holds changes not yet saved, made on this page or on the pages it
+  /// leads to: leaving asks the discard question.
+  bool? edited;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -2407,6 +2412,7 @@ class PlatformNativeSheetDetail {
       discardCancelLabel,
       busy,
       announcement,
+      edited,
     ];
   }
 
@@ -2434,6 +2440,7 @@ class PlatformNativeSheetDetail {
       discardCancelLabel: result[13] as String?,
       busy: result[14] as bool?,
       announcement: result[15] as String?,
+      edited: result[16] as bool?,
     );
   }
 
@@ -2462,7 +2469,8 @@ class PlatformNativeSheetDetail {
         _deepEquals(discardConfirmLabel, other.discardConfirmLabel) &&
         _deepEquals(discardCancelLabel, other.discardCancelLabel) &&
         _deepEquals(busy, other.busy) &&
-        _deepEquals(announcement, other.announcement);
+        _deepEquals(announcement, other.announcement) &&
+        _deepEquals(edited, other.edited);
   }
 
   @override
@@ -2471,7 +2479,7 @@ class PlatformNativeSheetDetail {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol, discardTitle: $discardTitle, discardMessage: $discardMessage, discardConfirmLabel: $discardConfirmLabel, discardCancelLabel: $discardCancelLabel, busy: $busy, announcement: $announcement)';
+    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol, discardTitle: $discardTitle, discardMessage: $discardMessage, discardConfirmLabel: $discardConfirmLabel, discardCancelLabel: $discardCancelLabel, busy: $busy, announcement: $announcement, edited: $edited)';
   }
 }
 

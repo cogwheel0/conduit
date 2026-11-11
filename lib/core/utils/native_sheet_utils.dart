@@ -518,9 +518,7 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
   Set<String> pushAttention = const {},
 }) {
   String? withAttention(String scope, String? subtitle) =>
-      pushAttention.contains(scope)
-      ? [l10n.pushAttentionChip, ?subtitle].join(' · ')
-      : subtitle;
+      nativePushAttentionSubtitle(l10n, pushAttention, scope, subtitle);
   final byServer = <String, List<OpenWebUiAccountEntry>>{};
   for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
     byServer.putIfAbsent(entry.server.id, () => []).add(entry);
@@ -562,8 +560,11 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
         for (final group in byServer.values)
           NativeSheetSectionConfig(
             items: [
+              // Opens the server's page: its accounts and addresses.
               NativeSheetItemConfig(
-                id: '$nativeAccountServerActionId:${group.first.server.id}',
+                id:
+                    '$nativeServerAddressesPagePrefix'
+                    '${Uri.encodeComponent(group.first.server.id)}',
                 title: serverDisplayName(group.first.server),
                 // A server known only by its address gets a server symbol;
                 // initials of "127.0.0.1" would read "12".
@@ -571,12 +572,9 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
                 avatarName: serverIsKnownOnlyByAddress(group.first.server)
                     ? null
                     : serverDisplayName(group.first.server),
-                dismissOnSelect: true,
-                actionId: nativeAccountServerActionId,
-                actionValue: group.first.server.id,
               ),
               for (final entry in group)
-                _nativeAccountItem(
+                buildNativeAccountItem(
                   entry,
                   l10n,
                   subtitle: withAttention(
@@ -874,15 +872,33 @@ NativeSheetDetailConfig buildNativeAccountSignOutDetail(
   );
 }
 
+/// Prefix of the page of one saved Open WebUI server, its accounts and
+/// addresses; the server's URI-encoded id follows.
+const nativeServerAddressesPagePrefix = 'server-addresses:';
+
 /// A saved Open WebUI account under its server: switched to on a tap, but
-/// the one in use, signed in, stays put.
-NativeSheetItemConfig _nativeAccountItem(
+/// the one in use, signed in, stays put. [rowActions] are what else the row
+/// can do.
+/// [subtitle], led by a word that push needs the user when [scope] is in
+/// [pushAttention], as the Flutter account rows' chip said.
+String? nativePushAttentionSubtitle(
+  AppLocalizations l10n,
+  Set<String> pushAttention,
+  String scope,
+  String? subtitle,
+) => pushAttention.contains(scope)
+    ? [l10n.pushAttentionChip, ?subtitle].join(' · ')
+    : subtitle;
+
+NativeSheetItemConfig buildNativeAccountItem(
   OpenWebUiAccountEntry entry,
   AppLocalizations l10n, {
   String? subtitle,
+  List<NativeSheetRowAction> rowActions = const [],
 }) {
   final name = accountDisplayName(entry, l10n);
   return _nativeSwitchItem(
+    rowActions: rowActions,
     id: '$nativeAccountSwitchActionId:${entry.id}',
     title: name,
     subtitle: subtitle ?? accountSubtitle(entry, l10n),
@@ -908,7 +924,9 @@ NativeSheetItemConfig _nativeSwitchItem({
   String sfSymbol = 'person.crop.circle',
   String? avatarName,
   Uint8List? avatarBytes,
+  List<NativeSheetRowAction> rowActions = const [],
 }) => NativeSheetItemConfig(
+  rowActions: rowActions,
   id: id,
   title: title,
   subtitle: subtitle,
@@ -998,7 +1016,6 @@ const nativeAccountSignOutActionId = 'account-sign-out';
 
 /// Signs out of the saved Open WebUI account it names, active or not.
 const nativeAccountSignOutOfActionId = 'account-sign-out-of';
-const nativeAccountServerActionId = 'account-server';
 const nativeHermesUseActionId = 'account-hermes-use';
 const nativeDirectEditActionId = 'account-direct-edit';
 const nativeLibreChatUseActionId = 'account-librechat-use';

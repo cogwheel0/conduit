@@ -615,6 +615,7 @@ class PlatformNativeSheetDetail {
     this.discardCancelLabel,
     this.busy,
     this.announcement,
+    this.edited,
   });
 
   String id;
@@ -642,6 +643,10 @@ class PlatformNativeSheetDetail {
 
   /// Read out by assistive technology as the page is described with it.
   String? announcement;
+
+  /// Holds changes not yet saved, made on this page or on the pages it
+  /// leads to: leaving asks the discard question.
+  bool? edited;
 }
 
 class PlatformNativeProfileSheetConfig {

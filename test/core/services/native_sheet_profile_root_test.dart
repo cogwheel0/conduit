@@ -384,22 +384,29 @@ void main() {
       expect(page.trailingActionSfSymbol, isNull);
       expect(_ids(page.sections).take(2), [
         [
-          '$nativeAccountServerActionId:home',
+          '${nativeServerAddressesPagePrefix}home',
           '$nativeAccountSwitchActionId:alex-home',
           '$nativeAccountSwitchActionId:sam-home',
         ],
         [
-          '$nativeAccountServerActionId:work',
+          '${nativeServerAddressesPagePrefix}work',
           '$nativeAccountSwitchActionId:alex-work',
         ],
       ]);
-      final server = _item(page.sections, '$nativeAccountServerActionId:home');
+      final server = _item(
+        page.sections,
+        '${nativeServerAddressesPagePrefix}home',
+      );
       expect(server.title, 'Home Lab');
       expect(server.avatarName, 'Home Lab');
-      expect(server.actionId, nativeAccountServerActionId);
-      expect(server.actionValue, 'home');
+      // It opens the server's page, its accounts and addresses.
+      expect(server.dismissOnSelect, isFalse);
+      expect(server.actionId, isNull);
       expect(
-        _item(page.sections, '$nativeAccountServerActionId:work').avatarName,
+        _item(
+          page.sections,
+          '${nativeServerAddressesPagePrefix}work',
+        ).avatarName,
         'Work',
       );
 
@@ -439,7 +446,10 @@ void main() {
         accounts: [_entry('ada-local', local, name: 'Ada', isActive: true)],
       );
 
-      final server = _item(page.sections, '$nativeAccountServerActionId:local');
+      final server = _item(
+        page.sections,
+        '${nativeServerAddressesPagePrefix}local',
+      );
       expect(server.title, '127.0.0.1');
       expect(server.avatarName, isNull);
       expect(server.sfSymbol, 'server.rack');

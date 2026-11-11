@@ -77,6 +77,7 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
     this.serverId,
     this.routesOfServerId,
     this.endpointId,
+    this.routeDraft,
     this.handoff,
     this.onChecked,
     this.header,
@@ -101,6 +102,11 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
 
   /// The address being edited; null adds a new one.
   final String? endpointId;
+
+  /// An address edit handed over by Settings, whose address is behind a
+  /// proxy that wants its own sign-in: the form starts from it and
+  /// connects at once, signing in through the proxy.
+  final ServerAddressDraft? routeDraft;
 
   /// Connecting to sign in to another account while one is signed in. The
   /// form starts empty -- or from [serverId]'s saved route -- rather than
@@ -171,7 +177,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   void initState() {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
-    if (_editingRoutes) {
+    if (_editingRoutes && widget.routeDraft != null) {
+      unawaited(_carryOnRouteDraft(widget.routeDraft!));
+    } else if (_editingRoutes) {
       _prefillFromRoute();
     } else if (_embedded) {
       // A new server: the sheet offers the saved ones itself.
@@ -215,6 +223,33 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     } else {
       await _connectToServer();
     }
+  }
+
+  /// Starts from the edit Settings handed over, then connects, the proxy's
+  /// sign-in opening as a page of its own.
+  Future<void> _carryOnRouteDraft(ServerAddressDraft draft) async {
+    _routeLabelController.text = draft.label;
+    setState(() {
+      _urlController.text = draft.url;
+      _customHeaders
+        ..clear()
+        ..addAll(draft.headers);
+      _showAdvancedSettings =
+          draft.allowSelfSigned ||
+          draft.headers.isNotEmpty ||
+          (!kIsWeb && draft.hasMutualTlsInput);
+      _allowSelfSignedCertificates = draft.allowSelfSigned;
+      _mtlsCertificateChainPem = kIsWeb ? null : draft.certificatePem;
+      _mtlsCertificateLabel = kIsWeb ? null : draft.certificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : draft.privateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : draft.privateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : draft.privateKeyPassword;
+    });
+    // The proxy's page is pushed from this one, which must be in the tree.
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) await _connectToServer();
   }
 
   Future<void> _prefillFromRoute() async {

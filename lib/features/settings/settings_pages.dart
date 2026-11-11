@@ -84,6 +84,7 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         trailingActionSfSymbol: existing.trailingActionSfSymbol,
         discardPrompt: existing.discardPrompt,
         busy: existing.busy,
+        edited: existing.edited,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {

@@ -30,7 +30,8 @@ import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
-import '../../features/profile/views/server_addresses_page.dart';
+import '../../features/settings/pages/server_address_settings_pages.dart'
+    show serverAddressPageId, serverAddressesPageId;
 import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/librechat/views/librechat_sign_in_page.dart';
@@ -401,9 +402,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         final serverId = state.extra;
         return _buildPlatformPage(
           state: state,
-          child: serverId is String
-              ? ServerAddressesPage(serverId: serverId)
-              : const SettingsDetailPage(detailId: nativeAccountsDetailId),
+          child: SettingsDetailPage(
+            detailId: serverId is String
+                ? serverAddressesPageId(serverId)
+                : nativeAccountsDetailId,
+          ),
         );
       },
     ),
@@ -414,12 +417,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         final request = state.extra;
         return _buildPlatformPage(
           state: state,
-          child: request is ServerAddressEditorRequest
-              ? ServerConnectionPage(
-                  routesOfServerId: request.serverId,
-                  endpointId: request.endpointId,
-                )
-              : const SettingsDetailPage(detailId: nativeAccountsDetailId),
+          child: switch (request) {
+            // Handed over from Settings to sign in through a proxy: the
+            // connection page carries on with the edit.
+            ServerAddressEditorRequest(:final serverId, :final draft?) =>
+              ServerConnectionPage(
+                routesOfServerId: serverId,
+                endpointId: request.endpointId,
+                routeDraft: draft,
+              ),
+            ServerAddressEditorRequest(:final serverId, :final endpointId) =>
+              SettingsDetailPage(
+                detailId: serverAddressPageId(serverId, endpointId),
+              ),
+            _ => const SettingsDetailPage(detailId: nativeAccountsDetailId),
+          },
         );
       },
     ),
