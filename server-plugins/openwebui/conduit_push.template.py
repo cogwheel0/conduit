@@ -94,6 +94,8 @@ _NONCE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 # Channel mentions are stored as <@U:id|Label>; a preview shows @Label. Neither
 # part may contain "<", so a run of unclosed "<@U:" takes linear time.
 _MENTION = re.compile(r"<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>")
+# A user mention, `<@U:id>` or `<@U:id|Name>`. Negated classes keep it linear.
+_USER_MENTION = re.compile(r"<@U:([^|<>]+)(?:\|[^<>]*)?>")
 
 
 class _Subscription(object):
@@ -758,9 +760,17 @@ class Event:
             return
 
         members = await Channels.get_members_by_channel_id(channel_id) or []
+        # A muted channel is "mentions only": as in Open WebUI's own channel
+        # notifications, a member who muted it still hears of a message that
+        # mentions them.
+        mentioned = {
+            m.group(1) for m in _USER_MENTION.finditer(_text(_attr(message, "content")))
+        }
         recipients = list(
             dict.fromkeys(
-                _text(_attr(m, "user_id")) for m in members if not _attr(m, "is_channel_muted")
+                uid
+                for uid, muted in ((_text(_attr(m, "user_id")), _attr(m, "is_channel_muted")) for m in members)
+                if not muted or uid in mentioned
             )
         )
         kind = _attr(channel, "type")

@@ -561,6 +561,22 @@ def test_group_channel_message_reaches_other_members(world, fn):
     assert payload["g"] == "channel:ch1"
 
 
+def test_muted_members_hear_of_messages_that_mention_them(world, fn):
+    # The message mentions Bob; muting a channel leaves only mentions.
+    devices = channel_world(world, muted=("b", "c"), members=("a", "b", "c", "d"))
+    dispatch(fn, **posted(world))
+    assert sorted(post.url for post in world.posts) == sorted([devices["b"].endpoint, devices["d"].endpoint])
+
+
+def test_a_long_message_of_unclosed_mentions_is_scanned_quickly(world, fn):
+    devices = channel_world(world, muted=("b",), members=("a", "b"))
+    world.messages["msg1"]["content"] = "<@U:" * 200_000 + "x <@U:b|Bob>"
+    started = time.monotonic()
+    dispatch(fn, **posted(world))
+    assert time.monotonic() - started < 0.5
+    assert [post.url for post in world.posts] == [devices["b"].endpoint]
+
+
 def test_standard_channel_requires_read_access_and_membership(world, fn):
     devices = channel_world(world, kind=None, access=("a", "b", "d"))
     dispatch(fn, **posted(world))
