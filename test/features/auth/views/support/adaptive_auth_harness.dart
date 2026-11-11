@@ -302,9 +302,8 @@ class BackendOnboardingHarness {
         GoRoute(
           path: Routes.directConnections,
           name: RouteNames.directConnections,
-          builder: (_, state) => DirectConnectionsPage(
-            isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
-          ),
+          // Onboarding's: Settings keeps Direct in pages of its own.
+          builder: (_, _) => const DirectConnectionsPage(),
         ),
         GoRoute(
           path: Routes.directConnectionEditor,
@@ -314,7 +313,7 @@ class BackendOnboardingHarness {
               profileId: state.pathParameters['id']!,
               source: DirectConnectionEditorSource.local,
             ),
-            isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+            isOnboarding: true,
             entry: state.uri.queryParameters['entry'] == 'chooser'
                 ? DirectEditorEntry.chooser
                 : DirectEditorEntry.overview,

@@ -70,7 +70,6 @@ void main() {
               ),
             ],
             syncWithOpenWebUi: false,
-            isOnboarding: false,
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (_) {},
@@ -100,7 +99,6 @@ void main() {
           home: DirectConnectionsContent(
             profiles: const [],
             syncWithOpenWebUi: false,
-            isOnboarding: false,
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (_) {},
@@ -165,7 +163,6 @@ void main() {
             profiles: const [],
             mcpLoadFailed: true,
             syncWithOpenWebUi: false,
-            isOnboarding: false,
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (_) {},

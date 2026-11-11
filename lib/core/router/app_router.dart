@@ -561,7 +561,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
         child: _isOnboarding(state)
-            ? const DirectConnectionsPage(isOnboarding: true)
+            ? const DirectConnectionsPage()
             : const SettingsDetailPage(detailId: directConnectionsPageId),
       ),
     ),
