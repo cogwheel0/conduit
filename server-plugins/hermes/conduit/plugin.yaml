@@ -1,0 +1,18 @@
+name: conduit
+label: Conduit
+kind: platform
+version: 1.0.0
+description: >
+  End-to-end encrypted push notifications for the Conduit app. Notifies
+  your phone when a reply you started from Conduit finishes (or fails),
+  when a cron job delivers with deliver conduit, and when Conduit sends a
+  test. Every notification is encrypted on this server to a key that only
+  exists on your device (Web Push, RFC 8291). Uses only httpx and
+  cryptography, which ship with Hermes.
+author: Conduit (cogwheel0)
+homepage: https://github.com/cogwheel0/conduit
+license: GPL-3.0-only
+requires_hermes: ">=0.21.2"
+provides_hooks:
+  - post_llm_call
+  - on_session_end

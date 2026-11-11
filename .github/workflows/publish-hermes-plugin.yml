@@ -1,0 +1,64 @@
+name: Publish Hermes plugin
+
+# Mirrors server-plugins/hermes/conduit/ to the root of
+# cogwheel0/conduit-hermes-push, which Hermes installs from
+# (`hermes plugins install cogwheel0/conduit-hermes-push --ref <sha>`).
+# Conduit pins a mirror commit SHA. `git subtree split` is deterministic, so
+# those commits stay stable and reachable as long as main is never rewritten.
+#
+# Setup: create the mirror repository empty, add a write deploy key to it, and
+# store the private key as the HERMES_PLUGIN_DEPLOY_KEY secret here. Without
+# that secret this workflow only checks the plugin and skips the push.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - server-plugins/hermes/**
+      - server-plugins/common/**
+  workflow_dispatch:
+
+concurrency:
+  group: publish-hermes-plugin
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to cogwheel0/conduit-hermes-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check the plugin's copy of the shared library is up to date
+        run: python3 server-plugins/hermes/sync.py --check
+      - name: Split and push the plugin directory
+        env:
+          DEPLOY_KEY: ${{ secrets.HERMES_PLUGIN_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_KEY}" ]; then
+            echo "HERMES_PLUGIN_DEPLOY_KEY is not set; skipping the mirror push."
+            exit 0
+          fi
+          split="$(git subtree split --prefix server-plugins/hermes/conduit HEAD)"
+          echo "Mirror commit: ${split}"
+
+          ssh_dir="${RUNNER_TEMP}/mirror-ssh"
+          mkdir -p "${ssh_dir}"
+          chmod 700 "${ssh_dir}"
+          trap 'rm -rf "${ssh_dir}"' EXIT
+          (umask 077 && printf '%s\n' "${DEPLOY_KEY}" > "${ssh_dir}/key")
+          # GitHub's published host key (https://api.github.com/meta), pinned
+          # instead of trusting whatever answers on first use.
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" \
+            > "${ssh_dir}/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i ${ssh_dir}/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${ssh_dir}/known_hosts"
+
+          git push git@github.com:cogwheel0/conduit-hermes-push.git "${split}:refs/heads/main"
+          echo "### Hermes plugin mirror" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Pushed \`${split}\` to cogwheel0/conduit-hermes-push main." >> "${GITHUB_STEP_SUMMARY}"
