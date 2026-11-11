@@ -138,7 +138,7 @@ void main() {
     testWidgets('turns push on', (tester) async {
       final fake = await _pump(tester, pushStateWith(const [], enabled: false));
 
-      expect(find.text('Push notifications'), findsWidgets);
+      expect(find.text('Push Notifications'), findsWidgets);
       expect(
         find.text(
           'Get notified while Conduit is closed. End-to-end encrypted.',
@@ -216,12 +216,12 @@ void main() {
       'canInstall': (
         _owui(PushStatus.canInstall),
         'Not set up on this server',
-        'Set up',
+        'Set Up',
       ),
       'needsAdminSetup': (
         _owui(PushStatus.needsAdminSetup),
         'Needs your admin to set up',
-        'Ask your admin',
+        'Ask Your Admin',
       ),
       'updateAvailable': (
         _owui(PushStatus.updateAvailable),
@@ -268,7 +268,7 @@ void main() {
           hermesInstallCommand: 'hermes plugins install x --enable',
         ),
         'Needs the Conduit plugin in Hermes',
-        'Copy command',
+        'Copy Command',
       ),
     };
     for (final MapEntry(key: name, value: (target, status, action))
@@ -334,10 +334,10 @@ void main() {
         pushStateWith([_owui(PushStatus.canInstall)]),
       );
 
-      await tester.tap(_inRow(_owuiScope, find.text('Set up')));
+      await tester.tap(_inRow(_owuiScope, find.text('Set Up')));
       await tester.pumpAndSettle();
       expect(find.text('Install Conduit Push?'), findsOneWidget);
-      expect(find.text('View source'), findsOneWidget);
+      expect(find.text('View Source'), findsOneWidget);
       expect(
         find.text(
           'https://github.com/cogwheel0/conduit/blob/main/server-plugins/'
@@ -349,7 +349,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(fake.calls, isEmpty);
 
-      await tester.tap(_inRow(_owuiScope, find.text('Set up')));
+      await tester.tap(_inRow(_owuiScope, find.text('Set Up')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('push-install-confirm')));
       await tester.pumpAndSettle();
@@ -435,7 +435,7 @@ void main() {
       );
       await _pump(tester, pushStateWith([target]));
 
-      await tester.tap(_inRow(target.scope, find.text('Copy command')));
+      await tester.tap(_inRow(target.scope, find.text('Copy Command')));
       await tester.pumpAndSettle();
       expect(copied, 'hermes plugins install x --enable');
       expect(find.text('Copied to clipboard'), findsOneWidget);
@@ -460,7 +460,7 @@ void main() {
       );
       await _pump(tester, pushStateWith([_owui(PushStatus.needsAdminSetup)]));
 
-      await tester.tap(_inRow(_owuiScope, find.text('Ask your admin')));
+      await tester.tap(_inRow(_owuiScope, find.text('Ask Your Admin')));
       await tester.pumpAndSettle();
       final text = (shared.single! as Map)['text'] as String;
       expect(
@@ -553,7 +553,7 @@ void main() {
         kConduitHermesPluginPinned ? findsNothing : findsOneWidget,
       );
       // Hermes has no reply origin choice.
-      expect(find.text('All my chats'), findsNothing);
+      expect(find.text('All My Chats'), findsNothing);
     });
 
     testWidgets('a failure says what happens next', (tester) async {
@@ -598,7 +598,7 @@ void main() {
         distributors: const ['io.heckel.ntfy', 'org.unifiedpush.distributor'],
       );
 
-      expect(find.text('Push delivery'), findsOneWidget);
+      expect(find.text('Push Delivery'), findsOneWidget);
       expect(find.byKey(const Key('push-delivery-fcm')), findsOneWidget);
       await tester.tap(find.byKey(const Key('push-delivery-unifiedpush')));
       await tester.pumpAndSettle();
@@ -649,7 +649,7 @@ void main() {
 
     testWidgets('is hidden without Advanced', (tester) async {
       await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
-      expect(find.text('Push delivery'), findsNothing);
+      expect(find.text('Push Delivery'), findsNothing);
       expect(find.byKey(const Key('push-reset-keys')), findsNothing);
     });
   });
@@ -658,8 +658,8 @@ void main() {
     await _pump(tester, pushStateWith(const [], enabled: false));
     await tester.tap(find.byKey(const Key('push-privacy')));
     await tester.pumpAndSettle();
-    expect(find.text('How push stays private'), findsWidgets);
-    expect(find.text('The Conduit relay'), findsOneWidget);
+    expect(find.text('How Push Stays Private'), findsWidgets);
+    expect(find.text('The Conduit Relay'), findsOneWidget);
     expect(find.byKey(const Key('push-privacy-read-more')), findsOneWidget);
   });
 
@@ -766,7 +766,7 @@ void main() {
       hasOpenWebUiAccount: false,
     );
     expect(find.text('Channel Messages'), findsNothing);
-    expect(find.text('Scheduled tasks'), findsOneWidget);
+    expect(find.text('Scheduled Tasks'), findsOneWidget);
     expect(find.byKey(const Key('push-enabled')), findsOneWidget);
 
     await _pump(tester, pushStateWith(const [], enabled: false));
@@ -775,7 +775,7 @@ void main() {
 
   testWidgets('the kinds include scheduled tasks', (tester) async {
     await _pump(tester, pushStateWith(const [], enabled: false));
-    expect(find.text('Scheduled tasks'), findsOneWidget);
+    expect(find.text('Scheduled Tasks'), findsOneWidget);
     expect(
       find.text('Notify when a Hermes scheduled task delivers its result.'),
       findsOneWidget,
