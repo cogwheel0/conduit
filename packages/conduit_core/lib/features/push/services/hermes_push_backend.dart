@@ -20,14 +20,16 @@ const String kConduitHermesPluginRepo = 'cogwheel0/conduit-hermes-push';
 /// The mirror commit Conduit installs: the full 40-character hex SHA of a
 /// commit in [kConduitHermesPluginRepo].
 ///
-/// MAINTAINERS: this is empty only because the mirror has not been
-/// published yet. Set it to the mirror's commit SHA after the first publish
-/// (and bump it with every plugin release). While it is empty, or anything
-/// but 40 hex characters, Conduit never installs the plugin in one tap: an
-/// unpinned dashboard install would run whatever the mirror's default branch
-/// holds on the user's server. The copyable command is offered instead, and
-/// says that it installs the latest published version.
-const String kConduitHermesPluginRef = '';
+/// MAINTAINERS: bump it to the mirror commit the publish workflow prints
+/// with every plugin release. If it is ever empty, or anything but 40 hex
+/// characters, Conduit never installs the plugin in one tap: an unpinned
+/// dashboard install would run whatever the mirror's default branch holds on
+/// the user's server. The copyable command is offered instead, and says that
+/// it installs the latest published version.
+///
+/// This one is the mirror's first publish, of the plugin as of #840.
+const String kConduitHermesPluginRef =
+    '1afccf8a06c5db3a105bbf5b266a5bb7209945f4';
 
 /// Whether [ref] pins one mirror commit: exactly 40 lowercase hex
 /// characters.
