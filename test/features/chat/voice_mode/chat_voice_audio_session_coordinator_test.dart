@@ -412,6 +412,63 @@ void main() {
             .equals(_FakeAndroidAudioManagerChannel.speakerId);
       },
     );
+
+    test('moves a call Telecom hosts through Telecom', () async {
+      const telecomChannel = MethodChannel(
+        'app.cogwheel.conduit/telecom_call',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final telecomRequests = <Map<Object?, Object?>>[];
+      messenger.setMockMethodCallHandler(telecomChannel, (call) async {
+        if (call.method != 'routeAudio') return null;
+        final args = call.arguments as Map<Object?, Object?>;
+        telecomRequests.add(args);
+        // Answers null once Telecom no longer hosts the call.
+        if (audioManager.telecomDeviceId == null) return null;
+        final speaker = args['speaker'] == true;
+        audioManager.telecomDeviceId = speaker
+            ? _FakeAndroidAudioManagerChannel.speakerId
+            : _FakeAndroidAudioManagerChannel.earpieceId;
+        return <String, Object?>{'loudspeaker': speaker};
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(telecomChannel, null),
+      );
+
+      // flutter_callkit_incoming hosts the call in Telecom, which owns the
+      // audio mode and keeps the call on the earpiece whatever this app asks,
+      // so the speaker button did nothing until Telecom dropped the call two
+      // minutes in (issue #846).
+      audioManager.telecomDeviceId = _FakeAndroidAudioManagerChannel.earpieceId;
+      check(await coordinator.setSpeakerphoneEnabled(true)).isFalse();
+      check(telecomRequests).isEmpty();
+
+      await coordinator.setActiveCallKitCallId('call-1');
+      check(await coordinator.setSpeakerphoneEnabled(true)).isTrue();
+      check(
+        audioManager.telecomDeviceId,
+      ).equals(_FakeAndroidAudioManagerChannel.speakerId);
+      check(await coordinator.setSpeakerphoneEnabled(false)).isTrue();
+      check(
+        audioManager.telecomDeviceId,
+      ).equals(_FakeAndroidAudioManagerChannel.earpieceId);
+      check(await coordinator.setSpeakerphoneEnabled(true)).isTrue();
+      check(telecomRequests).deepEquals(<Map<Object?, Object?>>[
+        {'callId': 'call-1', 'speaker': true},
+        {'callId': 'call-1', 'speaker': false},
+        {'callId': 'call-1', 'speaker': true},
+      ]);
+
+      // The app's own requests went out alongside, so the call stays on the
+      // loudspeaker when Telecom lets go, and the next press moves it itself.
+      audioManager.telecomDeviceId = null;
+      check(
+        audioManager.communicationDeviceId,
+      ).equals(_FakeAndroidAudioManagerChannel.speakerId);
+      check(await coordinator.setSpeakerphoneEnabled(false)).isTrue();
+      check(audioManager.communicationDeviceId).isNull();
+    });
   });
 
   group('ChatVoiceAudioSessionCoordinator after a call', () {
@@ -681,6 +738,12 @@ class _FakeAndroidAudioManagerChannel {
   int? communicationDeviceId;
   bool speakerphoneOn = false;
 
+  /// The route Telecom holds while it hosts the call, or null when it does
+  /// not. Telecom then owns the audio mode, so the read-backs report this
+  /// route and the app's own requests only set what the call falls back to
+  /// once Telecom lets go (issue #846).
+  int? telecomDeviceId;
+
   void install() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, _handle);
@@ -712,7 +775,8 @@ class _FakeAndroidAudioManagerChannel {
         mode = args[0];
         return null;
       case 'isSpeakerphoneOn':
-        return speakerphoneOn;
+        final telecom = telecomDeviceId;
+        return telecom == null ? speakerphoneOn : telecom == speakerId;
       case 'setSpeakerphoneOn':
         await speakerphoneGate?.future;
         final enabled = args[0] as bool;
@@ -729,7 +793,7 @@ class _FakeAndroidAudioManagerChannel {
             : id;
         return true;
       case 'getCommunicationDevice':
-        final id = communicationDeviceId;
+        final id = telecomDeviceId ?? communicationDeviceId;
         if (id == null) return null;
         return _device(id, id == speakerId ? 2 : 1);
       case 'clearCommunicationDevice':

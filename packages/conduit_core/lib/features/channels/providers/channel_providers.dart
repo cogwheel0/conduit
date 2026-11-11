@@ -132,6 +132,55 @@ class ChannelsList extends _$ChannelsList {
     state = AsyncValue.data(next);
   }
 
+  /// Sets whether [channelId] notifies the signed-in user for every message
+  /// or for mentions only, and applies the value the server stored to the
+  /// list and to the open channel. Mirrors Open WebUI's ChannelMenu.svelte.
+  /// Throws when the request fails.
+  Future<void> updateMuted(String channelId, bool isChannelMuted) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final stored = await api.updateMemberMuteStatus(
+      channelId,
+      isChannelMuted: isChannelMuted,
+    );
+    if (!ref.mounted ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
+      return;
+    }
+    setMuted(channelId, stored);
+  }
+
+  /// Records whether [channelId] notifies for mentions only, from the mute
+  /// endpoint's answer or a `channel:mute` event. The unread count is kept,
+  /// as in Open WebUI: it shows again once the channel is unmuted.
+  void setMuted(String channelId, bool isChannelMuted) {
+    var listed = false;
+    for (final channel in state.value ?? const <Channel>[]) {
+      if (channel.id == channelId) {
+        updateChannel(channel.copyWith(isChannelMuted: isChannelMuted));
+        listed = true;
+        break;
+      }
+    }
+    // A list still loading may bring the channel with its old setting.
+    if (!listed) _invalidatePendingRequestForMutation();
+    // The open channel may not be in the list yet, as when it was opened
+    // from a notification.
+    final active = ref.read(activeChannelProvider);
+    if (active != null &&
+        active.id == channelId &&
+        active.isChannelMuted != isChannelMuted) {
+      ref
+          .read(activeChannelProvider.notifier)
+          .set(active.copyWith(isChannelMuted: isChannelMuted));
+    }
+  }
+
   /// Clears the unread badge for [channelId] when the user opens it
   /// (reset-on-visit), pairing with the server-side `emitLastReadAt`. No-ops if
   /// the channel is unknown or already read so it never triggers a rebuild

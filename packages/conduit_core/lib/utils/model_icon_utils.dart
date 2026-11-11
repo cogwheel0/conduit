@@ -3,15 +3,23 @@ import '../features/direct_connections/services/model_logo_catalog.dart';
 import '../features/hermes/models/hermes_model.dart';
 import '../models/model.dart';
 import '../services/api_service.dart';
+import 'model_display_name.dart' show isApplePrivateCloudComputeModel;
 
 /// Prefix marking an avatar URL that resolves to a system symbol rather than
 /// an image. Mirrors the `asset:` scheme handled alongside it.
 const String kNativeSymbolUrlScheme = 'symbol:';
 
-/// Apple's own mark for Apple Intelligence, used to attribute the Foundation
-/// Models running on device and on Private Cloud Compute. Available since
-/// iOS 18, well below the iOS 26 those models require.
+/// Apple's own mark for Apple Intelligence. Available since iOS 18, well
+/// below the iOS 26 Apple's Foundation Models require.
 const String kAppleIntelligenceSymbol = 'apple.intelligence';
+
+/// The symbol for Apple's on-device model: a phone, as the welcome screen
+/// draws it, so it never shares a mark with the Private Cloud Compute one.
+const String kAppleOnDeviceModelSymbol = 'iphone';
+
+/// The symbol for Apple's Private Cloud Compute model: a cloud, as the
+/// welcome screen draws it.
+const String kApplePrivateCloudModelSymbol = 'cloud';
 
 /// Returns the symbol name in [url] when it uses [kNativeSymbolUrlScheme].
 String? nativeSymbolNameFromUrl(String? url) {
@@ -176,10 +184,15 @@ String? resolveModelIconUrl(ApiService? api, String? rawUrl) {
 String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
   if (model == null) return null;
   if (isHermesModel(model)) return 'asset:$kHermesModelAvatarAsset';
-  // Apple's Foundation Models carry Apple's own mark. Provenance comes from the
-  // local binding, never from a server-supplied id or metadata field.
+  // Apple's Foundation Models show where they run -- a phone, a cloud -- as
+  // the welcome screen offers them, so the two never share one mark.
+  // Provenance comes from the local binding, never from a server-supplied id
+  // or metadata field.
   if (isAppleFoundationModel(model)) {
-    return '$kNativeSymbolUrlScheme$kAppleIntelligenceSymbol';
+    final symbol = isApplePrivateCloudComputeModel(model)
+        ? kApplePrivateCloudModelSymbol
+        : kAppleOnDeviceModelSymbol;
+    return '$kNativeSymbolUrlScheme$symbol';
   }
   // Direct models get their maker's bundled models.dev logo. They have no
   // Open WebUI avatar, so never ask the server for one.
@@ -198,8 +211,30 @@ String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
         trimmed.startsWith('https://')) {
       return trimmed;
     }
+  } else if (_uncustomizedModelLogoUrl(model) case final logoUrl?) {
+    return logoUrl;
   }
 
   // Use the new dedicated endpoint for model avatars
   return buildModelAvatarUrl(api, model.id);
+}
+
+/// The maker's bundled models.dev logo for an Open WebUI model nobody has
+/// customized, or `null`.
+///
+/// Open WebUI serves its own favicon for every model without a workspace
+/// entry, which tells one model from another not at all. A model with a
+/// workspace entry (`info`/`meta`), a pipe, or any profile image keeps the
+/// server's avatar, since an admin may have chosen it.
+String? _uncustomizedModelLogoUrl(Model model) {
+  final catalog = installedModelLogoCatalog;
+  if (catalog == null) return null;
+  final metadata = model.metadata ?? const <String, dynamic>{};
+  if (metadata['info'] != null ||
+      metadata['meta'] != null ||
+      metadata['pipe'] != null) {
+    return null;
+  }
+  final logo = catalog.logoFor(remoteModelId: model.id);
+  return logo == null ? null : '$kModelLogoUrlScheme$logo';
 }

@@ -11,6 +11,8 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart'
+    show openWebUiConfirmationText;
 
 import 'package:conduit_core/providers/app_providers.dart' show isTemporaryChat;
 
@@ -20,6 +22,8 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 
 import 'package:conduit_core/services/chat_completion_transport.dart';
 
+import 'package:conduit_core/features/chat/utils/file_utils.dart'
+    show inferFileTypeFromUrl;
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/utils/openwebui_source_parser.dart';
@@ -120,6 +124,10 @@ Map<String, Object> debugAccumulateStreamingTextForTesting(
 List<Map<String, dynamic>> debugCollectImageReferencesFromContent(
   String content,
 ) => _collectImageReferencesWorker(content);
+
+@visibleForTesting
+List<Map<String, dynamic>> debugExtractFilesFromResult(dynamic resp) =>
+    _extractFilesFromResult(resp);
 
 const Set<String> _explicitImageFileTypes = {'image'};
 
@@ -2170,6 +2178,88 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  // A temporary chat keeps nothing on the server to poll. Open WebUI 0.13
+  // sends its events only to the socket session that owns it, so after a
+  // reconnect the new session [sessionId] takes it over, and the snapshot of
+  // the running reply restores what the old session missed. With no task
+  // left the reply was lost with the connection, as the web client says.
+  // Null before 0.13, where the events reach every session of the account,
+  // and whenever the answer cannot be trusted: the server also refuses a
+  // session that dropped again before it asked, and the next reconnect asks
+  // again. A failed request is tried again while the session lasts.
+  Future<_ServerMessageSnapshot?> resumeTemporaryChatSnapshot(
+    String chatId,
+    String sessionId, {
+    required bool Function() sessionIsCurrent,
+    int attempt = 0,
+    int maxAttempts = 3,
+  }) async {
+    if (isObsoleteStream || hasFinished || !sessionIsCurrent()) {
+      return null;
+    }
+    final TemporaryChatResume? resumed;
+    try {
+      resumed = await api.resumeTemporaryChat(chatId, sessionId: sessionId);
+    } on TemporaryChatUnavailable {
+      if (isObsoleteStream || !sessionIsCurrent()) {
+        return null;
+      }
+      return (
+        content: '',
+        output: null,
+        followUps: const <String>[],
+        isDone: true,
+        errorContent: TemporaryChatUnavailable.userMessage,
+      );
+    } catch (e) {
+      DebugLogger.log(
+        'Temporary chat resume failed (attempt ${attempt + 1}/$maxAttempts): '
+        '$e',
+        scope: 'streaming/helper',
+      );
+      if (attempt >= maxAttempts - 1 || hasFinished) {
+        return null;
+      }
+      await Future<void>.delayed(Duration(seconds: attempt + 1));
+      return resumeTemporaryChatSnapshot(
+        chatId,
+        sessionId,
+        sessionIsCurrent: sessionIsCurrent,
+        attempt: attempt + 1,
+        maxAttempts: maxAttempts,
+      );
+    }
+    // An answer for a session that has since changed says nothing of the
+    // current one; the newer reconnect asks again.
+    if (isObsoleteStream || resumed == null || !sessionIsCurrent()) {
+      return null;
+    }
+    Map<String, dynamic>? stream;
+    for (final targetId in currentServerMessageIds()) {
+      stream = resumed.streamFor(targetId);
+      if (stream != null) {
+        break;
+      }
+    }
+    final rawOutput = stream?['output'];
+    final output = rawOutput is List ? _normalizeJsonMapList(rawOutput) : null;
+    final content = output != null && output.isNotEmpty
+        ? renderStructuredOutputBlocks(
+            parseOpenWebUIStructuredOutput(
+              mergeOpenWebUIReasoningTiming(latestResponseOutputItems, output),
+            ),
+          )
+        : stream?['content']?.toString() ?? '';
+    final lost = resumed.taskIds.isEmpty;
+    return (
+      content: content,
+      output: output,
+      followUps: const <String>[],
+      isDone: lost,
+      errorContent: lost ? TemporaryChatResume.connectionLostMessage : null,
+    );
+  }
+
   applyAssistantServerPatch =
       ({
         required String targetId,
@@ -2843,12 +2933,27 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (localResourcesDisposed) {
           return;
         }
+        final temporaryChatId = convId != null && isTemporaryChat(convId)
+            ? convId
+            : null;
+        final resumeSessionId = socketService.sessionId;
         // Wrap async work in unawaited to handle errors properly
         unawaited(
           _handleReconnectRecovery(
             hasFinished: () => hasFinished || isObsoleteStream,
             getMessages: getMessages,
-            pollServerForMessage: pollServerForMessage,
+            pollServerForMessage: temporaryChatId == null
+                ? pollServerForMessage
+                : ({bool inferDoneFromMissingStreaming = true}) async =>
+                      resumeSessionId == null || resumeSessionId.isEmpty
+                      ? null
+                      : resumeTemporaryChatSnapshot(
+                          temporaryChatId,
+                          resumeSessionId,
+                          sessionIsCurrent: () =>
+                              socketService.isConnected &&
+                              socketService.sessionId == resumeSessionId,
+                        ),
             applyServerContent: applyServerContent,
             syncImages: syncImages,
           ),
@@ -3026,7 +3131,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             for (final f in collected) {
               final url = f['url'] as String?;
               if (url != null && url.isNotEmpty && !seen.contains(url)) {
-                merged.add({'type': 'image', 'url': url});
+                merged.add(_fileEntryFromUrl(url, sourceEntry: f));
                 seen.add(url);
               }
             }
@@ -3897,9 +4002,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               onInteractivePrompt(type.toString(), map, ack);
             } else {
               () async {
+                final text = openWebUiConfirmationText(map);
                 final confirmed = await uiRequests.confirm(
-                  title: map['title']?.toString() ?? 'Confirm',
-                  message: map['message']?.toString() ?? '',
+                  title: text.title.isEmpty ? 'Confirm' : text.title,
+                  message: text.message,
                   confirmLabel: map['confirm_text']?.toString(),
                   cancelLabel: map['cancel_text']?.toString(),
                 );
@@ -4167,7 +4273,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 for (final f in all) {
                   final url = f['url'] as String?;
                   if (url != null && url.isNotEmpty && !seen.contains(url)) {
-                    merged.add({'type': 'image', 'url': url});
+                    merged.add(_fileEntryFromUrl(url, sourceEntry: f));
                     seen.add(url);
                   }
                 }
@@ -4743,11 +4849,60 @@ List<Map<String, dynamic>>? _mergeNormalizedFiles({
   for (final f in incoming) {
     final url = f['url'] as String?;
     if (url != null && url.isNotEmpty && seen.add(url)) {
-      merged.add({'type': 'image', 'url': url});
+      merged.add(_fileEntryFromUrl(url, sourceEntry: f));
     }
   }
 
   return merged.length != existing.length ? merged : null;
+}
+
+/// Builds a normalized file entry from a URL, preserving any server-declared
+/// type/content_type so videos (mp4 et al.) are not mislabeled as images.
+Map<String, dynamic> _fileEntryFromUrl(
+  String url, {
+  Map<dynamic, dynamic>? sourceEntry,
+}) {
+  final contentType =
+      (sourceEntry?['content_type'] ??
+              sourceEntry?['contentType'] ??
+              sourceEntry?['mime_type'] ??
+              sourceEntry?['mimeType'])
+          ?.toString()
+          .toLowerCase()
+          .trim() ??
+      '';
+  final declaredType = sourceEntry?['type']?.toString().toLowerCase() ?? '';
+  final declaredName =
+      sourceEntry?['filename']?.toString() ??
+      sourceEntry?['name']?.toString() ??
+      '';
+  String type;
+  if (contentType.startsWith('video/')) {
+    type = 'video';
+  } else if (contentType.startsWith('image/')) {
+    type = 'image';
+  } else if (declaredType == 'video') {
+    type = 'video';
+  } else if (declaredType == 'image') {
+    type = 'image';
+  } else {
+    final inferredFromName = declaredName.isEmpty
+        ? 'file'
+        : inferFileTypeFromUrl(declaredName);
+    type = inferredFromName == 'video' || inferFileTypeFromUrl(url) == 'video'
+        ? 'video'
+        : 'image';
+  }
+  final entry = <String, dynamic>{'type': type, 'url': url};
+  if (contentType.isNotEmpty) {
+    entry['content_type'] = contentType;
+  }
+  // Keep the declared name so players/exporters pick the right container
+  // even when the delivery URL has no extension (e.g. Files API URLs).
+  if (declaredName.isNotEmpty) {
+    entry['filename'] = declaredName;
+  }
+  return entry;
 }
 
 List<Map<String, dynamic>> _extractFilesFromResult(dynamic resp) {
@@ -4762,12 +4917,12 @@ List<Map<String, dynamic>> _extractFilesFromResult(dynamic resp) {
   if (r is List) {
     for (final item in r) {
       if (item is String && item.isNotEmpty) {
-        results.add({'type': 'image', 'url': item});
+        results.add(_fileEntryFromUrl(item));
       } else if (item is Map) {
         final url = item['url'];
         final b64 = item['b64_json'] ?? item['b64'];
         if (url is String && url.isNotEmpty) {
-          results.add({'type': 'image', 'url': url});
+          results.add(_fileEntryFromUrl(url, sourceEntry: item));
         } else if (b64 is String && b64.isNotEmpty) {
           results.add({'type': 'image', 'url': 'data:image/png;base64,$b64'});
         }
@@ -4783,12 +4938,12 @@ List<Map<String, dynamic>> _extractFilesFromResult(dynamic resp) {
         final url = item['url'];
         final b64 = item['b64_json'] ?? item['b64'];
         if (url is String && url.isNotEmpty) {
-          results.add({'type': 'image', 'url': url});
+          results.add(_fileEntryFromUrl(url, sourceEntry: item));
         } else if (b64 is String && b64.isNotEmpty) {
           results.add({'type': 'image', 'url': 'data:image/png;base64,$b64'});
         }
       } else if (item is String && item.isNotEmpty) {
-        results.add({'type': 'image', 'url': item});
+        results.add(_fileEntryFromUrl(item));
       }
     }
   }
@@ -4796,12 +4951,12 @@ List<Map<String, dynamic>> _extractFilesFromResult(dynamic resp) {
   if (images is List) {
     for (final item in images) {
       if (item is String && item.isNotEmpty) {
-        results.add({'type': 'image', 'url': item});
+        results.add(_fileEntryFromUrl(item));
       } else if (item is Map) {
         final url = item['url'];
         final b64 = item['b64_json'] ?? item['b64'];
         if (url is String && url.isNotEmpty) {
-          results.add({'type': 'image', 'url': url});
+          results.add(_fileEntryFromUrl(url, sourceEntry: item));
         } else if (b64 is String && b64.isNotEmpty) {
           results.add({'type': 'image', 'url': 'data:image/png;base64,$b64'});
         }
@@ -4814,7 +4969,7 @@ List<Map<String, dynamic>> _extractFilesFromResult(dynamic resp) {
   }
   final singleUrl = r['url'];
   if (singleUrl is String && singleUrl.isNotEmpty) {
-    results.add({'type': 'image', 'url': singleUrl});
+    results.add(_fileEntryFromUrl(singleUrl, sourceEntry: r));
   }
   final singleB64 = r['b64_json'] ?? r['b64'];
   if (singleB64 is String && singleB64.isNotEmpty) {

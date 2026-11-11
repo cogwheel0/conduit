@@ -31,6 +31,7 @@ class ServerVadRecorderSession {
     required bool iosAudioSessionManagedExternally,
     required Future<void> Function(Stream<Uint8List> audioStream) connectVad,
     required void Function(Object error, StackTrace stackTrace) onRecorderError,
+    void Function(Uint8List pcm)? onAudioCaptured,
   }) async {
     try {
       if (!await _recorder.hasPermission()) {
@@ -59,6 +60,7 @@ class ServerVadRecorderSession {
           if (_forwarding &&
               activeController != null &&
               !activeController.isClosed) {
+            onAudioCaptured?.call(bytes);
             activeController.add(bytes);
           }
         },

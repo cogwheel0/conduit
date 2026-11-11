@@ -6,10 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/skeleton_loader.dart';
 
+import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import 'enhanced_image_attachment.dart';
+import 'enhanced_video_attachment.dart';
 
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -101,6 +103,26 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         .toLowerCase();
     final ext = name.split('.').length > 1 ? name.split('.').last : '';
     return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext);
+  }
+
+  // The Files API returns the type under `meta.content_type`.
+  String? _contentTypeOf(Map<String, dynamic>? info) {
+    final meta = info?['meta'];
+    return ((meta is Map ? meta['content_type'] : null) ??
+            info?['content_type'] ??
+            info?['mime'])
+        ?.toString();
+  }
+
+  bool _isVideoFile(Map<String, dynamic>? info) {
+    if (info == null) return false;
+    return isVideoFile({...info, 'content_type': _contentTypeOf(info)});
+  }
+
+  int? _sizeOf(Map<String, dynamic>? info) {
+    final meta = info?['meta'];
+    final size = (meta is Map ? meta['size'] : null) ?? info?['size'];
+    return size is num ? size.toInt() : null;
   }
 
   Future<String?> _ensureLocalFile() async {
@@ -243,14 +265,28 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       );
     }
 
-    // Image: delegate to existing image widget for consistency
-    if (_isImageFile(_fileInfo)) {
+    // Image: delegate to existing image widget for consistency. A declared
+    // video type wins over an image extension.
+    if (_isImageFile(_fileInfo) && !_isVideoFile(_fileInfo)) {
       return EnhancedImageAttachment(
         attachmentId: widget.attachmentId,
         isMarkdownFormat: widget.isMarkdownFormat,
         constraints: widget.constraints,
         isUserMessage: widget.isUserMessage,
         disableAnimation: widget.disableAnimation,
+      );
+    }
+
+    // Video: play inline instead of showing a download-only card.
+    if (_isVideoFile(_fileInfo)) {
+      return EnhancedVideoAttachment(
+        key: ValueKey('att_video_${widget.attachmentId}'),
+        attachmentId: widget.attachmentId,
+        constraints: widget.constraints,
+        filenameHint: (_fileInfo?['filename'] ?? _fileInfo?['name'])
+            ?.toString(),
+        contentType: _contentTypeOf(_fileInfo),
+        sizeBytes: _sizeOf(_fileInfo),
       );
     }
 

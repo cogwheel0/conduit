@@ -35,6 +35,42 @@ class _CaptureInterceptor extends Interceptor {
   }
 }
 
+/// Answers every request with [statusCode] and a streamed [body], as Hermes
+/// does for refusals.
+class _StatusInterceptor extends _CaptureInterceptor {
+  _StatusInterceptor(
+    this.statusCode,
+    this.body, {
+    this.headers = const <String, List<String>>{},
+  }) : super(null);
+
+  final int statusCode;
+  final String body;
+  final Map<String, List<String>> headers;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    requests.add(options);
+    handler.resolve(
+      Response<dynamic>(
+        requestOptions: options,
+        data: ResponseBody.fromString(body, statusCode, headers: headers),
+        statusCode: statusCode,
+        headers: Headers.fromMap(headers),
+      ),
+    );
+  }
+}
+
+String _hermesError(String code) => jsonEncode({
+  'error': {
+    'message': code,
+    'type': 'invalid_request_error',
+    'param': null,
+    'code': code,
+  },
+});
+
 final class _MutableRecoveryClock {
   Duration elapsed = Duration.zero;
 
@@ -70,6 +106,30 @@ final class _AdvancingCaptureInterceptor extends _CaptureInterceptor {
         requestOptions: options,
         data: responseData,
         statusCode: 200,
+      ),
+    );
+  }
+}
+
+/// Refuses after advancing [clock] to just before the request deadline, then
+/// never finishes the error body.
+final class _LateRefusalInterceptor extends _CaptureInterceptor {
+  _LateRefusalInterceptor({required this.clock, required this.advance})
+    : super(null);
+
+  final _MutableRecoveryClock clock;
+  final Duration advance;
+  final StreamController<Uint8List> body = StreamController<Uint8List>();
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    requests.add(options);
+    clock.advance(advance);
+    handler.resolve(
+      Response<dynamic>(
+        requestOptions: options,
+        data: ResponseBody(body.stream, 409),
+        statusCode: 409,
       ),
     );
   }
@@ -269,6 +329,86 @@ void main() {
       check(req.headers['X-Hermes-Session-Id']).equals('conv-1');
       check(req.headers['X-Hermes-Session-Key']).equals('mem-key');
       check(req.responseType).equals(ResponseType.stream);
+    });
+
+    test('session key stays off turns that name no session', () async {
+      // Without a session, Hermes picks the session the key declares, so
+      // every such chat would share one serialized session.
+      final runCapture = _CaptureInterceptor({'run_id': 'r1'});
+      await _service(runCapture, session: 'mem-key').createRun(input: 'hi');
+      check(
+        runCapture.requests.single.headers.containsKey('X-Hermes-Session-Key'),
+      ).isFalse();
+
+      ResponseBody done() => ResponseBody.fromString(
+        'data: [DONE]\n\n',
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['text/event-stream'],
+        },
+      );
+      final newChain = _CaptureInterceptor(done());
+      final firstTurn = await _service(newChain, session: 'mem-key')
+          .streamResponse(HermesChatInput.text('hi'));
+      await firstTurn.events.drain<void>();
+      check(
+        newChain.requests.single.headers.containsKey('X-Hermes-Session-Key'),
+      ).isFalse();
+
+      final chained = _CaptureInterceptor(done());
+      final nextTurn = await _service(chained, session: 'mem-key')
+          .streamResponse(
+            HermesChatInput.text('more'),
+            previousResponseId: 'resp_1',
+          );
+      await nextTurn.events.drain<void>();
+      check(
+        chained.requests.single.headers['X-Hermes-Session-Key'],
+      ).equals('mem-key');
+    });
+
+    test('reasoning effort travels in model_options', () async {
+      final runCapture = _CaptureInterceptor({'run_id': 'r1'});
+      await _service(runCapture).createRunWithReasoning(
+        input: 'hello',
+        sessionId: 'conv-1',
+        reasoningEffort: 'high',
+      );
+      final runBody = runCapture.requests.single.data as Map;
+      expect(runBody['model_options'], {
+        'reasoning': {'effort': 'high'},
+      });
+      check(runBody.containsKey('reasoning_effort')).isFalse();
+      check(runBody.containsKey('reasoning')).isFalse();
+
+      final responseCapture = _CaptureInterceptor(
+        ResponseBody.fromString(
+          'data: [DONE]\n\n',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+          },
+        ),
+      );
+      final stream = await _service(responseCapture)
+          .streamResponseWithReasoning(
+            HermesChatInput.text('hello'),
+            reasoningEffort: 'low',
+          );
+      await stream.events.drain<void>();
+      final responseBody = responseCapture.requests.single.data as Map;
+      expect(responseBody['model_options'], {
+        'reasoning': {'effort': 'low'},
+      });
+      check(responseBody.containsKey('reasoning')).isFalse();
+
+      final plainCapture = _CaptureInterceptor({'run_id': 'r2'});
+      await _service(plainCapture).createRunWithReasoning(input: 'hello');
+      check(
+        (plainCapture.requests.single.data as Map).containsKey(
+          'model_options',
+        ),
+      ).isFalse();
     });
 
     test(
@@ -1320,6 +1460,236 @@ void main() {
         'approved': true,
         'decision': 'approve',
       });
+    });
+
+    test(
+      'resolveApproval sends exactly the v0.23 prompt identity when known',
+      () async {
+        final capture = _CaptureInterceptor({
+          'run_id': 'r1',
+          'status': 'already_resolved',
+          'prompt_id': 'prm_1',
+        });
+        await _service(capture).resolveApproval(
+          'r1',
+          approvalId: 'prm_1',
+          approved: false,
+          executionGeneration: 2,
+        );
+
+        check(capture.requests.single.data as Map<String, dynamic>).deepEquals({
+          'request_id': 'prm_1',
+          'execution_generation': 2,
+          'choice': 'deny',
+        });
+      },
+    );
+
+    test('answerClarify sends exactly the prompt identity and answer', () async {
+      final capture = _CaptureInterceptor({
+        'run_id': 'r1',
+        'status': 'resolved',
+        'prompt_id': 'prm_c1',
+      });
+      await _service(capture).answerClarify(
+        'r1',
+        promptId: 'prm_c1',
+        executionGeneration: 4,
+        answer: '["Small","Large"]',
+      );
+
+      final req = capture.requests.single;
+      check(req.method).equals('POST');
+      check(req.path).equals('http://host:8642/v1/runs/r1/clarify');
+      check(req.data as Map<String, dynamic>).deepEquals({
+        'request_id': 'prm_c1',
+        'execution_generation': 4,
+        'answer': '["Small","Large"]',
+      });
+    });
+
+    test('refusals keep their error code across run endpoints', () async {
+      final refused = _StatusInterceptor(
+        409,
+        _hermesError('permission_denied'),
+      );
+      final service = _service(refused);
+
+      final createError = await service
+          .createRun(input: 'hello', sessionId: 'lighthouse-log')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(createError).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').equals('permission_denied');
+
+      final responseError = await service
+          .streamResponse(HermesChatInput.text('hello'))
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(responseError)
+          .isA<HermesApiException>()
+          .has((e) => e.code, 'code')
+          .equals('permission_denied');
+
+      final approval = _service(
+        _StatusInterceptor(409, _hermesError('approval_not_pending')),
+      );
+      final approvalError = await approval
+          .resolveApproval(
+            'r1',
+            approvalId: 'prm_1',
+            approved: true,
+            executionGeneration: 1,
+          )
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(approvalError)
+          .isA<HermesApiException>()
+          .has((e) => e.code, 'code')
+          .equals('approval_not_pending');
+    });
+
+    test('a saved, queued input is flagged as not retryable', () async {
+      final service = _service(
+        _StatusInterceptor(
+          503,
+          _hermesError('admission_queued'),
+          headers: {
+            'x-should-retry': ['false'],
+          },
+        ),
+      );
+      final error = await service
+          .createRun(input: 'hello')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.code, 'code').equals('admission_queued')
+        ..has((e) => e.retryForbidden, 'retryForbidden').isTrue()
+        ..has((e) => e.retryAfter, 'retryAfter').isNull();
+    });
+
+    test(
+      'oversized or malformed error bodies still fail without a code',
+      () async {
+        for (final body in [
+          jsonEncode({
+            'error': {'code': 'permission_denied', 'message': 'x' * 9000},
+          }),
+          'not json',
+          jsonEncode({
+            'error': {'code': 'two words'},
+          }),
+        ]) {
+          final error = await _service(_StatusInterceptor(409, body))
+              .stopRun('r1')
+              .then<Object?>((_) => null, onError: (Object error) => error);
+          check(error).isA<HermesApiException>()
+            ..has((e) => e.statusCode, 'status').equals(409)
+            ..has((e) => e.code, 'code').isNull();
+        }
+      },
+    );
+
+    test('a trickled error body ends at the request deadline', () async {
+      const window = Duration(seconds: 30);
+      final clock = _MutableRecoveryClock();
+      final refusal = _LateRefusalInterceptor(
+        clock: clock,
+        advance: window - const Duration(milliseconds: 50),
+      );
+      addTearDown(refusal.body.close);
+      final service = _service(
+        refusal,
+        streamLimits: const HermesStreamLimits(
+          idleTimeout: window,
+          maxDuration: window,
+        ),
+        recoveryClock: clock.call,
+      );
+
+      final elapsed = Stopwatch()..start();
+      final error = await service
+          .stopRun('r1')
+          .then<Object?>((_) => null, onError: (Object error) => error)
+          .timeout(const Duration(seconds: 5));
+      check(elapsed.elapsed).isLessThan(const Duration(seconds: 5));
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').isNull();
+    });
+
+    test('a refusal read past the request deadline stays a refusal', () async {
+      const window = Duration(seconds: 30);
+      final clock = _MutableRecoveryClock();
+      final refusal = _LateRefusalInterceptor(
+        clock: clock,
+        advance: window - const Duration(seconds: 1),
+      );
+      // The whole envelope arrives, but reading it uses up the deadline.
+      refusal.body.onListen = () {
+        clock.advance(const Duration(seconds: 2));
+        refusal.body
+          ..add(utf8.encode(_hermesError('permission_denied')))
+          ..close();
+      };
+      final service = _service(
+        refusal,
+        streamLimits: const HermesStreamLimits(
+          idleTimeout: window,
+          maxDuration: window,
+        ),
+        recoveryClock: clock.call,
+      );
+
+      final error = await service
+          .stopRun('r1')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').equals('permission_denied');
+    });
+
+    test('resolveUnknownRun sends exactly the admission identity', () async {
+      final capture = _CaptureInterceptor({
+        'admission_id': 'adm_31',
+        'status': 'terminal',
+        'outcome': 'interrupted',
+        'execution_generation': 4,
+      });
+      final receipt = await _service(capture).resolveUnknownRun(
+        'run_5',
+        admissionId: 'adm_31',
+        executionGeneration: 4,
+      );
+
+      final request = capture.requests.single;
+      check(request.method).equals('POST');
+      check(request.path)
+          .equals('http://host:8642/v1/runs/run_5/resolve-unknown');
+      check(request.data as Map<String, dynamic>)
+          .deepEquals({'admission_id': 'adm_31', 'execution_generation': 4});
+      check(receipt['outcome']).equals('interrupted');
+    });
+
+    test('runEvents resumes with Last-Event-ID and reports seq', () async {
+      final capture = _CaptureInterceptor(
+        ResponseBody.fromString(
+          ': open\n\n'
+          'id: 8\ndata: {"event":"message.delta","run_id":"r1","delta":"lo","seq":8}\n\n'
+          'id: 9\ndata: {"event":"run.completed","run_id":"r1","output":"Hello","seq":9}\n\n',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+          },
+        ),
+      );
+      final seqs = <int>[];
+      final events = await _service(capture)
+          .runEvents('r1', lastEventId: 7, onSequence: seqs.add)
+          .toList();
+
+      check(capture.requests.single.headers['Last-Event-ID']).equals('7');
+      check(seqs).deepEquals([8, 9]);
+      check(events.whereType<HermesTokenDelta>().single.content).equals('lo');
+      check(events.last).isA<HermesRunDone>();
     });
 
     test('approval identifiers cannot inject URI path or fragments', () async {

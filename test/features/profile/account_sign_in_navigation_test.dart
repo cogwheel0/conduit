@@ -174,7 +174,7 @@ void main() {
 
     await tester.tap(find.text('switch'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Switch anyway'));
+    await tester.tap(find.text('Switch Anyway'));
     await tester.pumpAndSettle();
 
     check(location()).equals(Routes.authentication);
@@ -187,7 +187,7 @@ void main() {
 
     await tester.tap(find.text('sign out'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign out'));
+    await tester.tap(find.text('Sign Out'));
     await tester.pumpAndSettle();
 
     check(location()).equals(Routes.authentication);
@@ -200,7 +200,7 @@ void main() {
 
     await tester.tap(find.text('sign out'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign out'));
+    await tester.tap(find.text('Sign Out'));
     await tester.pumpAndSettle();
 
     check(location()).equals(Routes.profile);

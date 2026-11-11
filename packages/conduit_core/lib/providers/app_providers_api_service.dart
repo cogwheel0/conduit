@@ -86,9 +86,14 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
 });
 
 /// Whether server-backed Open WebUI settings are usable in the current
-/// session. A retained server or API object after sign-out is not sufficient.
+/// session. A retained server or API object after sign-out is not sufficient,
+/// and neither is a session while another account backend owns the Chats
+/// tab: Open WebUI's notes, channels, terminal, folders and settings hide
+/// with it.
 final openWebUiAccountAvailableProvider = Provider<bool>((ref) {
-  return ref.watch(apiServiceProvider) != null &&
+  return ref.watch(primaryAccountKindProvider) ==
+          PrimaryAccountKind.openWebUi &&
+      ref.watch(apiServiceProvider) != null &&
       ref.watch(isAuthenticatedProvider2);
 });
 

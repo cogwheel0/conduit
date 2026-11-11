@@ -59,6 +59,139 @@ void main() {
     expect(knowledge.createdForms.single.name, 'Docs');
   });
 
+  group('file limits of its own (Open WebUI 0.13)', () {
+    testWidgets('a new base is created with the limits typed', (tester) async {
+      final knowledge = _FakeKnowledge();
+      await tester.pumpWidget(
+        _harness(
+          knowledge: knowledge,
+          mode: WorkspaceRouteMode.create,
+          knowledgeLimits: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('workspace-knowledge-name')),
+        'Docs',
+      );
+      await tester.enterText(
+        find.byKey(const Key('workspace-knowledge-max-file-count')),
+        '25',
+      );
+      await tester.tap(find.byKey(const Key('workspace-editor-save')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(knowledge.createdForms.single.limits, (
+        maxFileCount: 25,
+        maxFileSize: null,
+      ));
+    });
+
+    testWidgets('a limit that is not a whole number above zero is refused', (
+      tester,
+    ) async {
+      final knowledge = _FakeKnowledge();
+      await tester.pumpWidget(
+        _harness(
+          knowledge: knowledge,
+          mode: WorkspaceRouteMode.create,
+          knowledgeLimits: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('workspace-knowledge-name')),
+        'Docs',
+      );
+      await tester.enterText(
+        find.byKey(const Key('workspace-knowledge-max-file-size')),
+        '0',
+      );
+      await tester.tap(find.byKey(const Key('workspace-editor-save')));
+      await tester.pump();
+
+      expect(knowledge.createdForms, isEmpty);
+      expect(find.byKey(const Key('workspace-editor-error')), findsOneWidget);
+    });
+
+    testWidgets('the owner edits the base\'s limits', (tester) async {
+      final knowledge = _FakeKnowledge();
+      await tester.pumpWidget(
+        _harness(
+          knowledge: knowledge,
+          mode: WorkspaceRouteMode.edit,
+          resourceId: 'kb-1',
+          detail: const WorkspaceKnowledgeDetail(
+            summary: WorkspaceKnowledgeSummary(
+              id: 'kb-1',
+              name: 'Docs',
+              userId: 'owner',
+              writeAccess: true,
+              meta: {'max_file_count': 10, 'max_file_size': 5},
+            ),
+          ),
+          knowledgeLimits: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('workspace-knowledge-max-file-count')),
+        '',
+      );
+      await tester.tap(find.byKey(const Key('workspace-editor-save')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(knowledge.updatedForms.single.limits, (
+        maxFileCount: null,
+        maxFileSize: 5,
+      ));
+    });
+
+    testWidgets('only the owner or an admin, on 0.13, sees them', (
+      tester,
+    ) async {
+      // Another editor with write access: the server refuses its limits.
+      final knowledge = _FakeKnowledge();
+      await tester.pumpWidget(
+        _harness(
+          knowledge: knowledge,
+          mode: WorkspaceRouteMode.edit,
+          resourceId: 'kb-1',
+          detail: _writableDetail(),
+          user: const User(
+            id: 'editor',
+            username: 'editor',
+            email: 'e@e.com',
+            role: 'user',
+          ),
+          knowledgeLimits: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('workspace-knowledge-limits')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('workspace-editor-save')));
+      await tester.pump();
+      await tester.pump();
+      expect(knowledge.updatedForms.single.limits, isNull);
+    });
+
+    testWidgets('an older server shows none', (tester) async {
+      final knowledge = _FakeKnowledge();
+      await tester.pumpWidget(
+        _harness(knowledge: knowledge, mode: WorkspaceRouteMode.create),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('workspace-knowledge-limits')), findsNothing);
+    });
+  });
+
   testWidgets('create form blocks save when name is empty', (tester) async {
     final knowledge = _FakeKnowledge();
     await tester.pumpWidget(
@@ -335,10 +468,12 @@ Widget _harness({
     email: 'o@e.com',
     role: 'user',
   ),
+  bool knowledgeLimits = false,
 }) {
   return ProviderScope(
     overrides: [
       reviewerModeProvider.overrideWithValue(false),
+      knowledgeLimitsSupportedProvider.overrideWithValue(knowledgeLimits),
       apiServiceProvider.overrideWithValue(null),
       currentUserProvider2.overrideWithValue(user),
       workspaceCapabilitiesProvider.overrideWith(

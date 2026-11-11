@@ -1,4 +1,5 @@
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/navigation/utils/chat_list_back.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -25,6 +26,7 @@ void main() {
       dismissInputFocus: () {},
       canNavigateBack: () => false,
       navigateBack: () => events.add('pop'),
+      openChatList: () => false,
       confirmExit: () async {
         events.add('confirm');
         return false;
@@ -49,6 +51,7 @@ void main() {
         dismissInputFocus: () {},
         canNavigateBack: () => true,
         navigateBack: () => events.add('pop'),
+        openChatList: () => throw StateError('must not open the list'),
         confirmExit: () async => throw StateError('must not confirm'),
         isMounted: () => true,
         isAndroid: true,
@@ -60,4 +63,54 @@ void main() {
       expect(events, ['pop']);
     },
   );
+
+  group('back to the chat list (#852)', () {
+    Future<List<String>> back({
+      bool hasInputFocus = false,
+      bool opensList = false,
+      bool confirm = true,
+      bool isAndroid = true,
+    }) async {
+      final events = <String>[];
+      await handleChatBackNavigation(
+        hasInputFocus: hasInputFocus,
+        dismissInputFocus: () => events.add('unfocus'),
+        canNavigateBack: () => false,
+        navigateBack: () => events.add('pop'),
+        openChatList: () {
+          events.add('list?');
+          if (opensList) events.add('list');
+          return opensList;
+        },
+        confirmExit: () async {
+          events.add('confirm');
+          return confirm;
+        },
+        isMounted: () => true,
+        isAndroid: isAndroid,
+        exitApplication: () => events.add('exit'),
+      );
+      return events;
+    }
+
+    test('back on a switched chat opens the list without asking', () async {
+      expect(await back(opensList: true), ['list?', 'list']);
+    });
+
+    test('back with the list showing asks to close the app', () async {
+      expect(await back(), ['list?', 'confirm', 'exit']);
+    });
+
+    test('cancelling the close prompt leaves the app open', () async {
+      expect(await back(confirm: false), ['list?', 'confirm']);
+    });
+
+    test('input focus clears before the list opens', () async {
+      expect(await back(hasInputFocus: true, opensList: true), ['unfocus']);
+    });
+
+    test('without a system back button the list never opens', () async {
+      expect(await back(opensList: true, isAndroid: false), ['confirm']);
+    });
+  });
 }

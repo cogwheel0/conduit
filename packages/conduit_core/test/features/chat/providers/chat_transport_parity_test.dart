@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
@@ -119,6 +120,69 @@ class _StubAdapter implements HttpClientAdapter {
       );
     }
 
+    return ResponseBody(
+      Stream.value(utf8.encode('{}')),
+      200,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// Answers Open WebUI 0.13's temporary chat resume with [status] and [body],
+/// and records each request's chat id and session.
+class _ResumeAdapter implements HttpClientAdapter {
+  _ResumeAdapter({
+    required int status,
+    Map<String, dynamic> body = const {},
+    List<({int status, Map<String, dynamic> body})>? answers,
+  }) : _answers = answers ?? [(status: status, body: body)];
+
+  /// One answer per resume in order; the last one repeats.
+  final List<({int status, Map<String, dynamic> body})> _answers;
+
+  /// Runs as each resume arrives, before it is answered.
+  void Function()? onResume;
+  final resumes = <({String chatId, Object? sessionId})>[];
+
+  /// The path of every GET, such as a saved chat's poll.
+  final reads = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    const prefix = '/api/tasks/chat/';
+    const suffix = '/resume';
+    if (options.method == 'POST' &&
+        options.path.startsWith(prefix) &&
+        options.path.endsWith(suffix)) {
+      resumes.add((
+        chatId: Uri.decodeComponent(
+          options.path.substring(
+            prefix.length,
+            options.path.length - suffix.length,
+          ),
+        ),
+        sessionId: (options.data as Map)['session_id'],
+      ));
+      onResume?.call();
+      final answer = _answers[min(resumes.length, _answers.length) - 1];
+      return ResponseBody(
+        Stream.value(utf8.encode(jsonEncode(answer.body))),
+        answer.status,
+        headers: {
+          'content-type': ['application/json'],
+        },
+      );
+    }
+    if (options.method == 'GET') reads.add(options.path);
     return ResponseBody(
       Stream.value(utf8.encode('{}')),
       200,
@@ -297,6 +361,11 @@ ActiveChatStream _attach({
 class FakeSocketInjector {
   final _registrations = <_ChatHandlerRegistration>[];
 
+  /// Fires the socket's reconnect signal; [sessionId] is the session it is
+  /// connected as.
+  final reconnects = StreamController<void>.broadcast();
+  String sessionId = 'test-session';
+
   bool get hasChatHandler => _registrations.isNotEmpty;
 
   void emitChatEvent(
@@ -432,13 +501,13 @@ class _MockSocketService implements SocketService {
   }) => SocketEventSubscription(() {}, handlerId: 'test-channel');
 
   @override
-  Stream<void> get onReconnect => const Stream.empty();
+  Stream<void> get onReconnect => _injector.reconnects.stream;
 
   @override
   bool get isConnected => true;
 
   @override
-  String? get sessionId => 'test-session';
+  String? get sessionId => _injector.sessionId;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -840,6 +909,189 @@ void main() {
           conversationId: 'local:abc',
         ),
       ).isFalse();
+    });
+  });
+
+  group('a temporary chat after the socket reconnects', () {
+    // Open WebUI 0.13 sends a temporary chat's events only to the session
+    // that owns it; the new session must take it over.
+    const chatId = 'local:old-session:6f1c4b1e-1d7a-4c49-9a8d-6a1f3e2b9c10';
+
+    Future<({_CallbackLog log, _ResumeAdapter server})> reconnect({
+      int status = 200,
+      Map<String, dynamic> body = const {},
+      List<({int status, Map<String, dynamic> body})>? answers,
+      String conversationId = chatId,
+      void Function(FakeSocketInjector registrar)? duringResume,
+      Duration settle = const Duration(milliseconds: 650),
+    }) async {
+      final server = _ResumeAdapter(
+        status: status,
+        body: body,
+        answers: answers,
+      );
+      final api = _buildFakeApi()..dio.httpClientAdapter = server;
+      final log = _CallbackLog(
+        initialMessages: _fakeStreamingMessages(content: 'Hel'),
+      );
+      final registrar = FakeSocketInjector()..sessionId = 'old-session';
+      addTearDown(registrar.reconnects.close);
+      final stream = _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'old-session',
+          conversationId: conversationId,
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        sessionId: 'old-session',
+        activeConversationId: conversationId,
+        socketService: _MockSocketService(registrar),
+      );
+      addTearDown(() {
+        for (final dispose in stream.socketSubscriptions) {
+          dispose();
+        }
+        stream.disposeWatchdog();
+      });
+      if (duringResume != null) {
+        server.onResume = () => duringResume(registrar);
+      }
+      registrar.sessionId = 'new-session';
+      registrar.reconnects.add(null);
+      // The recovery waits half a second for the socket to settle.
+      await Future<void>.delayed(settle);
+      return (log: log, server: server);
+    }
+
+    test('resumes it in the new session and keeps the running reply', () async {
+      final result = await reconnect(
+        status: 200,
+        body: {
+          'task_ids': ['task-1'],
+          'streams': [
+            {
+              'chat_id': chatId,
+              'message_id': 'msg-1',
+              'output': [
+                {
+                  'type': 'message',
+                  'role': 'assistant',
+                  'content': [
+                    {'type': 'output_text', 'text': 'Hello there'},
+                  ],
+                },
+              ],
+              'content': 'Hello there',
+            },
+          ],
+        },
+      );
+
+      check(result.server.resumes.single.chatId).equals(chatId);
+      check(result.server.resumes.single.sessionId).equals('new-session');
+      final reply = result.log.messages.single;
+      check(reply.content).contains('Hello there');
+      check(reply.isStreaming).isTrue();
+      check(reply.error).isNull();
+    });
+
+    test('ends a reply the lost connection took with the server', () async {
+      final result = await reconnect(
+        status: 200,
+        body: {'task_ids': <String>[], 'streams': <Object>[]},
+      );
+
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isFalse();
+      check(
+        reply.error?.content,
+      ).equals(TemporaryChatResume.connectionLostMessage);
+      check(reply.content).equals('Hel');
+    });
+
+    test('ends the reply when the server no longer has the chat', () async {
+      final result = await reconnect(
+        status: 404,
+        body: {'detail': TemporaryChatUnavailable.serverDetail},
+      );
+
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isFalse();
+      check(reply.error?.content).equals(TemporaryChatUnavailable.userMessage);
+    });
+
+    test('leaves the reply running when the session dropped before the '
+        'server answered', () async {
+      // The server refuses a session that is no longer connected; the chat
+      // itself is fine, and the next reconnect asks again.
+      final result = await reconnect(
+        status: 404,
+        body: {'detail': TemporaryChatUnavailable.serverDetail},
+        duringResume: (registrar) => registrar.sessionId = 'newer-session',
+      );
+
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isTrue();
+      check(reply.error).isNull();
+    });
+
+    test('asks again after a failed request', () async {
+      final result = await reconnect(
+        answers: [
+          (status: 502, body: {'detail': 'Bad Gateway'}),
+          (
+            status: 200,
+            body: {
+              'task_ids': <String>[],
+              'streams': <Object>[],
+            },
+          ),
+        ],
+        // The second request follows a one second wait.
+        settle: const Duration(milliseconds: 1900),
+      );
+
+      check(result.server.resumes).length.equals(2);
+      check(
+        result.log.messages.single.error?.content,
+      ).equals(TemporaryChatResume.connectionLostMessage);
+    });
+
+    test('leaves the reply running on a server before 0.13', () async {
+      // The path matches only the GET route that lists a chat's tasks.
+      final result = await reconnect(
+        status: 405,
+        body: {'detail': 'Method Not Allowed'},
+      );
+
+      check(result.server.resumes).length.equals(1);
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isTrue();
+      check(reply.error).isNull();
+    });
+
+    test('a saved chat is polled, not resumed', () async {
+      final result = await reconnect(
+        status: 200,
+        conversationId: 'conv-1',
+        body: {'task_ids': <String>[], 'streams': <Object>[]},
+      );
+
+      check(result.server.resumes).isEmpty();
+      check(result.server.reads).contains('/api/v1/chats/conv-1');
+    });
+
+    test('an answer for a session that changed meanwhile is not applied', () async {
+      final result = await reconnect(
+        body: {'task_ids': <String>[], 'streams': <Object>[]},
+        duringResume: (registrar) => registrar.sessionId = 'newer-session',
+      );
+
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isTrue();
+      check(reply.error).isNull();
     });
   });
 

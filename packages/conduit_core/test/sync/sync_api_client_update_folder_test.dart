@@ -119,6 +119,81 @@ void main() {
     });
   });
 
+  group('a folder the user closes', () {
+    late AppDatabase db;
+    late IdRemapper remapper;
+    late _RecordingAdapter adapter;
+    late PushSync push;
+
+    setUp(() async {
+      db = AppDatabase(NativeDatabase.memory());
+      remapper = IdRemapper(db);
+      adapter = _RecordingAdapter();
+      push = PushSync(
+        client: _buildClient(adapter),
+        db: db,
+        chatLocks: ConversationLocks(),
+        folderLocks: FolderLocks(),
+        clock: _FixedClock(),
+        remapper: remapper,
+      );
+      await db.foldersDao.replaceServerFolders([
+        {
+          'id': 'p',
+          'name': 'Project',
+          'created_at': 1,
+          'updated_at': 2,
+          'is_expanded': true,
+        },
+      ]);
+    });
+
+    tearDown(() async {
+      await remapper.dispose();
+      await db.close();
+    });
+
+    test('drains as the request the web client sends for it', () async {
+      await db.foldersDao.setFolderExpandedWithOutbox(
+        id: 'p',
+        isExpanded: false,
+      );
+
+      final op = (await db.outboxDao.pendingForChat('p')).single;
+      await push.pushFolderUpsert(
+        jsonDecode(op.payload) as Map<String, dynamic>,
+      );
+
+      final request = adapter.requests.single;
+      check(request.method).equals('POST');
+      check(request.path).equals('/api/v1/folders/p/update/expanded');
+      check(
+        request.data,
+      ).isA<Map<String, dynamic>>().deepEquals({'is_expanded': false});
+      check((await db.foldersDao.getFolder('p'))!.dirty).isFalse();
+    });
+  });
+
+  group('ApiSyncApiClient.updateFolderExpanded', () {
+    test('a folder gone from the server answers false', () async {
+      final client = _buildClient(
+        _FixedAdapter(statusCode: 404, body: {'detail': 'Not found'}),
+      );
+
+      check(await client.updateFolderExpanded('p', false)).isFalse();
+    });
+
+    test('a refusal is terminal, as for other folder edits', () async {
+      final client = _buildClient(
+        _FixedAdapter(statusCode: 403, body: {'detail': 'Forbidden'}),
+      );
+
+      await check(
+        client.updateFolderExpanded('p', false),
+      ).throws<SyncTerminalException>();
+    });
+  });
+
   group('getFolderById', () {
     test('reads as the account that captured the snapshot', () async {
       final adapter = _RecordingAdapter();

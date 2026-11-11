@@ -4,6 +4,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
@@ -92,9 +93,9 @@ class NoteFileAttachment extends StatelessWidget {
                       child: SizedBox(
                         width: IconSize.sm,
                         height: IconSize.sm,
-                        child: CircularProgressIndicator(
+                        child: AdaptiveProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(_iconColor(theme)),
+                          color: _iconColor(theme),
                         ),
                       ),
                     )

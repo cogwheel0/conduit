@@ -72,11 +72,16 @@ final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
 
 /// The newest assistant still streaming among the answers that end [messages].
 /// A single-answer turn has just one candidate, the last message.
-ChatMessage? _trailingStreamingAssistant(List<ChatMessage> messages) {
+/// The newest answer streaming in the turn that ends [messages]; with
+/// [writtenBy], the newest that account wrote.
+ChatMessage? _trailingStreamingAssistant(
+  List<ChatMessage> messages, {
+  String? writtenBy,
+}) {
   for (var index = messages.length - 1; index >= 0; index -= 1) {
     final message = messages[index];
     if (message.role != 'assistant') return null;
-    if (message.isStreaming) return message;
+    if (message.isStreaming && message.isWrittenBy(writtenBy)) return message;
   }
   return null;
 }
@@ -84,6 +89,12 @@ ChatMessage? _trailingStreamingAssistant(List<ChatMessage> messages) {
 // Stop generation provider
 final stopGenerationProvider = Provider<void Function()>((ref) {
   return () => unawaited(_stopGeneration(ref));
+});
+
+/// Stops what the open chat is answering, as [stopGenerationProvider] does,
+/// and completes once the stop has settled, with whether it was accepted.
+final stopGenerationSettledProvider = Provider<Future<bool> Function()>((ref) {
+  return () => _stopGeneration(ref);
 });
 
 /// Stops the Open WebUI response the visible chat is streaming and completes
@@ -118,7 +129,9 @@ Future<bool> stopOpenWebUiMainResponse(Ref ref) {
               Future<bool>.value(true);
   }
   final transport = running.metadata?['transport'];
-  if (transport == kDirectTransport || transport == kHermesTransport) {
+  if (transport == kDirectTransport ||
+      transport == kHermesTransport ||
+      transport == kLibreChatTransport) {
     return Future<bool>.value(false);
   }
   return _stopGeneration(ref);
@@ -138,6 +151,20 @@ Future<bool> _stopGeneration(Ref ref) {
   // again after the visible answers have settled (see [_oweCancellation]).
   final cancellation = <_CancellationStep>[];
   final stoppedChatId = ref.read(activeConversationProvider)?.id ?? '';
+  // Stop ends this account's answers alone. In a chat shared with Allow
+  // replies another person's answer can run in the same turn, even as the one
+  // shown: only they can stop it, so it is neither stopped nor settled here,
+  // and the chat keeps following it. The server's stop of the chat's tasks
+  // ends this account's tasks alone.
+  final userId = ref.read(currentUserProvider2)?.id;
+  bool othersAnswerRunsLast() {
+    final tail = ref.read(chatMessagesProvider).lastOrNull;
+    return tail != null &&
+        tail.role == 'assistant' &&
+        tail.isStreaming &&
+        !tail.isWrittenBy(userId);
+  }
+
   Future<bool> cancelOnServer(
     Future<bool> Function(String chatId) run, {
     bool chatScoped = false,
@@ -154,9 +181,13 @@ Future<bool> _stopGeneration(Ref ref) {
     final streamingTail = _trailingStreamingAssistant(messages);
     if (streamingTail != null) {
       hadStreamingAssistant = true;
-      final last = streamingTail;
+      final last = _trailingStreamingAssistant(messages, writtenBy: userId);
 
-      if (last.metadata?['transport'] == kDirectTransport) {
+      if (last == null) {
+        // Only another person's answers show running. Stop was offered for
+        // this account's among their versions, which the chat's stop ends.
+        stoppedOpenWebUiRun = true;
+      } else if (last.metadata?['transport'] == kDirectTransport) {
         // Transport metadata remains authoritative after process death even
         // though the process-local registry is empty. Never let an orphaned
         // direct checkpoint fall through to an unrelated OpenWebUI stop.
@@ -238,6 +269,26 @@ Future<bool> _stopGeneration(Ref ref) {
                 requireConversationOwner: true,
               );
         }
+      } else if (last.metadata?['transport'] == kLibreChatTransport ||
+          isLibreChatConversation(ref.read(activeConversationProvider))) {
+        stoppedClientOwnedRun = true;
+        // The server keeps generating whether or not anyone listens; only
+        // its abort stops the reply, and its final frame settles it here.
+        final stop = _stopLibreChatTurn(ref, last);
+        _observeDetachedCancellation(stop, scope: 'librechat/cancel');
+        if (stop == null) {
+          final Conversation? active = ref.read(activeConversationProvider);
+          ref
+              .read(chatMessagesProvider.notifier)
+              .finishStreamingMessage(
+                last.id,
+                ownerConversationId: active == null
+                    ? null
+                    : chatMutationOwnerScopeForConversation(active),
+                requireConversationOwner: true,
+                persistTurn: false,
+              );
+        }
       } else {
         final api = ref.read(apiServiceProvider);
 
@@ -258,10 +309,13 @@ Future<bool> _stopGeneration(Ref ref) {
         }
       }
 
-      // Cancel local stream subscription to stop propagating further chunks
-      ref
-          .read(chatMessagesProvider.notifier)
-          .cancelActiveMessageStreamPreservingContent();
+      // Cancel local stream subscription to stop propagating further chunks.
+      // Another person's answer at the end is what it follows, and runs on.
+      if (!othersAnswerRunsLast()) {
+        ref
+            .read(chatMessagesProvider.notifier)
+            .cancelActiveMessageStreamPreservingContent();
+      }
       // Every answer of a multi-model turn stops with it; none is left
       // spinning because it was not the list tail. Direct and Hermes runs
       // have no such turns and settle through their own dispatchers. The
@@ -337,7 +391,10 @@ Future<bool> _stopGeneration(Ref ref) {
     }
   } catch (_) {}
 
-  // Ensure UI transitions out of streaming state
-  ref.read(chatMessagesProvider.notifier).finishStreaming();
+  // Ensure UI transitions out of streaming state, unless another person's
+  // answer still runs at the end.
+  if (!othersAnswerRunsLast()) {
+    ref.read(chatMessagesProvider.notifier).finishStreaming();
+  }
   return allSettled();
 }

@@ -6,11 +6,13 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_section_header.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -113,6 +115,7 @@ void main() {
       childIconLeft - parentIconLeft,
       2 * FolderTreeHierarchyNode.segmentWidth,
     );
+    // A nested chat's title steps in as a folder symbol does.
     expect(
       nestedChatTitleLeft - parentIconLeft,
       3 * FolderTreeHierarchyNode.segmentWidth,
@@ -151,7 +154,11 @@ void main() {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: controllers,
-        settings: const AppSettings(temporaryChatByDefault: true),
+        settings: const AppSettings(
+          temporaryChatByDefault: true,
+          defaultModel: 'demo-model',
+        ),
+        models: const [Model(id: 'demo-model', name: 'Demo model')],
         folders: const [
           Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
         ],
@@ -170,10 +177,7 @@ void main() {
     container.read(temporaryChatEnabledProvider.notifier).set(false);
 
     await tester.tap(
-      find.descendant(
-        of: find.byType(AppBar),
-        matching: find.byIcon(Icons.add),
-      ),
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
     );
     await tester.pumpAndSettle();
 
@@ -311,7 +315,7 @@ void main() {
 
     final row = find.byKey(const ValueKey<String>('folder-open-parent-folder'));
     final gesture = await tester.startGesture(tester.getCenter(row));
-    await tester.pump();
+    await tester.pump(kSidebarRowPressDelay);
 
     final pressedFinder = find.byKey(
       const ValueKey<String>('folder-pressed-tint-parent-folder'),
@@ -365,9 +369,9 @@ void main() {
     final folderRect = tester.getRect(
       find.byKey(const ValueKey<String>('folder-surface-parent-folder')),
     );
-    final sectionLeadingLeft = tester
-        .getRect(find.byKey(const ValueKey<String>('folders-section-leading')))
-        .left;
+    final sectionTitleLeft = tester
+        .getTopLeft(find.text(AppLocalizationsEn().folders))
+        .dx;
     final folderIconLeft = tester
         .getRect(
           find.byKey(const ValueKey<String>('folder-icon-parent-folder')),
@@ -377,12 +381,22 @@ void main() {
     expect(chatRect.left, 0);
     expect(chatRect.left, folderRect.left);
     expect(chatRect.right, folderRect.right);
-    expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.lg);
+    // Folder symbols start where chat titles do; the section title follows
+    // its chevron on the list's margin.
+    expect(folderIconLeft, kSidebarRowContentInset);
     expect(
       tester.getTopLeft(find.text('Active Chat')).dx,
-      sectionLeadingLeft + Spacing.sm,
+      kSidebarRowContentInset,
     );
-    expect(folderIconLeft, sectionLeadingLeft + Spacing.sm);
+    final chevron = tester.getRect(
+      find.byKey(const ValueKey<String>('folders-section-leading')),
+    );
+    expect(chevron.left, greaterThanOrEqualTo(kSidebarSectionHeaderInset));
+    expect(chevron.right, lessThan(sectionTitleLeft));
+    expect(
+      sectionTitleLeft,
+      kSidebarSectionHeaderInset + IconSize.listItem + Spacing.xxs,
+    );
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();
@@ -397,7 +411,7 @@ void main() {
     final leftTintInset = chatTintRect.left - drawerRect.left;
     final rightTintInset = drawerRect.right - chatTintRect.right;
     final titleLeft = tester.getTopLeft(find.text('Active Chat')).dx;
-    expect(titleLeft - chatTintRect.left, Spacing.md);
+    expect(titleLeft, kSidebarRowContentInset);
     expect(chatTintRect.left, Spacing.sm);
     expect(rightTintInset, leftTintInset);
     expect(chatTintRect.left, folderTintRect.left);
@@ -445,6 +459,77 @@ void main() {
 
     expect(NavigationService.currentRoute, '/chat');
     expect(find.text('Child Folder'), findsOneWidget);
+  });
+
+  // The server kept the state the folder was last left in on the web; a tap
+  // here only lasted until the app was closed.
+  testWidgets('a folder the user opens or closes is kept on the server', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final arrow = find.byKey(
+      const ValueKey<String>('folder-expand-parent-folder'),
+    );
+
+    await tester.tap(arrow);
+    await tester.pumpAndSettle();
+    await tester.tap(arrow);
+    await tester.pumpAndSettle();
+
+    expect(controllers.savedFolderExpansions, [
+      ('parent-folder', true),
+      ('parent-folder', false),
+    ]);
+  });
+
+  // As on the web, a folder opened for the user is not a choice to keep.
+  testWidgets('a folder opened to add a subfolder is only opened here', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+          Folder(
+            id: 'child-folder',
+            name: 'Child Folder',
+            parentId: 'parent-folder',
+            isExpanded: false,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final menu = tester.widget<ConduitContextMenu>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey<String>('folder-open-parent-folder')),
+            matching: find.byType(ConduitContextMenu),
+          )
+          .first,
+    );
+
+    final newFolder = AppLocalizationsEn().newFolder;
+    unawaited(
+      menu.actions
+          .singleWhere((action) => action.label == newFolder)
+          .onSelected(),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Child Folder'), findsOneWidget);
+    expect(controllers.savedFolderExpansions, isEmpty);
   });
 
   testWidgets('folders with missing parents fall back to the root level', (
