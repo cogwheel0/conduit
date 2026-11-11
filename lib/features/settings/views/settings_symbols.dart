@@ -130,4 +130,18 @@ const Map<String, IconData> _icons = {
   'wifi': Icons.wifi,
   'wifi.slash': Icons.wifi_off,
   'antenna.radiowaves.left.and.right.slash': Icons.sync_disabled,
+  // Files, backups and chats in bulk.
+  'square.and.arrow.down': Icons.file_download_outlined,
+  'archivebox': Icons.archive_outlined,
+  'tray.and.arrow.up': Icons.unarchive_outlined,
+  'arrow.triangle.2.circlepath': Icons.sync,
+  'arrow.up.circle': Icons.cloud_upload_outlined,
+  'doc': Icons.description_outlined,
+  'doc.badge.plus': Icons.note_add_outlined,
+  // Connection settings.
+  'gearshape': Icons.settings_outlined,
+  'lock.open': Icons.lock_open_outlined,
+  'doc.badge.gearshape': Icons.workspace_premium_outlined,
+  'list.bullet.rectangle': Icons.list_alt_outlined,
+  'slider.horizontal.3': Icons.tune,
 };

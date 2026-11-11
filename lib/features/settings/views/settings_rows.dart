@@ -1,3 +1,4 @@
+import 'package:conduit_core/utils/profile_avatar.dart' show extractAvatarInitials;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -39,7 +40,13 @@ class SettingsRowGlyph extends StatelessWidget {
     }
     final avatarName = item.avatarName;
     if (avatarName != null) {
-      return UserAvatar(size: side, imageUrl: null, fallbackText: avatarName);
+      // Its initials, as the native sheet draws them; the whole name does
+      // not fit the circle.
+      return UserAvatar(
+        size: side,
+        imageUrl: null,
+        fallbackText: extractAvatarInitials(avatarName),
+      );
     }
     final color = item.destructive
         ? theme.error
