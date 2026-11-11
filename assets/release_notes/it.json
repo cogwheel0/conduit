@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Novità",
+      "intro": "Ciao! LibreChat arriva in beta: accedi, chatta con i suoi modelli e agenti, e tieni la sua cronologia nella scheda Chat. Hermes 0.23 funziona, con Stanze, chat fissate e nascoste, e un pannello Contesto e utilizzo. Open WebUI 0.13.3 offre come modelli gli agenti di programmazione dei suoi terminali, e Computer apre il desktop di un terminale dall'intestazione della chat.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): accedi a un server LibreChat con email o LDAP, verifica in due passaggi o Single Sign-On, e passa da LibreChat a Open WebUI e viceversa da Account. Le sue chat riempiono la scheda Chat e restano leggibili offline. Scegli tra le sue specifiche di modello, i suoi agenti e i suoi modelli, allega file, attiva ricerca web, esecuzione del codice, ricerca nei file e server MCP, rispondi alle richieste di approvazione degli strumenti e inserisci i suoi prompt con /. Le risposte proseguono mentre sei in un'altra chat. Funzionano anche i link di condivisione, i rami, Duplica chat, le voci del server e le memorie in Personalizzazione.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: le chat tramite Desktop Gateway e server API funzionano, e puoi collegarti al listener Webapp del gateway stesso. Le approvazioni e le domande compaiono di nuovo, e tutte le domande di uno scambio arrivano in un unico modulo. Una chat avviata in un'altra app Hermes offre Continua in una copia, un'esecuzione interrotta da un riavvio riprende, e la risposta a un messaggio che Hermes ha salvato durante il riavvio compare appena è pronta. Conduit chiede il tuo consenso prima che una connessione invii credenziali tramite HTTP non crittografato, e prima di passare a un modello che Hermes vuole farti confermare.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chat Hermes: fissa, archivia o nascondi una chat, crea un ramo da qualsiasi risposta o annulla l'ultimo scambio. In una chat Desktop Gateway, modifiche e rigenerazioni proseguono nella stessa sessione, con il suo contesto. Contesto e utilizzo mostra quanto è piena la finestra di contesto e i limiti del tuo piano, e compatta la chat. Un chip sopra il campo di scrittura elenca subagenti e processi in esecuzione da orientare, fermare o terminare. Uno scambio non riuscito mostra una scheda che spiega cosa non ha funzionato e propone una soluzione, i file modificati compaiono in una scheda diff, gli strumenti a pagamento mostrano il prezzo, e il piano dell'agente resta sopra il campo di scrittura.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Stanze e attività Hermes: le connessioni Desktop Gateway ricevono le Stanze, chat di gruppo in cui riunire da due a sei dei tuoi bot. Le loro attività pianificate si possono interrompere a metà esecuzione, scegli cosa fare con le Esecuzioni perse, e Consegna a offre app di messaggistica, Chat dei bot e Chat di gruppo. Le attività del server API si possono modificare, e ora vi si applica il livello di ragionamento che scegli. I server MCP del catalogo chiedono le loro chiavi quando li aggiungi, e con più connessioni passi dall'una all'altra dal nome in cima alla barra laterale.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 e 0.13.3: l'app funziona senza avviso di compatibilità. Seleziona un terminale in una chat salvata e i suoi agenti di programmazione, come Codex e Claude Code, compaiono sotto Agenti di programmazione nel selettore dei modelli. Computer, nell'intestazione della chat, apre a schermo intero il Desktop o il Browser del terminale: guarda mentre una risposta è in corso, oppure usa Prendi il controllo per scrivere, cliccare e navigare. Disattivalo in Impostazioni > Chat. I richiami della memoria e gli elenchi di skill che il server nasconde non compaiono più come blocchi degli strumenti.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: le chiamate agli strumenti non si fermano più dopo 8 turni. La nuova impostazione Immagini per richiesta (predefinito: 10) e il budget dei documenti ora valgono per singola richiesta, così gli allegati più vecchi vengono esclusi invece di far fallire ogni scambio successivo. Il limite di contesto che scegli per un modello Ollama locale viene inviato a Ollama. I passaggi di ragionamento e degli strumenti restano quando riapri una chat, il riempimento del contesto nell'utilizzo è calcolato correttamente, e i server che inviano campi vuoti non interrompono più lo streaming.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: su iOS 26, menu, avvisi, pannelli e campi di ricerca sono quelli di sistema, e le Impostazioni sono raggruppate come nell'app Impostazioni. Voce e lettura ad alta voce fluttuano su isole di vetro: tocca la barra per spostarti in un altro punto, salta di 15 secondi e segui la parola evidenziata. Chat e note sono elencate per data, l'utilizzo di una risposta si apre in un riquadro a comparsa con il riempimento del contesto, l'editor delle note ha una barra degli strumenti in basso, e le pagine delle impostazioni si sfocano sotto la barra mentre scorri.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat: le chat lunghe scorrono senza che la barra di scorrimento salti, quella di Android si può trascinare, e la chat resta ferma mentre trascini la barra laterale per aprirla. I blocchi di codice mandano a capo le righe lunghe, le colonne delle tabelle si adattano al contenuto, i suggerimenti di follow-up occupano righe intere, e una risposta mostra Sta pensando… con il tempo di attesa. Un'unica velocità ora regola sia le voci cloud sia quelle del dispositivo, l'accesso alla dashboard di Hermes non diventa più vuoto dietro la tastiera, e toccare due volte il profilo non apre più due volte le Impostazioni.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
