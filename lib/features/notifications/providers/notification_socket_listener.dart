@@ -4,10 +4,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:conduit_core/database/chat_database_repository.dart'
-    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/database/local_conversation_loader.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
@@ -15,18 +12,18 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 
 import '../../../core/utils/current_localizations.dart';
-import '../../navigation/providers/chat_back_provider.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_socket_handler.dart';
 import 'package:conduit_core/models/channel.dart';
-import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
 
 import '../services/local_notification_service.dart';
+import '../services/notification_tap_router.dart';
 
 import 'package:conduit_core/features/notifications/services/notification_event_classifier.dart';
 
@@ -70,9 +67,8 @@ void _showInAppBanner(Ref ref, AppNotification notification) {
     message: message,
     type: AdaptiveSnackBarType.info,
     action: l10n.notificationViewAction,
-    onActionPressed: () => _handleTap(
-      ref,
-      NotificationTap(kind: notification.kind, sourceId: notification.sourceId),
+    onActionPressed: () => unawaited(
+      ref.read(notificationTapRouterProvider).openNotification(notification),
     ),
   );
 }
@@ -92,59 +88,6 @@ void _bumpChannelUnread(Ref ref, AppNotification notification) {
   }
 }
 
-Future<void> _handleTap(Ref ref, NotificationTap tap) async {
-  // Fire-and-forget from tap streams / cold launch — never let a navigation
-  // failure surface as an uncaught async error.
-  try {
-    switch (tap.kind) {
-      case NotificationKind.channelMessage:
-        NavigationService.navigateToChannel(tap.sourceId);
-      case NotificationKind.chatCompletion:
-        final ownership = captureOpenWebUiConversationRead(ref);
-        if (ownership == null) return;
-        // The notification names an Open WebUI chat: an on-device chat with
-        // the same raw id is another chat.
-        final tappedId = ChatStorageIdentity(
-          rawId: tap.sourceId,
-          storage: ChatStorageKind.openWebUi,
-        ).scopedId;
-        final chatWasOnScreen = chatPageOnScreen();
-        // DB-first open, mirroring the conversation-list selection flow.
-        await NavigationService.navigateToChat();
-        if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
-        final local = await loadLocalConversation(
-          ref,
-          tap.sourceId,
-          ownership: ownership,
-        );
-        if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
-        if (local != null) {
-          // The picks of the chat open now, or of one opened while this one
-          // loaded, are not this chat's. They start again only here, once
-          // this chat opens: a tap whose chat is not stored leaves the open
-          // chat, and its picks, as they are.
-          final current = ref.read(activeConversationProvider);
-          if (current == null ||
-              !conversationMatchesScopedId(current, tappedId)) {
-            clearSelectedFiltersForConversationBoundary(ref);
-          }
-          ref
-              .read(chatBackOpensListProvider.notifier)
-              .switchTo(local, chatOnScreen: chatWasOnScreen);
-          ref.read(activeConversationProvider.notifier).set(local);
-        }
-        schedulePullChatNow(ref, tap.sourceId, ownership: ownership);
-    }
-  } catch (e, st) {
-    DebugLogger.error(
-      'notification deep-link failed',
-      error: e,
-      stackTrace: st,
-      scope: 'notifications/center',
-    );
-  }
-}
-
 /// Single global subscriber that turns socket events into notifications.
 ///
 /// Mirrors `ActiveChatsSync._bindSocket`: one chat handler + one channel
@@ -157,7 +100,6 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   SocketEventSubscription? _chatSub;
   SocketEventSubscription? _channelSub;
   StreamSubscription<void>? _reconnectSub;
-  StreamSubscription<NotificationTap>? _tapSub;
   SocketService? _boundSocket;
 
   @override
@@ -166,38 +108,12 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       _chatSub?.dispose();
       _channelSub?.dispose();
       _reconnectSub?.cancel();
-      _tapSub?.cancel();
-    });
-
-    final local = ref.read(localNotificationServiceProvider);
-    // Initialize the plugin (channel + tap handler) without requesting
-    // permission — permission is requested on master-toggle opt-in.
-    unawaited(local.initialize());
-
-    // System-notification taps (foreground) route to the target.
-    _tapSub = local.taps.listen((tap) {
-      unawaited(_handleTap(ref, tap));
     });
 
     _bindSocket(ref.read(socketServiceProvider));
     ref.listen<SocketService?>(socketServiceProvider, (_, next) {
       _bindSocket(next);
     });
-  }
-
-  /// Handles a notification that cold-launched the app from a killed state.
-  /// Called once after the router is ready.
-  Future<void> handleLaunchTap() async {
-    final local = ref.read(localNotificationServiceProvider);
-    // Ensure the plugin finished native init before querying the launch intent:
-    // on Android getNotificationAppLaunchDetails() returns null until then, so
-    // racing it would silently drop the deep link. initialize() is idempotent
-    // and shares the in-flight future started in build().
-    await local.initialize();
-    final tap = await local.launchTap();
-    if (tap != null) {
-      await _handleTap(ref, tap);
-    }
   }
 
   void _bindSocket(SocketService? socket) {
@@ -234,10 +150,21 @@ class NotificationSocketListener extends _$NotificationSocketListener {
 
   String get _currentUserId => ref.read(currentUserProvider).value?.id ?? '';
 
+  /// The scope of the account whose socket this is: the active one. Null
+  /// before an account settles, when nothing can be attributed to one.
+  String? get _scope {
+    final accountId = ref.read(settledActiveAccountIdProvider);
+    if (accountId == null || accountId.isEmpty) return null;
+    return NotificationScope.openWebUi(accountId).value;
+  }
+
   void _onChatEvent(Map<String, dynamic> event) {
+    final scope = _scope;
+    if (scope == null) return;
     final notification = _classifier.classifyChatEvent(
       event,
       currentUserId: _currentUserId,
+      scope: scope,
     );
     if (notification != null) _route(notification);
   }
@@ -255,13 +182,27 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     // Until the current user resolves we can't run the self-author filter, so
     // skip rather than risk notifying the user for their own messages.
     if (userId.isEmpty) return;
+    final scope = _scope;
+    if (scope == null) return;
     final notification = _classifier.classifyChannelEvent(
       event,
       currentUserId: userId,
+      scope: scope,
     );
     if (notification != null) {
-      unawaited(_routeChannelMessage(notification, userId));
+      unawaited(
+        _routeChannelMessage(notification, userId, _messageContent(event)),
+      );
     }
+  }
+
+  /// The message's own text. The notification's body is a cleaned preview
+  /// capped at 200 characters, which can cut off or rewrite a mention.
+  static String _messageContent(Map<String, dynamic> event) {
+    final envelope = event['data'];
+    final data = envelope is Map ? envelope['data'] : null;
+    final content = data is Map ? data['content'] : null;
+    return content is String ? content : '';
   }
 
   /// Routes a channel message by the channel's notification setting. Like Open
@@ -271,6 +212,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   Future<void> _routeChannelMessage(
     AppNotification notification,
     String userId,
+    String content,
   ) async {
     final muted = await _isChannelMuted(notification.sourceId);
     if (muted == null || !ref.mounted || _currentUserId != userId) return;
@@ -278,7 +220,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       notification,
       alert: shouldNotifyChannelMessage(
         isMuted: muted,
-        content: notification.body,
+        content: content,
         userId: userId,
       ),
     );

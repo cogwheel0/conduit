@@ -13,6 +13,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/providers/notification_socket_listener.dart';
+import 'package:conduit/features/notifications/providers/notification_tap_listener.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
@@ -89,6 +90,16 @@ class _MockSocketService implements SocketService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// The active account, settled as [accountId].
+class _SettledAccount extends SettledActiveAccountId {
+  _SettledAccount(this.accountId);
+
+  final String? accountId;
+
+  @override
+  String? build() => accountId;
 }
 
 /// Channels list whose `refresh` is counted (reconnect reconciliation).
@@ -181,6 +192,7 @@ Map<String, dynamic> _chatCompletion({
   String type = 'chat:completion',
 }) => {
   'chat_id': chatId,
+  'message_id': 'msg-1',
   'data': {
     'type': type,
     'data': {'done': done, 'content': 'hello', 'title': 'Greeting'},
@@ -223,6 +235,7 @@ void main() {
   ProviderContainer makeContainer(
     _MockSocketService socket, {
     ApiService? api,
+    String? accountId = 'acct-1',
     List<Channel> channels = const [Channel(id: 'chan-1', name: 'general')],
   }) {
     routed = <AppNotification>[];
@@ -242,6 +255,9 @@ void main() {
         notificationRouterProvider.overrideWithValue(captureRouter),
         channelsListProvider.overrideWith(() => _FakeChannelsList(channels)),
         if (api != null) apiServiceProvider.overrideWithValue(api),
+        settledActiveAccountIdProvider.overrideWith(
+          () => _SettledAccount(accountId),
+        ),
         currentUserProvider.overrideWith(
           (ref) async => const User(
             id: 'me',
@@ -305,6 +321,8 @@ void main() {
       );
       addTearDown(container.dispose);
       container.read(notificationSocketListenerProvider);
+      // Taps are opened by the tap listener, through the tap router.
+      container.read(notificationTapListenerProvider);
     });
 
     void attachRouterAt(String location) {
@@ -430,6 +448,22 @@ void main() {
 
     check(routed).length.equals(1);
     check(routed.single.kind).equals(NotificationKind.chatCompletion);
+    check(routed.single.scope).equals('owui:acct-1');
+    check(routed.single.dedupKey).equals('owui:acct-1|chat:chat-1:msg-1');
+  });
+
+  test('routes nothing before an account settles', () async {
+    final socket = _MockSocketService();
+    addTearDown(socket.disposeController);
+    final container = makeContainer(socket, accountId: null);
+    container.read(notificationSocketListenerProvider);
+    await container.read(currentUserProvider.future);
+
+    socket.chat.single.handler(_chatCompletion(), null);
+    socket.channel.single.handler(_channelMessage(), null);
+    await Future<void>.delayed(Duration.zero);
+
+    check(routed).isEmpty();
   });
 
   test('ignores a non-terminal completion frame', () async {
@@ -469,6 +503,7 @@ void main() {
 
     check(routed).length.equals(1);
     check(routed.single.kind).equals(NotificationKind.channelMessage);
+    check(routed.single.dedupKey).equals('owui:acct-1|channel:chan-1:m1');
   });
 
   // Open WebUI 0.12.1 +layout.svelte with shouldNotifyChannelMessage.
@@ -630,6 +665,9 @@ void main() {
         container.read(notificationRouterProvider),
       ),
       channelsListProvider.overrideWith(_FakeChannelsList.new),
+      settledActiveAccountIdProvider.overrideWith(
+        () => _SettledAccount('acct-1'),
+      ),
       currentUserProvider.overrideWith(
         (ref) async => const User(
           id: 'me',
