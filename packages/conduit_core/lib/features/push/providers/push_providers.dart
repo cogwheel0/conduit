@@ -138,7 +138,7 @@ final pushClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 /// screens never start push themselves. In the app the coordinator is kept
 /// alive from launch, so this follows it.
 final pushStateIfUsedProvider = Provider<PushState?>((ref) {
-  if (!ref.exists(pushCoordinatorProvider) &&
+  if (!ref.read(pushCoordinatorProvider.exists) &&
       PreferencesStore.getBool(PreferenceKeys.pushEnabled) != true) {
     return null;
   }
