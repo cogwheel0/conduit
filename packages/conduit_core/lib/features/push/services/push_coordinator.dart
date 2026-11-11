@@ -203,14 +203,19 @@ class PushCoordinator extends _$PushCoordinator {
     } else {
       _update((s) => s.copyWith(enabled: false));
       _scheduleDisplayConfig();
-      await Future.wait([
-        for (final scope in _knownScopes())
-          _release(scope, target: _target(scope)),
-      ]);
-      // Turned back on meanwhile: its setup needs APNs or FCM.
-      if (ref.mounted && state.enabled) return;
-      _publishTargets();
-      await _releaseRelayTransports();
+      try {
+        await Future.wait([
+          for (final scope in _knownScopes())
+            _release(scope, target: _target(scope)),
+        ]);
+      } finally {
+        // Even when a cleanup failed: push is off. Unless it was turned back
+        // on meanwhile, whose setup needs APNs or FCM.
+        if (!ref.mounted || !state.enabled) {
+          _publishTargets();
+          await _releaseRelayTransports();
+        }
+      }
     }
   }
 
@@ -357,6 +362,26 @@ class PushCoordinator extends _$PushCoordinator {
     _environment = null;
     if (!state.enabled) return;
     await _reconcileAll(full: false, everyTarget: true);
+    // Chose UnifiedPush but it can't be set up yet (no distributor): a
+    // setup that can't start leaves the old subscription, so the FCM ones
+    // are removed here. The user chose to stop going through Google.
+    if (transport == PushAndroidTransport.unifiedPush) {
+      final stale = [
+        for (final MapEntry(:key, :value) in _records.entries)
+          if (value.transport == PushTransport.fcm) key,
+      ];
+      for (final scope in stale) {
+        await _release(
+          scope,
+          target: _target(scope),
+          status: PushStatus.failed,
+        );
+      }
+      if (stale.isNotEmpty && ref.mounted && state.enabled) {
+        await _reconcileAll(full: false, everyTarget: true);
+      }
+    }
+    if (!ref.mounted) return;
     // Moved off FCM: Firebase stops starting at launch.
     if (state.effectiveTransport != PushTransport.fcm &&
         !_records.values.any((r) => r.transport == PushTransport.fcm)) {
@@ -432,6 +457,10 @@ class PushCoordinator extends _$PushCoordinator {
       if (!job.deliveryKnown) throw const HermesJobDeliveryUnknown();
       final current = job.deliveryTarget;
       final next = hermesDeliverWithConduit(current, notify: notify);
+      // Longer than Hermes's own limit, the job would read back as unknown.
+      if (next.length > kMaxHermesJobDeliverCharacters) {
+        throw StateError("The job's delivery list has no room for Conduit.");
+      }
       if (hermesDeliverIncludesConduit(current) != notify) {
         await service.updateJob(jobId, deliver: next);
       }
@@ -475,22 +504,27 @@ class PushCoordinator extends _$PushCoordinator {
   /// subscription that can still be reached, every key, every record.
   Future<void> releaseAll() async {
     _update((s) => s.copyWith(enabled: false));
-    await Future.wait([
-      for (final scope in _knownScopes())
-        _release(
-          scope,
-          target: _target(scope),
-          forget: true,
-          waitForSetup: false,
-        ),
-    ]);
-    _records = {};
-    await _settings.saveRecords(const {});
-    await _settings.setEnabled(false);
-    await _settings.saveTombstones(const []);
-    await _settings.setLastFullReconcile(null);
-    _scheduleDisplayConfig();
-    await _releaseRelayTransports();
+    try {
+      await Future.wait([
+        for (final scope in _knownScopes())
+          _release(
+            scope,
+            target: _target(scope),
+            forget: true,
+            waitForSetup: false,
+          ),
+      ]);
+      _records = {};
+      await _settings.saveRecords(const {});
+      await _settings.setEnabled(false);
+      await _settings.saveTombstones(const []);
+      await _settings.setLastFullReconcile(null);
+      _scheduleDisplayConfig();
+    } finally {
+      // Even when saving failed (a sign-out that outlived its time and met
+      // the app-data barrier): Firebase must not keep starting at launch.
+      await _releaseRelayTransports();
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -601,7 +635,19 @@ class PushCoordinator extends _$PushCoordinator {
       return;
     }
     if (_targets == null) return;
-    await _reconcileAll(full: _fullReconcileDue(), throttle: true);
+    // Notifications may have been allowed or blocked in system settings
+    // meanwhile. The cached environment would hide that for minutes, and a
+    // throttled pass leaves targets that are on alone: every target shows
+    // the change instead.
+    final before = _permissionGranted;
+    final permissionChanged = await _checkPermission() != before;
+    if (permissionChanged) _environment = null;
+    if (!ref.mounted) return;
+    await _reconcileAll(
+      full: _fullReconcileDue(),
+      everyTarget: permissionChanged,
+      throttle: true,
+    );
   }
 
   /// Which transports this device offers, for the settings to say whether
