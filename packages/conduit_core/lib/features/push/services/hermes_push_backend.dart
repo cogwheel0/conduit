@@ -27,7 +27,9 @@ const String kConduitHermesPluginRepo = 'cogwheel0/conduit-hermes-push';
 /// the user's server. The copyable command is offered instead, and says that
 /// it installs the latest published version.
 ///
-/// This one is the mirror's first publish, of the plugin as of #840.
+/// This one is the plugin as of #840. The mirror's first push, it carried
+/// the directory's history along: its parent `f0bd2908` is the plugin as of
+/// #834, which was never installable on its own.
 const String kConduitHermesPluginRef =
     '1afccf8a06c5db3a105bbf5b266a5bb7209945f4';
 
