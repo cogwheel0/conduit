@@ -1428,6 +1428,11 @@ class VoiceInputService implements VoiceModeInput {
         // server transcribes to nothing (Hermes answers silence with an empty
         // transcript on purpose). That is no utterance, not a recognition
         // error: the listen just ends instead of failing the voice call.
+        DebugLogger.info(
+          'empty-server-transcript',
+          scope: 'voice/stt',
+          data: {'samples': samples.length},
+        );
         _completedTranscriptIsSendable = false;
       }
     } catch (error) {

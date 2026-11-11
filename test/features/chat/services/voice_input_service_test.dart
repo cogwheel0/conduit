@@ -484,6 +484,23 @@ void main() {
       },
     );
 
+    test('treats an empty server transcript as no utterance', () async {
+      final texts = <String>[];
+      final errors = <Object>[];
+      (await service.startListening()).listen(texts.add, onError: errors.add);
+      await pumpEventQueue();
+
+      // Noise or echo the VAD cut out transcribes to nothing.
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+      reply.complete(const {'text': ''});
+      await pumpEventQueue();
+
+      check(texts).isEmpty();
+      check(errors).isEmpty();
+      check(service.lastCompletedTranscriptSendable).isFalse();
+    });
+
     test('keeps the transcript of the pause that ended speech', () async {
       final texts = <String>[];
       var done = false;
