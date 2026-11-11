@@ -716,16 +716,24 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   Future<bool> hasPendingBranchEdit(String chatId) =>
       _hasPendingUpdateFlag(chatId, kUpdateChatBranchEditKey);
 
+  /// Whether an `updateChat` op for [chatId] has not yet been confirmed by the
+  /// server (pending, in flight, or parked as failed): a local change the
+  /// server may not hold.
+  Future<bool> hasUnconfirmedUpdate(String chatId) async =>
+      (await _updateOpsFor(chatId)).isNotEmpty;
+
   Future<bool> _hasPendingUpdateFlag(String chatId, String flag) async {
-    final ops =
-        await (select(outboxOps)..where(
-              (t) =>
-                  t.chatId.equals(chatId) &
-                  t.kind.equals(OutboxKind.updateChat.name),
-            ))
-            .get();
+    final ops = await _updateOpsFor(chatId);
     return ops.any((op) => _decodePayload(op.payload)[flag] == true);
   }
+
+  Future<List<OutboxOp>> _updateOpsFor(String chatId) =>
+      (select(outboxOps)..where(
+            (t) =>
+                t.chatId.equals(chatId) &
+                t.kind.equals(OutboxKind.updateChat.name),
+          ))
+          .get();
 
   /// The folders whose opening or closing in the sidebar the server has not
   /// confirmed yet: a `folderUpsert` carrying `isExpanded` that is pending, in
@@ -811,7 +819,14 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         // Refresh the surviving create's contentHash too; crash-heal matches
         // the server-created chat against the CURRENT rows pushCreateChat will
         // POST.
-        final create = newestOfKind(OutboxKind.createChat);
+        //
+        // Not a create whose chat already has its server id: it reached the
+        // server, and run again it sends nothing (`PushSync.pushCreateChat`),
+        // so the edit needs an update of its own, and the create's
+        // fingerprint must stay the snapshot it sent.
+        final create = chatId.startsWith('local:')
+            ? newestOfKind(OutboxKind.createChat)
+            : null;
         if (create != null) {
           return _CoalesceDecision(
             insert: false,
