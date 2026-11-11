@@ -6,6 +6,7 @@ import android.util.Log
 import app.cogwheel.conduit.BuildConfig
 import app.cogwheel.conduit.FlutterError
 import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
@@ -116,8 +117,16 @@ internal object FcmTransport {
         try {
             FirebaseMessaging.getInstance().apply {
                 isAutoInitEnabled = false
-                pendingDeletion = deleteToken().addOnFailureListener { error ->
+                val deletion = deleteToken().addOnFailureListener { error ->
                     Log.w(TAG, "FCM token could not be deleted", error)
+                }
+                // Releases can overlap, and a later deletion may end first: a
+                // token request waits for every one still running.
+                val earlier = pendingDeletion
+                pendingDeletion = if (earlier == null || earlier.isComplete) {
+                    deletion
+                } else {
+                    Tasks.whenAll(earlier, deletion)
                 }
             }
         } catch (error: RuntimeException) {

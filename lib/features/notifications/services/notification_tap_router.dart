@@ -280,20 +280,31 @@ class NotificationTapRouter {
     }
   }
 
-  /// Whether [accountId] is signed in, once its auth has settled; null when
-  /// another account became the active one meanwhile, or nothing settled in
+  /// Whether [accountId] is signed in, once its auth has settled: false
+  /// when it needs a sign-in. Null when there is nothing to open or ask: the
+  /// server couldn't be reached (the app shows that itself, with a retry),
+  /// another account or LibreChat took over meanwhile, or nothing settled in
   /// time. The auth status is the active account's, so it only counts while
   /// [accountId] still is.
   Future<bool?> _awaitSignedIn(String accountId) async {
     final deadline = DateTime.now().add(_settleTimeout);
     while (true) {
       if (!_ref.mounted ||
+          _ref.read(primaryAccountKindProvider) != PrimaryAccountKind.openWebUi ||
           _ref.read(settledActiveAccountIdProvider) != accountId) {
         return null;
       }
-      final status = _ref.read(authStatusProvider);
-      if (status != AuthStatus.initial && status != AuthStatus.loading) {
-        return status == AuthStatus.authenticated;
+      switch (_ref.read(authStatusProvider)) {
+        case AuthStatus.authenticated:
+          return true;
+        case AuthStatus.unauthenticated ||
+            AuthStatus.tokenExpired ||
+            AuthStatus.credentialError:
+          return false;
+        case AuthStatus.error:
+          return null;
+        case AuthStatus.initial || AuthStatus.loading:
+          break;
       }
       if (DateTime.now().isAfter(deadline)) return null;
       await Future<void>.delayed(const Duration(milliseconds: 50));
