@@ -331,6 +331,7 @@ void main() {
       await tester.tapAt(
         Offset(track.left + track.width * .68, track.center.dy),
       );
+      await tester.pump();
       expect(reports, isEmpty, reason: 'seekOnTap: $seekOnTap');
     }
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -367,6 +368,7 @@ void main() {
       await tester.tapAt(
         Offset(track.left + track.width * along, track.center.dy),
       );
+      await tester.pump();
       expect(reports, ['start:0.0', 'change:7.0', 'end:7.0']);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   }
