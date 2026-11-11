@@ -43,8 +43,6 @@ import '../profile/widgets/stt_language_picker.dart'
 import '../push/widgets/push_target_actions.dart'
     show setPushEnabledFromNativeSheet;
 import '../push/widgets/push_target_detail_sheet.dart';
-import '../profile/widgets/account_sheet.dart'
-    show EditDirectConnectionRequest, showAccountSheet;
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
 import 'settings_page_module.dart';
@@ -294,10 +292,6 @@ class SettingsController {
         await signOutOfLibreChatAccount(context, account);
         await _refreshSignOutPage();
         return true;
-      case nativeDirectEditActionId:
-        if (context == null || value is! String) return true;
-        await showAccountSheet(context, EditDirectConnectionRequest(value));
-        return true;
       case nativeAccountSignOutOfActionId:
         if (context == null || value is! String) return true;
         final accounts = await ref.read(openWebUiAccountsProvider.future);
@@ -441,17 +435,6 @@ class SettingsController {
       }
 
       if (await _handleNativeAccountAction(event.id, value)) return;
-
-      if (event.id == NativeSheetRoutes.directConnections) {
-        final request = directConnectionsNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
 
       if (event.id == NativeSheetRoutes.personalConnections) {
         // The sheet was built before this arrived, and Advanced or the

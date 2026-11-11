@@ -7,6 +7,8 @@ import '../../l10n/app_localizations.dart';
 import '../../shared/utils/locale_display_formatters.dart';
 
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart'
+    show DirectConnectionEditorSource;
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -34,6 +36,7 @@ import '../../features/push/widgets/push_target_actions.dart'
         pushStatusText,
         pushTargetBusy,
         pushTargetNeedsAttention;
+import '../../features/settings/pages/direct_connection_page_ids.dart';
 import 'account_display.dart';
 import 'message_action_settings.dart';
 import 'tts_voice_utils.dart';
@@ -672,34 +675,33 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             ),
         ],
       ),
+      // Direct's own page, then each of its accounts, opening its page in
+      // Settings: an Apple model's, or a provider's editor.
       NativeSheetSectionConfig(
         items: [
-          _nativeRootPageItem(
-            NativeSheetRoutes.directConnections,
+          NativeSheetItemConfig(
+            id: directConnectionsPageId,
             title: l10n.directConnectionsTitle,
             sfSymbol: 'link.circle',
           ),
           if (appleOnDevice)
             NativeSheetItemConfig(
-              id: 'accounts-apple-on-device',
+              id: directApplePageId(directAppleOnDevice),
               title: l10n.backendChooserAppleOnDeviceTitle,
               sfSymbol: 'iphone',
-              dismissOnSelect: true,
-              actionId: NativeSheetRoutes.directConnections,
-              actionValue: true,
             ),
           if (applePcc)
             NativeSheetItemConfig(
-              id: 'accounts-apple-pcc',
+              id: directApplePageId(directApplePcc),
               title: l10n.backendChooserApplePccTitle,
               sfSymbol: 'lock.shield',
-              dismissOnSelect: true,
-              actionId: NativeSheetRoutes.directConnections,
-              actionValue: true,
             ),
           for (final profile in saved)
             NativeSheetItemConfig(
-              id: '$nativeDirectEditActionId:${profile.id}',
+              id: directConnectionPageId(
+                DirectConnectionEditorSource.local,
+                profile.id,
+              ),
               title: profile.name,
               subtitle: [
                 directProviderName(profile, l10n),
@@ -708,9 +710,6 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
               sfSymbol: profile.adapterKey == kOllamaAdapterKey
                   ? 'desktopcomputer'
                   : 'cloud',
-              dismissOnSelect: true,
-              actionId: nativeDirectEditActionId,
-              actionValue: profile.id,
             ),
           // Not offered while the saved ones are unread: the Direct page
           // says why, and adds from there.
@@ -718,10 +717,14 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
               saved.isEmpty &&
               !appleOnDevice &&
               !applePcc)
-            _nativeAddItem(
-              'accounts-direct-add',
+            NativeSheetItemConfig(
+              id: directConnectionPageId(
+                DirectConnectionEditorSource.local,
+                null,
+              ),
               title: l10n.addDirectConnection,
-              kind: 'direct',
+              sfSymbol: 'plus.circle',
+              accent: true,
             ),
         ],
       ),
@@ -805,10 +808,11 @@ NativeSheetDetailConfig buildNativeAddAccountDetail(
             l10n.backendChooserHermesSubtitle,
             iconAsset: 'assets/icons/hermes_agent.png',
           ),
-          kind(
-            'direct',
-            l10n.backendChooserDirectTitle,
-            l10n.backendChooserDirectSubtitle,
+          // A provider is a form of Settings's own, not a sign-in.
+          NativeSheetItemConfig(
+            id: directConnectionAddAccountPageId,
+            title: l10n.backendChooserDirectTitle,
+            subtitle: l10n.backendChooserDirectSubtitle,
             sfSymbol: 'link.circle',
           ),
         ],
@@ -1009,7 +1013,7 @@ const nativeSignOutActionId = 'sign-out';
 
 /// Native Settings rows for accounts and connections. A row that acts on
 /// one carries its id as its action value; an add row, the account sheet's
-/// tab for its kind (`openWebUi`, `libreChat`, `hermes`, `direct`), or true
+/// tab for its kind (`openWebUi`, `libreChat`, `hermes`), or true
 /// for the first.
 const nativeAccountSwitchActionId = 'account-switch';
 const nativeAccountAddActionId = 'account-add';
@@ -1018,7 +1022,6 @@ const nativeAccountSignOutActionId = 'account-sign-out';
 /// Signs out of the saved Open WebUI account it names, active or not.
 const nativeAccountSignOutOfActionId = 'account-sign-out-of';
 const nativeHermesUseActionId = 'account-hermes-use';
-const nativeDirectEditActionId = 'account-direct-edit';
 const nativeLibreChatUseActionId = 'account-librechat-use';
 const nativeLibreChatSignOutActionId = 'account-librechat-sign-out';
 

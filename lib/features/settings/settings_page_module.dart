@@ -2,6 +2,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'pages/chat_data_settings_pages.dart';
+import 'pages/direct_connection_settings_pages.dart';
 import 'pages/librechat_memory_settings_pages.dart';
 import 'pages/server_address_settings_pages.dart';
 import 'pages/webhook_settings_pages.dart';
@@ -37,5 +38,6 @@ final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
     LibreChatMemorySettingsPages(ref),
     ServerAddressSettingsPages(ref),
     ChatDataSettingsPages(ref),
+    DirectConnectionSettingsPages(ref),
   ],
 );

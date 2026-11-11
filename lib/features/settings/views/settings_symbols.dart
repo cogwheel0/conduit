@@ -127,6 +127,7 @@ const Map<String, IconData> _icons = {
   'wand.and.rays': Icons.auto_fix_high_outlined,
   // Connections.
   'desktopcomputer': Icons.computer_outlined,
+  'power': Icons.power_settings_new,
   'wifi': Icons.wifi,
   'wifi.slash': Icons.wifi_off,
   'antenna.radiowaves.left.and.right.slash': Icons.sync_disabled,

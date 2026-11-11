@@ -43,13 +43,6 @@ final class EditHermesConnectionRequest extends AccountSheetRequest {
   final String connectionId;
 }
 
-/// Edits the Direct provider saved on this device as [profileId].
-final class EditDirectConnectionRequest extends AccountSheetRequest {
-  const EditDirectConnectionRequest(this.profileId);
-
-  final String profileId;
-}
-
 /// Opens the account sheet for [request].
 Future<void> showAccountSheet(
   BuildContext context,
@@ -281,7 +274,6 @@ class _AccountSheetRootState extends ConsumerState<_AccountSheetRoot> {
   late AccountKind _kind = switch (widget.request) {
     AddAccountRequest(:final kind) => kind,
     EditHermesConnectionRequest() => AccountKind.hermes,
-    EditDirectConnectionRequest() => AccountKind.direct,
   };
 
   @override
@@ -299,7 +291,6 @@ class _AccountSheetRootState extends ConsumerState<_AccountSheetRoot> {
                 .firstOrNull
                 ?.name ??
             l10n.hermesConnectionDetailsTitle,
-      EditDirectConnectionRequest() => l10n.editDirectConnection,
     };
     final kinds = [
       (AccountKind.openWebUi, l10n.backendChooserOpenWebUITitle),
@@ -378,13 +369,10 @@ class _AccountSheetRootState extends ConsumerState<_AccountSheetRoot> {
       },
       onFinished: close,
     ),
+    // Settings edits a saved provider in pages of its own.
     AccountKind.direct => DirectConnectionEditorPage(
       key: const Key('account-sheet-direct'),
-      mode: switch (request) {
-        EditDirectConnectionRequest(:final profileId) =>
-          DirectConnectionEditorMode.edit(profileId: profileId),
-        _ => const DirectConnectionEditorMode.create(),
-      },
+      mode: const DirectConnectionEditorMode.create(),
       onFinished: close,
     ),
   };
