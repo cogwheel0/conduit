@@ -2,7 +2,11 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show AuthNavigationState, authNavigationStateProvider;
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show settledActiveAccountIdProvider;
 
 import '../services/local_notification_service.dart';
 import '../services/notification_tap_router.dart';
@@ -34,8 +38,10 @@ class NotificationTapListener extends _$NotificationTapListener {
   /// Opens the notification that cold-launched the app, once.
   ///
   /// [openWebUiReady] says the active Open WebUI account's session is up. A
-  /// tap into an Open WebUI account waits for a call that says so; one for
-  /// Hermes or Direct opens on the first call.
+  /// tap into an Open WebUI account waits for a call that says so, unless
+  /// it is for another saved account and the active one is signed out (see
+  /// [launchTapOpensWhileSignedOut]); one for Hermes or Direct opens on the
+  /// first call.
   Future<void> handleLaunchTap({required bool openWebUiReady}) async {
     if (_launchTapHandled) return;
     final local = ref.read(localNotificationServiceProvider);
@@ -49,8 +55,27 @@ class NotificationTapListener extends _$NotificationTapListener {
     final scope = NotificationScope.tryParse(tap.scope);
     final needsOpenWebUi =
         tap.scope == null || scope is OpenWebUiNotificationScope;
-    if (needsOpenWebUi && !openWebUiReady) return;
+    if (needsOpenWebUi &&
+        !openWebUiReady &&
+        !launchTapOpensWhileSignedOut(ref, scope)) {
+      return;
+    }
     _launchTapHandled = true;
     await ref.read(notificationTapRouterProvider).openTap(tap);
   }
+}
+
+/// Whether a cold-launch tap into [scope] opens before the active Open
+/// WebUI account's session is up: it is for another saved account, and the
+/// active one turned out to be signed out, so that session is not coming.
+/// The tap router switches to the tapped account, or opens its sign-in.
+///
+/// A tap with no account, or for the active one, still waits: it opens in
+/// that account once it is signed in to.
+bool launchTapOpensWhileSignedOut(Ref ref, NotificationScope? scope) {
+  if (scope is! OpenWebUiNotificationScope) return false;
+  if (ref.read(authNavigationStateProvider) != AuthNavigationState.needsLogin) {
+    return false;
+  }
+  return scope.accountId != ref.read(settledActiveAccountIdProvider);
 }

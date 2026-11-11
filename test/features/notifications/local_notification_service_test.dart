@@ -1,6 +1,8 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,6 +21,34 @@ String _payload(String scope, String sourceId) => NotificationTap.encode(
 );
 
 void main() {
+  group('notificationThreadIdentifier', () {
+    AppNotification notification(String scope, String? group) =>
+        AppNotification(
+          kind: NotificationKind.chatCompletion,
+          scope: scope,
+          title: 't',
+          body: 'b',
+          sourceId: 'c1',
+          dedupKey: '$scope|chat:c1:m',
+          group: group,
+        );
+
+    test('scopes the group to its account, as the push extension does', () {
+      check(
+        notificationThreadIdentifier(notification('owui:acct-1', 'chat:c1')),
+      ).equals('owui:acct-1|chat:c1');
+      check(
+        notificationThreadIdentifier(notification('owui:acct-2', 'chat:c1')),
+      ).equals('owui:acct-2|chat:c1');
+    });
+
+    test('falls back to the account alone without a group', () {
+      check(
+        notificationThreadIdentifier(notification('direct', null)),
+      ).equals('direct');
+    });
+  });
+
   group('notificationsInScope', () {
     test('picks the scope\'s own and leaves other accounts\' alone', () {
       final active = [
@@ -53,6 +83,80 @@ void main() {
       ], 'owui:acct-1');
 
       check(picked).isEmpty();
+    });
+
+    test('finds them by tag where Android lists them without payload', () {
+      final picked = LocalNotificationService.notificationsInScope([
+        _posted(11, null, tag: 'owui:acct-1|chat:c1:m1'),
+        _posted(12, null, tag: 'owui:acct-10|chat:c2:m2'),
+        _posted(13, null, tag: 'hermes:conn-1|hermes:s1:t1'),
+        _posted(14, null, tag: 'owui:acct-1'),
+        // A payload says which scope it is, whatever the tag.
+        _posted(15, _payload('owui:acct-2', 'c3'), tag: 'owui:acct-1|x'),
+      ], 'owui:acct-1');
+
+      check(picked.map((n) => n.id)).deepEquals([11]);
+    });
+  });
+
+  group('notificationDisplayBody', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    AppNotification notification(NotificationKind kind, String body) =>
+        AppNotification(
+          kind: kind,
+          scope: 'direct',
+          title: 'Trip ideas',
+          body: body,
+          sourceId: 'c1',
+          dedupKey: 'direct|direct:c1:m:r',
+        );
+
+    test('a failed reply without a body says that it failed', () {
+      check(
+        notificationDisplayBody(
+          notification(NotificationKind.replyFailed, ''),
+          l10n,
+        ),
+      ).equals(l10n.notificationReplyFailedBody);
+    });
+
+    test('anything else shows its own body', () {
+      check(
+        notificationDisplayBody(
+          notification(NotificationKind.replyFailed, 'Rate limited'),
+          l10n,
+        ),
+      ).equals('Rate limited');
+      check(
+        notificationDisplayBody(
+          notification(NotificationKind.chatCompletion, ''),
+          l10n,
+        ),
+      ).equals('');
+    });
+  });
+
+  group('nextNotificationId', () {
+    LocalNotificationService serviceAt(int millisecondsSinceEpoch) =>
+        LocalNotificationService(
+          now: () =>
+              DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch),
+        );
+
+    test('starts from the launch time, not at 1, so launches differ', () {
+      const launch = 1760000000000;
+      check(
+        serviceAt(launch).nextNotificationId(),
+      ).equals((launch & 0x7fffffff) + 1);
+      // Launched a millisecond later, it starts one higher.
+      check(
+        serviceAt(launch + 1).nextNotificationId(),
+      ).equals((launch & 0x7fffffff) + 2);
+    });
+
+    test('wraps within 31 bits', () {
+      check(serviceAt(0x7fffffff).nextNotificationId()).equals(0);
     });
   });
 }

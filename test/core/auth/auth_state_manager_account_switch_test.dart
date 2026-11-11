@@ -1038,6 +1038,7 @@ void main() {
       () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();
+    final signedOut = <String?>[];
     when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
     when(() => storage.getLocalUserWithAvatar())
         .thenAnswer((_) async => _userA);
@@ -1073,6 +1074,7 @@ void main() {
           ),
         ),
         openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+        hostSignedOutProvider.overrideWithValue(signedOut.add),
       ],
     );
     addTearDown(container.dispose);
@@ -1085,6 +1087,8 @@ void main() {
     check(isolation.purgedKeepingRecord).deepEquals(['account-a']);
     check(isolation.purged).isEmpty();
     verifyNever(() => storage.removeAccount(any()));
+    // Its posted notifications go too, as with any sign-out.
+    check(signedOut).deepEquals(['account-a']);
   });
 
   test('the plain logout deletes the chats of the account stored as active '

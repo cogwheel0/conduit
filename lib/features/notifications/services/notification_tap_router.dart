@@ -4,9 +4,10 @@ import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart'
-    show ChatStorageIdentity, ChatStorageKind, kChatStorageKindMetadataKey;
-import 'package:conduit_core/database/local_conversation_loader.dart';
-import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+    show ChatStorageKind, kChatStorageKindMetadataKey;
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show authStatusProvider;
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
@@ -14,14 +15,15 @@ import 'package:conduit_core/features/notifications/models/notification_scope.da
 import 'package:conduit_core/features/notifications/services/cp1_notification_mapper.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/current_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../hermes/widgets/hermes_session_tile.dart';
-import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/providers/conversation_selection_provider.dart';
 import '../../profile/widgets/account_actions.dart' as accounts;
 import 'local_notification_service.dart';
@@ -43,6 +45,14 @@ abstract interface class NotificationTapNavigator {
   /// the Accounts page does. Returns whether it is.
   Future<bool> useHermesConnection(String connectionId);
 
+  /// While LibreChat owns the Chats tab: gives the tab back to Open WebUI
+  /// with [accountId] in use, as the Accounts page does. [force] stops a
+  /// reply still being written.
+  Future<PrimarySwitchResult> useOpenWebUiForChats(
+    String accountId, {
+    required bool force,
+  });
+
   /// Says the notification's account or connection is no longer here.
   void showTargetUnavailable();
 
@@ -55,9 +65,15 @@ abstract interface class NotificationTapNavigator {
   /// Opens channel [channelId] of the active Open WebUI account.
   void openChannel(String channelId);
 
-  /// Opens session [sessionId] of the Hermes connection in use. [title] is
-  /// the notification's, for when the session list doesn't say.
-  Future<void> openHermesSession(String sessionId, {required String title});
+  /// Opens session [sessionId] of the Hermes connection [connectionId], which
+  /// was just put in use; nothing, when another connection took its place
+  /// meanwhile. [title] is the notification's, for when the session list
+  /// doesn't say.
+  Future<void> openHermesSession(
+    String sessionId, {
+    required String connectionId,
+    required String title,
+  });
 
   /// Opens the Hermes scheduled tasks of the connection in use.
   void openHermesJobs();
@@ -138,7 +154,11 @@ class NotificationTapRouter {
           if (kind == NotificationKind.scheduledTask) {
             _navigator.openHermesJobs();
           } else if (_isReply(kind)) {
-            await _navigator.openHermesSession(sourceId, title: title);
+            await _navigator.openHermesSession(
+              sourceId,
+              connectionId: connectionId,
+              title: title,
+            );
           }
         case DirectNotificationScope():
           if (_isReply(kind)) {
@@ -173,9 +193,13 @@ class NotificationTapRouter {
   /// said why not when it was removed or the switch failed.
   Future<bool> _enterOpenWebUiAccount(String accountId) async {
     final entries = await _ref.read(openWebUiAccountsProvider.future);
-    if (!entries.any((entry) => entry.id == accountId)) {
+    final entry = entries.where((entry) => entry.id == accountId).firstOrNull;
+    if (entry == null) {
       _navigator.showTargetUnavailable();
       return false;
+    }
+    if (_ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      return _takeTabFromLibreChat(accountId, hasSession: entry.hasSession);
     }
     final OpenWebUiAccountChangeResult? result;
     try {
@@ -203,6 +227,87 @@ class NotificationTapRouter {
       case OpenWebUiAccountChangeResult.done ||
           OpenWebUiAccountChangeResult.alreadyActive:
         return _awaitSettledAccount(accountId);
+    }
+  }
+
+  /// While LibreChat owns the Chats tab, Open WebUI is parked and none of its
+  /// accounts is in use: [accountId] takes the tab back the way the accounts
+  /// page does, so the tab and the account in use agree.
+  Future<bool> _takeTabFromLibreChat(
+    String accountId, {
+    required bool hasSession,
+  }) async {
+    PrimarySwitchResult result;
+    try {
+      result = await _navigator.useOpenWebUiForChats(accountId, force: false);
+      if (result == PrimarySwitchResult.blockedByActiveReply) {
+        if (!await _navigator.confirmSwitchStopsReply()) return false;
+        result = await _navigator.useOpenWebUiForChats(accountId, force: true);
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'primary-switch-failed',
+        scope: 'notifications/center',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _navigator.showError();
+      return false;
+    }
+    switch (result) {
+      case PrimarySwitchResult.unknownAccount:
+        _navigator.showTargetUnavailable();
+        return false;
+      case PrimarySwitchResult.blockedByActiveReply:
+        return false;
+      case PrimarySwitchResult.done:
+        if (!hasSession) {
+          _navigator.openSignIn();
+          return false;
+        }
+        if (!await _awaitSettledAccount(accountId)) return false;
+        // A saved session can still be refused once the account is in use:
+        // the switch from LibreChat doesn't say so.
+        switch (await _awaitSignedIn(accountId)) {
+          case true:
+            return true;
+          case false:
+            if (_ref.mounted) _navigator.openSignIn();
+            return false;
+          case null:
+            return false;
+        }
+    }
+  }
+
+  /// Whether [accountId] is signed in, once its auth has settled: false
+  /// when it needs a sign-in. Null when there is nothing to open or ask: the
+  /// server couldn't be reached (the app shows that itself, with a retry),
+  /// another account or LibreChat took over meanwhile, or nothing settled in
+  /// time. The auth status is the active account's, so it only counts while
+  /// [accountId] still is.
+  Future<bool?> _awaitSignedIn(String accountId) async {
+    final deadline = DateTime.now().add(_settleTimeout);
+    while (true) {
+      if (!_ref.mounted ||
+          _ref.read(primaryAccountKindProvider) != PrimaryAccountKind.openWebUi ||
+          _ref.read(settledActiveAccountIdProvider) != accountId) {
+        return null;
+      }
+      switch (_ref.read(authStatusProvider)) {
+        case AuthStatus.authenticated:
+          return true;
+        case AuthStatus.unauthenticated ||
+            AuthStatus.tokenExpired ||
+            AuthStatus.credentialError:
+          return false;
+        case AuthStatus.error:
+          return null;
+        case AuthStatus.initial || AuthStatus.loading:
+          break;
+      }
+      if (DateTime.now().isAfter(deadline)) return null;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
 
@@ -278,6 +383,14 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
   }
 
   @override
+  Future<PrimarySwitchResult> useOpenWebUiForChats(
+    String accountId, {
+    required bool force,
+  }) => _ref
+      .read(primaryAccountSwitcherProvider)
+      .useOpenWebUi(accountId, force: force);
+
+  @override
   void showTargetUnavailable() =>
       _showMessage(currentAppLocalizations().notificationTargetUnavailable);
 
@@ -286,39 +399,33 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
 
   @override
   Future<void> openOpenWebUiChat(String chatId) async {
-    final ownership = captureOpenWebUiConversationRead(_ref);
-    if (ownership == null) return;
-    // The notification names an Open WebUI chat: an on-device chat with the
-    // same raw id is another chat.
-    final tappedId = ChatStorageIdentity(
-      rawId: chatId,
-      storage: ChatStorageKind.openWebUi,
-    ).scopedId;
-    final chatWasOnScreen = chatPageOnScreen();
-    // DB-first open, mirroring the conversation-list selection flow.
-    await NavigationService.navigateToChat();
-    if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
-    final local = await loadLocalConversation(
-      _ref,
-      chatId,
-      ownership: ownership,
-    );
-    if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
-    if (local != null) {
-      // The picks of the chat open now, or of one opened while this one
-      // loaded, are not this chat's. They start again only here, once this
-      // chat opens: a tap whose chat is not stored leaves the open chat, and
-      // its picks, as they are.
-      final current = _ref.read(activeConversationProvider);
-      if (current == null || !conversationMatchesScopedId(current, tappedId)) {
-        clearSelectedFiltersForConversationBoundary(_ref);
-      }
-      _ref
-          .read(chatBackOpensListProvider.notifier)
-          .switchTo(local, chatOnScreen: chatWasOnScreen);
-      _ref.read(activeConversationProvider.notifier).set(local);
+    // The chat list's selection flow: it waits for the account's storage,
+    // which a switch may still be settling, loads the chat (from the server
+    // when there is no copy here) and makes it the active conversation,
+    // clearing what belonged to the one it replaces.
+    final now = DateTime.now();
+    final result = await _ref
+        .read(conversationSelectionProvider.notifier)
+        .select(
+          Conversation(
+            id: chatId,
+            title: '',
+            createdAt: now,
+            updatedAt: now,
+            metadata: {
+              kChatStorageKindMetadataKey: ChatStorageKind.openWebUi.name,
+            },
+          ),
+        );
+    switch (result.disposition) {
+      case ConversationSelectionDisposition.committed:
+        await NavigationService.navigateToChat();
+      case ConversationSelectionDisposition.canceled:
+        // Another selection or account took over.
+        break;
+      case ConversationSelectionDisposition.failed:
+        showError();
     }
-    schedulePullChatNow(_ref, chatId, ownership: ownership);
   }
 
   @override
@@ -328,6 +435,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
   @override
   Future<void> openHermesSession(
     String sessionId, {
+    required String connectionId,
     required String title,
   }) async {
     final context = await _context();
@@ -338,6 +446,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       if (DateTime.now().isAfter(deadline)) return;
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    if (!_hermesConnectionInUse(connectionId)) return;
     var sessionTitle = title;
     try {
       final sessions = await _ref
@@ -352,7 +461,10 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
     } catch (_) {
       // The list only names the session; it opens without it.
     }
-    if (!context.mounted) return;
+    // Opening reads whichever connection is in use. Another tap, or the
+    // user, may have switched while the list loaded, and the session id
+    // means nothing there.
+    if (!context.mounted || !_hermesConnectionInUse(connectionId)) return;
     await openHermesSessionReading(
       context,
       _ref.read,
@@ -360,6 +472,12 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       invalidate: _ref.invalidate,
     );
   }
+
+  /// Whether [connectionId] is the Hermes connection in use, its service
+  /// built for it.
+  bool _hermesConnectionInUse(String connectionId) =>
+      _ref.read(hermesActiveConnectionIdProvider) == connectionId &&
+      _ref.read(hermesApiServiceProvider)?.config.connectionId == connectionId;
 
   @override
   void openHermesJobs() =>

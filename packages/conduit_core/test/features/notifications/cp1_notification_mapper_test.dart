@@ -134,6 +134,28 @@ void main() {
       check(n.sourceId).equals('a1b2c3d4e5f6');
     });
 
+    test('a Hermes delivery from no job is kept, under its dedup key', () {
+      Map<String, dynamic> delivery(Map<String, dynamic> ids) => {
+        ..._reply(src: 'hermes', ids: ids),
+        'k': 'cron',
+        't': 'Agent',
+        'b': 'Your build finished.',
+        'dk': 'cron:send:r-1',
+        'g': null,
+      };
+      // The plugin leaves the job out, or (older plugins) sends it empty.
+      for (final ids in [
+        const <String, dynamic>{'run': 'r-1'},
+        const <String, dynamic>{'job': '', 'run': 'r-1'},
+      ]) {
+        final n = appNotificationFromCp1(delivery(ids), scope: 'hermes:c-1')!;
+        check(n.kind).equals(NotificationKind.scheduledTask);
+        check(n.sourceId).equals('cron:send:r-1');
+        check(n.dedupKey).equals('hermes:c-1|cron:send:r-1');
+        check(n.body).equals('Your build finished.');
+      }
+    });
+
     test('a test push carries its nonce', () {
       final n = mapCase('test');
       check(n.kind).equals(NotificationKind.pushTest);

@@ -6,9 +6,12 @@ name: Publish Hermes plugin
 # Conduit pins a mirror commit SHA. `git subtree split` is deterministic, so
 # those commits stay stable and reachable as long as main is never rewritten.
 #
-# Setup: create the mirror repository empty, add a write deploy key to it, and
-# store the private key as the HERMES_PLUGIN_DEPLOY_KEY secret here. Without
-# that secret this workflow only checks the plugin and skips the push.
+# Setup: create the mirror repository empty and add a write deploy key to it.
+# Here, create a `hermes-plugin-mirror` environment that only the main branch
+# may deploy to, and store the private key in it as the environment secret
+# HERMES_PLUGIN_DEPLOY_KEY, not as a repository secret, so that only the
+# publish job can read it. Without that secret this workflow only tests the
+# plugin and skips the push.
 
 on:
   push:
@@ -26,16 +29,38 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: Publish to cogwheel0/conduit-hermes-push
+  # Nothing is published that fails the plugin tests. Same setup as the
+  # server-plugins job in ci.yml.
+  test:
+    name: Test the plugin
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          fetch-depth: 0
+      - name: Install test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r server-plugins/requirements-test.txt
       - name: Check the plugin's copy of the shared library is up to date
-        run: python3 server-plugins/hermes/sync.py --check
+        run: .venv/bin/python server-plugins/hermes/sync.py --check
+      - name: Test
+        working-directory: server-plugins
+        run: ../.venv/bin/python -m pytest -q
+
+  publish:
+    name: Publish to cogwheel0/conduit-hermes-push
+    needs: test
+    # workflow_dispatch can run on any branch; only main is ever mirrored.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Protected: the deploy key lives here, not in the repository's secrets.
+    environment: hermes-plugin-mirror
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - name: Split and push the plugin directory
         env:
           DEPLOY_KEY: ${{ secrets.HERMES_PLUGIN_DEPLOY_KEY }}

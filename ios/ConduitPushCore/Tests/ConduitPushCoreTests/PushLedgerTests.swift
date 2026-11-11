@@ -37,7 +37,42 @@ final class PushLedgerTests: XCTestCase {
 
     XCTAssertEqual(try ledger.claimForPush("k"), .replacesLocal("42"))
     XCTAssertEqual(try ledger.claimForPush("k"), .duplicate)
-    XCTAssertNil(ledger.entries()["k"]?.localNotificationId)
+    XCTAssertEqual(ledger.entries()["k"]?.localNotificationId, "42")
+    XCTAssertEqual(ledger.entries()["k"]?.pushDelivered, true)
+  }
+
+  func testTheAppsSecondClaimFindsAPushThatTookOver() throws {
+    let ledger = PushLedger(directory: directory)
+    XCTAssertEqual(try ledger.claimForApp("k", localNotificationId: "42"), .claimed)
+    // Posted, and no push yet: nothing to remove.
+    XCTAssertEqual(try ledger.claimForApp("k", localNotificationId: "42"), .taken)
+
+    // The extension took over, perhaps before the app posted its copy.
+    XCTAssertEqual(try ledger.claimForPush("k"), .replacesLocal("42"))
+
+    XCTAssertEqual(try ledger.claimForApp("k", localNotificationId: "42"), .supersededByPush("42"))
+    XCTAssertFalse(try ledger.claim("k", localNotificationId: "42"))
+    // Only the app's own id is told to go.
+    XCTAssertEqual(try ledger.claimForApp("k", localNotificationId: "43"), .taken)
+    XCTAssertEqual(try ledger.claimForApp("k", localNotificationId: nil), .taken)
+  }
+
+  func testAPushClaimIsNeverSupersededForTheApp() throws {
+    let ledger = PushLedger(directory: directory)
+    XCTAssertEqual(try ledger.claimForPush("k"), .claimed)
+
+    XCTAssertEqual(try ledger.claimForApp("k", localNotificationId: "1"), .taken)
+    XCTAssertEqual(try ledger.claimForPush("k"), .duplicate)
+  }
+
+  func testLedgersFromBeforePushDeliveredStillRead() throws {
+    let now = Date().timeIntervalSince1970
+    try Data(#"{"k":{"claimedAt":\#(now),"localNotificationId":"7"}}"#.utf8)
+      .write(to: directory.appendingPathComponent("ledger.json"))
+    let ledger = PushLedger(directory: directory)
+
+    XCTAssertEqual(ledger.entries()["k"], PushLedger.Entry(claimedAt: now, localNotificationId: "7"))
+    XCTAssertEqual(try ledger.claimForPush("k"), .replacesLocal("7"))
   }
 
   func testAPushDoesNotReplaceAClaimWithoutALocalNotification() throws {

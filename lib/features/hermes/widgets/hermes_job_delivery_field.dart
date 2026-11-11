@@ -50,6 +50,7 @@ class HermesJobDeliveryField extends StatelessWidget {
     required this.options,
     required this.onChanged,
     this.loading = false,
+    this.reservedCharacters = 0,
   });
 
   /// The `deliver` value being edited.
@@ -61,6 +62,10 @@ class HermesJobDeliveryField extends StatelessWidget {
 
   /// Whether [options] are still loading.
   final bool loading;
+
+  /// Room the list keeps for a target added outside the checklist, such as
+  /// Conduit's own, which the "Notify Me" switch adds.
+  final int reservedCharacters;
 
   @override
   Widget build(BuildContext context) {
@@ -161,7 +166,7 @@ class HermesJobDeliveryField extends StatelessWidget {
     if (!checked &&
         toggleHermesDeliveryTarget(value, option.target, selected: true)
                 .length >
-            kMaxHermesJobDeliverCharacters) {
+            kMaxHermesJobDeliverCharacters - reservedCharacters) {
       return null;
     }
     return (next) => callback(

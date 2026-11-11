@@ -132,6 +132,9 @@ void main() {
       ),
       findsOneWidget,
     );
+    // Hermes replies and scheduled tasks notify without an Open WebUI
+    // account, so their settings and push are reachable.
+    expect(find.byKey(const Key('settings-notifications')), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     ErrorWidget.builder = originalErrorWidgetBuilder;

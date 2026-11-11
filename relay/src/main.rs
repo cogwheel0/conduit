@@ -29,10 +29,6 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if state.providers().is_empty() {
-        tracing::warn!("neither APNs nor FCM is configured; every push will fail");
-    }
-
     let listener = match TcpListener::bind(config.listen_addr).await {
         Ok(listener) => listener,
         Err(err) => {
@@ -52,15 +48,12 @@ async fn main() -> ExitCode {
     if let Some(addr) = config.metrics_addr {
         match TcpListener::bind(addr).await {
             Ok(listener) => {
-                let state = state.clone();
-                let shutdown = until_stopped();
-                tokio::spawn(async move {
-                    if let Err(err) =
-                        conduit_push_relay::serve_metrics(listener, state, shutdown).await
-                    {
-                        tracing::error!("metrics listener failed: {err}");
-                    }
-                });
+                tokio::spawn(conduit_push_relay::serve_metrics(
+                    listener,
+                    state.clone(),
+                    config.connections,
+                    until_stopped(),
+                ));
             }
             Err(err) => {
                 tracing::error!("cannot listen on {addr}: {err}");
@@ -81,13 +74,8 @@ async fn main() -> ExitCode {
         "listening on {}",
         config.listen_addr
     );
-    match conduit_push_relay::serve(listener, state, until_stopped()).await {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            tracing::error!("server failed: {err}");
-            ExitCode::FAILURE
-        }
-    }
+    conduit_push_relay::serve(listener, state, config.connections, until_stopped()).await;
+    ExitCode::SUCCESS
 }
 
 /// `RUST_LOG` defaults to `warn`. The HTTP libraries underneath are held at

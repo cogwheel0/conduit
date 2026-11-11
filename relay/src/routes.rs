@@ -4,6 +4,7 @@
 //! body or the sender's address. Errors are `{"error": "<code>"}`.
 
 use std::convert::Infallible;
+use std::error::Error as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,6 +22,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chacha20poly1305::aead::rand_core::RngCore;
 use chacha20poly1305::aead::OsRng;
+use http_body_util::LengthLimitError;
 use serde::{Deserialize, Serialize};
 
 use crate::apns::{Apns, ApnsError};
@@ -33,7 +35,6 @@ use crate::webpush::{self, Reject, MAX_BODY};
 use crate::{now_unix, Message, Outcome};
 
 const REGISTER_MAX_BODY: usize = 16 * 1024;
-const BODY_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_FOR: Duration = Duration::from_secs(5 * 60);
 const NOT_READY_FOR: Duration = Duration::from_secs(30);
 
@@ -43,6 +44,10 @@ pub enum StartupError {
     Apns(#[from] ApnsError),
     #[error(transparent)]
     Fcm(#[from] FcmError),
+    /// A relay that can reach neither APNs nor FCM would answer every push
+    /// with 503 while `/readyz` called it ready.
+    #[error("neither APNs nor FCM is configured")]
+    NoProviders,
 }
 
 pub struct AppState {
@@ -53,11 +58,15 @@ pub struct AppState {
     pub limits: RateLimits,
     pub metrics: Metrics,
     pub trust_forwarded_for: bool,
+    body_timeout: Duration,
     readiness: tokio::sync::Mutex<Option<(Instant, bool)>>,
 }
 
 impl AppState {
     pub fn new(config: &Config) -> Result<Self, StartupError> {
+        if config.apns.is_none() && config.fcm.is_none() {
+            return Err(StartupError::NoProviders);
+        }
         Ok(Self {
             public_url: config.public_url.clone(),
             sealer: Sealer::new(&config.seal_keys, config.active_kid),
@@ -66,6 +75,7 @@ impl AppState {
             limits: RateLimits::new(&config.limits),
             metrics: Metrics::default(),
             trust_forwarded_for: config.trust_forwarded_for,
+            body_timeout: config.body_timeout,
             readiness: tokio::sync::Mutex::new(None),
         })
     }
@@ -179,10 +189,25 @@ fn forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
         .or_else(|| last.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
 }
 
-async fn read_body(body: Body, limit: usize) -> Option<Bytes> {
-    match tokio::time::timeout(BODY_TIMEOUT, axum::body::to_bytes(body, limit)).await {
-        Ok(Ok(bytes)) => Some(bytes),
-        _ => None,
+/// Why a request body could not be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyError {
+    /// It went past the limit.
+    TooLarge,
+    /// It didn't arrive in time.
+    TimedOut,
+    /// The connection failed or the framing was broken.
+    Failed,
+}
+
+async fn read_body(body: Body, limit: usize, timeout: Duration) -> Result<Bytes, BodyError> {
+    match tokio::time::timeout(timeout, axum::body::to_bytes(body, limit)).await {
+        Ok(Ok(bytes)) => Ok(bytes),
+        Ok(Err(err)) if err.source().is_some_and(|e| e.is::<LengthLimitError>()) => {
+            Err(BodyError::TooLarge)
+        }
+        Ok(Err(_)) => Err(BodyError::Failed),
+        Err(_) => Err(BodyError::TimedOut),
     }
 }
 
@@ -281,7 +306,7 @@ async fn register(
         error(StatusCode::BAD_REQUEST, "invalid_request")
     };
 
-    let Some(bytes) = read_body(body, REGISTER_MAX_BODY).await else {
+    let Ok(bytes) = read_body(body, REGISTER_MAX_BODY, state.body_timeout).await else {
         return invalid(Provider::None);
     };
     let Ok(request) = serde_json::from_slice::<RegisterRequest>(&bytes) else {
@@ -390,8 +415,17 @@ async fn push(
     if declared.is_some_and(|len| len > MAX_BODY as u64) {
         return reject(Reject::TooLarge);
     }
-    let Some(body) = read_body(body, MAX_BODY).await else {
-        return reject(Reject::TooLarge);
+    let body = match read_body(body, MAX_BODY, state.body_timeout).await {
+        Ok(body) => body,
+        Err(BodyError::TooLarge) => return reject(Reject::TooLarge),
+        Err(BodyError::TimedOut) => {
+            metrics.push(provider, PushResult::Timeout);
+            return error(StatusCode::REQUEST_TIMEOUT, "request_timeout");
+        }
+        Err(BodyError::Failed) => {
+            metrics.push(provider, PushResult::Invalid);
+            return error(StatusCode::BAD_REQUEST, "invalid_request");
+        }
     };
     if let Err(reason) = webpush::check_body(&body) {
         return reject(reason);
@@ -433,7 +467,13 @@ async fn push(
     };
     metrics.push(provider, outcome.into());
     if outcome != Outcome::Sent {
-        return error(outcome.status(), outcome.code());
+        let mut response = error(outcome.status(), outcome.code());
+        if let Some(seconds) = outcome.retry_after() {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        return response;
     }
 
     // An opaque message id: the relay keeps nothing to look it up by.
@@ -455,7 +495,35 @@ async fn push(
 
 #[cfg(test)]
 mod tests {
+    use http_body_util::channel::Channel;
+
     use super::*;
+
+    #[tokio::test]
+    async fn body_read_failures_are_told_apart() {
+        let wait = Duration::from_secs(5);
+        assert_eq!(
+            read_body(Body::from(vec![7u8; 4]), 4, wait).await,
+            Ok(Bytes::from(vec![7u8; 4]))
+        );
+        assert_eq!(
+            read_body(Body::from(vec![7u8; 5]), 4, wait).await,
+            Err(BodyError::TooLarge)
+        );
+
+        let (sender, body) = Channel::<Bytes, axum::Error>::new(1);
+        sender.abort(axum::Error::new("connection reset"));
+        assert_eq!(
+            read_body(Body::new(body), 4, wait).await,
+            Err(BodyError::Failed)
+        );
+
+        let (_sender, body) = Channel::<Bytes, axum::Error>::new(1);
+        assert_eq!(
+            read_body(Body::new(body), 4, Duration::from_millis(50)).await,
+            Err(BodyError::TimedOut)
+        );
+    }
 
     #[test]
     fn token_and_sid_formats() {

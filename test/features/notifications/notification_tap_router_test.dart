@@ -1,17 +1,26 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_tap_router.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show authStatusProvider;
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-OpenWebUiAccountEntry _entry(String id, {bool active = false}) =>
+OpenWebUiAccountEntry _entry(
+  String id, {
+  bool active = false,
+  bool hasSession = true,
+}) =>
     OpenWebUiAccountEntry(
       account: OpenWebUiAccount(id: id, serverId: '$id-server', userId: 'u'),
       server: OpenWebUiServer(
@@ -21,7 +30,7 @@ OpenWebUiAccountEntry _entry(String id, {bool active = false}) =>
       ),
       summary: const OpenWebUiAccountSummary(name: 'Ada'),
       isActive: active,
-      hasSession: true,
+      hasSession: hasSession,
     );
 
 const _hermesHome = HermesConnectionProfile(
@@ -35,6 +44,38 @@ const _hermesWork = HermesConnectionProfile(
   name: 'Work',
   documentTrustPrincipalId: 'p-work',
 );
+
+/// Which kind of account owns the Chats tab, which a test can change.
+final _primaryKind = NotifierProvider<_PrimaryKind, PrimaryAccountKind>(
+  () => _PrimaryKind(PrimaryAccountKind.openWebUi),
+);
+
+final class _PrimaryKind extends Notifier<PrimaryAccountKind> {
+  _PrimaryKind(this.initial);
+
+  final PrimaryAccountKind initial;
+
+  @override
+  PrimaryAccountKind build() => initial;
+
+  void set(PrimaryAccountKind kind) => state = kind;
+}
+
+/// The active account's auth status, which a test can change.
+final _authStatus = NotifierProvider<_AuthStatus, AuthStatus>(
+  () => _AuthStatus(AuthStatus.authenticated),
+);
+
+final class _AuthStatus extends Notifier<AuthStatus> {
+  _AuthStatus(this.initial);
+
+  final AuthStatus initial;
+
+  @override
+  AuthStatus build() => initial;
+
+  void set(AuthStatus status) => state = status;
+}
 
 /// The settled active account, which a fake switch moves.
 class _SettledAccount extends SettledActiveAccountId {
@@ -85,6 +126,22 @@ class _RecordingNavigator implements NotificationTapNavigator {
   bool confirmAnswer = true;
   bool hermesSwitchSucceeds = true;
 
+  /// What handing the Chats tab to Open WebUI answers, in order.
+  List<PrimarySwitchResult> primaryResults = [];
+  void Function(String accountId) onPrimaryDone = (_) {};
+  final List<(String, bool)> primarySwitches = [];
+
+  @override
+  Future<PrimarySwitchResult> useOpenWebUiForChats(
+    String accountId, {
+    required bool force,
+  }) async {
+    primarySwitches.add((accountId, force));
+    final result = primaryResults.removeAt(0);
+    if (result == PrimarySwitchResult.done) onPrimaryDone(accountId);
+    return result;
+  }
+
   @override
   Future<bool> confirmSwitchStopsReply() async {
     calls.add('confirm');
@@ -116,8 +173,9 @@ class _RecordingNavigator implements NotificationTapNavigator {
   @override
   Future<void> openHermesSession(
     String sessionId, {
+    required String connectionId,
     required String title,
-  }) async => calls.add('hermes-session:$sessionId:$title');
+  }) async => calls.add('hermes-session:$connectionId/$sessionId:$title');
 
   @override
   void openHermesJobs() => calls.add('hermes-jobs');
@@ -143,6 +201,10 @@ void main() {
     OpenWebUiAccountsController? controller,
     String? activeHermesId = 'conn-home',
     bool hermesEnabled = true,
+    bool libreChat = false,
+    List<PrimarySwitchResult> primaryResults = const [],
+    Set<String> signedOut = const {},
+    AuthStatus authStatus = AuthStatus.authenticated,
   }) {
     navigator = _RecordingNavigator();
     settled = _SettledAccount(activeAccountId);
@@ -150,6 +212,16 @@ void main() {
       List.of(results),
       onSwitched: (id) => settled.settle(id),
     );
+    navigator
+      ..primaryResults = List.of(primaryResults)
+      // As the switcher does: Open WebUI owns the Chats tab again, with the
+      // account in use.
+      ..onPrimaryDone = (id) {
+        container
+            .read(_primaryKind.notifier)
+            .set(PrimaryAccountKind.openWebUi);
+        settled.settle(id);
+      };
     final routerProvider = Provider<NotificationTapRouter>(
       (ref) => NotificationTapRouter(
         ref,
@@ -162,8 +234,12 @@ void main() {
         settledActiveAccountIdProvider.overrideWith(() => settled),
         openWebUiAccountsProvider.overrideWith(
           (ref) async => [
-            _entry('acct-1', active: activeAccountId == 'acct-1'),
-            _entry('acct-2', active: activeAccountId == 'acct-2'),
+            for (final id in ['acct-1', 'acct-2'])
+              _entry(
+                id,
+                active: activeAccountId == id,
+                hasSession: !signedOut.contains(id),
+              ),
           ],
         ),
         openWebUiAccountsControllerProvider.overrideWithValue(
@@ -172,6 +248,16 @@ void main() {
         hermesConnectionsProvider.overrideWithValue([_hermesHome, _hermesWork]),
         hermesActiveConnectionIdProvider.overrideWithValue(activeHermesId),
         hermesEnabledProvider.overrideWithValue(hermesEnabled),
+        authStatusProvider.overrideWith((ref) => ref.watch(_authStatus)),
+        _authStatus.overrideWith(() => _AuthStatus(authStatus)),
+        primaryAccountKindProvider.overrideWith((ref) => ref.watch(_primaryKind)),
+        _primaryKind.overrideWith(
+          () => _PrimaryKind(
+            libreChat
+                ? PrimaryAccountKind.libreChat
+                : PrimaryAccountKind.openWebUi,
+          ),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -281,6 +367,137 @@ void main() {
       check(navigator.calls).isEmpty();
     });
 
+    group('while LibreChat owns the Chats tab', () {
+      test('Open WebUI takes the tab back, then the chat opens', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.primarySwitches).deepEquals([('acct-2', false)]);
+        check(accounts.switches).isEmpty();
+        check(navigator.calls).deepEquals(['chat:c2']);
+      });
+
+      test('a reply in the way asks, then switches with force', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [
+            PrimarySwitchResult.blockedByActiveReply,
+            PrimarySwitchResult.done,
+          ],
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(
+          navigator.primarySwitches,
+        ).deepEquals([('acct-2', false), ('acct-2', true)]);
+        check(navigator.calls).deepEquals(['confirm', 'chat:c2']);
+      });
+
+      test('keeping the reply leaves LibreChat in charge', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.blockedByActiveReply],
+        );
+        navigator.confirmAnswer = false;
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.primarySwitches).deepEquals([('acct-2', false)]);
+        check(navigator.calls).deepEquals(['confirm']);
+      });
+
+      test('an account signed out of opens its sign-in', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          signedOut: {'acct-2'},
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.calls).deepEquals(['sign-in']);
+      });
+
+      test('a saved session refused once in use opens sign-in', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.tokenExpired,
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.calls).deepEquals(['sign-in']);
+      });
+
+      test("a server that can't be reached is left to the app", () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.error,
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        // Its connection-issue page, with a retry, is the app's: no sign-in
+        // on top of it, and no chat that can't load.
+        check(navigator.calls).isEmpty();
+      });
+
+      test('another account taking over while auth loads opens nothing', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.loading,
+        );
+        final opening = router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        // acct-2 is in use, its auth still loading, when acct-1 takes over
+        // and is signed in: that must not open acct-2's chat in acct-1.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        settled.settle('acct-1');
+        container.read(_authStatus.notifier).set(AuthStatus.authenticated);
+        await opening;
+        check(navigator.calls).isEmpty();
+      });
+
+      test('LibreChat taking the tab back while auth loads opens nothing', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.loading,
+        );
+        final opening = router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        // Parked again, its auth reads as signed out: no sign-in for it.
+        container
+            .read(_primaryKind.notifier)
+            .set(PrimaryAccountKind.libreChat);
+        container.read(_authStatus.notifier).set(AuthStatus.unauthenticated);
+        await opening;
+        check(navigator.calls).isEmpty();
+      });
+
+      test('an account gone meanwhile says so', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.unknownAccount],
+        );
+        await router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        check(navigator.calls).deepEquals(['unavailable']);
+      });
+    });
+
     test('a tap from before scopes opens in the active account', () async {
       final router = build();
       await router.openTap(tap(NotificationKind.chatCompletion, 'c1'));
@@ -302,7 +519,9 @@ void main() {
           dedupKey: 'hermes:conn-home|hermes:s-1:t-1',
         ),
       );
-      check(navigator.calls).deepEquals(['hermes-session:s-1:Refactor plan']);
+      check(
+        navigator.calls,
+      ).deepEquals(['hermes-session:conn-home/s-1:Refactor plan']);
     });
 
     test('another connection is used first', () async {
@@ -312,7 +531,7 @@ void main() {
       );
       check(
         navigator.calls,
-      ).deepEquals(['use-hermes:conn-work', 'hermes-session:s-1:']);
+      ).deepEquals(['use-hermes:conn-work', 'hermes-session:conn-work/s-1:']);
     });
 
     test('Hermes switched off is turned on through the same flow', () async {

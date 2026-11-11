@@ -90,6 +90,17 @@ final class PushSubscriptionRecord {
   PushSubscriptionRecord withoutSubscription() =>
       PushSubscriptionRecord(optedOut: optedOut, origin: origin);
 
+  /// Whether the user made a choice for this target that is not the
+  /// default, which outlives its subscription.
+  bool get hasChoices => optedOut || origin != PushOrigin.conduit;
+
+  /// This record with [from]'s choices: a setup that read the record before
+  /// the user changed them must not put the old ones back.
+  PushSubscriptionRecord withChoicesOf(PushSubscriptionRecord from) =>
+      from.optedOut == optedOut && from.origin == origin
+      ? this
+      : copyWith(optedOut: from.optedOut, origin: from.origin);
+
   Map<String, Object?> toJson() => {
     'sid': ?sid,
     'endpoint': ?endpoint,
@@ -171,22 +182,32 @@ final class PushSubscriptionRecord {
 /// A subscription deleted on this device whose server copy may still exist.
 ///
 /// Kept for 30 days so a later pass can remove it from a server that could
-/// not be reached at the time.
+/// not be reached at the time. It names its account or connection by
+/// [scope], which outlives the account being signed out of or the
+/// connection being edited, and the server it lives on by [server], so it is
+/// only ever removed from that server.
 final class PushTombstone {
   const PushTombstone({
     required this.sid,
     required this.scope,
     required this.at,
+    this.server,
   });
 
   final String sid;
   final String scope;
   final DateTime at;
 
+  /// The [PushSubscriptionRecord.serverFingerprint] of the server the
+  /// subscription was made on, or null when any server of [scope] is it
+  /// (Open WebUI accounts, and keys found only on the platform).
+  final String? server;
+
   Map<String, Object?> toJson() => {
     'sid': sid,
     'scope': scope,
     'at': at.millisecondsSinceEpoch,
+    'server': ?server,
   };
 
   static PushTombstone? fromJson(Object? json) {
@@ -194,11 +215,13 @@ final class PushTombstone {
     final sid = json['sid'];
     final scope = json['scope'];
     final at = json['at'];
+    final server = json['server'];
     if (sid is! String || scope is! String || at is! int) return null;
     return PushTombstone(
       sid: sid,
       scope: scope,
       at: DateTime.fromMillisecondsSinceEpoch(at),
+      server: server is String && server.isNotEmpty ? server : null,
     );
   }
 }

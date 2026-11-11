@@ -145,6 +145,7 @@ void main() {
         scope: scope,
       );
       check(result!.dedupKey).equals('owui:acct-1|chat:chat-1:msg-1');
+      check(result.sharesPushDedupKey).isTrue();
     });
 
     test('the same reply in another account is a different key', () {
@@ -171,6 +172,8 @@ void main() {
       check(result!.dedupKey).equals(
         'owui:acct-1|chat:chat-1:726c76553e1a3fdea29134f36e6af2ea05ec5cce',
       );
+      // A push keys on the message id, which this cannot match.
+      check(result.sharesPushDedupKey).isFalse();
     });
 
     test('the preview is plain text', () {
@@ -319,6 +322,7 @@ void main() {
       check(result!.dedupKey).equals(
         'owui:acct-1|channel:chan-1:ce88d5abcba6bf81b16a0da3633b7eb6f1c34ad1',
       );
+      check(result.sharesPushDedupKey).isFalse();
     });
 
     test('malformed envelopes return null without throwing', () {

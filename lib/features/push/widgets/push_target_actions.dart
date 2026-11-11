@@ -8,11 +8,15 @@ import 'package:conduit_core/features/push/services/openwebui_push_backend.dart'
     show kConduitPushFunctionId;
 import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
     show kConduitHermesPluginRepo;
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show OpenWebUiAccountChangeResult;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -267,7 +271,26 @@ Future<void> runPushTargetAction(
     case PushTargetAction.signIn:
       switch (target.target) {
         case OpenWebUiPushTarget(:final accountId):
-          await switchToSavedAccount(context, ref, accountId);
+          // Read now: the page may not outlast the switch.
+          final container = ProviderScope.containerOf(context, listen: false);
+          final router = GoRouter.of(context);
+          final result = await switchToSavedAccount(context, ref, accountId);
+          if (result != OpenWebUiAccountChangeResult.alreadyActive) return;
+          // The account in use, which the app still takes for signed in
+          // while its server refused push: its session is checked, and an
+          // expired one goes through the app's own sign-in-again flow.
+          if (await recheckActiveAccountSession(container)) {
+            _fireAndForget(
+              container.read(pushCoordinatorProvider.notifier).retry(scope),
+            );
+          } else if (container
+                  .read(authStateManagerProvider)
+                  .asData
+                  ?.value
+                  .isAuthenticated !=
+              true) {
+            openActiveAccountSignIn(router);
+          }
         case HermesPushTarget(:final connectionId):
           await showAccountSheet(
             context,
@@ -277,6 +300,66 @@ Future<void> runPushTargetAction(
     case PushTargetAction.retry:
       _fireAndForget(coordinator.retry(scope));
   }
+}
+
+/// Turns push on or off from a switch. Setup goes on after this returns; a
+/// failure is logged once, and [onFailed] tells the user.
+void setPushEnabledFromSwitch(
+  PushCoordinator coordinator,
+  bool value, {
+  void Function()? onFailed,
+}) {
+  unawaited(
+    coordinator.setEnabled(value).then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'push-toggle-failed',
+          scope: 'push/settings',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        onFailed?.call();
+      },
+    ),
+  );
+}
+
+/// Turns push on or off from the native iOS sheet's switch. [refresh]
+/// rebuilds the sheet's rows: once the switch has flipped (or after half a
+/// second), and again once setup has finished, which goes on after this
+/// returns.
+///
+/// A failure is reported once, through [onError]: the handler is attached
+/// before anything is awaited, so a setup that fails while the switch is
+/// still being watched never also surfaces as an unhandled error. A failed
+/// refresh is reported the same way, and never as the setup's.
+Future<void> setPushEnabledFromNativeSheet({
+  required PushCoordinator coordinator,
+  required bool Function() enabledNow,
+  required bool value,
+  required Future<void> Function() refresh,
+  required void Function(String message, Object error, StackTrace stackTrace)
+  onError,
+}) async {
+  final setup = coordinator.setEnabled(value).then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stackTrace) =>
+        onError('native-push-toggle-failed', error, stackTrace),
+  );
+  Future<void> refreshReporting() => refresh().then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stackTrace) =>
+        onError('native-push-refresh-failed', error, stackTrace),
+  );
+
+  // The switch flips first; setup goes on in the background.
+  for (var i = 0; i < 20; i++) {
+    if (enabledNow() == value) break;
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+  }
+  await refreshReporting();
+  unawaited(setup.then((_) => refreshReporting()));
 }
 
 void _fireAndForget(Future<Object?> work) {

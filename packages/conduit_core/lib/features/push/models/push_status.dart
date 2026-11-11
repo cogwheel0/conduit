@@ -30,7 +30,7 @@ enum PushStatus {
   /// The Open WebUI server runs with `ENABLE_PLUGINS=false`.
   pluginsDisabled,
 
-  /// The server is too old: Open WebUI before 0.10.0, or a Hermes without
+  /// The server is too old: Open WebUI before 0.11.0, or a Hermes without
   /// platform event routes.
   serverTooOld,
 

@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.util.Log
 import app.cogwheel.conduit.BuildConfig
 import app.cogwheel.conduit.FlutterError
+import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
@@ -21,6 +23,14 @@ import com.google.firebase.messaging.FirebaseMessaging
 internal object FcmTransport {
     private const val TAG = "ConduitFcm"
     private const val PLAY_SERVICES_PACKAGE = "com.google.android.gms"
+
+    /**
+     * The token deletion [release] started. Firebase runs deletion and token
+     * requests on different executors, so a request made while this runs
+     * could return the token the deletion is about to invalidate.
+     */
+    @Volatile
+    private var pendingDeletion: Task<Void>? = null
 
     private fun options(): FirebaseOptions? {
         val projectId = BuildConfig.CONDUIT_FCM_PROJECT_ID
@@ -58,23 +68,42 @@ internal object FcmTransport {
         val messaging = try {
             ensureInitialized(appContext)
             PushRuntime.config(appContext).fcmOptedIn = true
-            FirebaseMessaging.getInstance().apply {
-                // The manifest keeps auto-init off until now; from here on FCM
-                // refreshes the token by itself.
-                isAutoInitEnabled = true
-            }
+            FirebaseMessaging.getInstance()
         } catch (error: RuntimeException) {
             callback(Result.failure(FlutterError("fcm_unavailable", error.message, null)))
             return
         }
-        messaging.token.addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                callback(Result.success(task.result))
-            } else {
-                val message = task.exception?.message ?: "FCM did not issue a token"
-                callback(Result.failure(FlutterError("fcm_token_failed", message, null)))
+        // The manifest keeps auto-init off until now; from here on FCM
+        // refreshes the token by itself. Not before a deletion still running
+        // has ended: Firebase's own sync could fetch the token it is about to
+        // invalidate.
+        fun fetchToken() {
+            messaging.isAutoInitEnabled = true
+            messaging.token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    callback(Result.success(task.result))
+                } else {
+                    val message = task.exception?.message ?: "FCM did not issue a token"
+                    callback(Result.failure(FlutterError("fcm_token_failed", message, null)))
+                }
             }
         }
+        // Wait for every deletion still running, whether or not it succeeds,
+        // then ask for a token: it is a new one. Each time one ends, look
+        // again: a release meanwhile may have started another. Released
+        // (push turned off) when none is left, this request is stale and gets
+        // no token; a later one opts in again.
+        fun afterDeletions() {
+            val deletion = pendingDeletion
+            if (deletion != null && !deletion.isComplete) {
+                deletion.addOnCompleteListener { afterDeletions() }
+            } else if (PushRuntime.config(appContext).fcmOptedIn) {
+                fetchToken()
+            } else {
+                callback(Result.success(null))
+            }
+        }
+        afterDeletions()
     }
 
     /**
@@ -89,8 +118,16 @@ internal object FcmTransport {
         try {
             FirebaseMessaging.getInstance().apply {
                 isAutoInitEnabled = false
-                deleteToken().addOnFailureListener { error ->
+                val deletion = deleteToken().addOnFailureListener { error ->
                     Log.w(TAG, "FCM token could not be deleted", error)
+                }
+                // Releases can overlap, and a later deletion may end first: a
+                // token request waits for every one still running.
+                val earlier = pendingDeletion
+                pendingDeletion = if (earlier == null || earlier.isComplete) {
+                    deletion
+                } else {
+                    Tasks.whenAll(earlier, deletion)
                 }
             }
         } catch (error: RuntimeException) {

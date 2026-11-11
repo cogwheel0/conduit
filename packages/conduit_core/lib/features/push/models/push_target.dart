@@ -117,7 +117,20 @@ final class HermesPushTarget extends PushTarget {
   PushTargetKind get kind => PushTargetKind.hermes;
 
   @override
-  String get serverIdentity => [
+  String get serverIdentity => identityOf(
+    baseUrl: baseUrl,
+    mode: mode,
+    desktopProfile: desktopProfile,
+    credentialsRevision: credentialsRevision,
+  );
+
+  /// [serverIdentity] for a connection with these settings.
+  static String identityOf({
+    required String baseUrl,
+    required HermesBackendMode mode,
+    required String desktopProfile,
+    required String credentialsRevision,
+  }) => [
     HermesConfig.connectionEndpoint(baseUrl) ?? baseUrl,
     mode.name,
     if (mode == HermesBackendMode.desktopGateway) desktopProfile,

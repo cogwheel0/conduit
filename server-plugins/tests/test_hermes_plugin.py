@@ -181,11 +181,15 @@ class Relay:
         self.status = 201
         self.by_endpoint: Dict[str, int] = {}
         self.fail = False
+        self.meanwhile: Dict[str, Any] = {}  # endpoint -> what happens while it answers
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if self.fail:
             raise httpx.ConnectError("unreachable", request=request)
         self.requests.append(request)
+        meanwhile = self.meanwhile.pop(str(request.url), None)
+        if meanwhile is not None:
+            meanwhile()
         return httpx.Response(self.by_endpoint.get(str(request.url), self.status))
 
 
@@ -354,6 +358,25 @@ def test_watch_ttl_is_capped_and_validated(env):
     assert not store.is_watched("never", now=1000)
 
 
+def test_watch_reports_the_expiry_it_kept(env):
+    assert env.op({"op": "watch", "session_id": "s", "ttl": 3600}, now=1000)["expires"] == 4600
+    # A shorter refresh never brings a watch forward, and says so.
+    assert env.op({"op": "watch", "session_id": "s", "ttl": 10}, now=1000)["expires"] == 4600
+    assert env.store.Store(env.home).is_watched("s", now=4599)
+
+
+def test_watch_at_the_limit_keeps_the_session_it_was_asked_for(env):
+    limit = env.store.MAX_WATCHES
+    directory = env.home / "conduit_push"
+    directory.mkdir()
+    later = {f"w{index}": 1000 + 21600 for index in range(limit)}
+    (directory / "watches.json").write_text(json.dumps({"v": 1, "watches": later}))
+    store = env.store.Store(env.home)
+    assert store.watch("new", 60, now=1000) == 1060
+    assert store.is_watched("new", now=1000)
+    assert len(store._watches(1000)) == limit
+
+
 def test_test_push_is_sent_synchronously_and_decrypts(env):
     device = Device("a")
     other = Device("b")
@@ -395,6 +418,22 @@ def test_dead_endpoint_is_pruned(env, status):
     env.relay.status = status
     assert env.op({"op": "test", "sid": device.sid, "nonce": "n"}) == {"ok": True, "push_status": status}
     assert env.op({"op": "list"})["sids"] == []
+
+
+def test_dead_endpoint_does_not_prune_a_refreshed_subscription(env):
+    device, other = Device("a"), Device("b")
+    env.subscribe(device)
+    env.subscribe(other)
+    old_endpoint = device.endpoint
+    env.relay.by_endpoint[old_endpoint] = 410
+    env.relay.by_endpoint[other.endpoint] = 404
+    # The push token changed: the app re-registers with the same sid and a new
+    # endpoint while the old endpoint is still answering 410.
+    device.endpoint = "https://relay.example/v1/push/a-renewed"
+    env.relay.meanwhile[old_endpoint] = lambda: env.subscribe(device)
+    _turn(env)
+    [stored] = env.store.Store(env.home).subscriptions()
+    assert (stored["sid"], stored["endpoint"]) == (device.sid, device.endpoint)
 
 
 def test_other_failures_keep_the_subscription(env):
@@ -470,6 +509,15 @@ def test_store_caps_at_ten_evicting_the_oldest(env):
     sids = env.op({"op": "list"}, now=2000)["sids"]
     assert len(sids) == 10
     assert set(sids) == {d.sid for d in devices[2:]}
+
+
+def test_store_keeps_the_subscription_it_just_accepted_on_a_tie(env):
+    devices = [Device(str(i)) for i in range(11)]
+    for device in devices:
+        env.subscribe(device, now=1000)  # all in the same second
+    sids = env.op({"op": "list"}, now=1000)["sids"]
+    assert len(sids) == 10
+    assert devices[-1].sid in sids
 
 
 def test_store_expires_after_thirty_days(env):
@@ -558,6 +606,31 @@ def test_failed_turn_pushes_reply_failed(env):
     _turn(env, failed=True, post=False, turn="t2")
     payload = device.open(env.relay.requests[0])
     assert (payload["k"], payload["b"], payload["dk"]) == ("reply_failed", "", "hermes:sess-1:t2")
+
+
+@pytest.mark.parametrize("text,body", [
+    ("<think>private reasoning", ""),
+    ("**Done.** <think>the plan", "Done."),
+    ("<think>plan</think>**Done.** Here it is.", "Done. Here it is."),
+    ("<details><summary>Tool</summary><details>inner</details>secret</details>Visible", "Visible"),
+    ("<|BEGIN_OF_THOUGHT|>plan<|END_OF_THOUGHT|>**Done.**", "Done."),
+], ids=["open", "open_after_the_answer", "closed", "nested", "uppercase_thought_markers"])
+@pytest.mark.parametrize("failed", [False, True], ids=["reply", "reply_failed"])
+def test_reply_preview_drops_reasoning_left_open_or_nested(env, text, body, failed):
+    device = Device("a")
+    env.subscribe(device)
+    _turn(env, text=text, failed=failed)
+    assert device.open(env.relay.requests[0])["b"] == body
+    assert env.sender.cron_payload("j1", "1", "Brief", text)["b"] == body
+
+
+def test_reply_preview_reads_only_the_start_of_a_huge_reply(env):
+    start = time.perf_counter()
+    payload = env.sender.reply_payload("reply", "s", "t", "", "<think " * (1_000_000 // 7))
+    assert time.perf_counter() - start < 0.25
+    assert len(payload["b"]) <= 200
+    cut_open = "Answer first. <think>" + "secret reasoning " * 400 + "</think> More."
+    assert env.sender.reply_payload("reply", "s", "t", "", cut_open)["b"] == "Answer first.…"
 
 
 def test_interrupted_turn_does_not_push(env):
@@ -743,12 +816,62 @@ def test_cron_respects_subscription_events(env):
     assert env.relay.requests == []
 
 
+CRON_HEADER = "Cronjob Response: Brief\n(job_id: j1)\n-------------\n\n"
+CRON_FOOTER = '\n\nTo stop or manage this job, send me a new message (e.g. "stop reminder Brief").'
+
+
+@pytest.mark.parametrize("output,body", [
+    ("Sunny.", "Sunny."),
+    ("Sunny." + CRON_FOOTER, "Sunny."),
+    ("Sunny.  \n" + CRON_FOOTER + "\n\n  ", "Sunny."),
+    ("Sunny." + CRON_FOOTER + "\nMore output.", "Sunny." + CRON_FOOTER + "\nMore output."),
+    ("A" + CRON_FOOTER + "\nB" + CRON_FOOTER, "A" + CRON_FOOTER + "\nB"),
+])
+def test_cron_wrapper_parsing(env, output, body):
+    assert env.adapter.parse_cron_content(CRON_HEADER + output) == ("j1", "Brief", body)
+    assert env.adapter.parse_cron_content(CRON_HEADER + output, "meta") == ("meta", "Brief", body)
+
+
+@pytest.mark.parametrize("filler", [" ", "\n", " \n", "-", "\n\nTo stop"], ids=repr)
+def test_cron_wrapper_parsing_is_linear(env, filler):
+    content = CRON_HEADER + "x" + filler * (1_000_000 // len(filler)) + "y" + CRON_FOOTER
+    start = time.perf_counter()
+    job, name, body = env.adapter.parse_cron_content(content)
+    payload = env.sender.cron_payload(job, "1", name, body)
+    assert time.perf_counter() - start < 0.25  # a 40 KB whitespace run used to take 4 s
+    assert (job, name) == ("j1", "Brief") and body.endswith("y") and len(payload["b"]) <= 200
+
+
+def test_cron_wrapper_header_is_read_from_a_bounded_prefix(env):
+    long_name = "Cronjob Response: " + "n" * 10_000 + "\n(job_id: j1)\n---\n\nBody"
+    assert env.adapter.parse_cron_content(long_name) == ("", "", long_name)
+
+
 def test_cron_unwrapped_output_without_a_job(env):
     device = Device("a")
     env.subscribe(device)
-    assert run(env.adapter.standalone_send(PlatformConfig(), "devices", "Plain output"))["success"]
+    # Hermes's standalone lane passes no job id, so with cron.wrap_response: false
+    # (or from the agent's send_message tool) the output names no job.
+    result = run(env.adapter.standalone_send(PlatformConfig(), "devices", "Plain output"))
+    assert result["success"]
     payload = device.open(env.relay.requests[0])
-    assert (payload["t"], payload["b"], payload["g"]) == ("", "Plain output", "cron:")
+    # It isn't shown as a job's output, and carries no empty job id.
+    assert (payload["k"], payload["t"], payload["b"], payload["g"]) == ("cron", "Hermes", "Plain output", "cron:")
+    assert set(payload["ids"]) == {"run"} and payload["ids"]["run"].isdigit()
+    assert payload["dk"] == "cron::" + payload["ids"]["run"] == result["message_id"]
+
+
+def test_send_message_through_the_live_adapter_is_titled_hermes(env):
+    device = Device("a")
+    env.subscribe(device)
+    env.hermes.jobs["j9"] = {"id": "j9", "name": "Nightly backup"}
+    adapter = env.adapter.ConduitAdapter(PlatformConfig(enabled=True))
+    # send_message passes no job id; cron's live lane always does.
+    assert run(adapter.send("devices", "Hi from the agent", metadata=None)).success
+    assert run(adapter.send("devices", "Done.", metadata={"job_id": "j9"})).success
+    assert run(adapter.send("devices", "Done.", metadata={"job_id": "gone"})).success
+    titles = [(p["t"], p["ids"].get("job")) for p in map(device.open, env.relay.requests)]
+    assert titles == [("Hermes", None), ("Nightly backup", "j9"), ("", "gone")]
 
 
 # -- adapter and API-server auth -------------------------------------------------
@@ -943,6 +1066,64 @@ def test_dashboard_profiles(dashboard, tmp_path):
     assert not (dashboard.home / "conduit_push").exists()
     assert dashboard.api.handle_events(body, "nope") == (404, {"ok": False, "error": "unknown_profile"})
     assert dashboard.api.handle_events(body, "bad name!") == (400, {"ok": False, "error": "invalid_profile"})
+
+
+class _StreamedRequest:
+    """Starlette's Request as the events route uses it, counting chunks read."""
+
+    def __init__(self, chunks, content_length=None) -> None:
+        self.headers = {} if content_length is None else {"content-length": str(content_length)}
+        self.chunks = list(chunks)
+        self.read = 0
+
+    async def stream(self):
+        for chunk in self.chunks:
+            self.read += 1
+            yield chunk
+
+
+def test_dashboard_refuses_large_bodies_while_reading(dashboard):
+    route = dashboard.api.router.routes[("POST", "/v1/events")]
+    declared = _StreamedRequest([b"{}"], content_length=10 ** 9)
+    response = run(route(declared, profile=None))
+    assert (response.status_code, response.content) == (413, {"ok": False, "error": "too_large"})
+    assert declared.read == 0
+
+    chunked = _StreamedRequest([b"x" * 4096] * 1000)  # 4 MB without a Content-Length
+    response = run(route(chunked, profile=None))
+    assert response.status_code == 413 and chunked.read == 5
+
+    lying = _StreamedRequest([b"x" * 4096] * 1000, content_length=2)
+    assert run(route(lying, profile=None)).status_code == 413 and lying.read == 5
+
+    hello = _StreamedRequest([b'{"op": ', b'"hello"}'], content_length=15)
+    response = run(route(hello, profile=None))
+    assert (response.status_code, response.content["plugin"]) == (200, "conduit")
+
+    at_limit = _StreamedRequest([b" " * (16384 - 15), b'{"op": "hello"}'], content_length="junk")
+    assert run(route(at_limit, profile=None)).status_code == 200
+
+
+def test_dashboard_body_cap_with_starlette(dashboard):
+    requests = pytest.importorskip("starlette.requests")
+
+    def request(chunks, headers=()):
+        messages = [{"type": "http.request", "body": c, "more_body": i < len(chunks) - 1} for i, c in enumerate(chunks)]
+        received = []
+
+        async def receive():
+            received.append(1)
+            return messages[len(received) - 1]
+
+        scope = {"type": "http", "method": "POST", "path": "/", "headers": list(headers), "query_string": b""}
+        return requests.Request(scope, receive), received
+
+    big, received = request([b"x" * 4096] * 1000)
+    assert run(dashboard.api.read_capped(big)) is None and len(received) == 5
+    declared, received = request([b"{}"], [(b"content-length", b"999999")])
+    assert run(dashboard.api.read_capped(declared)) is None and received == []
+    small, _ = request([b'{"op":', b'"hello"}'])
+    assert run(dashboard.api.read_capped(small)) == b'{"op":"hello"}'
 
 
 def test_dashboard_rejects_bad_bodies(dashboard):

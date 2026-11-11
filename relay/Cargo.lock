@@ -241,6 +241,9 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chacha20poly1305",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "jsonwebtoken",
  "reqwest",
  "serde",
@@ -248,6 +251,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "tower-service",
  "tracing",
  "tracing-subscriber",
 ]
@@ -505,6 +509,7 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

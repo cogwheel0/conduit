@@ -26,9 +26,10 @@ subscription:
 - a random device id, a label such as "iPhone", and when the device last checked in
 
 Open WebUI keeps these in the Conduit Push function's user settings, which it
-encrypts at rest. Hermes keeps them in a file only its user can read. The
-server encrypts each notification, so it chooses what goes in it: a title and a
-preview of at most 200 characters.
+encrypts at rest only when the admin sets `ENABLE_VALVE_ENCRYPTION=true`.
+Hermes keeps them in a file only its user can read. The server encrypts each
+notification, so it chooses what goes in it: a title and a preview of at most
+200 characters.
 
 ## The Conduit relay
 
@@ -39,14 +40,28 @@ access logs, nothing written to disk.
 | The relay sees | The relay never sees |
 |---|---|
 | The APNs or FCM token, sealed inside the endpoint URL and opened in memory for each push | Titles, previews, or any other content |
-| Your server's IP address, and when it sends | Which account, server, chat or user a push is about |
+| Your server's IP address, and when it sends | Which account, chat or user a push is about |
 | The size class of a push: 598, 1110 or 2134 bytes | The exact length of a message |
 | Delivery hints: time-to-live and urgency | Your server's URL or name |
-| A random 16-byte subscription id, and a 22-character topic hash keyed with the device's secret | Anything that links two subscriptions or devices together |
+| A random 16-byte subscription id, and a 22-character topic hash keyed with the device's secret | Which chat or event a topic hash stands for |
 
-Rate-limit counters live in memory for minutes. Metrics are aggregate counts
-by provider and result, with no other labels. The hosting provider in front of
-the relay sees the same connection metadata as any web host.
+Every subscription on one device, one per account or connection, carries the
+same device token, and every push from one server comes from the same IP
+address. So while it handles them, the relay could tell that two subscriptions
+share a device or a server. It records neither link: a token is only opened in
+memory for the push that carries it, and an IP address is kept only in its
+rate-limit counter, below. When the app registers a subscription, the relay
+also sees the device's IP address, under the same rule.
+
+Rate-limit counters stay in memory until their limits have refilled, and are
+dropped within a minute after that. For the IP addresses that send pushes or
+register devices, that takes minutes. For an endpoint, whose counter is keyed
+by a hash of it, the daily limit can keep the counter for up to a day after a
+busy day of pushes.
+
+Metrics are aggregate counts by provider and result, with no other labels. The
+hosting provider in front of the relay sees the same connection metadata as any
+web host.
 
 An endpoint works like a password: anyone who has it can send pushes to that
 device. They still cannot make Conduit show text they choose, because a push

@@ -47,6 +47,16 @@ typedef HermesDashboardBridgeFactory = HermesDashboardBridge Function({
   required Map<String, String> accessHeaders,
 });
 
+/// The dashboard can't be reached from this device at all: its gateway
+/// access headers can't be added safely here (iOS, or an Android WebView
+/// without document-start scripts). Signing in again can't change that.
+///
+/// A [StateError], as before, for callers that only tell sign-in problems
+/// apart from network ones.
+final class HermesDashboardUnavailable extends StateError {
+  HermesDashboardUnavailable(super.message);
+}
+
 /// A dashboard request withdrawn before it was sent: Hermes never saw it.
 final class HermesDashboardRequestWithdrawn implements Exception {
   const HermesDashboardRequestWithdrawn();

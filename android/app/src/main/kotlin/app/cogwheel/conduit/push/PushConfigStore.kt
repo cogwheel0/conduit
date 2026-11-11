@@ -165,6 +165,7 @@ class PushConfigStore(private val store: KeyValueStore) {
     }
 
     companion object {
+        /** Kept out of device-to-device transfer by res/xml/data_extraction_rules.xml. */
         const val PREFS_NAME = "conduit_push"
         private const val KEY_CONFIG = "config"
         private const val KEY_NONCES = "verified_nonces"

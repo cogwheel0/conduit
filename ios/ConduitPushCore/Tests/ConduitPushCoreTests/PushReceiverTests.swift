@@ -55,6 +55,14 @@ final class PushReceiverTests: XCTestCase {
     return delivery
   }
 
+  private func repeated(_ outcome: PushReceiveOutcome) throws -> PushDelivery {
+    guard case .duplicate(let delivery) = outcome else {
+      XCTFail("expected a duplicate, got \(outcome)")
+      throw NoDelivery()
+    }
+    return delivery
+  }
+
   func testDeliversEveryVectorCase() throws {
     for vector in try TestVectors.cp1().cases {
       try subscribe(vector)
@@ -71,7 +79,8 @@ final class PushReceiverTests: XCTestCase {
   func testUnknownSubscriptionsAreRejected() throws {
     let vector = try TestVectors.cp1Case("owui_reply")
 
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(vector)), .reject(.unknownSubscription))
+    XCTAssertEqual(
+      receiver.receive(userInfo: userInfo(vector)), .reject(.unknownSubscription, scope: nil))
     XCTAssertTrue(PushRejection.unknownSubscription.mayDrop)
     XCTAssertTrue(ledger.entries().isEmpty)
   }
@@ -88,7 +97,7 @@ final class PushReceiverTests: XCTestCase {
 
     let outcome = locked.receive(userInfo: userInfo(try TestVectors.cp1Case("owui_reply")))
 
-    XCTAssertEqual(outcome, .reject(.storageUnavailable))
+    XCTAssertEqual(outcome, .reject(.storageUnavailable, scope: nil))
     XCTAssertFalse(PushRejection.storageUnavailable.mayDrop)
   }
 
@@ -100,12 +109,40 @@ final class PushReceiverTests: XCTestCase {
     // Encrypted to another key.
     var forged = userInfo(other)
     forged["cp"] = ["v": 1, "s": record.sid, "d": other.body]
-    XCTAssertEqual(receiver.receive(userInfo: forged), .reject(.undecryptable))
+    XCTAssertEqual(receiver.receive(userInfo: forged), .reject(.undecryptable, scope: record.scope))
 
-    XCTAssertEqual(receiver.receive(userInfo: ["aps": [:]]), .reject(.malformedEnvelope))
+    XCTAssertEqual(receiver.receive(userInfo: ["aps": [:]]), .reject(.malformedEnvelope, scope: nil))
+    XCTAssertEqual(
+      receiver.receive(userInfo: ["cp": ["v": 1, "s": record.sid, "d": "not base64!"]]),
+      .reject(.malformedEnvelope, scope: nil))
     XCTAssertEqual(
       receiver.receive(userInfo: ["cp": ["v": 2, "s": record.sid, "d": vector.body]]),
-      .reject(.malformedEnvelope))
+      .reject(.unsupportedEnvelope, scope: nil))
+    XCTAssertTrue(ledger.entries().isEmpty)
+  }
+
+  func testOnlyWhatTheFilteringRequestNamesMayBeDropped() {
+    // Undecryptable (nothing to authenticate, no key, or failed
+    // authentication) and switched off. Duplicates are their own outcome.
+    for reason in [PushRejection.malformedEnvelope, .unknownSubscription, .undecryptable, .switchedOff] {
+      XCTAssertTrue(reason.mayDrop, "\(reason)")
+    }
+    // Possibly genuine, authenticated, or unknown.
+    for reason in [PushRejection.unsupportedEnvelope, .invalidPayload, .storageUnavailable] {
+      XCTAssertFalse(reason.mayDrop, "\(reason)")
+    }
+  }
+
+  func testAnAuthenticPushThatIsNotCP1IsRejectedButNotDroppable() throws {
+    let record = try keys.create(scope: "owui:acct-1")
+    for plaintext in [#"{"v":2,"k":"reply","dk":"d"}"#, #"{"v":1,"k":"poke","dk":"d"}"#, "[]"] {
+      let body = try TestWebPush.encrypt(Data(plaintext.utf8), to: record)
+      let outcome = receiver.receive(
+        userInfo: ["cp": ["v": 1, "s": record.sid, "d": body.base64URLEncodedString()]])
+
+      XCTAssertEqual(outcome, .reject(.invalidPayload, scope: "owui:acct-1"), plaintext)
+    }
+    XCTAssertFalse(PushRejection.invalidPayload.mayDrop)
     XCTAssertTrue(ledger.entries().isEmpty)
   }
 
@@ -119,23 +156,35 @@ final class PushReceiverTests: XCTestCase {
     config.disabledScopes = [channel.scope]
     try configStore.save(config)
 
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(reply)), .reject(.switchedOff))
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(channel)), .reject(.switchedOff))
+    XCTAssertEqual(
+      receiver.receive(userInfo: userInfo(reply)), .reject(.switchedOff, scope: reply.scope))
+    XCTAssertEqual(
+      receiver.receive(userInfo: userInfo(channel)), .reject(.switchedOff, scope: channel.scope))
 
     config = .default
     config.enabled = false
     try configStore.save(config)
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(reply)), .reject(.switchedOff))
+    XCTAssertEqual(
+      receiver.receive(userInfo: userInfo(reply)), .reject(.switchedOff, scope: reply.scope))
     // A switched-off push does not use up its dedup key.
     XCTAssertTrue(ledger.entries().isEmpty)
   }
 
-  func testDuplicatesAreRejected() throws {
+  func testARepeatComesBackWithItsContentButSilent() throws {
     let vector = try TestVectors.cp1Case("hermes_reply")
     try subscribe(vector)
 
-    _ = try delivery(receiver.receive(userInfo: userInfo(vector)))
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(vector)), .reject(.duplicate))
+    let first = try delivery(receiver.receive(userInfo: userInfo(vector)))
+    let again = try repeated(receiver.receive(userInfo: userInfo(vector)))
+
+    // It replaces the first on screen, so it shows the same thing, quietly.
+    XCTAssertTrue(first.presentation.playsSound)
+    XCTAssertFalse(again.presentation.playsSound)
+    XCTAssertEqual(again.presentation.title, first.presentation.title)
+    XCTAssertEqual(again.presentation.body, first.presentation.body)
+    XCTAssertEqual(again.payload, first.payload)
+    XCTAssertEqual(again.scope, vector.scope)
+    XCTAssertNil(again.replacesLocalNotificationId)
   }
 
   func testAPushReplacesTheAppsOwnNotificationSilently() throws {
@@ -147,7 +196,11 @@ final class PushReceiverTests: XCTestCase {
 
     XCTAssertEqual(delivered.replacesLocalNotificationId, "1234")
     XCTAssertFalse(delivered.presentation.playsSound)
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(vector)), .reject(.duplicate))
+    XCTAssertNil(try repeated(receiver.receive(userInfo: userInfo(vector))).replacesLocalNotificationId)
+    // The app's second claim learns its copy lost.
+    XCTAssertEqual(
+      try ledger.claimForApp(vector.app_dedup_key, localNotificationId: "1234"),
+      .supersededByPush("1234"))
   }
 
   func testAClaimWithoutALocalNotificationIsADuplicate() throws {
@@ -155,7 +208,7 @@ final class PushReceiverTests: XCTestCase {
     try subscribe(vector)
     XCTAssertTrue(try ledger.claim(vector.app_dedup_key, localNotificationId: nil))
 
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(vector)), .reject(.duplicate))
+    XCTAssertFalse(try repeated(receiver.receive(userInfo: userInfo(vector))).presentation.playsSound)
   }
 
   func testATestPushRecordsItsNonceEvenWhenSwitchedOff() throws {
@@ -165,7 +218,8 @@ final class PushReceiverTests: XCTestCase {
     config.enabled = false
     try configStore.save(config)
 
-    XCTAssertEqual(receiver.receive(userInfo: userInfo(vector)), .reject(.switchedOff))
+    XCTAssertEqual(
+      receiver.receive(userInfo: userInfo(vector)), .reject(.switchedOff, scope: vector.scope))
     XCTAssertEqual(try configStore.takeVerifiedNonces(sid: vector.sid), ["Nn3wq0Xk"])
     XCTAssertEqual(try configStore.takeVerifiedNonces(sid: vector.sid), [])
 

@@ -3,7 +3,10 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart'
+    show kMaxHermesJobDeliverCharacters;
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_subscription_record.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
@@ -16,8 +19,10 @@ import 'package:conduit_core/features/push/services/push_settings_store.dart';
 import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/push_platform_port.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -282,6 +287,37 @@ void main() {
       check(h.state.permissionDenied).isFalse();
     });
 
+    test('a sign-out whose saves fail still stops APNs', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      h.log.clear();
+
+      // The sign-out outlived its time and app data is being cleared.
+      await PreferencesStore.blockWritesForAppDataClear();
+      addTearDown(PreferencesStore.resumeWritesAfterAppDataClear);
+      await check(h.coordinator.releaseAll()).throws<StateError>();
+      check(h.log).contains('release apns');
+    });
+
+    test('a permission changed in system settings shows on return', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      check(h.state.permissionDenied).isFalse();
+
+      h.platform.permission = false;
+      h.lifecycle.resume();
+      await h.until(() => h.state.permissionDenied);
+      await h.until(
+        () => h.status(_owui.scope) == PushStatus.permissionDenied,
+      );
+
+      h.platform.permission = true;
+      h.lifecycle.resume();
+      await h.until(() => h.status(_owui.scope) == PushStatus.on);
+      check(h.state.permissionDenied).isFalse();
+      check(h.platform.prompts).equals(1);
+    });
+
     test('a check after launch never prompts', () async {
       h = await _Harness.start(targets: [_owui]);
       await h.coordinator.setEnabled(true);
@@ -457,10 +493,24 @@ void main() {
     test('an unchanged target is not registered or tested again', () async {
       h = await _Harness.start(targets: [_owui]);
       await h.coordinator.setEnabled(true);
-      await h.coordinator.retry(_owui.scope);
+      await h.coordinator.setEnabled(true);
       check(h.relay.registrations).length.equals(1);
       check(h.server(_owui).tests).equals(1);
-      check(h.server(_owui).subscribes).equals(2);
+      check(h.server(_owui).subscribes).equals(1);
+    });
+
+    test('a retry registers a new endpoint and tests it', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final before = h.record(_owui.scope).endpoint;
+      // The relay forgot the endpoint, while the token and key still match.
+      await h.coordinator.retry(_owui.scope);
+      check(h.relay.registrations).length.equals(2);
+      check(h.record(_owui.scope).endpoint).not((it) => it.equals(before));
+      check(h.server(_owui).subscriptions.values.single.endpoint)
+          .equals(h.record(_owui.scope).endpoint!);
+      check(h.server(_owui).tests).equals(2);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
     });
 
     test('kind toggles upload new events without a new test', () async {
@@ -530,11 +580,80 @@ void main() {
             h.record(_hermes.scope).sid != oldSid &&
             h.status(_hermes.scope) == PushStatus.on,
       );
-      check(h.log).contains('unsubscribe ${_hermes.scope} $oldSid');
-      check(h.platform.subscriptions.keys).not((it) => it.contains(oldSid));
-      check(h.server(_hermes).subscriptions.keys)
+      // Removed from the server it was on, not asked of the new one.
+      check(h.server(_hermes).unsubscribes).deepEquals([oldSid]);
+      check(h.server(_hermes).subscriptions).isEmpty();
+      check(h.server(moved).unsubscribes).isEmpty();
+      check(h.server(moved).subscriptions.keys)
           .deepEquals([h.record(_hermes.scope).sid!]);
+      check(h.platform.subscriptions.keys).not((it) => it.contains(oldSid));
+      check(h.settingsStore.tombstones()).isEmpty();
     });
+
+    test('a profile change unsubscribes from the old profile', () async {
+      const desk = HermesPushTarget(
+        connectionId: 'conn-d',
+        label: 'Desk',
+        baseUrl: 'https://desk.test',
+        mode: HermesBackendMode.desktopGateway,
+        desktopProfile: 'work',
+        credentialsRevision: 'rev-1',
+      );
+      h = await _Harness.start(targets: [desk]);
+      await h.coordinator.setEnabled(true);
+      final oldSid = h.record(desk.scope).sid!;
+
+      const moved = HermesPushTarget(
+        connectionId: 'conn-d',
+        label: 'Desk',
+        baseUrl: 'https://desk.test',
+        mode: HermesBackendMode.desktopGateway,
+        desktopProfile: 'home',
+        credentialsRevision: 'rev-2',
+      );
+      h.setTargets([moved]);
+      await h.until(
+        () =>
+            h.record(desk.scope).sid != oldSid &&
+            h.status(desk.scope) == PushStatus.on,
+      );
+      check(h.server(desk).unsubscribes).deepEquals([oldSid]);
+      check(h.server(moved).unsubscribes).isEmpty();
+    });
+
+    test(
+      'without the old settings, the old sid is tombstoned for its server',
+      () async {
+        h = await _Harness.start(targets: [_hermes]);
+        await h.coordinator.setEnabled(true);
+        final oldSid = h.record(_hermes.scope).sid!;
+        // The settings from before the edit are not known in this process.
+        h.factory.retained.clear();
+
+        const moved = HermesPushTarget(
+          connectionId: 'conn-1',
+          label: 'Home Hermes',
+          baseUrl: 'https://hermes-new.test',
+          mode: HermesBackendMode.responsesApi,
+          credentialsRevision: 'rev-2',
+        );
+        h.setTargets([moved]);
+        await h.until(
+          () =>
+              h.record(_hermes.scope).sid != oldSid &&
+              h.status(_hermes.scope) == PushStatus.on,
+        );
+        check(h.server(moved).unsubscribes).isEmpty();
+        final tombstone = h.settingsStore.tombstones().single;
+        check(tombstone.sid).equals(oldSid);
+        check(tombstone.server).isNotNull();
+
+        // A later full pass never sends it to the new server.
+        await h.coordinator.resetKeys();
+        check(h.server(moved).unsubscribes)
+            .not((it) => it.contains(oldSid));
+      },
+    );
 
     test('an unregistered UnifiedPush sid registers again', () async {
       h = await _Harness.start(targets: [_owui], unifiedPush: true);
@@ -593,6 +712,98 @@ void main() {
           .deepEquals(['org.unifiedpush.distributor.ntfy']);
     });
 
+    test('switching back from UnifiedPush quickly keeps FCM', () async {
+      h = await _Harness.start(
+        targets: [_owui],
+        fcm: true,
+        unifiedPush: true,
+      );
+      h.platform.distributors = const [];
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_owui.scope).sid!;
+      h.log.clear();
+
+      // UnifiedPush, then straight back to Automatic before the first
+      // change has finished.
+      final toUnifiedPush = h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+      );
+      final back = h.coordinator.setAndroidTransport(null);
+      await Future.wait([toUnifiedPush, back]);
+
+      check(h.record(_owui.scope).sid).equals(sid);
+      check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
+      check(h.server(_owui).subscriptions).containsKey(sid);
+      check(h.log).not((it) => it.contains('delete $sid'));
+      check(h.log).not((it) => it.contains('release fcm'));
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('a new distributor registers every subscription again', () async {
+      h = await _Harness.start(targets: [_owui, _owui2], unifiedPush: true);
+      h.platform.distributors = const [
+        'org.unifiedpush.distributor.ntfy',
+        'org.unifiedpush.distributor.other',
+      ];
+      await h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+        distributor: 'org.unifiedpush.distributor.ntfy',
+      );
+      await h.coordinator.setEnabled(true);
+      check(h.allOn()).isTrue();
+      final before = {
+        for (final target in [_owui, _owui2])
+          target.scope: h.record(target.scope).endpoint,
+      };
+
+      // The connector keeps one distributor for the app, so the old one
+      // drops every registration, not just the first one made with the new.
+      h.log.clear();
+      await h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+        distributor: 'org.unifiedpush.distributor.other',
+      );
+      for (final target in [_owui, _owui2]) {
+        final record = h.record(target.scope);
+        check(h.log).contains(
+          'registerUp ${record.sid} org.unifiedpush.distributor.other',
+        );
+        check(record.endpoint).isNotNull().not(
+          (it) => it.equals(before[target.scope]!),
+        );
+        check(
+          h.server(target).subscriptions[record.sid]?.endpoint,
+        ).equals(record.endpoint);
+      }
+      check(h.allOn()).isTrue();
+    });
+
+    test(
+      'choosing UnifiedPush with no distributor still stops FCM',
+      () async {
+        h = await _Harness.start(
+          targets: [_owui],
+          fcm: true,
+          unifiedPush: true,
+        );
+        h.platform.distributors = const [];
+        await h.coordinator.setEnabled(true);
+        final sid = h.record(_owui.scope).sid!;
+        check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
+
+        await h.coordinator.setAndroidTransport(
+          PushAndroidTransport.unifiedPush,
+        );
+        // Nothing set up through UnifiedPush, and nothing left through
+        // Google either: the server and device forget the FCM subscription.
+        check(h.record(_owui.scope).sid).isNull();
+        check(h.server(_owui).subscriptions).isEmpty();
+        check(h.log).contains('delete $sid');
+        check(h.log).contains('release fcm');
+        check(h.status(_owui.scope)).equals(PushStatus.failed);
+      },
+    );
+
     test('a token that changed while the app was closed is caught', () async {
       h = await _Harness.start(targets: [_owui, _owui2]);
       await h.coordinator.setEnabled(true);
@@ -621,7 +832,12 @@ void main() {
       await h.coordinator.setEnabled(true);
       h.dispose();
 
-      h = await _Harness.start(targets: [_owui, _owui2], keepPreferences: true);
+      final platform = h.platform;
+      h = await _Harness.start(
+        targets: [_owui, _owui2],
+        keepPreferences: true,
+        platform: platform,
+      );
       await h.until(() => h.log.contains('probe ${_owui2.scope}'));
       await pumpEventQueue();
       check(h.log).not((it) => it.contains('probe ${_owui.scope}'));
@@ -705,6 +921,26 @@ void main() {
 
       await h.coordinator.setTargetOptedOut(_owui.scope, false);
       check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('an opt-out its server missed is removed there later', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_owui.scope).sid!;
+      h.factory.openErrors[_owui.scope] = const PushBackendException(
+        PushFailure(PushFailureReason.serverUnreachable),
+      );
+      await h.coordinator.setTargetOptedOut(_owui.scope, true);
+      check(h.server(_owui).subscriptions.keys).contains(sid);
+      check(h.settingsStore.tombstones().map((t) => t.sid)).deepEquals([sid]);
+
+      // The server is back; the next full pass removes it.
+      h.factory.openErrors.remove(_owui.scope);
+      await h.coordinator.setEnabled(true);
+
+      check(h.server(_owui).subscriptions).isEmpty();
+      check(h.settingsStore.tombstones()).isEmpty();
+      check(h.status(_owui.scope)).equals(PushStatus.off);
     });
 
     test('deleting a Hermes connection removes its subscription first', () async {
@@ -801,6 +1037,114 @@ void main() {
       check(h.status(_owui2.scope)).equals(PushStatus.on);
     });
 
+    test('turning push on writes each switch it turns on to its server', () async {
+      final active = accountScopedPreferenceKey(
+        PreferenceKeys.notificationsEnabled,
+        'acct-1',
+      );
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'acct-1');
+      await PreferencesStore.put(active, false);
+      // acct-2 never stored one; acct-3 turned its own off.
+      const owui3 = OpenWebUiPushTarget(accountId: 'acct-3', label: 'c');
+      await PreferencesStore.put(
+        accountScopedPreferenceKey(
+          PreferenceKeys.notificationsEnabled,
+          'acct-3',
+        ),
+        false,
+      );
+      h = await _Harness.start(
+        targets: [_owui, _owui2, owui3],
+        keepPreferences: true,
+      );
+      await h.coordinator.setEnabled(true);
+      await h.until(() => h.factory.notificationWrites.length == 2);
+      check(h.factory.notificationWrites.toSet())
+          .deepEquals({'acct-1 true', 'acct-2 true'});
+      check(PreferencesStore.getBool(active)).equals(true);
+      // The device-level switch, which Hermes follows, is on too.
+      check(PreferencesStore.getBool(PreferenceKeys.notificationsEnabled))
+          .equals(true);
+    });
+
+    test('an account added while push is on gets its switch on', () async {
+      String key(String accountId) => accountScopedPreferenceKey(
+        PreferenceKeys.notificationsEnabled,
+        accountId,
+      );
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      await h.until(() => h.factory.notificationWrites.isNotEmpty);
+      h.factory.notificationWrites.clear();
+      // Hermes notifications turned off since, on the device-level switch.
+      await PreferencesStore.put(PreferenceKeys.notificationsEnabled, false);
+
+      // acct-2 signs in and is active, never having stored a switch; acct-3
+      // turned its own off.
+      const owui3 = OpenWebUiPushTarget(accountId: 'acct-3', label: 'c');
+      await PreferencesStore.put(key('acct-3'), false);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'acct-2');
+      h.setTargets([_owui, _owui2, owui3]);
+      await h.until(
+        () =>
+            h.state.targets[_owui2.scope]?.status == PushStatus.on &&
+            h.state.targets[owui3.scope]?.status == PushStatus.on &&
+            h.factory.notificationWrites.isNotEmpty,
+      );
+      await pumpEventQueue();
+
+      check(PreferencesStore.getBool(key('acct-2'))).equals(true);
+      check(h.settings.state.notificationsEnabled).isTrue();
+      check(h.target(_owui2.scope).notificationsOff).isFalse();
+      // Written where its server holds no value of its own.
+      check(h.factory.notificationWrites).deepEquals(['acct-2 true if unset']);
+      check(PreferencesStore.getBool(key('acct-3'))).equals(false);
+      check(h.target(owui3.scope).notificationsOff).isTrue();
+      check(PreferencesStore.getBool(PreferenceKeys.notificationsEnabled))
+          .equals(false);
+    });
+
+    test('a server that refuses the switch does not stop push', () async {
+      h = await _Harness.start(targets: [_owui]);
+      h.factory.notificationWriteError = StateError('offline');
+      await h.coordinator.setEnabled(true);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('a Hermes connection follows the device-level switch', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'acct-1');
+      await h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      check(h.target(_hermes.scope).notificationsOff).isFalse();
+
+      // Switched off, as the Notifications page does with no account.
+      await PreferencesStore.put(PreferenceKeys.notificationsEnabled, false);
+      h.settings.set(h.settings.state.copyWith(notificationSound: false));
+      await h.until(() => h.target(_hermes.scope).notificationsOff);
+      check(h.platform.config!.disabledScopes).deepEquals([_hermes.scope]);
+      check(
+        notificationsEnabledForScope(_hermes.scope, activeValue: true),
+      ).isFalse();
+      check(
+        notificationsEnabledForScope('direct', activeValue: true),
+      ).isFalse();
+      // The active account keeps its own.
+      check(
+        notificationsEnabledForScope(_owui.scope, activeValue: true),
+      ).isTrue();
+    });
+
+    test('a device-level switch never set follows the active one', () {
+      PreferencesStore.debugOverride(InMemoryKeyValueStore());
+      check(
+        notificationsEnabledForScope('hermes:x', activeValue: true),
+      ).isTrue();
+      check(
+        notificationsEnabledForScope('hermes:x', activeValue: false),
+      ).isFalse();
+    });
+
     test('the scheduled tasks toggle stops cron pushes', () async {
       h = await _Harness.start(targets: [_hermes]);
       await h.coordinator.setEnabled(true);
@@ -816,6 +1160,587 @@ void main() {
       ).deepEquals(['reply', 'reply_failed']);
       await pumpEventQueue();
       check(h.platform.config!.enabledKinds).not((it) => it.contains('cron'));
+    });
+  });
+
+  group('races', () {
+    Future<String> waitForSubscribe(_Server server) async {
+      await h.until(
+        () => h.log.any((line) => line.startsWith('subscribe-waiting')),
+      );
+      return h.log
+          .lastWhere((line) => line.startsWith('subscribe-waiting'))
+          .split(' ')
+          .last;
+    }
+
+    test('a removal during a setup removes what the setup still writes', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      final sid = await waitForSubscribe(h.server(_owui));
+
+      // The setup is still talking to the server when push goes off.
+      await h.coordinator.setEnabled(false);
+      check(h.settingsStore.tombstones().map((t) => t.sid)).contains(sid);
+      check(h.record(_owui.scope).sid).isNull();
+
+      // Its subscribe lands after the removal's own unsubscribe...
+      gate.complete();
+      await setup;
+      // ...and is removed once the setup has stopped, with its tombstone.
+      await h.until(
+        () =>
+            h.server(_owui).subscriptions.isEmpty &&
+            h.settingsStore.tombstones().isEmpty,
+      );
+      check(h.server(_owui).unsubscribes.where((s) => s == sid)).length
+          .equals(2);
+      // The cancelled setup wrote nothing back.
+      check(h.record(_owui.scope))
+        ..has((r) => r.sid, 'sid').isNull()
+        ..has((r) => r.subscribedAt, 'subscribedAt').isNull()
+        ..has((r) => r.endpoint, 'endpoint').isNull();
+      check(h.status(_owui.scope)).equals(PushStatus.off);
+    });
+
+    test('turning push off and on during a setup sets it up again', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final first = h.coordinator.setEnabled(true);
+      final firstSid = await waitForSubscribe(h.server(_owui));
+      await h.coordinator.setEnabled(false);
+      final again = h.coordinator.setEnabled(true);
+      h.server(_owui).subscribeGate = null;
+      gate.complete();
+      await first;
+      await again;
+
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      final sid = h.record(_owui.scope).sid!;
+      check(sid).not((it) => it.equals(firstSid));
+      await h.until(
+        () => h.server(_owui).subscriptions.keys.toList().join() == sid,
+      );
+    });
+
+    test('turning push on while it is being removed sets it up again', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final oldSid = h.record(_owui.scope).sid!;
+      final gate = Completer<void>();
+      h.server(_owui).unsubscribeGate = gate;
+      final off = h.coordinator.setEnabled(false);
+      await h.until(() => h.log.contains('unsubscribe-waiting $oldSid'));
+      // Back on before the removal has deleted the keys it would reuse.
+      final on = h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      h.server(_owui).unsubscribeGate = null;
+      gate.complete();
+      await off;
+      await on;
+
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      final sid = h.record(_owui.scope).sid;
+      check(sid).isNotNull().not((it) => it.equals(oldSid));
+      check(h.platform.subscriptions.keys).deepEquals([sid!]);
+      check(h.server(_owui).subscriptions.keys).deepEquals([sid]);
+    });
+
+    test('turning push on while it is being removed keeps APNs', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_owui.scope).sid!;
+      final gate = Completer<void>();
+      h.server(_owui).unsubscribeGate = gate;
+      final off = h.coordinator.setEnabled(false);
+      await h.until(() => h.log.contains('unsubscribe-waiting $sid'));
+      final released = h.log.where((l) => l.startsWith('release ')).length;
+      final on = h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      h.server(_owui).unsubscribeGate = null;
+      gate.complete();
+      await off;
+      await on;
+
+      check(h.log.where((l) => l.startsWith('release ')).length)
+          .equals(released);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('turning push on waits for APNs being let go of', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final gate = Completer<void>();
+      h.platform.releaseGate = gate;
+      final off = h.coordinator.setEnabled(false);
+      await h.until(() => h.log.contains('release-waiting apns'));
+      final on = h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      // Nothing is set up while APNs could still be let go of.
+      check(h.log.last).equals('release-waiting apns');
+
+      h.platform.releaseGate = null;
+      gate.complete();
+      await off;
+      await on;
+      check(h.log.lastIndexOf('release apns'))
+          .isLessThan(h.log.lastIndexOf('create ${_owui.scope}'));
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('resetting keys during a pass sets everything up again', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final first = h.coordinator.setEnabled(true);
+      final firstSid = await waitForSubscribe(h.server(_owui));
+      final reset = h.coordinator.resetKeys();
+      await h.until(() => h.record(_owui.scope).sid == null);
+      h.server(_owui).subscribeGate = null;
+      gate.complete();
+      await first;
+      await reset;
+
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      check(h.record(_owui.scope).sid).isNotNull().not(
+        (it) => it.equals(firstSid),
+      );
+    });
+
+    test('a sign-out cancels a setup instead of waiting for it', () async {
+      h = await _Harness.start(
+        targets: [_owui],
+        timings: const PushTimings(
+          testTimeout: Duration(milliseconds: 300),
+          testPollInterval: Duration(milliseconds: 10),
+          unsubscribeTimeout: Duration(milliseconds: 200),
+          signOutTimeout: Duration(milliseconds: 400),
+          // Longer than a sign-out may take.
+          releaseWait: Duration(seconds: 5),
+        ),
+      );
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      final sid = await waitForSubscribe(h.server(_owui));
+
+      final started = DateTime.now();
+      await h.container
+          .read(pushSignOutHookProvider)
+          .beforeOpenWebUiSignOut('acct-1');
+      check(DateTime.now().difference(started))
+          .isLessThan(const Duration(seconds: 1));
+      // The unsubscribe got the sign-out's time.
+      check(h.server(_owui).unsubscribes).contains(sid);
+      check(h.platform.subscriptions.keys).not((it) => it.contains(sid));
+      final tombstone = h.settingsStore.tombstones().single;
+      check(tombstone.sid).equals(sid);
+      check(tombstone.scope).equals(_owui.scope);
+
+      // The session is revoked now: the second unsubscribe fails, and the
+      // tombstone stays with the account's scope after it is gone.
+      h.factory.openErrors[_owui.scope] = const PushBackendException(
+        PushFailure(PushFailureReason.serverRejected),
+        signInNeeded: true,
+      );
+      gate.complete();
+      await setup;
+      h.setTargets(const []);
+      await h.until(() => !h.state.targets.containsKey(_owui.scope));
+      await pumpEventQueue();
+      check(h.settingsStore.tombstones().map((t) => (t.sid, t.scope)))
+          .deepEquals([(sid, _owui.scope)]);
+    });
+
+    test('an origin chosen during a setup is kept and sent', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      await waitForSubscribe(h.server(_owui));
+
+      final origin = h.coordinator.setOrigin(_owui.scope, PushOrigin.any);
+      await h.until(() => h.record(_owui.scope).origin == PushOrigin.any);
+      h.server(_owui).subscribeGate = null;
+      gate.complete();
+      await setup;
+      await origin;
+
+      check(h.record(_owui.scope).origin).equals(PushOrigin.any);
+      check(h.target(_owui.scope).origin).equals(PushOrigin.any);
+      check(h.server(_owui).subscriptions.values.single.origin)
+          .equals(PushOrigin.any);
+    });
+
+    test('an origin chosen before a first setup has keys is sent', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.platform.createGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      await h.until(() => h.log.contains('create-waiting ${_owui.scope}'));
+      check(h.record(_owui.scope).sid).isNull();
+
+      // With no sid yet, this queues no resubscribe of its own.
+      await h.coordinator.setOrigin(_owui.scope, PushOrigin.any);
+      h.platform.createGate = null;
+      gate.complete();
+      await setup;
+
+      check(h.server(_owui).subscriptions.values.single.origin)
+          .equals(PushOrigin.any);
+      check(h.record(_owui.scope).origin).equals(PushOrigin.any);
+    });
+
+    test('a kind turned off during a setup reaches the server', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      // The setup has picked its events and is waiting on the server.
+      await waitForSubscribe(h.server(_owui));
+
+      h.settings.set(
+        h.settings.state.copyWith(notificationChannelEnabled: false),
+      );
+      await pumpEventQueue();
+      h.server(_owui).subscribeGate = null;
+      gate.complete();
+      await setup;
+
+      // Saved once the server has the new list.
+      await h.until(
+        () =>
+            h.record(_owui.scope).events?.contains('channel') == false &&
+            h.status(_owui.scope) == PushStatus.on,
+      );
+      check(h.server(_owui).subscriptions.values.single.events)
+          .deepEquals(['reply', 'reply_failed']);
+    });
+
+    test('an endpoint reported gone during a setup is not saved back', () async {
+      h = await _Harness.start(targets: [_owui], unifiedPush: true);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      final sid = await waitForSubscribe(h.server(_owui));
+      check(h.record(_owui.scope).endpoint).equals('https://up.test/$sid/1');
+
+      h.platform.emit(PushUnregisteredEvent(sid));
+      await h.until(() => h.record(_owui.scope).endpoint == null);
+      h.server(_owui).subscribeGate = null;
+      gate.complete();
+      await setup;
+      await h.until(
+        () =>
+            h.record(_owui.scope).endpoint == 'https://up.test/$sid/2' &&
+            h.status(_owui.scope) == PushStatus.on,
+      );
+      check(h.server(_owui).subscriptions[sid]?.endpoint)
+          .equals('https://up.test/$sid/2');
+    });
+
+    test('a tombstone added while others are retried is kept', () async {
+      h = await _Harness.start(targets: [_owui, _owui2]);
+      await h.coordinator.setEnabled(true);
+      await const PushSettingsStore().saveTombstones([
+        PushTombstone(sid: 'old-sid', scope: _owui.scope, at: DateTime.now()),
+      ]);
+      final gate = Completer<void>();
+      h.server(_owui).unsubscribeGate = gate;
+      // A full pass retries the tombstone and waits on the server.
+      final pass = h.coordinator.setEnabled(true);
+      await h.until(() => h.log.contains('probe ${_owui2.scope}'));
+      await pumpEventQueue();
+
+      await h.until(() => h.log.contains('unsubscribe-waiting old-sid'));
+      // Meanwhile another account's subscription cannot be removed.
+      h.factory.openErrors[_owui2.scope] = const PushBackendException(
+        PushFailure(PushFailureReason.serverUnreachable),
+      );
+      final sid2 = h.record(_owui2.scope).sid!;
+      await h.coordinator.setTargetOptedOut(_owui2.scope, true);
+      check(h.settingsStore.tombstones().map((t) => t.sid)).contains(sid2);
+
+      gate.complete();
+      await pass;
+      check(h.settingsStore.tombstones().map((t) => t.sid))
+          .deepEquals([sid2]);
+    });
+  });
+
+  group('choices', () {
+    test('an opt-out survives Hermes being turned off and on', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await h.coordinator.setEnabled(true);
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+
+      h.setTargets([_owui]);
+      await h.until(() => !h.state.targets.containsKey(_hermes.scope));
+      h.setTargets([_owui, _hermes]);
+      await h.until(() => h.state.targets.containsKey(_hermes.scope));
+      await pumpEventQueue();
+
+      check(h.target(_hermes.scope).optedOut).isTrue();
+      check(h.status(_hermes.scope)).equals(PushStatus.off);
+      check(h.server(_hermes).subscriptions).isEmpty();
+      check(h.record(_hermes.scope).optedOut).isTrue();
+    });
+
+    test('an opt-out made while Hermes is being turned off is kept', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_hermes.scope).sid!;
+      final gate = Completer<void>();
+      h.server(_hermes).unsubscribeGate = gate;
+
+      h.setTargets([_owui]);
+      await h.until(() => h.log.contains('unsubscribe-waiting $sid'));
+      // The removal is still waiting on its server when the user opts out.
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+      check(h.record(_hermes.scope).optedOut).isTrue();
+      h.server(_hermes).unsubscribeGate = null;
+      gate.complete();
+      await h.until(() => h.log.contains('unsubscribe ${_hermes.scope} $sid'));
+      await pumpEventQueue();
+      check(h.record(_hermes.scope))
+        ..has((r) => r.optedOut, 'optedOut').isTrue()
+        ..has((r) => r.sid, 'sid').isNull();
+
+      h.setTargets([_owui, _hermes]);
+      await h.until(() => h.state.targets.containsKey(_hermes.scope));
+      await pumpEventQueue();
+      check(h.target(_hermes.scope).optedOut).isTrue();
+      check(h.status(_hermes.scope)).equals(PushStatus.off);
+      check(h.server(_hermes).subscriptions).isEmpty();
+    });
+
+    test('an opt-out survives a restart with the connection list empty', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      await h.coordinator.setEnabled(true);
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+      final platform = h.platform;
+      h.dispose();
+
+      // An interrupted sign-out left no connections.
+      h = await _Harness.start(
+        targets: const [],
+        keepPreferences: true,
+        platform: platform,
+      );
+      await pumpEventQueue();
+      h.setTargets([_hermes]);
+      await h.until(() => h.state.targets.containsKey(_hermes.scope));
+      check(h.target(_hermes.scope).optedOut).isTrue();
+    });
+
+    test('deleting a connection takes its choices with it', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      await h.coordinator.setEnabled(true);
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+      await h.container
+          .read(pushSignOutHookProvider)
+          .beforeHermesConnectionRemoved('conn-1');
+      h.setTargets(const []);
+      await h.until(() => !h.state.targets.containsKey(_hermes.scope));
+      await pumpEventQueue();
+      check(h.settingsStore.records().containsKey(_hermes.scope)).isFalse();
+    });
+  });
+
+  group('a restored backup', () {
+    test("forgets the other device's subscriptions and gets its own id", () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      await h.coordinator.setOrigin(_owui.scope, PushOrigin.any);
+      final otherSid = h.record(_owui.scope).sid!;
+      final otherDid = h.server(_owui).subscriptions.values.single.did;
+      h.dispose();
+
+      // The preferences came over; the keys, which never leave a device,
+      // did not.
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        // Its own sids and device token, unlike the other device's.
+        platform: _Platform([])
+          .._next = 50
+          ..token = 'bb' * 32,
+      );
+      await h.until(() => h.status(_owui.scope) == PushStatus.on);
+      final mine = h.server(_owui).subscriptions.values.single;
+      check(mine.sid).not((it) => it.equals(otherSid));
+      check(mine.did).not((it) => it.equals(otherDid));
+      // The choice came over too.
+      check(mine.origin).equals(PushOrigin.any);
+      // Nothing of the other device's was removed or tombstoned.
+      check(h.server(_owui).unsubscribes).isEmpty();
+      check(h.settingsStore.tombstones()).isEmpty();
+    });
+
+    test('a setup asked for while it is recovered gets its own id', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final otherSid = h.record(_owui.scope).sid!;
+      final otherDid = h.server(_owui).subscriptions.values.single.did;
+      h.dispose();
+
+      final listGate = Completer<void>();
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: _Platform([])
+          .._next = 50
+          ..token = 'bb' * 32
+          ..listGate = listGate,
+      );
+      // While the keys are still being looked for, the user sends a test
+      // and another account is added.
+      await h.until(() => h.log.contains('list-waiting'));
+      final sent = h.coordinator.sendTest(_owui.scope);
+      h.setTargets([_owui, _owui2]);
+      await pumpEventQueue();
+      check(h.server(_owui).subscribes).equals(0);
+      check(h.server(_owui2).subscribes).equals(0);
+
+      listGate.complete();
+      check(await sent).isTrue();
+      await h.until(h.allOn);
+      final did = await h.settingsStore.deviceId();
+      check(did).not((it) => it.equals(otherDid));
+      for (final target in [_owui, _owui2]) {
+        check(h.server(target).dids)
+          ..isNotEmpty()
+          ..every((it) => it.equals(did));
+      }
+      check(h.server(_owui).unsubscribes).not((it) => it.contains(otherSid));
+    });
+
+    test("turning push off while it is recovered keeps the other device's", () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      h.dispose();
+
+      final listGate = Completer<void>();
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: _Platform([])
+          .._next = 50
+          ..token = 'bb' * 32
+          ..listGate = listGate,
+      );
+      await h.until(() => h.log.contains('list-waiting'));
+      final off = h.coordinator.setEnabled(false);
+      await pumpEventQueue();
+      listGate.complete();
+      await off;
+      await pumpEventQueue();
+
+      // The subscription was the other device's: only it removes it.
+      check(h.server(_owui).unsubscribes).isEmpty();
+      check(h.settingsStore.tombstones()).isEmpty();
+      check(h.record(_owui.scope).sid).isNull();
+      check(h.status(_owui.scope)).equals(PushStatus.off);
+    });
+
+    test('keys this device lost are removed from their server', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final lostSid = h.record(_owui.scope).sid!;
+      final did = h.server(_owui).subscriptions.values.single.did;
+      h.dispose();
+
+      // The key store started over (Android does when its Keystore key no
+      // longer opens it), on the same device, with the same token.
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: _Platform([]).._next = 50,
+      );
+      await h.until(() => h.status(_owui.scope) == PushStatus.on);
+      final mine = h.server(_owui).subscriptions.values.last;
+      check(mine.sid).not((it) => it.equals(lostSid));
+      check(mine.did).equals(did);
+      await h.until(
+        () =>
+            h.server(_owui).unsubscribes.contains(lostSid) &&
+            h.settingsStore.tombstones().isEmpty,
+      );
+      check(h.server(_owui).subscriptions.keys).deepEquals([mine.sid]);
+    });
+
+    test('a setup asked for while lost keys are checked waits', () async {
+      h = await _Harness.start(targets: [_owui], fcm: true, unifiedPush: true);
+      await h.coordinator.setEnabled(true);
+      check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
+      final lostSid = h.record(_owui.scope).sid!;
+      h.dispose();
+
+      // The key store started over. While the check waits for the FCM
+      // token, the user switches delivery to UnifiedPush, which sets push up
+      // again with new keys once the check has ended.
+      final tokenGate = Completer<void>();
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        fcm: true,
+        unifiedPush: true,
+        platform: _Platform([])
+          .._next = 50
+          ..tokenGate = tokenGate,
+      );
+      await h.until(
+        () => h.log.contains('token-waiting ${PushTransport.fcm}'),
+      );
+      final switched = h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+        distributor: 'org.unifiedpush.distributor.ntfy',
+      );
+      await pumpEventQueue();
+      check(h.server(_owui).subscribes).equals(0);
+
+      h.platform.tokenGate = null;
+      tokenGate.complete();
+      await switched;
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      check(h.record(_owui.scope).transport).equals(PushTransport.unifiedPush);
+      final newSid = h.record(_owui.scope).sid!;
+      check(newSid).not((it) => it.equals(lostSid));
+      final subscribes = h.server(_owui).subscribes;
+      // The lost subscription is removed from its server...
+      await h.until(
+        () =>
+            h.server(_owui).unsubscribes.contains(lostSid) &&
+            h.settingsStore.tombstones().isEmpty,
+      );
+      await pumpEventQueue();
+      // ...and the new one is left as it was: not removed, not set up again.
+      check(h.server(_owui).unsubscribes).not((it) => it.contains(newSid));
+      check(h.server(_owui).subscriptions.keys).deepEquals([newSid]);
+      check(h.record(_owui.scope).sid).equals(newSid);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      check(h.server(_owui).subscribes).equals(subscribes);
+    });
+  });
+
+  group('push state for other screens', () {
+    test('follows a coordinator that starts after it was read', () async {
+      h = await _Harness.start(targets: [_owui], startCoordinator: false);
+      final seen = <PushState?>[];
+      h.container.listen<PushState?>(
+        pushStateIfUsedProvider,
+        (_, next) => seen.add(next),
+        fireImmediately: true,
+      );
+      check(seen).deepEquals([null]);
+
+      h.container.read(pushCoordinatorProvider);
+      await h.until(() => seen.lastOrNull != null);
+      await h.coordinator.setEnabled(true);
+      await h.until(() => seen.last?.enabled == true);
     });
   });
 
@@ -865,13 +1790,47 @@ void main() {
       check(h.gateway.ops).isEmpty();
     });
 
+    test('a watch the plugin accepted is recorded', () async {
+      h = await _Harness.start(targets: [_hermes], realHermes: true);
+      await h.coordinator.setEnabled(true);
+      final watches = h.container.read(hermesPushWatchesProvider);
+
+      h.coordinator.watchHermesSession('conn-1', 'session-7');
+      await h.until(() => watches.isWatched('conn-1', 'session-7'));
+      check(watches.isWatched('conn-1', 'session-8')).isFalse();
+    });
+
+    test('no watch is recorded that the plugin did not take', () async {
+      h = await _Harness.start(targets: [_hermes], realHermes: true);
+      final watches = h.container.read(hermesPushWatchesProvider);
+      // Push is off.
+      h.coordinator.watchHermesSession('conn-1', 'session-1');
+      await pumpEventQueue();
+      check(watches.isWatched('conn-1', 'session-1')).isFalse();
+
+      // The plugin refuses it.
+      await h.coordinator.setEnabled(true);
+      h.gateway.watchError = 'unknown_session';
+      h.coordinator.watchHermesSession('conn-1', 'session-2');
+      await h.until(() => h.gateway.ops.contains('watch'));
+      await pumpEventQueue();
+      check(watches.isWatched('conn-1', 'session-2')).isFalse();
+
+      // The connection is opted out.
+      h.gateway.watchError = null;
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+      h.coordinator.watchHermesSession('conn-1', 'session-3');
+      await pumpEventQueue();
+      check(watches.isWatched('conn-1', 'session-3')).isFalse();
+    });
+
     test('notify me adds conduit to a job and removes it', () async {
       h = await _Harness.start(targets: [_hermes]);
+      h.factory.jobs.stored['job-1'] = 'telegram';
       check(
         await h.coordinator.setHermesJobNotify(
           connectionId: 'conn-1',
           jobId: 'job-1',
-          deliver: 'telegram',
           notify: true,
         ),
       ).equals('telegram,conduit');
@@ -880,11 +1839,86 @@ void main() {
         await h.coordinator.setHermesJobNotify(
           connectionId: 'conn-1',
           jobId: 'job-1',
-          deliver: 'telegram,conduit',
           notify: false,
         ),
       ).equals('telegram');
       check(PushCoordinator.hermesJobNotifies('telegram,conduit')).isTrue();
+    });
+
+    test("notify me reads the job fresh and keeps targets added since", () async {
+      h = await _Harness.start(targets: [_hermes]);
+      // Another client added Slack after this app listed the job.
+      h.factory.jobs.stored['job-1'] = 'telegram,slack';
+      await h.coordinator.setHermesJobNotify(
+        connectionId: 'conn-1',
+        jobId: 'job-1',
+        notify: true,
+      );
+      check(h.factory.jobs.updates)
+          .deepEquals({'job-1': 'telegram,slack,conduit'});
+    });
+
+    test('notify me never rewrites delivery targets it cannot read', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      for (final deliver in <Object>[
+        'x' * (kMaxHermesJobDeliverCharacters + 1),
+        ['telegram', 'slack'],
+        7,
+      ]) {
+        h.factory.jobs.stored['job-1'] = deliver;
+        await check(
+          h.coordinator.setHermesJobNotify(
+            connectionId: 'conn-1',
+            jobId: 'job-1',
+            notify: true,
+          ),
+        ).throws<HermesJobDeliveryUnknown>();
+      }
+      check(h.factory.jobs.updates).isEmpty();
+    });
+
+    test('notify me never makes a delivery list too long', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      final targets = <String>['local'];
+      while (targets.join(',').length < kMaxHermesJobDeliverCharacters - 100) {
+        targets.add('room:${'r' * 30}${targets.length}@ops');
+      }
+      // One last room leaves 3 characters: too few for `,conduit`.
+      final room =
+          kMaxHermesJobDeliverCharacters - 3 - targets.join(',').length - 1;
+      targets.add('room:${'s' * (room - 'room:@ops'.length)}@ops');
+      final full = targets.join(',');
+      check(full.length).equals(kMaxHermesJobDeliverCharacters - 3);
+      h.factory.jobs.stored['job-1'] = full;
+      await check(
+        h.coordinator.setHermesJobNotify(
+          connectionId: 'conn-1',
+          jobId: 'job-1',
+          notify: true,
+        ),
+      ).throws<StateError>();
+      check(h.factory.jobs.updates).isEmpty();
+    });
+
+    test('notify me already in place writes nothing', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      h.factory.jobs.stored['job-1'] = 'local,conduit';
+      check(
+        await h.coordinator.setHermesJobNotify(
+          connectionId: 'conn-1',
+          jobId: 'job-1',
+          notify: true,
+        ),
+      ).equals('local,conduit');
+      h.factory.jobs.stored['job-2'] = null;
+      check(
+        await h.coordinator.setHermesJobNotify(
+          connectionId: 'conn-1',
+          jobId: 'job-2',
+          notify: true,
+        ),
+      ).equals('local,conduit');
+      check(h.factory.jobs.updates).deepEquals({'job-2': 'local,conduit'});
     });
   });
 }
@@ -922,6 +1956,22 @@ final class _Settings extends AppSettingsNotifier {
   void set(AppSettings settings) => state = settings;
 }
 
+final class _Lifecycle implements AppLifecyclePort {
+  final _changes = StreamController<AppLifecyclePhase>.broadcast();
+
+  @override
+  AppLifecyclePhase? current = AppLifecyclePhase.resumed;
+
+  @override
+  Stream<AppLifecyclePhase> get changes => _changes.stream;
+
+  /// The app comes back to the foreground.
+  void resume() {
+    current = AppLifecyclePhase.resumed;
+    _changes.add(AppLifecyclePhase.resumed);
+  }
+}
+
 final class _Harness {
   _Harness._(this.container, this.log, this.platform, this.factory, this.relay);
 
@@ -943,6 +1993,7 @@ final class _Harness {
   final _Platform platform;
   final _Factory factory;
   final _Relay relay;
+  late final _Lifecycle lifecycle;
   _Gateway get gateway => factory.gateway;
 
   static Future<_Harness> start({
@@ -952,7 +2003,9 @@ final class _Harness {
     bool unifiedPush = false,
     bool realHermes = false,
     bool keepPreferences = false,
+    bool startCoordinator = true,
     _Platform? platform,
+    PushTimings timings = timings,
   }) async {
     if (!keepPreferences) {
       PreferencesStore.debugOverride(InMemoryKeyValueStore());
@@ -969,13 +2022,15 @@ final class _Harness {
     }
     final factory = _Factory(log, fake, realHermes: realHermes);
     for (final target in targets) {
-      factory.servers.putIfAbsent(target.scope, () => _Server(target.scope));
+      factory.addServer(target);
     }
     final relayAdapter = _Relay();
+    final lifecycle = _Lifecycle();
     _TargetList.initial = targets;
     final container = ProviderContainer(
       overrides: [
         pushPlatformPortProvider.overrideWithValue(fake),
+        appLifecycleProvider.overrideWithValue(lifecycle),
         pushRelayClientProvider.overrideWithValue(
           relay
               ? PushRelayClient(
@@ -998,8 +2053,12 @@ final class _Harness {
         ),
       ],
     );
-    final harness = _Harness._(container, log, fake, factory, relayAdapter);
+    final harness = _Harness._(container, log, fake, factory, relayAdapter)
+      ..lifecycle = lifecycle;
+    factory.current = (scope) =>
+        container.read(_targetsProvider).where((t) => t.scope == scope).firstOrNull;
     last = harness;
+    if (!startCoordinator) return harness;
     container.listen(pushCoordinatorProvider, (_, _) {});
     await container.read(pushTargetsProvider.future);
     await pumpEventQueue();
@@ -1018,13 +2077,13 @@ final class _Harness {
   PushStatus status(String scope) => target(scope).status;
   PushSubscriptionRecord record(String scope) =>
       settingsStore.records()[scope] ?? const PushSubscriptionRecord();
-  _Server server(PushTarget target) => factory.servers[target.scope]!;
+  _Server server(PushTarget target) => factory.servers[_serverKey(target)]!;
 
   bool allOn() => state.targets.values.every((t) => t.status == PushStatus.on);
 
   void setTargets(List<PushTarget> targets) {
     for (final target in targets) {
-      factory.servers.putIfAbsent(target.scope, () => _Server(target.scope));
+      factory.addServer(target);
     }
     container.read(_targetsProvider.notifier).set(targets);
   }
@@ -1092,8 +2151,16 @@ final class _Platform implements PushPlatformPort {
   Future<bool?> hasPermission() async =>
       permissionStatus == null ? permission : permissionStatus!();
 
+  /// Holds [currentToken] until completed.
+  Completer<void>? tokenGate;
+
   @override
   Future<PushDeviceToken?> currentToken(PushTransport transport) async {
+    final gate = tokenGate;
+    if (gate != null) {
+      log.add('token-waiting $transport');
+      await gate.future;
+    }
     final error = tokenError;
     if (error != null) throw error;
     return PushDeviceToken(
@@ -1104,11 +2171,19 @@ final class _Platform implements PushPlatformPort {
     );
   }
 
+  /// Holds [createSubscription] until completed.
+  Completer<void>? createGate;
+
   @override
   Future<PushSubscriptionKeys> createSubscription(
     String scope, {
     Duration age = Duration.zero,
   }) async {
+    final gate = createGate;
+    if (gate != null) {
+      log.add('create-waiting $scope');
+      await gate.future;
+    }
     final sid = 'sid${_next++}'.padRight(22, '_');
     log.add('create $scope');
     return subscriptions[sid] = PushSubscriptionKeys(
@@ -1120,9 +2195,19 @@ final class _Platform implements PushPlatformPort {
     );
   }
 
+  /// Holds the next [listSubscriptions] until completed.
+  Completer<void>? listGate;
+
   @override
-  Future<List<PushSubscriptionKeys>> listSubscriptions() async =>
-      subscriptions.values.toList();
+  Future<List<PushSubscriptionKeys>> listSubscriptions() async {
+    final gate = listGate;
+    if (gate != null) {
+      listGate = null;
+      log.add('list-waiting');
+      await gate.future;
+    }
+    return subscriptions.values.toList();
+  }
 
   @override
   Future<void> setEndpoint(
@@ -1184,9 +2269,18 @@ final class _Platform implements PushPlatformPort {
   Future<void> unregisterUnifiedPush(String sid) async =>
       log.add('unregisterUp $sid');
 
+  /// Holds [releaseTransport] until completed.
+  Completer<void>? releaseGate;
+
   @override
-  Future<void> releaseTransport(PushTransport transport) async =>
-      log.add('release ${transport.name}');
+  Future<void> releaseTransport(PushTransport transport) async {
+    final gate = releaseGate;
+    if (gate != null) {
+      log.add('release-waiting ${transport.name}');
+      await gate.future;
+    }
+    log.add('release ${transport.name}');
+  }
 
   @override
   Stream<PushPlatformEvent> get events => _events.stream;
@@ -1211,6 +2305,16 @@ final class _Server {
   PushBackendException? subscribeError;
   PushBackendException? installError;
   bool unsubscribeHangs = false;
+
+  /// While set, a subscribe waits for it before it lands on the server.
+  Completer<void>? subscribeGate;
+
+  /// While set, an unsubscribe waits for it.
+  Completer<void>? unsubscribeGate;
+  final unsubscribes = <String>[];
+
+  /// The device id of every subscribe that landed, in order.
+  final dids = <String>[];
   int installs = 0;
   int tests = 0;
   int subscribes = 0;
@@ -1258,7 +2362,13 @@ final class _Backend implements PushBackend {
       if (next != null) server.probe = next;
       throw error;
     }
+    final gate = server.subscribeGate;
+    if (gate != null) {
+      log.add('subscribe-waiting ${server.scope} ${subscription.sid}');
+      await gate.future;
+    }
     server.subscribes++;
+    server.dids.add(subscription.did);
     log.add('subscribe ${server.scope} ${subscription.sid}');
     server.subscriptions[subscription.sid] = subscription;
     if (testNonce == null) return null;
@@ -1293,7 +2403,13 @@ final class _Backend implements PushBackend {
   @override
   Future<void> unsubscribe(String sid) async {
     if (server.unsubscribeHangs) await Completer<void>().future;
+    final gate = server.unsubscribeGate;
+    if (gate != null) {
+      log.add('unsubscribe-waiting $sid');
+      await gate.future;
+    }
     log.add('unsubscribe ${server.scope} $sid');
+    server.unsubscribes.add(sid);
     server.subscriptions.remove(sid);
   }
 
@@ -1313,6 +2429,16 @@ final class _Backend implements PushBackend {
   void close() {}
 }
 
+/// Which fake server a target reaches: an Open WebUI account has one, a
+/// Hermes connection one per server identity (address, mode, profile, key).
+String _serverKey(PushTarget target) => switch (target) {
+  OpenWebUiPushTarget() => target.scope,
+  HermesPushTarget() => '${target.scope}|${target.serverIdentity}',
+};
+
+/// Resolves backends the way the app's factory does: a Hermes target reaches
+/// the server its connection's settings name now, and an older target only
+/// through settings retained while they were current.
 final class _Factory implements PushBackendFactory {
   _Factory(this.log, this.platform, {required this.realHermes});
 
@@ -1324,10 +2450,34 @@ final class _Factory implements PushBackendFactory {
   final gateway = _Gateway();
   final jobs = _Jobs();
 
+  /// The target as the app lists it now, standing for the connection's
+  /// saved settings.
+  PushTarget? Function(String scope) current = (_) => null;
+  final retained = <String>{};
+  final notificationWrites = <String>[];
+  Object? notificationWriteError;
+
+  void addServer(PushTarget target) =>
+      servers.putIfAbsent(_serverKey(target), () => _Server(target.scope));
+
   @override
   Future<PushBackend> open(PushTarget target) async {
     final error = openErrors[target.scope];
     if (error != null) throw error;
+    if (target is HermesPushTarget) {
+      final now = current(target.scope);
+      final key = _serverKey(target);
+      if (now != null && _serverKey(now) == key) {
+        retained.add(key);
+      } else if (!retained.contains(key)) {
+        throw const PushBackendException(
+          PushFailure(
+            PushFailureReason.serverRejected,
+            detail: 'connection_changed',
+          ),
+        );
+      }
+    }
     if (realHermes && target is HermesPushTarget) {
       gateway.platform = platform;
       return HermesApiPushBackend(
@@ -1335,18 +2485,42 @@ final class _Factory implements PushBackendFactory {
         dio: Dio()..httpClientAdapter = gateway,
       );
     }
-    return _Backend(servers[target.scope]!, log, platform);
+    return _Backend(servers[_serverKey(target)]!, log, platform);
+  }
+
+  @override
+  Future<void> retain(PushTarget target) async {
+    final now = current(target.scope);
+    if (now != null && _serverKey(now) == _serverKey(target)) {
+      retained.add(_serverKey(target));
+    }
   }
 
   @override
   Future<HermesBackendService> openHermesService(String connectionId) async =>
       jobs;
+
+  @override
+  Future<void> setOpenWebUiNotificationsEnabled(
+    String accountId, {
+    required bool enabled,
+    bool onlyIfUnset = false,
+  }) async {
+    final error = notificationWriteError;
+    if (error != null) throw error;
+    notificationWrites.add(
+      '$accountId $enabled${onlyIfUnset ? ' if unset' : ''}',
+    );
+  }
 }
 
 /// The Hermes gateway's push route, answering ops like the plugin.
 final class _Gateway implements HttpClientAdapter {
   _Platform? platform;
   final bodies = <Map<String, dynamic>>[];
+
+  /// The error the plugin answers a `watch` with.
+  String? watchError;
 
   List<String> get ops => [for (final body in bodies) body['op'] as String];
 
@@ -1361,6 +2535,7 @@ final class _Gateway implements HttpClientAdapter {
     final result = switch (body['op']) {
       'hello' => {'ok': true, 'plugin': 'conduit', 'version': '1.0.0'},
       'test' => {'ok': true, 'push_status': 201},
+      'watch' when watchError != null => {'ok': false, 'error': watchError},
       _ => {'ok': true},
     };
     if (body['op'] == 'test') {
@@ -1384,6 +2559,20 @@ final class _Gateway implements HttpClientAdapter {
 final class _Jobs implements HermesBackendService {
   final updates = <String, String?>{};
 
+  /// Each job's `deliver` as the server has it, by job id.
+  final stored = <String, Object?>{};
+
+  @override
+  Future<List<Map<String, dynamic>>> listJobs() async => [
+    for (final entry in stored.entries)
+      {
+        'id': entry.key,
+        'prompt': 'p',
+        'schedule': '0 9 * * *',
+        'deliver': ?entry.value,
+      },
+  ];
+
   @override
   Future<void> updateJob(
     String id, {
@@ -1392,7 +2581,10 @@ final class _Jobs implements HermesBackendService {
     String? schedule,
     bool? enabled,
     String? deliver,
-  }) async => updates[id] = deliver;
+  }) async {
+    updates[id] = deliver;
+    stored[id] = deliver;
+  }
 
   @override
   void close() {}

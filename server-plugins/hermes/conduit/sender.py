@@ -67,23 +67,43 @@ def _quiet() -> Iterator[None]:
 
 # -- payloads -----------------------------------------------------------------
 
+def _preview(text: Any) -> str:
+    """Plain-text preview of a reply or job output.
+
+    Reasoning blocks are dropped, including nested ones and one an
+    interrupted turn left open. Only the first ``cp.CLEAN_INPUT_LIMIT``
+    characters are read, so a long reply can't stall the patterns.
+    """
+    text = text if isinstance(text, str) else ""
+    cut = len(text) > cp.CLEAN_INPUT_LIMIT
+    if cut:
+        text = text[: cp.CLEAN_INPUT_LIMIT]
+    text = cp.clean_text(cp.strip_hidden(text))
+    return text + cp.ELLIPSIS if cut and text else text
+
+
 def reply_payload(kind: str, session_id: str, turn_id: str, title: str, body: str) -> Dict[str, Any]:
     return cp.build(
         kind, SOURCE,
         ids={"session": session_id, "turn": turn_id},
-        title=title, body=body,
+        title=title, body=_preview(body),
         dedup_key=f"hermes:{session_id}:{turn_id}",
         group=f"hermes:{session_id}",
+        clean=False,
     )
 
 
 def cron_payload(job_id: str, run_id: str, title: str, body: str) -> Dict[str, Any]:
+    """A ``cron`` push. Text that names no job, such as the agent's
+    ``send_message`` or unwrapped output from Hermes's standalone lane, which
+    passes no job id, carries no ``job`` id at all rather than an empty one."""
     return cp.build(
         "cron", SOURCE,
-        ids={"job": job_id, "run": run_id},
-        title=title, body=body,
+        ids={"job": job_id or None, "run": run_id},
+        title=title, body=_preview(body),
         dedup_key=f"cron:{job_id}:{run_id}",
         group=f"cron:{job_id}",
+        clean=False,
     )
 
 
@@ -127,7 +147,8 @@ def deliver(
 ) -> List[Tuple[str, int]]:
     """Sends ``push`` to every subscription that wants its kind (or just ``only_sid``).
 
-    Returns ``(sid, status)`` pairs and deletes subscriptions that answer 404/410.
+    Returns ``(sid, status)`` pairs and deletes the subscriptions whose
+    endpoint answered 404/410, by ``(sid, endpoint)``.
     """
     store = Store(home)
     now = time.time() if now is None else now
@@ -137,18 +158,20 @@ def deliver(
         targets = [s for s in subs if s.get("sid") == only_sid]
     else:
         targets = [s for s in subs if _wants(s, kind)]
-    results = [(str(s.get("sid")), post(s, push)) for s in targets]
-    dead = [sid for sid, status in results if status in DEAD_STATUSES]
+    answers = [(s, post(s, push)) for s in targets]
+    dead = [(s.get("sid"), s.get("endpoint")) for s, status in answers if status in DEAD_STATUSES]
+    pruned = 0
     if dead:
         try:
-            store.remove(dead, now)
+            pruned = store.remove_dead(dead, now)
         except Exception as error:
             logger.warning("conduit push: could not prune subscriptions (%s)", type(error).__name__)
+    results = [(str(s.get("sid")), status) for s, status in answers]
     if results:
         sent = sum(1 for _, status in results if 200 <= status < 300)
         logger.info(
             "conduit push: kind=%s sent=%d failed=%d pruned=%d",
-            kind, sent, len(results) - sent - len(dead), len(dead),
+            kind, sent, len(results) - sent - len(dead), pruned,
         )
     return results
 

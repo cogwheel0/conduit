@@ -91,7 +91,7 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
   Future<void> _requireHeaderSupport() async {
     if (_accessHeaders.isNotEmpty &&
         !await HermesDashboardWebViewPolicy.headersSupported(_accessHeaders)) {
-      throw StateError(
+      throw HermesDashboardUnavailable(
         'This WebView cannot add the gateway headers safely, so the Hermes '
         'dashboard is unavailable.',
       );

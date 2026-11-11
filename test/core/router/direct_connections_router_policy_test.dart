@@ -23,6 +23,9 @@ void main() {
         Routes.hermesSettings,
         Routes.hermesJobs,
         Routes.about,
+        // Device-level notifications and push cover Hermes and Direct.
+        Routes.notificationSettings,
+        Routes.pushPrivacy,
       ]) {
         check(isDirectOnlyAppLocation(location)).isTrue();
       }
@@ -31,7 +34,6 @@ void main() {
     test('does not expose Open WebUI-only surfaces', () {
       for (final location in <String>[
         Routes.accountSettings,
-        Routes.notificationSettings,
         Routes.notes,
         Routes.channel,
       ]) {

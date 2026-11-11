@@ -114,6 +114,7 @@ class NativeProfileRootVisibility {
     this.showScheduledTasks = false,
     this.showPersonalConnections = false,
     this.showChatDataControls = false,
+    this.showNotificationsWithoutAccount = false,
     this.showLibreChatPersonalization = false,
   });
 
@@ -122,6 +123,10 @@ class NativeProfileRootVisibility {
   final bool showScheduledTasks;
   final bool showPersonalConnections;
   final bool showChatDataControls;
+
+  /// Whether Notifications is listed when there is no Open WebUI account
+  /// (with one it always is): a Hermes connection is saved, or push is on.
+  final bool showNotificationsWithoutAccount;
 
   /// LibreChat is in charge, with no Open WebUI account: its memories are
   /// on the Flutter Personalization page, as the Flutter Settings page has
@@ -136,6 +141,8 @@ class NativeProfileRootVisibility {
       other.showScheduledTasks == showScheduledTasks &&
       other.showPersonalConnections == showPersonalConnections &&
       other.showChatDataControls == showChatDataControls &&
+      other.showNotificationsWithoutAccount ==
+          showNotificationsWithoutAccount &&
       other.showLibreChatPersonalization == showLibreChatPersonalization;
 
   @override
@@ -145,6 +152,7 @@ class NativeProfileRootVisibility {
     showScheduledTasks,
     showPersonalConnections,
     showChatDataControls,
+    showNotificationsWithoutAccount,
     showLibreChatPersonalization,
   );
 }
@@ -193,6 +201,11 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   int? otherAccountCount = 0,
 }) {
   final hasAccount = account != null;
+  final notificationsItem = NativeSheetItemConfig(
+    id: NativeSheetRoutes.notificationSettings,
+    title: l10n.notificationsTitle,
+    sfSymbol: 'bell',
+  );
   final cardItems = <NativeSheetItemConfig>[
     NativeSheetItemConfig(
       id: hasAccount ? NativeSheetRoutes.profile : nativeAccountsDetailId,
@@ -223,11 +236,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   // system symbol's header is solid.
   final accountItems = <NativeSheetItemConfig>[
     if (hasAccount) ...[
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.notificationSettings,
-        title: l10n.notificationsTitle,
-        sfSymbol: 'bell',
-      ),
+      notificationsItem,
       NativeSheetItemConfig(
         id: NativeSheetRoutes.aiMemory,
         title: nativeAiMemoryTitle(l10n),
@@ -267,6 +276,10 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       title: l10n.voice,
       sfSymbol: 'waveform',
     ),
+    // Device-level notifications, as the Flutter Settings page lists them
+    // without an account.
+    if (!hasAccount && visibility.showNotificationsWithoutAccount)
+      notificationsItem,
   ];
   // Everyday server places: things to open and use, not to configure.
   final placeItems = <NativeSheetItemConfig>[
@@ -1458,6 +1471,8 @@ NativeSheetSectionConfig buildNativePushSection(
 ) {
   final available = push?.available ?? true;
   final enabled = push?.enabled ?? false;
+  // On while push can no longer work here, the switch still turns it off.
+  final switchable = available || enabled;
   final attention = [
     for (final target in push?.targets.values ?? const <PushTargetState>[])
       if (pushTargetNeedsAttention(target)) target,
@@ -1472,7 +1487,9 @@ NativeSheetSectionConfig buildNativePushSection(
             ? l10n.pushEnabledDescription
             : l10n.pushUnavailableBuild,
         sfSymbol: 'bell.badge',
-        kind: available ? NativeSheetItemKind.toggle : NativeSheetItemKind.info,
+        kind: switchable
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
         value: enabled,
       ),
       if (enabled && push != null)

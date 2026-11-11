@@ -9,8 +9,10 @@ import '../models/notification_scope.dart';
 /// Returns null for anything that isn't a valid `cp/1` payload: another
 /// version, an unknown kind or source, a missing dedup key, a source that
 /// doesn't match [scope] (an Open WebUI payload on a Hermes subscription, say),
-/// or a reply, channel message or scheduled task without the id it points at.
-/// Unknown keys are ignored. Never throws.
+/// or a reply or channel message without the id it points at. A scheduled
+/// task without its job id (a Hermes delivery that came from no job) stays,
+/// with its dedup key as [AppNotification.sourceId]. Unknown keys are
+/// ignored. Never throws.
 ///
 /// The app-wide dedup key is `<scope>|<dk>`, the same key the app's own
 /// socket, Hermes and Direct notifications build, so one event never notifies
@@ -75,7 +77,10 @@ AppNotification? appNotificationFromCp1(
     case 'cron':
       if (fromOpenWebUi) return null;
       kind = NotificationKind.scheduledTask;
-      sourceId = id('job');
+      // A delivery from no job (the agent sending text to the phone) names
+      // none. A tap opens the scheduled tasks either way, so the dedup key
+      // stands in for the id.
+      sourceId = id('job') ?? dedupKey;
     case 'test':
       kind = NotificationKind.pushTest;
       sourceId = nonce ?? '';

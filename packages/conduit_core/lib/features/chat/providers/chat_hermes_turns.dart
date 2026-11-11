@@ -1604,13 +1604,16 @@ Future<void> _deleteLateHermesSessionWithinDeadline(
 /// Tells the Hermes push plugin that Conduit started a reply in [sessionId],
 /// so it pushes when the reply finishes. Only an API server connection needs
 /// this: the plugin pushes Hermes dashboard (`mobile`) sessions on its own.
-/// Fire and forget; it never affects the turn.
+/// A Hermes turn inside an Open WebUI chat is never watched: it belongs to
+/// that chat, which Open WebUI notifies about, and is not announced here
+/// either. Fire and forget; it never affects the turn.
 void _watchHermesSessionForPush(
   dynamic ref,
   HermesBackendService service,
-  String sessionId,
-) {
-  if (service is! HermesApiService) return;
+  String sessionId, {
+  required bool usesOpenWebUiBackend,
+}) {
+  if (usesOpenWebUiBackend || service is! HermesApiService) return;
   final connectionId = service.config.connectionId;
   if (connectionId == null || connectionId.isEmpty) return;
   try {
@@ -1787,6 +1790,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   // would: the reply, or its failure. Only for a native Hermes chat; a Hermes
   // turn inside an Open WebUI chat belongs to that chat.
   var announcedFinish = false;
+  // Its own id: a regeneration runs into the same assistant message.
+  final turnRunId = const Uuid().v4();
   void announceFinished() {
     if (announcedFinish || owner.usesOpenWebUiBackend) return;
     announcedFinish = true;
@@ -1804,6 +1809,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           connectionId: connectionId,
           sessionId: sessionId,
           message: message,
+          runId: turnRunId,
           title: owner._conversationSnapshot?.title,
         ),
       );
@@ -2045,7 +2051,12 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       ownerMessages: ownerMessages,
       sendHandle: sendHandle,
     );
-    _watchHermesSessionForPush(ref, service, sessionId);
+    _watchHermesSessionForPush(
+      ref,
+      service,
+      sessionId,
+      usesOpenWebUiBackend: owner.usesOpenWebUiBackend,
+    );
   }
 
   // Hermes v0.22.1+ refuses API turns into a session another Hermes surface
@@ -2225,7 +2236,12 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         );
         if (responseCreatedSession) {
           ref.invalidate(hermesSessionsProvider);
-          _watchHermesSessionForPush(ref, service, establishedSessionId);
+          _watchHermesSessionForPush(
+            ref,
+            service,
+            establishedSessionId,
+            usesOpenWebUiBackend: owner.usesOpenWebUiBackend,
+          );
         }
       },
       onSessionRefused: markSessionRefused,

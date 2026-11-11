@@ -71,4 +71,47 @@ final class PushKeyStoreTests: XCTestCase {
     XCTAssertNil(try store.record(sid: "mismatch"))
     XCTAssertEqual(try store.all().map(\.sid), [record.sid])
   }
+
+  func testTheTapKeyIsCreatedOnceAndThenReused() throws {
+    let storage = MemorySecretStorage()
+    let tap = PushTap(scope: "owui:a", payloadJSON: "{}")
+
+    let first = try PushTapKey.load(storage: storage)
+    XCTAssertEqual(storage.items[PushTapKey.account]?.count, 32)
+    let second = try PushTapKey.load(storage: storage)
+
+    XCTAssertNotNil(PushTap(userInfo: [PushUserInfoKey.tap: tap.userInfoValue(signedWith: first)], key: second))
+  }
+
+  func testTheTapKeyAnotherProcessStoredFirstWins() throws {
+    /// Another process adds its key between this one's read and add.
+    final class RacingStorage: PushSecretStorage {
+      let theirs = Data(repeating: 9, count: 32)
+      var items: [String: Data] = [:]
+      func read(account: String) throws -> Data? { items[account] }
+      func write(_ data: Data, account: String) throws { items[account] = data }
+      func add(_ data: Data, account: String) throws -> Bool {
+        items[account] = theirs
+        return false
+      }
+      func delete(account: String) throws { items.removeValue(forKey: account) }
+      func accounts() throws -> [String] { Array(items.keys) }
+    }
+    let storage = RacingStorage()
+    let tap = PushTap(scope: "owui:a", payloadJSON: "{}")
+
+    let mine = try PushTapKey.load(storage: storage)
+
+    let theirs = PushTapKey(storage.theirs)
+    XCTAssertNotNil(PushTap(userInfo: [PushUserInfoKey.tap: tap.userInfoValue(signedWith: theirs)], key: mine))
+  }
+
+  func testAnUnusableTapKeyIsReplaced() throws {
+    let storage = MemorySecretStorage()
+    storage.items[PushTapKey.account] = Data(repeating: 1, count: 3)
+
+    _ = try PushTapKey.load(storage: storage)
+
+    XCTAssertEqual(storage.items[PushTapKey.account]?.count, 32)
+  }
 }

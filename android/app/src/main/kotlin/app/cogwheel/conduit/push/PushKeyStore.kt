@@ -5,7 +5,10 @@ import android.security.keystore.KeyProperties
 import android.util.Log
 import java.io.IOException
 import java.security.GeneralSecurityException
+import java.security.InvalidKeyException
 import java.security.KeyStore
+import java.security.KeyStoreException
+import java.security.UnrecoverableKeyException
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -47,52 +50,82 @@ object PushTransportName {
 
 /** Seals the key store file. Injectable so JVM tests run without a Keystore. */
 interface PushStoreCipher {
+    /**
+     * @throws PushStoreUnreadableException when the key can never be used
+     *   again; [reset] then makes way for a new one. Any other exception is
+     *   treated as transient.
+     */
     fun seal(plaintext: ByteArray): ByteArray
 
     /**
      * @throws PushStoreUnreadableException when the sealed bytes can never be
-     *   opened again (key gone or data corrupt). Any other exception is
-     *   treated as transient.
+     *   opened again (key gone, unusable, or data corrupt). Any other
+     *   exception is treated as transient.
      */
     fun open(sealed: ByteArray): ByteArray
+
+    /** Deletes the key, so the next [seal] creates a new one. */
+    fun reset()
 }
 
 class PushStoreUnreadableException(message: String, cause: Throwable? = null) :
     IOException(message, cause)
 
 /**
+ * Keystore failures that no retry fixes: the key is unrecoverable, was
+ * invalidated (a [android.security.keystore.KeyPermanentlyInvalidatedException]
+ * is an [InvalidKeyException]), or the Keystore refuses the entry. I/O and
+ * provider errors stay transient.
+ */
+internal fun Throwable.isPermanentKeystoreFailure(): Boolean =
+    this is UnrecoverableKeyException || this is InvalidKeyException || this is KeyStoreException
+
+/**
  * AES-256-GCM with a non-exportable key in the Android Keystore. The sealed
  * form is `0x01 ‖ iv (12) ‖ ciphertext+tag`.
  */
 internal class AndroidKeystoreStoreCipher(private val alias: String = ALIAS) : PushStoreCipher {
-    override fun seal(plaintext: ByteArray): ByteArray {
+    override fun seal(plaintext: ByteArray): ByteArray = permanentFailuresUnreadable {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key(create = true))
         cipher.updateAAD(AAD)
         val sealed = cipher.doFinal(plaintext)
         val iv = cipher.iv
         check(iv.size == IV_LENGTH) { "Unexpected IV length ${iv.size}" }
-        return byteArrayOf(FORMAT) + iv + sealed
+        byteArrayOf(FORMAT) + iv + sealed
     }
 
     override fun open(sealed: ByteArray): ByteArray {
         if (sealed.size < 1 + IV_LENGTH + 16 || sealed[0] != FORMAT) {
             throw PushStoreUnreadableException("Unknown push store format")
         }
-        val key = key(create = false)
-            ?: throw PushStoreUnreadableException("Push store key is gone")
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            key,
-            GCMParameterSpec(128, sealed, 1, IV_LENGTH),
-        )
-        cipher.updateAAD(AAD)
-        return try {
-            cipher.doFinal(sealed, 1 + IV_LENGTH, sealed.size - 1 - IV_LENGTH)
-        } catch (error: AEADBadTagException) {
-            throw PushStoreUnreadableException("Push store failed authentication", error)
+        return permanentFailuresUnreadable {
+            val key = key(create = false)
+                ?: throw PushStoreUnreadableException("Push store key is gone")
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                key,
+                GCMParameterSpec(128, sealed, 1, IV_LENGTH),
+            )
+            cipher.updateAAD(AAD)
+            try {
+                cipher.doFinal(sealed, 1 + IV_LENGTH, sealed.size - 1 - IV_LENGTH)
+            } catch (error: AEADBadTagException) {
+                throw PushStoreUnreadableException("Push store failed authentication", error)
+            }
         }
+    }
+
+    override fun reset() {
+        KeyStore.getInstance(PROVIDER).apply { load(null) }.deleteEntry(alias)
+    }
+
+    private inline fun <T> permanentFailuresUnreadable(block: () -> T): T = try {
+        block()
+    } catch (error: GeneralSecurityException) {
+        if (!error.isPermanentKeystoreFailure()) throw error
+        throw PushStoreUnreadableException("Push store key is unusable", error)
     }
 
     private fun key(create: Boolean): SecretKey? {
@@ -191,9 +224,12 @@ class PushKeyStore internal constructor(
             try {
                 decode(cipher.open(sealed))
             } catch (error: PushStoreUnreadableException) {
-                // The keys are lost for good (Keystore wiped, data corrupt).
-                // Start over; the app re-subscribes every account.
+                // The keys are lost for good (Keystore wiped or its key
+                // invalidated, data corrupt). Start over without them, and
+                // without the key, which would refuse every later write too;
+                // the app re-subscribes every account.
                 Log.w(TAG, "Push key store unreadable, starting empty", error)
+                discard()
                 emptyList()
             } catch (error: JSONException) {
                 Log.w(TAG, "Push key store corrupt, starting empty", error)
@@ -210,12 +246,32 @@ class PushKeyStore internal constructor(
     }
 
     private fun save(records: List<PushSubscriptionRecord>) {
-        try {
-            file.write(cipher.seal(encode(records)))
+        val plaintext = encode(records)
+        val sealed = try {
+            try {
+                cipher.seal(plaintext)
+            } catch (error: PushStoreUnreadableException) {
+                // The key broke since the store was read. This write replaces
+                // the whole store, so a new key loses nothing.
+                Log.w(TAG, "Push key store key unusable, replacing it", error)
+                cipher.reset()
+                cipher.seal(plaintext)
+            }
         } catch (error: GeneralSecurityException) {
             throw IOException("Could not seal the push key store", error)
         }
+        file.write(sealed)
         cache = records
+    }
+
+    private fun discard() {
+        try {
+            cipher.reset()
+        } catch (error: Exception) {
+            // The next write tries again.
+            Log.w(TAG, "Could not delete the push key store key", error)
+        }
+        if (!file.delete()) Log.w(TAG, "Could not delete the push key store file")
     }
 
     internal companion object {

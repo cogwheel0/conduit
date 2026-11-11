@@ -50,75 +50,97 @@ class PushInstallSheet extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final navigator = Navigator.of(context);
-    return ConduitModalSheetSurface(
-      showHandle: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SheetHandle(),
-          Row(
-            children: [
-              Expanded(
-                child: Semantics(
-                  header: true,
-                  child: Text(title, style: theme.headingSmall),
-                ),
-              ),
-              SheetCloseButton(
-                tooltip: l10n.close,
-                onPressed: () => navigator.pop(false),
-              ),
-            ],
-          ),
-          const SizedBox(height: Spacing.sm),
-          Text(
-            message,
-            style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
-          ),
-          const SizedBox(height: Spacing.md),
-          InsetGroupedList(
-            children: [
-              UtilityRow(
-                key: const Key('push-install-source'),
-                title: l10n.pushViewSource,
-                subtitle: sourceUrl,
-                subtitleMaxLines: 1,
-                trailing: Icon(
-                  UiUtils.platformIcon(
-                    ios: CupertinoIcons.arrow_up_right,
-                    android: Icons.open_in_new,
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+      ),
+      child: ConduitModalSheetSurface(
+        showHandle: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHandle(),
+            Row(
+              children: [
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child: Text(title, style: theme.headingSmall),
                   ),
-                  size: IconSize.medium,
-                  color: theme.textSecondary,
                 ),
-                onTap: () => launchExternalLink(sourceUrl, scope: 'push'),
-              ),
-            ],
-          ),
-          const SizedBox(height: Spacing.lg),
-          Row(
-            children: [
-              Expanded(
-                child: AdaptiveButton(
-                  key: const Key('push-install-cancel'),
+                SheetCloseButton(
+                  tooltip: l10n.close,
                   onPressed: () => navigator.pop(false),
-                  label: l10n.cancel,
-                  style: AdaptiveButtonStyle.gray,
+                ),
+              ],
+            ),
+            // Scrolls on a short screen or with large text, with the
+            // buttons kept in reach below.
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(
+                  top: Spacing.sm,
+                  bottom: Spacing.lg,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      message,
+                      style: theme.bodyMedium?.copyWith(
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: Spacing.md),
+                    InsetGroupedList(
+                      children: [
+                        UtilityRow(
+                          key: const Key('push-install-source'),
+                          title: l10n.pushViewSource,
+                          subtitle: sourceUrl,
+                          subtitleMaxLines: 1,
+                          trailing: Icon(
+                            UiUtils.platformIcon(
+                              ios: CupertinoIcons.arrow_up_right,
+                              android: Icons.open_in_new,
+                            ),
+                            size: IconSize.medium,
+                            color: theme.textSecondary,
+                          ),
+                          onTap: () =>
+                              launchExternalLink(sourceUrl, scope: 'push'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: AdaptiveButton(
-                  key: const Key('push-install-confirm'),
-                  onPressed: () => navigator.pop(true),
-                  label: confirmLabel,
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: AdaptiveButton(
+                    key: const Key('push-install-cancel'),
+                    onPressed: () => navigator.pop(false),
+                    label: l10n.cancel,
+                    style: AdaptiveButtonStyle.gray,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: Spacing.sm),
-        ],
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: AdaptiveButton(
+                    key: const Key('push-install-confirm'),
+                    onPressed: () => navigator.pop(true),
+                    label: confirmLabel,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: Spacing.sm),
+          ],
+        ),
       ),
     );
   }

@@ -319,6 +319,34 @@ void main() {
         isNot(contains(nativeLibreChatPersonalizationActionId)),
       );
     });
+
+    test('without an account, Notifications stays for Hermes and push', () {
+      final sections = _root(
+        account: null,
+        visibility: const NativeProfileRootVisibility(
+          showNotificationsWithoutAccount: true,
+        ),
+      );
+      expect(_ids(sections)[1], [
+        NativeSheetRoutes.appearance,
+        // The app's language, beside Appearance.
+        nativeAppLanguageId,
+        NativeSheetRoutes.chats,
+        NativeSheetRoutes.voice,
+        NativeSheetRoutes.notificationSettings,
+      ]);
+      // With an account it stays among the account's rows, listed once.
+      final withAccount = _ids(
+        _root(
+          visibility: const NativeProfileRootVisibility(
+            showNotificationsWithoutAccount: true,
+          ),
+        ),
+      ).expand((ids) => ids).where(
+        (id) => id == NativeSheetRoutes.notificationSettings,
+      );
+      expect(withAccount, hasLength(1));
+    });
   });
 
   group('native Accounts page', () {

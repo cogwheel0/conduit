@@ -3945,6 +3945,7 @@ final class HermesTurnCompletion {
     required this.connectionId,
     required this.sessionId,
     required this.message,
+    required this.runId,
     this.title,
   });
 
@@ -3960,8 +3961,13 @@ final class HermesTurnCompletion {
   /// The chat's title, when known.
   final String? title;
 
+  /// A random id of the run that wrote [message]. A regeneration writes into
+  /// the same assistant message, so this tells its reply from the one it
+  /// replaced.
+  final String runId;
+
   /// This app's own key for the turn. The server's turn id is unknown here.
-  String get turnKey => message.id;
+  String get turnKey => '${message.id}:$runId';
 
   bool get failed => message.error != null;
 }

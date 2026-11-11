@@ -151,6 +151,7 @@ Future<_NativeSettings> _pumpApp(
     'features': {'webhooks': true},
   },
   int? targetCount = 0,
+  bool signedIn = true,
   bool notificationsOn = true,
 }) async {
   if (advanced) {
@@ -197,6 +198,8 @@ Future<_NativeSettings> _pumpApp(
       optimizedStorageServiceProvider.overrideWithValue(storage),
       modelsProvider.overrideWith(_NoModels.new),
       apiServiceProvider.overrideWithValue(api),
+      // Signed in to it, as the user above, unless the test says otherwise.
+      openWebUiAccountAvailableProvider.overrideWithValue(signedIn),
       currentUserProvider2.overrideWithValue(
         const User(
           id: 'user-1',
@@ -300,6 +303,18 @@ void main() {
       'Your Open WebUI server sends events to these URLs, even while this '
       'app is closed.',
     );
+  });
+
+  testWidgets('without a signed-in account there are no channels to notify', (
+    tester,
+  ) async {
+    final native = await _pumpApp(tester, signedIn: false);
+
+    await native.detailAppeared(_detail);
+
+    final ids = native.items(_detail).map((item) => item.id).toList();
+    expect(ids, isNot(contains('notification-channel')));
+    expect(ids, contains('notification-scheduled'));
   });
 
   testWidgets('the local toggles show before the destinations group is added', (

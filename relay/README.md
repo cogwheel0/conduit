@@ -29,6 +29,7 @@ can't read it. It keeps no database and writes no access logs.
 | `ratelimit` | In-memory token buckets |
 | `metrics` | Aggregate counters |
 | `routes` | The HTTP API |
+| `server` | Accept loop: timeouts, connection cap, graceful shutdown |
 
 ## Develop
 
