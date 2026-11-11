@@ -14,6 +14,8 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
@@ -885,6 +887,66 @@ void main() {
     );
   });
 
+  testWidgets('a long Hermes connection name stays clear of the profile in '
+      'a narrow header', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const name = 'Research gateway in the shared lab rack';
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        hermesOnly: true,
+        hermesEnabled: true,
+        extraOverrides: [
+          hermesConnectionsProvider.overrideWithValue(const [
+            HermesConnectionProfile(
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              name: name,
+              baseUrl: 'https://lab.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+            HermesConnectionProfile(
+              id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'bbbbbbbb-0000-4000-8000-000000000000',
+            ),
+          ]),
+          hermesActiveConnectionIdProvider.overrideWithValue(
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ),
+          hermesActiveConnectionNameProvider.overrideWithValue(name),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final switcher = find.byKey(
+      const ValueKey<String>('hermes-connection-switcher'),
+    );
+    final profile = find.byType(SidebarProfileAppBarLeading);
+    expect(switcher.hitTestable(), findsOneWidget);
+    expect(profile.hitTestable(), findsOneWidget);
+    // Centred in the bar, and shortened before it reaches the profile.
+    final bar = tester.getRect(
+      find.byKey(const ValueKey('sidebar-page-surface')),
+    );
+    final pill = tester.getRect(switcher);
+    expect(pill.left, greaterThan(tester.getRect(profile).right));
+    expect(pill.center.dx, moreOrLessEquals(bar.center.dx, epsilon: 1));
+    final semantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester.getSemantics(switcher),
+        isSemantics(hint: 'Switch Connection'),
+      );
+    } finally {
+      semantics.dispose();
+    }
+  });
   for (final size in [const Size(320, 568), const Size(844, 390)]) {
     testWidgets('sidebar controls stay reachable at 2x text in $size', (
       tester,
