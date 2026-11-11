@@ -819,7 +819,14 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         // Refresh the surviving create's contentHash too; crash-heal matches
         // the server-created chat against the CURRENT rows pushCreateChat will
         // POST.
-        final create = newestOfKind(OutboxKind.createChat);
+        //
+        // Not a create whose chat already has its server id: it reached the
+        // server, and run again it sends nothing (`PushSync.pushCreateChat`),
+        // so the edit needs an update of its own, and the create's
+        // fingerprint must stay the snapshot it sent.
+        final create = chatId.startsWith('local:')
+            ? newestOfKind(OutboxKind.createChat)
+            : null;
         if (create != null) {
           return _CoalesceDecision(
             insert: false,

@@ -532,6 +532,56 @@ void main() {
       check(server.getChatById(serverId)!['pinned']).equals(true);
     });
 
+    test('an edit made while a create that reached the server waits to run '
+        'again is still sent', () async {
+      const localId = 'local:waiting-create';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      await db.transaction(
+        () => db.outboxDao.enqueue(
+          kind: OutboxKind.createChat,
+          chatId: localId,
+          contentHash: contentHash,
+        ),
+      );
+      // The create reaches the server and its op takes the server id with
+      // the row, but its done mark is lost...
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+      // ...and the temperature is changed before it runs again.
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.patchChatParamsWithOutbox(
+          serverId,
+          set: {'temperature': 0.2},
+          updatedAt: 7000,
+        ),
+      );
+
+      final ops = await outboxOpsForChat(db, serverId)
+        ..sort((a, b) => a.seq.compareTo(b.seq));
+      for (final op in ops) {
+        if (op.kind == OutboxKind.createChat.name) {
+          await push.pushCreateChat(op.chatId!, contentHash: op.contentHash);
+        } else if (op.kind == OutboxKind.updateChat.name) {
+          await push.pushUpdateChat(op.chatId!);
+        }
+        await db.outboxDao.markDone(op.seq);
+      }
+
+      check(client.createChatCalls).equals(1);
+      check((server.getChatById(serverId)!['chat'] as Map)['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'temperature': 0.2});
+    });
+
     test('a checklist event that comes while a copy from before the create '
         'is read is kept', () async {
       const localId = 'local:checklist';
