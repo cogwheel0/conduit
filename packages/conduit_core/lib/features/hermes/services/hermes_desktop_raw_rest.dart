@@ -41,7 +41,7 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
         isIOS: Platform.isIOS,
         accessHeaders: config.accessHeaders,
       )) {
-        throw StateError(
+        throw HermesDashboardUnavailable(
           'Dashboard cookie requests with gateway headers are unavailable on iOS.',
         );
       }
@@ -60,6 +60,9 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
         uri,
         body: body == null ? null : jsonEncode(body),
       );
+      if (response.body.length > kMaxHermesDesktopFrameCharacters) {
+        throw const HermesResponseTooLargeException();
+      }
       if ((response.status == 401 || response.status == 403) && retry < 2) {
         await bridge.reload();
         return _rawRequest(
@@ -72,17 +75,20 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
       }
       return HermesDashboardResponse(response.status, response.body);
     }
-    final response = await _dio.request<List<int>>(
+    final response = await _dio.request<ResponseBody>(
       uri.toString(),
       data: body,
       options: Options(
         method: method,
         headers: await _headers(authenticated: true),
-        responseType: ResponseType.bytes,
+        // Read as a stream and stopped at the limit, so a huge body is never
+        // held whole.
+        responseType: ResponseType.stream,
         validateStatus: (_) => true,
         receiveDataWhenStatusError: true,
       ),
     );
+    final bytes = await _readDashboardBody(response.data);
     final status = response.statusCode ?? 0;
     if (status == 401 &&
         retry == 0 &&
@@ -93,13 +99,22 @@ extension _HermesDesktopRawRest on HermesDesktopApiService {
         return _rawRequest(method, path, body: body, query: query, retry: 1);
       }
     }
-    final bytes = response.data ?? const <int>[];
-    if (bytes.length > kMaxHermesDesktopFrameBytes) {
-      throw const HermesResponseTooLargeException();
-    }
     return HermesDashboardResponse(
       status,
       utf8.decode(bytes, allowMalformed: true),
     );
+  }
+
+  /// [body], up to [kMaxHermesDesktopFrameBytes].
+  Future<List<int>> _readDashboardBody(ResponseBody? body) async {
+    if (body == null) return const <int>[];
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in body.stream) {
+      if (bytes.length + chunk.length > kMaxHermesDesktopFrameBytes) {
+        throw const HermesResponseTooLargeException();
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
   }
 }
