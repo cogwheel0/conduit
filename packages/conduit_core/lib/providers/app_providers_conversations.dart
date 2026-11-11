@@ -101,13 +101,17 @@ class Conversations extends _$Conversations {
     // direct-local database is independent and remains available while signed
     // out or while switching servers.
     final repository = ref.watch(chatDatabaseRepositoryProvider);
+    // A LibreChat account owning the Chats tab lists its own database, which
+    // the repository holds only while that account is signed in.
+    final includeAccountDatabase =
+        includeOpenWebUi || repository.hasLibreChatDatabase;
     final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
     if (!identical(_paginationRepository, repository) ||
-        _paginationIncludesOpenWebUi != includeOpenWebUi ||
+        _paginationIncludesOpenWebUi != includeAccountDatabase ||
         !identical(_paginationAuthSessionEpoch, authSessionEpoch)) {
       _lastSuccessfulDatabaseProjection = null;
       _paginationRepository = repository;
-      _paginationIncludesOpenWebUi = includeOpenWebUi;
+      _paginationIncludesOpenWebUi = includeAccountDatabase;
       _paginationAuthSessionEpoch = authSessionEpoch;
       _regularChatLimit = _regularPageSize;
       _archivedChatLimit = 0;
@@ -123,7 +127,7 @@ class Conversations extends _$Conversations {
     // start to the FIRST narrow-projection emission. Numeric-only data (no chat
     // content) so nothing untrusted is logged.
     final coldStart = Stopwatch()..start();
-    final listStream = includeOpenWebUi
+    final listStream = includeAccountDatabase
         ? repository.watchMergedChatList(
             regularLimit: _regularChatLimit + 1,
             archivedLimit: _archivedChatLimit > 0 ? _archivedChatLimit + 1 : 0,
@@ -132,7 +136,7 @@ class Conversations extends _$Conversations {
             regularLimit: _regularChatLimit + 1,
             archivedLimit: _archivedChatLimit > 0 ? _archivedChatLimit + 1 : 0,
           );
-    final archivedCountStream = includeOpenWebUi
+    final archivedCountStream = includeAccountDatabase
         ? repository.watchMergedArchivedChatCount()
         : repository.watchDirectLocalArchivedChatCount();
     final archivedCountSubscription = archivedCountStream.listen(
@@ -306,15 +310,14 @@ class Conversations extends _$Conversations {
       _folderConversationRefreshTickProvider.notifier,
     );
     // Local-only direct chats are already live through Drift. Refresh the
-    // optional Open WebUI side when it is available.
-    if (ref.read(appDatabaseProvider) != null &&
-        ref.read(isAuthenticatedProvider2)) {
-      final syncEngine = ref.read(syncEngineProvider.notifier);
-      await syncEngine.requestPull(reason: 'refresh');
+    // account side when it is available.
+    final sync = ref.read(primarySyncProvider);
+    if (sync.canSync) {
+      await sync.requestPull(reason: 'refresh');
       // A normal pull uses the 24-hour background deletion throttle. A user
       // initiated refresh must also run the unthrottled reconcile so chats
-      // deleted from another Open WebUI client disappear immediately.
-      await syncEngine.reconcileNow();
+      // deleted from another client disappear immediately.
+      await sync.reconcileNow();
     }
     folderConversationRefresh.bumpIfMounted();
   }
@@ -373,16 +376,21 @@ class Conversations extends _$Conversations {
     // The caller already confirmed any required remote deletion. Drop the row
     // from the database that owns it. Local-only direct chats never touch the
     // active Open WebUI database or its outbox.
+    final storage = chatStorageKindOf(removedConversation) ?? identity.storage;
     final directLocal =
         isDirectLocalConversation(removedConversation) ||
         (removedConversation == null &&
             identity.storage == ChatStorageKind.directLocal);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
+        : storage == ChatStorageKind.libreChat
+        ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
     final rawId = identity.rawId;
     if (db == null || isTemporaryChat(rawId)) return;
-    final locks = ref.read(chatLocksProvider);
+    final locks = storage == ChatStorageKind.libreChat
+        ? ref.read(libreChatChatLocksProvider)
+        : ref.read(chatLocksProvider);
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
@@ -512,8 +520,13 @@ class Conversations extends _$Conversations {
     final directLocal =
         isDirectLocalConversation(target) ||
         (target == null && identity.storage == ChatStorageKind.directLocal);
+    final libreChat =
+        isLibreChatConversation(target) ||
+        (target == null && identity.storage == ChatStorageKind.libreChat);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
+        : libreChat
+        ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
     final rawId = identity.rawId;
     if (db == null || isTemporaryChat(rawId)) return;
@@ -572,7 +585,8 @@ class Conversations extends _$Conversations {
   void applyServerTasks(String serverId, List<Map<String, dynamic>> tasks) {
     final identity = ChatStorageIdentity.parse(serverId);
     if (identity.rawId.isEmpty ||
-        identity.storage == ChatStorageKind.directLocal) {
+        identity.storage == ChatStorageKind.directLocal ||
+        identity.storage == ChatStorageKind.libreChat) {
       return;
     }
     final scopedId = ChatStorageIdentity(
@@ -621,6 +635,7 @@ class Conversations extends _$Conversations {
     if (rawId.isEmpty ||
         normalizedTitle.isEmpty ||
         identity.storage == ChatStorageKind.directLocal ||
+        identity.storage == ChatStorageKind.libreChat ||
         isTemporaryChat(rawId)) {
       return;
     }
@@ -655,10 +670,70 @@ class Conversations extends _$Conversations {
     );
   }
 
-  void _applyGeneratedTitleToLoadedState(String rawId, String title) {
+  /// Applies a title LibreChat generated for its conversation [rawId]: a
+  /// server-origin write to the LibreChat database (no outbox, nothing to
+  /// push back), and to the loaded list and open chat.
+  void applyLibreChatGeneratedTitle(String rawId, String title) {
+    final normalizedTitle = title.trim();
+    if (rawId.isEmpty || normalizedTitle.isEmpty) return;
+    final location = ref.read(chatDatabaseRepositoryProvider).libreChatLocation;
+    if (location == null) {
+      _applyGeneratedTitleToLoadedState(
+        rawId,
+        normalizedTitle,
+        storage: ChatStorageKind.libreChat,
+      );
+      return;
+    }
+    final locks = ref.read(libreChatChatLocksProvider);
+    unawaited(
+      locks
+          .runExclusive(
+            rawId,
+            () => location.database.chatsDao.updateServerGeneratedTitle(
+              rawId,
+              normalizedTitle,
+            ),
+          )
+          .then<void>((persistedTitle) {
+            // Written for the account it came from. Another account in use
+            // by now lists its own chats, one of which can share the id.
+            if (!ref.mounted ||
+                !identical(
+                  ref
+                      .read(chatDatabaseRepositoryProvider)
+                      .libreChatLocation
+                      ?.database,
+                  location.database,
+                )) {
+              return;
+            }
+            _applyGeneratedTitleToLoadedState(
+              rawId,
+              persistedTitle ?? normalizedTitle,
+              storage: ChatStorageKind.libreChat,
+            );
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'librechat-generated-title-write-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': rawId},
+            );
+          }),
+    );
+  }
+
+  void _applyGeneratedTitleToLoadedState(
+    String rawId,
+    String title, {
+    ChatStorageKind storage = ChatStorageKind.openWebUi,
+  }) {
     final scopedId = ChatStorageIdentity(
       rawId: rawId,
-      storage: ChatStorageKind.openWebUi,
+      storage: storage,
     ).scopedId;
     final current = state.asData?.value;
     final index = current == null
@@ -689,6 +764,9 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeStub(Conversation conversation) {
+    // A LibreChat chat's rows are written by its own sync and mutations, in
+    // its account's database; never here, and never to Open WebUI's.
+    if (isLibreChatConversation(conversation)) return;
     final directLocal = isDirectLocalConversation(conversation);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
@@ -749,6 +827,7 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeUpdate(Conversation conversation) {
+    if (isLibreChatConversation(conversation)) return;
     final directLocal = isDirectLocalConversation(conversation);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
@@ -1021,7 +1100,9 @@ void markConversationRead(
   } catch (_) {}
 
   if (isDirectLocalConversation(targetConversation) ||
+      isLibreChatConversation(targetConversation) ||
       identity.storage == ChatStorageKind.directLocal ||
+      identity.storage == ChatStorageKind.libreChat ||
       (identity.storage == null && id.startsWith('direct-local:'))) {
     return;
   }

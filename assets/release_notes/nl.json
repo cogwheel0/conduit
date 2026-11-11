@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Nieuw",
+      "intro": "Hoi! LibreChat is er als bèta: log in, chat met de modellen en agents, en bewaar de geschiedenis in het tabblad Chats. Hermes 0.23 werkt, met Ruimtes, vastgepinde en verborgen chats, en het scherm Context en gebruik. Open WebUI 0.13.3 biedt de codeeragents van zijn terminals aan als modellen, en Computer opent het bureaublad van een terminal vanuit de kop van de chat.",
+      "bullets": [
+        {
+          "text": "LibreChat (Bèta): log in op een LibreChat-server met e-mail of LDAP, verificatie in twee stappen of single sign-on, en wissel in Accounts tussen deze server en Open WebUI. De chats vullen het tabblad Chats en blijven offline leesbaar. Kies de modelspecificaties, agents en modellen van LibreChat, voeg bestanden toe, zet webzoeken, code, bestanden zoeken en MCP-servers aan, beantwoord goedkeuringsvragen voor tools, en voeg prompts in met /. Antwoorden lopen door terwijl je in een andere chat zit. Deellinks, vertakkingen, Chat dupliceren, stemmen van de server en herinneringen in Personalisatie werken ook.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: chats via de Desktop Gateway en de API-server werken, en je kunt verbinden met de eigen Webapp-listener van een gateway. Goedkeuringen en vragen verschijnen weer, en alle vragen van een beurt komen in één formulier. Een chat die in een andere Hermes-app is gestart, biedt Doorgaan in een kopie aan, een run die door een herstart werd afgebroken, gaat weer verder, en het antwoord op een bericht dat Hermes tijdens een herstart bewaarde, verschijnt zodra het klaar is. Conduit vraagt het eerst voordat een verbinding inloggegevens via onversleutelde HTTP stuurt, en voordat het overschakelt naar een model dat Hermes je wil laten bevestigen.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes-chats: pin een chat vast, archiveer of verberg hem, maak een vertakking vanaf elk antwoord, of maak de laatste beurt ongedaan. Bewerken of opnieuw genereren in een Desktop Gateway-chat gaat verder in dezelfde sessie, met de context erbij. Context en gebruik toont hoe vol het contextvenster is en wat de limieten van je abonnement zijn, en compacteert de chat. Een chip boven het invoerveld toont lopende subagents en processen, die je kunt bijsturen, stoppen of beëindigen. Een mislukte beurt toont een kaart die zegt wat er misging en een oplossing biedt, gewijzigde bestanden verschijnen als diffkaart, betaalde tools tonen hun prijs, en het plan van de agent blijft boven het invoerveld staan.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes-ruimtes en -jobs: Desktop Gateway-verbindingen krijgen Ruimtes, groepschats met twee tot zes van je bots. Hun geplande jobs kun je midden in een run stoppen, je kiest wat er met Gemiste uitvoeringen gebeurt, en via Bezorgen bij gaan ze naar berichtenapps, Botchats en Groepschats. Jobs op de API-server kun je bewerken, en het redeneerniveau dat je kiest, geldt daar nu ook. MCP-servers uit de catalogus vragen om hun sleutels als je ze toevoegt, en met meerdere verbindingen wissel je via de naam bovenaan de zijbalk.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 en 0.13.3: de app werkt zonder compatibiliteitswaarschuwing. Kies een terminal in een opgeslagen chat, en de codeeragents ervan, zoals Codex en Claude Code, verschijnen onder Codeeragents in de modelkiezer. Computer in de kop van de chat opent het Bureaublad of de Browser van de terminal op volledig scherm: kijk mee terwijl een antwoord loopt, of kies Bediening overnemen om te typen, te klikken en te browsen. Zet het uit onder Instellingen > Chat. Opgehaalde herinneringen en lijsten met skills die de server verbergt, verschijnen niet meer als toolblokken.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: toolaanroepen stoppen niet meer na 8 rondes. De nieuwe instelling Afbeeldingen per verzoek (standaard 10) en het documentbudget gelden nu per verzoek, zodat oudere bijlagen worden weggelaten in plaats van dat elke volgende beurt mislukt. De contextlimiet die je kiest voor een lokaal Ollama-model, wordt naar Ollama gestuurd. Redeneren en toolstappen blijven bewaard als je een chat opnieuw opent, de contextvulling in het gebruik wordt goed gemeten, en servers die lege velden sturen, breken de stream niet meer af.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: op iOS 26 zijn menu's, meldingen, panelen en zoekvelden die van het systeem, en Instellingen is gegroepeerd zoals de app Instellingen. Spraakgesprekken en voorlezen zweven op glazen eilanden: tik op de balk om te spoelen, sla 15 seconden over en volg het gemarkeerde woord. Chats en notities staan op datum, het gebruik van een antwoord opent in een popover met de contextvulling, de notitie-editor heeft een werkbalk onderaan, en instellingenpagina's vervagen onder de balk als je scrolt.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: lange chats scrollen zonder dat de scrollbalk verspringt, op Android kun je de scrollbalk slepen, en de chat blijft staan terwijl je de zijbalk opentrekt. Codeblokken breken lange regels af, tabelkolommen passen zich aan hun inhoud aan, vervolgsuggesties verschijnen als volledige rijen, en een antwoord toont Denken... met de wachttijd. Eén snelheid geldt nu voor zowel cloud- als apparaatstemmen, de dashboard-aanmelding van Hermes wordt niet meer leeg achter het toetsenbord, en twee keer op je profiel tikken opent Instellingen niet meer twee keer.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

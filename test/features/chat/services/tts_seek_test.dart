@@ -76,6 +76,21 @@ void main() {
       );
       expect(player.currentIndex, 0);
       expect(player.position, const Duration(seconds: 12));
+      // A scrub lands anywhere in the whole reading.
+      expect(
+        await manager.seekTo(const Duration(seconds: 33)),
+        const Duration(seconds: 33),
+      );
+      expect(player.currentIndex, 1);
+      expect(player.position, const Duration(seconds: 13));
+      // Rendered clips carry no word timings; the clip's position stands in.
+      expect(manager.reportsSpokenWords, isFalse);
+      player.at(1, const Duration(seconds: 3));
+      expect(manager.chunkProgress, (
+        index: 1,
+        position: const Duration(seconds: 3),
+        duration: const Duration(seconds: 20),
+      ));
     },
   );
 
@@ -523,6 +538,21 @@ void main() {
     expect(device.liveSpeech, 1);
     expect(device.rendered, isEmpty);
     expect(manager.canSeek, isFalse);
+    expect(manager.reportsSpokenWords, isTrue);
+    expect(manager.chunkProgress, isNull);
+  });
+
+  test('the speed plays audio clips faster as they play and paces live '
+      'device speech, while clips render at the voice\'s own pace', () async {
+    await manager.updateConfig(const TtsConfig(speed: 1.5));
+    expect(player.speeds.last, 1.5);
+    await manager.speak('A paper crane.', seekable: true);
+    await manager.speak('A paper boat.');
+    // Rendered at the engine's own pace, then sped up by the player; live
+    // speech carries the speed itself.
+    expect(device.rates, [0.5, 0.75]);
+    await manager.updateConfig(const TtsConfig(speed: 0.75));
+    expect(player.speeds.last, 0.75);
   });
 
   test('seekable chunks respect the device limit without losing text', () {
@@ -543,6 +573,7 @@ class _Device extends NativeTtsService {
   @override
   Future<bool> resume() async => await (resumeResult ?? Future.value(true));
   int liveSpeech = 0;
+  final rates = <double>[];
   Completer<NativeTtsAudio>? pending;
   final pendingChunks = <String, Completer<NativeTtsAudio>>{};
   @override
@@ -565,6 +596,7 @@ class _Device extends NativeTtsService {
     bool voiceCall = false,
   }) async {
     liveSpeech++;
+    rates.add(rate);
     return true;
   }
 
@@ -577,6 +609,7 @@ class _Device extends NativeTtsService {
     required double volume,
   }) async {
     rendered.add(text);
+    rates.add(rate);
     final waiting = pendingChunks[text] ?? pending;
     if (waiting != null) return waiting.future;
     final file = await File(
@@ -587,6 +620,10 @@ class _Device extends NativeTtsService {
 }
 
 class _Player extends NullAudioPlayback {
+  final speeds = <double>[];
+  @override
+  Future<void> setSpeed(double speed) async => speeds.add(speed);
+
   final states = StreamController<AudioPlaybackState>.broadcast(sync: true);
   final indices = StreamController<int?>.broadcast(sync: true);
   int index = 0;

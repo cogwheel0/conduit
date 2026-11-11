@@ -3,12 +3,7 @@ part of 'enhanced_image_attachment.dart';
 ImageAttachmentCacheScope? _viewerCacheScope(
   ProviderContainer container,
   String attachmentId,
-) => usesAccountScopedImageCache(attachmentId)
-    ? ImageAttachmentCacheScope(
-        api: container.read(apiServiceProvider),
-        authSessionEpoch: container.read(openWebUiAuthSessionEpochProvider),
-      )
-    : null;
+) => imageAttachmentCacheScopeFor(container.read, attachmentId);
 
 /// Resolves a gallery item through the same cache the thumbnails use, so
 /// visible siblings open without another request.

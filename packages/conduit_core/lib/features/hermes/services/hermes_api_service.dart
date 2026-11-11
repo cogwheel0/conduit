@@ -49,6 +49,198 @@ const int kMaxHermesJsonCollectionItems = 10000;
 const int kMaxHermesMutationResponseBytes = 64 * 1024;
 const int kMaxHermesMutationResponseCharacters = 32 * 1024;
 const Duration kHermesJsonResponseTimeout = Duration(seconds: 60);
+const int kMaxHermesErrorBodyBytes = 8 * 1024;
+const Duration _hermesErrorBodyTimeout = Duration(seconds: 10);
+const int _maxHermesErrorCodeCharacters = 64;
+const int _maxHermesErrorMessageCharacters = 512;
+
+/// Session/run refusal codes the Hermes API server (v0.22.1+) sends in its
+/// `{"error": {"code": ...}}` envelope.
+abstract final class HermesApiErrorCode {
+  /// The session belongs to another Hermes surface (CLI, desktop, a
+  /// messaging platform); the API server may not add turns to it.
+  static const permissionDenied = 'permission_denied';
+
+  /// The session or run id was deleted (retired) or never existed.
+  static const notFound = 'not_found';
+  static const admissionConflict = 'admission_conflict';
+  static const idempotencyKeyConflict = 'idempotency_key_conflict';
+  static const staleGeneration = 'stale_generation';
+  static const approvalNotPending = 'approval_not_pending';
+  static const unknownExecution = 'unknown_execution';
+
+  /// A session title Hermes refuses, usually one another session already
+  /// has: titles are unique per Hermes profile.
+  static const invalidTitle = 'invalid_title';
+
+  /// Accepted and saved; it runs once Hermes is back. Must not be resent.
+  static const admissionQueued = 'admission_queued';
+
+  /// Refusals of a Hermes that is restarting or busy: its runtime or
+  /// gateway is draining, its session store is out of reach, or the
+  /// session's chain moved on. Conduit explains them alike and offers to
+  /// try again.
+  static const runtimeDraining = 'runtime_draining';
+  static const gatewayDraining = 'gateway_draining';
+  static const storageUnavailable = 'storage_unavailable';
+  static const chainMoved = 'chain_moved';
+}
+
+/// A non-2xx Hermes answer with its bounded, decoded error envelope.
+///
+/// This stays a [DioException] (type `badResponse`, with the HTTP status on
+/// [response]) so callers that only branch on the status keep working.
+final class HermesApiException extends DioException {
+  HermesApiException({
+    required super.requestOptions,
+    required int statusCode,
+    Headers? headers,
+    this.code,
+    this.serverMessage,
+  }) : super(
+         response: Response<void>(
+           requestOptions: requestOptions,
+           statusCode: statusCode,
+           headers: headers,
+         ),
+         type: DioExceptionType.badResponse,
+         message: 'Hermes request failed (HTTP $statusCode).',
+       );
+
+  /// The envelope's `error.code`, when it is a short machine token.
+  final String? code;
+
+  /// The envelope's `error.message`. Provider-controlled: never show it
+  /// without sanitizing it first.
+  final String? serverMessage;
+
+  int get statusCode => response?.statusCode ?? 0;
+
+  /// Whether the server marked the refusal as not retryable
+  /// (`x-should-retry: false`), as it does for a saved, queued input.
+  bool get retryForbidden =>
+      response?.headers.value('x-should-retry')?.trim().toLowerCase() ==
+      'false';
+
+  /// `Retry-After` in whole seconds, when the server sent one.
+  Duration? get retryAfter {
+    final raw = response?.headers.value('retry-after')?.trim();
+    final seconds = raw == null ? null : int.tryParse(raw);
+    if (seconds == null || seconds < 0 || seconds > 3600) return null;
+    return Duration(seconds: seconds);
+  }
+
+  @override
+  String toString() =>
+      'HermesApiException: HTTP $statusCode${code == null ? '' : ' $code'}';
+}
+
+/// Reads at most [kMaxHermesErrorBodyBytes] of a non-2xx body and turns its
+/// `{"error": {"code", "message"}}` envelope into a [HermesApiException].
+///
+/// Oversized, slow, or malformed bodies still produce the exception, just
+/// without a code, so a refusal is never mistaken for success. [maxWait]
+/// keeps the read inside the request's own deadline.
+Future<HermesApiException> _hermesApiExceptionFor(
+  Response<dynamic> response, {
+  Duration maxWait = _hermesErrorBodyTimeout,
+}) async {
+  final statusCode = response.statusCode ?? 0;
+  String? code;
+  String? message;
+  try {
+    final data = response.data;
+    String? source;
+    if (data is ResponseBody) {
+      source = await _readHermesErrorBody(
+        data.stream.cast<List<int>>(),
+        timeout: maxWait < _hermesErrorBodyTimeout
+            ? maxWait
+            : _hermesErrorBodyTimeout,
+      );
+    } else if (data is String) {
+      source = data.length <= kMaxHermesErrorBodyBytes ? data : null;
+    } else if (data is Map) {
+      source = null;
+      final error = data['error'];
+      if (error is Map) {
+        code = _hermesErrorToken(error['code']);
+        message = _hermesErrorMessage(error['message']);
+      }
+    }
+    if (source != null && source.isNotEmpty) {
+      validateHermesJsonSource(source, maxDepth: 8);
+      final decoded = jsonDecode(source);
+      if (decoded is Map) {
+        final error = decoded['error'];
+        if (error is Map) {
+          code = _hermesErrorToken(error['code']);
+          message = _hermesErrorMessage(error['message']);
+        } else if (error is String) {
+          message = _hermesErrorMessage(error);
+        }
+        code ??= _hermesErrorToken(decoded['code']);
+      }
+    }
+  } catch (_) {
+    // A refusal without a readable envelope is still a refusal.
+  }
+  return HermesApiException(
+    requestOptions: response.requestOptions,
+    statusCode: statusCode,
+    headers: response.headers,
+    code: code,
+    serverMessage: message,
+  );
+}
+
+Future<String?> _readHermesErrorBody(
+  Stream<List<int>> source, {
+  required Duration timeout,
+}) async {
+  final iterator = StreamIterator<List<int>>(source);
+  final builder = BytesBuilder(copy: false);
+  try {
+    final deadline = Stopwatch()..start();
+    while (true) {
+      final remaining = timeout - deadline.elapsed;
+      if (remaining <= Duration.zero) return null;
+      final hasNext = await iterator.moveNext().timeout(remaining);
+      if (!hasNext) break;
+      if (builder.length + iterator.current.length > kMaxHermesErrorBodyBytes) {
+        return null;
+      }
+      builder.add(iterator.current);
+    }
+    return utf8.decode(builder.takeBytes(), allowMalformed: false);
+  } on TimeoutException {
+    return null;
+  } finally {
+    _cancelHermesStreamIterator(iterator);
+  }
+}
+
+String? _hermesErrorToken(Object? value) {
+  if (value is! String ||
+      value.isEmpty ||
+      value.length > _maxHermesErrorCodeCharacters ||
+      !RegExp(r'^[A-Za-z0-9_.:-]+$').hasMatch(value)) {
+    return null;
+  }
+  return value.toLowerCase();
+}
+
+String? _hermesErrorMessage(Object? value) {
+  if (value is! String || value.isEmpty) return null;
+  return value.length > _maxHermesErrorMessageCharacters
+      ? value.substring(0, _maxHermesErrorMessageCharacters)
+      : value;
+}
+
+bool _isHermesSuccessStatus(int? status) =>
+    status != null && status >= 200 && status < 300;
+
+bool _acceptEveryHermesStatus(int? status) => true;
 
 /// Resource and liveness ceilings for one Hermes SSE request.
 final class HermesStreamLimits {
@@ -318,10 +510,13 @@ int _hermesEventCharacters(
     requestId.length +
         (prompt?.length ?? 0) +
         min(jsonEncode(raw).length, maxCharacters),
+  HermesPromptSettled(:final promptId, :final kind) =>
+    promptId.length + kind.length,
   HermesLifecycle(:final status) => status.length,
   HermesFinalOutput(:final text) => text.length,
   HermesComposerPrefill(:final text) => text.length,
   HermesRunError(:final message) => message.length,
+  HermesRunNotice(:final message) => message.length,
   HermesRunDone() => 0,
 };
 
@@ -938,6 +1133,9 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         ? remaining
         : limits.idleTimeout;
     final deadlineConstrainsReceive = receiveTimeout == remaining;
+    // Without a caller-specific status policy, read the bounded error
+    // envelope so refusals keep their machine-readable code.
+    final decodesErrors = validateStatus == null;
     try {
       final response = await _dio
           .request<dynamic>(
@@ -950,7 +1148,9 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
               responseType: ResponseType.stream,
               receiveTimeout: receiveTimeout,
               headers: headers,
-              validateStatus: validateStatus,
+              validateStatus: decodesErrors
+                  ? _acceptEveryHermesStatus
+                  : validateStatus,
             ),
           )
           .timeout(
@@ -962,10 +1162,20 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
               );
             },
           );
+      if (decodesErrors && !_isHermesSuccessStatus(response.statusCode)) {
+        throw await _hermesApiExceptionFor(
+          response,
+          maxWait: recoveryBudget.remainingDuration,
+        );
+      }
       recoveryBudget.requireRemainingDuration();
       return response;
     } on HermesStreamGuardException {
       _signalHermesStreamCancellation(cancelToken);
+      rethrow;
+    } on HermesApiException {
+      // Hermes refused in time, even if reading why took the rest of the
+      // deadline: the refusal keeps its status, headers and code.
       rethrow;
     } on DioException catch (error) {
       if (recoveryBudget.remainingDuration <= Duration.zero ||
@@ -1098,6 +1308,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
               responseType: ResponseType.stream,
               receiveTimeout: timeout,
               headers: headers,
+              validateStatus: _acceptEveryHermesStatus,
             ),
           )
           .timeout(
@@ -1109,6 +1320,12 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
               );
             },
           );
+      if (!_isHermesSuccessStatus(response.statusCode)) {
+        throw await _hermesApiExceptionFor(
+          response,
+          maxWait: budget.remainingDuration,
+        );
+      }
       return await _decodeHermesRecoveryObject(
         response.data,
         cancelToken: requestCancelToken,
@@ -1150,11 +1367,32 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     return url;
   }
 
-  Map<String, String> _sessionHeaders({String? sessionId}) {
+  /// The per-turn reasoning choice. Hermes reads it only from
+  /// `model_options` on both `/v1/runs` and `/v1/responses`; a top-level
+  /// `reasoning_effort` or `reasoning` is ignored.
+  static Map<String, dynamic>? _reasoningModelOptions(String? effort) =>
+      effort == null
+      ? null
+      : <String, dynamic>{
+          'reasoning': <String, dynamic>{'effort': effort},
+        };
+
+  /// Session headers for a request about [sessionId].
+  ///
+  /// `X-Hermes-Session-Key` is only a long-term memory scope while the turn
+  /// already names its session: a run's `session_id`, or a Responses
+  /// `previous_response_id`. Without one, Hermes also uses the key to pick
+  /// the session, so every new chat would land in one shared session that
+  /// runs a turn at a time. Callers send the key ([withSessionKey]) only
+  /// when the session is named.
+  Map<String, String> _sessionHeaders({
+    String? sessionId,
+    required bool withSessionKey,
+  }) {
     final validatedSessionId = _validatedOptionalSessionId(sessionId);
     return {
       'X-Hermes-Session-Id': ?validatedSessionId,
-      if ((config.sessionKey ?? '').isNotEmpty)
+      if (withSessionKey && (config.sessionKey ?? '').isNotEmpty)
         'X-Hermes-Session-Key': config.sessionKey!,
     };
   }
@@ -1270,23 +1508,32 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         'input': input,
         'session_id': ?validatedSessionId,
         'instructions': ?instructions,
-        'reasoning_effort': ?reasoningEffort,
+        'model_options': ?_reasoningModelOptions(reasoningEffort),
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory
         else
           'previous_response_id': ?previousResponseId,
       },
-      headers: _sessionHeaders(sessionId: validatedSessionId),
+      headers: _sessionHeaders(
+        sessionId: validatedSessionId,
+        withSessionKey: validatedSessionId != null,
+      ),
     );
     return _requireOpaqueIdentifier(data['run_id'] ?? data['id']);
   }
 
   /// Opens the run event stream (`GET /v1/runs/{id}/events`) and decodes it into
   /// typed [HermesRunEvent]s. The caller owns the returned subscription.
+  ///
+  /// [onSequence] receives each event's `seq` (Hermes v0.21.7+). Passing the
+  /// last one as [lastEventId] resumes a dropped stream: Hermes replays the
+  /// events after it from its backlog.
   Stream<HermesRunEvent> runEvents(
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) async* {
     final streamCancelToken = cancelToken ?? CancelToken();
     final encodedRunId = Uri.encodeComponent(runId);
@@ -1300,7 +1547,11 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         receiveTimeout: streamLimits.idleTimeout,
         headers: {
           'Accept': 'text/event-stream',
-          ..._sessionHeaders(sessionId: sessionId),
+          ..._sessionHeaders(
+            sessionId: sessionId,
+            withSessionKey: sessionId != null,
+          ),
+          if (lastEventId != null) 'Last-Event-ID': '$lastEventId',
         },
       ),
     );
@@ -1316,6 +1567,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
           cancelToken: streamCancelToken,
           limits: streamLimits,
         ),
+        onSequence: onSequence,
       ),
       cancelToken: streamCancelToken,
       limits: streamLimits,
@@ -1365,21 +1617,66 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     }
   }
 
+  /// Acknowledges a run whose outcome became `unknown` after an unclean
+  /// Hermes restart (`POST /v1/runs/{id}/resolve-unknown`, v0.22.1+).
+  ///
+  /// Later turns in that session wait until this is done. [admissionId] and
+  /// [executionGeneration] must be the exact values `GET /v1/runs/{id}`
+  /// reported. Returns the admission receipt; its `outcome` is usually
+  /// `interrupted`, or `completed` when the answer was produced but its
+  /// receipt had been lost.
+  Future<Map<String, dynamic>> resolveUnknownRun(
+    String runId, {
+    required String admissionId,
+    required int executionGeneration,
+    CancelToken? cancelToken,
+  }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
+    final data = await _requestBoundedJson(
+      'POST',
+      '$_root/v1/runs/$encodedRunId/resolve-unknown',
+      cancelToken: cancelToken,
+      data: <String, dynamic>{
+        'admission_id': admissionId,
+        'execution_generation': executionGeneration,
+      },
+      maxBytes: kMaxHermesMutationResponseBytes,
+      maxCharacters: kMaxHermesMutationResponseCharacters,
+    );
+    return data is Map ? data.cast<String, dynamic>() : const {};
+  }
+
   // ---------------------------------------------------------------------------
   // Sessions API (`/api/sessions/*`) — server-side transcript persistence.
   // ---------------------------------------------------------------------------
 
   /// Creates a session (`POST /api/sessions`) and returns its id.
+  ///
+  /// Hermes refuses a [title] another session already has (two chats that
+  /// both start with "hi"). The session is then created untitled instead:
+  /// without one, the turn would run outside any session.
   @override
   Future<String> createSession({
     String? title,
     CancelToken? cancelToken,
   }) async {
-    final data = await _postBoundedCreateObject(
-      '$_root/api/sessions',
-      cancelToken: cancelToken,
-      data: {'title': ?title},
-    );
+    Map<String, dynamic> data;
+    try {
+      data = await _postBoundedCreateObject(
+        '$_root/api/sessions',
+        cancelToken: cancelToken,
+        data: {'title': ?title},
+      );
+    } on HermesApiException catch (error) {
+      if (title == null || error.code != HermesApiErrorCode.invalidTitle) {
+        rethrow;
+      }
+      data = await _postBoundedCreateObject(
+        '$_root/api/sessions',
+        cancelToken: cancelToken,
+        data: const <String, dynamic>{},
+      );
+    }
     return _requireOpaqueIdentifier(_sessionId(data));
   }
 
@@ -1566,18 +1863,26 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         'conversation': ?conversation,
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory,
-        if (reasoningEffort != null)
-          'reasoning': <String, dynamic>{'effort': reasoningEffort},
+        'model_options': ?_reasoningModelOptions(reasoningEffort),
       },
       options: Options(
         responseType: ResponseType.stream,
         receiveTimeout: streamLimits.idleTimeout,
         headers: {
           'Accept': 'text/event-stream',
-          ..._sessionHeaders(sessionId: sessionId),
+          // Responses reads no session id header: only a chain names the
+          // session.
+          ..._sessionHeaders(
+            sessionId: sessionId,
+            withSessionKey: previousResponseId?.isNotEmpty ?? false,
+          ),
         },
+        validateStatus: _acceptEveryHermesStatus,
       ),
     );
+    if (!_isHermesSuccessStatus(resp.statusCode)) {
+      throw await _hermesApiExceptionFor(resp);
+    }
     final body = resp.data;
     if (body == null) {
       throw StateError('Hermes Responses returned no event stream');
@@ -1630,6 +1935,44 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     );
   }
 
+  /// Sets sidebar flags (`PATCH /api/sessions/{id}`).
+  @override
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
+    await _requestAndConsumeBounded(
+      'PATCH',
+      '$_root/api/sessions/$encodedId',
+      data: {'pinned': ?pinned, 'archived': ?archived, 'hidden': ?hidden},
+    );
+  }
+
+  /// The API server lists only sessions that are not archived.
+  @override
+  Future<List<Map<String, dynamic>>?> listArchivedSessions() async => null;
+
+  /// One session (`GET /api/sessions/{id}`), or null once it is gone.
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) async {
+    final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
+    final Object? data;
+    try {
+      data = await _requestBoundedJson(
+        'GET',
+        '$_root/api/sessions/$encodedId',
+      );
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+    final session = data is Map ? (data['session'] ?? data) : null;
+    return session is Map ? session.cast<String, dynamic>() : null;
+  }
+
   /// Deletes a session (`DELETE /api/sessions/{id}`).
   @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
@@ -1642,13 +1985,15 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
   }
 
   /// Forks a session via lineage (`POST /api/sessions/{id}/fork`) and returns
-  /// the new session id.
+  /// the new session id. The copy is owned by the API server, so Conduit can
+  /// continue it even when the original belongs to another Hermes surface.
   @override
   Future<String> forkSession(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     final data = await _postBoundedCreateObject(
       '$_root/api/sessions/$encodedId/fork',
-      data: null,
+      // The server parses the body as JSON; an empty body is a 400.
+      data: const <String, dynamic>{},
     );
     return _requireOpaqueIdentifier(_sessionId(data));
   }
@@ -1754,6 +2099,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
   }) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded(
@@ -1779,6 +2125,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
             maxCharacters: kMaxHermesJobScheduleCharacters,
           ),
         'enabled': ?enabled,
+        'deliver': ?deliver,
       },
     );
   }
@@ -1824,21 +2171,57 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
   }
 
   /// Resolves a pending approval gate (`POST /v1/runs/{id}/approval`).
+  ///
+  /// Hermes v0.22.1+ accepts only the exact prompt identity it announced:
+  /// `{request_id, execution_generation, choice}` with no other keys, and
+  /// answers `{status: "resolved" | "already_resolved"}`. When the approval
+  /// event carried an [executionGeneration], that body is sent; otherwise the
+  /// older tolerant body is kept for servers that predate it.
   @override
   Future<void> resolveApproval(
     String runId, {
     required String approvalId,
     required bool approved,
+    int? executionGeneration,
+    String? choice,
+  }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
+    final answer = choice ?? (approved ? 'once' : 'deny');
+    await _requestAndConsumeBounded(
+      'POST',
+      '$_root/v1/runs/$encodedRunId/approval',
+      data: executionGeneration != null
+          ? <String, dynamic>{
+              'request_id': approvalId,
+              'execution_generation': executionGeneration,
+              'choice': answer,
+            }
+          : <String, dynamic>{
+              'choice': answer,
+              'approval_id': approvalId,
+              'approved': approved,
+              'decision': approved ? 'approve' : 'deny',
+            },
+    );
+  }
+
+  /// Answers a run's question (`POST /v1/runs/{id}/clarify`, v0.22.3+):
+  /// exactly the prompt's id, its execution generation, and the [answer]
+  /// (empty skips it; a multi-select answer is a JSON array string).
+  Future<void> answerClarify(
+    String runId, {
+    required String promptId,
+    required int executionGeneration,
+    required String answer,
   }) async {
     final encodedRunId = Uri.encodeComponent(runId);
     await _requestAndConsumeBounded(
       'POST',
-      '$_root/v1/runs/$encodedRunId/approval',
-      data: {
-        'choice': approved ? 'once' : 'deny',
-        'approval_id': approvalId,
-        'approved': approved,
-        'decision': approved ? 'approve' : 'deny',
+      '$_root/v1/runs/$encodedRunId/clarify',
+      data: <String, dynamic>{
+        'request_id': promptId,
+        'execution_generation': executionGeneration,
+        'answer': answer,
       },
     );
   }

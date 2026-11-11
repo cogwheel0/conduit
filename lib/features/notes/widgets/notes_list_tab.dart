@@ -19,32 +19,21 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
-import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
-import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
+import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/widgets/conversation_tile.dart';
+import '../../navigation/widgets/sidebar_section_header.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
 import '../providers/notes_providers.dart';
 import '../utils/note_context_actions.dart';
-
-/// Chevron for notes list section headers — matches chats drawer disclosure.
-IconData _notesListDisclosureIcon(bool isExpanded) {
-  if (Platform.isIOS) {
-    return isExpanded
-        ? CupertinoIcons.chevron_down
-        : CupertinoIcons.chevron_right;
-  }
-  return isExpanded ? Icons.expand_more : Icons.chevron_right_rounded;
-}
 
 /// Simplified notes list for the sidebar Notes tab.
 class NotesListTab extends ConsumerStatefulWidget {
@@ -207,123 +196,60 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     );
   }
 
-  Widget _buildNotesPinnedHeader(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    final expanded = ref.watch(notesShowPinnedProvider);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          ConduitHaptics.selectionClick();
-          ref.read(notesShowPinnedProvider.notifier).toggle();
-        },
-        child: Row(
-          children: [
-            Icon(
-              _notesListDisclosureIcon(expanded),
-              color: theme.iconSecondary,
-              size: IconSize.listItem,
-            ),
-            const SizedBox(width: Spacing.xxs),
-            Text(
-              l10n.pinned,
-              style: AppTypography.labelStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w700,
-                decoration: TextDecoration.none,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNotesRecentHeader(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
-    final expanded = ref.watch(notesShowRecentProvider);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          ConduitHaptics.selectionClick();
-          ref.read(notesShowRecentProvider.notifier).toggle();
-        },
-        child: Row(
-          children: [
-            Icon(
-              _notesListDisclosureIcon(expanded),
-              color: theme.iconSecondary,
-              size: IconSize.listItem,
-            ),
-            const SizedBox(width: Spacing.xxs),
-            Text(
-              l10n.recent,
-              style: AppTypography.labelStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w700,
-                decoration: TextDecoration.none,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNotesListItem({
-    required int index,
+  /// The rows the list shows, in order: Pinned, then Recent, each under a
+  /// header that collapses it, as the Chats tab lists chats. Builders keep
+  /// row construction lazy.
+  List<Widget Function()> _listEntries({
     required AppLocalizations l10n,
     required List<Note> pinnedNotes,
     required List<Note> otherNotes,
-    required bool hasPinnedSection,
-    required bool hasRecentSection,
-    required bool needsSectionGap,
-    required bool showPinned,
-    required bool showRecent,
   }) {
-    var cursor = 0;
+    final entries = <Widget Function()>[];
+    var isFirst = true;
+    bool nextIsFirst() {
+      final first = isFirst;
+      isFirst = false;
+      return first;
+    }
 
-    if (hasPinnedSection) {
-      if (index == cursor) {
-        return _buildNotesPinnedHeader(l10n);
-      }
-      cursor++;
+    if (pinnedNotes.isNotEmpty) {
+      final showPinned = ref.watch(notesShowPinnedProvider);
+      final first = nextIsFirst();
+      entries.add(
+        () => SidebarSectionHeader(
+          key: const ValueKey<String>('notes-section-pinned'),
+          title: l10n.pinned,
+          isFirst: first,
+          isExpanded: showPinned,
+          onToggle: () => ref.read(notesShowPinnedProvider.notifier).toggle(),
+        ),
+      );
       if (showPinned) {
-        final pinnedEnd = cursor + pinnedNotes.length;
-        if (index < pinnedEnd) {
-          final note = pinnedNotes[index - cursor];
-          return _buildNoteTile(note);
+        for (final note in pinnedNotes) {
+          entries.add(() => _buildNoteTile(note));
         }
-        cursor = pinnedEnd;
       }
     }
 
-    if (needsSectionGap) {
-      if (index == cursor) {
-        return const SizedBox(height: Spacing.md);
-      }
-      cursor++;
-    }
-
-    if (hasRecentSection) {
-      if (index == cursor) {
-        return _buildNotesRecentHeader(l10n);
-      }
-      cursor++;
+    if (otherNotes.isNotEmpty) {
+      final showRecent = ref.watch(notesShowRecentProvider);
+      final first = nextIsFirst();
+      entries.add(
+        () => SidebarSectionHeader(
+          key: const ValueKey<String>('notes-section-recent'),
+          title: l10n.recent,
+          isFirst: first,
+          isExpanded: showRecent,
+          onToggle: () => ref.read(notesShowRecentProvider.notifier).toggle(),
+        ),
+      );
       if (showRecent) {
-        final recentEnd = cursor + otherNotes.length;
-        if (index < recentEnd) {
-          final note = otherNotes[index - cursor];
-          return _buildNoteTile(note);
+        for (final note in otherNotes) {
+          entries.add(() => _buildNoteTile(note));
         }
       }
     }
-
-    assert(false, 'notes list item index out of range: $index');
-    return const SizedBox.shrink();
+    return entries;
   }
 
   @override
@@ -358,28 +284,11 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             final otherNotes = noteList
                 .where((note) => !note.isPinned)
                 .toList(growable: false);
-            final hasPinnedSection = pinnedNotes.isNotEmpty;
-            final showPinned = ref.watch(notesShowPinnedProvider);
-            final showRecent = ref.watch(notesShowRecentProvider);
-            final needsSectionGap = hasPinnedSection && otherNotes.isNotEmpty;
-            final hasRecentSection = otherNotes.isNotEmpty;
-
-            var itemCount = 0;
-            if (hasPinnedSection) {
-              itemCount += 1;
-              if (showPinned) {
-                itemCount += pinnedNotes.length;
-              }
-            }
-            if (needsSectionGap) {
-              itemCount += 1;
-            }
-            if (hasRecentSection) {
-              itemCount += 1;
-              if (showRecent) {
-                itemCount += otherNotes.length;
-              }
-            }
+            final entries = _listEntries(
+              l10n: l10n,
+              pinnedNotes: pinnedNotes,
+              otherNotes: otherNotes,
+            );
 
             final list = ListView.builder(
               controller: _scrollController,
@@ -389,20 +298,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                 bottom: sidebarTabContentBottomPadding(context),
               ),
               physics: platformAlwaysScrollablePhysics(context),
-              itemCount: itemCount,
-              itemBuilder: (context, index) {
-                return _buildNotesListItem(
-                  index: index,
-                  l10n: l10n,
-                  pinnedNotes: pinnedNotes,
-                  otherNotes: otherNotes,
-                  hasPinnedSection: hasPinnedSection,
-                  hasRecentSection: hasRecentSection,
-                  needsSectionGap: needsSectionGap,
-                  showPinned: showPinned,
-                  showRecent: showRecent,
-                );
-              },
+              itemCount: entries.length,
+              itemBuilder: (context, index) => entries[index](),
             );
             final refreshable = RefreshIndicator.adaptive(
               edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
@@ -454,10 +351,6 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final timeAgo = LocaleDisplayFormatters.compactRelativeTime(
-      context,
-      note.updatedDateTime,
-    );
 
     return ConduitContextMenu(
       actions: actions,
@@ -471,7 +364,6 @@ class _NoteListTile extends StatelessWidget {
           if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
           if (readOnly) l10n.readOnly,
           if (note.isPinned) l10n.pinned,
-          timeAgo,
         ].join('. '),
         tintKey: ValueKey<String>('note-sidebar-selected-${note.id}'),
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
@@ -482,32 +374,14 @@ class _NoteListTile extends StatelessWidget {
               : l10n.sharedFolderOwner(ownerName!),
           selected: selected,
           titleFontWeight: FontWeight.w400,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (readOnly) ...[
-                Icon(
+          trailing: readOnly
+              ? Icon(
                   Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
                   key: ValueKey<String>('note-sidebar-read-only-${note.id}'),
                   size: IconSize.xs,
-                  color: theme.textSecondary.withValues(alpha: Alpha.secondary),
-                ),
-                const SizedBox(width: Spacing.xs),
-              ],
-              if (note.isPinned) ...[
-                Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                timeAgo,
-                key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
-                maxLines: 1,
-                style: AppTypography.bodySmallStyle.copyWith(
-                  color: theme.textSecondary.withValues(alpha: Alpha.secondary),
-                ),
-              ),
-            ],
-          ),
+                  color: theme.textSecondary,
+                )
+              : null,
         ),
       ),
     );

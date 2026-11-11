@@ -9,7 +9,6 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
-import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
@@ -174,41 +173,20 @@ class WorkspaceEditorScaffold extends StatelessWidget {
           ? AdaptiveRouteShell(
               backgroundColor: pageBackground,
               appBar: _compactAppBar(context),
-              body: _compactBody(context, content, pageBackground),
+              body: _compactBody(context, content),
             )
           : content,
     );
   }
 
-  Widget _compactBody(
-    BuildContext context,
-    Widget content,
-    Color pageBackground,
-  ) {
-    final usesCupertinoChrome = context.usesCupertinoChrome;
-    final topInset = usesCupertinoChrome
+  Widget _compactBody(BuildContext context, Widget content) {
+    final topInset = context.usesCupertinoChrome
         ? MediaQuery.paddingOf(context).top +
               conduitAdaptiveToolbarHeightOf(context)
         : 0.0;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Padding(
-            padding: EdgeInsets.only(top: topInset),
-            child: Material(color: Colors.transparent, child: content),
-          ),
-        ),
-        if (usesCupertinoChrome)
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: ConduitChromeGradientFade.top(
-              contentHeight: topInset,
-              backgroundColor: pageBackground,
-            ),
-          ),
-      ],
+    return Padding(
+      padding: EdgeInsets.only(top: topInset),
+      child: Material(color: Colors.transparent, child: content),
     );
   }
 

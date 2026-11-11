@@ -36,6 +36,8 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
     this.result,
     this.files,
     this.embeds,
+    this.runningLabel,
+    this.completedLabel,
   });
 
   final String id;
@@ -46,6 +48,13 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
   final Object? result;
   final Object? files;
   final Object? embeds;
+
+  /// What the call is doing, in the user's language, as the model described
+  /// it for Open WebUI 0.13.1's tool call labels; null without one.
+  final String? runningLabel;
+
+  /// What the call did, likewise; null without one.
+  final String? completedLabel;
 }
 
 /// An image the model made itself, as a Responses API `image_generation_call`
@@ -125,14 +134,22 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
             (item['status'] == 'pending' || item['status'] == 'in_progress')) {
           continue;
         }
+        if (itemType == 'function_call' && _isHiddenToolCall(item)) continue;
         final callId =
             item['call_id']?.toString() ?? item['id']?.toString() ?? '';
         final resultItem = toolOutputs[callId];
+        final labels = item['display_labels'];
         blocks.add(
           StructuredOutputToolCallBlock(
             id: callId,
             name: _toolName(item, itemType),
-            arguments: item['arguments'] ?? item['input'] ?? '',
+            arguments: _shownToolArguments(
+              item['arguments'] ?? item['input'] ?? '',
+            ),
+            runningLabel: _label(labels is Map ? labels['running'] : null),
+            completedLabel:
+                _label(labels is Map ? labels['completed'] : null) ??
+                _label(item['display_label']),
             status: itemType == 'function_call'
                 ? item['status']?.toString() ?? ''
                 : null,
@@ -348,6 +365,53 @@ bool _isDoneStatus(Object? status, {bool includeCompleted = true}) {
   return (includeCompleted && normalized == 'completed') ||
       normalized == 'failed' ||
       normalized == 'incomplete';
+}
+
+/// Mirrors upstream `isHiddenToolCall`: Open WebUI 0.13.1 keeps internal
+/// context (memory recall, the skills list, attached knowledge, skill
+/// preloads, Tool Search's dispatchers) as tool calls marked `hidden`, which
+/// the web client never shows, nor their results. One that still waits on
+/// the user stays visible so it can be answered.
+bool _isHiddenToolCall(Map<String, dynamic> item) =>
+    item['hidden'] == true &&
+    !const {'pending', 'queued', 'requires_approval'}.contains(item['status']);
+
+/// Arguments Open WebUI 0.13.1 adds to every tool for itself when tool call
+/// labels or Auto approval are on. The server takes them out of a call before
+/// it runs, but they stream with the call until then.
+const _serverToolArgumentKeys = {'__labels__', '__approval__'};
+
+/// [arguments] without [_serverToolArgumentKeys], once they are complete
+/// JSON. A fragment still streaming is left as it is.
+Object? _shownToolArguments(Object? arguments) {
+  if (arguments is Map) {
+    if (!arguments.keys.any(_serverToolArgumentKeys.contains)) {
+      return arguments;
+    }
+    return {
+      for (final entry in arguments.entries)
+        if (!_serverToolArgumentKeys.contains(entry.key))
+          entry.key: entry.value,
+    };
+  }
+  if (arguments is! String ||
+      !_serverToolArgumentKeys.any(arguments.contains)) {
+    return arguments;
+  }
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(arguments);
+  } catch (_) {
+    return arguments;
+  }
+  if (decoded is! Map) return arguments;
+  return jsonEncode(_shownToolArguments(decoded));
+}
+
+String? _label(Object? value) {
+  if (value is! String) return null;
+  final label = value.trim();
+  return label.isEmpty ? null : label;
 }
 
 String _toolName(Map<String, dynamic> item, String itemType) {

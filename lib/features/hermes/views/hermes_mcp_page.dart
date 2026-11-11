@@ -51,7 +51,12 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   }
 
   void _refresh() {
-    if (mounted) setState(() => _servers = _load());
+    if (!mounted) return;
+    // A block: setState refuses a callback that returns a Future.
+    final servers = _load();
+    setState(() {
+      _servers = servers;
+    });
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -77,7 +82,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add MCP server'),
+        title: const Text('Add MCP Server'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -111,7 +116,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                 enableSuggestions: false,
                 autocorrect: false,
                 decoration: const InputDecoration(
-                  labelText: 'API key (optional)',
+                  labelText: 'API Key (Optional)',
                 ),
               ),
             ],
@@ -172,14 +177,18 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final selected = await showDialog<HermesMcpCatalogEntry>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Add catalog server'),
+        title: const Text('Add Catalog Server'),
         children: [
           for (final entry in entries)
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, entry),
+              // Offered only when what it needs can be sent with it.
+              onPressed: entry.canAdd
+                  ? () => Navigator.pop(context, entry)
+                  : null,
               child: ListTile(
+                enabled: entry.canAdd,
                 title: Text(entry.name),
-                subtitle: Text(entry.description),
+                subtitle: Text(_catalogSubtitle(entry)),
               ),
             ),
         ],
@@ -188,8 +197,116 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     if (selected == null) return;
     final name = selected.name;
     if (name.isEmpty) return;
-    await _service.addMcpPreset(name);
-    _refresh();
+    final credentials = await _askCatalogCredentials(selected);
+    if (credentials == null) return;
+    final bool stillInstalling;
+    try {
+      stillInstalling = await _service.addMcpCatalogEntry(
+        selected,
+        credentials: credentials,
+      );
+    } finally {
+      // Shows what Hermes has even when a step after the install failed,
+      // so the entry is not asked for again.
+      _refresh();
+    }
+    if (stillInstalling) {
+      // Listed, and ready to sign in to, only once Hermes has built it.
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: selected.usesOAuth
+            ? 'Hermes is still installing $name. Once it is listed, sign in '
+                  'with Authenticate from its menu.'
+            : 'Hermes is still installing $name. It is listed once done.',
+      );
+      return;
+    }
+    // A server Hermes set up to sign in with OAuth goes straight on to
+    // signing in. When the list cannot be read (it says so itself), the
+    // catalog says whether it signs in that way.
+    List<HermesMcpServer>? servers;
+    try {
+      servers = await _servers;
+    } catch (_) {}
+    final signsIn = servers == null
+        ? selected.usesOAuth
+        : servers.any(
+            (server) => server.name == name && server.auth == 'oauth',
+          );
+    if (!mounted || !signsIn) return;
+    try {
+      await _oauth(name);
+    } catch (error) {
+      // Added all the same: say so, and where to sign in again.
+      DebugLogger.warning(
+        'mcp-oauth-after-add-failed',
+        scope: 'hermes/mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message:
+            "Added $name, but signing in didn't finish. Use Authenticate "
+            'from its menu to try again.',
+      );
+    }
+  }
+
+  String _catalogSubtitle(HermesMcpCatalogEntry entry) => [
+    if (entry.description.isNotEmpty) entry.description,
+    if (entry.credentials.isNotEmpty)
+      entry.canAdd
+          ? 'Asks for ${entry.credentials.map((it) => it.name).join(', ')}'
+          : 'Needs ${entry.credentials.map((it) => it.name).join(', ')}, '
+                'which this connection cannot send. Add it from Hermes on '
+                'your computer.',
+  ].join('\n');
+
+  /// Asks for each value [entry] needs, one at a time and hidden as typed,
+  /// as the catalog does not say which are secret. Null when cancelled.
+  /// The values are only passed on to the add, never kept.
+  Future<Map<String, String>?> _askCatalogCredentials(
+    HermesMcpCatalogEntry entry,
+  ) async {
+    final answers = <String, String>{};
+    final credentials = entry.credentials;
+    for (var index = 0; index < credentials.length; index++) {
+      final credential = credentials[index];
+      String? value;
+      // A required value is asked for again until it is given.
+      while (value == null || (credential.required && value.trim().isEmpty)) {
+        if (!mounted) return null;
+        value = await AdaptiveAlertDialog.inputShow(
+          context: context,
+          title: credential.prompt ?? credential.name,
+          message: 'Hermes keeps it as ${credential.name} for ${entry.name}.',
+          input: AdaptiveAlertDialogInput(
+            placeholder: credential.required
+                ? '${credential.name} (required)'
+                : '${credential.name} (optional)',
+            obscureText: true,
+            autocorrect: false,
+          ),
+          actions: [
+            AlertAction(
+              title: 'Cancel',
+              style: AlertActionStyle.cancel,
+              onPressed: () {},
+            ),
+            AlertAction(
+              title: index == credentials.length - 1 ? 'Add' : 'Next',
+              style: AlertActionStyle.primary,
+              onPressed: () {},
+            ),
+          ],
+        );
+        if (value == null) return null;
+      }
+      answers[credential.name] = value;
+    }
+    return hermesMcpCatalogCredentialValues(entry, answers);
   }
 
   Future<void> _setApiKey(String name) async {
@@ -197,14 +314,14 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Set API key for $name'),
+        title: Text('Set API Key for $name'),
         content: TextField(
           magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           controller: value,
           obscureText: true,
           enableSuggestions: false,
           autocorrect: false,
-          decoration: const InputDecoration(labelText: 'API key'),
+          decoration: const InputDecoration(labelText: 'API Key'),
         ),
         actions: [
           TextButton(
@@ -296,10 +413,10 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
         title: const Text('Hermes MCP'),
         actions: [
           AdaptiveTooltip(
-            message: 'Add from catalog',
+            message: 'Add from Catalog',
             excludeFromSemantics: true,
             child: ConduitAdaptiveAppBarIconButton(
-              semanticLabel: 'Add from catalog',
+              semanticLabel: 'Add from Catalog',
               iosSymbol: 'sparkles',
               onPressed: () => unawaited(_run(_addPreset)),
               icon: Icons.auto_awesome_outlined,
@@ -373,15 +490,15 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                             if (supportsCredentialUpdate)
                               const AdaptivePopupMenuItem<String>(
                                 value: 'key',
-                                label: 'Set API key',
+                                label: 'Set API Key',
                               ),
                             const AdaptivePopupMenuItem<String>(
                               value: 'enable',
-                              label: 'Enable tools',
+                              label: 'Enable Tools',
                             ),
                             const AdaptivePopupMenuItem<String>(
                               value: 'disable',
-                              label: 'Disable tools',
+                              label: 'Disable Tools',
                             ),
                             const AdaptivePopupMenuItem<String>(
                               value: 'remove',
@@ -402,7 +519,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                 onPressed: () => unawaited(_run(_add)),
                 sfSymbol: const SFSymbol('plus'),
                 style: AdaptiveButtonStyle.prominentGlass,
-                semanticLabel: 'Add MCP server',
+                semanticLabel: 'Add MCP Server',
                 minSize: const Size.square(56),
                 padding: EdgeInsets.zero,
               ),

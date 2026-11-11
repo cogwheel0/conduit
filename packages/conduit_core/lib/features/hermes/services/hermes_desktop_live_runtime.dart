@@ -7,8 +7,31 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return _connecting ??= _connect().whenComplete(() => _connecting = null);
   }
 
+  /// Connects, waiting out a gateway that is starting or draining: its
+  /// listener refuses everything until it is ready, so the attempt is
+  /// repeated a few times before Conduit reports it.
   Future<void> _connect() async {
     _emitTurnState(HermesDesktopTurnState.reconnecting);
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _connectOnce();
+      } catch (error) {
+        if (_closed || !hermesDesktopGatewayNotReady(error)) rethrow;
+        if (attempt >= gatewayStartRetryDelays.length) {
+          throw const HermesDesktopGatewayStartingException();
+        }
+        DebugLogger.warning(
+          'gateway-not-ready',
+          scope: 'hermes/desktop/ws',
+          data: {'attempt': attempt + 1},
+        );
+        await Future<void>.delayed(gatewayStartRetryDelays[attempt]);
+        if (_closed) throw StateError('Hermes service is closed.');
+      }
+    }
+  }
+
+  Future<void> _connectOnce() async {
     final status = await statusProbe(refresh: true);
     if (_closed) throw StateError('Hermes service is closed.');
     final query = <String, String>{};
@@ -43,8 +66,24 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       return;
     }
     _stateSubscription ??= _rpc.events.listen((event) {
+      if (_rpc.sessionAuthority) _observeCanonicalEvent(event);
       final startedBuffering = _eventBuffer.add(event);
-      if (event.type == 'session.info') {
+      // Buffered: no turn shows this session's events, so a restored chat
+      // re-reads its cards once the saved decisions changed. Only a change
+      // counts: reading the chat resumes it, which replays its open requests,
+      // and a replay that changed nothing must not read it again.
+      final sessionId = event.sessionId;
+      final buffered = sessionId != null && _eventBuffer.hasPending(sessionId);
+      void refreshRestoredCards(bool changed) {
+        final storedId = _storedIdForRuntime(sessionId);
+        if (changed && buffered && storedId != null) {
+          _emitTranscriptChange(storedId);
+        }
+      }
+
+      // Partial infos (a forwarded owner's relay, a service-tier change)
+      // carry no `running` and say nothing about the turn.
+      if (event.type == 'session.info' && event.payload['running'] is bool) {
         // Update BOTH keys. `session.create` can omit `running`, which parks
         // the stored id at unsupportedGateway; a runtime-only update never
         // clears that, so the second turn onward fails the safety gate with
@@ -60,19 +99,38 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.request' ||
           event.type == 'secret.request' ||
           event.type == 'mcp.setup.request') {
-        unawaited(_persistPendingDecisionEvent(event));
+        unawaited(
+          _persistPendingDecisionEvent(
+            event,
+          ).then(refreshRestoredCards, onError: (Object _) {}),
+        );
       }
+      if (event.type == 'connection.update') {
+        _administration.openApprovedConnectionLink(event.payload);
+      }
+      // The agent's task list: a full snapshot either way.
+      if (event.type == 'todo.updated' ||
+          (event.type == 'tool.complete' && event.payload['todos'] is List)) {
+        _adoptTodoState(event.sessionId, event.payload);
+      }
+      if (event.type == 'session.info') {
+        _adoptWorkingDirectory(event.sessionId, event.payload['cwd']);
+      }
+      _observeBackgroundWorkEvent(event);
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
           event.type == 'clarify.expire' ||
           event.type == 'sudo.expire' ||
           event.type == 'secret.expire' ||
           event.type == 'mcp.setup.expire') {
-        unawaited(_resolvePendingDecisionEvent(event));
+        unawaited(
+          _resolvePendingDecisionEvent(
+            event,
+          ).then(refreshRestoredCards, onError: (Object _) {}),
+        );
       }
       if (startedBuffering &&
           (event.type == 'message.complete' ||
-              event.type.endsWith('.request') ||
               (event.type == 'session.info' &&
                   event.payload['running'] == false))) {
         final storedId = _storedIdForRuntime(event.sessionId);
@@ -82,14 +140,18 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _emitTurnState(HermesDesktopTurnState.idle);
   }
 
-  Future<void> _resolvePendingDecisionEvent(HermesDesktopEvent event) async {
+  /// Removes the saved decision [event] closes; resolves to whether one
+  /// was saved.
+  Future<bool> _resolvePendingDecisionEvent(HermesDesktopEvent event) async {
     final runtimeId = validateHermesOpaqueIdentifier(event.sessionId);
     final requestId = validateHermesOpaqueIdentifier(
       event.payload['request_id'] ?? event.payload['id'],
       sensitiveValues: config.sensitiveValues,
     );
-    if (runtimeId == null || requestId == null) return;
-    await HermesPendingDecisionStore.resolve(
+    if (runtimeId == null || requestId == null) return false;
+    // A resume saves what the buffer holds: a closed request leaves it too.
+    _eventBuffer.dropRequest(runtimeId, requestId);
+    return HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
       runtimeId: runtimeId,
@@ -206,9 +268,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     'profile': _sessionProfiles[storedId] ?? config.desktopProfile,
   };
 
+  /// Attaches [storedId] on this socket and reads its state. With [byTitle]
+  /// a session authority looks [storedId] up as a title (a bot's Bot Chat);
+  /// earlier gateways resolve titles from `session_id` itself.
   Future<({HermesSessionBinding binding, bool? running})> _resumeSnapshot(
     String storedId, {
     bool refresh = false,
+    bool byTitle = false,
   }) async {
     final existing = _bindings[storedId];
     if (!refresh &&
@@ -219,11 +285,16 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     await _ensureConnected();
     _emitTurnState(HermesDesktopTurnState.synchronizing);
+    // A prompt settled from here on is stale in the snapshot asked for now.
+    final settleMark = _rpc.canonicalSettleMark;
     final result = _object(
       await _rpc.request<Object?>(
         'session.resume',
         params: {
-          'session_id': storedId,
+          if (byTitle && _canonical)
+            'title': storedId
+          else
+            'session_id': storedId,
           'omit_messages': true,
           ..._sessionScope(storedId),
         },
@@ -240,6 +311,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     final running = result['running'] ?? info['running'];
     _recordDesktopContract(info);
     final binding = HermesSessionBinding(storedId: stored, runtimeId: runtime);
+    _adoptWorkingDirectory(stored, info['cwd']);
     final profile = _sessionProfiles[storedId];
     if (profile != null) _sessionProfiles[stored] = profile;
     _bindings[storedId] = binding;
@@ -261,55 +333,25 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     for (final event in _eventBuffer.pending(runtime)) {
       await _persistPendingDecisionEvent(event);
     }
-    await _restorePendingFromResume(result, binding);
+    // Questions asked while no socket of ours was attached. Replayed as
+    // events: the events listener persists them, and an open turn shows
+    // them once it adopts this runtime id.
+    if (_canonical) {
+      _adoptCanonicalSnapshot(runtime, result, settledSince: settleMark);
+      await _settleUnlistedCanonicalDecisions(
+        binding,
+        result['prompts'],
+        openRequests: result['open_requests'],
+        settledSince: settleMark,
+      );
+    }
+    _adoptTodoState(stored, result['todo_state']);
+    _rpc.replayOpenRequests(
+      result['open_requests'],
+      settledSince: settleMark,
+    );
+    _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
-  }
-
-  Future<void> _restorePendingFromResume(
-    Map<String, dynamic> result,
-    HermesSessionBinding binding,
-  ) async {
-    final approval = _object(result['pending_approval']);
-    final approvalId = validateHermesOpaqueIdentifier(
-      approval['request_id'],
-      sensitiveValues: config.sensitiveValues,
-    );
-    if (approvalId != null) {
-      final command = approval['command']?.toString() ?? '';
-      final description = approval['description']?.toString() ?? '';
-      await HermesPendingDecisionStore.upsert(
-        origin: _origin,
-        connectionId: config.connectionId,
-        storedSessionId: binding.storedId,
-        runtimeId: binding.runtimeId,
-        requestId: approvalId,
-        kind: HermesPendingDesktopDecisionKind.approval,
-        prompt: command.isNotEmpty ? command : description,
-        choices: _desktopDecisionChoices(approval['choices']),
-        sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
-      );
-    }
-    final clarify = _object(result['pending_clarify']);
-    final clarifyId = validateHermesOpaqueIdentifier(
-      clarify['request_id'],
-      sensitiveValues: config.sensitiveValues,
-    );
-    if (clarifyId != null) {
-      await HermesPendingDecisionStore.upsert(
-        origin: _origin,
-        connectionId: config.connectionId,
-        storedSessionId: binding.storedId,
-        runtimeId: binding.runtimeId,
-        requestId: clarifyId,
-        kind: HermesPendingDesktopDecisionKind.clarification,
-        prompt: clarify['question']?.toString(),
-        choices: _desktopDecisionChoices(clarify['choices']),
-        multiSelect: clarify['multi_select'] == true,
-        sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
-      );
-    }
   }
 
   Future<String> _runtimeCreateSession({
@@ -341,22 +383,65 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       fast: options.fast,
     );
     await _ensureConnected();
-    final result = _object(
-      await _rpc.request<Object?>(
-        'session.create',
-        params: {
-          'source': 'mobile',
-          'close_on_disconnect': false,
-          'model': ?normalized.model,
-          'provider': ?normalized.provider,
-          'reasoning_effort': ?normalized.reasoningEffort,
-          'fast': ?normalized.fast,
-          'profile': ?profile,
-          if (hidden) 'hidden': true,
-          if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
-        },
-      ),
-    );
+    final trimmedTitle = title?.trim();
+    final Map<String, Object?> params;
+    String? createKey;
+    if (_canonical) {
+      // A session authority treats a titled create as "open the session
+      // with this title, or make it": only a bot's Bot Chat wants that.
+      // Other chats are titled by Hermes from their first prompt.
+      final canonicalTitle = hidden && trimmedTitle?.isNotEmpty == true
+          ? trimmedTitle
+          : null;
+      final identity = hermesCanonicalCreateParams(
+        requestId: '',
+        model: normalized.model,
+        provider: normalized.provider,
+        reasoning: normalized.reasoningEffort,
+        fast: normalized.fast,
+        profile: profile,
+        hidden: hidden,
+        title: canonicalTitle,
+      );
+      createKey = jsonEncode(identity);
+      params = {
+        ...identity,
+        // Claimed by one create only: another chat's create with the same
+        // options gets its own id, and so its own session.
+        'request_id':
+            _canonicalCreateIds.remove(createKey) ?? const Uuid().v4(),
+      };
+    } else {
+      params = {
+        'source': 'mobile',
+        'close_on_disconnect': false,
+        'model': ?normalized.model,
+        'provider': ?normalized.provider,
+        'reasoning_effort': ?normalized.reasoningEffort,
+        'fast': ?normalized.fast,
+        'profile': ?profile,
+        if (hidden) 'hidden': true,
+        if (trimmedTitle != null && trimmedTitle.isNotEmpty)
+          'title': trimmedTitle,
+      };
+    }
+    final Map<String, dynamic> result;
+    try {
+      result = _object(
+        await _rpc.request<Object?>('session.create', params: params),
+      );
+    } on HermesDesktopRpcException catch (error) {
+      // A create whose answer was lost may have made the session: the same
+      // request id makes the next attempt answer with that session.
+      if (createKey != null && error.deliveryAmbiguous) {
+        if (_canonicalCreateIds.length >= 16) {
+          _canonicalCreateIds.remove(_canonicalCreateIds.keys.first);
+        }
+        _canonicalCreateIds[createKey] = '${params['request_id']}';
+      }
+      rethrow;
+    }
+    if (createKey != null) _canonicalCreateIds.remove(createKey);
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
     final stored = validateHermesOpaqueIdentifier(result['stored_session_id']);
@@ -369,8 +454,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
     _bindingSocketGenerations[stored] = _rpc.socketGeneration;
     _appliedSessionOptions[stored] = normalized.fingerprint;
+    _recordAppliedModel(stored, selection);
     final info = _object(result['info']);
     _recordDesktopContract(info);
+    _adoptWorkingDirectory(stored, info['cwd']);
+    if (_canonical) _adoptCanonicalSnapshot(runtime, result);
     final running = result['running'] ?? info['running'];
     if (running is bool) {
       _applyAuthoritativeRunning(running, storedId: stored, runtimeId: runtime);
@@ -381,18 +469,36 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return stored;
   }
 
-  Future<List<Map<String, dynamic>>> _runtimeListSessions() async => _objects(
-    await _requestJson(
-      'GET',
-      '/api/sessions',
-      query: {'limit': 100, 'offset': 0, 'order': 'recent'},
-    ),
-    'sessions',
-  );
+  Future<List<Map<String, dynamic>>> _runtimeListSessions() async {
+    try {
+      return _objects(
+        await _requestJson(
+          'GET',
+          '/api/sessions',
+          query: {'limit': 100, 'offset': 0, 'order': 'recent'},
+          readErrorDetail: true,
+        ),
+        'sessions',
+      );
+    } on HermesDesktopHttpException catch (error) {
+      // Hermes 0.22+ browses read-only: a profile whose gateway never ran
+      // has no session store yet, which is an empty list, not a failure.
+      if (_hermesSessionStoreNotInitialized(error)) return const [];
+      rethrow;
+    }
+  }
 
+  bool _hermesSessionStoreNotInitialized(HermesDesktopHttpException error) =>
+      error.status == 503 &&
+      (error.detail?.startsWith('Session store is not initialized') ?? false);
+
+  /// [current] reads what Hermes stores now; otherwise a read shorter than
+  /// the last one gives way to it (a read can miss rows a turn is still
+  /// writing).
   Future<List<Map<String, dynamic>>> _runtimeGetSessionMessages(
     String id, {
     CancelToken? cancelToken,
+    bool current = false,
   }) async {
     // Hermes persists session.create lazily; resume fails until the first prompt.
     if (_freshSessionIds.contains(id) &&
@@ -435,13 +541,20 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     Future<List<Map<String, dynamic>>> load() async {
       if (isBotChat && runtimeId != null) {
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
-        final messages = _objects(
-          await _rpc.request<Object?>(
-            'session.history',
-            params: {'session_id': runtimeId, ..._sessionScope(storedId)},
-          ),
-          'messages',
+        final history = await _rpc.request<Object?>(
+          'session.history',
+          params: {'session_id': runtimeId, ..._sessionScope(storedId)},
         );
+        final rows = history is Map ? history['messages'] : null;
+        // A read for changing the history must hold every row, as the
+        // paged read does.
+        if (current && rows is List && rows.length > 10000) {
+          throw StateError(
+            'This Hermes chat is too long to change from here: it has more '
+            'than 10000 messages.',
+          );
+        }
+        final messages = _objects(history, 'messages');
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
         return messages;
       }
@@ -461,6 +574,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           ),
           'messages',
         ),
+        complete: current,
       );
     }
 
@@ -477,10 +591,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // A failed resume left the connection state at "synchronizing"; the
     // transcript is loaded, and no turn is known to be running.
     if (binding == null) _emitTurnState(HermesDesktopTurnState.idle);
-    final usable = preferLastUsableHermesTranscript(
-      _lastTranscripts[id] ?? const [],
-      messages,
-    );
+    final usable = current
+        ? messages
+        : preferLastUsableHermesTranscript(
+            _lastTranscripts[id] ?? const [],
+            messages,
+          );
     _lastTranscripts[id] = usable;
     return usable;
   }
@@ -520,6 +636,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
 
   Future<void> _runtimeRenameSession(String id, String title) async {
     final binding = await _resume(id);
+    if (_canonical) {
+      await _canonicalMutate(binding, 'rename', {
+        'title': title,
+      }, fenceGeneration: false);
+      return;
+    }
     await _rpc.request<Object?>(
       'session.title',
       params: {
@@ -538,13 +660,19 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (binding != null) {
       try {
         binding = await _resume(id);
-        await _rpc.request<Object?>(
-          'session.close',
-          params: {
-            'session_id': binding.runtimeId,
-            ..._sessionScope(binding.storedId),
-          },
-        );
+        if (_canonical) {
+          // A session authority has no close: this socket leaves the
+          // session's events, and the delete below ends it.
+          await _canonicalDetach(binding);
+        } else {
+          await _rpc.request<Object?>(
+            'session.close',
+            params: {
+              'session_id': binding.runtimeId,
+              ..._sessionScope(binding.storedId),
+            },
+          );
+        }
       } catch (error) {
         DebugLogger.warning(
           'session-close-before-delete-failed',
@@ -552,11 +680,16 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           data: {'errorType': error.runtimeType.toString()},
         );
       }
+      // This socket left the session, or may have (a detach whose answer was
+      // lost): should the delete below fail, the chat's next use resumes
+      // (and attaches) it again.
+      final closed = binding;
+      _bindingSocketGenerations.removeWhere(
+        (alias, _) => identical(_bindings[alias], closed),
+      );
     }
-    await _requestJson(
-      'DELETE',
-      '/api/sessions/${Uri.encodeComponent(binding?.storedId ?? id)}',
-      query: _sessionScope(binding?.storedId ?? id),
+    await _deleteStoredSession(
+      binding?.storedId ?? id,
       cancelToken: cancelToken,
     );
     if (binding != null) {
@@ -567,9 +700,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       );
       _lastTranscripts.remove(binding.storedId);
       _sessionProfiles.remove(binding.storedId);
+      _canonicalSessions.remove(binding.runtimeId);
     }
     _lastTranscripts.remove(id);
     _sessionProfiles.remove(id);
+    _canonicalSessions.remove(id);
+    _forgetWorkingDirectory([binding?.storedId, binding?.runtimeId, id]);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
       connectionId: config.connectionId,
@@ -577,21 +713,172 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
   }
 
+  /// Deletes a stored session over REST, fenced (see [_fencedSessionWrite]).
+  Future<void> _deleteStoredSession(
+    String storedId, {
+    CancelToken? cancelToken,
+  }) => _fencedSessionWrite(storedId, 'DELETE', cancelToken: cancelToken);
+
+  /// Sets a stored session's sidebar flags over REST, fenced like a delete.
+  /// The dashboard reads a PATCH's fences and profile from its body.
+  Future<void> _runtimeSetSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final flags = <String, Object?>{
+      'pinned': ?pinned,
+      'archived': ?archived,
+      'hidden': ?hidden,
+    };
+    if (flags.isEmpty) return;
+    await _fencedSessionWrite(
+      _bindings[id]?.storedId ?? id,
+      'PATCH',
+      body: flags,
+    );
+  }
+
+  /// Archived chats, newest first, page by page: archiving is how older
+  /// chats are tidied away, so they can be many more than one page.
+  Future<List<Map<String, dynamic>>> _runtimeListArchivedSessions() async {
+    const pageSize = 100;
+    // Paged until a short page: every archived chat can be reached. The
+    // bound only stops a server that never ends a listing.
+    const maxPages = 200;
+    final sessions = <Map<String, dynamic>>[];
+    for (var page = 0; page < maxPages; page++) {
+      final List<Map<String, dynamic>> rows;
+      try {
+        rows = _objects(
+          await _requestJson(
+            'GET',
+            '/api/sessions',
+            query: {
+              'limit': pageSize,
+              'offset': page * pageSize,
+              'order': 'recent',
+              'archived': 'only',
+            },
+            readErrorDetail: true,
+          ),
+          'sessions',
+        );
+      } on HermesDesktopHttpException catch (error) {
+        if (_hermesSessionStoreNotInitialized(error)) return sessions;
+        rethrow;
+      }
+      sessions.addAll(rows.take(pageSize));
+      if (rows.length < pageSize) break;
+    }
+    return sessions;
+  }
+
+  Future<Map<String, dynamic>?> _runtimeGetSession(String id) async {
+    final storedId = _bindings[id]?.storedId ?? id;
+    try {
+      final data = await _requestJson(
+        'GET',
+        '/api/sessions/${Uri.encodeComponent(storedId)}',
+        query: _sessionScope(storedId),
+      );
+      return data is Map ? Map<String, dynamic>.from(data) : null;
+    } catch (error) {
+      if (_hermesDesktopHttpStatus(error) == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// A session edit over REST ([method] `DELETE` or `PATCH` with [body]).
+  /// Hermes 0.22.3+ fences session edits: the edit must name the revision
+  /// and generation its `mutation-snapshot` reports, under a request id a
+  /// retry can repeat, or it is refused with 409 `client_upgrade_required`.
+  /// An older dashboard has no snapshot route (404) and takes the plain
+  /// edit. A session that no longer exists has nothing to edit.
+  Future<void> _fencedSessionWrite(
+    String storedId,
+    String method, {
+    Map<String, Object?>? body,
+    CancelToken? cancelToken,
+  }) async {
+    final path = '/api/sessions/${Uri.encodeComponent(storedId)}';
+    final scope = _sessionScope(storedId);
+    Map<String, dynamic>? snapshot;
+    try {
+      snapshot = _object(
+        await _requestJson(
+          'GET',
+          '$path/mutation-snapshot',
+          query: scope,
+          cancelToken: cancelToken,
+        ),
+      );
+    } catch (error) {
+      if (_hermesDesktopHttpStatus(error) != 404) rethrow;
+    }
+    if (snapshot != null && snapshot['exists'] == false) return;
+    final revision = snapshot?['runtime_revision'];
+    final generation = snapshot?['runtime_generation'];
+    final fences = <String, Object?>{
+      if (snapshot != null) ...{
+        'request_id': const Uuid().v4(),
+        if (revision is int) 'expected_revision': revision,
+        if (generation is int) 'expected_generation': generation,
+      },
+    };
+    if (body == null) {
+      await _requestJson(
+        method,
+        path,
+        query: {...scope, ...fences},
+        cancelToken: cancelToken,
+      );
+      return;
+    }
+    await _requestJson(
+      method,
+      path,
+      query: scope,
+      body: {...body, ...scope, ...fences},
+      cancelToken: cancelToken,
+    );
+  }
+
   bool _runtimeSessionIdsReferToSameBinding(String left, String right) =>
       left == right ||
       (_bindings[left] != null && identical(_bindings[left], _bindings[right]));
 
-  Future<String> _runtimeForkSession(String id) async {
+  /// Branches session [id]: all of it, or, from a message, the legacy
+  /// wire's first [count] user and assistant rows with text, or a session
+  /// authority's rows through [throughRowId].
+  Future<String> _runtimeForkSession(
+    String id, {
+    int? count,
+    int? throughRowId,
+  }) async {
     final binding = await _resume(id);
-    final result = _object(
-      await _rpc.request<Object?>(
-        'session.branch',
-        params: {
-          'session_id': binding.runtimeId,
-          ..._sessionScope(binding.storedId),
-        },
-      ),
-    );
+    final Map<String, dynamic> result;
+    if (_canonical) {
+      // A session authority branches as an edit of the parent, and attaches
+      // the branch to this socket; its id names it on both sides.
+      final receipt = await _canonicalMutate(binding, 'branch', {
+        'through_message_id': ?throughRowId,
+      });
+      final branch = receipt['branched_session_id'];
+      result = {'session_id': branch, 'stored_session_id': branch};
+    } else {
+      result = _object(
+        await _rpc.request<Object?>(
+          'session.branch',
+          params: {
+            'session_id': binding.runtimeId,
+            'count': ?count,
+            ..._sessionScope(binding.storedId),
+          },
+        ),
+      );
+    }
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
     final stored = validateHermesOpaqueIdentifier(result['stored_session_id']);
     if (runtime == null || stored == null) {
@@ -606,6 +893,152 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // every later call for the fork would target the configured profile.
     final profile = _sessionProfiles[binding.storedId];
     if (profile != null) _sessionProfiles[stored] = profile;
+    // The branch's receipt names only its id: its state, fences and this
+    // socket's subscription come from its own snapshot.
+    if (_canonical) await _resumeSnapshot(stored, refresh: true);
     return stored;
+  }
+
+  /// Drops session [id]'s last user turn and everything after it. False
+  /// when there was no turn to drop.
+  /// [binding]'s fences as the session is now. With [lastRowId], the
+  /// transcript is read after them and must still end at that row: a turn
+  /// stored since then throws, and one stored after the read moves the
+  /// fences, which refuses an edit sent at them.
+  Future<({int revision, int generation})> _canonicalFencesThrough(
+    HermesSessionBinding binding, {
+    int? lastRowId,
+  }) async {
+    final fences = await _canonicalFences(binding, refresh: true);
+    final revision = fences.revision;
+    final generation = fences.generation;
+    if (revision == null || generation == null) {
+      throw StateError('Hermes did not report the chat\'s state.');
+    }
+    if (lastRowId != null) {
+      final transcript = await _runtimeGetSessionMessages(
+        binding.storedId,
+        current: true,
+      );
+      _lastTranscripts.remove(binding.storedId);
+      int? last;
+      for (final row in transcript.reversed) {
+        last = hermesTranscriptRowId(row);
+        if (last != null) break;
+      }
+      if (last != lastRowId) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+    }
+    return (revision: revision, generation: generation);
+  }
+
+  /// The row id of the last turn a user started in session [storedId], as
+  /// the session stores it now.
+  Future<int?> _lastUserRowId(String storedId) async {
+    final transcript = await _runtimeGetSessionMessages(
+      storedId,
+      current: true,
+    );
+    _lastTranscripts.remove(storedId);
+    for (final row in transcript.reversed) {
+      if (hermesTranscriptUserContent(row) != null) {
+        return hermesTranscriptRowId(row);
+      }
+    }
+    return null;
+  }
+
+  Future<bool> _runtimeUndoLastTurn(String id, {int? rowId}) async {
+    final binding = await _resume(id);
+    _lastTranscripts
+      ..remove(id)
+      ..remove(binding.storedId);
+    if (!_canonical) {
+      // The legacy undo names no turn: it drops whichever user turn is last
+      // when it runs, in a session every client attached to it shares.
+      // [rowId] must still be that turn just before the undo is sent, and
+      // gone after it: a turn stored in between was dropped instead.
+      if (rowId != null && await _lastUserRowId(binding.storedId) != rowId) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+      final result = _object(
+        await _rpc.request<Object?>(
+          'session.undo',
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
+        ),
+      );
+      final removed = result['removed'];
+      if (removed is! int || removed <= 0) return false;
+      if (rowId == null) return true;
+      final List<Map<String, dynamic>> after;
+      try {
+        after = await _runtimeGetSessionMessages(
+          binding.storedId,
+          current: true,
+        );
+      } catch (_) {
+        // Most likely the checked turn went. Reported as not undone, it
+        // would be undone again, and the turn before it dropped too.
+        return true;
+      } finally {
+        _lastTranscripts.remove(binding.storedId);
+      }
+      if (after.any((row) => hermesTranscriptRowId(row) == rowId)) {
+        throw StateError('Hermes undid a turn sent after the checked one.');
+      }
+      return true;
+    }
+    // A session authority has no undo: it rewinds to [rowId], else to the
+    // last turn a user started, a row of their own (not a marker Hermes
+    // added). The rewind is fenced at the session as it is now, and the
+    // transcript is read after the fences: a turn added since refuses it
+    // rather than being rewound too.
+    final fences = await _canonicalFences(binding, refresh: true);
+    final revision = fences.revision;
+    final generation = fences.generation;
+    if (revision == null || generation == null) {
+      throw StateError('Hermes did not report the chat\'s state.');
+    }
+    final transcript = await _runtimeGetSessionMessages(
+      binding.storedId,
+      current: true,
+    );
+    _lastTranscripts.remove(binding.storedId);
+    int? target = rowId;
+    if (target != null) {
+      // [rowId] was chosen from an earlier read: gone since, or followed by
+      // a user turn stored since, it is no longer the turn to undo.
+      final index = transcript.indexWhere(
+        (row) => hermesTranscriptRowId(row) == target,
+      );
+      if (index < 0 ||
+          transcript
+              .skip(index + 1)
+              .any((row) => hermesTranscriptUserContent(row) != null)) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+    } else {
+      for (final row in transcript.reversed) {
+        final kind = row['display_kind'];
+        if ((kind == null || kind == '' || kind == 'steer') &&
+            hermesTranscriptUserContent(row) != null) {
+          target = hermesTranscriptRowId(row);
+          if (target != null) break;
+        }
+      }
+    }
+    if (target == null) return false;
+    final receipt = await _canonicalMutate(
+      binding,
+      'rewind',
+      {'target_message_id': target},
+      pinned: (revision: revision, generation: generation),
+    );
+    final rewound = receipt['rewound_count'];
+    return rewound is! int || rewound > 0;
   }
 }

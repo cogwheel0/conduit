@@ -91,9 +91,7 @@ class _SignedInUser extends Notifier<User?> {
   void signIn(User? user) => state = user;
 }
 
-final _signedInUser = NotifierProvider<_SignedInUser, User?>(
-  _SignedInUser.new,
-);
+final _signedInUser = NotifierProvider<_SignedInUser, User?>(_SignedInUser.new);
 
 /// Records every detail patch the app sends to the native sheet.
 List<PlatformNativeSheetApplyDetailPatchRequest> _recordPatches() {
@@ -256,7 +254,10 @@ void main() {
         'copy',
         'tts',
       ]);
-      expect(patches.where((patch) => patch.detailId == 'message-actions'), isEmpty);
+      expect(
+        patches.where((patch) => patch.detailId == 'message-actions'),
+        isEmpty,
+      );
       for (final invalid in [
         ['message-action:share', 'message-action:copy', 'message-action:tts'],
         ['message-action:copy', 'message-action:copy', 'message-action:tts'],
@@ -324,7 +325,10 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
+        expect(
+          find.text(_unavailable),
+          visible ? findsNothing : findsOneWidget,
+        );
       },
     );
   }
@@ -369,7 +373,10 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
+        expect(
+          find.text(_unavailable),
+          visible ? findsNothing : findsOneWidget,
+        );
       },
     );
   }
@@ -412,7 +419,10 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
+        expect(
+          find.text(_unavailable),
+          visible ? findsNothing : findsOneWidget,
+        );
       },
     );
   }
@@ -458,7 +468,10 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
+        expect(
+          find.text(_unavailable),
+          visible ? findsNothing : findsOneWidget,
+        );
       },
     );
   }
@@ -515,8 +528,9 @@ void main() {
   );
 
   group('the open Settings root', () {
-    List<String> rootRows(PlatformNativeSheetApplyDetailPatchRequest patch) =>
-        [for (final section in patch.sections) ...section.items.map((i) => i.id)];
+    List<String> rootRows(PlatformNativeSheetApplyDetailPatchRequest patch) => [
+      for (final section in patch.sections) ...section.items.map((i) => i.id),
+    ];
 
     testWidgets('gains and loses the Advanced group as Advanced is toggled', (
       tester,
@@ -548,13 +562,14 @@ void main() {
 
       final on = patches.lastWhere((p) => p.detailId == 'profile-menu');
       check(on.title).equals('Settings');
-      final advanced = on.sections.singleWhere((s) => s.title == 'Advanced');
-      check(advanced.footer).equals(
-        'Shown because Advanced is on in Settings > Chat.',
+      // The group has no heading, like every root group; its footer says
+      // why it is there.
+      final advanced = on.sections.singleWhere(
+        (s) => s.footer == 'Shown because Advanced is turned on in Chats.',
       );
-      check(
-        advanced.items.map((i) => i.id),
-      ).deepEquals([NativeSheetRoutes.personalConnections]);
+      check(advanced.title).isNull();
+      check(advanced.items.map((i) => i.id))
+          .deepEquals([NativeSheetRoutes.personalConnections]);
 
       NativeSheetBridge.instance.onControlChanged(
         PlatformNativeSheetControlChangedEvent(
@@ -565,12 +580,11 @@ void main() {
       await tester.pumpAndSettle();
 
       final off = patches.lastWhere((p) => p.detailId == 'profile-menu');
-      check(off.sections.map((s) => s.title)).not(
-        (it) => it.contains('Advanced'),
+      check(off.sections.map((s) => s.footer)).not(
+        (it) => it.contains('Shown because Advanced is turned on in Chats.'),
       );
-      check(rootRows(off)).not(
-        (it) => it.contains(NativeSheetRoutes.personalConnections),
-      );
+      check(rootRows(off))
+          .not((it) => it.contains(NativeSheetRoutes.personalConnections));
       // A tap on the row it just lost is answered, not ignored.
       NativeSheetBridge.instance.onControlChanged(
         PlatformNativeSheetControlChangedEvent(
@@ -603,11 +617,12 @@ void main() {
 
       check(await service.refreshProfileRoot()).isTrue();
       final rebuilt = patches.lastWhere((p) => p.detailId == 'profile-menu');
-      // Still Ada's: her card first, her own rows after it.
+      // Still Ada's: her card first, opening her profile, her own rows
+      // after it.
       final card = rebuilt.sections.first.items.first;
-      check(card.id).equals(nativeAccountsDetailId);
+      check(card.id).equals(NativeSheetRoutes.profile);
       check(card.title).equals('Ada');
-      check(rootRows(rebuilt)).contains(NativeSheetRoutes.profile);
+      check(rootRows(rebuilt)).contains(NativeSheetRoutes.notificationSettings);
 
       patches.clear();
       container
@@ -683,6 +698,31 @@ void main() {
     );
     await tester.pumpAndSettle();
     check(saved()).isTrue();
+  });
+
+  testWidgets('the native Computer toggle saves only booleans', (tester) async {
+    final container = await pumpApp(tester);
+    bool saved() => container.read(appSettingsProvider).computerEnabled;
+    check(saved()).isTrue();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'computer-enabled',
+        value: 'false',
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isTrue();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'computer-enabled',
+        value: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isFalse();
+    check((await SettingsService.loadSettings()).computerEnabled).isFalse();
   });
 
   testWidgets('the native citation background toggle saves only booleans', (

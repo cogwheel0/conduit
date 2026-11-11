@@ -486,6 +486,8 @@ final class _StatusBridge implements HermesDashboardBridge {
     String method,
     Uri url, {
     String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async => (status: 200, body: this.body);
 
   @override

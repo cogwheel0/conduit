@@ -1,0 +1,481 @@
+import 'dart:async';
+
+import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
+import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart'
+    show ConduitIconButton;
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
+    show AdaptiveSwitch;
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
+
+import '../push/push_test_support.dart';
+
+const _connection = 'conn-api';
+
+PushState _push(PushStatus status) => pushStateWith([
+  PushTargetState(target: pushHermesApiTarget, status: status),
+]);
+
+void main() {
+  group('the editor', () {
+    Future<HermesJobEditorResult?> open(WidgetTester tester, {bool? notify}) async {
+      HermesJobEditorResult? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => result = await showHermesJobEditor(
+                context,
+                initialName: 'Daily',
+                initialPrompt: 'Summarize',
+                initialSchedule: '0 9 * * *',
+                initialNotify: notify,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      if (notify != null) {
+        expect(find.text('Notify Me'), findsOneWidget);
+        await tester.tap(find.byType(AdaptiveSwitch));
+        await tester.pumpAndSettle();
+      } else {
+        expect(find.text('Notify Me'), findsNothing);
+      }
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      return result;
+    }
+
+    testWidgets('offers Notify me when push reaches the connection', (
+      tester,
+    ) async {
+      final result = await open(tester, notify: true);
+      expect(result?.notify, isFalse);
+      expect(result?.name, 'Daily');
+    });
+
+    testWidgets('leaves it out otherwise', (tester) async {
+      final result = await open(tester);
+      expect(result?.notify, isNull);
+    });
+  });
+
+  group('the jobs page', () {
+    Future<FakePushCoordinator> pumpPage(
+      WidgetTester tester, {
+      required PushState? push,
+      List<HermesJob> jobs = const [],
+      bool scheduledKind = true,
+      bool createAnswersJob = true,
+      Object? notifyError,
+    }) async {
+      final fake = FakePushCoordinator(push ?? const PushState())
+        ..jobNotifyError = notifyError;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appSettingsProvider.overrideWith(
+              () => FixedSettings(
+                AppSettings(notificationScheduledEnabled: scheduledKind),
+              ),
+            ),
+            hermesJobsProvider.overrideWith(
+              () => _Jobs(jobs, answersJob: createAnswersJob),
+            ),
+            hermesCapabilitiesProvider.overrideWith(
+              (ref) async => const HermesCapabilities(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(
+              HermesApiService(
+                config: const HermesConfig(
+                  enabled: true,
+                  baseUrl: 'https://hermes.example',
+                  apiKey: 'test-key',
+                ),
+              ),
+            ),
+            hermesActiveConnectionIdProvider.overrideWith(
+              (ref) => ref.watch(_activeConnection),
+            ),
+            pushStateIfUsedProvider.overrideWithValue(push),
+            pushCoordinatorProvider.overrideWith(() => fake),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: HermesJobsPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return fake;
+    }
+
+    Future<void> createJob(WidgetTester tester, {required bool offered}) async {
+      await tester.tap(find.text('New Scheduled Job'));
+      await tester.pumpAndSettle();
+      expect(find.text('Notify Me'), offered ? findsOneWidget : findsNothing);
+      if (offered) {
+        final toggle = tester.widget<AdaptiveSwitch>(
+          find.byType(AdaptiveSwitch).last,
+        );
+        // On by default for a new job.
+        expect(toggle.value, isTrue);
+      }
+      await tester.enterText(find.byType(EditableText).at(0), 'Daily');
+      await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a new job notifies by default when push is on', (
+      tester,
+    ) async {
+      final fake = await pumpPage(tester, push: _push(PushStatus.on));
+      await createJob(tester, offered: true);
+      expect(fake.calls, [
+        'setHermesJobNotify $_connection job-new true',
+      ]);
+    });
+
+    testWidgets('a job is not made on a connection switched to meanwhile', (
+      tester,
+    ) async {
+      final fake = await pumpPage(tester, push: _push(PushStatus.on));
+      await tester.tap(find.text('New Scheduled Job'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText).at(0), 'Daily');
+      await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HermesJobsPage)),
+      );
+      // Say, a notification from another connection was opened.
+      container.read(_activeConnection.notifier).set('conn-other');
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final jobs = container.read(hermesJobsProvider.notifier) as _Jobs;
+      expect(jobs.creates, 0);
+      expect(fake.calls, isEmpty);
+      expect(find.text('Could not create scheduled job.'), findsOneWidget);
+    });
+
+    testWidgets('no Notify me until push works for the connection', (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.needsHermesPlugin),
+      );
+      await createJob(tester, offered: false);
+      expect(fake.calls, isEmpty);
+    });
+
+    testWidgets('editing a job turns Notify me on', (tester) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        jobs: const [
+          HermesJob(
+            id: 'job-1',
+            name: 'Daily',
+            prompt: 'Summarize',
+            schedule: '0 9 * * *',
+            deliveryTarget: 'telegram',
+          ),
+        ],
+      );
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
+      await tester.pumpAndSettle();
+      final toggle = find.descendant(
+        of: find.byKey(const Key('hermes-job-notify')),
+        matching: find.byType(AdaptiveSwitch),
+      );
+      expect(tester.widget<AdaptiveSwitch>(toggle).value, isFalse);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(fake.calls, [
+        'setHermesJobNotify $_connection job-1 true',
+      ]);
+    });
+
+    testWidgets('a job stays busy until its Notify me step ends', (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        jobs: const [
+          HermesJob(
+            id: 'job-1',
+            name: 'Daily',
+            prompt: 'Summarize',
+            schedule: '0 9 * * *',
+            deliveryTarget: 'telegram',
+          ),
+        ],
+      );
+      final gate = fake.jobNotifyGate = Completer<void>();
+      ConduitIconButton editButton() => tester.widget<ConduitIconButton>(
+        find.ancestor(
+          of: find.byTooltip('Edit Scheduled Job'),
+          matching: find.byType(ConduitIconButton),
+        ),
+      );
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('hermes-job-notify')),
+          matching: find.byType(AdaptiveSwitch),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      await tester.pump();
+
+      // The notify step reads the job's delivery and writes it back: a
+      // second edit now could be written over.
+      expect(fake.calls, ['setHermesJobNotify $_connection job-1 true']);
+      expect(editButton().onPressed, isNull);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(editButton().onPressed, isNotNull);
+    });
+
+    testWidgets('a job created whose notify step fails says only that', (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        notifyError: StateError('plugin gone'),
+      );
+      await createJob(tester, offered: true);
+      expect(fake.calls, ['setHermesJobNotify $_connection job-new true']);
+      expect(
+        find.text("Job created, but notifications couldn't be turned on for it."),
+        findsOneWidget,
+      );
+      expect(find.text('Scheduled job created.'), findsNothing);
+      expect(find.text('Could not create scheduled job.'), findsNothing);
+    });
+
+    testWidgets('a created job the server did not name says notify failed', (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        createAnswersJob: false,
+      );
+      await createJob(tester, offered: true);
+      expect(fake.calls, isEmpty);
+      expect(
+        find.text("Job created, but notifications couldn't be turned on for it."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an edit whose notify step fails says the job was saved', (
+      tester,
+    ) async {
+      await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        notifyError: StateError('plugin gone'),
+        jobs: const [
+          HermesJob(
+            id: 'job-1',
+            name: 'Daily',
+            prompt: 'Summarize',
+            schedule: '0 9 * * *',
+          ),
+        ],
+      );
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('hermes-job-notify')),
+          matching: find.byType(AdaptiveSwitch),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text("Job saved, but its notifications couldn't be changed."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('leaving while a new job gets Notify me is safe', (
+      tester,
+    ) async {
+      final fake = await pumpPage(tester, push: _push(PushStatus.on));
+      final gate = Completer<void>();
+      fake.jobNotifyGate = gate;
+      await tester.tap(find.text('New Scheduled Job'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText).at(0), 'Daily');
+      await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
+      await tester.tap(find.text('Save'));
+      for (var i = 0; i < 20 && fake.calls.isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(fake.calls, ['setHermesJobNotify $_connection job-new true']);
+
+      // The page goes while the server is still being asked.
+      unawaited(
+        tester
+            .state<NavigatorState>(find.byType(Navigator).first)
+            .pushReplacement(
+              MaterialPageRoute<void>(builder: (_) => const SizedBox()),
+            ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(HermesJobsPage), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with Scheduled tasks off, Notify me is off and says why', (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        scheduledKind: false,
+      );
+      await tester.tap(find.text('New Scheduled Job'));
+      await tester.pumpAndSettle();
+      final toggle = tester.widget<AdaptiveSwitch>(
+        find.descendant(
+          of: find.byKey(const Key('hermes-job-notify')),
+          matching: find.byType(AdaptiveSwitch),
+        ),
+      );
+      expect(toggle.value, isFalse);
+      expect(toggle.onChanged, isNull);
+      expect(
+        find.text('Turn on Scheduled Tasks in Notifications to use this.'),
+        findsOneWidget,
+      );
+      await tester.enterText(find.byType(EditableText).at(0), 'Daily');
+      await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(fake.calls, isEmpty);
+    });
+
+    testWidgets("a job whose delivery can't be read offers no Notify me", (
+      tester,
+    ) async {
+      final fake = await pumpPage(
+        tester,
+        push: _push(PushStatus.on),
+        jobs: const [
+          HermesJob(
+            id: 'job-1',
+            name: 'Daily',
+            prompt: 'Summarize',
+            schedule: '0 9 * * *',
+            deliveryKnown: false,
+          ),
+        ],
+      );
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('hermes-job-notify')), findsNothing);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(fake.calls, isEmpty);
+    });
+
+    testWidgets('no Notify me while push is off', (tester) async {
+      final fake = await pumpPage(tester, push: null);
+      await createJob(tester, offered: false);
+      expect(fake.calls, isEmpty);
+    });
+  });
+}
+
+/// The active Hermes connection, which a test can switch.
+final _activeConnection = NotifierProvider<_ActiveConnection, String?>(
+  _ActiveConnection.new,
+);
+
+final class _ActiveConnection extends Notifier<String?> {
+  @override
+  String? build() => _connection;
+
+  void set(String? id) => state = id;
+}
+
+final class _Jobs extends HermesJobsController {
+  _Jobs(this.jobs, {this.answersJob = true});
+
+  final List<HermesJob> jobs;
+
+  /// Whether creating answers the job, or (like some servers) nothing that
+  /// names it.
+  final bool answersJob;
+
+  int creates = 0;
+
+  @override
+  Future<List<HermesJob>> build() async => jobs;
+
+  @override
+  Future<void> edit(
+    String id, {
+    String? name,
+    String? prompt,
+    String? schedule,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
+  }) async {}
+
+  @override
+  Future<HermesJob?> create({
+    required String name,
+    required String prompt,
+    required String schedule,
+    String? deliver,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
+  }) async => ++creates > 0 && answersJob
+      ? HermesJob(
+          id: 'job-new',
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliveryTarget: 'local',
+        )
+      : null;
+}

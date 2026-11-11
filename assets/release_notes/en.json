@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "What's new",
+      "intro": "Hi! LibreChat arrives as a beta: sign in, chat with its models and agents, and keep its history in the Chats tab. Hermes 0.23 works, with Rooms, pinned and hidden chats, and a Context & Usage sheet. Open WebUI 0.13.3 offers its terminals' coding agents as models, and Computer opens a terminal's desktop from the chat header.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): sign in to a LibreChat server with email or LDAP, two-step verification or single sign-on, and switch between it and Open WebUI in Accounts. Its chats fill the Chats tab and stay readable offline. Pick its model specs, agents and models, attach files, turn on web search, code, file search and MCP servers, answer tool approvals, and insert its prompts with /. Replies keep running while you're in another chat. Share links, branching, Duplicate Chat, server voices and memories in Personalization work too.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: Desktop Gateway and API server chats work, and you can connect to a gateway's own Webapp listener. Approvals and questions show up again, and all of a turn's questions come in one form. A chat started in another Hermes app offers Continue in a Copy, a run cut off by a restart picks up again, and the answer to a message Hermes saved while restarting appears once it's ready. Conduit asks before a connection sends credentials over plain HTTP, and before switching to a model Hermes wants you to confirm.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes chats: pin, archive or hide a chat, branch from any reply, or undo the last turn. Editing or regenerating in a Desktop Gateway chat keeps going in the same session, with its context. Context & Usage shows how full the context window is and your plan's limits, and compacts the chat. A chip above the composer lists running subagents and processes to steer, stop or kill. A failed turn shows a card that says what broke and offers a fix, edited files show as a diff card, paid tools show their price, and the agent's plan stays above the composer.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes rooms and jobs: Desktop Gateway connections get Rooms, group chats with two to six of your bots. Their scheduled jobs can be stopped mid-run, choose what happens to Missed Runs, and Deliver To messaging apps, Bot Chats and Group Chats. API server jobs can be edited, and the reasoning effort you pick now applies there. Catalog MCP servers ask for their keys when you add them, and with several connections you switch from the name at the top of the sidebar.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 and 0.13.3: the app works without a compatibility warning. Select a terminal in a saved chat and its coding agents, such as Codex and Claude Code, appear under Coding Agents in the model picker. Computer in the chat header opens the terminal's Desktop or Browser full screen: watch while a reply runs, or Take Control to type, click and browse. Turn it off under Settings > Chat. Memory recalls and skill lists the server hides no longer show up as tool blocks.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: tool calls no longer stop after 8 rounds. A new Images per request setting (10 by default) and the document budget now apply per request, so older attachments are left out instead of every later turn failing. The context limit you pick for a local Ollama model is sent to Ollama. Reasoning and tool steps stay when you reopen a chat, context fill in usage is measured correctly, and servers that send empty fields no longer break the stream.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: on iOS 26, menus, alerts, sheets and search fields are the system's own, and Settings is grouped like the Settings app. Voice and read-aloud float on glass islands: tap the track to seek, skip 15 seconds, and follow the highlighted word. Chats and notes are listed by date, a response's usage opens in a popover with context fill, the note editor has a bottom toolbar, and settings pages blur under the bar as you scroll.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: long chats scroll without the scrollbar jumping, the Android scrollbar can be dragged, and the chat stays put while you drag the sidebar open. Code blocks wrap long lines, table columns fit their content, follow-up suggestions show as full rows, and a reply says Thinking… with the time waited. One speed now sets both cloud and device voices, Hermes' dashboard sign-in no longer goes blank behind the keyboard, and tapping your profile twice no longer opens Settings twice.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

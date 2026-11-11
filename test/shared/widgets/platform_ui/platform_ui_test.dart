@@ -5,7 +5,6 @@ import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
-import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
@@ -655,7 +654,7 @@ void main() {
     );
   });
 
-  testWidgets('iOS 26 toolbar actions render as separate native controls', (
+  testWidgets('iOS 26 toolbar actions share one glass capsule', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -690,22 +689,27 @@ void main() {
       ),
     );
 
-    // Adjacent actions render as separate circular controls instead of one
-    // merged CNGlassButtonGroup pill, which pinches into a "dumbbell" on iOS 26.
+    // Adjacent actions share one glass capsule of plain glyphs, as an iOS 26
+    // bar groups them, never the package's merged CNGlassButtonGroup, which
+    // pinches into a "dumbbell" on devices.
+    expect(find.byType(ConduitToolbarActionCluster), findsOneWidget);
     expect(find.byType(CNGlassButtonGroup), findsNothing);
     final button = tester.widget<CNButton>(find.byType(CNButton));
     expect(button.icon?.size, kConduitNativeSingleActionSymbolExtent);
-    expect(button.config.width, TouchTarget.minimum);
-    expect(button.config.borderRadius, TouchTarget.minimum / 2);
+    expect(button.config.style, CNButtonStyle.plain);
     final popup = tester.widget<CNPopupMenuButton>(
       find.byType(CNPopupMenuButton),
     );
     expect(popup.items, hasLength(1));
-    popup.onSelected(0);
+    popup.onSelected!(0);
     expect(selectionCount, 1);
-    final buttonRect = tester.getRect(find.byType(CNButton));
-    final popupRect = tester.getRect(find.byType(CNPopupMenuButton));
-    expect(popupRect.left - buttonRect.right, Spacing.sm);
+    expect(
+      tester.getSize(find.byType(ConduitToolbarActionCluster)).width,
+      2 * kConduitToolbarClusterSlotExtent,
+    );
+    // Let the native controls' own timers run out before teardown.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
   });
 
   testWidgets('a single iOS 26 toolbar action stays circular', (tester) async {
@@ -805,36 +809,11 @@ void main() {
         find.byType(CNPopupMenuButton),
       );
       expect(popup.items, hasLength(1));
-      popup.onSelected(0);
+      popup.onSelected!(0);
       expect(deleteCount, 1);
       await tester.pump(const Duration(milliseconds: 500));
     },
   );
-
-  testWidgets('gesture-sensitive slider callbacks use the local fallback', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-
-    await tester.pumpWidget(
-      CupertinoApp(
-        home: CupertinoPageScaffold(
-          child: AdaptiveSlider(
-            value: 0.5,
-            onChanged: (_) {},
-            onChangeStart: (_) {},
-            divisions: 4,
-          ),
-        ),
-      ),
-    );
-
-    final slider = tester.widget<CupertinoSlider>(find.byType(CupertinoSlider));
-    expect(slider.divisions, 4);
-    expect(find.byType(CNSlider), findsNothing);
-  });
 
   testWidgets('SF-symbol segments have valid Flutter fallbacks', (
     tester,
@@ -948,39 +927,6 @@ void main() {
     expect(find.byKey(prefixKey), findsOneWidget);
     expect(find.byKey(suffixKey), findsOneWidget);
   });
-
-  testWidgets('non-dismissible iOS 26 confirmations use a system alert', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-    const channel = MethodChannel('cn_alert');
-    final calls = <MethodCall>[];
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
-      return {'index': 0};
-    });
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-
-    await tester.pumpWidget(
-      const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
-    );
-    final context = tester.element(find.byType(CupertinoPageScaffold));
-    final result = ThemedDialogs.confirm(
-      context,
-      title: 'Confirm',
-      message: 'Cannot dismiss',
-      barrierDismissible: false,
-    );
-    await tester.pumpAndSettle();
-
-    expect(calls, hasLength(1));
-    expect(find.byType(CupertinoAlertDialog), findsNothing);
-    expect(await result, isFalse);
-  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('controlled Cupertino form fields track controller changes', (
     tester,

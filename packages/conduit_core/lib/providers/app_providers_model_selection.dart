@@ -102,12 +102,19 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
   // Prevent disposal so listeners remain active throughout app lifecycle
   ref.keepAlive();
 
-  List<String> preserveDirectServerSelections(List<String> ids) {
+  List<String> preserveDirectServerSelections(
+    List<String> ids, {
+    required Model? model,
+  }) {
+    // LibreChat's own tool picks stay while a LibreChat model is selected,
+    // and go with it.
+    final libreChat = model != null && isLibreChatModel(model);
     return ids
         .where(
           (id) =>
               id.startsWith('direct_server:') ||
-              id.startsWith(kDirectMcpToolIdPrefix),
+              id.startsWith(kDirectMcpToolIdPrefix) ||
+              (libreChat && isLibreChatToolId(id)),
         )
         .toList();
   }
@@ -128,8 +135,9 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     List<String> current,
     List<String> defaults, {
     required bool Function(String id) isOffered,
+    required Model? model,
   }) {
-    final preserved = preserveDirectServerSelections(current);
+    final preserved = preserveDirectServerSelections(current, model: model);
     final before = lastApplied.toSet();
     final now = current.toSet();
     for (final id in now.difference(before)) {
@@ -158,7 +166,7 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     final authState = ref.read(authStateManagerProvider).asData?.value;
     if (authState == null || !authState.isAuthenticated) {
       final current = ref.read(selectedToolIdsProvider);
-      final preserved = preserveDirectServerSelections(current);
+      final preserved = preserveDirectServerSelections(current, model: model);
       if (!const ListEquality<Object?>().equals(current, preserved)) {
         ref.read(selectedToolIdsProvider.notifier).set(preserved);
       }
@@ -173,6 +181,7 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
         current,
         const <String>[],
         isOffered: (_) => true,
+        model: model,
       );
       if (!const ListEquality<Object?>().equals(current, next)) {
         ref.read(selectedToolIdsProvider.notifier).set(next);
@@ -190,6 +199,7 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
         currentSelection,
         validToolIds,
         isOffered: (id) => availableTools.any((tool) => tool.id == id),
+        model: model,
       );
       if (validToolIds.isEmpty) {
         if (!const ListEquality<Object?>().equals(
@@ -264,7 +274,9 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     added.clear();
     removed.clear();
     final current = ref.read(selectedToolIdsProvider);
-    final preserved = preserveDirectServerSelections(current);
+    // LibreChat's picks are the chat's too: they start again here, rather
+    // than going out with the next chat's first turn.
+    final preserved = preserveDirectServerSelections(current, model: null);
     if (!const ListEquality<Object?>().equals(current, preserved)) {
       ref.read(selectedToolIdsProvider.notifier).set(preserved);
     }
@@ -308,6 +320,18 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
     if (current != lastApplied) {
       chosen = true;
       choice = current;
+    }
+    // A coding agent runs only on its own terminal, which counts as the
+    // user's pick: a later switch of model keeps it, as on Open WebUI.
+    final agentTerminal = terminalAgentTerminalId(model);
+    if (agentTerminal != null) {
+      chosen = true;
+      choice = agentTerminal;
+      lastApplied = agentTerminal;
+      if (current != agentTerminal) {
+        ref.read(selectedTerminalIdProvider.notifier).set(agentTerminal);
+      }
+      return;
     }
     final next = chosen ? choice : terminalId;
     lastApplied = next;

@@ -12,6 +12,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_section_header.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -114,6 +115,7 @@ void main() {
       childIconLeft - parentIconLeft,
       2 * FolderTreeHierarchyNode.segmentWidth,
     );
+    // A nested chat's title steps in as a folder symbol does.
     expect(
       nestedChatTitleLeft - parentIconLeft,
       3 * FolderTreeHierarchyNode.segmentWidth,
@@ -313,7 +315,7 @@ void main() {
 
     final row = find.byKey(const ValueKey<String>('folder-open-parent-folder'));
     final gesture = await tester.startGesture(tester.getCenter(row));
-    await tester.pump();
+    await tester.pump(kSidebarRowPressDelay);
 
     final pressedFinder = find.byKey(
       const ValueKey<String>('folder-pressed-tint-parent-folder'),
@@ -367,9 +369,9 @@ void main() {
     final folderRect = tester.getRect(
       find.byKey(const ValueKey<String>('folder-surface-parent-folder')),
     );
-    final sectionLeadingLeft = tester
-        .getRect(find.byKey(const ValueKey<String>('folders-section-leading')))
-        .left;
+    final sectionTitleLeft = tester
+        .getTopLeft(find.text(AppLocalizationsEn().folders))
+        .dx;
     final folderIconLeft = tester
         .getRect(
           find.byKey(const ValueKey<String>('folder-icon-parent-folder')),
@@ -379,12 +381,45 @@ void main() {
     expect(chatRect.left, 0);
     expect(chatRect.left, folderRect.left);
     expect(chatRect.right, folderRect.right);
-    expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.lg);
+    // Folder symbols start where chat titles do; the section title follows
+    // its chevron on the list's margin.
+    expect(folderIconLeft, kSidebarRowContentInset);
     expect(
       tester.getTopLeft(find.text('Active Chat')).dx,
-      sectionLeadingLeft + Spacing.sm,
+      kSidebarRowContentInset,
     );
-    expect(folderIconLeft, sectionLeadingLeft + Spacing.sm);
+    final chevron = tester.getRect(
+      find.byKey(const ValueKey<String>('folders-section-leading')),
+    );
+    expect(chevron.left, greaterThanOrEqualTo(kSidebarSectionHeaderInset));
+    expect(chevron.right, lessThan(sectionTitleLeft));
+    expect(
+      sectionTitleLeft,
+      kSidebarSectionHeaderInset + IconSize.listItem + Spacing.xxs,
+    );
+    // New Folder's symbol stands over the folders' own disclosure buttons,
+    // on the section title's line.
+    final newFolderSymbol = tester.getCenter(
+      find.descendant(
+        of: find.byTooltip(AppLocalizationsEn().newFolder),
+        matching: find.byType(Icon),
+      ),
+    );
+    expect(
+      newFolderSymbol.dx,
+      tester
+          .getCenter(
+            find.byKey(const ValueKey<String>('folder-expand-parent-folder')),
+          )
+          .dx,
+    );
+    expect(
+      newFolderSymbol.dy,
+      moreOrLessEquals(
+        tester.getCenter(find.text(AppLocalizationsEn().folders)).dy,
+        epsilon: 0.5,
+      ),
+    );
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();
@@ -399,7 +434,7 @@ void main() {
     final leftTintInset = chatTintRect.left - drawerRect.left;
     final rightTintInset = drawerRect.right - chatTintRect.right;
     final titleLeft = tester.getTopLeft(find.text('Active Chat')).dx;
-    expect(titleLeft - chatTintRect.left, Spacing.md);
+    expect(titleLeft, kSidebarRowContentInset);
     expect(chatTintRect.left, Spacing.sm);
     expect(rightTintInset, leftTintInset);
     expect(chatTintRect.left, folderTintRect.left);

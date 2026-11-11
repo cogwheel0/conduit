@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -53,10 +55,21 @@ class ThemedDialogs {
     );
   }
 
-  /// Show a simple confirmation dialog with Cancel/Confirm actions.
+  /// Asks a yes/no question with Cancel and Confirm actions, and resolves to
+  /// true only when the user confirms. Cancelling or dismissing resolves to
+  /// false.
   ///
-  /// On iOS uses [AdaptiveAlertDialog] for native chrome.
-  /// On Android renders a fully themed [AlertDialog].
+  /// On iOS 26 and later the question takes the system's form: a destructive
+  /// one ([isDestructive]: delete, discard, sign out) is an action sheet, and
+  /// any other one is an alert. Pass [anchorContext], the widget the question
+  /// came from such as the button that was tapped, and the action sheet
+  /// appears over that widget; without one it rises from the bottom of the
+  /// screen. A system alert or action sheet ignores [barrierDismissible]: an
+  /// alert never closes on an outside tap, and an action sheet always does,
+  /// which answers false.
+  ///
+  /// Earlier iOS shows a Cupertino alert, and Android a themed Material
+  /// dialog.
   static Future<bool> confirm(
     BuildContext context, {
     required String title,
@@ -65,49 +78,37 @@ class ThemedDialogs {
     String? cancelText,
     bool isDestructive = false,
     bool barrierDismissible = true,
+    BuildContext? anchorContext,
   }) async {
     final l10n = AppLocalizations.of(context);
     final effectiveConfirmText = confirmText ?? l10n?.confirm ?? 'Confirm';
     final effectiveCancelText = cancelText ?? l10n?.cancel ?? 'Cancel';
 
-    if (PlatformUiCapabilities.usesNativeIOS26 && barrierDismissible) {
-      try {
-        final result = await NativeSheetBridge.instance.presentSheet(
-          rethrowErrors: true,
-          root: NativeSheetDetailConfig(
-            id: 'confirmation-dialog',
+    if (PlatformUiCapabilities.usesNativeIOS26 && isDestructive) {
+      final confirmed =
+          await CNActionSheet.show<bool>(
+            context: context,
             title: title,
-            subtitle: message,
-            items: [
-              NativeSheetItemConfig(
-                id: 'cancel',
-                title: effectiveCancelText,
-                sfSymbol: 'xmark',
-                dismissOnSelect: true,
-                // Answers the question here; no chevron, since nothing opens.
-                showsDisclosure: false,
-                actionId: 'cancel',
-              ),
-              NativeSheetItemConfig(
-                id: 'confirm',
-                title: effectiveConfirmText,
-                sfSymbol: isDestructive ? 'trash' : 'checkmark',
-                destructive: isDestructive,
-                dismissOnSelect: true,
-                showsDisclosure: false,
-                actionId: 'confirm',
+            message: message,
+            actions: [
+              CNActionSheetAction<bool>(
+                label: effectiveConfirmText,
+                value: true,
+                isDestructive: true,
               ),
             ],
-          ),
-        );
-        return result?.actionId == 'confirm';
-      } catch (_) {
-        // Fall through to the Flutter Cupertino dialog when the bridge fails.
-      }
-      if (!context.mounted) return false;
+            cancelLabel: effectiveCancelText,
+            anchorRect: _actionSheetAnchor(context, anchorContext),
+          ) ??
+          false;
+      if (confirmed) unawaited(ConduitHaptics.mediumImpact());
+      return confirmed;
     }
 
     if (PlatformUiCapabilities.isIOS) {
+      // The system alert from iOS 26 answers a press with no haptic of its
+      // own; the earlier Cupertino alert keeps its behaviour.
+      final answerHaptic = PlatformUiCapabilities.usesNativeIOS26;
       final completer = Completer<bool>();
       await AdaptiveAlertDialog.show(
         context: context,
@@ -117,6 +118,7 @@ class ThemedDialogs {
           AlertAction(
             title: effectiveCancelText,
             onPressed: () {
+              if (answerHaptic) unawaited(ConduitHaptics.selectionClick());
               if (!completer.isCompleted) completer.complete(false);
             },
             style: AlertActionStyle.cancel,
@@ -124,6 +126,7 @@ class ThemedDialogs {
           AlertAction(
             title: effectiveConfirmText,
             onPressed: () {
+              if (answerHaptic) unawaited(ConduitHaptics.selectionClick());
               if (!completer.isCompleted) completer.complete(true);
             },
             style: isDestructive
@@ -167,6 +170,34 @@ class ThemedDialogs {
       },
     );
     return result ?? false;
+  }
+
+  /// Where an action sheet appears: over [anchorContext] when it is laid
+  /// out, else, on iPhone, at the bottom of the screen above the keyboard and
+  /// the home indicator. iOS 26 centres a sheet with no anchor, like an
+  /// alert. An iPad is left to the package, which gives such a sheet a
+  /// source at the bottom of the window.
+  static Rect? _actionSheetAnchor(
+    BuildContext context,
+    BuildContext? anchorContext,
+  ) {
+    if (anchorContext != null && anchorContext.mounted) {
+      final box = anchorContext.findRenderObject();
+      if (box is RenderBox && box.attached && box.hasSize) {
+        return box.localToGlobal(Offset.zero) & box.size;
+      }
+    }
+    final view = View.maybeOf(context);
+    if (view == null) return null;
+    final display = view.display;
+    if (display.size.shortestSide / display.devicePixelRatio >= 600) {
+      return null;
+    }
+    final ratio = view.devicePixelRatio;
+    final size = view.physicalSize / ratio;
+    final bottomInset =
+        math.max(view.viewPadding.bottom, view.viewInsets.bottom) / ratio;
+    return Rect.fromLTWH(size.width / 2, size.height - bottomInset, 0, 0);
   }
 
   /// Show a generic themed dialog with arbitrary widget content.

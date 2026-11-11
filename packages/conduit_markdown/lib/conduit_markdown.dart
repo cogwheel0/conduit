@@ -7,13 +7,23 @@
 library;
 
 export 'src/citation_parser.dart';
+export 'src/code_language.dart';
 export 'src/details_block_syntax.dart';
 export 'src/embed_utils.dart';
 export 'src/linear_inline_syntaxes.dart';
 export 'src/markdown_preprocessor.dart';
+export 'src/math_spans.dart' show MathDelimiter, MathSpan, MathTokenizer;
 export 'src/mention_inline_syntax.dart';
+export 'src/message_blocks.dart';
+export 'src/message_segmenter.dart'
+    show
+        prepareAssistantMarkdown,
+        segmentAssistantMessage,
+        stripTrailingIncompleteToolCallDetails;
 export 'src/message_segments.dart';
+export 'src/plain_markdown.dart';
 export 'src/reasoning_parser.dart';
 export 'src/semantic_details.dart';
 export 'src/speech_text.dart';
 export 'src/tool_calls_parser.dart';
+export 'src/typesetting.dart';

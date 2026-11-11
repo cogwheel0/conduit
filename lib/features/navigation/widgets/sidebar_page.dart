@@ -28,6 +28,14 @@ import '../utils/sidebar_create_action.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 import 'chats_drawer.dart';
+import 'conversation_tile.dart'
+    show
+        ChatStyleSidebarTile,
+        kConversationTileMinHeight,
+        kSidebarRowHorizontalPadding,
+        sidebarRowTitleLineStyle;
+import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
+import '../../hermes/widgets/hermes_connection_switcher.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
@@ -429,6 +437,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
         AdaptiveAppBarAction(
           iosSymbol: 'xmark',
           icon: UiUtils.closeIcon,
+          semanticLabel: localizations.closeButtonSemantic,
           tintColor: defaultTint,
           onPressed: () => closeSidebarSearch(ref),
         ),
@@ -445,6 +454,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       AdaptiveAppBarAction(
         iosSymbol: 'magnifyingglass',
         icon: Icons.search,
+        semanticLabel: MaterialLocalizations.of(context).searchFieldLabel,
         tintColor: defaultTint,
         onPressed: () => openSidebarSearch(ref),
       ),
@@ -453,6 +463,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
         AdaptiveAppBarAction(
           iosSymbol: createAction.sfSymbol,
           icon: createAction.icon,
+          semanticLabel: createAction.label(localizations),
           tintColor: defaultTint,
           onPressed: () => createAction.run(context, ref),
         ),
@@ -465,6 +476,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     required List<AdaptiveAppBarAction> actions,
     required bool isSearchExpanded,
     required double toolbarWidth,
+    Widget? middle,
   }) {
     final backgroundColor = context.conduitTheme.surfaceBackground;
     return AppBar(
@@ -473,6 +485,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       toolbarHeight: kTextTabBarHeight,
+      title: middle,
+      centerTitle: true,
       leadingWidth: isSearchExpanded
           ? (toolbarWidth - _kSidebarSearchCloseActionReserve)
                 .clamp(0.0, toolbarWidth)
@@ -563,6 +577,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       isSearchExpanded: isSearchExpanded,
       activeTab: activeTab,
     );
+    // Hermes names its connection at the centre when there is another to
+    // switch to; an open search field takes the whole bar.
+    final appBarMiddle =
+        activeTab.id == SidebarTabId.hermes && !isSearchExpanded
+        ? const HermesConnectionHeaderSwitcher()
+        : null;
 
     void onTap(int index) {
       ConduitHaptics.selectionClick();
@@ -641,6 +661,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             return SidebarIos26Scaffold(
               bottomNavigationBar: bottomNavigationBar,
               leading: adaptiveAppBarLeading,
+              middle: appBarMiddle,
               actions: appBarActions,
               showNativeView: composeNativeIos26Chrome,
               body: sidebarBody,
@@ -651,6 +672,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             appBar: AdaptiveAppBar(
               useNativeToolbar: true,
               leading: adaptiveAppBarLeading,
+              titleWidget: appBarMiddle,
               actions: appBarActions,
               appBar: _sidebarMaterialAppBar(
                 context: context,
@@ -658,6 +680,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
                 actions: appBarActions,
                 isSearchExpanded: isSearchExpanded,
                 toolbarWidth: toolbarWidth,
+                middle: appBarMiddle,
               ),
             ),
             bottomNavigationBar: bottomNavigationBar,
@@ -698,7 +721,6 @@ class _SlidingSidebarPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
     final historyTabs = [
@@ -733,6 +755,23 @@ class _SlidingSidebarPage extends ConsumerWidget {
         minimumBottomInset: _kSlidingSidebarBarMinimumBottomInset,
       ),
     );
+    final history = KeyedSubtree(
+      key: const ValueKey<String>('sidebar-chat-history'),
+      child: IndexedStack(
+        index: historyTabs.indexOf(chatTab),
+        children: [
+          for (final tab in historyTabs)
+            tab.id == SidebarTabId.chats
+                // Notes, Terminal and Channels are Open WebUI features, so
+                // they lead only its history.
+                ? const SidebarHistoryHeaderScope(
+                    header: _SlidingSidebarDestinations(),
+                    child: ChatsDrawer(),
+                  )
+                : const HermesSessionsTab(showBottomNavigationBar: false),
+        ],
+      ),
+    );
 
     return Material(
       key: const ValueKey<String>('sidebar-page-surface'),
@@ -747,25 +786,7 @@ class _SlidingSidebarPage extends ConsumerWidget {
               parentOwnsHeaderInset: false,
               bottomNavigationVisible: true,
               floatingChromeInsets: chromeInsets,
-              child: KeyedSubtree(
-                key: const ValueKey<String>('sidebar-chat-history'),
-                child: IndexedStack(
-                  index: historyTabs.indexOf(chatTab),
-                  children: [
-                    for (final tab in historyTabs)
-                      tab.id == SidebarTabId.chats
-                          // Notes, Terminal and Channels are Open WebUI
-                          // features, so they lead only its history.
-                          ? const SidebarHistoryHeaderScope(
-                              header: _SlidingSidebarDestinations(),
-                              child: ChatsDrawer(),
-                            )
-                          : const HermesSessionsTab(
-                              showBottomNavigationBar: false,
-                            ),
-                  ],
-                ),
-              ),
+              child: history,
             ),
             Positioned(
               top: 0,
@@ -797,43 +818,31 @@ class _SlidingSidebarPage extends ConsumerWidget {
                   end: Spacing.inputPadding,
                 ),
                 child: LayoutBuilder(
-                  builder: (context, constraints) => Row(
+                  builder: (context, constraints) => Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: isSearching
-                              ? SidebarSearchAppBarLeading(
-                                  hintText: l10n.searchConversations,
-                                  maxWidth:
-                                      constraints.maxWidth -
-                                      controlExtent -
-                                      Spacing.sm,
-                                )
-                              : composeChrome
-                              ? const SidebarProfileAppBarLeading()
-                              : SizedBox.square(dimension: controlExtent),
-                        ),
+                      _slidingSidebarToolbarRow(
+                        context: context,
+                        ref: ref,
+                        constraints: constraints,
+                        isSearching: isSearching,
+                        composeChrome: composeChrome,
+                        chatTab: chatTab,
+                        controlExtent: controlExtent,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      // Search filters the Open WebUI history only.
-                      if (chatTab.id == SidebarTabId.hermes)
-                        const SizedBox.shrink()
-                      else if (composeChrome)
-                        ConduitAdaptiveAppBarIconButton(
-                          key: const ValueKey<String>('sidebar-search-button'),
-                          icon: isSearching ? UiUtils.closeIcon : Icons.search,
-                          iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
-                          semanticLabel: isSearching
-                              ? l10n.close
-                              : l10n.searchConversations,
-                          onPressed: () => isSearching
-                              ? closeSidebarSearch(ref)
-                              : openSidebarSearch(ref),
-                          iconColor: theme.textPrimary,
-                        )
-                      else
-                        SizedBox.square(dimension: controlExtent),
+                      // Hermes names its connection at the centre when there
+                      // is another to switch to.
+                      if (chatTab.id == SidebarTabId.hermes &&
+                          composeChrome &&
+                          !isSearching)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: controlExtent + Spacing.sm,
+                          ),
+                          child: const Center(
+                            child: HermesConnectionHeaderSwitcher(),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -874,6 +883,54 @@ class _SlidingSidebarPage extends ConsumerWidget {
       ),
     );
   }
+
+  /// The sliding sidebar's bar: the profile (or the search field) at the
+  /// start, the search button at the end.
+  Widget _slidingSidebarToolbarRow({
+    required BuildContext context,
+    required WidgetRef ref,
+    required BoxConstraints constraints,
+    required bool isSearching,
+    required bool composeChrome,
+    required SidebarTabDescriptor chatTab,
+    required double controlExtent,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: isSearching
+                ? SidebarSearchAppBarLeading(
+                    hintText: l10n.searchConversations,
+                    maxWidth: constraints.maxWidth - controlExtent - Spacing.sm,
+                  )
+                : composeChrome
+                ? const SidebarProfileAppBarLeading()
+                : SizedBox.square(dimension: controlExtent),
+          ),
+        ),
+        const SizedBox(width: Spacing.sm),
+        // Search filters the Open WebUI history only.
+        if (chatTab.id == SidebarTabId.hermes)
+          const SizedBox.shrink()
+        else if (composeChrome)
+          ConduitAdaptiveAppBarIconButton(
+            key: const ValueKey<String>('sidebar-search-button'),
+            icon: isSearching ? UiUtils.closeIcon : Icons.search,
+            iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
+            semanticLabel: isSearching ? l10n.close : l10n.searchConversations,
+            onPressed: () =>
+                isSearching ? closeSidebarSearch(ref) : openSidebarSearch(ref),
+            iconColor: theme.textPrimary,
+          )
+        else
+          SizedBox.square(dimension: controlExtent),
+      ],
+    );
+  }
 }
 
 /// Notes, Terminal and Channels, scrolling at the top of the history the
@@ -896,50 +953,109 @@ class _SlidingSidebarDestinations extends ConsumerWidget {
       GoRouterState.of(context).uri.path,
     );
 
+    // The sidebar's own rows: a symbol in the leading column, as folder
+    // and channel rows have, and the same highlight when one is open. The
+    // sections below set themselves apart with their headers.
     return Column(
       key: const ValueKey<String>('sidebar-destinations'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-          child: Column(
-            children: [
-              for (final destination in destinations)
-                ListTile(
-                  key: ValueKey<String>(
-                    'sidebar-destination-${destination.id.name}',
-                  ),
-                  minTileHeight: 48,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  selected: destination.id == selectedTab,
-                  tileColor: Colors.transparent,
-                  selectedTileColor: theme.textPrimary.withValues(alpha: 0.08),
-                  selectedColor: theme.textPrimary,
-                  iconColor: theme.textSecondary,
-                  textColor: theme.textPrimary,
-                  leading: destination.assetName != null
-                      ? ImageIcon(
-                          AssetImage(destination.assetName!),
-                          size: destination.assetIconSize ?? 22,
-                        )
-                      : Icon(destination.materialIcon, size: 22),
-                  title: Text(destination.label(l10n)),
-                  onTap: () {
-                    ConduitHaptics.selectionClick();
-                    _selectSlidingSidebarTab(
-                      context,
-                      ref,
-                      navigation.tabs.indexOf(destination.id),
-                    );
-                  },
+        for (final destination in destinations)
+          ChatStyleSidebarTile(
+            key: ValueKey<String>('sidebar-destination-${destination.id.name}'),
+            selected: destination.id == selectedTab,
+            onTap: () {
+              ConduitHaptics.selectionClick();
+              _selectSlidingSidebarTab(
+                context,
+                ref,
+                navigation.tabs.indexOf(destination.id),
+              );
+            },
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: kConversationTileMinHeight,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: kSidebarRowHorizontalPadding,
+                  vertical: Spacing.sm,
                 ),
-            ],
+                child: Row(
+                  children: [
+                    // The symbol starts where chat titles do, and the name
+                    // follows it.
+                    _SidebarDestinationGlyph(
+                      destination: destination,
+                      color: theme.textPrimary,
+                    ),
+                    const SizedBox(width: _SidebarDestinationGlyph.gap),
+                    Expanded(
+                      child: Text(
+                        destination.label(l10n),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: sidebarRowTitleLineStyle().copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
-        const Divider(indent: Spacing.md, endIndent: Spacing.md),
       ],
+    );
+  }
+}
+
+/// A destination's symbol: the SF Symbol its tab shows on iOS, else its
+/// icon, at a row symbol's full size and in the label colour, its ink
+/// starting on the row's leading edge.
+class _SidebarDestinationGlyph extends StatelessWidget {
+  const _SidebarDestinationGlyph({
+    required this.destination,
+    required this.color,
+  });
+
+  final SidebarTabDescriptor destination;
+  final Color color;
+
+  /// The symbol's size: a list row's, a little over the 17 pt title.
+  static const double symbolSize = 20;
+
+  /// The column every symbol takes, so the names after them share an edge.
+  static const double extent = 24;
+
+  /// Between the symbol's column and the name.
+  static const double gap = 12;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final glyph = NativeSymbolGlyph.isAvailable
+        ? NativeSymbolGlyph(
+            symbol: destination.sfSymbol,
+            fallbackIcon: destination.materialIcon,
+            pointSize: scaler.scale(symbolSize),
+            color: color,
+          )
+        : destination.assetName != null
+        ? ImageIcon(
+            AssetImage(destination.assetName!),
+            size: scaler.scale(extent),
+            color: color,
+          )
+        : Icon(
+            destination.materialIcon,
+            size: scaler.scale(extent),
+            color: color,
+          );
+    return SizedBox(
+      width: scaler.scale(extent),
+      child: Align(alignment: AlignmentDirectional.centerStart, child: glyph),
     );
   }
 }
@@ -978,7 +1094,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
                       size: _kOpenWebUiTabIconSize,
                     ),
                     nativeAsset: _kOpenWebUiTabIcon,
-                    nativeIconSize: _kOpenWebUiTabIconSize,
                   )
                 : AdaptiveFloatingTab(
                     label: tab.label(l10n),
@@ -987,7 +1102,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
                       size: tab.assetIconSize ?? IconSize.tabBar,
                     ),
                     nativeAsset: tab.assetName!,
-                    nativeIconSize: _kHermesNativeBackendIconSize,
                   ),
       ],
       selectedIndex: selectedIndex,
@@ -1024,5 +1138,3 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
 /// tinted as a template.
 const String _kOpenWebUiTabIcon = 'assets/icons/open_webui_tab.png';
 const double _kOpenWebUiTabIconSize = 22;
-const double _kHermesNativeBackendIconSize = 26;
-

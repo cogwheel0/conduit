@@ -339,6 +339,40 @@ class TerminalService {
 
   final ApiService api;
 
+  /// Uses the selected terminal's existing credentials and chat context for
+  /// Computer endpoints, including personal connections and server proxies.
+  Future<Response<dynamic>> requestComputer(
+    TerminalServerInfo server,
+    String path, {
+    required String sessionScopeId,
+    String method = 'GET',
+    Object? data,
+    Map<String, dynamic>? queryParameters,
+    ResponseType? responseType,
+  }) {
+    final scope = isSavedTerminalChatScopeId(sessionScopeId)
+        ? sessionScopeId
+        : null;
+    return server.isSystem
+        ? _requestSystem(
+            '/api/v1/terminals/${Uri.encodeComponent(server.systemServerId!)}/$path',
+            method: method,
+            data: data,
+            queryParameters: queryParameters,
+            responseType: responseType,
+            sessionScopeId: scope,
+          )
+        : _requestDirect(
+            server,
+            '/$path',
+            method: method,
+            data: data,
+            queryParameters: queryParameters,
+            responseType: responseType,
+            sessionScopeId: scope,
+          );
+  }
+
   String get _apiBaseUrl => _trimTrailingSlashes(api.baseUrl);
 
   String? get _authToken {
@@ -546,6 +580,26 @@ class TerminalService {
     return {
       for (final entry in cookies.entries)
         if (!openWebUiCookieNames.contains(entry.key)) entry.key: entry.value,
+    };
+  }
+
+  /// Custom proxy authentication for Computer's native WebSocket handshake.
+  /// Direct terminals must never receive the Open WebUI server's credentials.
+  Map<String, String> computerProxyHeadersForServer(TerminalServerInfo server) {
+    if (!server.isSystem) return const {};
+    return {
+      for (final entry in api.serverConfig.customHeaders.entries)
+        if (!const {
+              'cookie',
+              'host',
+              'origin',
+              'connection',
+              'upgrade',
+              'content-length',
+              'transfer-encoding',
+            }.contains(entry.key.toLowerCase()) &&
+            !entry.key.toLowerCase().startsWith('sec-websocket-'))
+          entry.key: entry.value,
     };
   }
 

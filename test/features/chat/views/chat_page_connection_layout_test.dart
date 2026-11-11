@@ -183,6 +183,12 @@ void main() {
               ),
             );
             await tester.pumpAndSettle();
+            // With messages but no conversation yet (a first send still on
+            // its way), the bar keeps a new chat's actions for a moment.
+            if (chatId == null) {
+              await tester.pump(kChatHeaderNewChatActionsHold);
+              await tester.pumpAndSettle();
+            }
             expect(
               find.byKey(const ValueKey('live-connection-retry')),
               disconnected ? findsOneWidget : findsNothing,
@@ -204,7 +210,9 @@ void main() {
               expect(modelWidth, 0);
               expect(labels, contains('Choose Model: Fixture model'));
             }
-            if (disconnected || width <= 320) {
+            // With the title at the leading edge, 320 pt leaves New Chat
+            // room in the bar; narrower bars move it into More.
+            if (disconnected || width < 320) {
               expect(labels, contains('New Chat'));
               if (chatId == null) {
                 expect(labels, contains('Temporary Chat'));

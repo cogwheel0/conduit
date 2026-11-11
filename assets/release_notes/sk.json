@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Novinky",
+      "intro": "Ahoj! LibreChat prichádza ako beta: prihlás sa, chatuj s jeho modelmi a agentmi a jeho históriu máš na karte Chaty. Hermes 0.23 funguje a prináša Miestnosti, pripnuté a skryté chaty a panel Kontext a využitie. Open WebUI 0.13.3 ponúka programovacích agentov svojich terminálov ako modely a Počítač otvorí plochu terminálu z hlavičky chatu.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): prihlás sa k serveru LibreChat e-mailom alebo cez LDAP, s dvojfázovým overením alebo cez jednotné prihlásenie a na stránke Účty medzi ním a Open WebUI prepínaj. Jeho chaty zaplnia kartu Chaty a dajú sa čítať aj offline. Vyberaj jeho špecifikácie modelov, agentov a modely, prikladaj súbory, zapínaj vyhľadávanie na webe, interpret kódu, vyhľadávanie v súboroch a MCP servery, odpovedaj na žiadosti o schválenie nástrojov a vkladaj jeho prompty cez /. Odpovede bežia ďalej, aj keď si v inom chate. Fungujú aj odkazy na zdieľanie, vetvenie, Duplikovať chat, hlasy servera a pamäte v nastaveniach Personalizácia.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: chaty cez Desktop Gateway a API server fungujú a môžeš sa pripojiť k vlastnému listeneru Webapp na bráne. Schválenia a otázky sa znova zobrazujú a všetky otázky jedného ťahu prídu v jednom formulári. Chat začatý v inej aplikácii Hermes ponúkne Pokračovať v kópii, beh prerušený reštartom sa znova rozbehne a odpoveď na správu, ktorú Hermes uložil počas reštartu, sa objaví, hneď ako bude hotová. Conduit sa opýta, skôr než pripojenie pošle prihlasovacie údaje cez nešifrované HTTP a skôr než prepne na model, pri ktorom Hermes žiada tvoje potvrdenie.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chaty Hermes: pripni, archivuj alebo skry chat, založ vetvu z ktorejkoľvek odpovede alebo vráť späť posledný ťah. Úprava alebo nové vygenerovanie v chate cez Desktop Gateway pokračuje v tej istej relácii aj s jej kontextom. Kontext a využitie ukáže zaplnenie kontextového okna a limity tvojho predplatného a vie chat zhustiť. Štítok nad poľom správy vypíše bežiacich podagentov a procesy, ktoré môžeš nasmerovať, zastaviť alebo ukončiť. Neúspešný ťah ukáže kartu, ktorá povie, čo sa pokazilo, a ponúkne opravu, upravené súbory sa zobrazia ako karta s rozdielmi, platené nástroje ukazujú svoju cenu a plán agenta zostáva nad poľom správy.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Miestnosti a úlohy Hermes: pripojenia cez Desktop Gateway dostanú Miestnosti, skupinové chaty s dvoma až šiestimi tvojimi botmi. Ich naplánované úlohy sa dajú zastaviť uprostred behu, v nastavení Zmeškané spustenia vyberieš, čo sa má stať, a pri položke Doručiť do zvolíš aplikácie na posielanie správ, Chaty s botmi a Skupinové chaty. Úlohy na API serveri sa dajú upravovať a úroveň uvažovania, ktorú vyberieš, sa tam teraz uplatní. MCP servery z katalógu si pri pridaní vypýtajú svoje kľúče a s viacerými pripojeniami prepínaš cez názov hore v bočnom paneli.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 a 0.13.3: aplikácia funguje bez upozornenia na kompatibilitu. Vyber v uloženom chate terminál a jeho programovací agenti, napríklad Codex a Claude Code, sa objavia vo výbere modelu pod Programovací agenti. Počítač v hlavičke chatu otvorí plochu alebo prehliadač terminálu na celú obrazovku: sleduj, kým beží odpoveď, alebo ťukni na Prevziať ovládanie a píš, klikaj a prehliadaj web. Vypneš ho v Nastavenia > Chat. Vyvolanie pamätí a zoznamy Skills, ktoré server skrýva, sa už nezobrazujú ako bloky nástrojov.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: volania nástrojov sa už nezastavia po 8 kolách. Nové nastavenie Obrázky na požiadavku (predvolene 10) a rozpočet na dokumenty teraz platia pre každú požiadavku zvlášť, takže staršie prílohy sa vynechajú namiesto toho, aby zlyhal každý ďalší ťah. Limit kontextu, ktorý vyberieš pre lokálny model Ollama, sa odošle Ollame. Kroky premýšľania a nástrojov po opätovnom otvorení chatu zostanú, zaplnenie kontextu vo využití sa meria správne a servery, ktoré posielajú prázdne polia, už nerozbijú stream.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: na iOS 26 sú ponuky, dialógy, panely a vyhľadávacie polia systémové a Nastavenia sú zoskupené ako v aplikácii Nastavenia. Hlas a predčítanie plávajú na sklenených ostrovčekoch: ťuknutím na časovú os pretočíš, môžeš skočiť o 15 sekúnd a sledovať zvýraznené slovo. Chaty a poznámky sú zoradené podľa dátumu, využitie odpovede sa otvorí v bubline so zaplnením kontextu, editor poznámok má dole panel nástrojov a stránky nastavení sa pri posúvaní pod lištou rozmazávajú.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chaty: dlhé chaty sa posúvajú bez poskakovania posuvníka, posuvník na Androide sa dá ťahať a chat zostane na mieste, keď vyťahuješ bočný panel. Bloky kódu zalamujú dlhé riadky, stĺpce tabuliek sa prispôsobia obsahu, návrhy ďalších otázok sa ukazujú ako celé riadky a odpoveď ukazuje Premýšľam… aj s časom čakania. Jedna rýchlosť teraz nastavuje hlasy z cloudu aj zo zariadenia, prihlásenie do nástenky Hermes už za klávesnicou nezostane prázdne a dvojité ťuknutie na profil už neotvorí Nastavenia dvakrát.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

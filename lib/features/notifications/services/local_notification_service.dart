@@ -2,23 +2,54 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/utils/current_localizations.dart';
+import '../../../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 
 part 'local_notification_service.g.dart';
 
 /// A tap on a system notification, decoded back into the target it points at.
+///
+/// The payload is JSON. Version 2, which this app writes:
+/// `{"v": 2, "kind": "chat_completion", "sourceId": "…", "scope": "owui:…",
+/// "group": "chat:…"}`, with `kind` a [NotificationKindWireName.wireName] and
+/// `group` optional. Version 1, written before notifications knew their
+/// account, is `{"kind": "chatCompletion", "sourceId": "…"}`; it has no
+/// [scope] and points into the active account.
 class NotificationTap {
-  const NotificationTap({required this.kind, required this.sourceId});
+  const NotificationTap({
+    required this.kind,
+    required this.sourceId,
+    this.scope,
+    this.group,
+  });
+
+  NotificationTap.fromNotification(AppNotification notification)
+    : this(
+        kind: notification.kind,
+        sourceId: notification.sourceId,
+        scope: notification.scope,
+        group: notification.group,
+      );
+
+  static const int version = 2;
 
   final NotificationKind kind;
   final String sourceId;
+
+  /// The account or connection it belongs to; null for a version 1 tap, which
+  /// means the active account.
+  final String? scope;
+
+  final String? group;
 
   static NotificationTap? tryDecode(String? payload) {
     if (payload == null || payload.isEmpty) return null;
@@ -30,19 +61,34 @@ class NotificationTap {
       if (kindName is! String || sourceId is! String || sourceId.isEmpty) {
         return null;
       }
-      final kind = NotificationKind.values
-          .where((k) => k.name == kindName)
-          .firstOrNull;
+      final kind = NotificationKindWireName.parse(kindName);
       if (kind == null) return null;
-      return NotificationTap(kind: kind, sourceId: sourceId);
+      final scope = map['scope'];
+      final group = map['group'];
+      // A version 2 tap names its account; without one it can't be opened
+      // in the right place.
+      if (map['v'] is int && (map['v'] as int) >= 2) {
+        if (scope is! String || NotificationScope.tryParse(scope) == null) {
+          return null;
+        }
+      }
+      return NotificationTap(
+        kind: kind,
+        sourceId: sourceId,
+        scope: scope is String ? scope : null,
+        group: group is String && group.isNotEmpty ? group : null,
+      );
     } catch (_) {
       return null;
     }
   }
 
   static String encode(AppNotification notification) => jsonEncode({
-    'kind': notification.kind.name,
+    'v': version,
+    'kind': notification.kind.wireName,
     'sourceId': notification.sourceId,
+    'scope': notification.scope,
+    'group': ?notification.group,
   });
 }
 
@@ -52,7 +98,8 @@ class NotificationTap {
 /// owns its own `conduit_messages` channel and never requests permission at
 /// init — permission is requested only when the user opts in.
 class LocalNotificationService {
-  LocalNotificationService();
+  LocalNotificationService({DateTime Function() now = DateTime.now})
+    : _idCounter = now().millisecondsSinceEpoch & 0x7fffffff;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -64,9 +111,17 @@ class LocalNotificationService {
   /// Monotonic OS-notification id. Using a counter (rather than a hash of the
   /// dedup key) avoids 31-bit hash collisions silently replacing a notification
   /// in the drawer. De-duplication is handled upstream by the router.
-  int _idCounter = 0;
+  ///
+  /// It starts at the launch time in milliseconds (31 bits, so it wraps about
+  /// every 24.8 days), not at 0, so ids stay unique across launches: the iOS
+  /// push extension removes the app's notification by the id the shared
+  /// ledger keeps for 3 days, and on iOS a reused id replaces the older
+  /// notification under it.
+  int _idCounter;
 
-  int _nextNotificationId() => _idCounter = (_idCounter + 1) & 0x7fffffff;
+  /// The id the next notification posts with, handed out ahead of [show] so
+  /// it can be claimed under (see `NotificationClaim`).
+  int nextNotificationId() => _idCounter = (_idCounter + 1) & 0x7fffffff;
 
   final StreamController<NotificationTap> _taps =
       StreamController<NotificationTap>.broadcast();
@@ -204,9 +259,14 @@ class LocalNotificationService {
   /// [playSound] honors the user's notification-sound preference. Note Android
   /// 8+ governs sound at the channel level, so the per-notification flag is
   /// best-effort there; it is authoritative on iOS.
+  ///
+  /// [id] is one [nextNotificationId] handed out; a fresh one by default. On
+  /// Android the notification is tagged with its dedup key, which push posts
+  /// under too.
   Future<void> show(
     AppNotification notification, {
     required bool playSound,
+    int? id,
   }) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_initialized) await initialize();
@@ -215,6 +275,7 @@ class LocalNotificationService {
     final title = notification.title.isNotEmpty
         ? notification.title
         : l10n.notificationDefaultTitle;
+    final body = notificationDisplayBody(notification, l10n);
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -224,18 +285,20 @@ class LocalNotificationService {
       priority: Priority.high,
       icon: '@mipmap/ic_launcher',
       playSound: playSound,
+      tag: notification.dedupKey,
     );
     final iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: playSound,
+      threadIdentifier: notificationThreadIdentifier(notification),
     );
 
     try {
       await _plugin.show(
-        id: _nextNotificationId(),
+        id: id ?? nextNotificationId(),
         title: title,
-        body: notification.body,
+        body: body,
         notificationDetails: NotificationDetails(
           android: androidDetails,
           iOS: iosDetails,
@@ -252,11 +315,57 @@ class LocalNotificationService {
     }
   }
 
-  /// Clears all posted message notifications — used on logout / server switch
-  /// to avoid cross-server deep links.
+  /// Clears all posted message notifications — used when signing out of
+  /// everything, so nothing deep-links into data that is gone.
   Future<void> cancelAll() async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
+    // Behind a [show] still waiting for the plugin, which would otherwise
+    // post after this cleared everything.
+    if (!_initialized) await initialize();
     await _plugin.cancelAll();
+  }
+
+  /// Clears the posted notifications of one account or connection ([scope],
+  /// see [NotificationScope]), leaving every other one in place. Notifications
+  /// posted before they carried a scope go too, where they can still be told
+  /// apart (iOS): which account they belong to is no longer known.
+  Future<void> cancelScope(String scope) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    if (!_initialized) await initialize();
+    try {
+      final active = await _plugin.getActiveNotifications();
+      for (final notification in notificationsInScope(active, scope)) {
+        await _plugin.cancel(id: notification.id!, tag: notification.tag);
+      }
+    } catch (e, st) {
+      DebugLogger.error(
+        'failed to clear scoped notifications',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/system',
+      );
+    }
+  }
+
+  /// Which of the posted [active] notifications [cancelScope] clears for
+  /// [scope]: this app's message notifications of that scope, and those
+  /// without one. Others (a voice call's, say) are left alone.
+  @visibleForTesting
+  static List<ActiveNotification> notificationsInScope(
+    List<ActiveNotification> active,
+    String scope,
+  ) => [
+    for (final notification in active)
+      if (notification.id != null && _isInScope(notification, scope))
+        notification,
+  ];
+
+  static bool _isInScope(ActiveNotification notification, String scope) {
+    final tap = NotificationTap.tryDecode(notification.payload);
+    if (tap != null) return tap.scope == null || tap.scope == scope;
+    // Android lists posted notifications without their payload. Their tag,
+    // the dedup key [show] posts with, starts with the scope.
+    return notification.tag?.startsWith('$scope|') ?? false;
   }
 
   void dispose() {
@@ -269,4 +378,28 @@ LocalNotificationService localNotificationService(Ref ref) {
   final service = LocalNotificationService();
   ref.onDispose(service.dispose);
   return service;
+}
+
+/// The text a notification is shown with: its body, or for a failed reply
+/// without one, that the reply failed. The system notification and the
+/// in-app banner both say it.
+String notificationDisplayBody(
+  AppNotification notification,
+  AppLocalizations l10n,
+) =>
+    notification.body.isEmpty &&
+        notification.kind == NotificationKind.replyFailed
+    ? l10n.notificationReplyFailedBody
+    : notification.body;
+
+/// The iOS thread a notification is listed under: its group, scoped to the
+/// account that posted it, the same way the push extension builds it, so a
+/// local notification and a push for the same chat share one thread and two
+/// accounts never share one.
+@visibleForTesting
+String notificationThreadIdentifier(AppNotification notification) {
+  final group = notification.group;
+  return group == null || group.isEmpty
+      ? notification.scope
+      : '${notification.scope}|$group';
 }

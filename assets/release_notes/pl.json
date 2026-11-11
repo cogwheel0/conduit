@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Co nowego",
+      "intro": "Cześć! LibreChat pojawia się w wersji beta: zaloguj się, rozmawiaj z jego modelami i agentami, a jego historia trafi do karty Czaty. Hermes 0.23 działa, z Pokojami, przypiętymi i ukrytymi czatami oraz panelem Kontekst i użycie. Open WebUI 0.13.3 udostępnia agentów programistycznych swoich terminali jako modele, a Komputer otwiera pulpit terminala z nagłówka czatu.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): zaloguj się na serwer LibreChat e-mailem lub przez LDAP, z weryfikacją dwuetapową albo przez jednokrotne logowanie (SSO), i przełączaj się między nim a Open WebUI na stronie Konta. Jego czaty wypełniają kartę Czaty i można je czytać offline. Wybieraj jego specyfikacje modeli, agentów i modele, załączaj pliki, włączaj wyszukiwanie w sieci, kod, wyszukiwanie w plikach i serwery MCP, odpowiadaj na prośby o zatwierdzenie narzędzi i wstawiaj jego prompty przez /. Odpowiedzi generują się dalej, kiedy jesteś w innym czacie. Linki do udostępniania, rozgałęzianie, Duplikuj czat, głosy serwera i wspomnienia w sekcji Personalizacja też działają.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: czaty przez Desktop Gateway i serwer API działają, a połączyć się możesz też z listenerem Webapp, który ma sam gateway. Zatwierdzenia i pytania znów się pojawiają, a wszystkie pytania z jednej tury przychodzą w jednym formularzu. Czat rozpoczęty w innej aplikacji Hermes oferuje Kontynuuj w kopii, przebieg przerwany przez restart rusza dalej, a odpowiedź na wiadomość, którą Hermes zapisał podczas restartu, pojawia się, gdy tylko jest gotowa. Conduit pyta, zanim połączenie wyśle dane logowania przez nieszyfrowane HTTP i zanim przejdzie na model, przy którym Hermes chce twojego potwierdzenia.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Czaty Hermes: przypnij, zarchiwizuj lub ukryj czat, utwórz gałąź od dowolnej odpowiedzi albo cofnij ostatnią turę. Edycja lub ponowne generowanie w czacie Desktop Gateway idzie dalej w tej samej sesji, razem z jej kontekstem. Panel Kontekst i użycie pokazuje, jak pełne jest okno kontekstu i jakie limity ma twój abonament, oraz kompaktuje czat. Plakietka nad polem wiadomości pokazuje działających podagentów i procesy: możesz nimi pokierować, zatrzymać je lub zakończyć. Nieudana tura pokazuje kartę, która mówi, co się zepsuło, i proponuje poprawkę, zmienione pliki pojawiają się jako karta diff, płatne narzędzia pokazują swoją cenę, a plan agenta zostaje nad polem wiadomości.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Pokoje i zadania Hermes: połączenia Desktop Gateway dostają Pokoje, czyli czaty grupowe z udziałem od dwóch do sześciu twoich botów. Ich zaplanowane zadania można zatrzymać w trakcie działania, w opcji Pominięte uruchomienia wybrać, co ma się z nimi dziać, a w opcji Dostarczaj do wskazać komunikatory, Czaty botów i Czaty grupowe. Zadania na serwerze API można edytować, a wybrany nakład rozumowania działa teraz także tam. Serwery MCP z katalogu proszą o klucze przy dodawaniu, a przy kilku połączeniach przełączasz się przez nazwę u góry paska bocznego.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 i 0.13.3: aplikacja działa bez ostrzeżenia o zgodności. Wybierz terminal w zapisanym czacie, a jego agenci programistyczni, np. Codex i Claude Code, pojawią się w wyborze modelu w sekcji Agenci programistyczni. Komputer w nagłówku czatu otwiera Pulpit lub Przeglądarkę terminala na pełnym ekranie: patrz, jak powstaje odpowiedź, albo wybierz Przejmij sterowanie, by pisać, klikać i przeglądać strony. Wyłączysz go w Ustawienia > Czat. Przywołania wspomnień i listy umiejętności, które serwer ukrywa, nie pokazują się już jako bloki narzędzi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: wywołania narzędzi nie zatrzymują się już po 8 rundach. Nowe ustawienie Obrazy na żądanie (domyślnie 10) i budżet dokumentów obowiązują teraz na każde żądanie, więc starsze załączniki są pomijane, zamiast żeby każda kolejna tura kończyła się błędem. Limit kontekstu wybrany dla lokalnego modelu Ollama jest wysyłany do Ollama. Rozumowanie i kroki narzędzi zostają po ponownym otwarciu czatu, zapełnienie kontekstu w zużyciu jest liczone poprawnie, a serwery wysyłające puste pola nie psują już streamu.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: na iOS 26 menu, alerty, panele i pola wyszukiwania są systemowe, a Ustawienia są pogrupowane jak w aplikacji Ustawienia. Rozmowy głosowe i czytanie na głos unoszą się na szklanych wyspach: dotknij paska, aby przewinąć, przeskocz o 15 sekund i śledź podświetlone słowo. Czaty i notatki są ułożone według daty, zużycie odpowiedzi otwiera się w dymku z zapełnieniem kontekstu, edytor notatek ma pasek narzędzi na dole, a strony ustawień rozmywają się pod paskiem podczas przewijania.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czaty: długie czaty przewijają się bez skaczącego paska przewijania, na Androidzie pasek przewijania można przeciągać, a czat stoi w miejscu, gdy wysuwasz pasek boczny. Bloki kodu zawijają długie linie, kolumny tabel dopasowują się do treści, sugestie kolejnych pytań wyświetlają się jako pełne wiersze, a odpowiedź pokazuje Myślenie… z czasem oczekiwania. Jedna prędkość ustawia teraz głosy w chmurze i na urządzeniu, logowanie do panelu Hermes nie robi się już puste za klawiaturą, a dwukrotne dotknięcie profilu nie otwiera już Ustawień dwa razy.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

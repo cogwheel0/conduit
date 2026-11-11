@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! LibreChat kommt als Beta: Melde dich an, chatte mit seinen Modellen und Agenten und finde seinen Verlauf im Tab „Chats“. Hermes 0.23 funktioniert, mit Räumen, angehefteten und ausgeblendeten Chats und der Ansicht „Kontext & Nutzung“. Open WebUI 0.13.3 bietet die Coding-Agenten seiner Terminals als Modelle an, und „Computer“ öffnet den Desktop eines Terminals aus der Kopfzeile des Chats.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): Melde dich bei einem LibreChat-Server mit E-Mail oder LDAP, Zwei-Faktor-Verifizierung oder Single Sign-On an und wechsle unter „Konten“ zwischen ihm und Open WebUI. Seine Chats füllen den Tab „Chats“ und bleiben offline lesbar. Wähle seine Modellvorgaben, Agenten und Modelle, hänge Dateien an, schalte Websuche, Code, Dateisuche und MCP-Server ein, beantworte Tool-Freigaben und füge seine Prompts mit / ein. Antworten laufen weiter, während du in einem anderen Chat bist. Links zum Teilen, Verzweigungen, „Chat duplizieren“, Serverstimmen und Erinnerungen unter „Personalisierung“ funktionieren ebenfalls.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: Chats über das Desktop Gateway und den API-Server funktionieren, und du kannst dich mit dem eigenen Webapp-Listener eines Gateways verbinden. Freigaben und Rückfragen erscheinen wieder, und alle Rückfragen einer Runde kommen in einem einzigen Formular. Ein Chat, der in einer anderen Hermes-App begonnen wurde, bietet „In einer Kopie fortsetzen“ an, ein Durchlauf, den ein Neustart abgebrochen hat, geht weiter, und die Antwort auf eine Nachricht, die Hermes während eines Neustarts gespeichert hat, erscheint, sobald sie fertig ist. Conduit fragt nach, bevor eine Verbindung Zugangsdaten über unverschlüsseltes HTTP sendet und bevor es zu einem Modell wechselt, für das Hermes deine Bestätigung will.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes-Chats: Hefte einen Chat an, archiviere ihn oder blende ihn aus, verzweige von jeder Antwort aus oder mach die letzte Runde rückgängig. Bearbeiten oder Neugenerieren in einem Chat über das Desktop Gateway läuft in derselben Sitzung weiter, samt ihrem Kontext. „Kontext & Nutzung“ zeigt, wie voll das Kontextfenster ist und welche Limits dein Tarif hat, und komprimiert den Chat. Ein Chip über dem Eingabefeld listet laufende Subagenten und Prozesse auf, die du lenken, stoppen oder beenden kannst. Eine fehlgeschlagene Runde zeigt eine Karte, die sagt, was schiefging, und eine Lösung anbietet, geänderte Dateien erscheinen als Diff-Karte, kostenpflichtige Tools zeigen ihren Preis, und der Plan des Agenten bleibt über dem Eingabefeld.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hermes-Räume und -Jobs: Verbindungen über ein Desktop Gateway bekommen Räume, Gruppenchats mit zwei bis sechs deiner Bots. Ihre geplanten Jobs lassen sich mitten im Durchlauf stoppen, unter „Verpasste Ausführungen“ legst du fest, was mit ausgelassenen Durchläufen passiert, und mit „Zustellen an“ gehen sie an Messaging-Apps, „Bot-Chats“ und „Gruppenchats“. Jobs über den API-Server lassen sich bearbeiten, und der gewählte Denkaufwand gilt jetzt auch dort. MCP-Server aus dem Katalog fragen beim Hinzufügen nach ihren Schlüsseln, und bei mehreren Verbindungen wechselst du über den Namen oben in der Seitenleiste.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 und 0.13.3: Die App funktioniert ohne Kompatibilitätswarnung. Wähle in einem gespeicherten Chat ein Terminal, und seine Coding-Agenten wie Codex und Claude Code erscheinen in der Modellauswahl unter „Coding-Agenten“. „Computer“ in der Kopfzeile des Chats öffnet den Desktop oder Browser des Terminals im Vollbild: Schau zu, während eine Antwort läuft, oder wähle „Steuerung übernehmen“, um zu tippen, zu klicken und zu surfen. Ausschalten kannst du das unter „Einstellungen > Chat“. Erinnerungsabrufe und Skill-Listen, die der Server ausblendet, erscheinen nicht mehr als Tool-Blöcke.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: Tool-Aufrufe stoppen nicht mehr nach 8 Runden. Die neue Einstellung „Bilder pro Anfrage“ (standardmäßig 10) und das Dokumentbudget gelten jetzt pro Anfrage, sodass ältere Anhänge weggelassen werden, statt dass jede weitere Nachricht fehlschlägt. Das Kontextlimit, das du für ein lokales Ollama-Modell wählst, wird an Ollama geschickt. Nachdenken und Tool-Schritte bleiben erhalten, wenn du einen Chat wieder öffnest, die Kontextauslastung in der Nutzung wird richtig gemessen, und Server, die leere Felder senden, brechen den Stream nicht mehr ab.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: Unter iOS 26 sind Menüs, Hinweise, Dialoge und Suchfelder die des Systems, und die Einstellungen sind wie in der Einstellungen-App gruppiert. Sprachanrufe und Vorlesen schweben auf Glasinseln: Tippe auf die Zeitleiste, um an die Stelle zu springen, überspringe 15 Sekunden und folge dem hervorgehobenen Wort. Chats und Notizen sind nach Datum geordnet, die Nutzung einer Antwort öffnet sich in einem Popover mit der Kontextauslastung, der Notizeditor hat unten eine Werkzeugleiste, und Einstellungsseiten verschwimmen beim Scrollen unter der Leiste.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: Lange Chats scrollen, ohne dass der Scrollbalken springt, unter Android lässt sich der Scrollbalken ziehen, und der Chat bleibt stehen, während du die Seitenleiste aufziehst. Codeblöcke brechen lange Zeilen um, Tabellenspalten passen sich ihrem Inhalt an, Folgevorschläge erscheinen als ganze Zeilen, und eine Antwort zeigt „Denkt…“ mit der bisherigen Wartezeit. Eine Geschwindigkeit gilt jetzt für Cloud- und Gerätestimmen, die Anmeldung am Hermes-Dashboard wird hinter der Tastatur nicht mehr leer, und tippst du zweimal auf dein Profil, öffnen sich die Einstellungen nicht mehr zweimal.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

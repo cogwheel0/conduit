@@ -1,3 +1,4 @@
+import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -16,6 +17,11 @@ class AdaptiveProgressIndicator extends StatelessWidget {
   }) : linear = false,
        minHeight = null,
        radius = null;
+
+  /// A horizontal bar. On iOS 26 and later a bar with a known [value] is the
+  /// native `UIProgressView`, which has its own height and track colour, so
+  /// [minHeight] applies to the Flutter bar only; a [backgroundColor] or a
+  /// [semanticValue] keeps the Flutter bar.
   const AdaptiveProgressIndicator.linear({
     super.key,
     this.value,
@@ -57,6 +63,18 @@ class AdaptiveProgressIndicator extends StatelessWidget {
       return CupertinoActivityIndicator(radius: radius, color: color);
     }
     if (linear) {
+      if (value case final progress?
+          when backgroundColor == null &&
+              semanticValue == null &&
+              PlatformUiCapabilities.usesNativeIOS26) {
+        return Semantics(
+          label: semanticLabel,
+          value: '${(progress.clamp(0, 1) * 100).round()}%',
+          child: ExcludeSemantics(
+            child: CNProgressIndicator(value: progress, tint: color),
+          ),
+        );
+      }
       return LinearProgressIndicator(
         value: value,
         color: color,

@@ -4,6 +4,8 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
@@ -13,6 +15,46 @@ typedef DirectRunKey = ({
   String ownerConversationId,
   String assistantMessageId,
 });
+
+/// A Direct reply that is done: its final output, or its failure, is stored.
+///
+/// Announced through [DirectRunRegistry.completions] so the app can notify
+/// about a reply that finished while it was in the background.
+final class DirectRunCompletion {
+  const DirectRunCompletion({
+    required this.conversationId,
+    required this.message,
+    required this.runId,
+    this.title,
+    this.storage,
+    this.openWebUiAccountId,
+  });
+
+  /// The chat the reply is in, by its raw id.
+  final String conversationId;
+
+  /// The reply as stored: its content, or its error.
+  final ChatMessage message;
+
+  /// The run that wrote it ([DirectRunReservation.runId]). A regeneration
+  /// writes into the same assistant message, so this tells its answer from
+  /// the one it replaced.
+  final String runId;
+
+  /// The chat's title, when known.
+  final String? title;
+
+  /// Where the chat is stored; null for a temporary chat that isn't.
+  final ChatStorageKind? storage;
+
+  /// The Open WebUI account whose database holds the chat, when [storage] is
+  /// [ChatStorageKind.openWebUi].
+  final String? openWebUiAccountId;
+
+  String get assistantMessageId => message.id;
+
+  bool get failed => message.error != null;
+}
 
 /// Retained finals are only a short recovery bridge across a failed database
 /// write. Bound both cardinality and estimated heap use so a sequence of
@@ -51,6 +93,8 @@ final class DirectRunRegistry {
   final Map<String, _PendingDirectMcpApproval> _mcpApprovals = {};
   final StreamController<int> _mcpApprovalRevisions =
       StreamController<int>.broadcast(sync: true);
+  final StreamController<DirectRunCompletion> _completions =
+      StreamController<DirectRunCompletion>.broadcast();
   int _mcpApprovalRevision = 0;
   final Map<String, String> _sessionMcpApprovals = {};
   final Map<String, Set<String>> _rememberedMcpApprovals = {};
@@ -65,7 +109,26 @@ final class DirectRunRegistry {
 
   Stream<int> get mcpApprovalRevisions => _mcpApprovalRevisions.stream;
 
-  void dispose() => _mcpApprovalRevisions.close();
+  /// Direct replies as they finish: once the final output, or the failure,
+  /// of the latest generation is stored. A run that was stopped or replaced
+  /// never appears.
+  Stream<DirectRunCompletion> get completions => _completions.stream;
+
+  void dispose() {
+    _mcpApprovalRevisions.close();
+    _completions.close();
+  }
+
+  /// Announces on [completions] that the run of [reservation] is done, with
+  /// its outcome stored. Nothing is announced for a run that was stopped,
+  /// replaced, or cut off by sign-out.
+  void announceCompletion(
+    DirectRunReservation reservation,
+    DirectRunCompletion completion,
+  ) {
+    if (isCancelled(reservation) || _completions.isClosed) return;
+    _completions.add(completion);
+  }
 
   DirectCompletionRun? runFor(DirectRunKey key) => _runs[key];
 
@@ -855,6 +918,10 @@ final class _PendingDirectMcpApproval {
 /// than the reusable assistant id, determines which preflight may publish.
 final class DirectRunReservation {
   DirectRunReservation._(this._key, this._profileId);
+
+  /// A random id of this run, unique even when it writes into an assistant
+  /// message an earlier run wrote (a regeneration does).
+  final String runId = const Uuid().v4();
 
   DirectRunKey _key;
   final String _profileId;

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/services.dart';
@@ -172,29 +173,43 @@ void main() {
     expect(answers, 0);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-  testWidgets('forced app themes keep their appearance when the OS differs', (
-    tester,
-  ) async {
-    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
-    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
-    await tester.pumpWidget(
-      const CupertinoApp(
-        theme: CupertinoThemeData(brightness: Brightness.dark),
-        home: CupertinoPageScaffold(child: SizedBox()),
-      ),
+  for (final appBrightness in Brightness.values) {
+    testWidgets(
+      'a ${appBrightness.name} app theme opens a ${appBrightness.name} native '
+      'alert when the OS differs',
+      (tester) async {
+        tester.platformDispatcher.platformBrightnessTestValue =
+            appBrightness == Brightness.dark
+            ? Brightness.light
+            : Brightness.dark;
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+        await tester.pumpWidget(
+          CupertinoApp(
+            theme: CupertinoThemeData(brightness: appBrightness),
+            // The app reads its theme into native modals through this bridge.
+            builder: (context, child) =>
+                LegacyDesignCompatibility(child: child!),
+            home: const CupertinoPageScaffold(child: SizedBox()),
+          ),
+        );
+        reply = {'index': 0, 'textFields': <String>[]};
+        var answers = 0;
+        final result = AdaptiveAlertDialog.show(
+          context: tester.element(find.byType(CupertinoPageScaffold)),
+          title: 'Sample',
+          actions: [AlertAction(title: 'OK', onPressed: () => answers++)],
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(CupertinoAlertDialog), findsNothing);
+        expect(calls, hasLength(1));
+        expect(
+          (calls.single.arguments as Map)['isDark'],
+          appBrightness == Brightness.dark,
+        );
+        await result;
+        expect(answers, 1);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
-    var answers = 0;
-    final result = AdaptiveAlertDialog.show(
-      context: tester.element(find.byType(CupertinoPageScaffold)),
-      title: 'Sample',
-      actions: [AlertAction(title: 'OK', onPressed: () => answers++)],
-    );
-    await tester.pumpAndSettle();
-    expect(calls, isEmpty);
-    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-    await result;
-    expect(answers, 1);
-  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
 }

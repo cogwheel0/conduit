@@ -917,10 +917,14 @@ int _logicalLength(
         :final result,
         :final files,
         :final embeds,
+        :final runningLabel,
+        :final completedLabel,
       ):
         length +=
             id.length +
             name.length +
+            (runningLabel?.length ?? 0) +
+            (completedLabel?.length ?? 0) +
             _valueLogicalLength(arguments) +
             _valueLogicalLength(result) +
             _valueLogicalLength(files) +
@@ -1135,6 +1139,8 @@ bool _requiresImmediateReplacement(
           result: final beforeResult,
           files: final beforeFiles,
           embeds: final beforeEmbeds,
+          runningLabel: final beforeRunningLabel,
+          completedLabel: final beforeCompletedLabel,
         ),
         StructuredOutputToolCallBlock(
           id: final afterId,
@@ -1145,10 +1151,14 @@ bool _requiresImmediateReplacement(
           result: final afterResult,
           files: final afterFiles,
           embeds: final afterEmbeds,
+          runningLabel: final afterRunningLabel,
+          completedLabel: final afterCompletedLabel,
         ),
       ):
         if (beforeId != afterId ||
             beforeName != afterName ||
+            beforeRunningLabel != afterRunningLabel ||
+            beforeCompletedLabel != afterCompletedLabel ||
             beforeDone != afterDone ||
             beforeStatus != afterStatus ||
             _valueUpdateRequiresImmediateReplacement(
@@ -1298,6 +1308,8 @@ bool _blocksEquivalent(
         result: final aResult,
         files: final aFiles,
         embeds: final aEmbeds,
+        runningLabel: final aRunningLabel,
+        completedLabel: final aCompletedLabel,
       ),
       StructuredOutputToolCallBlock(
         id: final bId,
@@ -1308,10 +1320,14 @@ bool _blocksEquivalent(
         result: final bResult,
         files: final bFiles,
         embeds: final bEmbeds,
+        runningLabel: final bRunningLabel,
+        completedLabel: final bCompletedLabel,
       ),
     ) =>
       aId == bId &&
           aName == bName &&
+          aRunningLabel == bRunningLabel &&
+          aCompletedLabel == bCompletedLabel &&
           aDone == bDone &&
           aStatus == bStatus &&
           _deepEquals(aArguments, bArguments) &&
@@ -1507,6 +1523,8 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
         :final result,
         :final files,
         :final embeds,
+        :final runningLabel,
+        :final completedLabel,
       ):
         semanticBlocks.add(
           SemanticDetailsBlock.toolCall(
@@ -1518,6 +1536,8 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
             result: result,
             files: files,
             embeds: embeds,
+            runningLabel: runningLabel,
+            completedLabel: completedLabel,
           ),
         );
       case StructuredOutputImageBlock(:final url, :final description):

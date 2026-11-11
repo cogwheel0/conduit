@@ -96,7 +96,7 @@ final openWebUiChatSettingsMenuEntryProvider =
         return OpenWebUiChatSettingsMenuEntry.none;
       }
       final model = ref.watch(selectedModelProvider);
-      if (model == null || isHermesModel(model)) {
+      if (model == null || isHermesModel(model) || isLibreChatModel(model)) {
         return OpenWebUiChatSettingsMenuEntry.none;
       }
       final binding = ref.watch(directModelRegistryProvider).resolve(model);

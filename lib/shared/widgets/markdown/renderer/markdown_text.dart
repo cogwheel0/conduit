@@ -1,12 +1,15 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:conduit_markdown/conduit_markdown.dart'
+    show removeWordJoiners, wordJoiner;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../platform_ui/platform_ui.dart';
 
-/// Keeps Flutter's text selection while including line spacing in iOS highlights.
+/// Keeps Flutter's text selection while including line spacing in iOS
+/// highlights, and copies text without the joiners added for display.
 class MarkdownText extends StatelessWidget {
   const MarkdownText(this.span, {super.key});
 
@@ -14,10 +17,64 @@ class MarkdownText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!PlatformInfo.isIOS || SelectionContainer.maybeOf(context) == null) {
+    if (SelectionContainer.maybeOf(context) == null) {
       return Text.rich(span);
     }
+    if (!PlatformInfo.isIOS) {
+      // Copy the text as written, without the joiners added for display.
+      return _containsWordJoiner(span)
+          ? _JoinerFreeSelectionText(span)
+          : Text.rich(span);
+    }
     return _SelectionText(span);
+  }
+
+  static bool _containsWordJoiner(InlineSpan span) {
+    var found = false;
+    span.visitChildren((child) {
+      if (child is TextSpan && (child.text?.contains(wordJoiner) ?? false)) {
+        found = true;
+      }
+      return !found;
+    });
+    return found;
+  }
+}
+
+/// Selection that copies text without the invisible word joiners that keep
+/// ranges like "4–6" on one line on screen.
+class _JoinerFreeSelectionDelegate extends StaticSelectionContainerDelegate {
+  @override
+  SelectedContent? getSelectedContent() {
+    final content = super.getSelectedContent();
+    if (content == null || !content.plainText.contains(wordJoiner)) {
+      return content;
+    }
+    return SelectedContent(plainText: removeWordJoiners(content.plainText));
+  }
+}
+
+class _JoinerFreeSelectionText extends StatefulWidget {
+  const _JoinerFreeSelectionText(this.span);
+
+  final InlineSpan span;
+
+  @override
+  State<_JoinerFreeSelectionText> createState() =>
+      _JoinerFreeSelectionTextState();
+}
+
+class _JoinerFreeSelectionTextState extends State<_JoinerFreeSelectionText> {
+  final _selection = _JoinerFreeSelectionDelegate();
+
+  @override
+  Widget build(BuildContext context) =>
+      SelectionContainer(delegate: _selection, child: Text.rich(widget.span));
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
   }
 }
 
@@ -31,7 +88,7 @@ class _SelectionText extends StatefulWidget {
 }
 
 class _SelectionTextState extends State<_SelectionText> {
-  final _selection = StaticSelectionContainerDelegate();
+  final _selection = _JoinerFreeSelectionDelegate();
 
   @override
   Widget build(BuildContext context) => _SelectionBackground(

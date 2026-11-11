@@ -54,6 +54,9 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   final String? cancelLabel;
   final bool isExpanded;
 
+  /// The native pop-up button's value while no option is selected.
+  static const _noSelection = -1;
+
   @override
   Widget build(BuildContext context) {
     if (!PlatformInfo.isIOS) {
@@ -100,18 +103,15 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           enabled: onChanged != null,
           errorText: state.errorText,
         );
+        // UIKit's pop-up button has no item subtitles; those lists keep the
+        // native single-choice sheet below. It cannot lay out inside a
+        // Material dialog either, which sizes itself to its content.
         if (PlatformUiCapabilities.usesNativeIOS26 &&
+            !isInsideMaterialAlertDialog(context) &&
             options.isNotEmpty &&
             options.every((option) => option.subtitle?.isNotEmpty != true)) {
-          final label = selected?.label ?? decoration.hintText ?? '';
           final fieldName =
               semanticLabel ?? decoration.labelText ?? nativeTitle;
-          String? accessibleLabel;
-          if (fieldName != null && fieldName.isNotEmpty) {
-            accessibleLabel = label.isEmpty || label == fieldName
-                ? fieldName
-                : '$fieldName, $label';
-          }
           return InputDecorator(
             // Keep the form decoration; UIKit presents the anchored menu.
             decoration: effectiveDecoration.copyWith(
@@ -120,35 +120,35 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
             isEmpty: false,
             child: SizedBox(
               width: double.infinity,
-              child: onChanged == null
-                  ? CNButton(
-                      label: label,
-                      semanticLabel: accessibleLabel,
+              child: CNPopUpButton<int>(
+                // Options are matched by index: T need not be a valid
+                // platform value, and a null T can still be chosen.
+                value: selected == null ? _noSelection : selectedIndex,
+                items: [
+                  // With nothing chosen, the button shows the hint; UIKit
+                  // titles a pop-up button with its selected item, so the
+                  // hint is that item, dimmed so it can't be chosen back.
+                  if (selected == null) ...[
+                    CNPopUpButtonItem<int>(
+                      value: _noSelection,
+                      label: decoration.hintText ?? '',
                       enabled: false,
-                      tint: context.conduitTheme.inputText,
-                      config: const CNButtonConfig(
-                        style: CNButtonStyle.plain,
-                        minHeight: 44,
-                      ),
-                    )
-                  : CNPopupMenuButton(
-                      buttonLabel: label,
-                      semanticLabel: accessibleLabel,
-                      height: 44,
-                      tint: context.conduitTheme.inputText,
-                      buttonStyle: CNButtonStyle.plain,
-                      items: [
-                        for (final option in options)
-                          CNPopupMenuItem(
-                            label: option.label,
-                            enabled: option.enabled,
-                            checked: option.value == state.value,
-                            icon: option.iosSymbol == null
-                                ? null
-                                : CNSymbol(option.iosSymbol!),
-                          ),
-                      ],
-                      onSelected: (index) {
+                    ),
+                    const CNPopUpButtonDivider<int>(),
+                  ],
+                  for (final (index, option) in options.indexed)
+                    CNPopUpButtonItem<int>(
+                      value: index,
+                      label: option.label,
+                      enabled: option.enabled,
+                      icon: option.iosSymbol == null
+                          ? null
+                          : CNSymbol(option.iosSymbol!),
+                    ),
+                ],
+                onChanged: onChanged == null
+                    ? null
+                    : (index) {
                         if (!state.mounted ||
                             !state.widget.enabled ||
                             index < 0 ||
@@ -160,7 +160,13 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
                         state.didChange(option.value);
                         onChanged?.call(option.value);
                       },
-                    ),
+                tint: context.conduitTheme.inputText,
+                height: 44,
+                // VoiceOver reads the field name, then the selected label.
+                semanticLabel: fieldName == null || fieldName.isEmpty
+                    ? null
+                    : fieldName,
+              ),
             ),
           );
         }
@@ -168,6 +174,8 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           builder: (anchorContext) => Semantics(
             button: true,
             enabled: onChanged != null,
+            // The field's name, as the native control is given it.
+            label: semanticLabel,
             child: InkWell(
               borderRadius: BorderRadius.circular(AppBorderRadius.standard),
               onTap: onChanged == null
@@ -214,14 +222,17 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   ) async {
     final selection = await showAdaptiveNativeSingleChoice<T>(
       context: context,
-      value: value,
+      // What the field shows: a choice its parent has not rebuilt with yet.
+      value: state.value,
       options: options,
       title: nativeTitle ?? decoration.labelText,
       cancelLabel:
           cancelLabel ?? MaterialLocalizations.of(context).cancelButtonLabel,
     );
     if (!context.mounted || !state.mounted) return;
-    if (selection == null) return;
+    // As for the pop-up button: a field disabled while the sheet was open
+    // takes no choice.
+    if (selection == null || !state.widget.enabled) return;
     state.didChange(selection.value);
     onChanged?.call(selection.value);
   }

@@ -8,6 +8,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/note.dart';
@@ -20,11 +21,13 @@ import 'package:conduit_core/features/navigation/models/sidebar_navigation_model
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_monogram_avatar.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/theme_providers.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
@@ -230,7 +233,7 @@ void main() {
       findsOneWidget,
     );
     final label = tester.getSemantics(mutedRow).label;
-    expect(label, contains('Mentions only'));
+    expect(label, contains('Mentions Only'));
     expect(label, isNot(contains('unread')));
 
     final actions = tester
@@ -242,17 +245,16 @@ void main() {
         )
         .actions;
     expect(actions.take(2).map((action) => action.label), [
-      'All messages',
-      'Mentions only',
+      'All Messages',
+      'Mentions Only',
     ]);
     // The current choice carries the check.
     expect(actions[1].materialIcon, Icons.check_rounded);
     expect(actions[0].materialIcon, isNot(Icons.check_rounded));
   });
 
-  testWidgets('note rows show last-edited metadata instead of descriptions', (
-    tester,
-  ) async {
+  testWidgets('note rows are titles only: no date, no description, and '
+      'no Notes title over the list', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers(
       initialTab: SidebarTabId.notes,
     );
@@ -284,40 +286,31 @@ void main() {
     final tileContent = tester.widget<SidebarListTileContent>(
       find.descendant(of: row, matching: find.byType(SidebarListTileContent)),
     );
-    final lastEditedFinder = find.descendant(
-      of: row,
-      matching: find.byKey(
-        const ValueKey<String>('note-sidebar-last-edited-hierarchy-note'),
-      ),
-    );
-    final lastEdited = tester.widget<Text>(lastEditedFinder);
     final theme = tester.element(row).conduitTheme;
 
     expect(title.style?.fontWeight, FontWeight.w400);
     expect(tileContent.titleFontWeight, FontWeight.w400);
-    expect(title.style?.color, theme.textSecondary);
-    expect(lastEdited.data, 'Jan 1');
-    expect(lastEdited.style?.fontSize, AppTypography.bodySmallStyle.fontSize);
-    expect(lastEdited.style?.fontSize, lessThan(title.style!.fontSize!));
+    expect(title.style?.color, theme.textPrimary);
+    // The section headers date the notes; the rows carry only their titles.
+    expect(tileContent.trailing, isNull);
+    expect(tileContent.subtitle, isNull);
     expect(
-      lastEdited.style?.color,
-      theme.textSecondary.withValues(alpha: Alpha.secondary),
-    );
-    expect(
-      tester.getCenter(lastEditedFinder).dx,
-      greaterThan(
-        tester
-            .getCenter(
-              find.descendant(of: row, matching: find.text('Project brief')),
-            )
-            .dx,
-      ),
+      find.descendant(of: row, matching: find.byType(Text)),
+      findsOneWidget,
     );
     expect(
       find.descendant(
         of: row,
         matching: find.text('Supporting description for the note'),
       ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('notes-large-title')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-collapsed-title')),
       findsNothing,
     );
   });
@@ -393,6 +386,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
         ],
         child: MaterialApp(
@@ -420,6 +415,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
           hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
         ],
@@ -435,6 +432,48 @@ void main() {
     expect(
       tester.widget<UserAvatar>(find.byType(UserAvatar)).fallbackText,
       'HL',
+    );
+  });
+
+  testWidgets('LibreChat in charge names and draws the button, over Hermes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(true),
+          hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
+          primaryAccountKindProvider.overrideWithValue(
+            PrimaryAccountKind.libreChat,
+          ),
+          primaryUserProvider.overrideWithValue(
+            const PrimaryUserSummary(
+              kind: PrimaryAccountKind.libreChat,
+              id: 'u1',
+              displayName: 'Dev',
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // No photo: its initials on a neutral disc, as an Open WebUI user
+    // without one gets.
+    expect(find.byType(UserAvatar), findsNothing);
+    expect(
+      tester
+          .widget<SidebarMonogramAvatar>(find.byType(SidebarMonogramAvatar))
+          .initials,
+      'DE',
     );
   });
 
@@ -465,6 +504,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(false),
           preferredBackendProvider.overrideWith(
             SidebarTestDirectPreferredBackendController.new,
@@ -521,6 +562,8 @@ void main() {
         currentUserProvider2.overrideWithValue(user),
         currentUserProvider.overrideWith((ref) async => user),
         apiServiceProvider.overrideWithValue(null),
+        // The Settings root names the app's language.
+        appLocaleProvider.overrideWithValue(null),
         hermesOnlyModeProvider.overrideWithValue(false),
         accountProfileProvider.overrideWith(_ServerAccountProfile.new),
         sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
@@ -578,6 +621,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             personalConnectionsEntryVisibleProvider.overrideWithValue(visible),
@@ -619,7 +664,7 @@ void main() {
         // dismisses the sheet and reports the id the app handles.
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Personal connections');
+          expect(item.title, 'Personal Connections');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.personalConnections);
         }
@@ -646,6 +691,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             scheduledTasksEntryVisibleProvider.overrideWithValue(visible),
@@ -687,7 +734,7 @@ void main() {
         // dismisses the sheet and reports the id the app handles.
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Scheduled tasks');
+          expect(item.title, 'Scheduled Tasks');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.scheduledTasks);
         }
@@ -714,6 +761,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             calendarAvailableProvider.overrideWithValue(visible),
@@ -782,6 +831,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             chatDataControlsEntryVisibleProvider.overrideWithValue(visible),
@@ -821,7 +872,7 @@ void main() {
         }
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Data controls');
+          expect(item.title, 'Data Controls');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.chatDataControls);
         }
@@ -846,6 +897,8 @@ void main() {
         currentUserProvider2.overrideWithValue(user),
         currentUserProvider.overrideWith((ref) async => user),
         apiServiceProvider.overrideWithValue(null),
+        // The Settings root names the app's language.
+        appLocaleProvider.overrideWithValue(null),
         hermesOnlyModeProvider.overrideWithValue(false),
         accountProfileProvider.overrideWith(_UnreachableAccountProfile.new),
         sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
@@ -914,6 +967,8 @@ void main() {
           currentUserProvider2.overrideWithValue(user),
           currentUserProvider.overrideWith((ref) async => user),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(false),
           // Never loaded, and the refresh fails: no profile to edit.
           accountProfileProvider.overrideWith(_UnloadedAccountProfile.new),

@@ -75,6 +75,7 @@ final comparisonRuntimeAvailableProvider = Provider<bool>((ref) {
       (active == null || conversationUsesOpenWebUiStorage(active)) &&
       model != null &&
       !isHermesModel(model) &&
+      !isLibreChatModel(model) &&
       !hasReservedDirectIdentity(model) &&
       ref.watch(directModelRegistryProvider).resolve(model) == null;
 });
@@ -88,6 +89,8 @@ final comparisonCommandAvailableProvider = Provider<bool>((ref) {
   )) {
     return false;
   }
+  // Open WebUI answers a coding agent only in a chat it has to itself.
+  if (ref.watch(activeChatUsesTerminalAgentProvider)) return false;
   return ref.watch(comparisonRuntimeAvailableProvider);
 });
 
@@ -97,6 +100,7 @@ CodeInterpreterBlock? _codeInterpreterBlockForModel(dynamic ref, Model model) {
   if (api == null ||
       !ref.read(isAuthenticatedProvider2) ||
       isHermesModel(model) ||
+      isLibreChatModel(model) ||
       hasReservedDirectIdentity(model)) {
     return CodeInterpreterBlock.notOpenWebUi;
   }
@@ -179,6 +183,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
       models.any(
         (model) =>
             isHermesModel(model) ||
+            isLibreChatModel(model) ||
             hasReservedDirectIdentity(model) ||
             directRegistry.resolve(model) != null,
       )) {
@@ -310,6 +315,14 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
     requireSourceContext: () =>
         _requireChatMutationOpenWebUiAuthSession(ref, sendMutationOwner),
   );
+  // Temporary Chat may have been switched on while the files were looked up,
+  // before the turn shows: this turn would still be saved, so it is refused
+  // as it would have been at the start.
+  if (ref.read(temporaryChatEnabledProvider)) {
+    throw const ComparisonAdmissionException(
+      ComparisonAdmissionFailure.unavailable,
+    );
+  }
   final durableFiles = <Map<String, dynamic>>[
     ...durableAttachmentFiles,
     ...contextFiles,

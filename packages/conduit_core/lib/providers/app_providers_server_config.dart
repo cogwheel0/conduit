@@ -23,6 +23,9 @@ Future<ServerConfig?> activeServer(Ref ref) async {
   if (publishedConfigs.isEmpty) return null;
 
   final activeId = await storage.getActiveServerId();
+  // Parked for another account backend: no Open WebUI account is active
+  // until one is chosen by id, the only saved one included.
+  if (activeId == null && storage.isOpenWebUiParked) return null;
 
   ServerConfig? fallback;
   for (final config in publishedConfigs) {
@@ -239,6 +242,37 @@ final systemTerminalLiveFeaturesProvider = Provider<bool>((ref) {
   return ServerVersionCompat.knownAtLeast(
         config.version,
         ServerVersionCompat.terminalLiveFeaturesVersion,
+      ) ==
+      true;
+});
+
+/// Whether the active Open WebUI server offers the coding agents on its
+/// terminals as models (0.13.1 and later). False until a config confirmed to
+/// belong to the active server reports such a version: an older server lists
+/// no agents, so asking it would only fetch the model list twice.
+final terminalAgentsSupportedProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.terminalAgentsVersion,
+      ) ==
+      true;
+});
+
+/// Whether the active Open WebUI server runs a coding agent as a scheduled
+/// task (0.13.3 and later). False until a config confirmed to belong to the
+/// active server reports such a version.
+final automationAgentsSupportedProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.automationAgentsVersion,
       ) ==
       true;
 });

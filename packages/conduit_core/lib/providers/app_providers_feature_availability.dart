@@ -207,6 +207,9 @@ bool _modelSupportsFeature(Model? model, String featureKey) {
 
 final imageGenerationAvailableProvider = Provider<bool>((ref) {
   final selectedModel = ref.watch(selectedModelProvider);
+  // LibreChat turns carry no Open WebUI feature toggles; its own tools are
+  // offered by the LibreChat tool selection.
+  if (selectedModel != null && isLibreChatModel(selectedModel)) return false;
   final directBinding = selectedModel == null
       ? null
       : ref.watch(directModelRegistryProvider).resolve(selectedModel);
@@ -251,6 +254,7 @@ final selectedDirectWebSearchModeProvider = Provider<DirectWebSearchMode?>((
 
 final webSearchAvailableProvider = Provider<bool>((ref) {
   final selectedModel = ref.watch(selectedModelProvider);
+  if (selectedModel != null && isLibreChatModel(selectedModel)) return false;
   final directMode = ref.watch(selectedDirectWebSearchModeProvider);
   if (selectedModel != null && directMode != null) {
     // Direct models never fall through to the Open WebUI model checks below:

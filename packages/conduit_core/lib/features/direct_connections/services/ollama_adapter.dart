@@ -13,7 +13,9 @@ import 'package:conduit_core/features/direct_connections/models/direct_remote_mo
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_reasoning_tags.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_stream_parser.dart';
 
@@ -36,6 +38,7 @@ final class OllamaAdapter
     this.successDrainTimeout = kDirectSuccessDrainTimeout,
     this.maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
     this.toolApprovalTimeout = kDirectToolApprovalTimeout,
+    this.contextWindowFor,
   }) : _dioFactory = dioFactory,
        _clientPool = clientPool ?? DirectHttpClientPool(),
        _ownsClientPool = clientPool == null {
@@ -69,6 +72,36 @@ final class OllamaAdapter
   final Duration successDrainTimeout;
   final int maxSuccessDrainBytes;
   final Duration toolApprovalTimeout;
+
+  /// The context limit the user set for a Direct model id, or null.
+  ///
+  /// A local Ollama server gets it as `num_ctx` on every request for that
+  /// model (chat, history summary, load and unload). Ollama reloads a model
+  /// whenever a request asks for a different window, so the requests must
+  /// agree. Without a limit nothing is sent and the server's own default
+  /// stays in charge, because a larger window costs memory.
+  final int? Function(String directModelId)? contextWindowFor;
+
+  int? _contextWindow(DirectConnectionProfile profile, String remoteModelId) {
+    if (!profile.supportsOllamaModelLifecycle) return null;
+    final value = contextWindowFor?.call(
+      DirectModelId.encode(profile.id, remoteModelId),
+    );
+    return value != null && value > 0 ? value : null;
+  }
+
+  /// [options] with `num_ctx` set to [contextWindow] when there is one.
+  static Map<String, dynamic>? _withContextWindow(
+    Object? options,
+    int? contextWindow,
+  ) {
+    final merged = <String, dynamic>{
+      if (options is Map)
+        for (final entry in options.entries) entry.key.toString(): entry.value,
+      'num_ctx': ?contextWindow,
+    };
+    return merged.isEmpty ? null : merged;
+  }
 
   @override
   String get key => kOllamaAdapterKey;
@@ -282,9 +315,13 @@ final class OllamaAdapter
                 ollamaKeepAliveApiValue(normalizedKeepAlive),
               ),
       );
+      final options = _withContextWindow(
+        null,
+        _contextWindow(profile, modelId),
+      );
       final response = await client.dio.post<ResponseBody>(
         'api/chat',
-        data: request.toJson(),
+        data: <String, dynamic>{...request.toJson(), 'options': ?options},
         options: Options(responseType: ResponseType.stream),
       );
       final responseBody = response.data;
@@ -510,6 +547,10 @@ final class OllamaAdapter
   ) {
     final client = _client(profile);
     final dio = client.dio;
+    final requestOptions = _withContextWindow(
+      request.parameters['options'],
+      _contextWindow(profile, request.remoteModelId),
+    );
     final cancelToken = CancelToken();
     final transportCancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
@@ -589,10 +630,11 @@ final class OllamaAdapter
             for (final message in messages) _ollamaMessage(message).toJson(),
           ];
           final webToolSession = OllamaCloudToolSession();
-          var totalToolCalls = 0;
+          final guard = DirectToolLoopGuard();
 
           rounds:
-          for (var round = 0; round < kDirectMaxToolRounds; round++) {
+          for (var round = 0; ; round++) {
+            final finalAnswer = guard.mustAnswer;
             final roundContent = StringBuffer();
             final roundThinking = StringBuffer();
             final roundToolCalls = <_OllamaToolCall>[];
@@ -613,9 +655,12 @@ final class OllamaAdapter
               data: {
                 ...request.parameters,
                 ...sdkRequest.toJson(),
+                'options': ?requestOptions,
                 'messages': conversation,
                 if (thinking != null) 'think': thinking.apiValue,
-                if (webToolsEnabled || localToolsEnabled)
+                // Ollama has no tool_choice, so the final request, which must
+                // be answered without tools, leaves them out.
+                if ((webToolsEnabled || localToolsEnabled) && !finalAnswer)
                   'tools': <Map<String, dynamic>>[
                     if (webToolsEnabled) ...kOllamaCloudWebToolDefinitions,
                     if (localTools != null)
@@ -699,6 +744,14 @@ final class OllamaAdapter
                       startingIndex: roundToolCalls.length,
                     ),
                   );
+                  // Rounds are unbounded, so one response must not run an
+                  // unbounded batch. The OpenAI adapters apply the same cap.
+                  if (roundToolCalls.length > kDirectMaxToolCalls) {
+                    throw const DirectProviderException(
+                      'The provider requested too many tool calls in one '
+                      'response.',
+                    );
+                  }
                 }
               }
               if (event.done == true) terminalEvent = event;
@@ -709,7 +762,14 @@ final class OllamaAdapter
                 'The Ollama stream ended before its done marker.',
               );
             }
-            if (roundToolCalls.isEmpty) {
+            if (finalAnswer &&
+                roundToolCalls.isNotEmpty &&
+                roundContent.toString().trim().isEmpty) {
+              throw const DirectProviderException(
+                kDirectToolLoopNoAnswerMessage,
+              );
+            }
+            if (roundToolCalls.isEmpty || finalAnswer) {
               if (!hasCompletion) {
                 throw const DirectProviderException(
                   'The Ollama stream has no usable completion content.',
@@ -726,18 +786,6 @@ final class OllamaAdapter
                 kDirectToolCallingUnsupportedMessage,
               );
             }
-            totalToolCalls += roundToolCalls.length;
-            if (totalToolCalls > kDirectMaxToolCalls) {
-              throw const DirectProviderException(
-                'The Ollama agent exceeded Conduit\'s tool-call limit.',
-              );
-            }
-            if (round + 1 >= kDirectMaxToolRounds) {
-              throw const DirectProviderException(
-                'The Ollama agent exceeded Conduit\'s round limit.',
-              );
-            }
-
             conversation.add({
               'role': 'assistant',
               'content': roundContent.toString(),
@@ -853,6 +901,7 @@ final class OllamaAdapter
                 );
                 eventResult = webResult.value;
               }
+              guard.recordResult(isError: result.isError);
               final serialized = result.text;
               budget.add(serialized);
               controller.add(
@@ -869,6 +918,13 @@ final class OllamaAdapter
                 'tool_name': call.name,
                 'content': serialized,
               });
+            }
+            guard.completeRound();
+            if (guard.mustAnswer) {
+              final last = conversation.last;
+              last['content'] = withDirectFinalAnswerNote(
+                last['content'] as String,
+              );
             }
           }
           if (!terminalSent && !cancelToken.isCancelled) {
@@ -920,7 +976,7 @@ final class OllamaAdapter
       id: const Uuid().v4(),
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: controller.stream,
+      events: splitInlineReasoningTags(controller.stream),
       cancelToken: cancelToken,
       done: settled.future,
     );

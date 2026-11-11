@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Novedades",
+      "intro": "¡Hola! LibreChat llega en beta: inicia sesión, chatea con sus modelos y agentes, y guarda su historial en la pestaña Chats. Hermes 0.23 funciona, con Salas, chats anclados y ocultos, y una hoja de Contexto y uso. Open WebUI 0.13.3 ofrece como modelos los agentes de programación de sus terminales, y Ordenador abre el escritorio de un terminal desde el encabezado del chat.",
+      "bullets": [
+        {
+          "text": "LibreChat (Beta): inicia sesión en un servidor LibreChat con correo o LDAP, verificación en dos pasos o inicio de sesión único, y cambia entre LibreChat y Open WebUI en Cuentas. Sus chats llenan la pestaña Chats y se pueden leer sin conexión. Elige sus especificaciones de modelo, agentes y modelos, adjunta archivos, activa la búsqueda web, la ejecución de código, la búsqueda de archivos y los servidores MCP, responde a las aprobaciones de herramientas e inserta sus prompts con /. Las respuestas siguen generándose mientras estás en otro chat. Los enlaces compartidos, las ramas, Duplicar chat, las voces del servidor y las memorias en Personalización también funcionan.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23: los chats de Desktop Gateway y del servidor API funcionan, y puedes conectarte al listener Webapp propio de una pasarela. Las aprobaciones y las preguntas vuelven a aparecer, y todas las preguntas de un turno llegan en un solo formulario. Un chat empezado en otra app de Hermes ofrece Continuar en una copia, una ejecución cortada por un reinicio se retoma, y la respuesta a un mensaje que Hermes guardó mientras se reiniciaba aparece en cuanto está lista. Conduit pregunta antes de que una conexión envíe credenciales por HTTP sin cifrar, y antes de cambiar a un modelo que Hermes quiere que confirmes.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chats de Hermes: ancla, archiva u oculta un chat, ramifica desde cualquier respuesta o deshaz el último turno. Editar o regenerar en un chat de Desktop Gateway sigue en la misma sesión, con su contexto. Contexto y uso muestra cuánto se ha llenado la ventana de contexto y los límites de tu plan, y compacta el chat. Un chip encima del cuadro de mensaje enumera los subagentes y procesos en marcha, que puedes guiar, detener o finalizar. Un turno fallido muestra una tarjeta que explica qué falló y ofrece una solución, los archivos editados aparecen en una tarjeta de diff, las herramientas de pago muestran su precio y el plan del agente se queda encima del cuadro de mensaje.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Salas y tareas de Hermes: las conexiones de Desktop Gateway estrenan Salas, chats de grupo con entre dos y seis de tus bots. Sus tareas programadas se pueden detener a mitad de ejecución, eliges qué hacer con las Ejecuciones perdidas, y Entregar en ofrece apps de mensajería, Chats de bots y Chats de grupo. Las tareas del servidor API se pueden editar, y ahora se les aplica el nivel de razonamiento que elijas. Los servidores MCP del catálogo piden sus claves al añadirlos, y con varias conexiones cambias desde el nombre en la parte superior de la barra lateral.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 y 0.13.3: la app funciona sin aviso de compatibilidad. Selecciona un terminal en un chat guardado y sus agentes de programación, como Codex y Claude Code, aparecen bajo Agentes de programación en el selector de modelos. Ordenador, en el encabezado del chat, abre a pantalla completa el Escritorio o el Navegador del terminal: observa mientras se ejecuta una respuesta o usa Tomar el control para escribir, hacer clic y navegar. Desactívalo en Ajustes > Conversación. Las consultas a la memoria y las listas de habilidades que el servidor oculta ya no aparecen como bloques de herramientas.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct: las llamadas a herramientas ya no se detienen tras 8 rondas. El nuevo ajuste Imágenes por solicitud (10 por defecto) y el presupuesto de documentos ahora se aplican por solicitud, así que los adjuntos más antiguos se quedan fuera en vez de que fallen todos los turnos siguientes. El límite de contexto que eliges para un modelo local de Ollama se envía a Ollama. Los pasos de razonamiento y de herramientas se mantienen al volver a abrir un chat, el llenado del contexto en el uso se mide correctamente, y los servidores que envían campos vacíos ya no rompen la transmisión.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS: en iOS 26, los menús, alertas, hojas y campos de búsqueda son los del sistema, y Ajustes se agrupa como la app Ajustes. La voz y la lectura en voz alta flotan en islas de cristal: toca la barra de progreso para ir a otro punto, salta 15 segundos y sigue la palabra resaltada. Los chats y las notas se muestran por fecha, el uso de una respuesta se abre en una ventana emergente con el llenado del contexto, el editor de notas tiene una barra de herramientas abajo y las páginas de ajustes se difuminan bajo la barra al desplazarte.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: los chats largos se desplazan sin que salte la barra de desplazamiento, la de Android se puede arrastrar, y el chat no se mueve mientras arrastras la barra lateral para abrirla. Los bloques de código ajustan las líneas largas, las columnas de las tablas se adaptan a su contenido, las sugerencias de seguimiento ocupan filas completas y una respuesta muestra Pensando... con el tiempo de espera. Una sola velocidad ajusta ahora las voces en la nube y las del dispositivo, el inicio de sesión del panel de Hermes ya no se queda en blanco detrás del teclado y tocar dos veces tu perfil ya no abre Ajustes dos veces.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

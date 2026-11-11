@@ -8,6 +8,7 @@ final class PreferenceKeys {
   static const String citationShowTitles = 'citation_show_titles';
   static const String citationBackground = 'citation_background';
   static const String highContrast = 'high_contrast';
+  static const String computerEnabled = 'computer_enabled';
   static const String showComposerNotesButton = 'show_composer_notes_button';
   static const String darkMode = 'dark_mode';
   static const String slidingSidebarEnabled = 'sliding_sidebar_enabled';
@@ -90,7 +91,10 @@ final class PreferenceKeys {
       'server_version_warning_dismissed_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
+  /// The device engine's rate saved before [ttsSpeed] replaced it; read once
+  /// to carry an older install's pace over.
   static const String ttsSpeechRate = 'tts_speech_rate';
+  static const String ttsSpeed = 'tts_speed';
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
   static const String ttsEngine = 'tts_engine'; // 'device' | 'server'
@@ -114,6 +118,32 @@ final class PreferenceKeys {
   static const String notificationChatEnabled = 'notification_chat_enabled';
   static const String notificationChannelEnabled =
       'notification_channel_enabled';
+  /// Device-wide, not per account: scheduled tasks come from Hermes.
+  static const String notificationScheduledEnabled =
+      'notification_scheduled_enabled';
+
+  // Push notifications. Device-wide, never account-scoped: one toggle covers
+  // every account and connection, and no key or token is stored here.
+  /// The master push toggle.
+  static const String pushEnabled = 'push_enabled_v1';
+
+  /// A random id for this install, sent as each subscription's `did`.
+  static const String pushDeviceId = 'push_device_id_v1';
+
+  /// `fcm` or `unifiedPush`; absent means automatic.
+  static const String pushAndroidTransport = 'push_android_transport_v1';
+
+  /// The UnifiedPush distributor package; absent means the first installed.
+  static const String pushAndroidDistributor = 'push_android_distributor_v1';
+
+  /// Per-scope subscription records (`PushSubscriptionRecord`), as JSON.
+  static const String pushTargets = 'push_targets_v1';
+
+  /// Deleted subscriptions a server may still hold (`PushTombstone`), as JSON.
+  static const String pushTombstones = 'push_tombstones_v1';
+
+  /// When every target was last checked against its server, in epoch ms.
+  static const String pushLastFullReconcile = 'push_last_full_reconcile_v1';
 
   // Hermes Agent (direct second backend) — non-secret config. The API key and
   // long-term memory session key are secrets and live in SecureCredentialStorage.
@@ -148,6 +178,10 @@ final class PreferenceKeys {
   static const String hermesPendingDesktopDecisions =
       'hermes_pending_desktop_decisions_v1';
 
+  /// Hermes chats hidden (or, on the API server, archived) from Conduit,
+  /// which no Hermes session list returns.
+  static const String hermesSetAsideSessions = 'hermes_set_aside_sessions_v1';
+
   /// Keyed by origin, not by saved connection: the WebView cookie store is
   /// process-global, so two connections on one origin share dashboard cookies.
   static const String hermesDashboardCookieIdentities =
@@ -157,6 +191,20 @@ final class PreferenceKeys {
   /// ('owui' | 'direct' | 'hermes' | unset).
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
+
+  /// Set while Open WebUI is parked: its accounts and their sessions kept,
+  /// none active, because another account backend owns the Chats tab. No
+  /// account is then active by storage's single-account fallback either.
+  static const String openWebUiParked = 'openwebui_parked_v1';
+
+  /// A change of the account that owns the Chats tab, between Open WebUI and
+  /// LibreChat, written before the old one is left and cleared once the new
+  /// one has settled. Found at start, the change is finished or undone.
+  static const String primarySwitchIntent = 'primary_switch_intent_v1';
+
+  /// Set when a full sign-out could not forget the LibreChat accounts and
+  /// their sessions. The next start forgets them before any can open.
+  static const String libreChatClearPending = 'librechat_clear_pending_v1';
 
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.
@@ -169,6 +217,8 @@ final class PreferenceKeys {
       'apple_pcc_on_device_fallback_v1';
   static const String directContextLengthOverrides =
       'direct_context_length_overrides_v1';
+  static const String directMaxImagesPerRequest =
+      'direct_max_images_per_request_v1';
   static const String reasoningEffortByModel = 'reasoning_effort_by_model_v1';
 
   /// Prefix for the per-server account owner marker that guards reopening an
@@ -188,6 +238,9 @@ final class PreferenceKeys {
 
   /// Bots section visibility in the sidebar Hermes tab.
   static const String hermesShowBots = 'hermes_show_bots';
+
+  /// Rooms section visibility in the sidebar Hermes tab.
+  static const String hermesShowRooms = 'hermes_show_rooms';
 
   static const String sidebarActiveTab = 'sidebar_active_tab';
   static const String sidebarTabletWidth = 'sidebar_tablet_width_v1';

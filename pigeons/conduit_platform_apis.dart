@@ -28,6 +28,8 @@ enum PlatformPccQuotaStatus {
 
 enum PlatformPccEventKind { content, usage, fallback, error, done }
 
+enum PlatformPushTransport { apns, fcm, unifiedPush }
+
 enum PlatformNativeSheetItemKind {
   navigation,
   textField,
@@ -42,6 +44,12 @@ enum PlatformNativeSheetItemKind {
   readOnlyText,
   source,
   statusUpdate,
+
+  /// A choice among a few looks, drawn as preview tiles with a label and a
+  /// selection mark under each, as Display & Brightness draws Light and Dark.
+  /// Each option's swatches paint its preview; one with dark swatches too
+  /// previews both halves.
+  appearanceTiles,
 }
 
 class PlatformBackgroundStreamLease {
@@ -313,6 +321,8 @@ class PlatformNativeSheetOption {
     required this.showBranch,
     required this.hasMoreSiblings,
     this.filterGroup,
+    this.swatchesArgb,
+    this.darkSwatchesArgb,
   });
 
   String id;
@@ -326,6 +336,11 @@ class PlatformNativeSheetOption {
   bool hasMoreSiblings;
 
   String? filterGroup;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, in light
+  /// and dark appearance. Null for an ordinary option.
+  List<int>? swatchesArgb;
+  List<int>? darkSwatchesArgb;
 }
 
 class PlatformNativeSheetTheme {
@@ -641,6 +656,8 @@ class PlatformNativeSheetModelSelectorRequest {
     required this.allowsCustomReasoningEffort,
     required this.customReasoningEffortTitle,
     required this.customReasoningEffortHint,
+    required this.modelControls,
+    required this.modelControlDefaultTitle,
   });
 
   String presentationId;
@@ -661,6 +678,32 @@ class PlatformNativeSheetModelSelectorRequest {
   bool allowsCustomReasoningEffort;
   String customReasoningEffortTitle;
   String customReasoningEffortHint;
+
+  /// The selected model's own settings (a coding agent's effort or service
+  /// tier), one row each.
+  List<PlatformNativeSheetModelControl> modelControls;
+
+  /// What a control's row says while nothing is picked and it has no default.
+  String modelControlDefaultTitle;
+}
+
+/// One of a model's own settings, as the model selector offers it.
+class PlatformNativeSheetModelControl {
+  PlatformNativeSheetModelControl({
+    required this.key,
+    required this.title,
+    this.value,
+    required this.options,
+    required this.labels,
+  });
+
+  String key;
+  String title;
+
+  /// The option that applies now, or null when none does.
+  String? value;
+  List<String> options;
+  Map<String, String> labels;
 }
 
 class PlatformNativeSheetOptionsSelectorRequest {
@@ -774,6 +817,16 @@ class PlatformNativeSheetModelPinToggledEvent {
 class PlatformNativeSheetReasoningEffortChangedEvent {
   PlatformNativeSheetReasoningEffortChangedEvent({required this.value});
 
+  String value;
+}
+
+class PlatformNativeSheetModelControlChangedEvent {
+  PlatformNativeSheetModelControlChangedEvent({
+    required this.key,
+    required this.value,
+  });
+
+  String key;
   String value;
 }
 
@@ -1070,6 +1123,13 @@ abstract class NativeSheetHostApi {
     bool allowsCustom,
   );
 
+  /// Shows [controls] as the open selector's control rows again, as the
+  /// account holds them (after a pick that could not be saved).
+  void updateModelSelectorModelControls(
+    String presentationId,
+    List<PlatformNativeSheetModelControl> controls,
+  );
+
   @async
   String? presentOptionsSelector(
     PlatformNativeSheetOptionsSelectorRequest request,
@@ -1101,6 +1161,7 @@ abstract class NativeSheetFlutterApi {
   void onReasoningEffortChanged(
     PlatformNativeSheetReasoningEffortChangedEvent event,
   );
+  void onModelControlChanged(PlatformNativeSheetModelControlChangedEvent event);
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
 }
 
@@ -1122,4 +1183,171 @@ abstract class PccFlutterApi {
 
   @async
   PlatformPccToolResult onToolCall(PlatformPccToolCall call);
+}
+
+/// One end-to-end-encrypted push subscription: a P-256 key pair and auth
+/// secret kept by the platform (Keychain on iOS, Keystore-wrapped on Android),
+/// for one Open WebUI account or Hermes connection. See docs/push/PROTOCOL.md.
+class PlatformPushSubscription {
+  PlatformPushSubscription({
+    required this.sid,
+    required this.scope,
+    required this.p256dh,
+    required this.auth,
+    required this.createdAtMillis,
+    this.endpoint,
+    this.transport,
+  });
+
+  /// 16 random bytes, base64url. Names the key pair in every push.
+  String sid;
+
+  /// `owui:<accountId>` or `hermes:<connectionId>`.
+  String scope;
+
+  /// Uncompressed P-256 public key, base64url.
+  String p256dh;
+
+  /// 16-byte auth secret, base64url.
+  String auth;
+  int createdAtMillis;
+  String? endpoint;
+  PlatformPushTransport? transport;
+}
+
+class PlatformPushToken {
+  PlatformPushToken({
+    required this.transport,
+    required this.token,
+    required this.app,
+    required this.env,
+  });
+
+  PlatformPushTransport transport;
+
+  /// Hex APNs device token or FCM registration token.
+  String token;
+
+  /// Bundle id or application id the relay addresses.
+  String app;
+
+  /// `prod` or `dev` (the APNs sandbox).
+  String env;
+}
+
+/// What the Notification Service Extension / Android receiver needs to show
+/// a push without the Flutter engine. Mirrored into shared storage.
+class PlatformPushConfig {
+  PlatformPushConfig({
+    required this.enabled,
+    required this.sound,
+    required this.enabledKinds,
+    required this.disabledScopes,
+    required this.scopeLabels,
+    required this.showScopeLabel,
+    required this.strings,
+  });
+
+  bool enabled;
+  bool sound;
+
+  /// `cp/1` kinds the user wants shown: reply, reply_failed, channel, cron, test.
+  List<String> enabledKinds;
+  List<String> disabledScopes;
+
+  /// Account or connection name per scope, shown as the subtitle.
+  Map<String, String> scopeLabels;
+  bool showScopeLabel;
+
+  /// Localized strings keyed fallbackTitle, fallbackBody, replyTitle,
+  /// replyFailedTitle, replyFailedBody, channelTitle, cronTitle, testTitle,
+  /// testBody.
+  Map<String, String> strings;
+}
+
+/// A decrypted push, handed to Dart while the app is in the foreground so the
+/// notification router decides between a banner and nothing.
+class PlatformPushMessage {
+  PlatformPushMessage({
+    required this.sid,
+    required this.scope,
+    required this.payloadJson,
+  });
+
+  String sid;
+  String scope;
+
+  /// The `cp/1` plaintext.
+  String payloadJson;
+}
+
+/// A tapped push notification.
+class PlatformPushTap {
+  PlatformPushTap({required this.scope, required this.payloadJson});
+
+  String scope;
+
+  /// The `cp/1` plaintext the notification was built from.
+  String payloadJson;
+}
+
+@HostApi()
+abstract class PushHostApi {
+  List<PlatformPushTransport> availableTransports();
+
+  @async
+  bool requestPermission();
+
+  /// The current device token, registering for remote notifications first if
+  /// needed. Null when the transport is unavailable.
+  @async
+  PlatformPushToken? currentToken(PlatformPushTransport transport);
+
+  /// Generates a fresh key pair, auth secret and sid for [scope].
+  PlatformPushSubscription createSubscription(String scope);
+  List<PlatformPushSubscription> listSubscriptions();
+  void setEndpoint(String sid, String endpoint, PlatformPushTransport transport);
+  void deleteSubscription(String sid);
+  void setConfig(PlatformPushConfig config);
+
+  /// Records [dedupKey] as shown. False when a push or a local notification
+  /// already claimed it. [localNotificationId] lets a later push replace a
+  /// notification the app posted itself.
+  bool claimNotification(String dedupKey, String? localNotificationId);
+
+  /// Removes delivered notifications that belong to [scope].
+  void cancelScope(String scope);
+
+  /// The push notification that launched the app, once.
+  PlatformPushTap? takeLaunchTap();
+
+  /// Test nonces the extension or receiver decrypted for [sid] since the last
+  /// call.
+  List<String> takeVerifiedNonces(String sid);
+
+  /// Installed UnifiedPush distributors (package names). Android only.
+  List<String> unifiedPushDistributors();
+
+  /// Registers [sid] with [distributor] and answers its endpoint, or null when
+  /// the distributor refuses or does not answer in time.
+  @async
+  String? registerUnifiedPush(String sid, String distributor);
+  void unregisterUnifiedPush(String sid);
+
+  /// Stops using [transport] until a token is asked for again: Android turns
+  /// FCM's auto-init off, deletes the token and stops starting Firebase at
+  /// launch; iOS unregisters from APNs.
+  void releaseTransport(PlatformPushTransport transport);
+}
+
+@FlutterApi()
+abstract class PushFlutterApi {
+  void onToken(PlatformPushToken token);
+  void onForegroundPush(PlatformPushMessage message);
+  void onTap(PlatformPushTap tap);
+  void onTestReceived(String sid, String nonce);
+
+  /// The push service dropped [sid] (UnifiedPush unregistered it).
+  void onUnregistered(String sid);
+  void onUnifiedPushEndpoint(String sid, String endpoint);
 }

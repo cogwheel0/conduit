@@ -161,7 +161,7 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
       message: l10n.recordingDiscardConfirmation,
       confirmText: l10n.recordingDiscard,
       isDestructive: true,
-      // Use a compact alert rather than the helper's native detail page.
+      // Android keeps the dialog up until it is answered.
       barrierDismissible: false,
     );
   }

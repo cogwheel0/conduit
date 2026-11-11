@@ -107,8 +107,8 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
       onSelected: () async => onEdit(note),
     ),
     ConduitContextMenuAction(
-      cupertinoIcon: CupertinoIcons.doc_on_clipboard,
-      sfSymbol: 'doc.on.clipboard',
+      cupertinoIcon: CupertinoIcons.square_on_square,
+      sfSymbol: 'square.on.square',
       materialIcon: Icons.copy_rounded,
       label: l10n.copy,
       onBeforeClose: () => ConduitHaptics.selectionClick(),

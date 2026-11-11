@@ -9,24 +9,36 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/network/external_link.dart';
 import 'package:conduit_core/network/upload_timeout.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_background_work.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/models/hermes_todo.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 
@@ -34,9 +46,16 @@ part 'hermes_desktop_administration.dart';
 part 'hermes_desktop_audio.dart';
 part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
+part 'hermes_desktop_background_work.dart';
+part 'hermes_desktop_canonical.dart';
+part 'hermes_desktop_context.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
+part 'hermes_desktop_raw_rest.dart';
+part 'hermes_desktop_rooms.dart';
+part 'hermes_desktop_todos.dart';
 part 'hermes_desktop_turn_runtime.dart';
+part 'hermes_desktop_working_directories.dart';
 
 typedef HermesDesktopCredentialsWriter = Future<void> Function(
   HermesDesktopCredentials credentials,
@@ -131,6 +150,7 @@ Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
   int maximum = 10000,
   int pageSize = kHermesDesktopTranscriptPageSize,
   int minimumPageSize = kHermesDesktopTranscriptMinimumPageSize,
+  bool complete = false,
 }) async {
   assert(pageSize > 0 && minimumPageSize > 0);
   final messages = <Map<String, dynamic>>[];
@@ -155,7 +175,15 @@ Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
       continue;
     }
     messages.addAll(page.take(limit));
-    if (page.length < limit) break;
+    if (page.length < limit) return messages;
+  }
+  // A [complete] read is for changing the history (an edit's cut, an undo,
+  // a branch): a row past the bound could be the very turn it targets.
+  if (complete && (await loadPage(messages.length, 1)).isNotEmpty) {
+    throw StateError(
+      'This Hermes chat is too long to change from here: it has more than '
+      '$maximum messages.',
+    );
   }
   return messages;
 }
@@ -210,8 +238,23 @@ final class HermesDesktopApiService
     OpenExternalUrlPort? openExternalUrl,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
+    HermesModelSwitchPrompt? confirmModelSwitch,
+    @visibleForTesting
+    this.gatewayStartRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+    ],
+    @visibleForTesting
+    this.receiptRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 3),
+    ],
+    @visibleForTesting
+    this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
+       _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
        _origin =
            HermesConfig.connectionOrigin(config.baseUrl) ??
@@ -241,6 +284,19 @@ final class HermesDesktopApiService
   /// not start rather than waiting for a callback nothing will send.
   final OpenExternalUrlPort _openExternalUrl;
 
+  /// How long to wait before each new attempt to reach a gateway that said
+  /// it is not ready (starting, restarting or draining).
+  final List<Duration> gatewayStartRetryDelays;
+
+  /// How long to wait before asking again for the receipt of a turn's own
+  /// prompt, after a reconnect, when Hermes could not give it.
+  final List<Duration> receiptRetryDelays;
+
+  /// How long a compaction Hermes finishes in the background is waited for:
+  /// past Hermes' own wait (about ten minutes) its end may never be seen (a
+  /// socket down at the time, a runtime id that changed).
+  final Duration pendingCompactionDeadline;
+
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
 
@@ -252,23 +308,82 @@ final class HermesDesktopApiService
   final HermesDesktopRpcClient _rpc;
   late final _HermesDesktopAdministration _administration;
   HermesDashboardBridge? _dashboardBridge;
+
+  /// Run now triggers not yet answered, by job: on a dashboard sign-in they
+  /// can still wait in the request queue, where a Stop withdraws them. A
+  /// job has several when Run now was chosen again, as from another card.
+  final Map<String, Set<_QueuedJobTrigger>> _jobTriggers = {};
   final HermesDesktopCredentialsWriter? onCredentialsChanged;
+
+  /// Asks the user about a model switch Hermes holds for confirmation;
+  /// without one, a held switch is refused as before.
+  final HermesModelSwitchPrompt? _confirmModelSwitch;
   HermesDesktopTokenSet? _nativeTokens;
   bool _closed = false;
   final Map<String, HermesSessionBinding> _bindings = {};
   final Map<String, int> _bindingSocketGenerations = {};
   final Set<String> _freshSessionIds = {};
   final Map<String, List<Map<String, dynamic>>> _lastTranscripts = {};
+
+  /// Chats whose next transcript may be shorter than the one shown.
+  final Set<String> _shortenedTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
+
+  /// The model selection last applied to each session (stored id), which a
+  /// chat returns to when the user keeps it over a held switch.
+  final Map<String, ({String model, String? provider})> _appliedSessionModels =
+      {};
+
+  /// The `usage` of each session's last finished turn, by stored id.
+  final Map<String, Map<String, dynamic>> _lastTurnUsage = {};
+
+  /// Stored ids an explicit compaction rewrote since their chat last read
+  /// them: that read may hold fewer messages (a Bot Chat's history leaves
+  /// compacted rows out) and still replaces what the chat shows.
+  final Set<String> _compactedTranscripts = {};
+
+  /// Compactions still running on the server, by stored session id (a
+  /// reconnect can change the runtime id), until the session reports in or
+  /// [pendingCompactionDeadline] passes.
+  final Map<String, _PendingCompaction> _pendingCompactions = {};
+
+  /// Connection targets (operation/target card ids) the user approved on
+  /// this device, whose authorization link this device then opens.
+  final Set<String> _approvedConnectionTargets = {};
 
   /// Sessions owned by another profile (Bot Mode chats), keyed by stored id.
   /// Absent means the connection's configured profile owns the session.
   final Map<String, String> _sessionProfiles = {};
+
+  /// What a session authority fences each session's edits and controls
+  /// with (canonical wire only), by session id.
+  final Map<String, _HermesCanonicalSession> _canonicalSessions = {};
+
+  /// Canonical `session.create` request ids whose answer was lost, by the
+  /// create's parameters: a retry of the same create names the same id, so
+  /// Hermes answers it with the session the first attempt made.
+  final Map<String, String> _canonicalCreateIds = {};
+
+  /// Canonical `session.mutate` requests whose answer was lost, by session,
+  /// operation and payload: a retry of the same edit is sent as it was.
+  final Map<String, Map<String, Object?>> _canonicalMutations = {};
   final HermesDesktopEventBuffer _eventBuffer = HermesDesktopEventBuffer();
   final _turnStates = StreamController<HermesDesktopTurnState>.broadcast();
   final _sessionTurnStateChanges = StreamController<String>.broadcast();
   final Map<String, HermesDesktopTurnState> _sessionTurnStates = {};
   final _transcriptChanges = StreamController<String>.broadcast();
+
+  /// The agent's task list per chat (stored id), and which chat's changed.
+  final Map<String, HermesTodoState> _todoStates = {};
+  final _todoChanges = StreamController<String>.broadcast();
+
+  /// The working directory each chat (stored id) runs its tools in, and
+  /// which chat's changed.
+  final Map<String, String> _workingDirectories = {};
+  final _workingDirectoryChanges = StreamController<String>.broadcast();
+
+  /// Chats whose subagents or background processes may have changed.
+  final _backgroundWorkHints = StreamController<String>.broadcast();
   final _desktopContractChanges = StreamController<int>.broadcast();
 
   Map<String, dynamic>? _status;
@@ -327,6 +442,37 @@ final class HermesDesktopApiService
   }
 
   Stream<String> get transcriptChanges => _transcriptChanges.stream;
+
+  /// Asks the open chat of [storedId] to read its transcript again.
+  void refreshTranscript(String storedId) => _emitTranscriptChange(storedId);
+
+  /// Asks the open chat of [storedId] to read its transcript again after a
+  /// change that shortened it (an undo the chat did not see): the read is
+  /// taken as it is, not refused as an incomplete one.
+  void refreshShortenedTranscript(String storedId) {
+    _lastTranscripts.remove(storedId);
+    _shortenedTranscripts.add(storedId);
+    _emitTranscriptChange(storedId);
+  }
+
+  /// Whether [storedId]'s next transcript may be shorter than the one shown
+  /// ([refreshShortenedTranscript]); asking consumes it.
+  bool takeShortenedTranscript(String storedId) =>
+      _shortenedTranscripts.remove(storedId);
+
+  /// The agent's task list for the chat [storedId], then every change to it
+  /// (`todo.updated`, the todo tool's results, a resume's `todo_state`).
+  Stream<HermesTodoState?> todoStatesFor(String storedId) =>
+      _todoStatesFor(storedId);
+
+  /// The agent's task list for the chat [storedId], when one was reported.
+  HermesTodoState? todoStateFor(String storedId) => _todoStateFor(storedId);
+
+  /// The working directory the chat [storedId] runs its tools in, then
+  /// every change to it. Null until Hermes has reported one: a session's
+  /// info gives it when the chat is opened or created.
+  Stream<String?> workingDirectoriesFor(String storedId) =>
+      _workingDirectoriesFor(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(
@@ -394,6 +540,9 @@ final class HermesDesktopApiService
     String id, {
     CancelToken? cancelToken,
   }) => _runtimeGetSessionMessages(id, cancelToken: cancelToken);
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(String id) =>
+      _runtimeGetSessionMessages(id, current: true);
   Future<List<HermesPendingDesktopDecision>> pendingDecisionsForSession(
     String storedId,
   ) => _runtimePendingDecisionsForSession(storedId);
@@ -401,12 +550,65 @@ final class HermesDesktopApiService
   Future<void> renameSession(String id, String title) =>
       _runtimeRenameSession(id, title);
   @override
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) => _runtimeSetSessionFlags(
+    id,
+    pinned: pinned,
+    archived: archived,
+    hidden: hidden,
+  );
+  @override
+  Future<List<Map<String, dynamic>>?> listArchivedSessions() =>
+      _runtimeListArchivedSessions();
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) => _runtimeGetSession(id);
+  @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) =>
       _runtimeDeleteSession(id, cancelToken: cancelToken);
   bool sessionIdsReferToSameBinding(String left, String right) =>
       _runtimeSessionIdsReferToSameBinding(left, right);
   @override
   Future<String> forkSession(String id) => _runtimeForkSession(id);
+
+  /// Branches session [id] from a message: the legacy wire keeps its first
+  /// [count] user and assistant rows with text, a session authority the
+  /// rows through [throughRowId]. Returns the branch's stored id.
+  Future<String> branchSession(String id, {int? count, int? throughRowId}) =>
+      _runtimeForkSession(id, count: count, throughRowId: throughRowId);
+
+  /// Drops session [id]'s last user turn and everything after it, on the
+  /// server. False when there was no turn to drop.
+  ///
+  /// [rowId] is that turn's row as the caller read it: a session authority
+  /// rewinds to exactly that row. The legacy wire drops whatever turn is
+  /// last, and refuses while a turn runs.
+  Future<bool> undoLastTurn(String id, {int? rowId}) =>
+      _runtimeUndoLastTurn(id, rowId: rowId);
+
+  /// Session [id]'s context window, token totals and plan allowances.
+  Future<HermesContextReport> contextReport(String id) => _contextReport(id);
+
+  /// Summarizes session [id]'s older messages on the server, optionally
+  /// keeping [focus] in view.
+  Future<HermesCompactResult> compactSession(String id, {String? focus}) =>
+      _compactSession(id, focus: focus);
+
+  /// Whether a compaction of [storedId] is still running on the server.
+  bool compactionPending(String storedId) => _pendingCompactions.containsKey(
+    _bindings[storedId]?.storedId ?? storedId,
+  );
+
+  /// Whether a compaction rewrote session [id]'s transcript since the chat
+  /// last took it; true once, so that read may replace a longer one.
+  bool takeCompactedTranscript(String id) => _compactedTranscripts.remove(id);
+
+  /// Lets a window plan keep going on credits past its limit. False when
+  /// Hermes could not turn it on.
+  Future<bool> keepGoingOnCredits() => _keepGoingOnCredits();
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.
@@ -479,7 +681,10 @@ final class HermesDesktopApiService
     toolFilter: toolFilter,
   );
 
-  Future<void> addMcpPreset(String name) => _administration.addMcpPreset(name);
+  Future<bool> addMcpCatalogEntry(
+    HermesMcpCatalogEntry entry, {
+    Map<String, String> credentials = const {},
+  }) => _administration.addMcpCatalogEntry(entry, credentials: credentials);
 
   Future<HermesMcpTestResult> testMcpServer(String name) =>
       _administration.testMcpServer(name);
@@ -504,18 +709,26 @@ final class HermesDesktopApiService
       _administration.capabilities();
 
   @override
-  Future<Map<String, dynamic>> healthDetailed() => statusProbe(refresh: true);
+  Future<Map<String, dynamic>> healthDetailed() => _authDetailedStatus();
 
   @override
-  Future<List<Map<String, dynamic>>> listJobs() => _administration.listJobs();
+  Future<List<Map<String, dynamic>>> listJobs({bool live = false}) =>
+      _administration.listJobs(live: live);
 
   @override
   Future<Map<String, dynamic>> createJob({
     required String name,
     required String prompt,
     required String schedule,
-  }) =>
-      _administration.createJob(name: name, prompt: prompt, schedule: schedule);
+    String deliver = kHermesLocalDeliveryTarget,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
+  }) => _administration.createJob(
+    name: name,
+    prompt: prompt,
+    schedule: schedule,
+    deliver: deliver,
+    catchUp: catchUp,
+  );
 
   @override
   Future<void> updateJob(
@@ -524,13 +737,94 @@ final class HermesDesktopApiService
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
   }) => _administration.updateJob(
     id,
     name: name,
     prompt: prompt,
     schedule: schedule,
     enabled: enabled,
+    deliver: deliver,
+    catchUp: catchUp,
   );
+
+  /// [method] [path] against the dashboard with its authentication, answering
+  /// any status rather than throwing on one.
+  Future<HermesDashboardResponse> dashboardRequest(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) => _rawRequest(method, path, body: body, query: query);
+
+  /// Stops the job's running run (`POST /api/cron/jobs/{id}/cancel`).
+  /// Throws [HermesJobStopUnsupportedException] on Hermes before 0.22.6.
+  Future<HermesJobStopResult> stopJobRun(String id) =>
+      _administration.cancelJobRun(id);
+
+  /// Where a job can deliver (`GET /api/cron/delivery-targets`).
+  Future<List<Map<String, dynamic>>> listJobDeliveryTargets() =>
+      _administration.listJobDeliveryTargets();
+
+  /// Group Chats hosted by this gateway (`groups.list`); empty without rooms.
+  Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) =>
+      _administration.listRooms(includeDisbanded: includeDisbanded);
+
+  /// What this gateway can do with Group Chats (`groups.capabilities`).
+  Future<HermesRoomCapabilities> roomCapabilities() => _roomCapabilities();
+
+  /// A room's roster, settings and live work (`groups.state`).
+  Future<HermesRoomState> roomState(String roomId) => _roomState(roomId);
+
+  /// A room's log after [sinceSeq] (0: its newest events), every page.
+  Future<List<HermesRoomEvent>> roomEventsSince(
+    String roomId, {
+    required int sinceSeq,
+    int? latestSeq,
+  }) => _roomEventsSince(roomId, sinceSeq: sinceSeq, latestSeq: latestSeq);
+
+  /// Seats [members] in a new room named [name].
+  Future<HermesRoom> createRoom({
+    required String name,
+    required List<HermesRoomMember> members,
+  }) => _createRoom(name: name, members: members);
+
+  /// Posts [send] to the room; sending the same [HermesRoomSend] again
+  /// never posts it twice.
+  Future<void> sendRoomMessage(String roomId, HermesRoomSend send) =>
+      _sendRoomMessage(roomId, send);
+
+  Future<void> renameRoom(String roomId, String name) =>
+      _renameRoom(roomId, name);
+
+  /// Saves the room's purpose, notes and who answers.
+  Future<HermesRoomContext?> setRoomContext(
+    String roomId,
+    HermesRoomContext context,
+  ) => _setRoomContext(roomId, context);
+
+  /// Stops the room's work and ends it for good.
+  Future<void> disbandRoom(String roomId) => _disbandRoom(roomId);
+
+  /// Stops the room's queued and running work; how many tasks it stopped.
+  /// Repeating [cancelId] repeats the same stop.
+  Future<int> stopRoom(String roomId, {required String cancelId}) =>
+      _stopRoom(roomId, cancelId);
+
+  /// Gives a discussion paused at its limit one more round.
+  Future<void> continueRoomDiscussion(
+    String roomId,
+    String discussionEventId,
+  ) => _continueRoomDiscussion(roomId, discussionEventId);
+
+  /// Answers [action]: an approval with [choice] (`once` or `deny`), or
+  /// a retry.
+  Future<void> answerRoomAction(
+    String roomId,
+    HermesRoomPendingAction action, {
+    String? choice,
+  }) => _answerRoomAction(roomId, action, choice: choice);
 
   @override
   Future<void> deleteJob(String id) =>
@@ -541,9 +835,10 @@ final class HermesDesktopApiService
   @override
   Future<void> resumeJob(String id) =>
       _administration.mutateJob(id, "POST", "/resume");
+  /// Throws [HermesDashboardRequestWithdrawn] when a Stop withdrew it
+  /// before it reached Hermes: the job did not run.
   @override
-  Future<void> runJob(String id) =>
-      _administration.mutateJob(id, "POST", "/trigger");
+  Future<void> runJob(String id) => _administration.runJob(id);
 
   Future<List<Map<String, dynamic>>> listJobRuns(String id) =>
       _administration.listJobRuns(id);
@@ -555,12 +850,16 @@ final class HermesDesktopApiService
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   }) => _runtimeStreamDesktopResponse(
     input,
     sessionId: sessionId,
     options: options,
     cancelToken: cancelToken,
     voiceContext: voiceContext,
+    truncateBeforeRowId: truncateBeforeRowId,
+    truncateSeenThroughRowId: truncateSeenThroughRowId,
   );
   Future<void> interrupt(String storedId) => _runtimeInterrupt(storedId);
   Future<bool> steer(String storedId, String text) =>
@@ -612,6 +911,20 @@ final class HermesDesktopApiService
     mcpServer: mcpServer,
     mcpAction: mcpAction,
   );
+
+  /// Answers a whole clarify form [requestId] at once: [answers] holds the
+  /// questions still open, by id, with null for a skipped one.
+  Future<void> respondToClarifyForm({
+    required String runtimeId,
+    String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
+  }) => _runtimeRespondToClarifyForm(
+    runtimeId: runtimeId,
+    storedSessionId: storedSessionId,
+    requestId: requestId,
+    answers: answers,
+  );
   @override
   void close() {
     if (_closed) return;
@@ -624,6 +937,9 @@ final class HermesDesktopApiService
     unawaited(_turnStates.close());
     unawaited(_sessionTurnStateChanges.close());
     unawaited(_transcriptChanges.close());
+    unawaited(_todoChanges.close());
+    unawaited(_workingDirectoryChanges.close());
+    unawaited(_backgroundWorkHints.close());
     unawaited(_desktopContractChanges.close());
     _eventBuffer.clear();
     _bindings.clear();
@@ -631,7 +947,17 @@ final class HermesDesktopApiService
     _freshSessionIds.clear();
     _lastTranscripts.clear();
     _appliedSessionOptions.clear();
+    _appliedSessionModels.clear();
+    _lastTurnUsage.clear();
+    _compactedTranscripts.clear();
+    for (final watch in _pendingCompactions.values) {
+      unawaited(watch.cancel());
+    }
+    _pendingCompactions.clear();
     _sessionTurnStates.clear();
+    _canonicalSessions.clear();
+    _canonicalCreateIds.clear();
+    _canonicalMutations.clear();
   }
 
   void _emitTurnState(HermesDesktopTurnState state) {

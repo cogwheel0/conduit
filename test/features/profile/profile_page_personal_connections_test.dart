@@ -47,7 +47,7 @@ void main() {
     await tester.scrollUntilVisible(entry, 300);
 
     expect(entry, findsOneWidget);
-    expect(find.text('Personal connections'), findsOneWidget);
+    expect(find.text('Personal Connections'), findsOneWidget);
   });
 
   testWidgets('Profile hides Personal connections while Advanced is off', (

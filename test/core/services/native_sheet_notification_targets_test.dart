@@ -151,9 +151,14 @@ Future<_NativeSettings> _pumpApp(
     'features': {'webhooks': true},
   },
   int? targetCount = 0,
+  bool signedIn = true,
+  bool notificationsOn = true,
 }) async {
   if (advanced) {
     await PreferencesStore.put(PreferenceKeys.advancedFeaturesEnabled, true);
+  }
+  if (notificationsOn) {
+    await PreferencesStore.put(PreferenceKeys.notificationsEnabled, true);
   }
   final native = _NativeSettings(tester);
   final api = ApiService(serverConfig: _server, workerManager: WorkerManager());
@@ -193,6 +198,8 @@ Future<_NativeSettings> _pumpApp(
       optimizedStorageServiceProvider.overrideWithValue(storage),
       modelsProvider.overrideWith(_NoModels.new),
       apiServiceProvider.overrideWithValue(api),
+      // Signed in to it, as the user above, unless the test says otherwise.
+      openWebUiAccountAvailableProvider.overrideWithValue(signedIn),
       currentUserProvider2.overrideWithValue(
         const User(
           id: 'user-1',
@@ -243,12 +250,15 @@ Future<_NativeSettings> _pumpApp(
 const _detail = NativeSheetRoutes.notificationSettings;
 const _localToggles = [
   'notifications-enabled',
+  'push-enabled',
+  'push-privacy',
   'notification-in-app-banner',
   'notification-system',
   'notification-sound',
   'notification-sound-always',
   'notification-chat',
   'notification-channel',
+  'notification-scheduled',
 ];
 
 void main() {
@@ -280,7 +290,7 @@ void main() {
     final row = native
         .items(_detail)
         .singleWhere((item) => item.id == 'notification-targets');
-    expect(row.title, 'Webhook destinations');
+    expect(row.title, 'Webhook Destinations');
     expect(row.dismissOnSelect, isTrue);
     expect(row.actionId, 'notification-targets');
     expect(row.sfSymbol, 'bell.and.waves.left.and.right');
@@ -293,6 +303,18 @@ void main() {
       'Your Open WebUI server sends events to these URLs, even while this '
       'app is closed.',
     );
+  });
+
+  testWidgets('without a signed-in account there are no channels to notify', (
+    tester,
+  ) async {
+    final native = await _pumpApp(tester, signedIn: false);
+
+    await native.detailAppeared(_detail);
+
+    final ids = native.items(_detail).map((item) => item.id).toList();
+    expect(ids, isNot(contains('notification-channel')));
+    expect(ids, contains('notification-scheduled'));
   });
 
   testWidgets('the local toggles show before the destinations group is added', (
@@ -310,6 +332,27 @@ void main() {
     expect(ids(patches.first), _localToggles);
     expect(ids(patches.last), [..._localToggles, 'notification-targets']);
     expect(native.items(_detail).last.subtitle, '2 destinations');
+  });
+
+  // With notifications off the options under the switch could not do
+  // anything, so only the switch shows, as in Settings.
+  testWidgets('with notifications off only the switch shows, explained by '
+      'its footer', (tester) async {
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      notificationsOn: false,
+    );
+
+    await native.detailAppeared(_detail);
+
+    final patch = native.patches.lastWhere((p) => p.detailId == _detail);
+    expect(patch.sections, hasLength(1));
+    final master = patch.sections.single;
+    expect(master.items.map((item) => item.id), ['notifications-enabled']);
+    expect(master.items.single.value, isFalse);
+    expect(master.items.single.subtitle, isNull);
+    expect(master.footer, isNotNull);
   });
 
   testWidgets('an unreadable list leaves the row without a count', (

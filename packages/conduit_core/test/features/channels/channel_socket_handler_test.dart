@@ -72,7 +72,7 @@ void main() {
     );
     await settle();
     check(container.read(channelMessagesProvider('c1')).value!).isEmpty();
-    check(container.exists(threadMessagesProvider('c1', 'p2'))).isFalse();
+    check(container.read(threadMessagesProvider('c1', 'p2').exists)).isFalse();
   });
 
   test('an update without a user keeps the sender and the reactions', () async {

@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "Natives Dropdown kann nicht angezeigt werden";
 "native.upload" = "Hochladen";
 "native.user" = "Benutzer";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "Neue Mitteilung";

@@ -42,10 +42,8 @@ Future<void> _save(WidgetTester tester) async {
 
 /// One segment of the schedule (`scheduled-task-kind`) or destination
 /// (`scheduled-task-target`) control, by its label.
-Finder _segment(String control, String label) => find.descendant(
-  of: find.byKey(Key(control)),
-  matching: find.text(label),
-);
+Finder _segment(String control, String label) =>
+    find.descendant(of: find.byKey(Key(control)), matching: find.text(label));
 
 /// Brings [finder] into the lazily built form and onto the screen.
 Future<void> _reveal(WidgetTester tester, Finder finder) async {
@@ -328,6 +326,41 @@ void main() {
       expect((_body(session.wire, '/update')['data'] as Map)['rrule'], once);
     });
   });
+
+  testWidgets('on iOS 26 the day and time are system pills edited in place', (
+    tester,
+  ) async {
+    stubNativePlatformViews();
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    const once = 'DTSTART:20261007T090500\nRRULE:FREQ=DAILY;COUNT=1';
+    await _edit(tester, task: taskJson('a', rrule: once));
+    AdaptiveCompactDatePicker pill(String key) =>
+        tester.widget<AdaptiveCompactDatePicker>(find.byKey(Key(key)));
+
+    await _reveal(tester, find.byKey(const Key('scheduled-task-time-picker')));
+    final day = pill('scheduled-task-date-picker');
+    expect(
+      (day.mode, day.value.month, day.value.day),
+      (AdaptiveCompactDatePickerMode.date, 10, 7),
+    );
+    // UIKit answers in the value's zone, keeping the other fields.
+    day.onChanged!(DateTime.utc(2026, 10, 9, 9, 5));
+    await tester.pumpAndSettle();
+    pill('scheduled-task-time-picker')
+        .onChanged!(DateTime.utc(2000, 1, 1, 18, 30));
+    await tester.pumpAndSettle();
+
+    // The run moved to the new day, then to the new time on that day. This
+    // harness draws no iOS toolbar, so Save is checked on the Material form.
+    final run = pill('scheduled-task-date-picker').value;
+    expect((run.month, run.day, run.hour, run.minute), (10, 9, 18, 30));
+    expect(tester.takeException(), isNull);
+    // Let the native views' own timers run out.
+    await tester.pump(const Duration(seconds: 5));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   group('a rule the controls cannot edit', () {
     const monthly = 'RRULE:FREQ=MONTHLY;BYMONTHDAY=15;BYHOUR=9;BYMINUTE=0';
@@ -700,90 +733,94 @@ void main() {
     for (final native in [false, true]) {
       final presenter = native ? 'the iOS 26 presenter' : 'Material';
 
-      testWidgets('the model search and its results stay above the keyboard '
-          'with $presenter', (tester) async {
-        final session = await pumpPhone(tester, native: native);
-        if (native) {
-          stubNativePlatformViews();
-          PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-          PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-          PlatformUiCapabilities.debugNativeIOS26Override = true;
-          addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-        }
-        await tester.ensureVisible(
-          find.byKey(const Key('scheduled-task-model')),
-        );
-        await tester.tap(find.byKey(const Key('scheduled-task-model')));
-        await tester.pumpAndSettle();
+      testWidgets(
+        'the model search and its results stay above the keyboard '
+        'with $presenter',
+        (tester) async {
+          final session = await pumpPhone(tester, native: native);
+          if (native) {
+            stubNativePlatformViews();
+            PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+            PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+            PlatformUiCapabilities.debugNativeIOS26Override = true;
+            addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+          }
+          await tester.ensureVisible(
+            find.byKey(const Key('scheduled-task-model')),
+          );
+          await tester.tap(find.byKey(const Key('scheduled-task-model')));
+          await tester.pumpAndSettle();
 
-        // Many matches: the list scrolls in the room above the keyboard.
-        await tester.tap(find.byKey(search));
-        await tester.enterText(find.byKey(search), 'Model 3');
-        raiseKeyboard(tester);
-        await tester.pumpAndSettle();
+          // Many matches: the list scrolls in the room above the keyboard.
+          await tester.tap(find.byKey(search));
+          await tester.enterText(find.byKey(search), 'Model 3');
+          raiseKeyboard(tester);
+          await tester.pumpAndSettle();
 
-        expect(
-          tester.getRect(find.byKey(search)).bottom,
-          lessThan(keyboardTop),
-        );
-        expect(find.byKey(search).hitTestable(), findsOneWidget);
-        expect(tester.getRect(option('m3')).bottom, lessThan(keyboardTop));
-        expect(option('m3').hitTestable(), findsOneWidget);
-        expect(option('m39').hitTestable(), findsNothing);
-        await tester.drag(
-          find.ancestor(of: option('m3'), matching: find.byType(ListView)),
-          const Offset(0, -600),
-        );
-        await tester.pumpAndSettle();
-        expect(option('m39').hitTestable(), findsOneWidget);
-        expect(tester.getRect(option('m39')).bottom, lessThan(keyboardTop));
+          expect(
+            tester.getRect(find.byKey(search)).bottom,
+            lessThan(keyboardTop),
+          );
+          expect(find.byKey(search).hitTestable(), findsOneWidget);
+          expect(tester.getRect(option('m3')).bottom, lessThan(keyboardTop));
+          expect(option('m3').hitTestable(), findsOneWidget);
+          expect(option('m39').hitTestable(), findsNothing);
+          await tester.drag(
+            find.ancestor(of: option('m3'), matching: find.byType(ListView)),
+            const Offset(0, -600),
+          );
+          await tester.pumpAndSettle();
+          expect(option('m39').hitTestable(), findsOneWidget);
+          expect(tester.getRect(option('m39')).bottom, lessThan(keyboardTop));
 
-        // One match: the short sheet sits on the keyboard, not under it.
-        await tester.enterText(find.byKey(search), 'Model 17');
-        await tester.pumpAndSettle();
-        expect(
-          tester.getRect(find.byKey(search)).bottom,
-          lessThan(keyboardTop),
-        );
-        expect(tester.getRect(option('m17')).bottom, lessThan(keyboardTop));
-        expect(option('m17').hitTestable(), findsOneWidget);
+          // One match: the short sheet sits on the keyboard, not under it.
+          await tester.enterText(find.byKey(search), 'Model 17');
+          await tester.pumpAndSettle();
+          expect(
+            tester.getRect(find.byKey(search)).bottom,
+            lessThan(keyboardTop),
+          );
+          expect(tester.getRect(option('m17')).bottom, lessThan(keyboardTop));
+          expect(option('m17').hitTestable(), findsOneWidget);
 
-        // The choice comes back, and Save is reachable once the keyboard is
-        // down: in the toolbar on iOS, at the end of the form elsewhere.
-        await tester.tap(option('m17'));
-        lowerKeyboard(tester);
-        await tester.pumpAndSettle();
-        expect(find.text('Model 17'), findsOneWidget);
-        if (native) {
-          // This harness keeps Material chrome while iOS 26 is simulated, and
-          // iOS puts Save in a toolbar only Cupertino chrome draws, so the
-          // save itself is checked with the Material presenter.
+          // The choice comes back, and Save is reachable once the keyboard is
+          // down: in the toolbar on iOS, at the end of the form elsewhere.
+          await tester.tap(option('m17'));
+          lowerKeyboard(tester);
+          await tester.pumpAndSettle();
+          expect(find.text('Model 17'), findsOneWidget);
+          if (native) {
+            // This harness keeps Material chrome while iOS 26 is simulated, and
+            // iOS puts Save in a toolbar only Cupertino chrome draws, so the
+            // save itself is checked with the Material presenter.
+            expect(tester.takeException(), isNull);
+            // Let the native presenter's own timers run out.
+            await tester.pump(const Duration(seconds: 5));
+            return;
+          }
+          await tester.scrollUntilVisible(
+            find.byKey(const Key('scheduled-task-save')),
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('scheduled-task-save')).hitTestable(),
+            findsOneWidget,
+          );
+          await tester.tap(find.byKey(const Key('scheduled-task-save')));
+          await tester.pumpAndSettle();
+
+          expect(
+            (_body(session.wire, '/update')['data'] as Map)['model_id'],
+            'm17',
+          );
           expect(tester.takeException(), isNull);
-          // Let the native presenter's own timers run out.
-          await tester.pump(const Duration(seconds: 5));
-          return;
-        }
-        await tester.scrollUntilVisible(
-          find.byKey(const Key('scheduled-task-save')),
-          200,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const Key('scheduled-task-save')).hitTestable(),
-          findsOneWidget,
-        );
-        await tester.tap(find.byKey(const Key('scheduled-task-save')));
-        await tester.pumpAndSettle();
-
-        expect(
-          (_body(session.wire, '/update')['data'] as Map)['model_id'],
-          'm17',
-        );
-        expect(tester.takeException(), isNull);
-      }, variant: TargetPlatformVariant.only(
-        native ? TargetPlatform.iOS : TargetPlatform.android,
-      ));
+        },
+        variant: TargetPlatformVariant.only(
+          native ? TargetPlatform.iOS : TargetPlatform.android,
+        ),
+      );
     }
 
     testWidgets('the last model clears the home indicator when the keyboard is '
@@ -828,7 +865,7 @@ void main() {
             expect(rect.height, greaterThanOrEqualTo(44), reason: code);
             expect(rect.right, lessThanOrEqualTo(390), reason: code);
           }
-          for (final target in ['New chat', 'Channel']) {
+          for (final target in ['New Chat', 'Channel']) {
             final segment = _segment('scheduled-task-target', target);
             await _reveal(tester, segment);
             expect(segment.hitTestable(), findsOneWidget, reason: target);
@@ -901,6 +938,128 @@ void main() {
       await _save(tester);
 
       expect(_body(session.wire, '/update')['folder_id'], isNull);
+    });
+
+    testWidgets('a terminal cleared and chosen again starts from its own '
+        'folder', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        location: _editA,
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Morning digest',
+            terminal: {'server_id': 'term-1', 'cwd': '/work'},
+          ),
+        ],
+        configureWire: (wire) => wire.terminals.add({
+          'id': 'term-1',
+          'name': 'Build box',
+          'url': '',
+          'contexts': <String, dynamic>{},
+        }),
+      );
+      final folder = find.descendant(
+        of: find.byKey(const Key('scheduled-task-working-folder')),
+        matching: find.byType(EditableText),
+      );
+      await _reveal(tester, folder);
+      expect(tester.widget<EditableText>(folder).controller.text, '/work');
+
+      for (final option in ['', 'term-1']) {
+        await _reveal(tester, find.byKey(const Key('scheduled-task-terminal')));
+        await tester.tap(find.byKey(const Key('scheduled-task-terminal')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key('scheduled-task-option-$option')));
+        await tester.pumpAndSettle();
+      }
+      await _reveal(tester, folder);
+      expect(tester.widget<EditableText>(folder).controller.text, isEmpty);
+
+      await _save(tester);
+      expect((_body(session.wire, '/update')['data'] as Map)['terminal'], {
+        'server_id': 'term-1',
+      });
+    });
+
+    testWidgets('an agent task whose terminals cannot be read still saves', (
+      tester,
+    ) async {
+      // Whether the agent is still offered is unknown, so the server decides.
+      final session = await pumpAutomations(
+        tester,
+        location: _editA,
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Morning digest',
+            model: 'agent:term-1:codex:gpt-5.1',
+            terminal: {'server_id': 'term-1'},
+          ),
+        ],
+        configureWire: (wire) => wire.terminalsFail = true,
+      );
+      await _reveal(tester, find.byKey(const Key('scheduled-task-model')));
+      expect(find.text('Codex · gpt-5.1'), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-name')),
+          matching: find.byType(EditableText),
+        ),
+        'Evening digest',
+      );
+      await _save(tester);
+
+      final data = _body(session.wire, '/update')['data'] as Map;
+      expect(data['model_id'], 'agent:term-1:codex:gpt-5.1');
+      expect(data['terminal'], {'server_id': 'term-1'});
+    });
+
+    testWidgets('an agent task whose terminal cannot be asked still saves', (
+      tester,
+    ) async {
+      final session = await pumpAutomations(
+        tester,
+        location: _editA,
+        serverVersion: '0.13.3',
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Morning digest',
+            model: 'agent:term-1:codex:gpt-5.1',
+            terminal: {'server_id': 'term-1'},
+          ),
+        ],
+        configureWire: (wire) => wire
+          ..terminals.add({
+            'id': 'term-1',
+            'name': 'Build box',
+            'url': '',
+            'contexts': <String, dynamic>{},
+          })
+          ..agents = null,
+      );
+      await _reveal(tester, find.byKey(const Key('scheduled-task-model')));
+      expect(find.text('Codex · gpt-5.1'), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-name')),
+          matching: find.byType(EditableText),
+        ),
+        'Evening digest',
+      );
+      await _save(tester);
+
+      final data = _body(session.wire, '/update')['data'] as Map;
+      expect(data['model_id'], 'agent:term-1:codex:gpt-5.1');
+      expect(
+        session.wire.requests.where(
+          (r) => r.uri.path.endsWith('/automations/models'),
+        ),
+        isNotEmpty,
+      );
     });
 
     testWidgets('only the account\'s own folders are offered', (tester) async {
@@ -1040,7 +1199,7 @@ void main() {
       );
       final hold = await chooseWithWriteCheckPending(tester, session);
 
-      await tester.tap(_segment('scheduled-task-target', 'New chat'));
+      await tester.tap(_segment('scheduled-task-target', 'New Chat'));
       await tester.enterText(
         find.byKey(const Key('scheduled-task-name')),
         'Renamed',
@@ -1071,10 +1230,7 @@ void main() {
     testWidgets('Cancel on an untouched new task leaves without asking', (
       tester,
     ) async {
-      await pumpAutomations(
-        tester,
-        location: '/profile/scheduled-tasks/new',
-      );
+      await pumpAutomations(tester, location: '/profile/scheduled-tasks/new');
 
       await _reveal(tester, find.byKey(const Key('scheduled-task-cancel')));
       await tester.tap(find.byKey(const Key('scheduled-task-cancel')));
@@ -1097,7 +1253,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Discard changes?'), findsOneWidget);
 
-      await tester.tap(find.text('Keep editing'));
+      await tester.tap(find.text('Keep Editing'));
       await tester.pumpAndSettle();
       expect(session.router.state.uri.path, _editA);
       expect(find.text('Renamed'), findsOneWidget);
@@ -1111,10 +1267,7 @@ void main() {
     });
 
     testWidgets('going back asks too', (tester) async {
-      await pumpAutomations(
-        tester,
-        location: '/profile/scheduled-tasks/new',
-      );
+      await pumpAutomations(tester, location: '/profile/scheduled-tasks/new');
       await tester.enterText(find.byKey(const Key('scheduled-task-name')), 'n');
       await tester.pump();
 
@@ -1289,7 +1442,10 @@ void main() {
     });
 
     testWidgets('the folder picker searches folders', (tester) async {
-      await _edit(tester, folders: [Folder(id: 'f1', name: 'Reports')]);
+      await _edit(
+        tester,
+        folders: [Folder(id: 'f1', name: 'Reports')],
+      );
 
       await _reveal(tester, find.byKey(const Key('scheduled-task-folder')));
       await tester.tap(find.byKey(const Key('scheduled-task-folder')));

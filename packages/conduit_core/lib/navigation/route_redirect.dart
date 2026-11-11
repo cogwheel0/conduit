@@ -11,6 +11,9 @@ import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show proxySignInForRouteEditingProvider;
+import 'package:conduit_core/providers/primary_account_providers.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart'
+    show primaryBootRecoveryPendingProvider;
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -24,6 +27,10 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
   reviewerModeProvider,
   activeServerProvider,
   authNavigationStateProvider,
+  // The primary account's sign-in, LibreChat's when it is in charge.
+  primaryAuthNavigationStateProvider,
+  // Startup finishing a change of the primary account cut short.
+  primaryBootRecoveryPendingProvider,
   workspaceCapabilitiesProvider,
   // Hermes-only routing: re-evaluate when the preferred backend changes or
   // the Hermes config becomes usable (secrets finish loading).
@@ -60,12 +67,22 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
       location == Routes.personalization ||
+      // Device-level notification settings and push, which cover Hermes and
+      // Direct too; the page hides what needs an Open WebUI account.
+      location == Routes.notificationSettings ||
+      location == Routes.pushPrivacy ||
       isDirectConnectionsLocation(location) ||
       isHermesSettingsLocation(location) ||
       location == Routes.hermesSessions ||
       location == Routes.hermesJobs ||
+      location == Routes.hermesHiddenSessions ||
+      isHermesRoomLocation(location) ||
       location == Routes.about;
 }
+
+/// An open Hermes Group Chat.
+bool isHermesRoomLocation(String location) =>
+    location.startsWith('/hermes-room/');
 
 /// The saved Hermes connection list and its connection editors.
 bool isHermesSettingsLocation(String location) =>
@@ -79,6 +96,12 @@ bool isDirectConnectionsLocation(String location) {
 
 /// App-local surfaces available when direct APIs are the primary backend.
 bool isDirectOnlyAppLocation(String location) =>
+    _isAccountlessBackendLocation(location);
+
+/// Destinations while a LibreChat account owns the Chats tab: everything
+/// that needs no Open WebUI account. Open WebUI's workspace, notes, channels
+/// and terminal are not among them.
+bool isLibreChatAppLocation(String location) =>
     _isAccountlessBackendLocation(location);
 
 String incompleteHermesDestination({
@@ -103,6 +126,12 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     return Routes.chat;
   }
 
+  // A change of the primary account that the last run left unfinished is
+  // settled first: until then, which account is in charge is not known.
+  if (read(primaryBootRecoveryPendingProvider)) {
+    return location == Routes.splash ? null : Routes.splash;
+  }
+
   final activeServerAsync = read(activeServerProvider);
   final authState = read(authNavigationStateProvider);
   final preferredBackend = read(preferredBackendProvider);
@@ -122,8 +151,19 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   );
   final isLocalBackendSetup =
       location == Routes.backendChooser ||
+      location == Routes.libreChatSignIn ||
       isHermesSettingsLocation(location) ||
       isDirectConnectionsLocation(location);
+
+  // A LibreChat account in charge routes on its own sign-in; Open WebUI is
+  // parked and none of the rules below, all about it, apply.
+  if (preferredBackend == PreferredBackend.libreChat) {
+    return _libreChatRedirect(
+      location,
+      read,
+      isLocalBackendSetup: isLocalBackendSetup,
+    );
+  }
 
   // A stale optional Open WebUI credential must not block local-backend
   // recovery or an explicit authentication/recovery flow. Other backend
@@ -350,6 +390,43 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   }
 }
 
+String? _libreChatRedirect(
+  String location,
+  ProviderRead read, {
+  required bool isLocalBackendSetup,
+}) {
+  // Choosing or setting up a backend, and adding an Open WebUI account,
+  // always render.
+  if (isLocalBackendSetup || isAuthLocation(location)) return null;
+  final primaryAuth = read(primaryAuthNavigationStateProvider);
+  // The saved accounts are on the device: one still signed in can be
+  // switched to after the session of the account in charge has ended, and
+  // a saved server's addresses, which Accounts opens, looked after. Chat
+  // and the rest wait for the sign-in.
+  if (primaryAuth == AuthNavigationState.needsLogin &&
+      (location == Routes.accounts ||
+          location == Routes.serverAddresses ||
+          location == Routes.serverAddressEditor)) {
+    return null;
+  }
+  switch (primaryAuth) {
+    case AuthNavigationState.loading:
+      return location == Routes.splash ? null : Routes.splash;
+    case AuthNavigationState.needsLogin:
+      // No session for the LibreChat account in charge: its own sign-in.
+      return Routes.libreChatSignIn;
+    case AuthNavigationState.error:
+    // A session that cannot be checked right now keeps the cached chats in
+    // reach, as a signed-in one does.
+    case AuthNavigationState.authenticated:
+      if (location == Routes.splash) return Routes.chat;
+      final allowed =
+          _hermesPageAllowed(location, read) ??
+          isLibreChatAppLocation(location);
+      return allowed ? null : Routes.chat;
+  }
+}
+
 String? _workspaceRedirect(String location, ProviderRead read) {
   if (location != Routes.workspace &&
       !location.startsWith('${Routes.workspace}/')) {
@@ -407,23 +484,29 @@ String? _accountlessOrAuthRedirect(String location, ProviderRead read) {
   if (isAuthLocation(location)) return null;
   final prefersDirect =
       read(preferredBackendProvider) == PreferredBackend.direct;
-  final bool isAllowed;
-  if (location == Routes.hermesMcp) {
-    // The MCP page talks to the Hermes Desktop Gateway. In any other backend
-    // mode, or with an incomplete gateway configuration, it can only fail to
-    // load while still offering to add servers, so the destination exists
-    // only where that gateway is usable.
+  final isAllowed =
+      _hermesPageAllowed(location, read) ??
+      (prefersDirect
+          ? isDirectOnlyAppLocation(location)
+          : isHermesOnlyAppLocation(location));
+  return isAllowed ? null : Routes.chat;
+}
+
+/// Whether one of the Hermes pages that need more than a Hermes setting can
+/// open, beside any primary backend; null for every other location.
+bool? _hermesPageAllowed(String location, ProviderRead read) {
+  if (location == Routes.hermesMcp || isHermesRoomLocation(location)) {
+    // The MCP page and Group Chats talk to the Hermes Desktop Gateway. In
+    // any other backend mode, or with an incomplete gateway configuration,
+    // they can only fail to load, so they exist only where that gateway is
+    // usable.
     final hermes = read(hermesConfigProvider);
-    isAllowed =
-        hermes.isUsable && hermes.mode == HermesBackendMode.desktopGateway;
-  } else if (location == Routes.hermesSessions) {
+    return hermes.isUsable && hermes.mode == HermesBackendMode.desktopGateway;
+  }
+  if (location == Routes.hermesSessions) {
     // Hermes history exists only where a Hermes connection is set up, as
     // the sidebar shows its tab. A Direct-primary install may have none.
-    isAllowed = read(hermesConfigProvider).enabled;
-  } else {
-    isAllowed = prefersDirect
-        ? isDirectOnlyAppLocation(location)
-        : isHermesOnlyAppLocation(location);
+    return read(hermesConfigProvider).enabled;
   }
-  return isAllowed ? null : Routes.chat;
+  return null;
 }

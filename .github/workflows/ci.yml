@@ -15,6 +15,27 @@ permissions:
 # Flutter is the latest stable release (no version pin), so CI keeps up with
 # what developers install. pubspec.yaml's `environment` sets the floor.
 jobs:
+  computer-viewer:
+    name: Computer viewer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tool/computer_viewer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tool/computer_viewer/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Verify the shipped viewer bundle
+        run: git diff --exit-code -- ../../assets/computer
+
   # The gate that matters most during the extraction: the mobile app must stay
   # exactly as it was while code moves out from under it.
   mobile:
@@ -118,6 +139,21 @@ jobs:
           flutter build apk --debug --target-platform android-arm64
           cd android
           ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
+      # The foss build (F-Droid, IzzyOnDroid) must compile without, and
+      # never pull in, Firebase or Google Play services. Its release APK, the
+      # one those stores ship, is built too, so R8 shrinks it with
+      # proguard-foss.pro. There is no signing key here, so it is unsigned.
+      - name: Android foss build
+        run: |
+          cd android
+          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
+          ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath \
+            -PconduitPushVariant=foss > "$RUNNER_TEMP/foss-dependencies.txt"
+          if grep -E 'com\.google\.(firebase|android\.gms|mlkit)' "$RUNNER_TEMP/foss-dependencies.txt"; then
+            echo "::error::The foss build depends on Firebase, Play services or ML Kit"
+            exit 1
+          fi
+          ./gradlew :app:assembleRelease -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share
@@ -243,3 +279,60 @@ jobs:
         run: dart run tool/verify_arb_descriptions.dart
       - name: Validate ARB locales and placeholders
         run: dart run tool/validate_arb_locales.dart
+
+  # The Python half of push notifications: the shared Web Push library, the
+  # Open WebUI function and the Hermes plugin. Uses the runner's Python.
+  server-plugins:
+    name: Push server plugins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r server-plugins/requirements-test.txt
+      - name: Check test vectors are up to date
+        run: .venv/bin/python push/test-vectors/generate.py --check
+      - name: Check the Open WebUI function is up to date
+        run: .venv/bin/python server-plugins/openwebui/build.py --check
+      - name: Check the Hermes plugin's copy of the shared library is up to date
+        run: .venv/bin/python server-plugins/hermes/sync.py --check
+      - name: Test
+        working-directory: server-plugins
+        run: ../.venv/bin/python -m pytest -q
+
+  # The push relay: a stateless Rust service that turns Web Push into APNs
+  # and FCM. Uses the runner's rustup; its tests read push/test-vectors/.
+  relay:
+    name: Push relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
+      - name: Check formatting
+        working-directory: relay
+        run: cargo fmt --check
+      - name: Lint
+        working-directory: relay
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        working-directory: relay
+        run: cargo test --locked
+
+  # The iOS half of push notifications: Web Push decryption, the cp/1 payload
+  # and the shared stores the app and its Notification Service Extension use,
+  # checked against push/test-vectors. CryptoKit is Apple-only, hence macOS.
+  swift-push:
+    name: Push Swift core
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Test
+        run: swift test --package-path ios/ConduitPushCore

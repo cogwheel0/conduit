@@ -182,6 +182,7 @@ Future<PreferredBackend> _signOutOfLastAccount(
   Future<List<DirectConnectionProfile>> Function() direct, {
   _LastAccountStorage? storage,
   bool hermesUsable = false,
+  PreferredBackend? preferred,
 }) async {
   final accountStorage = storage ?? _LastAccountStorage();
   final container = ProviderContainer(
@@ -205,6 +206,9 @@ Future<PreferredBackend> _signOutOfLastAccount(
   );
   addTearDown(container.dispose);
 
+  if (preferred != null) {
+    await container.read(preferredBackendProvider.notifier).set(preferred);
+  }
   await container.read(openWebUiAccountsControllerProvider).signOut('a');
   return container.read(preferredBackendProvider);
 }
@@ -601,6 +605,21 @@ void main() {
       ).equals(PreferredBackend.hermes);
     });
 
+    test('with LibreChat in use, Open WebUI was parked, not left', () async {
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example/v1',
+      );
+      check(
+        await _signOutOfLastAccount(
+          () async => [profile],
+          preferred: PreferredBackend.libreChat,
+        ),
+      ).equals(PreferredBackend.libreChat);
+    });
+
     test('Direct profiles that fail to load count as no Direct', () async {
       check(await _signOutOfLastAccount(() async => throw StateError('locked')))
           .equals(PreferredBackend.unset);
@@ -914,6 +933,7 @@ void main() {
     late _LastAccountAuth auth;
     late ProviderContainer container;
     late List<String?> hostChanges;
+    late List<String?> hostSignOuts;
 
     void start({
       FutureOr<void> Function()? duringSignOut,
@@ -926,6 +946,7 @@ void main() {
         duringAbandon: duringAbandon,
       );
       hostChanges = [];
+      hostSignOuts = [];
       container = ProviderContainer(
         overrides: [
           optimizedStorageServiceProvider.overrideWithValue(storage),
@@ -940,10 +961,30 @@ void main() {
           ),
           accountChangeReplyGuardProvider.overrideWithValue(() => false),
           hostActiveAccountChangedProvider.overrideWithValue(hostChanges.add),
+          hostSignedOutProvider.overrideWithValue(hostSignOuts.add),
         ],
       );
       addTearDown(container.dispose);
     }
+
+    test('signing out of an account tells the host which one', () async {
+      start();
+      storage.active = 'a';
+
+      await container.read(openWebUiAccountsControllerProvider).signOut('b');
+
+      check(hostSignOuts).deepEquals(['b']);
+    });
+
+    test('switching accounts is not a sign-out', () async {
+      start();
+      storage.active = 'a';
+
+      await container.read(openWebUiAccountsControllerProvider).switchTo('b');
+
+      check(hostSignOuts).isEmpty();
+      check(hostChanges).deepEquals(['b']);
+    });
 
     test('a switch landing during the active account\'s sign-out is left '
         'alone', () async {

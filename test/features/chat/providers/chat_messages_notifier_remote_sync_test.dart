@@ -653,6 +653,91 @@ void main() {
       },
     );
 
+    test('an approved coding agent request keeps its reply running until the '
+        'agent\'s turn ends', () async {
+      final timestamp = DateTime.now();
+      // Open WebUI 0.13.1: the agent waits on its request inside the turn
+      // that is still running, so resolving it returns no task.
+      Map<String, dynamic> request(
+        String status, {
+        Map<String, dynamic>? resolution,
+      }) => {
+        'type': 'function_call',
+        'call_id': 'approval_1',
+        'name': 'agent_tool',
+        'arguments': '{"command": "ls"}',
+        'status': status,
+        'native': const {'request_id': 'r1'},
+        'agent_resolution': ?resolution,
+      };
+      final user = _userMessage('user-1', 'List the files', timestamp);
+      final assistant = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Waiting for approval',
+        timestamp: timestamp,
+        output: [request('pending')],
+      );
+      final api = _FakeApiService(
+        _conversation('chat-1', [
+          user,
+          assistant.copyWith(
+            output: [
+              request('queued', resolution: {'action': 'approve'}),
+            ],
+          ),
+        ], timestamp),
+      )..taskIds = const ['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [user, assistant], timestamp));
+
+      await container
+          .read(chatMessagesProvider.notifier)
+          .resumeAfterOpenWebUiToolCall(
+            messageId: 'assistant-1',
+            callId: 'approval_1',
+            action: OpenWebUiToolCallAction.approve,
+            taskIds: const [],
+          );
+
+      final running = container.read(chatMessagesProvider).last;
+      check(running.isStreaming).isTrue();
+      check(running.output!.single['status']).equals('queued');
+      await _waitForCondition(() => api.getTaskIdsCalls >= 1);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      api
+        ..conversation = _conversation('chat-1', [
+          user,
+          assistant.copyWith(
+            content: 'Here are the files',
+            output: [
+              request('completed', resolution: {'action': 'approve'}),
+            ],
+          ),
+        ], timestamp)
+        ..taskIds = const [];
+      await _waitForCondition(
+        () =>
+            container.read(chatMessagesProvider).last.content ==
+            'Here are the files',
+      );
+      check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+    });
+
     test('staggered task registrations remain monitored', () async {
       final timestamp = DateTime.now();
       final assistant = ChatMessage(

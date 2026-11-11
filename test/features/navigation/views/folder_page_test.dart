@@ -399,7 +399,7 @@ void main() {
         folder: const Folder(id: 'work', name: 'Work'),
       );
 
-      expect(find.text('Share folder'), findsOneWidget);
+      expect(find.text('Share Folder'), findsOneWidget);
       expect(find.text('Edit Folder'), findsOneWidget);
     });
 
@@ -417,8 +417,8 @@ void main() {
         ),
       );
 
-      expect(find.text('Project settings'), findsOneWidget);
-      expect(find.text('Share folder'), findsNothing);
+      expect(find.text('Project Settings'), findsOneWidget);
+      expect(find.text('Share Folder'), findsNothing);
       expect(find.text('Edit Folder'), findsNothing);
       expect(find.text('System Prompt'), findsNothing);
     });
@@ -437,7 +437,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Share folder'), findsOneWidget);
+      expect(find.text('Share Folder'), findsOneWidget);
       expect(find.text('Edit Folder'), findsNothing);
     });
 
@@ -456,7 +456,7 @@ void main() {
         find.byKey(const ValueKey<String>('folder-page-overflow-button')),
         findsNothing,
       );
-      expect(find.text('Share folder'), findsNothing);
+      expect(find.text('Share Folder'), findsNothing);
     });
   });
 
@@ -969,7 +969,7 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
-  testWidgets('chat page mount defers the initial transcript reset', (
+  testWidgets('chat page mounts loaded messages without a provider mutation', (
     tester,
   ) async {
     final timestamp = DateTime(2026, 1, 1);
@@ -1006,7 +1006,8 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(container.read(chatTranscriptPagingProvider).loadedCount, 1);
+    expect(container.read(chatMessagesProvider).single.id, message.id);
+    expect(find.text('Hi'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     container.dispose();
   });
@@ -1367,7 +1368,7 @@ void main() {
       } else {
         await tester.tap(overflow());
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Project settings'));
+        await tester.tap(find.text('Project Settings'));
       }
       await settle(tester);
     }
@@ -1421,13 +1422,13 @@ void main() {
             name: 'an owner',
             permission: null,
             role: 'admin',
-            items: ['Edit Folder', 'Project settings'],
+            items: ['Edit Folder', 'Project Settings'],
           ),
           (
             name: 'a write grant',
             permission: 'write',
             role: 'admin',
-            items: ['Project settings'],
+            items: ['Project Settings'],
           ),
           (name: 'a read grant', permission: 'read', role: 'user', items: []),
         ];
@@ -1449,7 +1450,7 @@ void main() {
           for (final label in [
             'Edit Folder',
             'System Prompt',
-            'Project settings',
+            'Project Settings',
           ])
             if (find.text(label).evaluate().isNotEmpty) label,
         ], menuCase.items);
@@ -2251,11 +2252,11 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(FolderProjectSettingsSheet),
-          matching: find.text('Add model'),
+          matching: find.text('Add Model'),
         ),
         findsOneWidget,
       );
-      expect(find.text('Project settings'), findsNothing);
+      expect(find.text('Project Settings'), findsNothing);
       // Nothing checked yet: nothing to add.
       expect(
         tester
@@ -2267,7 +2268,7 @@ void main() {
       await tester.tap(key('folder-project-picker-cancel'));
       await settle(tester);
       expect(key('folder-project-form'), findsOneWidget);
-      expect(find.text('Project settings'), findsWidgets);
+      expect(find.text('Project Settings'), findsWidgets);
     });
 
     testWidgets('Cancel sends nothing', (tester) async {
@@ -2282,7 +2283,7 @@ void main() {
 
       // An edit is never dropped without asking; Keep editing keeps it.
       expect(find.text('Discard changes?'), findsOneWidget);
-      await tester.tap(find.text('Keep editing'));
+      await tester.tap(find.text('Keep Editing'));
       await settle(tester);
       expect(key('folder-project-model-1'), findsNothing);
       expect(key('folder-project-save'), findsOneWidget);

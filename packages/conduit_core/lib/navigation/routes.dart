@@ -9,6 +9,7 @@ class Routes {
   static const String folder = '/folder/:id';
   static const String login = '/login';
   static const String backendChooser = '/backend-chooser';
+  static const String libreChatSignIn = '/librechat-sign-in';
   static const String serverConnection = '/server-connection';
 
   /// Adding another Open WebUI account while signed in to one.
@@ -26,6 +27,7 @@ class Routes {
   static const String serverAddresses = '/profile/accounts/addresses';
   static const String serverAddressEditor = '/profile/accounts/address';
   static const String notificationSettings = '/profile/notifications';
+  static const String pushPrivacy = '/profile/notifications/push-privacy';
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
   static const String dataConnectionSettings = '/profile/data-connection';
@@ -51,6 +53,7 @@ class Routes {
   static const String hermesNewConnectionId = 'new';
   static const String hermesJobs = '/profile/hermes/jobs';
   static const String hermesMcp = '/profile/hermes/mcp';
+  static const String hermesHiddenSessions = '/profile/hermes/hidden-chats';
   static const String about = '/profile/about';
   static const String notes = '/notes';
   static const String terminal = '/terminal';
@@ -58,6 +61,9 @@ class Routes {
   static const String hermesSessions = '/sessions';
   static const String noteEditor = '/notes/:id';
   static const String channel = '/channel/:id';
+
+  /// One Hermes Group Chat, opened like a chat.
+  static const String hermesRoom = '/hermes-room/:id';
   static const String workspace = '/workspace';
 
   static String folderPath(String id) => '/folder/$id';
@@ -67,6 +73,8 @@ class Routes {
       '/profile/direct-connections/mcp/${Uri.encodeComponent(id)}';
   static String hermesConnectionEditorPath(String id) =>
       '/profile/hermes/connections/${Uri.encodeComponent(id)}';
+  static String hermesRoomPath(String id) =>
+      '/hermes-room/${Uri.encodeComponent(id)}';
 }
 
 /// Friendly names for GoRouter routes to support context.pushNamed.
@@ -76,6 +84,7 @@ class RouteNames {
   static const String folder = 'folder';
   static const String login = 'login';
   static const String backendChooser = 'backend-chooser';
+  static const String libreChatSignIn = 'librechat-sign-in';
   static const String serverConnection = 'server-connection';
   static const String addServer = 'add-server';
   static const String connectionIssue = 'connection-issue';
@@ -91,6 +100,7 @@ class RouteNames {
   static const String serverAddresses = 'server-addresses';
   static const String serverAddressEditor = 'server-address-editor';
   static const String notificationSettings = 'notification-settings';
+  static const String pushPrivacy = 'push-privacy';
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';
   static const String dataConnectionSettings = 'data-connection-settings';
@@ -109,10 +119,12 @@ class RouteNames {
   static const String hermesConnectionEditor = 'hermes-connection-editor';
   static const String hermesJobs = 'hermes-jobs';
   static const String hermesMcp = 'hermes-mcp';
+  static const String hermesHiddenSessions = 'hermes-hidden-chats';
   static const String about = 'about';
   static const String notes = 'notes';
   static const String channels = 'channels';
   static const String hermesSessions = 'hermes-sessions';
+  static const String hermesRoom = 'hermes-room';
   static const String noteEditor = 'note-editor';
   static const String channel = 'channel';
   static const String workspace = 'workspace';

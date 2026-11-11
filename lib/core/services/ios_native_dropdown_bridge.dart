@@ -1,5 +1,4 @@
-import 'dart:io' show Platform;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -86,7 +85,11 @@ class IosNativeDropdownBridge {
     Rect? sourceRect,
     bool rethrowErrors = false,
   }) async {
-    if (!Platform.isIOS || options.isEmpty) return null;
+    // The target platform rather than the host's, so that the presentation
+    // and its fallbacks run in widget tests that target iOS.
+    if (defaultTargetPlatform != TargetPlatform.iOS || options.isEmpty) {
+      return null;
+    }
     try {
       return await _api.show(
         PlatformDropdownRequest(

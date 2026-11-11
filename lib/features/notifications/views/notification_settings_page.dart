@@ -15,12 +15,16 @@ import '../../profile/widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../services/local_notification_service.dart';
 import '../widgets/notification_targets_section.dart';
+import '../../push/widgets/push_settings_section.dart';
 
 /// Notification preferences. The master toggle requests OS permission on
 /// opt-in. The three Open WebUI-aligned prefs (master / sound / sound-always)
 /// are mirrored to the server for cross-device parity; the rest are local-only.
 /// With Advanced on, a permitted account also manages its server-owned webhook
 /// destinations here.
+///
+/// Also reached without an Open WebUI account (Hermes or push in use); the
+/// channel toggle and webhook destinations are hidden then.
 class NotificationSettingsPage extends ConsumerWidget {
   const NotificationSettingsPage({super.key});
 
@@ -30,6 +34,9 @@ class NotificationSettingsPage extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
     final enabled = settings.notificationsEnabled;
+    // Without an Open WebUI account the page is reached for Hermes and push:
+    // channels and webhook destinations are that server's, so they go.
+    final hasOpenWebUiAccount = ref.watch(openWebUiAccountAvailableProvider);
 
     Widget tile({
       required String title,
@@ -74,6 +81,7 @@ class NotificationSettingsPage extends ConsumerWidget {
             ),
           ],
         ),
+        const PushSettingsSection(),
         settingsSectionGap,
         InsetGroupedList(
           children: [
@@ -112,15 +120,22 @@ class NotificationSettingsPage extends ConsumerWidget {
               value: settings.notificationChatEnabled,
               onChanged: notifier.setNotificationChatEnabled,
             ),
+            if (hasOpenWebUiAccount)
+              tile(
+                title: l10n.notificationChannelTitle,
+                subtitle: l10n.notificationChannelDescription,
+                value: settings.notificationChannelEnabled,
+                onChanged: notifier.setNotificationChannelEnabled,
+              ),
             tile(
-              title: l10n.notificationChannelTitle,
-              subtitle: l10n.notificationChannelDescription,
-              value: settings.notificationChannelEnabled,
-              onChanged: notifier.setNotificationChannelEnabled,
+              title: l10n.notificationScheduledTitle,
+              subtitle: l10n.notificationScheduledDescription,
+              value: settings.notificationScheduledEnabled,
+              onChanged: notifier.setNotificationScheduledEnabled,
             ),
           ],
         ),
-        const NotificationTargetsSection(),
+        if (hasOpenWebUiAccount) const NotificationTargetsSection(),
       ],
     );
   }

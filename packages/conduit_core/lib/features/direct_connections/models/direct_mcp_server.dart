@@ -1,8 +1,8 @@
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/utils/loopback_host.dart';
 
 enum DirectMcpAuthMode { none, bearer, oauth }
 
@@ -758,11 +758,8 @@ Uri? _validOAuthUri(String value) {
   return uri;
 }
 
-bool isDirectLoopbackHost(String host) {
-  final normalized = host.toLowerCase();
-  return normalized == 'localhost' ||
-      InternetAddress.tryParse(normalized)?.isLoopback == true;
-}
+/// Whether [host] is this device; the one rule Hermes connections use too.
+bool isDirectLoopbackHost(String host) => isLoopbackHost(host);
 
 String? directMcpOriginOf(String value) {
   final uri = Uri.tryParse(value.trim());

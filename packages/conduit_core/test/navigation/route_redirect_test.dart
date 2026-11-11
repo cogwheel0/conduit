@@ -15,6 +15,8 @@ import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -41,12 +43,18 @@ ProviderRead _reader({
   AuthState authSnapshot = const AuthState(status: AuthStatus.unauthenticated),
   String? settledAccount,
   bool proxySignInForRouteEditing = false,
+  AuthNavigationState? primaryAuth,
+  bool bootRecovering = false,
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
+    // Read only with LibreChat in charge; an Open WebUI case leaves it unset,
+    // so reading it there fails the case.
+    primaryAuthNavigationStateProvider: ?primaryAuth,
     accountAdditionOriginProvider: addingAccountFrom,
     settledActiveAccountIdProvider: settledAccount,
     proxySignInForRouteEditingProvider: proxySignInForRouteEditing,
     reviewerModeProvider: reviewerMode,
+    primaryBootRecoveryPendingProvider: bootRecovering,
     activeServerProvider: activeServer,
     authNavigationStateProvider: auth,
     preferredBackendProvider: preferred,
@@ -106,6 +114,162 @@ Future<AsyncValue<ServerConfig?>> _refreshing(ServerConfig server) async {
 }
 
 void main() {
+  test('a change of the primary account cut short holds the splash until '
+      'startup settles it', () {
+    // Open WebUI parked by a switch to LibreChat that never finished.
+    final read = _reader(
+      activeServer: const AsyncData(null),
+      auth: AuthNavigationState.needsLogin,
+      bootRecovering: true,
+    );
+    for (final location in [
+      Routes.chat,
+      Routes.backendChooser,
+      Routes.authentication,
+    ]) {
+      check(
+        because: location,
+        resolveRouteRedirect(location, read),
+      ).equals(Routes.splash);
+    }
+    check(resolveRouteRedirect(Routes.splash, read)).isNull();
+  });
+
+  group('with a LibreChat account in charge', () {
+    // Open WebUI is parked: no active server, signed out. None of its rules
+    // may decide where a LibreChat user goes.
+    ProviderRead libreChat(AuthNavigationState auth) => _reader(
+      preferred: PreferredBackend.libreChat,
+      activeServer: const AsyncData(null),
+      auth: AuthNavigationState.needsLogin,
+      primaryAuth: auth,
+    );
+
+    const owuiOnly = [
+      Routes.workspace,
+      '${Routes.workspace}/models',
+      Routes.notes,
+      '/notes/n1',
+      '/channel/c1',
+      Routes.scheduledTasks,
+      Routes.calendar,
+    ];
+    const allowed = [Routes.chat, Routes.profile, Routes.accounts];
+    const setup = [
+      Routes.backendChooser,
+      Routes.libreChatSignIn,
+      Routes.hermesSettings,
+      Routes.directConnections,
+    ];
+    // Open WebUI's sign-in stays reachable: an Open WebUI account can be
+    // added while LibreChat is in charge.
+    const openWebUiSignIn = [
+      Routes.serverConnection,
+      Routes.addServer,
+      Routes.authentication,
+      Routes.ssoAuth,
+    ];
+
+    final table = <AuthNavigationState, Map<String, String?>>{
+      AuthNavigationState.loading: {
+        Routes.splash: null,
+        Routes.chat: Routes.splash,
+        Routes.workspace: Routes.splash,
+      },
+      // Its own sign-in, for the account's server; choosing another
+      // backend stays open.
+      AuthNavigationState.needsLogin: {
+        Routes.libreChatSignIn: null,
+        Routes.backendChooser: null,
+        Routes.chat: Routes.libreChatSignIn,
+        Routes.splash: Routes.libreChatSignIn,
+        Routes.notes: Routes.libreChatSignIn,
+      },
+      AuthNavigationState.authenticated: {
+        Routes.splash: Routes.chat,
+        for (final location in allowed) location: null,
+        for (final location in owuiOnly) location: Routes.chat,
+      },
+      AuthNavigationState.error: {
+        Routes.splash: Routes.chat,
+        for (final location in allowed) location: null,
+        for (final location in owuiOnly) location: Routes.chat,
+      },
+    };
+
+    for (final MapEntry(key: auth, value: expectations) in table.entries) {
+      test('${auth.name}: routes on the LibreChat sign-in', () {
+        final read = libreChat(auth);
+        for (final MapEntry(key: location, value: expected)
+            in expectations.entries) {
+          check(
+            because: '$location while ${auth.name}',
+            resolveRouteRedirect(location, read),
+          ).equals(expected);
+        }
+        for (final location in [...setup, ...openWebUiSignIn]) {
+          check(
+            because: '$location while ${auth.name}',
+            resolveRouteRedirect(location, read),
+          ).isNull();
+        }
+      });
+    }
+
+    test('needsLogin: the saved accounts stay in reach', () {
+      // Another saved account may still be signed in; switching to it needs
+      // no session for the one in charge.
+      final read = libreChat(AuthNavigationState.needsLogin);
+      // As are a saved server's addresses, which Accounts opens.
+      for (final location in [
+        Routes.accounts,
+        Routes.serverAddresses,
+        Routes.serverAddressEditor,
+      ]) {
+        check(
+          because: location,
+          resolveRouteRedirect(location, read),
+        ).isNull();
+      }
+      // Chat still waits for the sign-in.
+      check(resolveRouteRedirect(Routes.chat, read)).isNotNull();
+    });
+
+    test('the Hermes pages follow the Hermes connection beside it', () {
+      ProviderRead signedIn(HermesConfig hermes) => _reader(
+        preferred: PreferredBackend.libreChat,
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+        primaryAuth: AuthNavigationState.authenticated,
+        hermes: hermes,
+      );
+      const gateway = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+      );
+      const responses = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        apiKey: 'key',
+      );
+
+      check(resolveRouteRedirect(Routes.hermesMcp, signedIn(gateway))).isNull();
+      check(
+        resolveRouteRedirect(Routes.hermesMcp, signedIn(responses)),
+      ).equals(Routes.chat);
+      check(
+        resolveRouteRedirect(Routes.hermesSessions, signedIn(responses)),
+      ).isNull();
+      check(
+        resolveRouteRedirect(
+          Routes.hermesSessions,
+          signedIn(const HermesConfig()),
+        ),
+      ).equals(Routes.chat);
+    });
+  });
+
   group('resolveRouteRedirect', () {
     test('reviewer mode pins the app to chat', () {
       final read = _reader(reviewerMode: true);
@@ -305,6 +469,41 @@ void main() {
         check(resolveRouteRedirect(editor, settled)).isNull();
         check(isHermesOnlyAppLocation(editor)).isTrue();
       }
+    });
+
+    test('an open Hermes room is a Hermes page', () {
+      check(isHermesOnlyAppLocation(Routes.hermesRoomPath('standup')))
+          .isTrue();
+      check(Routes.hermesRoomPath('a b')).equals('/hermes-room/a%20b');
+      check(isHermesOnlyAppLocation('/hermes-roomless')).isFalse();
+    });
+
+    test('an open Hermes room needs a usable Desktop Gateway', () {
+      final room = Routes.hermesRoomPath('standup');
+      const gateway = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+      );
+      const responses = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        apiKey: 'key',
+      );
+
+      check(
+        resolveRouteRedirect(
+          room,
+          _accountless(PreferredBackend.hermes, gateway),
+        ),
+      ).isNull();
+      // Switching to the Responses API leaves no room to show.
+      check(
+        resolveRouteRedirect(
+          room,
+          _accountless(PreferredBackend.hermes, responses),
+        ),
+      ).equals(Routes.chat);
     });
 
     test('a usable accountless backend never needs an account', () {

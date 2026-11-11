@@ -586,6 +586,66 @@ Future<void> forgetMixedHermesConversationProvenance(
   );
 }
 
+/// The Hermes session the open OpenWebUI chat's latest reply ran in, when
+/// this app bound the chat there (its stored binding, not the reply's
+/// server-held metadata alone) on the connection in use; null otherwise.
+/// A reopened mixed chat has no runtime binding, and still has its plan.
+final hermesTrustedMixedSessionProvider = Provider.autoDispose<String?>((ref) {
+  final conversation = ref.watch(activeConversationProvider);
+  if (conversation == null || isNativeHermesConversation(conversation)) {
+    return null;
+  }
+  final latest = ref.watch(
+    chatMessagesProvider.select((messages) {
+      ChatMessage? reply;
+      for (final message in messages.reversed) {
+        if (message.role == 'assistant') {
+          reply = message;
+          break;
+        }
+      }
+      return reply;
+    }),
+  );
+  final sessionId = validateHermesOpaqueIdentifier(
+    latest?.metadata?['hermesSessionId'],
+  );
+  final identity = latest?.metadata?[kHermesConnectionIdentityMetadataKey];
+  // Checked before the account-owner providers below are read at all.
+  if (latest == null ||
+      sessionId == null ||
+      identity is! String ||
+      identity.isEmpty) {
+    return null;
+  }
+  final config = ref.watch(hermesConfigProvider);
+  final controller = ref.read(hermesConfigProvider.notifier);
+  final endpoint = HermesConfigController.connectionEndpoint(config.baseUrl);
+  if (endpoint == null ||
+      identity !=
+          HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpoint,
+            principalId: controller.documentTrustPrincipalId(),
+          )) {
+    return null;
+  }
+  try {
+    final owner = _HermesConversationOwner.capture(ref, conversation);
+    if (!owner.usesOpenWebUiBackend) return null;
+    final provenance = _captureHermesMixedSessionProvenance(
+      ref,
+      owner: owner,
+      databaseManager: ref.read(databaseManagerProvider),
+    );
+    return provenance != null &&
+            _mixedHermesMessageHasLocalProvenance(latest, provenance)
+        ? sessionId
+        : null;
+  } catch (_) {
+    return null;
+  }
+});
+
 /// The inactive saved connection that owns the active mixed chat's last
 /// trusted Hermes session, or null.
 ///
@@ -1088,6 +1148,16 @@ Future<void> _dispatchHermesRunFromChat(
   CancelToken? preRegisteredCancelToken,
   Duration lateSessionCleanupDeadline = _hermesLateSessionCleanupDeadline,
   String? voiceContext,
+
+  /// Runs once the turn passed its preflight (a new session made, its
+  /// history read) and goes to its run.
+  void Function()? onRunStarting,
+
+  /// Cuts a Desktop session's transcript before this user row first (an
+  /// edit or a regenerate sent into the session it replaces), if the session
+  /// still ends at [truncateSeenThroughRowId], as it did when it was chosen.
+  int? truncateBeforeRowId,
+  int? truncateSeenThroughRowId,
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
   try {
@@ -1140,6 +1210,9 @@ Future<void> _dispatchHermesRunFromChat(
         allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
         lateSessionCleanupDeadline: lateSessionCleanupDeadline,
         voiceContext: voiceContext,
+        onRunStarting: onRunStarting,
+        truncateBeforeRowId: truncateBeforeRowId,
+        truncateSeenThroughRowId: truncateSeenThroughRowId,
       );
     } finally {
       await ownedDatabaseLease?.release();
@@ -1169,6 +1242,9 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required bool allowCapturedDatabasePersistence,
   required Duration lateSessionCleanupDeadline,
   required String? voiceContext,
+  required void Function()? onRunStarting,
+  required int? truncateBeforeRowId,
+  required int? truncateSeenThroughRowId,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -1396,6 +1472,9 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       trackLatePersistence: latePersistence.add,
       lateSessionCleanupDeadline: lateSessionCleanupDeadline,
       voiceContext: voiceContext,
+      onRunStarting: onRunStarting,
+      truncateBeforeRowId: truncateBeforeRowId,
+      truncateSeenThroughRowId: truncateSeenThroughRowId,
     );
   } finally {
     var primaryProjectionPersisted = !owner.usesOpenWebUiBackend;
@@ -1522,6 +1601,29 @@ Future<void> _deleteLateHermesSessionWithinDeadline(
       );
 }
 
+/// Tells the Hermes push plugin that Conduit started a reply in [sessionId],
+/// so it pushes when the reply finishes. Only an API server connection needs
+/// this: the plugin pushes Hermes dashboard (`mobile`) sessions on its own.
+/// A Hermes turn inside an Open WebUI chat is never watched: it belongs to
+/// that chat, which Open WebUI notifies about, and is not announced here
+/// either. Fire and forget; it never affects the turn.
+void _watchHermesSessionForPush(
+  dynamic ref,
+  HermesBackendService service,
+  String sessionId, {
+  required bool usesOpenWebUiBackend,
+}) {
+  if (usesOpenWebUiBackend || service is! HermesApiService) return;
+  final connectionId = service.config.connectionId;
+  if (connectionId == null || connectionId.isEmpty) return;
+  try {
+    final watch = ref.read(pushHermesSessionWatchProvider);
+    if (watch is PushHermesSessionWatch) watch(connectionId, sessionId);
+  } catch (_) {
+    // Push is best effort.
+  }
+}
+
 void _deleteLateHermesSessionBestEffort(
   HermesBackendService service,
   String sessionId, {
@@ -1575,9 +1677,15 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required void Function(Future<void> persistence) trackLatePersistence,
   required Duration lateSessionCleanupDeadline,
   required String? voiceContext,
+  required void Function()? onRunStarting,
+  required int? truncateBeforeRowId,
+  required int? truncateSeenThroughRowId,
 }) async {
   final configController =
       ref.read(hermesConfigProvider.notifier) as HermesConfigController;
+  // The connection this turn runs on. A switch cancels the run before it
+  // changes, so a turn that ends unstopped ended here.
+  final runConnectionId = ref.read(hermesActiveConnectionIdProvider) as String?;
   HermesRunKey currentRunKey() => owner.runKey(assistantMessageId);
   bool ownsRun() => registry.owns(currentRunKey(), cancelToken: cancelToken);
   bool cancelled() =>
@@ -1678,8 +1786,44 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     }
   }
 
+  // Notifies about a turn that ended without being stopped, as a push for it
+  // would: the reply, or its failure. Only for a native Hermes chat; a Hermes
+  // turn inside an Open WebUI chat belongs to that chat.
+  var announcedFinish = false;
+  // Its own id: a regeneration runs into the same assistant message.
+  final turnRunId = const Uuid().v4();
+  void announceFinished() {
+    if (announcedFinish || owner.usesOpenWebUiBackend) return;
+    announcedFinish = true;
+    // A stop finishes the stream too; there is no reply to tell about.
+    if (registry.wasStopped(cancelToken)) return;
+    final connectionId = runConnectionId;
+    if (connectionId == null || connectionId.isEmpty) return;
+    try {
+      final message = projection.message;
+      final sessionId =
+          message.metadata?['hermesSessionId'] ?? capturedSessionId;
+      if (sessionId is! String || sessionId.isEmpty) return;
+      registry.announceCompletion(
+        HermesTurnCompletion(
+          connectionId: connectionId,
+          sessionId: sessionId,
+          message: message,
+          runId: turnRunId,
+          title: owner._conversationSnapshot?.title,
+        ),
+      );
+    } catch (_) {
+      DebugLogger.error(
+        'turn-completion-announce-failed',
+        scope: 'hermes/transport',
+      );
+    }
+  }
+
   void finishOwned() {
     if (!projectionStore.finalize(projection)) return;
+    announceFinished();
     if (!owner.isActive(ref)) return;
     notifier.finishStreamingMessage(
       assistantMessageId,
@@ -1808,6 +1952,10 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         );
   final responseStartsNewChain =
       !isDesktop && responseInput != null && responsePreviousResponseId == null;
+  // The session the turn starts from. A copy's earlier messages follow the
+  // turn to the session it lands in: a new chain's, or one Hermes moved a
+  // chain to.
+  final turnSourceSessionId = isDesktop ? null : sessionId;
   if (responseStartsNewChain) {
     // The official Responses endpoint owns the session id for a new chain; it
     // does not bind to a pre-created /api/sessions row via request headers.
@@ -1903,6 +2051,25 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       ownerMessages: ownerMessages,
       sendHandle: sendHandle,
     );
+    _watchHermesSessionForPush(
+      ref,
+      service,
+      sessionId,
+      usesOpenWebUiBackend: owner.usesOpenWebUiBackend,
+    );
+  }
+
+  // Hermes v0.22.1+ refuses API turns into a session another Hermes surface
+  // owns. Remember that, so the chat offers to continue in a copy instead.
+  void markSessionRefused(String code) {
+    final refusedSessionId = sessionId;
+    if (code != HermesApiErrorCode.permissionDenied ||
+        refusedSessionId == null ||
+        refusedSessionId.isEmpty ||
+        !owner.backendContextIsCurrent(ref)) {
+      return;
+    }
+    ref.read(hermesReadOnlySessionsProvider.notifier).mark(refusedSessionId);
   }
 
   // Attachments require Responses. Once a conversation enters that response
@@ -1942,6 +2109,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // prepared below before the known-empty history baseline is recorded.
     }
     if (cancelled()) return;
+    // Past its preflight, the turn goes to its run.
+    onRunStarting?.call();
     await dispatchHermesTurn(
       startTurn: (turnCancelToken) => switch (service) {
         HermesDesktopTurnService() => service.streamDesktopResponse(
@@ -1950,6 +2119,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           options: desktopOptions!,
           cancelToken: turnCancelToken,
           voiceContext: voiceContext,
+          truncateBeforeRowId: truncateBeforeRowId,
+          truncateSeenThroughRowId: truncateSeenThroughRowId,
         ),
         HermesResponsesTurnService() => service.streamResponseWithReasoning(
           responseInput ?? HermesChatInput.text(input),
@@ -1976,10 +2147,18 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         if (!responseStartsNewChain &&
             requestedSessionId != null &&
             establishedSessionId != requestedSessionId) {
-          throw StateError(
-            'Hermes returned a different session for an existing-session '
-            'request.',
-          );
+          // Hermes moves a response chain to a fresh session when its
+          // session was deleted, and reports the lineage root of a compressed
+          // one. A chained turn continues wherever Hermes says it lives.
+          if (responsePreviousResponseId == null || isDesktop) {
+            throw StateError(
+              'Hermes returned a different session for an existing-session '
+              'request.',
+            );
+          }
+          // The pre-turn history belonged to the old session; without a
+          // baseline for the new one, document provenance fails closed.
+          baselineServerMessageIds = null;
         }
         final responseCreatedSession = responseStartsNewChain;
         if (responseCreatedSession && documentTrustConnectionIdentity != null) {
@@ -2012,6 +2191,34 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             baselineServerMessageIds = <String>{};
           }
         }
+        if (service is HermesApiService &&
+            documentTrustConnectionIdentity != null &&
+            turnSourceSessionId != null &&
+            turnSourceSessionId.isNotEmpty &&
+            establishedSessionId != turnSourceSessionId) {
+          try {
+            await _carryHermesCopiedHistory(
+              ref,
+              service,
+              connectionIdentity: documentTrustConnectionIdentity,
+              fromSessionId: turnSourceSessionId,
+              toSessionId: establishedSessionId,
+            );
+          } catch (_) {
+            // Bound to it, the new session would reopen without the copy's
+            // earlier messages. The turn fails instead and the chat keeps
+            // its session, so a retry carries them again; a new chain's
+            // session is removed (a moved chain's may be an older one).
+            if (responseCreatedSession) {
+              _deleteLateHermesSessionBestEffort(
+                service,
+                establishedSessionId,
+                deadline: lateSessionCleanupDeadline,
+              );
+            }
+            rethrow;
+          }
+        }
         sessionId = establishedSessionId;
         _bindHermesSessionToConversation(
           ref,
@@ -2029,7 +2236,45 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         );
         if (responseCreatedSession) {
           ref.invalidate(hermesSessionsProvider);
+          _watchHermesSessionForPush(
+            ref,
+            service,
+            establishedSessionId,
+            usesOpenWebUiBackend: owner.usesOpenWebUiBackend,
+          );
         }
+      },
+      onSessionRefused: markSessionRefused,
+      // Saved during a restart with no response to follow: a Hermes chat
+      // looks for the answer in its session. An OpenWebUI chat keeps the
+      // note; its Hermes reply is stored only when a turn ends.
+      onQueued: () {
+        final followed = sessionId;
+        if (service is! HermesResponsesTurnService ||
+            owner.usesOpenWebUiBackend ||
+            followed == null ||
+            followed.isEmpty) {
+          return;
+        }
+        unawaited(
+          _followQueuedHermesAnswer(
+            ref,
+            service: service,
+            sessionId: followed,
+            owner: owner,
+            notifier: notifier,
+            assistantMessageId: assistantMessageId,
+          ).catchError((Object error) {
+            // Minutes later the chat may be gone with its providers.
+            DebugLogger.warning(
+              'queued-answer-follow-failed',
+              scope: 'hermes/transport',
+              data: <String, Object?>{
+                'errorType': error.runtimeType.toString(),
+              },
+            );
+          }),
+        );
       },
       onCompletedSuccessfully: () async {
         final committedSessionId = sessionId;
@@ -2061,6 +2306,26 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             .read(composerTextInsertionProvider.notifier)
             .insert(targetId: chatComposerTextInsertionTargetId, text: text);
       },
+      // Kept on its model, the chat gets its message back to send there,
+      // and its picker back to that model.
+      onModelSwitchDeclined: (declined) {
+        if (!owner.isActive(ref)) return;
+        // Given back only to an empty composer: a draft begun meanwhile is
+        // left as it is, and the words stay in the chat to copy.
+        ref
+            .read(composerTextInsertionProvider.notifier)
+            .insert(
+              targetId: chatComposerTextInsertionTargetId,
+              text: input,
+              onlyIntoEmpty: true,
+            );
+        final kept = hermesModelKeptOverSwitch(
+          ref.read(modelsProvider).value ?? const <Model>[],
+          previousModel: declined.previousModel,
+          previousProvider: declined.previousProvider,
+        );
+        if (kept != null) ref.read(selectedModelProvider.notifier).set(kept);
+      },
       updateMessage: updateProjectedMessage,
       finishStreaming: finishOwned,
       completeStreamingUi: completeStreamingUiOwned,
@@ -2084,6 +2349,33 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     return;
   }
 
+  // A crash can leave the session's previous run `unknown`; Hermes then holds
+  // every new turn in the session until a client acknowledges that run. A
+  // chat reopened from Hermes has no run ids, so fall back to the one
+  // remembered when that run failed.
+  final runSessionId = sessionId == null || sessionId.isEmpty
+      ? null
+      : sessionId;
+  final unsettledRunId = runSessionId == null
+      ? null
+      : _lastFailedHermesRunId(existingMessages) ??
+            ref.read(hermesUnsettledRunsProvider)[runSessionId] as String?;
+  if (unsettledRunId != null) {
+    final settled = await settleUnknownHermesRun(
+      service,
+      unsettledRunId,
+      cancelToken: cancelToken,
+    );
+    if (cancelled()) return;
+    if (settled) {
+      ref
+          .read(hermesUnsettledRunsProvider.notifier)
+          .forget(runSessionId!, runId: unsettledRunId);
+    }
+  }
+
+  // Past its preflight, the turn goes to its run.
+  onRunStarting?.call();
   await dispatchHermesRun(
     service: service,
     registry: registry,
@@ -2100,9 +2392,161 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     appendStatus: appendProjectedStatus,
     updateMessage: updateProjectedMessage,
     reportStopError: reportTerminalCleanupError,
+    onSessionRefused: markSessionRefused,
     finishStreaming: finishOwned,
     completeStreamingUi: completeStreamingUiOwned,
   );
+
+  final finalMessage = projection.message;
+  final runId = finalMessage.metadata?['hermesRunId'];
+  if (runSessionId == null ||
+      runId is! String ||
+      runId.isEmpty ||
+      !owner.backendContextIsCurrent(ref)) {
+    return;
+  }
+  final unsettledRuns = ref.read(hermesUnsettledRunsProvider.notifier);
+  if (finalMessage.error == null) {
+    // Hermes took this turn, so an earlier failed run no longer holds it.
+    unsettledRuns.forget(runSessionId);
+  } else {
+    unsettledRuns.remember(runSessionId, runId);
+  }
+}
+
+/// The run id of the newest Hermes `/v1/runs` answer when that answer ended
+/// in an error, which is when its outcome may still be unknown to Hermes.
+String? _lastFailedHermesRunId(List<ChatMessage> messages) {
+  for (final message in messages.reversed) {
+    if (message.role != 'assistant') continue;
+    final metadata = message.metadata;
+    if (metadata?['transport'] != kHermesTransport) return null;
+    final runId = metadata?['hermesRunId'];
+    if (runId is! String || runId.isEmpty || message.error == null) {
+      return null;
+    }
+    return runId;
+  }
+  return null;
+}
+
+/// Waits in the background for the answer of the message Hermes saved in
+/// [sessionId] during a restart, and shows it in [assistantMessageId] once
+/// it is there: the turn had no response to follow, and the message is
+/// never sent again. Stops when the chat is left or something else is
+/// sent; when the time allowed runs out, says to look again later. Each
+/// change reaches the open conversation, as a finished reply's does.
+Future<void> _followQueuedHermesAnswer(
+  dynamic ref, {
+  required HermesBackendService service,
+  required String sessionId,
+  required _HermesConversationOwner owner,
+  required ChatMessagesNotifier notifier,
+  required String assistantMessageId,
+}) async {
+  List<ChatMessage> messages() => ref.read(chatMessagesProvider);
+  bool current() =>
+      owner.isActive(ref) && messages().lastOrNull?.id == assistantMessageId;
+  void update(ChatMessage Function(ChatMessage message) updater) {
+    // Nothing to change once the turn has left the chat, and then the
+    // conversation is not rewritten either.
+    if (!owner.isActive(ref) ||
+        !messages().any((message) => message.id == assistantMessageId)) {
+      return;
+    }
+    notifier
+      ..updateMessageById(assistantMessageId, updater)
+      .._syncConversationStateAfterStreamingUpdate();
+  }
+
+  List<ChatStatusUpdate> settled(
+    List<ChatStatusUpdate> history,
+    String description,
+  ) => [
+    for (final status in history)
+      if (status.action == kHermesQueuedAnswerAction)
+        status.copyWith(description: description, done: true)
+      else
+        status,
+  ];
+
+  update(
+    (message) => message.copyWith(
+      statusHistory: [
+        ...message.statusHistory,
+        // Done, as the turn has already settled: a settled turn shows only
+        // statuses that are. What comes of the wait replaces its words.
+        const ChatStatusUpdate(
+          action: kHermesQueuedAnswerAction,
+          description: kHermesQueuedAnswerWaitingMessage,
+          done: true,
+        ),
+      ],
+    ),
+  );
+  HermesQueuedAnswer outcome;
+  try {
+    int? baseline;
+    try {
+      baseline = (await service.getSessionMessages(sessionId)).length;
+    } catch (_) {
+      // Taken from the first read that works instead, looked for often.
+    }
+    outcome = await awaitHermesQueuedAnswer(
+      readTranscript: () => service.getSessionMessages(sessionId),
+      isCurrent: current,
+      baseline: baseline,
+    );
+  } catch (error) {
+    DebugLogger.warning(
+      'queued-answer-follow-failed',
+      scope: 'hermes/transport',
+      data: <String, Object?>{'errorType': error.runtimeType.toString()},
+    );
+    outcome = const HermesQueuedAnswerPending();
+  }
+  // Read again here: something else may have been sent while the last
+  // look was under way.
+  if (outcome is HermesQueuedAnswerArrived && !current()) {
+    outcome = const HermesQueuedAnswerAbandoned();
+  }
+  switch (outcome) {
+    case HermesQueuedAnswerArrived(:final rows):
+      final placeholder = messages()
+          .where((message) => message.id == assistantMessageId)
+          .firstOrNull;
+      final reply = hermesMessagesToChatMessages(
+        rows,
+        modelId: placeholder?.model,
+        sensitiveValues: service.config.sensitiveValues,
+      ).lastWhere((message) => message.role == 'assistant');
+      update(
+        (message) => message.copyWith(
+          content: reply.content,
+          files: reply.files,
+          attachmentIds: reply.attachmentIds,
+          // The answer's response id, so the next turn continues from it.
+          metadata: {...?message.metadata, ...?reply.metadata},
+          statusHistory: [
+            ...settled(
+              message.statusHistory,
+              kHermesQueuedAnswerArrivedMessage,
+            ),
+            ...reply.statusHistory,
+          ],
+        ),
+      );
+    case HermesQueuedAnswerPending():
+    case HermesQueuedAnswerAbandoned():
+      update(
+        (message) => message.copyWith(
+          statusHistory: settled(
+            message.statusHistory,
+            kHermesQueuedAnswerLateMessage,
+          ),
+        ),
+      );
+  }
 }
 
 @visibleForTesting
@@ -2460,4 +2904,57 @@ void _retryHermesProjectionPersistenceAfterAdoption(
       );
     }
   }());
+}
+
+/// A REST copy's earlier messages live only on this device (see
+/// [HermesCopiedHistoryStore]). When the copy moves to another session (a
+/// new Responses chain's, or one Hermes moved its chain to), they follow it
+/// with the turns the copy stored: Hermes gives the new session neither, so
+/// reopening it would drop them. When those turns are over the bound a copy
+/// may keep, the earlier messages alone follow. Throws when none can be kept
+/// for the new session.
+Future<void> _carryHermesCopiedHistory(
+  dynamic ref,
+  HermesApiService service, {
+  required String connectionIdentity,
+  required String fromSessionId,
+  required String toSessionId,
+}) async {
+  final store =
+      ref.read(hermesCopiedHistoryStoreProvider) as HermesCopiedHistoryStore;
+  final saved = await store.load(
+    connectionIdentity: connectionIdentity,
+    sessionId: fromSessionId,
+  );
+  if (saved == null) return;
+  // The copy's own turns join them when they can be read; without them
+  // the earlier messages still follow, rather than none.
+  List<Map<String, dynamic>> own = const [];
+  try {
+    own = await service.getSessionMessages(fromSessionId);
+  } catch (error) {
+    DebugLogger.warning(
+      'copied-history-carry-read-failed',
+      scope: 'hermes/sessions',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+  }
+  final merged = mergeHermesCopiedHistory(saved, own);
+  final kept = await store.save(
+    connectionIdentity: connectionIdentity,
+    sessionId: toSessionId,
+    messages: merged,
+  );
+  if (kept.isNotEmpty || merged.isEmpty) return;
+  // The newest of the copy's own messages alone is over the bound, so none
+  // was kept: the earlier messages are, without the copy's own turns.
+  DebugLogger.warning('copied-history-carry-trimmed', scope: 'hermes/sessions');
+  final earlier = await store.save(
+    connectionIdentity: connectionIdentity,
+    sessionId: toSessionId,
+    messages: saved,
+  );
+  if (earlier.isEmpty && saved.isNotEmpty) {
+    throw StateError("Hermes could not keep this chat's earlier messages.");
+  }
 }

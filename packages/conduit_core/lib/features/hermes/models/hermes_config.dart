@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import 'package:conduit_core/utils/loopback_host.dart';
+
 /// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
 /// explicit `null` (which clears a secret).
 const Object _unset = Object();
@@ -125,6 +127,7 @@ class HermesConfig {
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
     this.allowSelfSignedCertificates = false,
+    this.plainHttpConsentOrigin,
     this.apiKey,
     this.sessionKey,
     this.desktopCredentials,
@@ -154,6 +157,11 @@ class HermesConfig {
   /// Trusts an unverified TLS certificate for this server, matching the
   /// equivalent Open WebUI and direct-connection setting.
   final bool allowSelfSignedCertificates;
+
+  /// The origin the user agreed to send this connection's credentials to
+  /// without encryption ([plainHttpOrigin]). It holds only while [baseUrl]
+  /// keeps that origin: another host or port asks again.
+  final String? plainHttpConsentOrigin;
 
   /// Bearer token (`API_SERVER_KEY`) for the Hermes server.
   final String? apiKey;
@@ -191,6 +199,28 @@ class HermesConfig {
     }
     final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
     return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:$port';
+  }
+
+  /// The origin of [value] when credentials sent to it travel unencrypted:
+  /// a plain `http` URL to a host that is not this device. Null for `https`,
+  /// for this device (`localhost`, `127.x.x.x`, `::1`) and for an invalid URL.
+  static String? plainHttpOrigin(String value) {
+    final origin = connectionOrigin(value);
+    final uri = Uri.tryParse(value.trim());
+    if (origin == null ||
+        uri == null ||
+        uri.scheme.toLowerCase() != 'http' ||
+        isLoopbackHost(uri.host)) {
+      return null;
+    }
+    return origin;
+  }
+
+  /// Whether this connection may send its credentials: they are encrypted,
+  /// stay on this device, or the user agreed for this origin.
+  bool get mayUsePlainHttp {
+    final origin = plainHttpOrigin(baseUrl);
+    return origin == null || origin == plainHttpConsentOrigin;
   }
 
   /// Canonical request root used to detect endpoint changes.
@@ -276,6 +306,7 @@ class HermesConfig {
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
     bool? allowSelfSignedCertificates,
+    Object? plainHttpConsentOrigin = _unset,
     // Sentinel-typed so secrets can be explicitly cleared: passing `null`
     // clears, while omitting keeps the current value.
     Object? apiKey = _unset,
@@ -294,6 +325,9 @@ class HermesConfig {
       desktopProfile: desktopProfile ?? this.desktopProfile,
       allowSelfSignedCertificates:
           allowSelfSignedCertificates ?? this.allowSelfSignedCertificates,
+      plainHttpConsentOrigin: identical(plainHttpConsentOrigin, _unset)
+          ? this.plainHttpConsentOrigin
+          : plainHttpConsentOrigin as String?,
       apiKey: identical(apiKey, _unset) ? this.apiKey : apiKey as String?,
       sessionKey: identical(sessionKey, _unset)
           ? this.sessionKey
@@ -315,6 +349,7 @@ class HermesConfig {
       other.desktopAuthKind == desktopAuthKind &&
       other.desktopProfile == desktopProfile &&
       other.allowSelfSignedCertificates == allowSelfSignedCertificates &&
+      other.plainHttpConsentOrigin == plainHttpConsentOrigin &&
       other.apiKey == apiKey &&
       other.sessionKey == sessionKey &&
       other.desktopCredentials?.legacyToken ==
@@ -345,6 +380,7 @@ class HermesConfig {
       desktopAuthKind,
       desktopProfile,
       allowSelfSignedCertificates,
+      plainHttpConsentOrigin,
       apiKey,
       sessionKey,
       desktopCredentials?.legacyToken,
@@ -356,6 +392,18 @@ class HermesConfig {
       ),
     );
   }
+}
+
+/// A connection whose credentials would travel unencrypted was saved
+/// without the user's consent for its origin
+/// ([HermesConfig.plainHttpConsentOrigin]).
+final class HermesPlainHttpConsentRequired implements Exception {
+  const HermesPlainHttpConsentRequired();
+
+  @override
+  String toString() =>
+      'HermesPlainHttpConsentRequired: sending credentials over plain HTTP '
+      'needs consent for this server.';
 }
 
 bool _mapsEqual(Map<String, String> left, Map<String, String> right) {
