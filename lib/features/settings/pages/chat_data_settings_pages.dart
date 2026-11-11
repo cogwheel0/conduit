@@ -178,6 +178,17 @@ NativeSheetDetailConfig buildChatDataPage(
       state.status != null && origins.contains(state.origin)
       ? state.status
       : null;
+  // A result is said under its group; a failure shows in it instead, as a
+  // row with a warning sign, as an import's error does.
+  String? said(String? status) => state.statusIsError ? null : status;
+  NativeSheetItemConfig? failure(String group, String? status) =>
+      status != null && state.statusIsError
+      ? note(
+          '$chatDataControlsPageId-$group-failure',
+          status,
+          'exclamationmark.triangle',
+        )
+      : null;
   String? footer(Iterable<String?> parts) {
     final shown = parts.nonNulls.where((part) => part.isNotEmpty).toList();
     return shown.isEmpty ? null : shown.join('\n\n');
@@ -211,7 +222,7 @@ NativeSheetDetailConfig buildChatDataPage(
       ),
       if (state.localOnly > 0 || state.unsent > 0)
         NativeSheetSectionConfig(
-          footer: footer([l10n.chatDataControlsUnsyncedNote, syncStatus]),
+          footer: footer([l10n.chatDataControlsUnsyncedNote, said(syncStatus)]),
           items: [
             if (state.localOnly > 0)
               note(
@@ -234,6 +245,7 @@ NativeSheetDetailConfig buildChatDataPage(
               symbol: 'arrow.triangle.2.circlepath',
               accent: true,
             ),
+            ?failure('sync', syncStatus),
           ],
         ),
       if (state.canExport || state.canImport)
@@ -242,7 +254,7 @@ NativeSheetDetailConfig buildChatDataPage(
           footer: footer([
             if (state.canExport) l10n.chatDataControlsMediaNote,
             if (state.canImport) l10n.chatDataControlsImportFooter,
-            backupStatus,
+            said(backupStatus),
           ]),
           items: [
             if (state.canExport)
@@ -272,6 +284,7 @@ NativeSheetDetailConfig buildChatDataPage(
                     ? l10n.chatDataControlsImporting(state.importing)
                     : null,
               ),
+            ?failure('backup', backupStatus),
           ],
         ),
       if (state.pickedName != null && state.importError != null)
@@ -299,7 +312,7 @@ NativeSheetDetailConfig buildChatDataPage(
         ),
       NativeSheetSectionConfig(
         title: l10n.chatDataControlsManageSection,
-        footer: manageStatus,
+        footer: said(manageStatus),
         items: [
           action(
             ChatDataOrigin.archive,
@@ -319,13 +332,14 @@ NativeSheetDetailConfig buildChatDataPage(
             title: l10n.chatDataControlsUnshareAll,
             symbol: 'link',
           ),
+          ?failure('manage', manageStatus),
         ],
       ),
       if (state.canDelete)
         NativeSheetSectionConfig(
           footer: footer([
             l10n.chatDataControlsDeleteFooter(accountName, serverName),
-            deleteStatus,
+            said(deleteStatus),
           ]),
           items: [
             action(
@@ -335,6 +349,7 @@ NativeSheetDetailConfig buildChatDataPage(
               symbol: 'trash',
               destructive: true,
             ),
+            ?failure('delete', deleteStatus),
           ],
         ),
     ],
@@ -412,6 +427,12 @@ class ChatDataSettingsPages extends SettingsPageModule {
 
   ChatDataControlsService _service(ChatDataControlsOwner owner) =>
       chatDataControlsServiceForOwner(_container, owner);
+
+  /// Whether the page that started an action for [owner] is still open.
+  /// Left, or closed with Settings, the page lets go of its owner; opened
+  /// again, it holds a new one. Either way nothing is asked or done for it
+  /// any more.
+  bool _openFor(ChatDataControlsOwner owner) => identical(_owner, owner);
 
   bool _ownerIsCurrent() {
     final owner = _owner;
@@ -630,6 +651,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
     var delivered = false;
     try {
       final scope = await service.scope();
+      if (!_openFor(owner)) return;
       final leavesOut =
           scope.localOnlyChatIds.isNotEmpty ||
           scope.unsyncedEdits > 0 ||
@@ -645,6 +667,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
           )) {
         return;
       }
+      if (!_openFor(owner)) return;
       final cancel = _cancel = CancelToken();
       _activity = ChatDataActivity.exporting;
       await _apply();
@@ -660,6 +683,9 @@ class ChatDataSettingsPages extends SettingsPageModule {
         await file.abort();
         _show(l10n.chatDataControlsExportEmpty);
       } else {
+        // Left as the last chats arrived: nobody is there to share it with,
+        // and the file is thrown away.
+        if (!_openFor(owner)) return;
         // Handed over only now, every line having arrived intact; the share
         // sheet opens over Settings.
         await files.deliver(file, origin: _shareOrigin());
@@ -701,7 +727,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
     final files = _ref.read(chatBackupFilesProvider);
     // Over the Settings sheet, as a picker opened from one of its rows.
     final picked = await files.pickImportFile();
-    if (picked == null) return;
+    if (picked == null || !_openFor(owner)) return;
     _picked = picked;
     _importError = null;
     _status = null;
@@ -738,17 +764,19 @@ class ChatDataSettingsPages extends SettingsPageModule {
       return;
     }
 
-    if (!await _confirm(
-      l10n,
-      title: l10n.chatDataControlsImportConfirmTitle,
-      message: l10n.chatDataControlsImportConfirmMessage(
-        owner.accountName,
-        _serverName(owner),
-        preview.chats,
-        preview.messages,
-      ),
-      confirm: l10n.chatDataControlsImportAction,
-    )) {
+    if (!_openFor(owner) ||
+        !await _confirm(
+          l10n,
+          title: l10n.chatDataControlsImportConfirmTitle,
+          message: l10n.chatDataControlsImportConfirmMessage(
+            owner.accountName,
+            _serverName(owner),
+            preview.chats,
+            preview.messages,
+          ),
+          confirm: l10n.chatDataControlsImportAction,
+        ) ||
+        !_openFor(owner)) {
       _activity = ChatDataActivity.idle;
       await _apply();
       return;
@@ -803,6 +831,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
     await _apply();
     try {
       final scope = await service.scope();
+      if (!_openFor(owner)) return;
       var discard = false;
       if (kind == _Bulk.delete &&
           (scope.runningResponses > 0 || _ref.read(isChatStreamingProvider))) {
@@ -840,7 +869,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
         },
         destructive: kind == _Bulk.delete,
       );
-      if (!proceed) return;
+      if (!proceed || !_openFor(owner)) return;
 
       _activity = ChatDataActivity.changing;
       await _apply();

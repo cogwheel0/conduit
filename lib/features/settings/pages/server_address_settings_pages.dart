@@ -491,6 +491,9 @@ final class _Editor {
   String? advancedNotice;
   bool busy = false;
 
+  /// Whether the editor page was last drawn as edited.
+  bool shownEdited = false;
+
   /// The header being added.
   String headerName = '';
   String headerValue = '';
@@ -548,6 +551,22 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         ..headerNotice = null;
       await _applyHeader(l10n, key, editor);
     }
+  }
+
+  /// An editor left -- Back, or Settings closing -- is abandoned, and its
+  /// draft goes with it: a client key and its password, header values.
+  /// (Covered by its Advanced page, it is not left.)
+  @override
+  void pageLeft(String detailId) {
+    if (detailId.startsWith(serverAddressPagePrefix)) {
+      _editors.remove(detailId.substring(serverAddressPagePrefix.length));
+    }
+  }
+
+  @override
+  void settingsClosed() {
+    _editors.clear();
+    _notices.clear();
   }
 
   /// The server's page as stored now. Any editor opened from an earlier
@@ -662,9 +681,11 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   Future<void> _applyEditor(
     AppLocalizations l10n,
     String key,
-    _Editor editor,
-  ) async {
+    _Editor editor, {
+    bool withPages = true,
+  }) async {
     final parsed = _parseEditorKey(key)!;
+    editor.shownEdited = editor.edited;
     await _surface.applyDetail(
       buildServerAddressPage(
         l10n,
@@ -677,14 +698,28 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         notice: editor.notice,
       ),
       detailSheets: [
-        buildServerAddressAdvancedPage(
-          l10n,
-          editorKey: key,
-          draft: editor.draft,
-        ),
-        buildServerAddressHeaderPage(l10n, editorKey: key),
+        if (withPages) ...[
+          buildServerAddressAdvancedPage(
+            l10n,
+            editorKey: key,
+            draft: editor.draft,
+          ),
+          buildServerAddressHeaderPage(l10n, editorKey: key),
+        ],
       ],
     );
+  }
+
+  /// A change made on the Advanced page or one it opened is the editor's:
+  /// the editor page, under them, is drawn again once it turns edited (or
+  /// back), so leaving it -- or swiping Settings away -- asks first.
+  Future<void> _showEdited(
+    AppLocalizations l10n,
+    String key,
+    _Editor editor,
+  ) async {
+    if (editor.edited == editor.shownEdited) return;
+    await _applyEditor(l10n, key, editor, withPages: false);
   }
 
   Future<void> _applyAdvanced(
@@ -776,6 +811,18 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         await _addHeader(l10n, key, editor);
       case 'save':
         await _save(l10n, key, parsed.serverId, parsed.endpointId, editor);
+    }
+    // Changed on the Advanced page or one it opened.
+    if (const {
+      'self-signed',
+      'key-password',
+      'pick-certificate',
+      'pick-key',
+      'clear-tls',
+      'header-remove',
+      'header-add',
+    }.contains(field)) {
+      await _showEdited(l10n, key, editor);
     }
     return true;
   }

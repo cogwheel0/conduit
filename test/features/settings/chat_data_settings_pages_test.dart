@@ -767,6 +767,24 @@ void main() {
       expect(session.files.delivered, hasLength(1));
     });
 
+    testWidgets('an export agreed to after its page closed sends nothing', (
+      tester,
+    ) async {
+      final session = await open(
+        tester,
+        seed: (db) => seedDeviceOnlyChat(db, 'local:one'),
+      );
+      session.wire.library = [_line('a')];
+      await session.tap('export');
+
+      // Settings closed under the question, which is answered after all.
+      session.module.settingsClosed();
+      await session.confirm();
+
+      expect(session.wire.requests, isEmpty);
+      expect(session.files.created, isEmpty);
+    });
+
     // The last line has arrived and the file is being closed. Whatever changes
     // now still decides whether the file is handed to the share sheet.
     group('while the finished file is being closed', () {
@@ -1062,6 +1080,22 @@ void main() {
       expect(session.row('import')!.pending, isFalse);
     });
 
+    testWidgets('an import agreed to after its page closed sends nothing', (
+      tester,
+    ) async {
+      final session = await open(tester);
+      session.files.nextPick = PickedChatFile(
+        name: 'chats.json',
+        read: () async => fileBytes,
+      );
+      await session.tap('import');
+
+      session.module.pageLeft(chatDataControlsPageId);
+      await session.confirm();
+
+      expect(session.wire.requests, isEmpty);
+    });
+
     testWidgets('a refused file stays on the page with the reason and sends '
         'nothing', (tester) async {
       final session = await open(tester);
@@ -1202,6 +1236,21 @@ void main() {
       expect(archived, [true, false, false]);
     });
 
+    testWidgets('a change agreed to after its page closed is not made', (
+      tester,
+    ) async {
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
+      );
+      await session.tap('archive');
+
+      session.module.pageLeft(chatDataControlsPageId);
+      await session.confirm();
+
+      expect(session.wire.to('POST', '/api/v1/chats/archive/all'), isEmpty);
+    });
+
     testWidgets('a server that says no changes nothing', (tester) async {
       final session = await open(
         tester,
@@ -1213,6 +1262,12 @@ void main() {
       await session.confirm();
 
       expect(session.status, 'The server could not do that. Nothing changed.');
+      // A failure shows in its group with a warning sign, not as a note
+      // under it the way a result is.
+      final failure = session.section('archive').items.last;
+      expect(failure.title, session.status);
+      expect(failure.sfSymbol, 'exclamationmark.triangle');
+      expect(session.section('archive').footer, isNull);
       final s1 = await onDevice(
         tester,
         () => session.db.chatsDao.getChat('s1'),

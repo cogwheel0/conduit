@@ -1763,8 +1763,22 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 edited: existing.edited
             )
             self.detailPayloads[detailId] = patched
-            if self.activeDetailTableController?.detailId == detailId {
-                self.activeDetailTableController?.applyUpdatedDetail(patched)
+            // The page on top, and the same page further down the sheet: one
+            // covered by a page it opened learns of a change made there (an
+            // editor marked edited from its Advanced page), so closing the
+            // sheet can ask about it.
+            var pages: [NativeDetailTableViewController] = []
+            if let active = self.activeDetailTableController,
+               active.detailId == detailId {
+                pages.append(active)
+            }
+            for case let page as NativeDetailTableViewController
+                in self.activeNavigationController?.viewControllers ?? []
+                where page.detailId == detailId && !pages.contains(where: { $0 === page }) {
+                pages.append(page)
+            }
+            for page in pages {
+                page.applyUpdatedDetail(patched)
             }
             return true
         }
@@ -2187,17 +2201,21 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             onWillDismiss: { [weak self] in
                 self?.flushActiveSheetEditing()
             },
-            // Swiped away with unsaved changes on the page on top, the sheet
-            // stays and asks first.
+            // Swiped away with unsaved changes on any of its pages, the
+            // sheet stays and asks first.
             shouldDismiss: { [weak self] in
                 (self?.activeController as? NativeSheetNavigationController)?
-                    .guardingTopPage == nil
+                    .guardingClosePage == nil
             },
             onAttemptToDismiss: { [weak self] in
-                guard let page = (self?.activeController as? NativeSheetNavigationController)?
-                    .guardingTopPage
+                guard let navigation = self?.activeController
+                    as? NativeSheetNavigationController,
+                    let guarding = navigation.guardingClosePage
                 else { return }
-                page.askBeforeLeaving { [weak self] in self?.dismissActive() }
+                guarding.page.askBeforeLeaving(always: guarding.always) { [weak self] in
+                    navigation.dropUnsavedChanges()
+                    self?.dismissActive()
+                }
             },
             onDismiss: { [weak self] in
                 if let pending = self?.pendingModelSelectorResult {
@@ -5518,14 +5536,22 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             || (confirms && controlEdits)
     }
 
+    var asksBeforeDiscarding: Bool { detail.discardPrompt != nil }
+
+    var holdsUnfinishedText: Bool { !pendingTextValues.isEmpty }
+
     /// Asks the page's discard question, then runs [leave] once the user
-    /// chooses to discard; leaves at once when nothing would be lost.
-    func askBeforeLeaving(then leave: @escaping () -> Void) {
-        guard blocksLeaving, let prompt = detail.discardPrompt else {
+    /// chooses to discard; leaves at once when nothing would be lost. With
+    /// [always], a page it opened holds the changes, so it asks regardless.
+    func askBeforeLeaving(always: Bool, then leave: @escaping () -> Void) {
+        guard always || blocksLeaving, let prompt = detail.discardPrompt else {
             leave()
             return
         }
-        view.endEditing(true)
+        // The page asking may sit under the page on top; the question shows
+        // over the sheet either way.
+        let presenter: UIViewController = navigationController ?? self
+        presenter.view.endEditing(true)
         let alert = UIAlertController(
             title: prompt.title,
             message: prompt.message,
@@ -5536,11 +5562,15 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             title: prompt.discardLabel,
             style: .destructive
         ) { [weak self] _ in
-            self?.pendingTextValues.removeAll()
-            self?.controlEdits = false
+            self?.dropUnsavedChanges()
             leave()
         })
-        present(alert, animated: true)
+        presenter.present(alert, animated: true)
+    }
+
+    func dropUnsavedChanges() {
+        pendingTextValues.removeAll()
+        controlEdits = false
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {

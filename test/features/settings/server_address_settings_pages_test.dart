@@ -406,6 +406,50 @@ void main() {
       expect(rig.page(editor).edited, isTrue);
     });
 
+    testWidgets('a change on the Advanced page marks the editor under it '
+        'edited, and undone, unmarks it', (tester) async {
+      final rig = await pump(tester);
+      final editor = serverAddressPageId('home', 'lan');
+      final key = serverAddressEditorKey('home', 'lan');
+      await rig.open(editor);
+      await rig.open('$serverAddressAdvancedPagePrefix$key');
+      expect(rig.page(editor).edited, isFalse);
+
+      await rig.change(row('self-signed', 'lan'), true);
+      expect(rig.page(editor).edited, isTrue);
+
+      await rig.change(row('self-signed', 'lan'), false);
+      expect(rig.page(editor).edited, isFalse);
+    });
+
+    testWidgets('an editor left keeps none of what was typed, though one '
+        'covered by its Advanced page does', (tester) async {
+      final rig = await pump(tester);
+      final editor = serverAddressPageId('home', 'lan');
+      String url() =>
+          rig.rows(editor).singleWhere((r) => r.id == row('url', 'lan')).value
+              as String;
+      await rig.open(editor);
+      await rig.change(row('url', 'lan'), 'http://10.0.0.3:3000');
+
+      // Covered by Advanced, the editor is not left.
+      rig.module.pageLeft(
+        '$serverAddressAdvancedPagePrefix${serverAddressEditorKey('home', 'lan')}',
+      );
+      await rig.open(editor);
+      expect(url(), 'http://10.0.0.3:3000');
+
+      rig.module.pageLeft(editor);
+      await rig.open(editor);
+      expect(url(), 'http://10.0.0.2:3000');
+      expect(rig.page(editor).edited, isFalse);
+
+      await rig.change(row('url', 'lan'), 'http://10.0.0.3:3000');
+      rig.module.settingsClosed();
+      await rig.open(editor);
+      expect(url(), 'http://10.0.0.2:3000');
+    });
+
     testWidgets('an address that cannot be used says why, and Done can be '
         'tried again', (tester) async {
       final rig = await pump(tester);
