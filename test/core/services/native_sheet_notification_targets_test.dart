@@ -247,12 +247,15 @@ Future<_NativeSettings> _pumpApp(
 const _detail = NativeSheetRoutes.notificationSettings;
 const _localToggles = [
   'notifications-enabled',
+  'push-enabled',
+  'push-privacy',
   'notification-in-app-banner',
   'notification-system',
   'notification-sound',
   'notification-sound-always',
   'notification-chat',
   'notification-channel',
+  'notification-scheduled',
 ];
 
 void main() {

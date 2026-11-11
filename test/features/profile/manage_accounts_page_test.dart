@@ -14,6 +14,9 @@ import 'package:conduit_core/features/librechat/models/librechat_server.dart';
 import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
@@ -23,6 +26,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+import '../push/push_test_support.dart';
 
 final _home = OpenWebUiServer(
   id: 'home',
@@ -116,6 +121,7 @@ void main() {
     String? hermesActiveId,
     bool hermesEnabled = false,
     List<DirectConnectionProfile> direct = const [],
+    PushState? push,
     List<Override> overrides = const [],
   }) async {
     final controller = _SignInNeeded();
@@ -180,6 +186,11 @@ void main() {
           ),
           applePccPlatformSupportedProvider.overrideWithValue(false),
           reviewerModeProvider.overrideWithValue(false),
+          pushStateIfUsedProvider.overrideWithValue(push),
+          if (push != null)
+            pushCoordinatorProvider.overrideWith(
+              () => FakePushCoordinator(push),
+            ),
           ...overrides,
         ],
         child: MaterialApp.router(
@@ -456,6 +467,91 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AccountSheet), findsOne);
     expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);
+  });
+
+  testWidgets('push that needs attention shows a chip on its card', (
+    tester,
+  ) async {
+    PushState push({required bool enabled}) => PushState(
+      enabled: enabled,
+      targets: {
+        for (final target in [
+          const PushTargetState(
+            target: OpenWebUiPushTarget(accountId: 'alex-home', label: 'Alex'),
+            status: PushStatus.needsAdminSetup,
+          ),
+          const PushTargetState(
+            target: OpenWebUiPushTarget(accountId: 'sam-home', label: 'Sam'),
+            status: PushStatus.on,
+          ),
+          const PushTargetState(
+            target: HermesPushTarget(
+              connectionId: 'hermes-home',
+              label: 'Home agent',
+              baseUrl: 'http://10.0.0.5:8642',
+              mode: HermesBackendMode.responsesApi,
+            ),
+            status: PushStatus.restartHermes,
+          ),
+          const PushTargetState(
+            target: HermesPushTarget(
+              connectionId: 'hermes-laptop',
+              label: 'Laptop',
+              baseUrl: 'http://10.0.0.6:9119',
+              mode: HermesBackendMode.responsesApi,
+            ),
+            status: PushStatus.verifying,
+          ),
+        ])
+          target.scope: target,
+      },
+    );
+    final accounts = [
+      _entry('alex-home', name: 'Alex', isActive: true),
+      _entry('sam-home', name: 'Sam'),
+    ];
+
+    await pumpAccounts(
+      tester,
+      accounts,
+      hermes: const [_hermesHome, _hermesLaptop],
+      hermesEnabled: true,
+      push: push(enabled: true),
+    );
+    expect(find.byKey(const Key('push-attention-owui:alex-home')), findsOne);
+    expect(find.text('Push needs attention'), findsNWidgets(2));
+    // Working, or on its way: nothing to do.
+    expect(find.byKey(const Key('push-attention-owui:sam-home')), findsNothing);
+    expect(
+      find.byKey(const Key('push-attention-hermes:hermes-home')),
+      findsOne,
+    );
+    expect(
+      find.byKey(const Key('push-attention-hermes:hermes-laptop')),
+      findsNothing,
+    );
+
+    // The chip opens that account's push details.
+    await tester.tap(find.byKey(const Key('push-attention-owui:alex-home')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('push-detail-status')), findsOne);
+    expect(find.text('Needs your admin to set up'), findsOne);
+  });
+
+  testWidgets('no push chip while push is off', (tester) async {
+    await pumpAccounts(
+      tester,
+      [_entry('alex-home', name: 'Alex', isActive: true)],
+      push: const PushState(
+        targets: {
+          'owui:alex-home': PushTargetState(
+            target: OpenWebUiPushTarget(accountId: 'alex-home', label: 'A'),
+            status: PushStatus.needsAdminSetup,
+          ),
+        },
+      ),
+    );
+    expect(find.text('Push needs attention'), findsNothing);
   });
 
   testWidgets('the page ends on Add Account, which opens the account sheet', (

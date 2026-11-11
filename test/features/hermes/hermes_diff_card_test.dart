@@ -188,7 +188,11 @@ void main() {
   testWidgets('cuts a long folder in the middle, keeping its end', (
     tester,
   ) async {
-    // Longer than the row, even at the test screen's 800 points.
+    // Narrow enough that the folder is longer than the row in the test font
+    // and in Roboto, which an earlier test in the same run may have loaded.
+    tester.view.physicalSize = const Size(480, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     const folder = '/home/dev/projects/sample-app/packages/client/lib/src/'
         'features/settings/sections/appearance/widgets/';
     await tester.pumpWidget(

@@ -1254,6 +1254,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         || actionId == "account-sign-out" || actionId == "account-direct-edit"
         || actionId == "account-librechat-use"
         || actionId == "account-librechat-sign-out"
+        // A push target's detail is a Flutter sheet over the Notifications page.
+        || actionId == "push-target"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {

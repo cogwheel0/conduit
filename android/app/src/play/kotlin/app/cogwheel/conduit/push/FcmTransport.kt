@@ -77,6 +77,27 @@ internal object FcmTransport {
         }
     }
 
+    /**
+     * Stops using FCM: Firebase no longer starts at launch, auto-init is off
+     * again and the token is deleted, so Google stops issuing one. A later
+     * [requestToken] opts in again.
+     */
+    fun release(context: Context) {
+        val appContext = context.applicationContext
+        PushRuntime.config(appContext).fcmOptedIn = false
+        if (FirebaseApp.getApps(appContext).none { it.name == FirebaseApp.DEFAULT_APP_NAME }) return
+        try {
+            FirebaseMessaging.getInstance().apply {
+                isAutoInitEnabled = false
+                deleteToken().addOnFailureListener { error ->
+                    Log.w(TAG, "FCM token could not be deleted", error)
+                }
+            }
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Firebase could not stop", error)
+        }
+    }
+
     @Synchronized
     private fun ensureInitialized(context: Context) {
         val options = options() ?: throw IllegalStateException("FCM is not configured in this build")

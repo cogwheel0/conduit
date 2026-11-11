@@ -233,6 +233,27 @@ void main() {
       },
     );
 
+    test('the settings know whether push can work before it is on', () async {
+      h = await _Harness.start(targets: [_owui], relay: false);
+      await h.until(() => h.state.transportsChecked);
+      check(h.state.available).isFalse();
+      h.dispose();
+
+      h = await _Harness.start(targets: [_owui]);
+      await h.until(() => h.state.transportsChecked);
+      check(h.state.available).isTrue();
+      h.dispose();
+
+      // UnifiedPush needs no relay.
+      h = await _Harness.start(
+        targets: [_owui],
+        relay: false,
+        unifiedPush: true,
+      );
+      await h.until(() => h.state.transportsChecked);
+      check(h.state.available).isTrue();
+    });
+
     test('a build without a relay cannot use APNs', () async {
       h = await _Harness.start(targets: [_owui], relay: false);
       await h.coordinator.setEnabled(true);
@@ -259,6 +280,53 @@ void main() {
       await h.coordinator.retry(_owui.scope);
       check(h.status(_owui.scope)).equals(PushStatus.on);
       check(h.state.permissionDenied).isFalse();
+    });
+
+    test('a check after launch never prompts', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      check(h.platform.prompts).equals(1);
+      final platform = h.platform;
+      h.dispose();
+
+      // Notifications were switched off in system settings meanwhile.
+      platform.permission = false;
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: platform,
+      );
+      await h.coordinator.retry(_owui.scope);
+      check(platform.prompts).equals(2);
+      platform.prompts = 0;
+      h.platform.emit(
+        PushTokenEvent(
+          PushDeviceToken(
+            transport: PushTransport.apns,
+            token: 'dd' * 32,
+            app: 'app.test',
+            env: 'dev',
+          ),
+        ),
+      );
+      await h.until(
+        () => h.status(_owui.scope) == PushStatus.permissionDenied,
+      );
+      await pumpEventQueue();
+      check(platform.prompts).equals(0);
+      check(h.state.permissionDenied).isTrue();
+    });
+
+    test('sending a test asks for a missing permission', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      h.platform
+        ..prompts = 0
+        ..permissionStatus = () => h.platform.prompts > 0;
+      check(await h.coordinator.sendTest(_owui.scope)).isTrue();
+      check(h.platform.prompts).equals(1);
+      check(await h.coordinator.sendTest(_owui.scope)).isTrue();
+      check(h.platform.prompts).equals(1);
     });
 
     test('no token', () async {
@@ -515,6 +583,8 @@ void main() {
       );
       check(h.record(_owui.scope).transport).equals(PushTransport.unifiedPush);
       check(h.status(_owui.scope)).equals(PushStatus.on);
+      // Off FCM: Firebase stops starting at launch.
+      check(h.log).contains('release fcm');
       check(h.log).contains(
         'registerUp ${h.record(_owui.scope).sid} org.unifiedpush.distributor.ntfy',
       );
@@ -605,6 +675,12 @@ void main() {
       await h.coordinator.setEnabled(true);
       await h.coordinator.setEnabled(false);
 
+      // APNs is let go only after every subscription is gone.
+      check(h.log.last).equals('release apns');
+      check(
+        h.log.lastIndexOf('release apns'),
+      ).isGreaterThan(h.log.lastIndexOf('cancelScope ${_hermes.scope}'));
+
       check(h.platform.subscriptions).isEmpty();
       check(h.server(_owui).subscriptions).isEmpty();
       check(h.server(_hermes).subscriptions).isEmpty();
@@ -671,6 +747,11 @@ void main() {
       check(fresh).not((it) => it.equals(sid));
       check(h.server(_owui).subscriptions.keys).deepEquals([fresh]);
       check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('push off at start lets go of APNs too', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.until(() => h.log.contains('release apns'));
     });
 
     test('push off at start deletes keys nothing uses', () async {
@@ -996,8 +1077,20 @@ final class _Platform implements PushPlatformPort {
   @override
   Future<List<PushTransport>> availableTransports() async => transports;
 
+  int prompts = 0;
+
+  /// What a non-prompting check answers; null means the platform can't tell.
+  bool? Function()? permissionStatus;
+
   @override
-  Future<bool> requestPermission() async => permission;
+  Future<bool> requestPermission() async {
+    prompts++;
+    return permission;
+  }
+
+  @override
+  Future<bool?> hasPermission() async =>
+      permissionStatus == null ? permission : permissionStatus!();
 
   @override
   Future<PushDeviceToken?> currentToken(PushTransport transport) async {
@@ -1090,6 +1183,10 @@ final class _Platform implements PushPlatformPort {
   @override
   Future<void> unregisterUnifiedPush(String sid) async =>
       log.add('unregisterUp $sid');
+
+  @override
+  Future<void> releaseTransport(PushTransport transport) async =>
+      log.add('release ${transport.name}');
 
   @override
   Stream<PushPlatformEvent> get events => _events.stream;

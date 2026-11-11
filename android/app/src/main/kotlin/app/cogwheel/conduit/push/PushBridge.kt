@@ -224,6 +224,11 @@ class PushBridge(private val activity: MainActivity) : PushHostApi {
         UnifiedPushRegistrar.unregister(context, sid)
     }
 
+    /** Push stopped using [transport]; for FCM, Firebase stops for good. */
+    override fun releaseTransport(transport: PlatformPushTransport) {
+        if (transport == PlatformPushTransport.FCM) FcmTransport.release(context)
+    }
+
     private fun <T> keyStoreCall(block: (PushKeyStore) -> T): T = try {
         block(PushRuntime.keyStore(context))
     } catch (error: FlutterError) {

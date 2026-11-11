@@ -62,4 +62,14 @@ class PushConfigStoreTest {
         assertEquals(token, PushConfigStore(values).tapToken())
         assertNotEquals(token, PushConfigStore(MemoryKeyValueStore()).tapToken())
     }
+
+    @Test
+    fun releasingFcmWithdrawsTheOptIn() {
+        val store = PushConfigStore(values)
+        store.fcmOptedIn = true
+        store.fcmOptedIn = false
+        // Nothing is left that would start Firebase at the next launch.
+        assertFalse(PushConfigStore(values).fcmOptedIn)
+        assertEquals(null, values.getString("fcm_opted_in"))
+    }
 }

@@ -3696,9 +3696,11 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     }
   }
 
-  /// [deliver] and [catchUp] apply on the Desktop Gateway; the API server
-  /// keeps its default (`local`, Hermes' catch-up policy).
-  Future<void> create({
+  /// Creates a job and answers it as the server returned it, or null when
+  /// the answer named no job. [deliver] and [catchUp] apply on the Desktop
+  /// Gateway; the API server keeps its default (`local`, Hermes' catch-up
+  /// policy).
+  Future<HermesJob?> create({
     required String name,
     required String prompt,
     required String schedule,
@@ -3706,24 +3708,24 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     final service = _service;
-    await _changing(() async {
+    final created = await _changing(() async {
       if (service is HermesDesktopApiService) {
-        await service.createJob(
+        return service.createJob(
           name: name,
           prompt: prompt,
           schedule: schedule,
           deliver: deliver ?? kHermesLocalDeliveryTarget,
           catchUp: catchUp,
         );
-      } else {
-        await service.createJob(
-          name: name,
-          prompt: prompt,
-          schedule: schedule,
-        );
       }
+      return service.createJob(name: name, prompt: prompt, schedule: schedule);
     });
     ref.invalidateSelf();
+    // The API server wraps the job as {"job": …}; the dashboard does not.
+    final job = created['job'];
+    return HermesJob.fromJson(
+      job is Map ? Map<String, dynamic>.from(job) : created,
+    );
   }
 
   /// A null [deliver] or [catchUp] leaves the job's value as stored.
