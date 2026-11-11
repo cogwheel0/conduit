@@ -508,6 +508,9 @@ class PushSync {
     required List<String> messageIds,
     required int serverUpdatedAt,
   }) {
+    // The server holds what was pushed: a copy read before now is older than
+    // the base stored here, even one stamped the same second.
+    _db.chatsDao.notePushLanded(chatId);
     return _db.transaction(() async {
       await _db.customUpdate(
         'UPDATE chats SET server_updated_at = ?, dirty = 0 WHERE id = ?',

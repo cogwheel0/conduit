@@ -289,6 +289,10 @@ class PullSync {
   /// can tell a read that a bulk barrier has since outdated.
   final _generationsAtFetch = Expando<int>();
 
+  /// [ChatsDao.pushVersion] when each raw response was requested, so the
+  /// merge can tell a copy read before a push of the chat landed.
+  final _pushVersionsAtFetch = Expando<int>();
+
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
   /// AND the local row is present, clean, body-synced, and stamped at that
@@ -594,11 +598,13 @@ class PullSync {
   Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
     final modelListVersion = _db.chatsDao.modelListVersion(id);
+    final pushVersion = _db.chatsDao.pushVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
       _modelListVersionsAtFetch[response] = modelListVersion;
+      _pushVersionsAtFetch[response] = pushVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -787,6 +793,7 @@ class PullSync {
     // §7.4 three-way merge runs inside ONE drift transaction in the DAO
     // (REQ §10.1); the dirty read + decision + write are atomic under the chat
     // lock we already hold.
+    final pushedAtFetch = _pushVersionsAtFetch[resp];
     final write = await _db.chatsDao.mergeServerChat(
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
@@ -795,6 +802,9 @@ class PullSync {
       listLastReadAt: listLastReadAt,
       readStateSince: readStateSince,
       refreshWhenClean: refreshWhenClean,
+      readBeforePush:
+          pushedAtFetch != null &&
+          pushedAtFetch != _db.chatsDao.pushVersion(id),
     );
 
     _db.chatsDao.clearPendingServerTasks(id);

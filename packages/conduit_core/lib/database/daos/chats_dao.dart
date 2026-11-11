@@ -209,6 +209,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _modelListVersions[chatId] = modelListVersion(chatId) + 1;
   }
 
+  final _pushVersions = <String, int>{};
+
+  /// Counts the pushes of chat [chatId] that have landed on the server here.
+  /// A fetch takes it before it reads the chat, so a copy read before a push
+  /// landed is known for one: Open WebUI's `updated_at` is whole seconds, and
+  /// a copy read just before a push in the same second carries the very
+  /// stamp the push left as the merge base.
+  int pushVersion(String chatId) => _pushVersions[chatId] ?? 0;
+
+  /// A push of chat [chatId] has landed: the server holds the rows it sent.
+  void notePushLanded(String chatId) {
+    _pushVersions[chatId] = pushVersion(chatId) + 1;
+  }
+
   /// The model list stored with chat [chatId], or null when it has none.
   Future<List<Object?>?> storedChatModels(String chatId) async {
     final row = await getChat(chatId);
@@ -460,6 +474,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     /// never arrived. Background cycles leave this off: comparing
     /// timestamps is what keeps them cheap.
     bool refreshWhenClean = false,
+
+    /// The copy was read before a push of this chat landed
+    /// ([pushVersion]): older than the base the push left, whatever its
+    /// `updated_at` says.
+    bool readBeforePush = false,
   }) {
     final serverChat = server.chat;
     return transaction(() async {
@@ -568,8 +587,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       // (a pull asked for by name refreshes a clean chat) would put the chat
       // back to before the push -- a message just sent, and its answer's
       // placeholder, gone until the next pull, and a queued answer's request
-      // dropped for want of its placeholder.
-      if (serverChat.updatedAt < base) {
+      // dropped for want of its placeholder. A copy read before a push that
+      // landed in the same second carries the base itself, so the push is
+      // counted too ([readBeforePush]).
+      if (serverChat.updatedAt < base || readBeforePush) {
         return _mergeResultWithUpdateOpIfMissing(
           serverChat.id,
           ChatMergeWriteResult(

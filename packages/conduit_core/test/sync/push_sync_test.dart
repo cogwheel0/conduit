@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:drift/drift.dart';
@@ -29,6 +32,27 @@ class _DeleteAfterArchiveToggleClient extends FakeSyncApiClient {
     final response = await super.toggleArchive(id);
     server.deleteChat(id);
     return response;
+  }
+}
+
+/// Reads the chat when asked, then holds the copy until [release]: a pull
+/// whose read lands before a push and whose merge comes after it.
+class _HeldChatReadClient extends FakeSyncApiClient {
+  _HeldChatReadClient(
+    super.server, {
+    required this.read,
+    required this.release,
+  });
+
+  final Completer<void> read;
+  final Completer<void> release;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final copy = await super.getChatRaw(id);
+    if (!read.isCompleted) read.complete();
+    await release.future;
+    return copy;
   }
 }
 
@@ -365,6 +389,121 @@ void main() {
   });
 
   group('pushUpdateChat', () {
+    test('a copy read before a send was pushed, in the same second, does not '
+        'take the sent message and its placeholder back out', () async {
+      // Open WebUI stamps whole seconds: the stored chat, the push below
+      // and the copy a pull reads in between all carry 7000.
+      server.seedChat(
+        id: 'srv-race',
+        blob: {
+          'title': 'Seed beds',
+          'models': ['llama3'],
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': ['a1'],
+                'role': 'user',
+                'content': 'When do beans go in?',
+              },
+              'a1': {
+                'id': 'a1',
+                'parentId': 'q1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': 'After the last frost.',
+                'done': true,
+              },
+            },
+            'currentId': 'a1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      await pull.pullChat('srv-race');
+
+      // A send, as `durableSend` commits it: the question and its answer's
+      // empty placeholder, pending a push and a completion.
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'srv-race',
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: 'q2',
+            chatId: 'srv-race',
+            parentId: 'a1',
+            role: 'user',
+            content: 'And the herbs?',
+            createdAt: 7000,
+            orderIndex: 0,
+            payload: <String, dynamic>{
+              'id': 'q2',
+              'parentId': 'a1',
+              'childrenIds': ['a2'],
+              'role': 'user',
+              'content': 'And the herbs?',
+            },
+          ),
+          MessageRowData(
+            id: 'a2',
+            chatId: 'srv-race',
+            parentId: 'q2',
+            role: 'assistant',
+            content: '',
+            createdAt: 7000,
+            orderIndex: 1,
+            payload: <String, dynamic>{
+              'id': 'a2',
+              'parentId': 'q2',
+              'childrenIds': <String>[],
+              'role': 'assistant',
+              'content': '',
+            },
+          ),
+        ],
+        currentMessageId: 'a2',
+        updatedAt: 7000,
+        enqueueCompletion: false,
+      );
+
+      // Another pull reads the chat now, before the push...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final racing = PullSync(
+        client: _HeldChatReadClient(server, read: read, release: release),
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      final pulling = racing.pullChat('srv-race');
+      await read.future;
+      // ...the push lands, in the same second...
+      await push.pushUpdateChat('srv-race');
+      check(await db.chatsDao.getChat('srv-race'))
+          .isNotNull()
+          .has((c) => c.serverUpdatedAt, 'serverUpdatedAt')
+          .equals(7000);
+      // ...and the copy from before it is stored after it.
+      release.complete();
+      await pulling;
+
+      final ids = [
+        for (final m in await db.messagesDao.getForChat('srv-race')) m.id,
+      ];
+      check(ids).deepEquals(['q1', 'a1', 'q2', 'a2']);
+      // The next pull, read after the push, is taken as before.
+      await pull.pullChat('srv-race');
+      check([for (final m in await db.messagesDao.getForChat('srv-race')) m.id])
+          .deepEquals(['q1', 'a1', 'q2', 'a2']);
+    });
+
     test(
       'pushes the FULL reconstructed blob (shallow-merge keeps it intact)',
       () async {
