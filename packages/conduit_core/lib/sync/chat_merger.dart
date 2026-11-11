@@ -63,10 +63,21 @@ class ChatMergeResult {
 /// rows diverge from the server and so need a push (REQ 4). Lives here so the
 /// DAO and `PullSync` share one type without a drift import in this library.
 class ChatMergeWriteResult {
-  const ChatMergeWriteResult({required this.outcome, required this.mustPush});
+  const ChatMergeWriteResult({
+    required this.outcome,
+    required this.mustPush,
+    this.staleRead = false,
+  });
 
   final MergeOutcome outcome;
   final bool mustPush;
+
+  /// The server's copy was older than the base -- read before a push of the
+  /// chat landed -- so none of it was stored: not its rows, nor the tags,
+  /// share link and model list beside them, which may since have changed on
+  /// the server without moving its `updated_at`. The chat wants reading
+  /// again.
+  final bool staleRead;
 }
 
 /// Three-way merge of [server] against [local] given merge base [base]

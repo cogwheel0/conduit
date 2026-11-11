@@ -439,6 +439,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///  * existing dirty tombstone (deleted && dirty) → SKIP entirely (the
   ///    pending `deleteChat` wins; the drainer purges on confirm) so the
   ///    fast-forward never resurrects a locally-deleted chat;
+  ///  * a copy older than the base (or read before a push, [readBeforePush])
+  ///    → SKIP entirely, reported as [ChatMergeWriteResult.staleRead];
   ///  * otherwise → pure [mergeChat] then write per [MergeOutcome]:
   ///    - noRemoteChange: rows untouched (only `mustPush` is reported);
   ///    - fastForward: delete+reinsert messages `dirty=false`,
@@ -583,19 +585,23 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       };
 
       // A copy older than the base: read before a push of this chat landed,
-      // which moved the base on. Nothing in it is news, and taking any of it
-      // (a pull asked for by name refreshes a clean chat) would put the chat
+      // which moved the base on. Its rows are not news, and taking them (a
+      // pull asked for by name refreshes a clean chat) would put the chat
       // back to before the push -- a message just sent, and its answer's
       // placeholder, gone until the next pull, and a queued answer's request
       // dropped for want of its placeholder. A copy read before a push that
       // landed in the same second carries the base itself, so the push is
-      // counted too ([readBeforePush]).
+      // counted too ([readBeforePush]). Nothing beside the rows is taken
+      // either: the copy's model list is the one the push replaced, and its
+      // tags and share link are no safer. The caller reads the chat again
+      // for them ([ChatMergeWriteResult.staleRead]).
       if (serverChat.updatedAt < base || readBeforePush) {
         return _mergeResultWithUpdateOpIfMissing(
           serverChat.id,
           ChatMergeWriteResult(
             outcome: MergeOutcome.noRemoteChange,
             mustPush: existing.dirty || dirtyMessageIds.isNotEmpty,
+            staleRead: true,
           ),
         );
       }

@@ -42,10 +42,16 @@ class _HeldChatReadClient extends FakeSyncApiClient {
     super.server, {
     required this.read,
     required this.release,
+    this.envelope = const {},
   });
 
   final Completer<void> read;
   final Completer<void> release;
+
+  /// Laid over every copy: what Open WebUI keeps beside the chat without
+  /// moving its `updated_at` (tags, a share link), which the fake server
+  /// does not hold.
+  final Map<String, dynamic> envelope;
 
   /// How many times the chat was read.
   int reads = 0;
@@ -56,7 +62,23 @@ class _HeldChatReadClient extends FakeSyncApiClient {
     final copy = await super.getChatRaw(id);
     if (!read.isCompleted) read.complete();
     await release.future;
-    return copy;
+    return copy == null ? null : {...copy, ...envelope};
+  }
+}
+
+/// Runs [afterRead] after each read of a chat, before the copy is handed
+/// back, and lays [envelope] over the copy (see [_HeldChatReadClient]).
+class _ReadHookClient extends FakeSyncApiClient {
+  _ReadHookClient(super.server);
+
+  Map<String, dynamic> envelope = const {};
+  Future<void> Function()? afterRead;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final copy = await super.getChatRaw(id);
+    await afterRead?.call();
+    return copy == null ? null : {...copy, ...envelope};
   }
 }
 
@@ -555,6 +577,212 @@ void main() {
       await pull.pullChat('srv-race');
       check([for (final m in await db.messagesDao.getForChat('srv-race')) m.id])
           .deepEquals(['q1', 'a1', 'q2', 'a2']);
+    });
+
+    for (final byName in [false, true]) {
+      test(
+        'tags and a share link read with a copy from before a push still '
+        'arrive (${byName ? 'a pull asked for by name' : 'a pull cycle'})',
+        () async {
+          server.seedChat(
+            id: 'srv-tags',
+            blob: {
+              'title': 'Bean rows',
+              'models': ['llama3'],
+              'history': {
+                'messages': {
+                  'q1': {
+                    'id': 'q1',
+                    'parentId': null,
+                    'childrenIds': ['a1'],
+                    'role': 'user',
+                    'content': 'How far apart are bean rows?',
+                  },
+                  'a1': {
+                    'id': 'a1',
+                    'parentId': 'q1',
+                    'childrenIds': <String>[],
+                    'role': 'assistant',
+                    'content': 'About 45 cm.',
+                    'done': true,
+                  },
+                },
+                'currentId': 'a1',
+              },
+            },
+            createdAt: 100,
+            updatedAt: 7000,
+          );
+          await PullSync(
+            client: client,
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          ).pullChat('srv-tags');
+
+          // A message sent here, pending its push.
+          await db.chatsDao.appendMessagesWithUpdateOp(
+            chatId: 'srv-tags',
+            messages: <MessageRowData>[
+              MessageRowData(
+                id: 'q2',
+                chatId: 'srv-tags',
+                parentId: 'a1',
+                role: 'user',
+                content: 'And for peas?',
+                createdAt: 7000,
+                orderIndex: 0,
+                payload: <String, dynamic>{
+                  'id': 'q2',
+                  'parentId': 'a1',
+                  'childrenIds': <String>[],
+                  'role': 'user',
+                  'content': 'And for peas?',
+                },
+              ),
+            ],
+            currentMessageId: 'q2',
+            updatedAt: 7000,
+            enqueueCompletion: false,
+          );
+
+          // Tagged and shared elsewhere, which leaves `updated_at` alone. A
+          // pull reads the chat, tags and link included, before the push...
+          final read = Completer<void>();
+          final release = Completer<void>();
+          final racing = PullSync(
+            client: _HeldChatReadClient(
+              server,
+              read: read,
+              release: release,
+              envelope: {
+                'meta': {
+                  'tags': ['garden'],
+                },
+                'share_id': 'share-beans',
+              },
+            ),
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          );
+          final Future<Object?> pulling = byName
+              ? racing.pullChat('srv-tags')
+              : racing.run();
+          await read.future;
+          // ...the push lands, in the same second...
+          await push.pushUpdateChat('srv-tags');
+          // ...and the copy from before it comes back after it.
+          release.complete();
+          await pulling;
+
+          final chat = (await db.chatsDao.getChat('srv-tags'))!;
+          check(jsonDecode(chat.meta) as Map<String, dynamic>)
+              .has((m) => m['tags'], 'tags')
+              .isA<List<dynamic>>()
+              .deepEquals(['garden']);
+          check(chat.shareId).equals('share-beans');
+          check([
+            for (final m in await db.messagesDao.getForChat('srv-tags')) m.id,
+          ]).deepEquals(['q1', 'a1', 'q2']);
+        },
+      );
+    }
+
+    test('a cycle whose every read of a chat predates a push of it leaves the '
+        'chat for the next cycle to read', () async {
+      server.seedChat(
+        id: 'srv-memo',
+        blob: {
+          'title': 'Compost',
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'How often to turn compost?',
+              },
+            },
+            'currentId': 'q1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      var elapsedMs = 0;
+      final memo = PullFetchMemo(elapsedMs: () => elapsedMs);
+      final reader = _ReadHookClient(server);
+      Future<void> cycle() => PullSync(
+        client: reader,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+        fetchMemo: memo,
+      ).run();
+      Future<Object?> tags() async =>
+          (jsonDecode((await db.chatsDao.getChat('srv-memo'))!.meta)
+              as Map)['tags'];
+      var sent = 1;
+      Future<void> sendAndPush() async {
+        final id = 'q${sent + 1}';
+        final parentId = 'q$sent';
+        sent++;
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: 'srv-memo',
+          messages: <MessageRowData>[
+            MessageRowData(
+              id: id,
+              chatId: 'srv-memo',
+              parentId: parentId,
+              role: 'user',
+              content: 'And $id?',
+              createdAt: 7000,
+              orderIndex: 0,
+              payload: <String, dynamic>{
+                'id': id,
+                'parentId': parentId,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'And $id?',
+              },
+            ),
+          ],
+          currentMessageId: id,
+          updatedAt: 7000,
+          enqueueCompletion: false,
+        );
+        await push.pushUpdateChat('srv-memo');
+      }
+
+      // A cycle reads and stores the chat at its stamp.
+      await cycle();
+      check(await db.chatsDao.getChat('srv-memo')).isNotNull();
+
+      // Tagged elsewhere, which leaves `updated_at` alone. The next cycle,
+      // past the overlap window, reads it again, but each read is overtaken
+      // by a send pushed in the same second: nothing of it is stored.
+      reader.envelope = {
+        'meta': {
+          'tags': ['compost'],
+        },
+      };
+      elapsedMs += kPullOverlapSeconds * 1000;
+      reader.afterRead = sendAndPush;
+      await cycle();
+      check(await tags()).isNull();
+
+      // That is not counted as a read of the stamp, so the cycle after reads
+      // the chat again rather than skipping it, and stores the tags.
+      reader.afterRead = null;
+      elapsedMs += kPullOverlapSeconds * 1000;
+      await cycle();
+      check(await tags()).isA<List<dynamic>>().deepEquals(['compost']);
+      check(await db.chatsDao.getChat('srv-memo'))
+          .isNotNull()
+          .has((c) => c.serverUpdatedAt, 'serverUpdatedAt')
+          .equals(7000);
     });
 
     test(

@@ -1150,7 +1150,11 @@ void main() {
         historyHadCurrentId: rows.historyHadCurrentId,
         historyExtra: rows.historyExtra,
       );
-      await db.chatsDao.mergeServerChat(server: stale, refreshWhenClean: true);
+      final skipped = await db.chatsDao.mergeServerChat(
+        server: stale,
+        refreshWhenClean: true,
+      );
+      check(skipped.staleRead).isTrue();
       check(await stored()).equals('the finished answer');
     },
   );
