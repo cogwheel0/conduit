@@ -239,6 +239,13 @@ private struct NativeSheetItem {
     let accent: Bool
     /// Draws the row as the sheet's profile summary.
     let usesProfileAvatar: Bool
+    /// Shown dimmed, taking no taps.
+    let disabled: Bool
+    /// The keyboard a text row brings up: url, email, number; nil = default.
+    let keyboard: String?
+    /// What else the row can do: a long press lists them, and a swipe offers
+    /// them where the page is not reordering. Each is sent as its own id.
+    let rowActions: [NativeSheetRowAction]
 
     init?(_ payload: [String: Any]) {
         guard
@@ -299,6 +306,10 @@ private struct NativeSheetItem {
         checked = payload["checked"] as? Bool ?? false
         accent = payload["accent"] as? Bool ?? false
         usesProfileAvatar = payload["usesProfileAvatar"] as? Bool ?? false
+        disabled = payload["disabled"] as? Bool ?? false
+        keyboard = payload["keyboard"] as? String
+        rowActions = (payload["rowActions"] as? [[String: Any]] ?? [])
+            .compactMap(NativeSheetRowAction.init)
     }
 
     private static func optionalDouble(_ value: Any?) -> Double? {
@@ -323,6 +334,40 @@ private struct NativeSheetItem {
         default:
             return nil
         }
+    }
+}
+
+/// One more thing a row can do, sent as its own control id.
+private struct NativeSheetRowAction {
+    let id: String
+    let label: String
+    let sfSymbol: String?
+    let destructive: Bool
+    /// Asked before it acts; the label confirms.
+    let confirmMessage: String?
+
+    init?(_ payload: [String: Any]) {
+        guard let id = payload["id"] as? String, !id.isEmpty,
+              let label = payload["label"] as? String, !label.isEmpty
+        else { return nil }
+        self.id = id
+        self.label = label
+        sfSymbol = payload["sfSymbol"] as? String
+        destructive = payload["destructive"] as? Bool ?? false
+        confirmMessage = payload["confirmMessage"] as? String
+    }
+
+    /// The action as a row of its own, for the sheet to act on as it acts on
+    /// a tapped row: asking first when it has a question, then sending it.
+    var asItem: NativeSheetItem? {
+        var payload: [String: Any] = [
+            "id": id,
+            "title": label,
+            "destructive": destructive,
+            "showsDisclosure": false,
+        ]
+        payload["confirmMessage"] = confirmMessage
+        return NativeSheetItem(payload)
     }
 }
 
@@ -777,6 +822,10 @@ private struct NativeSheetDetail {
     /// What the page asks before its unsaved changes are dropped; nil drops
     /// them without asking.
     let discardPrompt: NativeSheetDiscardPrompt?
+    /// Working on what Done sent: Done waits, and the rows take no taps.
+    let busy: Bool
+    /// Read out by VoiceOver as the page is described with it.
+    let announcement: String?
 
     init(
         id: String,
@@ -789,7 +838,9 @@ private struct NativeSheetDetail {
         maxHeightFraction: CGFloat? = nil,
         trailingActionId: String? = nil,
         trailingActionSfSymbol: String? = nil,
-        discardPrompt: NativeSheetDiscardPrompt? = nil
+        discardPrompt: NativeSheetDiscardPrompt? = nil,
+        busy: Bool = false,
+        announcement: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -802,6 +853,8 @@ private struct NativeSheetDetail {
         self.trailingActionId = trailingActionId
         self.trailingActionSfSymbol = trailingActionSfSymbol
         self.discardPrompt = discardPrompt
+        self.busy = busy
+        self.announcement = announcement
     }
 
     init?(_ payload: [String: Any]) {
@@ -827,6 +880,8 @@ private struct NativeSheetDetail {
         trailingActionId = payload["trailingActionId"] as? String
         trailingActionSfSymbol = payload["trailingActionSfSymbol"] as? String
         discardPrompt = NativeSheetDiscardPrompt(payload)
+        busy = payload["busy"] as? Bool ?? false
+        announcement = payload["announcement"] as? String
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -1020,6 +1075,8 @@ private extension PlatformNativeSheetDetail {
         payload["discardMessage"] = discardMessage
         payload["discardConfirmLabel"] = discardConfirmLabel
         payload["discardCancelLabel"] = discardCancelLabel
+        payload["busy"] = busy
+        payload["announcement"] = announcement
         return payload
     }
 }
@@ -1062,6 +1119,18 @@ private extension PlatformNativeSheetItem {
         payload["usesProfileAvatar"] = usesProfileAvatar
         payload["filterAllLabel"] = filterAllLabel
         payload["confirmMessage"] = confirmMessage
+        payload["disabled"] = disabled
+        payload["keyboard"] = keyboard
+        payload["rowActions"] = rowActions?.map { action -> [String: Any] in
+            var entry: [String: Any] = [
+                "id": action.id,
+                "label": action.label,
+                "destructive": action.destructive,
+            ]
+            entry["sfSymbol"] = action.sfSymbol
+            entry["confirmMessage"] = action.confirmMessage
+            return entry
+        }
         return payload
     }
 }
@@ -1682,7 +1751,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 maxHeightFraction: existing.maxHeightFraction,
                 trailingActionId: existing.trailingActionId,
                 trailingActionSfSymbol: existing.trailingActionSfSymbol,
-                discardPrompt: existing.discardPrompt
+                discardPrompt: existing.discardPrompt,
+                busy: existing.busy
             )
             self.detailPayloads[detailId] = patched
             if self.activeDetailTableController?.detailId == detailId {
@@ -1719,6 +1789,36 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         var closed = false
         DispatchQueue.main.sync { closed = close() }
         return closed
+    }
+
+    func presentAlert(
+        request: PlatformNativeSheetAlertRequest,
+        completion: @escaping (Result<String?, Error>) -> Void
+    ) {
+        // Over whatever is up -- the Settings sheet and its pages stay where
+        // they are, as an alert from one of their own rows would.
+        whenModalChainIdle { [weak self] in
+            guard let presenter = self?.topViewController() else {
+                completion(.success(nil))
+                return
+            }
+            let alert = UIAlertController(
+                title: request.title,
+                message: request.message,
+                preferredStyle: .alert
+            )
+            for action in request.actions {
+                let style: UIAlertAction.Style = switch action.style {
+                case "cancel": .cancel
+                case "destructive": .destructive
+                default: .default
+                }
+                alert.addAction(UIAlertAction(title: action.label, style: style) { _ in
+                    completion(.success(action.id))
+                })
+            }
+            presenter.present(alert, animated: true)
+        }
     }
 
     /// Runs [work] on main once no sheet above Flutter is still animating
@@ -4697,6 +4797,24 @@ private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
         textField.textContentType = item.kind == "secureTextField" ? .password : nil
         textField.autocorrectionType = item.kind == "secureTextField" ? .no : .yes
         textField.autocapitalizationType = item.kind == "secureTextField" ? .none : .sentences
+        textField.keyboardType = .default
+        switch item.keyboard {
+        case "url":
+            textField.keyboardType = .URL
+            textField.textContentType = .URL
+            textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
+        case "email":
+            textField.keyboardType = .emailAddress
+            textField.textContentType = .emailAddress
+            textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
+        case "number":
+            textField.keyboardType = .numberPad
+            textField.autocorrectionType = .no
+        default:
+            break
+        }
         textField.accessibilityLabel = item.title
         onChange = onTextChanged
         onDone = onReturn
@@ -5407,7 +5525,12 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         let previousSectionCount = tableSections.count
+        let previousAnnouncement = detail.announcement
         detail = newDetail
+        if let announcement = newDetail.announcement, !announcement.isEmpty,
+           announcement != previousAnnouncement {
+            UIAccessibility.post(notification: .announcement, argument: announcement)
+        }
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
         chosenOptionValues.removeAll()
@@ -5501,7 +5624,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func tableView(
         _ tableView: UITableView,
         editingStyleForRowAt indexPath: IndexPath
-    ) -> UITableViewCell.EditingStyle { .none }
+    ) -> UITableViewCell.EditingStyle {
+        // Reordering shows handles only; outside it a row with actions
+        // offers them on a swipe.
+        tableView.isEditing || item(at: indexPath).rowActions.isEmpty
+            ? .none
+            : .delete
+    }
 
     override func tableView(
         _ tableView: UITableView,
@@ -5580,6 +5709,101 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        let cell = makeCell(tableView, at: indexPath)
+        let item = item(at: indexPath)
+        // A row waiting on another row's action, or on the page's Done,
+        // takes no taps; one disabled outright is dimmed as well.
+        cell.isUserInteractionEnabled = !(item.disabled || detail.busy)
+        cell.contentView.alpha = item.disabled ? 0.4 : 1
+        cell.accessoryView?.alpha = item.disabled ? 0.4 : 1
+        if item.disabled {
+            cell.accessibilityTraits.insert(.notEnabled)
+        } else {
+            cell.accessibilityTraits.remove(.notEnabled)
+        }
+        return cell
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        shouldHighlightRowAt indexPath: IndexPath
+    ) -> Bool {
+        let item = item(at: indexPath)
+        return !(item.disabled || detail.busy)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        canEditRowAt indexPath: IndexPath
+    ) -> Bool {
+        tableSections[indexPath.section].reorderActionId != nil
+            || !item(at: indexPath).rowActions.isEmpty
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        let item = item(at: indexPath)
+        guard !item.rowActions.isEmpty, !item.disabled, !detail.busy else {
+            return nil
+        }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: item.rowActions.map { action in
+                UIAction(
+                    title: action.label,
+                    image: action.sfSymbol.flatMap { UIImage(systemName: $0) },
+                    attributes: action.destructive ? .destructive : []
+                ) { _ in
+                    self?.performRowAction(action)
+                }
+            })
+        }
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        let item = item(at: indexPath)
+        // A page reordering its rows keeps its handles; the long press still
+        // lists what a row can do.
+        guard !tableView.isEditing, !item.rowActions.isEmpty,
+              !item.disabled, !detail.busy
+        else { return nil }
+        // The destructive one outermost, as Mail puts Delete.
+        let ordered = item.rowActions.filter(\.destructive)
+            + item.rowActions.filter { !$0.destructive }
+        let configuration = UISwipeActionsConfiguration(actions: ordered.map { action in
+            let contextual = UIContextualAction(
+                style: action.destructive ? .destructive : .normal,
+                title: action.label
+            ) { [weak self] _, _, done in
+                self?.performRowAction(action)
+                done(true)
+            }
+            contextual.image = action.sfSymbol.flatMap { UIImage(systemName: $0) }
+            return contextual
+        })
+        // Nothing happens on a full swipe that the user did not choose.
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
+    }
+
+    /// Acts on one of a row's other actions as on a tapped row: text typed
+    /// on the page goes first, then the question when it has one, then the
+    /// action's own id.
+    private func performRowAction(_ action: NativeSheetRowAction) {
+        commitPendingTextChanges()
+        guard let actionItem = action.asItem else { return }
+        onSelect(actionItem)
+    }
+
+    private func makeCell(
+        _ tableView: UITableView,
+        at indexPath: IndexPath
     ) -> UITableViewCell {
         let item = item(at: indexPath)
         switch item.kind {
@@ -5686,6 +5910,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = item(at: indexPath)
+        guard !item.disabled, !detail.busy else { return }
         switch item.kind {
         case "toggle":
             NativeSheetHaptics.selection()
@@ -5760,6 +5985,14 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                     ?? (item.url != nil || item.dismissOnSelect || canNavigate(item))
             )
         }
+        // A row whose action is running shows it turning, in place of its
+        // chevron or check.
+        if item.pending, item.kind == "navigation" || item.kind == "info" {
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.startAnimating()
+            cell.accessoryView = spinner
+            cell.editingAccessoryView = spinner
+        }
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -5781,6 +6014,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     }
 
     private func refreshNavigationAction() {
+        if detail.busy {
+            // Done is working: it turns until the page is described again.
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.startAnimating()
+            navigationItem.rightBarButtonItem = UIBarButtonItem(customView: spinner)
+            return
+        }
         navigationItem.leftBarButtonItem = nil
         if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
             if navigationController?.viewControllers.first === self {

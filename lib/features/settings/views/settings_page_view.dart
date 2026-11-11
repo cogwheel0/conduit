@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -189,6 +190,19 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
   @override
   void didUpdateWidget(covariant SettingsPageView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final announcement = widget.detail.announcement;
+    if (announcement != null &&
+        announcement.isNotEmpty &&
+        announcement != oldWidget.detail.announcement) {
+      // As the native sheet posts it: read out once, as the page says it.
+      unawaited(
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          announcement,
+          Directionality.of(context),
+        ),
+      );
+    }
     if (!identical(oldWidget.detail, widget.detail)) {
       _pendingText.clear();
       _committedText.clear();
@@ -385,6 +399,13 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
   Widget? _barAction(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final detail = widget.detail;
+    if (detail.busy) {
+      // Done is working: it turns until the page is described again.
+      return const SizedBox.square(
+        dimension: 22,
+        child: AdaptiveProgressIndicator(strokeWidth: 2),
+      );
+    }
     final confirm = detail.confirmActionId;
     if (confirm != null && confirm.isNotEmpty) {
       return ConduitAdaptiveAppBarIconButton(
@@ -433,6 +454,20 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       onTextSubmitted: text ? _confirmPendingText : null,
       onSelected: (item) => unawaited(_select(item)),
       onChanged: _changed,
+      // One of the row's other actions acts as a row of its own would:
+      // asking first when it has a question, opening a page it names.
+      onAction: (action) => unawaited(
+        _select(
+          NativeSheetItemConfig(
+            id: action.id,
+            title: action.label,
+            destructive: action.destructive,
+            confirmMessage: action.confirmMessage,
+            showsDisclosure: false,
+          ),
+        ),
+      ),
+      inactive: widget.detail.busy,
     );
   }
 

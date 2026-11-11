@@ -184,10 +184,17 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     _lastTheme = null;
   }
 
+  /// Whether the Settings sheet is up, so a question from one of its pages
+  /// is asked over it.
+  bool get settingsSheetOpen => _settingsSheetOpen;
+  bool _settingsSheetOpen = false;
+
   Future<bool> presentProfileMenu(NativeProfileSheetConfig config) async {
     if (!_isIOS) return false;
     try {
-      return await _api.presentProfileMenu(config.toPlatform());
+      final presented = await _api.presentProfileMenu(config.toPlatform());
+      if (presented) _settingsSheetOpen = true;
+      return presented;
     } on PlatformException catch (error, stackTrace) {
       _logNativeSheetBridgeError('presentProfileMenu', error, stackTrace);
       return false;
@@ -720,6 +727,36 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
 
   /// Closes page [detailId] of the open Settings sheet, back to the page
   /// that opened it. Returns false when it was not open.
+  /// Asks [title] over whatever is on screen, the Settings sheet included,
+  /// without closing it. Returns the id of the action chosen, or null when
+  /// nothing could be shown.
+  Future<String?> presentAlert({
+    required String title,
+    String? message,
+    required List<NativeSheetAlertAction> actions,
+  }) async {
+    if (!_isIOS) return null;
+    try {
+      return await _api.presentAlert(
+        PlatformNativeSheetAlertRequest(
+          title: title,
+          message: message,
+          actions: [
+            for (final action in actions)
+              PlatformNativeSheetAlertAction(
+                id: action.id,
+                label: action.label,
+                style: action.style.platformName,
+              ),
+          ],
+        ),
+      );
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('presentAlert', error, stackTrace);
+      return null;
+    }
+  }
+
   Future<bool> closeDetail(String detailId) async {
     if (!_isIOS) return false;
     try {
@@ -737,6 +774,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
 
   @override
   void onDismissed() {
+    _settingsSheetOpen = false;
     _events.add(const NativeSheetDismissed());
   }
 
@@ -1049,6 +1087,8 @@ class NativeSheetDetailConfig {
     this.trailingActionId,
     this.trailingActionSfSymbol,
     this.discardPrompt,
+    this.busy = false,
+    this.announcement,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1076,6 +1116,13 @@ class NativeSheetDetailConfig {
   /// anything changed since it appeared.
   final NativeSheetDiscardPrompt? discardPrompt;
 
+  /// Working on what Done sent: Done waits, and the rows take no taps.
+  final bool busy;
+
+  /// Read out by assistive technology as the page is described with it: an
+  /// action's outcome, shown on the page as well.
+  final String? announcement;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1096,8 +1143,43 @@ class NativeSheetDetailConfig {
         'discardConfirmLabel': prompt.discardLabel,
         'discardCancelLabel': prompt.keepLabel,
       },
+      if (busy) 'busy': busy,
+      if (announcement != null) 'announcement': announcement,
     };
   }
+}
+
+/// How an answer to a question over Settings is drawn.
+enum NativeSheetAlertStyle {
+  /// An ordinary answer.
+  normal,
+
+  /// The answer that leaves things as they are.
+  cancel,
+
+  /// An answer that loses something.
+  destructive;
+
+  /// The name the native side reads.
+  String get platformName => switch (this) {
+    normal => 'default',
+    cancel => 'cancel',
+    destructive => 'destructive',
+  };
+}
+
+/// One answer to a question asked over Settings.
+@immutable
+class NativeSheetAlertAction {
+  const NativeSheetAlertAction(
+    this.id,
+    this.label, {
+    this.style = NativeSheetAlertStyle.normal,
+  });
+
+  final String id;
+  final String label;
+  final NativeSheetAlertStyle style;
 }
 
 /// The question a page asks before its unsaved changes are dropped.
@@ -1164,6 +1246,9 @@ class NativeSheetItemConfig {
     this.usesProfileAvatar = false,
     this.filterAllLabel,
     this.confirmMessage,
+    this.disabled = false,
+    this.keyboard,
+    this.rowActions = const [],
   });
 
   final String id;
@@ -1220,10 +1305,26 @@ class NativeSheetItemConfig {
   /// goes ahead: Delete, Sign Out. Null acts at once.
   final String? confirmMessage;
 
+  /// Shown dimmed, taking no taps: while another row's action runs, say.
+  final bool disabled;
+
+  /// The keyboard a text row brings up; null keeps the default.
+  final NativeSheetKeyboard? keyboard;
+
+  /// What else the row can do, besides what a tap does. On iOS a long press
+  /// lists them, and a swipe offers them where the page is not reordering;
+  /// the Flutter pages list them in the row's menu. Each is sent as its own
+  /// control id.
+  final List<NativeSheetRowAction> rowActions;
+
   Map<String, Object?> toMap() {
     return {
       if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
       if (confirmMessage != null) 'confirmMessage': confirmMessage,
+      if (disabled) 'disabled': disabled,
+      if (keyboard != null) 'keyboard': keyboard!.name,
+      if (rowActions.isNotEmpty)
+        'rowActions': [for (final action in rowActions) action.toMap()],
       'id': id,
       'title': title,
       'subtitle': subtitle,
@@ -1258,6 +1359,45 @@ class NativeSheetItemConfig {
       if (usesProfileAvatar) 'usesProfileAvatar': usesProfileAvatar,
     };
   }
+}
+
+/// The keyboard a text row brings up.
+enum NativeSheetKeyboard { url, email, number }
+
+/// One more thing a row can do, sent as its own control id.
+@immutable
+class NativeSheetRowAction {
+  const NativeSheetRowAction({
+    required this.id,
+    required this.label,
+    this.sfSymbol,
+    this.destructive = false,
+    this.confirmMessage,
+  });
+
+  final String id;
+  final String label;
+  final String? sfSymbol;
+  final bool destructive;
+
+  /// Asked before it acts, with [label] as the answer that goes ahead.
+  final String? confirmMessage;
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'label': label,
+    if (sfSymbol != null) 'sfSymbol': sfSymbol,
+    'destructive': destructive,
+    if (confirmMessage != null) 'confirmMessage': confirmMessage,
+  };
+
+  PlatformNativeSheetRowAction toPlatform() => PlatformNativeSheetRowAction(
+    id: id,
+    label: label,
+    sfSymbol: sfSymbol,
+    destructive: destructive,
+    confirmMessage: confirmMessage,
+  );
 }
 
 enum NativeSheetItemKind {
@@ -1558,6 +1698,8 @@ extension on NativeSheetDetailConfig {
       discardMessage: discardPrompt?.message,
       discardConfirmLabel: discardPrompt?.discardLabel,
       discardCancelLabel: discardPrompt?.keepLabel,
+      busy: busy ? true : null,
+      announcement: announcement,
     );
   }
 }
@@ -1609,6 +1751,11 @@ extension on NativeSheetItemConfig {
       usesProfileAvatar: usesProfileAvatar,
       filterAllLabel: filterAllLabel,
       confirmMessage: confirmMessage,
+      disabled: disabled ? true : null,
+      keyboard: keyboard?.name,
+      rowActions: rowActions.isEmpty
+          ? null
+          : [for (final action in rowActions) action.toPlatform()],
     );
   }
 }

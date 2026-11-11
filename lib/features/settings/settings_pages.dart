@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/services/native_sheet_bridge.dart';
+import '../../shared/services/navigation_service.dart';
+import '../../shared/widgets/platform_ui/platform_ui.dart'
+    show AdaptiveAlertDialog, AlertAction, AlertActionStyle;
 
 /// Settings pages as they were last described, by id.
 ///
@@ -80,6 +83,7 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         trailingActionId: existing.trailingActionId,
         trailingActionSfSymbol: existing.trailingActionSfSymbol,
         discardPrompt: existing.discardPrompt,
+        busy: existing.busy,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {
@@ -163,6 +167,47 @@ class SettingsSurface {
   Future<void> closeDetail(String detailId) async {
     _ref.read(settingsPagesProvider.notifier).requestClose(detailId);
     await NativeSheetBridge.instance.closeDetail(detailId);
+  }
+
+  /// Asks [title] where Settings is: over the native sheet while it is up,
+  /// as an alert from one of its own rows would be, else as a dialog over
+  /// the Flutter pages. Returns the id of the answer chosen, or null when
+  /// there was none.
+  Future<String?> ask({
+    required String title,
+    String? message,
+    required List<NativeSheetAlertAction> actions,
+  }) async {
+    final bridge = NativeSheetBridge.instance;
+    if (bridge.settingsSheetOpen) {
+      return bridge.presentAlert(
+        title: title,
+        message: message,
+        actions: actions,
+      );
+    }
+    final context = NavigationService.context;
+    if (context == null || !context.mounted) return null;
+    String? chosen;
+    await AdaptiveAlertDialog.show(
+      context: context,
+      title: title,
+      message: message,
+      actions: [
+        for (final action in actions)
+          AlertAction(
+            title: action.label,
+            style: switch (action.style) {
+              NativeSheetAlertStyle.normal => AlertActionStyle.defaultAction,
+              NativeSheetAlertStyle.cancel => AlertActionStyle.cancel,
+              NativeSheetAlertStyle.destructive =>
+                AlertActionStyle.destructive,
+            },
+            onPressed: () => chosen = action.id,
+          ),
+      ],
+    );
+    return chosen;
   }
 
   /// Sends page [detail] as a whole -- its bar actions and discard question
