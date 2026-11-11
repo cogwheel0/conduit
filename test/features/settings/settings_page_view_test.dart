@@ -245,6 +245,43 @@ void main() {
         .deepEquals([('stt-language-code', 'fr'), ('tts-voice', 'verse')]);
   });
 
+  testWidgets('text typed on the page is sent before a switch is flipped', (
+    tester,
+  ) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'webhook.url:webhook-new',
+          title: 'URL',
+          kind: NativeSheetItemKind.textField,
+          value: '',
+        ),
+        const NativeSheetItemConfig(
+          id: 'webhook.enabled:webhook-new',
+          title: 'Enabled',
+          kind: NativeSheetItemKind.toggle,
+          value: true,
+        ),
+      ]),
+    );
+
+    await tester.enterText(
+      find.descendant(
+        of: _row('webhook.url:webhook-new'),
+        matching: find.byType(EditableText),
+      ),
+      'https://hooks.example.com/a',
+    );
+    await tester.tap(_row('webhook.enabled:webhook-new'));
+    await tester.pumpAndSettle();
+
+    check(controller.changes).deepEquals([
+      ('webhook.url:webhook-new', 'https://hooks.example.com/a'),
+      ('webhook.enabled:webhook-new', false),
+    ]);
+  });
+
   testWidgets('a page described again drops the values set on the last one', (
     tester,
   ) async {
@@ -374,10 +411,10 @@ void main() {
       title: 'New Destination',
       confirmActionId: 'webhook.save:webhook-new',
       discardPrompt: const NativeSheetDiscardPrompt(
-        title: 'Discard changes?',
-        message: 'Unsaved changes will be lost.',
-        discardLabel: 'Discard',
-        keepLabel: 'Keep Editing',
+        title: 'Drop this destination?',
+        message: 'It has not been saved.',
+        discardLabel: 'Drop',
+        keepLabel: 'Stay',
       ),
       sections: [
         const NativeSheetSectionConfig(
@@ -421,8 +458,6 @@ void main() {
         ),
       ),
     );
-    final l10n = lookupAppLocalizations(const Locale('en'));
-
     // Untouched, Back leaves at once.
     router.push('/form');
     await tester.pumpAndSettle();
@@ -437,9 +472,18 @@ void main() {
     await tester.pumpAndSettle();
     await router.routerDelegate.navigatorKey.currentState!.maybePop();
     await tester.pumpAndSettle();
-    check(find.text(l10n.workspaceEditorDiscardTitle).evaluate()).isNotEmpty();
-    await tester.tap(find.text(l10n.workspaceEditorKeepEditing));
+    // The page's own question.
+    check(find.text('Drop this destination?').evaluate()).isNotEmpty();
+    check(find.text('It has not been saved.').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Stay'));
     await tester.pumpAndSettle();
     check(find.text('New Destination').evaluate()).isNotEmpty();
+
+    // Dropping the changes leaves.
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Drop'));
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isNotEmpty();
   });
 }

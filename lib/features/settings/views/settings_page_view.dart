@@ -228,6 +228,9 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
   }
 
   void _changed(NativeSheetItemConfig item, Object? value) {
+    // Text typed on the page goes first: the change can describe the page
+    // again, which would drop it.
+    _commitPendingText();
     setState(() {
       _chosen[item.id] = value;
       _controlEdits = true;
@@ -511,6 +514,18 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     // A form asks before Back or a swipe drops its unsaved changes; closing
     // it after a save does not ask.
     if (widget.detail.discardPrompt == null) return page;
-    return DiscardChangesScope(dirty: _hasUnsavedChanges, child: page);
+    final prompt = widget.detail.discardPrompt!;
+    return DiscardChangesScope(
+      dirty: _hasUnsavedChanges,
+      confirm: (context) => ThemedDialogs.confirm(
+        context,
+        title: prompt.title,
+        message: prompt.message,
+        confirmText: prompt.discardLabel,
+        cancelText: prompt.keepLabel,
+        isDestructive: true,
+      ),
+      child: page,
+    );
   }
 }

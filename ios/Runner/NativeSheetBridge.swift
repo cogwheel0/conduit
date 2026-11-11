@@ -5359,8 +5359,17 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     private func onControlChanged(_ item: NativeSheetItem, _ value: Any?) {
         controlEdits = true
+        // Text typed on the page goes first: the change can describe the
+        // page again, which would drop it.
+        if !Self.textKinds.contains(item.kind) {
+            commitPendingTextChanges()
+        }
         sendControlChange(item, value)
     }
+
+    private static let textKinds: Set<String> = [
+        "textField", "secureTextField", "multilineTextField",
+    ]
 
     /// Unsaved changes: text not yet done, or, on a page that confirms with
     /// Done, anything changed since it appeared. Only a page with a discard

@@ -6,6 +6,8 @@ import 'package:conduit_core/features/librechat/models/librechat_prompts.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_memories_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -265,8 +267,12 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
         .firstOrNull;
   }
 
+  /// Whether the account the list was read for is still the one in charge:
+  /// still LibreChat's active account, with LibreChat, not Open WebUI, the
+  /// primary account.
   bool get _sameAccount =>
       _accountId != null &&
+      _ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat &&
       _ref.read(activeLibreChatAccountProvider)?.id == _accountId;
 
   @override
@@ -299,9 +305,10 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
     // arrives rather than leave a read waiting on a replaced build.
     final capabilities = _ref.listen(libreChatCapabilitiesProvider, (_, _) {});
     ProviderSubscription<Object?>? memories;
+    LibreChatCapabilities? allowed;
     try {
       const patience = Duration(seconds: 15);
-      final allowed = await _ref
+      allowed = await _ref
           .read(libreChatCapabilitiesProvider.future)
           .timeout(patience);
       _capabilities = allowed;
@@ -321,6 +328,9 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
         stackTrace: stackTrace,
       );
       _listNotice = l10n.errorMessage;
+      // Not read this time: an earlier answer no longer stands, and the
+      // page offers Retry instead of what it said.
+      if (allowed == null) _capabilities = null;
     } finally {
       capabilities.close();
       memories?.close();

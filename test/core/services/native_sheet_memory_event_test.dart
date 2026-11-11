@@ -98,6 +98,9 @@ final class _MemoriesApi extends ApiService {
   _MemoriesApi() : super(serverConfig: _server, workerManager: WorkerManager());
 
   Map<String, dynamic> permissions = const {};
+
+  /// How many writes the server refuses before it takes one.
+  int failingWrites = 0;
   final adds = <_Write>[];
   final updates = <_Write>[];
   final deleted = <String>[];
@@ -119,6 +122,10 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    if (failingWrites > 0) {
+      failingWrites--;
+      throw StateError('server unavailable');
+    }
     adds.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
   }
@@ -300,6 +307,32 @@ void main() {
 
       expect(native.api.adds, [
         (content: 'I prefer metric units', type: 'user', path: null),
+      ]);
+    });
+  });
+
+  group('a write the server refuses', () {
+    testWidgets('keeps Add Memory open with the text, and Retry sends it '
+        'again', (tester) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+
+      await native.control('memory-add-content', 'I prefer metric units');
+
+      final rows = native.items('memory-add');
+      expect(rows.first.title, AppLocalizationsEn().errorMessage);
+      final retry = rows.singleWhere((row) => row.id == nativeMemoryAddRetryId);
+      expect(retry.value, 'I prefer metric units');
+      expect(
+        native.container.read(settingsPagesProvider).closeRequests.keys,
+        isNot(contains('memory-add')),
+      );
+
+      // The Retry row sends what it holds, as the page's own row does.
+      await native.control(retry.id, retry.value);
+      expect(native.api.adds.map((write) => write.content), [
+        'I prefer metric units',
       ]);
     });
   });

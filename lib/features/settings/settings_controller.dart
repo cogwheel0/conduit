@@ -342,9 +342,22 @@ class SettingsController {
   }
 
   Future<void> _handleNativeSheetControlChanged(
-    NativeSheetControlChanged event,
+    NativeSheetControlChanged sent,
     SettingsEventSource source,
   ) async {
+    // A memory page's Retry sends its text again, as the row it stands for.
+    final event = switch (sent.id) {
+      nativeMemoryAddRetryId => NativeSheetControlChanged(
+        id: 'memory-add-content',
+        value: sent.value,
+      ),
+      final id when id.startsWith(nativeMemorySaveRetryPrefix) =>
+        NativeSheetControlChanged(
+          id: 'memory-save:${id.substring(nativeMemorySaveRetryPrefix.length)}',
+          value: sent.value,
+        ),
+      _ => sent,
+    };
     final value = event.value;
     // A page opened from the native sheet arrives as it slides away, without
     // a second transition; one opened from a Flutter Settings page pushes as
@@ -691,7 +704,8 @@ class SettingsController {
                 buildNativeMemoryAddDetail(
                   currentAppLocalizations(),
                   content: value,
-                  notice: refusal,
+                  notice: refusal.text,
+                  canRetry: refusal.canRetry,
                 ),
               );
               return;
@@ -1122,18 +1136,23 @@ class SettingsController {
   /// Runs a memory action from the native Memory list for the account that
   /// list was built for. With no list on record, or once the account has
   /// changed, nothing is sent. Returns why the action did not go through,
-  /// or null once it has.
-  Future<String?> _runNativeMemoryAction(
+  /// and whether trying again could help (not once the account changed), or
+  /// null once it has.
+  Future<({String text, bool canRetry})?> _runNativeMemoryAction(
     Future<void> Function(UserMemories memories, MemoryOwner owner) action,
   ) async {
     final l10n = currentAppLocalizations();
+    final accountChanged = (
+      text: l10n.personalizationMemoryAccountChanged,
+      canRetry: false,
+    );
     final owner = ref.read(nativeSheetHydrationServiceProvider).memoryOwner;
-    if (owner == null) return l10n.personalizationMemoryAccountChanged;
+    if (owner == null) return accountChanged;
     try {
       await action(ref.read(userMemoriesProvider.notifier), owner);
       return null;
     } on MemoryOwnerChangedException {
-      return l10n.personalizationMemoryAccountChanged;
+      return accountChanged;
     } catch (error, stackTrace) {
       DebugLogger.error(
         'native-memory-action-failed',
@@ -1141,7 +1160,7 @@ class SettingsController {
         error: error,
         stackTrace: stackTrace,
       );
-      return l10n.errorMessage;
+      return (text: l10n.errorMessage, canRetry: true);
     }
   }
 
@@ -1150,7 +1169,7 @@ class SettingsController {
   /// still in it.
   Future<void> _showMemoryEditRefusal(
     String memoryId,
-    String refusal, {
+    ({String text, bool canRetry}) refusal, {
     String? content,
   }) async {
     final l10n = currentAppLocalizations();
@@ -1169,7 +1188,7 @@ class SettingsController {
         items: [
           NativeSheetItemConfig(
             id: '$pageId-notice',
-            title: refusal,
+            title: refusal.text,
             sfSymbol: 'exclamationmark.triangle',
             kind: NativeSheetItemKind.info,
           ),
@@ -1183,7 +1202,8 @@ class SettingsController {
         memory,
         advanced: ref.read(appSettingsProvider).advancedFeaturesEnabled,
         content: content,
-        notice: refusal,
+        notice: refusal.text,
+        canRetry: refusal.canRetry,
       ),
     );
   }
@@ -1286,7 +1306,8 @@ class SettingsController {
               content: _newMemoryContent ?? '',
               type: type,
               path: _newMemoryPath,
-              notice: refusal,
+              // Done stays, and sends it all again.
+              notice: refusal.text,
             ),
           );
           return true;

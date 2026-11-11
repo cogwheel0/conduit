@@ -2056,10 +2056,32 @@ NativeSheetItemConfig _nativeMemoryNotice(String pageId, String notice) =>
       kind: NativeSheetItemKind.info,
     );
 
+/// The row of the Add memory page that sends its text again after adding it
+/// failed.
+const nativeMemoryAddRetryId = 'memory-add-retry';
+
+/// Prefix of the row of a memory's page that saves its text again after a
+/// save failed; the memory's URI-encoded id follows.
+const nativeMemorySaveRetryPrefix = 'memory-save-retry:';
+
+/// Sends [content] again, as the page's own row does.
+NativeSheetItemConfig _nativeMemoryRetry(
+  AppLocalizations l10n,
+  String id,
+  String content,
+) => NativeSheetItemConfig(
+  id: id,
+  title: l10n.retry,
+  sfSymbol: 'arrow.clockwise',
+  accent: true,
+  value: content,
+);
+
 /// The Add memory page. The text alone is added as soon as it is done;
 /// with [advanced] the page also has the type and path, and Done adds the
 /// memory with all three. [content], [type] and [path] are what the page
-/// holds, and [notice] why adding it did not go through.
+/// holds, and [notice] why adding it did not go through; with [canRetry],
+/// the text alone has a row that sends it again.
 NativeSheetDetailConfig buildNativeMemoryAddDetail(
   AppLocalizations l10n, {
   bool advanced = false,
@@ -2067,6 +2089,7 @@ NativeSheetDetailConfig buildNativeMemoryAddDetail(
   String type = ServerMemory.userType,
   String? path,
   String? notice,
+  bool canRetry = false,
 }) {
   const pageId = 'memory-add';
   if (!advanced) {
@@ -2077,6 +2100,8 @@ NativeSheetDetailConfig buildNativeMemoryAddDetail(
       discardPrompt: nativeDiscardPrompt(l10n),
       items: [
         if (notice != null) _nativeMemoryNotice(pageId, notice),
+        if (notice != null && canRetry && content.trim().isNotEmpty)
+          _nativeMemoryRetry(l10n, nativeMemoryAddRetryId, content),
         NativeSheetItemConfig(
           id: 'memory-add-content',
           title: l10n.addMemory,
@@ -2147,13 +2172,15 @@ List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
 ];
 
 /// The page of [memory]. [content] is the text the page holds, when it is
-/// not yet the memory's, and [notice] why a change to it did not go through.
+/// not yet the memory's, and [notice] why a change to it did not go
+/// through; with [canRetry], the text has a row that saves it again.
 NativeSheetDetailConfig buildNativeMemoryEditDetail(
   AppLocalizations l10n,
   ServerMemory memory, {
   bool advanced = false,
   String? content,
   String? notice,
+  bool canRetry = false,
 }) {
   final encoded = Uri.encodeComponent(memory.id);
   final pageId = 'memory-edit:$encoded';
@@ -2163,7 +2190,17 @@ NativeSheetDetailConfig buildNativeMemoryEditDetail(
     discardPrompt: nativeDiscardPrompt(l10n),
     sections: [
       if (notice != null)
-        NativeSheetSectionConfig(items: [_nativeMemoryNotice(pageId, notice)]),
+        NativeSheetSectionConfig(
+          items: [
+            _nativeMemoryNotice(pageId, notice),
+            if (canRetry && content != null)
+              _nativeMemoryRetry(
+                l10n,
+                '$nativeMemorySaveRetryPrefix$encoded',
+                content,
+              ),
+          ],
+        ),
       NativeSheetSectionConfig(
         footer: l10n.memoryEditorDescription,
         items: [

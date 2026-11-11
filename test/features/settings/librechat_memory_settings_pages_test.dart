@@ -14,6 +14,7 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_memories_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -134,6 +135,21 @@ void main() {
     );
     expect(rig.memories.saves, isEmpty);
     expect(rig.memories.deleted, isEmpty);
+  });
+
+  testWidgets('Open WebUI taking charge while a page is open says so and '
+      'sends nothing', (tester) async {
+    final rig = await _open(tester, {'work': 'Engineer'});
+    await rig.openPage(_work);
+
+    rig.primary.use(PrimaryAccountKind.openWebUi);
+    await rig.change(libreChatMemoryRowId('save', _work), true);
+
+    expect(
+      rig.rows(_work).first.title,
+      _l10n.personalizationMemoryAccountChanged,
+    );
+    expect(rig.memories.saves, isEmpty);
   });
 
   testWidgets('delete asks first, then deletes and goes back', (tester) async {
@@ -263,6 +279,14 @@ final class _FakeMemories extends LibreChatMemoriesController {
   }
 }
 
+/// Which kind of account is primary, swapped by a test.
+final class _Primary extends Notifier<PrimaryAccountKind> {
+  @override
+  PrimaryAccountKind build() => PrimaryAccountKind.libreChat;
+
+  void use(PrimaryAccountKind kind) => state = kind;
+}
+
 /// The LibreChat account in charge, swapped by a test.
 final class _InCharge extends Notifier<LibreChatAccount?> {
   _InCharge(this.initial);
@@ -281,12 +305,21 @@ LibreChatAccount _account(String id) => LibreChatAccount.forUser(
 );
 
 final class _Rig {
-  _Rig(this.tester, this.container, this.memories, this.inCharge);
+  _Rig(
+    this.tester,
+    this.container,
+    this.memories,
+    this.inCharge,
+    this.primaryKind,
+  );
 
   final WidgetTester tester;
   final ProviderContainer container;
   final _FakeMemories memories;
   final NotifierProvider<_InCharge, LibreChatAccount?> inCharge;
+  final NotifierProvider<_Primary, PrimaryAccountKind> primaryKind;
+
+  _Primary get primary => container.read(primaryKind.notifier);
 
   SettingsPageModule get module => container
       .read(settingsPageModulesProvider)
@@ -349,6 +382,9 @@ Future<_Rig> _open(
   final inCharge = NotifierProvider<_InCharge, LibreChatAccount?>(
     () => _InCharge(_account('u1')),
   );
+  final primaryKind = NotifierProvider<_Primary, PrimaryAccountKind>(
+    _Primary.new,
+  );
   final container = ProviderContainer(
     // A failed read stays failed, rather than retried by Riverpod, so the
     // page's own handling of it shows.
@@ -357,13 +393,14 @@ Future<_Rig> _open(
       libreChatCapabilitiesProvider.overrideWith((ref) async => capabilities),
       libreChatMemoriesProvider.overrideWith(() => memories),
       activeLibreChatAccountProvider.overrideWith((ref) => ref.watch(inCharge)),
+      primaryAccountKindProvider.overrideWith((ref) => ref.watch(primaryKind)),
     ],
   );
   addTearDown(container.dispose);
   container.read(settingsPagesProvider.notifier).register([
     NativeSheetDetailConfig(id: libreChatMemoriesPageId, title: ''),
   ]);
-  final rig = _Rig(tester, container, memories, inCharge);
+  final rig = _Rig(tester, container, memories, inCharge, primaryKind);
   await rig.openPage(libreChatMemoriesPageId);
   return rig;
 }

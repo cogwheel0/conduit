@@ -28,7 +28,8 @@ Future<bool> confirmDiscardChanges(
 }
 
 /// Keeps [child] from being popped while [dirty] without first confirming the
-/// discard. A confirmed discard pops with [discardResult].
+/// discard. A confirmed discard pops with [discardResult]. [confirm] asks the
+/// question, [confirmDiscardChanges] unless the page has its own.
 ///
 /// While [busy], as when a save is on its way, nothing pops it and nothing
 /// asks: closing could not stop the request, so back, a barrier tap and a
@@ -40,12 +41,14 @@ class DiscardChangesScope extends StatelessWidget {
     required this.child,
     this.busy = false,
     this.discardResult,
+    this.confirm,
   });
 
   final bool dirty;
   final bool busy;
   final Widget child;
   final Object? discardResult;
+  final Future<bool> Function(BuildContext context)? confirm;
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +57,8 @@ class DiscardChangesScope extends StatelessWidget {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop || busy) return;
         final navigator = Navigator.of(context);
-        if (await confirmDiscardChanges(context)) {
+        final ask = confirm ?? confirmDiscardChanges;
+        if (await ask(context)) {
           navigator.pop(discardResult);
         }
       },

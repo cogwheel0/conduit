@@ -412,11 +412,21 @@ class WebhookSettingsPages implements SettingsPageModule {
   }
 
   /// The list, as the account has it now. Any destination page opened from
-  /// an earlier list starts over.
-  Future<void> _hydrateList(AppLocalizations l10n) async {
-    _owner = null;
-    _drafts.clear();
-    _notices.clear();
+  /// an earlier list starts over, except with [keepEditors] (a Retry, which
+  /// can finish under a page opened meanwhile) while the same account is
+  /// signed in.
+  Future<void> _hydrateList(
+    AppLocalizations l10n, {
+    bool keepEditors = false,
+  }) async {
+    final previous = _owner;
+    if (!keepEditors ||
+        previous == null ||
+        !_targets.isCurrentOwner(previous)) {
+      _owner = null;
+      _drafts.clear();
+      _notices.clear();
+    }
     // Whether the account may keep destinations rests on its permissions
     // and the server's flag, read before the row was offered; a little
     // patience covers a page opened straight from a link.
@@ -453,9 +463,16 @@ class WebhookSettingsPages implements SettingsPageModule {
     );
     NotificationTargetsData? data;
     try {
-      data = await readNotificationTargets(_ref);
-      // The account the list was read for is the one its pages act for.
-      _owner = _targets.captureOwner();
+      final read = await readNotificationTargets(_ref);
+      // The account the list was read for is the one its pages act for. One
+      // that took over since rebuilt the list, so a list that is no longer
+      // the current one is not shown, and nothing acts with it.
+      final owner = _targets.captureOwner();
+      final current = _ref.read(notificationTargetsProvider).asData?.value;
+      if (owner != null && identical(current, read)) {
+        data = read;
+        _owner = owner;
+      }
     } catch (error, stackTrace) {
       DebugLogger.error(
         'webhook-list-load-failed',
@@ -550,7 +567,7 @@ class WebhookSettingsPages implements SettingsPageModule {
         if (await _run(l10n, pageId, target, draft, (owner) async {
           await _targets.makeDefault(target.id, owner: owner);
         })) {
-          await _leave(pageId);
+          await _leave(pageId, draft);
         }
       case 'test' when target != null:
         // A test goes to the destination as the server has it.
@@ -589,7 +606,7 @@ class WebhookSettingsPages implements SettingsPageModule {
           draft,
           (owner) => _targets.remove(target.id, owner: owner),
         )) {
-          await _leave(pageId);
+          await _leave(pageId, draft);
         }
     }
     return true;
@@ -648,7 +665,7 @@ class WebhookSettingsPages implements SettingsPageModule {
         owner: owner,
       );
     });
-    if (saved) await _leave(pageId);
+    if (saved) await _leave(pageId, draft);
   }
 
   /// Runs [action] for the account the list was opened for. When it is
@@ -710,9 +727,12 @@ class WebhookSettingsPages implements SettingsPageModule {
     WebhookDraft draft,
     String text, {
     bool problem = true,
-  }) {
+  }) async {
+    // Left and opened again while an action ran, the page is another
+    // editor now, which the outcome of this one does not touch.
+    if (!identical(_drafts[pageId], draft)) return;
     _notices[pageId] = (text: text, problem: problem);
-    return _applyPage(l10n, pageId, target: target, draft: draft);
+    await _applyPage(l10n, pageId, target: target, draft: draft);
   }
 
   /// Reads the destinations again from the server, then the list.
@@ -730,7 +750,7 @@ class WebhookSettingsPages implements SettingsPageModule {
       );
     }
     try {
-      await _hydrateList(l10n);
+      await _hydrateList(l10n, keepEditors: true);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'webhook-targets-list-failed',
@@ -742,7 +762,10 @@ class WebhookSettingsPages implements SettingsPageModule {
   }
 
   /// Back to the list, which reads the destinations again as it appears.
-  Future<void> _leave(String pageId) async {
+  /// A page left and opened again while [draft]'s action ran stays open: it
+  /// is another editor now.
+  Future<void> _leave(String pageId, WebhookDraft draft) async {
+    if (!identical(_drafts[pageId], draft)) return;
     _drafts.remove(pageId);
     _notices.remove(pageId);
     await _surface.closeDetail(pageId);

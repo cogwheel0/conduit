@@ -280,6 +280,33 @@ void main() {
       expect(session.rows(_ops).first.title, 'Webhook delivery failed');
     });
 
+    testWidgets('a save that ends after the page was left and opened again '
+        'leaves the new one open', (tester) async {
+      final session = await _open(tester);
+      await session.openPage(_ops);
+      await session.change(webhookRowId('enabled', _ops), false);
+      final hold = session.wire.holdWrites = Completer<void>();
+      final saving = session.module.handleChange(
+        webhookRowId('save', _ops),
+        true,
+        _l10n,
+      );
+      await tester.pump(const Duration(milliseconds: 10));
+
+      // Back to the list, then the destination again, while it saves.
+      await session.openPage(webhookListPageId);
+      await session.openPage(_ops);
+      hold.complete();
+      await session._settle(saving);
+
+      expect(session.closed, isEmpty);
+      // The new page is an editor still.
+      await session.change(webhookRowId('enabled', _ops), true);
+      session.wire.holdWrites = null;
+      await session.change(webhookRowId('save', _ops), true);
+      expect(session.closed, [_ops]);
+    });
+
     testWidgets('Test and Make default wait until the changes are saved', (
       tester,
     ) async {
@@ -544,6 +571,9 @@ final class _Wire implements HttpClientAdapter {
   bool failLists = false;
   bool failCatalog = false;
 
+  /// While set, writes wait for it before the server answers.
+  Completer<void>? holdWrites;
+
   Iterable<RequestOptions> get writes =>
       requests.where((r) => r.method != 'GET' && !r.uri.path.endsWith('/test'));
 
@@ -557,6 +587,8 @@ final class _Wire implements HttpClientAdapter {
   ) async {
     requests.add(options);
     final path = options.uri.path;
+    final hold = holdWrites;
+    if (options.method != 'GET' && hold != null) await hold.future;
     if (options.method != 'GET' && rejectWrites != null) {
       return _json({'detail': rejectWrites}, 400);
     }
