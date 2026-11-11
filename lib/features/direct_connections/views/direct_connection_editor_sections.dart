@@ -14,7 +14,7 @@ import '../../profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 
 import '../controllers/direct_connection_editor_form.dart';
-import '../controllers/direct_custom_headers_controller.dart';
+import '../controllers/direct_connection_editor_messages.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 

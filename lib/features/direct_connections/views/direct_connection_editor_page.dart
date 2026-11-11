@@ -21,11 +21,11 @@ import '../../../shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 
 import '../controllers/direct_connection_editor_form.dart';
+import '../controllers/direct_connection_editor_messages.dart';
 import '../controllers/direct_connection_editor_workflow.dart';
 import '../controllers/riverpod_direct_connection_editor_gateway.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 
 import 'direct_connection_editor_sections.dart';
 
@@ -87,7 +87,10 @@ class _DirectConnectionEditorPageState
     if (_workflowCreated) return;
     _workflowCreated = true;
     _workflow = DirectConnectionEditorWorkflow(
-      gateway: riverpodDirectConnectionEditorGateway(ref, widget.mode),
+      gateway: riverpodDirectConnectionEditorGateway(
+        ProviderScope.containerOf(context, listen: false),
+        widget.mode,
+      ),
       defaultConnectionName: AppLocalizations.of(context)!
           .directDefaultConnectionName,
     );
@@ -105,18 +108,8 @@ class _DirectConnectionEditorPageState
     super.dispose();
   }
 
-  DirectEditorMessages _editorMessages() {
-    final l10n = AppLocalizations.of(context)!;
-    return DirectEditorMessages(
-      openWebUiFallbackName: l10n.openWebUiDirectConnectionFallbackName,
-      connecting: l10n.connecting,
-      reachFailed: l10n.directConnectionReachFailed,
-      saveConflict: l10n.directConnectionSaveConflict,
-      saveFailed: l10n.directConnectionSaveFailed,
-      unavailable: l10n.openWebUiDirectConnectionsUnavailable,
-      probeMessage: (probe) => _probeMessage(probe, l10n),
-    );
-  }
+  DirectEditorMessages _editorMessages() =>
+      directEditorMessages(AppLocalizations.of(context)!);
 
   Future<bool> _confirmOriginSecretTransfer(DirectConnectionProfile draft) {
     final l10n = AppLocalizations.of(context)!;
@@ -634,15 +627,4 @@ class DirectConnectionEditorError extends StatelessWidget {
       ],
     );
   }
-}
-
-String _probeMessage(DirectConnectionProbe probe, AppLocalizations l10n) {
-  if (!probe.reachable) {
-    return probe.message?.trim().isNotEmpty == true
-        ? probe.message!.trim()
-        : l10n.directConnectionReachFailed;
-  }
-  final modelCount = probe.modelCount;
-  if (modelCount == null) return l10n.directConnectionProbeConnected;
-  return l10n.directConnectionProbeConnectedModels(modelCount);
 }
