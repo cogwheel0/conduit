@@ -1032,7 +1032,9 @@ async fn fcm_errors_map_to_web_push_statuses() {
                 Some("SENDER_ID_MISMATCH"),
                 "SenderId mismatch",
             ),
-            410,
+            // Every token answers this when the relay has the wrong Firebase
+            // project, so it must not delete subscriptions.
+            502,
         ),
         (
             400,

@@ -486,6 +486,11 @@ pub fn parse_error(body: &[u8]) -> FcmErrorInfo {
 /// 404, or one in some other shape, more likely means `FCM_API_BASE` or a
 /// proxy is wrong, and calling that `Gone` would have every sender delete
 /// every Android subscription.
+///
+/// `SENDER_ID_MISMATCH` is not `Gone` for the same reason: a service account
+/// from the wrong Firebase project gets it for every token. A token that
+/// really is from another project belongs to an app build that registers its
+/// own token at its next launch anyway.
 pub fn map_response(status: u16, error: &FcmErrorInfo) -> Outcome {
     let code = error.code.as_deref();
     let invalid_argument =
@@ -494,7 +499,6 @@ pub fn map_response(status: u16, error: &FcmErrorInfo) -> Outcome {
         200..=299 => Outcome::Sent,
         _ if code == Some("UNREGISTERED") => Outcome::Gone,
         404 if error.status.as_deref() == Some("NOT_FOUND") => Outcome::Gone,
-        403 if code == Some("SENDER_ID_MISMATCH") => Outcome::Gone,
         400 if invalid_argument && error.about_token => Outcome::Gone,
         429 => Outcome::Throttled,
         500..=599 => Outcome::Unavailable,
@@ -585,7 +589,7 @@ mod tests {
             (
                 403,
                 error("PERMISSION_DENIED", Some("SENDER_ID_MISMATCH"), "x"),
-                Outcome::Gone,
+                Outcome::Rejected,
             ),
             (
                 403,
