@@ -4898,7 +4898,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "在 Android 上，你也可以改用 UnifiedPush 分发器。这样你的服务器会直接发送给它，不经过 Conduit 中继和 Google。",
   "pushPrivacyOffTitle": "关闭推送",
-  "pushPrivacyOffBody": "关闭推送会删除此设备的所有推送密钥；退出或移除某个账户会删除该账户的密钥。之后发送的任何内容都无法读取。Conduit 还会请求每台服务器忘记此设备。",
+  "pushPrivacyOffBody": "关闭推送会删除此设备的所有推送密钥；退出或移除某个账户会删除该账户的密钥。之后发送给这些密钥的内容都无法读取。Conduit 还会请求每台服务器忘记此设备。",
   "pushPrivacyReadMore": "阅读完整说明",
   "pushAttentionChip": "推送需要处理",
   "notificationScheduledTitle": "计划任务",

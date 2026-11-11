@@ -4670,7 +4670,7 @@
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
   "pushPrivacyUnifiedPushBody": "Android에서는 대신 UnifiedPush 배포자를 쓸 수 있습니다. 그러면 서버가 Conduit 릴레이나 Google을 거치지 않고 배포자로 직접 보냅니다.",
   "pushPrivacyOffTitle": "푸시 끄기",
-  "pushPrivacyOffBody": "푸시를 끄면 이 기기의 푸시 키가 모두 삭제되고, 계정에서 로그아웃하거나 계정을 제거하면 해당 계정의 키가 삭제됩니다. 이후 보낸 내용은 읽을 수 없습니다. Conduit는 각 서버에도 이 기기를 잊도록 요청합니다.",
+  "pushPrivacyOffBody": "푸시를 끄면 이 기기의 푸시 키가 모두 삭제되고, 계정에서 로그아웃하거나 계정을 제거하면 해당 계정의 키가 삭제됩니다. 삭제된 키로 이후 보낸 내용은 읽을 수 없습니다. Conduit는 각 서버에도 이 기기를 잊도록 요청합니다.",
   "pushPrivacyReadMore": "자세한 내용 읽기",
   "pushAttentionChip": "푸시 확인 필요",
   "notificationScheduledTitle": "예약된 작업",

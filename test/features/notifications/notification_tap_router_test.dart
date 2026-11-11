@@ -45,6 +45,22 @@ const _hermesWork = HermesConnectionProfile(
   documentTrustPrincipalId: 'p-work',
 );
 
+/// The active account's auth status, which a test can change.
+final _authStatus = NotifierProvider<_AuthStatus, AuthStatus>(
+  () => _AuthStatus(AuthStatus.authenticated),
+);
+
+final class _AuthStatus extends Notifier<AuthStatus> {
+  _AuthStatus(this.initial);
+
+  final AuthStatus initial;
+
+  @override
+  AuthStatus build() => initial;
+
+  void set(AuthStatus status) => state = status;
+}
+
 /// The settled active account, which a fake switch moves.
 class _SettledAccount extends SettledActiveAccountId {
   _SettledAccount(this.initial);
@@ -209,7 +225,8 @@ void main() {
         hermesConnectionsProvider.overrideWithValue([_hermesHome, _hermesWork]),
         hermesActiveConnectionIdProvider.overrideWithValue(activeHermesId),
         hermesEnabledProvider.overrideWithValue(hermesEnabled),
-        authStatusProvider.overrideWithValue(authStatus),
+        authStatusProvider.overrideWith((ref) => ref.watch(_authStatus)),
+        _authStatus.overrideWith(() => _AuthStatus(authStatus)),
         primaryAccountKindProvider.overrideWithValue(
           libreChat ? PrimaryAccountKind.libreChat : PrimaryAccountKind.openWebUi,
         ),
@@ -388,6 +405,24 @@ void main() {
           tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
         );
         check(navigator.calls).deepEquals(['sign-in']);
+      });
+
+      test('another account taking over while auth loads opens nothing', () async {
+        final router = build(
+          libreChat: true,
+          primaryResults: [PrimarySwitchResult.done],
+          authStatus: AuthStatus.loading,
+        );
+        final opening = router.openTap(
+          tap(NotificationKind.chatCompletion, 'c2', scope: 'owui:acct-2'),
+        );
+        // acct-2 is in use, its auth still loading, when acct-1 takes over
+        // and is signed in: that must not open acct-2's chat in acct-1.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        settled.settle('acct-1');
+        container.read(_authStatus.notifier).set(AuthStatus.authenticated);
+        await opening;
+        check(navigator.calls).isEmpty();
       });
 
       test('an account gone meanwhile says so', () async {

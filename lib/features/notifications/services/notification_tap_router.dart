@@ -268,24 +268,34 @@ class NotificationTapRouter {
         if (!await _awaitSettledAccount(accountId)) return false;
         // A saved session can still be refused once the account is in use:
         // the switch from LibreChat doesn't say so.
-        if (!await _awaitSignedIn()) {
-          if (_ref.mounted) _navigator.openSignIn();
-          return false;
+        switch (await _awaitSignedIn(accountId)) {
+          case true:
+            return true;
+          case false:
+            if (_ref.mounted) _navigator.openSignIn();
+            return false;
+          case null:
+            return false;
         }
-        return true;
     }
   }
 
-  /// Whether the account in use is signed in, once its auth has settled.
-  Future<bool> _awaitSignedIn() async {
+  /// Whether [accountId] is signed in, once its auth has settled; null when
+  /// another account became the active one meanwhile, or nothing settled in
+  /// time. The auth status is the active account's, so it only counts while
+  /// [accountId] still is.
+  Future<bool?> _awaitSignedIn(String accountId) async {
     final deadline = DateTime.now().add(_settleTimeout);
     while (true) {
-      if (!_ref.mounted) return false;
+      if (!_ref.mounted ||
+          _ref.read(settledActiveAccountIdProvider) != accountId) {
+        return null;
+      }
       final status = _ref.read(authStatusProvider);
       if (status != AuthStatus.initial && status != AuthStatus.loading) {
         return status == AuthStatus.authenticated;
       }
-      if (DateTime.now().isAfter(deadline)) return false;
+      if (DateTime.now().isAfter(deadline)) return null;
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
