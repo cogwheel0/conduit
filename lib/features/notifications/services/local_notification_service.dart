@@ -319,6 +319,9 @@ class LocalNotificationService {
   /// everything, so nothing deep-links into data that is gone.
   Future<void> cancelAll() async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
+    // Behind a [show] still waiting for the plugin, which would otherwise
+    // post after this cleared everything.
+    if (!_initialized) await initialize();
     await _plugin.cancelAll();
   }
 
