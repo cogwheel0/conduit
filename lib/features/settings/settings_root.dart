@@ -41,6 +41,7 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
   return [
     readNativeAccountsDetail(read, l10n),
     readNativeAccountSignOutDetail(read, l10n),
+    readNativeAddAccountDetail(read, l10n),
     if (hasOpenWebUiUser && profilePending)
       buildNativeLoadingDetail(
         l10n: l10n,

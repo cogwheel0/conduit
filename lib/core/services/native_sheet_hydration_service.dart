@@ -237,6 +237,15 @@ NativeSheetDetailConfig readNativeAccountSignOutDetail(
       read(libreChatRegistryProvider).value?.accounts ?? const [],
 );
 
+/// The Add Account page, read now.
+NativeSheetDetailConfig readNativeAddAccountDetail(
+  NativeSheetProviderReader read,
+  AppLocalizations l10n,
+) => buildNativeAddAccountDetail(
+  l10n,
+  libreChatEnabled: read(libreChatBackendEnabledProvider),
+);
+
 /// The native Accounts page, read now.
 NativeSheetDetailConfig readNativeAccountsDetail(
   NativeSheetProviderReader read,
@@ -936,7 +945,10 @@ class NativeSheetHydrationService {
           title: accounts.title,
           items: const [],
           sections: accounts.sections,
-          detailSheets: [readNativeAccountSignOutDetail(_ref.read, l10n)],
+          detailSheets: [
+            readNativeAccountSignOutDetail(_ref.read, l10n),
+            readNativeAddAccountDetail(_ref.read, l10n),
+          ],
         );
         return;
       case 'password':

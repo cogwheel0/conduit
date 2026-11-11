@@ -721,10 +721,13 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
       ),
       NativeSheetSectionConfig(
         items: [
-          _nativeAddItem(
-            nativeAccountsAddItemId,
+          // Opens the kinds of account to add, as Mail's Add Account does.
+          NativeSheetItemConfig(
+            id: nativeAccountsAddItemId,
             title: l10n.accountsAddAccount,
-            kind: null,
+            sfSymbol: 'plus.circle',
+            accent: true,
+            showsDisclosure: true,
           ),
         ],
       ),
@@ -748,6 +751,65 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
 
 /// Id of the Add Account row that ends the native Accounts page.
 const nativeAccountsAddItemId = 'accounts-add';
+
+/// The Add Account page: each kind of account or connection there is to
+/// add. Choosing one closes the sheet and opens its sign-in or editor.
+NativeSheetDetailConfig buildNativeAddAccountDetail(
+  AppLocalizations l10n, {
+  required bool libreChatEnabled,
+}) {
+  NativeSheetItemConfig kind(
+    String id,
+    String title,
+    String subtitle, {
+    String sfSymbol = 'server.rack',
+    String? iconAsset,
+  }) => NativeSheetItemConfig(
+    id: '$nativeAccountsAddItemId-$id',
+    title: title,
+    subtitle: subtitle,
+    sfSymbol: sfSymbol,
+    iconAsset: iconAsset,
+    dismissOnSelect: true,
+    actionId: nativeAccountAddActionId,
+    actionValue: id,
+  );
+  return NativeSheetDetailConfig(
+    id: nativeAccountsAddItemId,
+    title: l10n.accountsAddAccount,
+    sections: [
+      NativeSheetSectionConfig(
+        items: [
+          kind(
+            'openWebUi',
+            l10n.backendChooserOpenWebUITitle,
+            l10n.backendChooserOpenWebUISubtitle,
+            iconAsset: 'assets/icons/open_webui.png',
+          ),
+          if (libreChatEnabled)
+            kind(
+              'libreChat',
+              l10n.libreChatTitle,
+              l10n.libreChatChooserSubtitle,
+              sfSymbol: 'bubble.left.and.bubble.right',
+            ),
+          kind(
+            'hermes',
+            l10n.backendChooserHermesTitle,
+            l10n.backendChooserHermesSubtitle,
+            iconAsset: 'assets/icons/hermes_agent.png',
+          ),
+          kind(
+            'direct',
+            l10n.backendChooserDirectTitle,
+            l10n.backendChooserDirectSubtitle,
+            sfSymbol: 'link.circle',
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
 /// Id of the page that lists each saved account to sign out of alone.
 const nativeAccountSignOutOfDetailId = 'accounts-sign-out-of';

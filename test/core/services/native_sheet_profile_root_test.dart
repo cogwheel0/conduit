@@ -579,12 +579,38 @@ void main() {
       expect(add.title, _l10n.accountsAddAccount);
       expect(add.sfSymbol, 'plus.circle');
       expect(add.accent, isTrue);
-      expect(add.dismissOnSelect, isTrue);
-      // An action, not a page: no chevron.
-      expect(add.showsDisclosure, isFalse);
-      expect(add.actionId, nativeAccountAddActionId);
-      // Any kind: the sheet opens on Open WebUI.
-      expect(add.actionValue, isTrue);
+      // It opens the kinds to choose from, a page of Settings's own.
+      expect(add.dismissOnSelect, isFalse);
+      expect(add.showsDisclosure, isTrue);
+    });
+
+    test('Add Account lists each kind, each opening its own sign-in', () {
+      List<NativeSheetItemConfig> kinds({required bool libreChat}) =>
+          buildNativeAddAccountDetail(
+            _l10n,
+            libreChatEnabled: libreChat,
+          ).sections.single.items;
+
+      expect(kinds(libreChat: false).map((row) => row.actionValue), [
+        'openWebUi',
+        'hermes',
+        'direct',
+      ]);
+      final rows = kinds(libreChat: true);
+      expect(rows.map((row) => row.actionValue), [
+        'openWebUi',
+        'libreChat',
+        'hermes',
+        'direct',
+      ]);
+      // The sign-in is a flow of its own, opened as the sheet closes.
+      expect(
+        rows.every(
+          (row) =>
+              row.dismissOnSelect && row.actionId == nativeAccountAddActionId,
+        ),
+        isTrue,
+      );
     });
 
     test('an empty card offers to add its first, on its own tab', () {
