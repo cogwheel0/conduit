@@ -202,7 +202,9 @@ NativeSheetDetailConfig buildNativeLicenseDetail(
     for (var index = 0; index < licenses.length; index++)
       NativeSheetItemConfig(
         id: 'license-text:$index',
-        title: '',
+        // The native sheet draws no row without a title; the caption names
+        // the package, and which of its licenses this is.
+        title: licenses.length == 1 ? package : '$package (${index + 1})',
         kind: NativeSheetItemKind.readOnlyText,
         value: licenses[index],
       ),

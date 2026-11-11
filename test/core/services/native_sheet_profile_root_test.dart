@@ -738,6 +738,8 @@ void main() {
     final texts = buildNativeLicenseDetail('Alpha', ['MIT', 'BSD']);
     expect(texts.id, rows.first.id);
     expect(texts.items.map((item) => item.value), ['MIT', 'BSD']);
+    // Every row has a title: the native sheet draws none without one.
+    expect(texts.items.map((item) => item.title), ['Alpha (1)', 'Alpha (2)']);
     expect(
       texts.items.every((item) => item.kind == NativeSheetItemKind.readOnlyText),
       isTrue,
