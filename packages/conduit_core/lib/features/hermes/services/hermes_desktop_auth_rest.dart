@@ -418,7 +418,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       isIOS: Platform.isIOS,
       accessHeaders: config.accessHeaders,
     )) {
-      throw StateError(
+      throw HermesDashboardUnavailable(
         'Dashboard cookie requests with gateway headers are unavailable on iOS.',
       );
     }
