@@ -30,17 +30,13 @@ import '../../core/utils/current_localizations.dart';
 import '../../core/utils/message_action_settings.dart';
 import '../../core/utils/native_sheet_utils.dart';
 import '../../core/utils/tts_voice_utils.dart';
-import '../../shared/services/app_package_info.dart';
 import '../../shared/services/navigation_service.dart';
 import '../../shared/theme/theme_providers.dart';
 import '../../shared/utils/ui_utils.dart';
-import '../../shared/widgets/platform_ui/platform_ui.dart'
-    show showAdaptiveLicensePage;
 import '../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../shared/widgets/sign_out_options_dialog.dart';
 import '../chat/providers/text_to_speech_provider.dart';
 import '../notifications/services/local_notification_service.dart';
-import '../profile/views/personalization_page.dart' show showMemoryEditor;
 import '../profile/widgets/account_actions.dart';
 import '../profile/widgets/stt_language_picker.dart'
     show showDeviceSttLanguagePickerSheet;
@@ -49,8 +45,6 @@ import '../push/widgets/push_target_actions.dart'
 import '../push/widgets/push_target_detail_sheet.dart';
 import '../profile/widgets/account_sheet.dart'
     show EditDirectConnectionRequest, showAccountSheet;
-import '../release_notes/data/release_notes_repository.dart';
-import '../release_notes/release_notes_presenter.dart';
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
 import 'settings_pages.dart';
@@ -470,22 +464,6 @@ class SettingsController {
         return;
       }
 
-      // Both rows close the sheet themselves and arrive as it slides away, so
-      // their Flutter page is already opening underneath it.
-      if (event.id == NativeSheetRoutes.releaseNotesManual) {
-        final context = NavigationService.context;
-        if (context == null || !context.mounted) return;
-        await _showManualReleaseNotes(context);
-        return;
-      }
-
-      if (event.id == NativeSheetRoutes.openSourceLicenses) {
-        final context = NavigationService.context;
-        if (context == null || !context.mounted) return;
-        showAdaptiveLicensePage(context: context, applicationName: 'Conduit');
-        return;
-      }
-
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;
@@ -523,11 +501,7 @@ class SettingsController {
         return;
       }
 
-      if (event.id == nativeMemoryEditorNewActionId ||
-          event.id.startsWith(nativeMemoryEditorActionPrefix)) {
-        await _openNativeMemoryEditor(event.id);
-        return;
-      }
+      if (await _handleMemoryEditorChange(event.id, value)) return;
 
       if (event.id.startsWith('memory-save:')) {
         final encoded = event.id.substring('memory-save:'.length);
@@ -547,6 +521,8 @@ class SettingsController {
           (memories, owner) =>
               memories.deleteItem(Uri.decodeComponent(encoded), owner: owner),
         );
+        // The memory is gone, and so is its page.
+        await _surface.closeDetail('memory-edit:$encoded');
         return;
       }
 
@@ -718,6 +694,7 @@ class SettingsController {
             await _runNativeMemoryAction(
               (memories, owner) => memories.add(value.trim(), owner: owner),
             );
+            await _surface.closeDetail('memory-add');
           }
         case 'memory-clear-all':
           await _runNativeMemoryAction(
@@ -1140,27 +1117,6 @@ class SettingsController {
       .read(nativeSheetHydrationServiceProvider)
       .hydrateDetail(nativeAccountSignOutOfDetailId);
 
-  Future<void> _showManualReleaseNotes(BuildContext context) async {
-    final packageInfo = await ref.read(packageInfoProvider.future);
-    if (!context.mounted) return;
-
-    final allNotes = await const ReleaseNotesRepository().load(
-      Localizations.localeOf(context),
-    );
-    if (!context.mounted) return;
-    final notes = latestBundledReleaseNotesForVersion(
-      currentVersion: packageInfo.version,
-      notes: allNotes,
-    );
-    if (notes.isEmpty) return;
-
-    await showReleaseNotesSheet(
-      context: context,
-      currentVersion: packageInfo.version,
-      notes: notes,
-    );
-  }
-
   /// Runs a memory action from the native Memory list for the account that
   /// list was built for. With no list on record, or once the account has
   /// changed, nothing is sent.
@@ -1245,39 +1201,68 @@ class SettingsController {
     });
   }
 
-  /// Opens the Flutter memory editor, which the native sheet cannot match with
-  /// its type and path fields, over the app once the native sheet has closed.
-  Future<void> _openNativeMemoryEditor(String actionId) async {
-    final memories = ref.read(userMemoriesProvider.notifier);
-    final owner = ref.read(nativeSheetHydrationServiceProvider).memoryOwner;
-    final permitted = ref
-        .read(memoriesPermittedProvider)
-        .maybeWhen(data: (permitted) => permitted, orElse: () => true);
-    if (owner == null || !permitted) return;
+  /// The Add memory page's fields with Advanced on, kept until Done adds
+  /// the memory with all three.
+  String? _newMemoryContent;
+  String? _newMemoryType;
+  String? _newMemoryPath;
 
-    ServerMemory? memory;
-    if (actionId != nativeMemoryEditorNewActionId) {
-      final id = Uri.decodeComponent(
-        actionId.substring(nativeMemoryEditorActionPrefix.length),
-      );
-      memory = ref
-          .read(userMemoriesProvider)
-          .asData
-          ?.value
-          .where((candidate) => candidate.id == id)
-          .firstOrNull;
-      if (memory == null) return;
+  /// The Advanced memory rows: the new memory's fields and Done, and one
+  /// memory's type and path, saved as they change. Returns whether [id] was
+  /// one of them.
+  Future<bool> _handleMemoryEditorChange(String id, Object? value) async {
+    switch (id) {
+      case nativeMemoryNewContentId:
+        if (value is String) _newMemoryContent = value;
+        return true;
+      case nativeMemoryNewTypeId:
+        if (value is String) _newMemoryType = value;
+        return true;
+      case nativeMemoryNewPathId:
+        if (value is String) _newMemoryPath = value;
+        return true;
+      case nativeMemoryNewSaveId:
+        final content = _newMemoryContent?.trim() ?? '';
+        if (content.isEmpty) return true;
+        final path = _newMemoryPath?.trim() ?? '';
+        final type = _newMemoryType ?? ServerMemory.userType;
+        await _runNativeMemoryAction(
+          (memories, owner) => memories.add(
+            content,
+            type: type,
+            path: path.isEmpty ? null : path,
+            owner: owner,
+          ),
+        );
+        _newMemoryContent = _newMemoryType = _newMemoryPath = null;
+        await _surface.closeDetail('memory-add');
+        return true;
     }
-
-    final context = NavigationService.context;
-    if (context == null || !context.mounted) return;
-    await showMemoryEditor(
-      context,
-      notifier: memories,
-      owner: owner,
-      advanced: ref.read(appSettingsProvider).advancedFeaturesEnabled,
-      memory: memory,
+    final typed = id.startsWith(nativeMemoryTypePrefix);
+    if (!typed && !id.startsWith(nativeMemoryPathPrefix)) return false;
+    if (value is! String) return true;
+    final memoryId = Uri.decodeComponent(
+      id.substring(
+        (typed ? nativeMemoryTypePrefix : nativeMemoryPathPrefix).length,
+      ),
     );
+    final memory = ref
+        .read(userMemoriesProvider)
+        .asData
+        ?.value
+        .where((candidate) => candidate.id == memoryId)
+        .firstOrNull;
+    if (memory == null) return true;
+    await _runNativeMemoryAction(
+      (memories, owner) => memories.updateItem(
+        memory.id,
+        memory.content,
+        type: typed ? value : null,
+        path: typed ? null : value.trim(),
+        owner: owner,
+      ),
+    );
+    return true;
   }
 
   /// Says why a row tapped in the native sheet did nothing: it went away

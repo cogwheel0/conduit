@@ -716,6 +716,23 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
   }
 
+  /// Closes page [detailId] of the open Settings sheet, back to the page
+  /// that opened it. Returns false when it was not open.
+  Future<bool> closeDetail(String detailId) async {
+    if (!_isIOS) return false;
+    try {
+      return await _api.closeDetail(detailId);
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'closeDetail',
+        error,
+        stackTrace,
+        data: {'detailId': detailId},
+      );
+      return false;
+    }
+  }
+
   @override
   void onDismissed() {
     _events.add(const NativeSheetDismissed());
@@ -1115,6 +1132,7 @@ class NativeSheetItemConfig {
     this.accent = false,
     this.usesProfileAvatar = false,
     this.filterAllLabel,
+    this.confirmMessage,
   });
 
   final String id;
@@ -1167,9 +1185,14 @@ class NativeSheetItemConfig {
   /// Enables the picker filter pill; this is its unfiltered label.
   final String? filterAllLabel;
 
+  /// Asked before the row acts, with the row's title as the answer that
+  /// goes ahead: Delete, Sign Out. Null acts at once.
+  final String? confirmMessage;
+
   Map<String, Object?> toMap() {
     return {
       if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
+      if (confirmMessage != null) 'confirmMessage': confirmMessage,
       'id': id,
       'title': title,
       'subtitle': subtitle,
@@ -1550,6 +1573,7 @@ extension on NativeSheetItemConfig {
       accent: accent,
       usesProfileAvatar: usesProfileAvatar,
       filterAllLabel: filterAllLabel,
+      confirmMessage: confirmMessage,
     );
   }
 }

@@ -216,6 +216,8 @@ private struct NativeSheetItem {
     let placeholder: String?
     let options: [NativeSheetOption]
     let filterAllLabel: String?
+    /// Asked before the row acts; its title is the answer that goes ahead.
+    let confirmMessage: String?
     let sourceIndex: Int?
     let sourceUrl: String?
     let sourceType: String?
@@ -270,6 +272,7 @@ private struct NativeSheetItem {
         options = (payload["options"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetOption.init)
         filterAllLabel = payload["filterAllLabel"] as? String
+        confirmMessage = payload["confirmMessage"] as? String
         sourceIndex = NativeSheetItem.optionalInt(payload["sourceIndex"])
         sourceUrl = payload["sourceUrl"] as? String
         sourceType = payload["sourceType"] as? String
@@ -1028,6 +1031,7 @@ private extension PlatformNativeSheetItem {
         payload["accent"] = accent
         payload["usesProfileAvatar"] = usesProfileAvatar
         payload["filterAllLabel"] = filterAllLabel
+        payload["confirmMessage"] = confirmMessage
         return payload
     }
 }
@@ -1243,14 +1247,11 @@ let nativeSheetProfileMenuDetailId = "profile-menu"
 
 /// Whether a row that closes the sheet waits for it to finish leaving before
 /// telling Flutter. Rows that open a Flutter page send at once, so the page is
-/// already underneath as the sheet slides away. The memory editor waits: it
-/// opens a Flutter sheet that takes keyboard focus, which must not be asked
-/// for while this sheet still holds it.
+/// already underneath as the sheet slides away. Account actions wait.
 func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
-    actionId == "memory-editor-new" || actionId.hasPrefix("memory-editor:")
-        // Switching, adding or signing out of an account can ask a question
-        // in a sheet of its own, which cannot present over this one.
-        || actionId == "account-switch" || actionId == "account-add"
+    // Switching, adding or signing out of an account can ask a question in
+    // a sheet of its own, which cannot present over this one.
+    actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-sign-out-of"
         || actionId == "account-direct-edit"
         || actionId == "account-librechat-use"
@@ -1644,6 +1645,28 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         var applied = false
         DispatchQueue.main.sync { applied = apply() }
         return applied
+    }
+
+    func closeDetail(detailId: String) throws -> Bool {
+        let close = { () -> Bool in
+            guard let navigation = self.activeNavigationController,
+                  let index = navigation.viewControllers.firstIndex(where: {
+                      ($0 as? NativeDetailTableViewController)?.detailId == detailId
+                  }),
+                  index > 0
+            else { return false }
+            navigation.popToViewController(
+                navigation.viewControllers[index - 1],
+                animated: true
+            )
+            return true
+        }
+        if Thread.isMainThread {
+            return close()
+        }
+        var closed = false
+        DispatchQueue.main.sync { closed = close() }
+        return closed
     }
 
     /// Runs [work] on main once no sheet above Flutter is still animating
@@ -2371,7 +2394,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = true
     }
 
-    private func handleSelection(_ item: NativeSheetItem) {
+    private func handleSelection(_ item: NativeSheetItem, confirmed: Bool = false) {
         if item.kind == "searchablePicker" {
             presentInlineOptionsSelector(for: item)
             return
@@ -2379,6 +2402,13 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
 
         if item.id == "sign-out" {
             presentSignOutOptions(for: item)
+            return
+        }
+
+        if !confirmed, let message = item.confirmMessage, !message.isEmpty {
+            presentConfirmation(for: item, message: message) { [weak self] in
+                self?.handleSelection(item, confirmed: true)
+            }
             return
         }
 
@@ -2432,6 +2462,32 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
 
         sendControlChanged(id: item.id, value: item.value ?? true)
+    }
+
+    /// Asks [message] before the row acts, the row's title being the answer
+    /// that goes ahead, in red when the row is destructive.
+    private func presentConfirmation(
+        for item: NativeSheetItem,
+        message: String,
+        onConfirm: @escaping () -> Void
+    ) {
+        guard let presenter = activeNavigationController?.visibleViewController else {
+            onConfirm()
+            return
+        }
+        let alert = UIAlertController(
+            title: item.title,
+            message: message,
+            preferredStyle: .alert
+        )
+        let cancelTitle = configuration?.editProfileSheet.cancelLabel
+            ?? nativeLocalized("native.cancel", "Cancel")
+        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel))
+        alert.addAction(UIAlertAction(
+            title: item.title,
+            style: item.destructive ? .destructive : .default
+        ) { _ in onConfirm() })
+        presenter.present(alert, animated: true)
     }
 
     private func presentSignOutOptions(for item: NativeSheetItem) {

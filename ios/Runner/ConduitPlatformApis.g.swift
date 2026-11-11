@@ -1470,6 +1470,8 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
   /// the row's own title and subtitle.
   var usesProfileAvatar: Bool? = nil
   var filterAllLabel: String? = nil
+  /// Asked before the row acts; the row's title confirms.
+  var confirmMessage: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1507,6 +1509,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     let accent: Bool? = nilOrValue(pigeonVar_list[30])
     let usesProfileAvatar: Bool? = nilOrValue(pigeonVar_list[31])
     let filterAllLabel: String? = nilOrValue(pigeonVar_list[32])
+    let confirmMessage: String? = nilOrValue(pigeonVar_list[33])
 
     return PlatformNativeSheetItem(
       id: id,
@@ -1541,7 +1544,8 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       checked: checked,
       accent: accent,
       usesProfileAvatar: usesProfileAvatar,
-      filterAllLabel: filterAllLabel
+      filterAllLabel: filterAllLabel,
+      confirmMessage: confirmMessage
     )
   }
   func toList() -> [Any?] {
@@ -1579,13 +1583,14 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       accent,
       usesProfileAvatar,
       filterAllLabel,
+      confirmMessage,
     ]
   }
   static func == (lhs: PlatformNativeSheetItem, rhs: PlatformNativeSheetItem) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconSize, rhs.iconSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showsDisclosure, rhs.showsDisclosure) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarName, rhs.avatarName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checked, rhs.checked) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.accent, rhs.accent) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.usesProfileAvatar, rhs.usesProfileAvatar) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterAllLabel, rhs.filterAllLabel)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconSize, rhs.iconSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showsDisclosure, rhs.showsDisclosure) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarName, rhs.avatarName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checked, rhs.checked) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.accent, rhs.accent) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.usesProfileAvatar, rhs.usesProfileAvatar) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterAllLabel, rhs.filterAllLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmMessage, rhs.confirmMessage)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1623,10 +1628,11 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: accent, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: usesProfileAvatar, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: filterAllLabel, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: confirmMessage, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), iconSize: \(String(describing: iconSize)), showsDisclosure: \(String(describing: showsDisclosure)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)), avatarName: \(String(describing: avatarName)), avatarBytes: \(String(describing: avatarBytes)), checked: \(String(describing: checked)), accent: \(String(describing: accent)), usesProfileAvatar: \(String(describing: usesProfileAvatar)), filterAllLabel: \(String(describing: filterAllLabel)))"
+    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), iconSize: \(String(describing: iconSize)), showsDisclosure: \(String(describing: showsDisclosure)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)), avatarName: \(String(describing: avatarName)), avatarBytes: \(String(describing: avatarBytes)), checked: \(String(describing: checked)), accent: \(String(describing: accent)), usesProfileAvatar: \(String(describing: usesProfileAvatar)), filterAllLabel: \(String(describing: filterAllLabel)), confirmMessage: \(String(describing: confirmMessage)))"
   }
 }
 
@@ -4937,6 +4943,9 @@ protocol NativeSheetHostApi {
   func presentTextEditor(request: PlatformNativeSheetTextEditorRequest, completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void)
   func presentResultSheet(request: PlatformNativeSheetResultRequest, completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void)
   func applyDetailPatch(request: PlatformNativeSheetApplyDetailPatchRequest) throws -> Bool
+  /// Closes the open page [detailId] of the native Settings sheet, going
+  /// back to the page that opened it. Returns whether it was open.
+  func closeDetail(detailId: String) throws -> Bool
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -5154,6 +5163,23 @@ class NativeSheetHostApiSetup {
       }
     } else {
       applyDetailPatchChannel.setMessageHandler(nil)
+    }
+    /// Closes the open page [detailId] of the native Settings sheet, going
+    /// back to the page that opened it. Returns whether it was open.
+    let closeDetailChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeSheetHostApi.closeDetail\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      closeDetailChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let detailIdArg = args[0] as! String
+        do {
+          let result = try api.closeDetail(detailId: detailIdArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      closeDetailChannel.setMessageHandler(nil)
     }
   }
 }

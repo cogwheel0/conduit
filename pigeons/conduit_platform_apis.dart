@@ -408,6 +408,7 @@ class PlatformNativeSheetItem {
     this.accent,
     this.usesProfileAvatar,
     this.filterAllLabel,
+    this.confirmMessage,
   });
 
   String id;
@@ -454,6 +455,9 @@ class PlatformNativeSheetItem {
   bool? usesProfileAvatar;
 
   String? filterAllLabel;
+
+  /// Asked before the row acts; the row's title confirms.
+  String? confirmMessage;
 }
 
 class PlatformNativeSheetLink {
@@ -1149,6 +1153,10 @@ abstract class NativeSheetHostApi {
   );
 
   bool applyDetailPatch(PlatformNativeSheetApplyDetailPatchRequest request);
+
+  /// Closes the open page [detailId] of the native Settings sheet, going
+  /// back to the page that opened it. Returns whether it was open.
+  bool closeDetail(String detailId);
 }
 
 @FlutterApi()

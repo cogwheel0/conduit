@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform;
+    show LicenseParagraph, LicenseRegistry, TargetPlatform, defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
@@ -82,6 +82,11 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
+import '../../features/release_notes/data/release_links.dart';
+import '../../features/release_notes/data/release_notes_repository.dart';
+import '../../features/release_notes/release_notes_presenter.dart'
+    show latestBundledReleaseNotesForVersion;
+import 'package:conduit_core/features/support/support_links.dart';
 import '../../features/settings/settings_pages.dart';
 import '../../features/chat/widgets/model_control_labels.dart';
 import '../../platform/conduit_platform_apis.g.dart'
@@ -891,7 +896,18 @@ class NativeSheetHydrationService {
       stopFollowing(nativeSocketHealthDetailId);
     }
 
+    if (detailId.startsWith(nativeLicensePagePrefix)) {
+      await _hydrateNativeLicenseDetail(detailId);
+      return;
+    }
+
     switch (detailId) {
+      case NativeSheetRoutes.releaseNotesManual:
+        await _hydrateNativeReleaseNotesDetail(ctx, l10n);
+        return;
+      case NativeSheetRoutes.openSourceLicenses:
+        await _hydrateNativeLicensesDetail(l10n);
+        return;
       case nativeSocketHealthDetailId:
         _followSocketHealth(l10n);
         return;
@@ -1017,6 +1033,18 @@ class NativeSheetHydrationService {
             serverVersion: hermesOnly ? null : serverVersion,
           ),
         ),
+        detailSheets: [
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: NativeSheetRoutes.releaseNotesManual,
+            title: l10n.releaseNotesTitle,
+          ),
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: NativeSheetRoutes.openSourceLicenses,
+            title: l10n.openSourceLicenses,
+          ),
+        ],
       );
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -2319,7 +2347,7 @@ class NativeSheetHydrationService {
           title: l10n.manageMemories,
           subtitle: l10n.savedMemoriesCount(memories.length),
           items: [
-            buildNativeMemoryAddItem(l10n, advanced: advanced),
+            buildNativeMemoryAddItem(l10n),
             if (memories.isEmpty)
               NativeSheetItemConfig(
                 id: 'memory-empty-info',
@@ -2346,7 +2374,7 @@ class NativeSheetHydrationService {
           ],
         ),
         detailSheets: [
-          if (!advanced) buildNativeMemoryAddDetail(l10n),
+          buildNativeMemoryAddDetail(l10n, advanced: advanced),
           ...buildNativeMemoryEditDetails(l10n, memories, advanced: advanced),
         ],
       );
@@ -2529,6 +2557,90 @@ class NativeSheetHydrationService {
       detailId: detailId,
       subtitle: l10n.modelSystemPromptEditorDescription,
       items: items,
+    );
+  }
+
+  /// What's New: the releases bundled with the app, up to this one.
+  Future<void> _hydrateNativeReleaseNotesDetail(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    try {
+      final locale = Localizations.localeOf(context);
+      final packageInfo = await _ref.read(packageInfoProvider.future);
+      final notes = latestBundledReleaseNotesForVersion(
+        currentVersion: packageInfo.version,
+        notes: await const ReleaseNotesRepository().load(locale),
+      );
+      await _applyNativeDetail(
+        buildNativeReleaseNotesDetail(
+          l10n,
+          notes: notes,
+          reviewUrl: reviewUrlForPlatform(),
+          supportUrl: buyMeACoffeeUrl,
+        ),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-release-notes-hydration-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.releaseNotesManual,
+        l10n.errorMessage,
+      );
+    }
+  }
+
+  /// The licenses of the packages the app ships, by package, read once.
+  Future<Map<String, List<String>>>? _licenses;
+
+  Future<Map<String, List<String>>> _readLicenses() async {
+    final byPackage = <String, List<String>>{};
+    await for (final entry in LicenseRegistry.licenses) {
+      final text = entry.paragraphs
+          .map(
+            (paragraph) =>
+                paragraph.indent > 0 &&
+                    paragraph.indent != LicenseParagraph.centeredIndent
+                ? '${'  ' * paragraph.indent}${paragraph.text}'
+                : paragraph.text,
+          )
+          .join('\n\n');
+      for (final package in entry.packages) {
+        byPackage.putIfAbsent(package, () => []).add(text);
+      }
+    }
+    return byPackage;
+  }
+
+  Future<void> _hydrateNativeLicensesDetail(AppLocalizations l10n) async {
+    final licenses = await (_licenses ??= _readLicenses());
+    await _applyNativeDetail(
+      buildNativeLicensesDetail(l10n, {
+        for (final MapEntry(:key, :value) in licenses.entries)
+          key: value.length,
+      }),
+      detailSheets: [
+        for (final package in licenses.keys)
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: '$nativeLicensePagePrefix${Uri.encodeComponent(package)}',
+            title: package,
+          ),
+      ],
+    );
+  }
+
+  Future<void> _hydrateNativeLicenseDetail(String detailId) async {
+    final package = Uri.decodeComponent(
+      detailId.substring(nativeLicensePagePrefix.length),
+    );
+    final licenses = await (_licenses ??= _readLicenses());
+    await _applyNativeDetail(
+      buildNativeLicenseDetail(package, licenses[package] ?? const []),
     );
   }
 

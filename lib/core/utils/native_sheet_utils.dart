@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart'
     show TargetPlatform, Uint8List, defaultTargetPlatform, immutable;
 import 'package:intl/intl.dart';
+import 'package:conduit_core/features/release_notes/models/release_note.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../shared/utils/locale_display_formatters.dart';
@@ -80,14 +81,11 @@ List<NativeSheetItemConfig> buildNativeAboutItems(
       sfSymbol: 'number',
       kind: NativeSheetItemKind.info,
     ),
-  // Release notes and the licenses open Flutter pages, so they close the
-  // sheet like the other rows that leave it, and say so with a chevron.
+  // What's New and the licenses are pages of Settings's own.
   NativeSheetItemConfig(
     id: NativeSheetRoutes.releaseNotesManual,
     title: l10n.releaseNotesTitle,
     sfSymbol: 'sparkles',
-    showsDisclosure: true,
-    dismissOnSelect: true,
   ),
   NativeSheetItemConfig(
     id: 'github',
@@ -99,10 +97,117 @@ List<NativeSheetItemConfig> buildNativeAboutItems(
     id: NativeSheetRoutes.openSourceLicenses,
     title: l10n.openSourceLicenses,
     sfSymbol: 'doc.text',
-    showsDisclosure: true,
-    dismissOnSelect: true,
   ),
 ];
+
+/// The SF Symbol for a release-note bullet's icon name, as the What's New
+/// sheet draws it; Hermes draws its mark instead.
+String _releaseNoteSymbol(String? name) => switch (name) {
+  'local' => 'externaldrive',
+  'direct' => 'bolt',
+  'polish' => 'paintbrush',
+  _ => 'sparkles',
+};
+
+/// What's New: each release in the app, newest first, its introduction and
+/// what it brought, then a way to rate the app and to support it.
+NativeSheetDetailConfig buildNativeReleaseNotesDetail(
+  AppLocalizations l10n, {
+  required List<ReleaseNote> notes,
+  required String reviewUrl,
+  required String supportUrl,
+}) => NativeSheetDetailConfig(
+  id: NativeSheetRoutes.releaseNotesManual,
+  title: l10n.releaseNotesTitle,
+  sections: [
+    for (final note in notes)
+      NativeSheetSectionConfig(
+        title: note.version,
+        items: [
+          NativeSheetItemConfig(
+            id: 'release-note-intro:${note.version}',
+            title: note.title,
+            kind: NativeSheetItemKind.readOnlyText,
+            value: note.intro,
+          ),
+          for (var index = 0; index < note.bullets.length; index++)
+            NativeSheetItemConfig(
+              id: 'release-note:${note.version}:$index',
+              title: note.bullets[index],
+              sfSymbol: _releaseNoteSymbol(note.iconNameForBullet(index)),
+              iconAsset: note.iconNameForBullet(index) == 'hermes'
+                  ? 'assets/icons/hermes_agent.png'
+                  : null,
+              kind: NativeSheetItemKind.info,
+            ),
+        ],
+      ),
+    NativeSheetSectionConfig(
+      footer: l10n.releaseNotesSupportPromptMessage,
+      items: [
+        NativeSheetItemConfig(
+          id: 'release-notes-review',
+          title: l10n.releaseNotesReviewButton,
+          sfSymbol: 'heart',
+          url: reviewUrl,
+        ),
+        NativeSheetItemConfig(
+          id: 'release-notes-support',
+          title: l10n.buyMeACoffeeTitle,
+          sfSymbol: 'gift',
+          url: supportUrl,
+        ),
+      ],
+    ),
+  ],
+);
+
+/// Prefix of a page showing one package's licenses.
+const nativeLicensePagePrefix = 'license:';
+
+/// The packages the app ships, each opening its licenses.
+NativeSheetDetailConfig buildNativeLicensesDetail(
+  AppLocalizations l10n,
+  Map<String, int> licenseCounts,
+) {
+  final packages = licenseCounts.keys.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return NativeSheetDetailConfig(
+    id: NativeSheetRoutes.openSourceLicenses,
+    title: l10n.openSourceLicenses,
+    sections: [
+      NativeSheetSectionConfig(
+        items: [
+          for (final package in packages)
+            NativeSheetItemConfig(
+              id: '$nativeLicensePagePrefix${Uri.encodeComponent(package)}',
+              title: package,
+              subtitle: '${licenseCounts[package]}',
+              sfSymbol: 'doc.text',
+            ),
+        ],
+      ),
+    ],
+  );
+}
+
+/// One package's licenses, each as selectable text.
+NativeSheetDetailConfig buildNativeLicenseDetail(
+  String package,
+  List<String> licenses,
+) => NativeSheetDetailConfig(
+  id: '$nativeLicensePagePrefix${Uri.encodeComponent(package)}',
+  title: package,
+  items: [
+    for (var index = 0; index < licenses.length; index++)
+      NativeSheetItemConfig(
+        id: 'license-text:$index',
+        title: '',
+        kind: NativeSheetItemKind.readOnlyText,
+        value: licenses[index],
+      ),
+  ],
+);
 
 /// Which rows of the native Settings root the signed-in account is offered.
 /// Each flag is read from the same provider the Flutter Settings page
@@ -1797,43 +1902,128 @@ NativeSheetDetailConfig buildNativePushTargetsDetail(
   );
 }
 
-/// Control id the native Add memory row sends to open the Flutter editor.
-const nativeMemoryEditorNewActionId = 'memory-editor-new';
+/// Ids of the Add memory page with Advanced on: its fields, which wait for
+/// Done, and Done itself, which adds the memory with all three.
+const nativeMemoryNewContentId = 'memory-new-content';
+const nativeMemoryNewTypeId = 'memory-new-type';
+const nativeMemoryNewPathId = 'memory-new-path';
+const nativeMemoryNewSaveId = 'memory-new-save';
 
-/// Prefix of the control id a native memory row sends to open the Flutter
-/// editor for one memory; the memory id follows, URI-encoded.
-const nativeMemoryEditorActionPrefix = 'memory-editor:';
+/// Prefixes of the Advanced rows of one memory's page, which save its type
+/// and path as they change; the memory id follows, URI-encoded.
+const nativeMemoryTypePrefix = 'memory-type:';
+const nativeMemoryPathPrefix = 'memory-path:';
 
-/// The Add memory row. The native sheet holds a content box and nothing else,
-/// so with [advanced] the row closes it and opens the Flutter editor, which
-/// also has the type and path.
-NativeSheetItemConfig buildNativeMemoryAddItem(
-  AppLocalizations l10n, {
-  required bool advanced,
-}) {
+/// The Add memory row. It opens the Add memory page.
+NativeSheetItemConfig buildNativeMemoryAddItem(AppLocalizations l10n) {
   return NativeSheetItemConfig(
     id: 'memory-add',
     title: l10n.addMemory,
     subtitle: l10n.manageMemoriesDescription,
     sfSymbol: 'plus.circle',
-    dismissOnSelect: advanced,
-    actionId: advanced ? nativeMemoryEditorNewActionId : null,
   );
 }
 
-NativeSheetDetailConfig buildNativeMemoryAddDetail(AppLocalizations l10n) {
+/// The Type choice of a memory: User or Context. A type this app does not
+/// know is kept, and listed, until another is chosen.
+NativeSheetItemConfig _nativeMemoryTypeItem(
+  AppLocalizations l10n, {
+  required String id,
+  required String? type,
+}) {
+  final known = type == ServerMemory.userType || type == ServerMemory.contextType;
+  return NativeSheetItemConfig(
+    id: id,
+    title: l10n.memoryTypeLabel,
+    subtitle: switch (type) {
+      ServerMemory.contextType =>
+        l10n.personalizationMemoryTypeContextDescription,
+      _ when !known && type != null => l10n.personalizationMemoryTypeUnknown,
+      _ => l10n.personalizationMemoryTypeUserDescription,
+    },
+    sfSymbol: 'tag',
+    kind: NativeSheetItemKind.segment,
+    value: type ?? ServerMemory.userType,
+    options: [
+      NativeSheetOptionConfig(
+        id: ServerMemory.userType,
+        label: l10n.memoryTypeUser,
+      ),
+      NativeSheetOptionConfig(
+        id: ServerMemory.contextType,
+        label: l10n.memoryTypeContext,
+      ),
+      if (!known && type != null)
+        NativeSheetOptionConfig(id: type, label: type, enabled: false),
+    ],
+  );
+}
+
+NativeSheetItemConfig _nativeMemoryPathItem(
+  AppLocalizations l10n, {
+  required String id,
+  required String? path,
+}) => NativeSheetItemConfig(
+  id: id,
+  title: l10n.memoryPathLabel,
+  sfSymbol: 'text.alignleft',
+  kind: NativeSheetItemKind.textField,
+  value: path ?? '',
+  placeholder: l10n.memoryPathHint,
+);
+
+/// The Add memory page. The text alone is added as soon as it is done;
+/// with [advanced] the page also has the type and path, and Done adds the
+/// memory with all three.
+NativeSheetDetailConfig buildNativeMemoryAddDetail(
+  AppLocalizations l10n, {
+  bool advanced = false,
+}) {
+  if (!advanced) {
+    return NativeSheetDetailConfig(
+      id: 'memory-add',
+      title: l10n.addMemory,
+      subtitle: l10n.memoryEditorDescription,
+      items: [
+        NativeSheetItemConfig(
+          id: 'memory-add-content',
+          title: l10n.addMemory,
+          sfSymbol: 'plus.circle',
+          kind: NativeSheetItemKind.multilineTextField,
+          value: '',
+          placeholder: l10n.memoryHint,
+        ),
+      ],
+    );
+  }
   return NativeSheetDetailConfig(
     id: 'memory-add',
     title: l10n.addMemory,
-    subtitle: l10n.memoryEditorDescription,
-    items: [
-      NativeSheetItemConfig(
-        id: 'memory-add-content',
-        title: l10n.addMemory,
-        sfSymbol: 'plus.circle',
-        kind: NativeSheetItemKind.multilineTextField,
-        value: '',
-        placeholder: l10n.memoryHint,
+    confirmActionId: nativeMemoryNewSaveId,
+    confirmActionLabel: l10n.save,
+    sections: [
+      NativeSheetSectionConfig(
+        footer: l10n.memoryEditorDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: nativeMemoryNewContentId,
+            title: l10n.addMemory,
+            sfSymbol: 'quote.bubble',
+            kind: NativeSheetItemKind.multilineTextField,
+            value: '',
+            placeholder: l10n.memoryHint,
+          ),
+        ],
+      ),
+      NativeSheetSectionConfig(
+        items: [
+          _nativeMemoryTypeItem(
+            l10n,
+            id: nativeMemoryNewTypeId,
+            type: ServerMemory.userType,
+          ),
+          _nativeMemoryPathItem(l10n, id: nativeMemoryNewPathId, path: null),
+        ],
       ),
     ],
   );
@@ -1854,8 +2044,8 @@ String nativeSheetMemoryClassification(
   return path == null || path.isEmpty ? type : '$type · $path';
 }
 
-/// The detail for each memory: its text and Delete, plus with [advanced] a row
-/// that opens the Flutter editor for the type and path.
+/// The page of each memory: its text, with [advanced] its type and path,
+/// each saved as it changes, then Delete.
 List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
   AppLocalizations l10n,
   List<ServerMemory> memories, {
@@ -1866,32 +2056,45 @@ List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
       NativeSheetDetailConfig(
         id: 'memory-edit:${Uri.encodeComponent(memory.id)}',
         title: l10n.editMemory,
-        subtitle: l10n.memoryEditorDescription,
-        items: [
-          NativeSheetItemConfig(
-            id: 'memory-save:${Uri.encodeComponent(memory.id)}',
-            title: l10n.editMemory,
-            sfSymbol: 'quote.bubble',
-            kind: NativeSheetItemKind.multilineTextField,
-            value: memory.content,
-            placeholder: l10n.memoryHint,
+        sections: [
+          NativeSheetSectionConfig(
+            footer: l10n.memoryEditorDescription,
+            items: [
+              NativeSheetItemConfig(
+                id: 'memory-save:${Uri.encodeComponent(memory.id)}',
+                title: l10n.editMemory,
+                sfSymbol: 'quote.bubble',
+                kind: NativeSheetItemKind.multilineTextField,
+                value: memory.content,
+                placeholder: l10n.memoryHint,
+              ),
+            ],
           ),
           if (advanced)
-            NativeSheetItemConfig(
-              id: 'memory-classification:${Uri.encodeComponent(memory.id)}',
-              title: l10n.memoryTypeLabel,
-              subtitle: nativeSheetMemoryClassification(l10n, memory),
-              sfSymbol: 'tag',
-              dismissOnSelect: true,
-              actionId:
-                  '$nativeMemoryEditorActionPrefix${Uri.encodeComponent(memory.id)}',
+            NativeSheetSectionConfig(
+              items: [
+                _nativeMemoryTypeItem(
+                  l10n,
+                  id: '$nativeMemoryTypePrefix${Uri.encodeComponent(memory.id)}',
+                  type: memory.type,
+                ),
+                _nativeMemoryPathItem(
+                  l10n,
+                  id: '$nativeMemoryPathPrefix${Uri.encodeComponent(memory.id)}',
+                  path: memory.path,
+                ),
+              ],
             ),
-          NativeSheetItemConfig(
-            id: 'memory-delete:${Uri.encodeComponent(memory.id)}',
-            title: l10n.deleteMemory,
-            subtitle: l10n.deleteMemoryConfirm,
-            sfSymbol: 'trash',
-            destructive: true,
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: 'memory-delete:${Uri.encodeComponent(memory.id)}',
+                title: l10n.deleteMemory,
+                subtitle: l10n.deleteMemoryConfirm,
+                sfSymbol: 'trash',
+                destructive: true,
+              ),
+            ],
           ),
         ],
       ),

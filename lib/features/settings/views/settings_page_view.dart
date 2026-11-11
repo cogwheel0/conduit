@@ -84,6 +84,15 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         );
   }
 
+  /// Goes back to the page that opened this one, closing any page above.
+  void _close() {
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return;
+    final navigator = Navigator.of(context);
+    navigator.popUntil((candidate) => candidate == route);
+    navigator.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     // Forgotten while open, as when another account takes over: the page
@@ -95,6 +104,14 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _appeared();
         });
+      },
+    );
+    ref.listen(
+      settingsPagesProvider.select(
+        (pages) => pages.closeRequests[widget.detailId],
+      ),
+      (previous, next) {
+        if (next != previous && mounted) _close();
       },
     );
     final detail = ref.watch(
@@ -279,6 +296,18 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       if (keepServerDetails == null || !mounted) return;
       _send(item.id, keepServerDetails);
       return;
+    }
+
+    final question = item.confirmMessage;
+    if (question != null && question.isNotEmpty) {
+      final confirmed = await ThemedDialogs.confirm(
+        context,
+        title: item.title,
+        message: question,
+        confirmText: item.title,
+        isDestructive: item.destructive,
+      );
+      if (!confirmed || !mounted) return;
     }
 
     if (item.dismissOnSelect) {

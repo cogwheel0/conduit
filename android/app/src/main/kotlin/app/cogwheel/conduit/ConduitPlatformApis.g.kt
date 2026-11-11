@@ -1523,7 +1523,9 @@ data class PlatformNativeSheetItem (
    * the row's own title and subtitle.
    */
   val usesProfileAvatar: Boolean? = null,
-  val filterAllLabel: String? = null
+  val filterAllLabel: String? = null,
+  /** Asked before the row acts; the row's title confirms. */
+  val confirmMessage: String? = null
 )
  {
   companion object {
@@ -1561,7 +1563,8 @@ data class PlatformNativeSheetItem (
       val accent = pigeonVar_list[30] as Boolean?
       val usesProfileAvatar = pigeonVar_list[31] as Boolean?
       val filterAllLabel = pigeonVar_list[32] as String?
-      return PlatformNativeSheetItem(id, title, subtitle, sfSymbol, iconAsset, iconSize, showsDisclosure, destructive, dismissOnSelect, actionId, actionValue, url, kind, value, placeholder, options, sourceIndex, sourceUrl, sourceType, snippet, faviconUrl, queries, links, pending, min, max, divisions, avatarName, avatarBytes, checked, accent, usesProfileAvatar, filterAllLabel)
+      val confirmMessage = pigeonVar_list[33] as String?
+      return PlatformNativeSheetItem(id, title, subtitle, sfSymbol, iconAsset, iconSize, showsDisclosure, destructive, dismissOnSelect, actionId, actionValue, url, kind, value, placeholder, options, sourceIndex, sourceUrl, sourceType, snippet, faviconUrl, queries, links, pending, min, max, divisions, avatarName, avatarBytes, checked, accent, usesProfileAvatar, filterAllLabel, confirmMessage)
     }
   }
   fun toList(): List<Any?> {
@@ -1599,6 +1602,7 @@ data class PlatformNativeSheetItem (
       accent,
       usesProfileAvatar,
       filterAllLabel,
+      confirmMessage,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -1609,7 +1613,7 @@ data class PlatformNativeSheetItem (
       return true
     }
     val other = other as PlatformNativeSheetItem
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconAsset, other.iconAsset) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconSize, other.iconSize) && ConduitPlatformApisPigeonUtils.deepEquals(this.showsDisclosure, other.showsDisclosure) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.dismissOnSelect, other.dismissOnSelect) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionId, other.actionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionValue, other.actionValue) && ConduitPlatformApisPigeonUtils.deepEquals(this.url, other.url) && ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.placeholder, other.placeholder) && ConduitPlatformApisPigeonUtils.deepEquals(this.options, other.options) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceIndex, other.sourceIndex) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceUrl, other.sourceUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceType, other.sourceType) && ConduitPlatformApisPigeonUtils.deepEquals(this.snippet, other.snippet) && ConduitPlatformApisPigeonUtils.deepEquals(this.faviconUrl, other.faviconUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.queries, other.queries) && ConduitPlatformApisPigeonUtils.deepEquals(this.links, other.links) && ConduitPlatformApisPigeonUtils.deepEquals(this.pending, other.pending) && ConduitPlatformApisPigeonUtils.deepEquals(this.min, other.min) && ConduitPlatformApisPigeonUtils.deepEquals(this.max, other.max) && ConduitPlatformApisPigeonUtils.deepEquals(this.divisions, other.divisions) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarName, other.avatarName) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarBytes, other.avatarBytes) && ConduitPlatformApisPigeonUtils.deepEquals(this.checked, other.checked) && ConduitPlatformApisPigeonUtils.deepEquals(this.accent, other.accent) && ConduitPlatformApisPigeonUtils.deepEquals(this.usesProfileAvatar, other.usesProfileAvatar) && ConduitPlatformApisPigeonUtils.deepEquals(this.filterAllLabel, other.filterAllLabel)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconAsset, other.iconAsset) && ConduitPlatformApisPigeonUtils.deepEquals(this.iconSize, other.iconSize) && ConduitPlatformApisPigeonUtils.deepEquals(this.showsDisclosure, other.showsDisclosure) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.dismissOnSelect, other.dismissOnSelect) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionId, other.actionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.actionValue, other.actionValue) && ConduitPlatformApisPigeonUtils.deepEquals(this.url, other.url) && ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.placeholder, other.placeholder) && ConduitPlatformApisPigeonUtils.deepEquals(this.options, other.options) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceIndex, other.sourceIndex) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceUrl, other.sourceUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.sourceType, other.sourceType) && ConduitPlatformApisPigeonUtils.deepEquals(this.snippet, other.snippet) && ConduitPlatformApisPigeonUtils.deepEquals(this.faviconUrl, other.faviconUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.queries, other.queries) && ConduitPlatformApisPigeonUtils.deepEquals(this.links, other.links) && ConduitPlatformApisPigeonUtils.deepEquals(this.pending, other.pending) && ConduitPlatformApisPigeonUtils.deepEquals(this.min, other.min) && ConduitPlatformApisPigeonUtils.deepEquals(this.max, other.max) && ConduitPlatformApisPigeonUtils.deepEquals(this.divisions, other.divisions) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarName, other.avatarName) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarBytes, other.avatarBytes) && ConduitPlatformApisPigeonUtils.deepEquals(this.checked, other.checked) && ConduitPlatformApisPigeonUtils.deepEquals(this.accent, other.accent) && ConduitPlatformApisPigeonUtils.deepEquals(this.usesProfileAvatar, other.usesProfileAvatar) && ConduitPlatformApisPigeonUtils.deepEquals(this.filterAllLabel, other.filterAllLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmMessage, other.confirmMessage)
   }
 
   override fun hashCode(): Int {
@@ -1647,10 +1651,11 @@ data class PlatformNativeSheetItem (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.accent)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.usesProfileAvatar)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.filterAllLabel)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.confirmMessage)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetItem(id=$id, title=$title, subtitle=$subtitle, sfSymbol=$sfSymbol, iconAsset=$iconAsset, iconSize=$iconSize, showsDisclosure=$showsDisclosure, destructive=$destructive, dismissOnSelect=$dismissOnSelect, actionId=$actionId, actionValue=$actionValue, url=$url, kind=$kind, value=$value, placeholder=$placeholder, options=$options, sourceIndex=$sourceIndex, sourceUrl=$sourceUrl, sourceType=$sourceType, snippet=$snippet, faviconUrl=$faviconUrl, queries=$queries, links=$links, pending=$pending, min=$min, max=$max, divisions=$divisions, avatarName=$avatarName, avatarBytes=${avatarBytes?.contentToString()}, checked=$checked, accent=$accent, usesProfileAvatar=$usesProfileAvatar, filterAllLabel=$filterAllLabel)"
+    return "PlatformNativeSheetItem(id=$id, title=$title, subtitle=$subtitle, sfSymbol=$sfSymbol, iconAsset=$iconAsset, iconSize=$iconSize, showsDisclosure=$showsDisclosure, destructive=$destructive, dismissOnSelect=$dismissOnSelect, actionId=$actionId, actionValue=$actionValue, url=$url, kind=$kind, value=$value, placeholder=$placeholder, options=$options, sourceIndex=$sourceIndex, sourceUrl=$sourceUrl, sourceType=$sourceType, snippet=$snippet, faviconUrl=$faviconUrl, queries=$queries, links=$links, pending=$pending, min=$min, max=$max, divisions=$divisions, avatarName=$avatarName, avatarBytes=${avatarBytes?.contentToString()}, checked=$checked, accent=$accent, usesProfileAvatar=$usesProfileAvatar, filterAllLabel=$filterAllLabel, confirmMessage=$confirmMessage)"
   }
 }
 
@@ -5113,6 +5118,11 @@ interface NativeSheetHostApi {
   fun presentTextEditor(request: PlatformNativeSheetTextEditorRequest, callback: (Result<PlatformNativeSheetActionResult?>) -> Unit)
   fun presentResultSheet(request: PlatformNativeSheetResultRequest, callback: (Result<PlatformNativeSheetActionResult?>) -> Unit)
   fun applyDetailPatch(request: PlatformNativeSheetApplyDetailPatchRequest): Boolean
+  /**
+   * Closes the open page [detailId] of the native Settings sheet, going
+   * back to the page that opened it. Returns whether it was open.
+   */
+  fun closeDetail(detailId: String): Boolean
 
   companion object {
     /** The codec used by NativeSheetHostApi. */
@@ -5358,6 +5368,23 @@ interface NativeSheetHostApi {
             val requestArg = args[0] as PlatformNativeSheetApplyDetailPatchRequest
             val wrapped: List<Any?> = try {
               listOf(api.applyDetailPatch(requestArg))
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.closeDetail$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val detailIdArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              listOf(api.closeDetail(detailIdArg))
             } catch (exception: Throwable) {
               ConduitPlatformApisPigeonUtils.wrapError(exception)
             }

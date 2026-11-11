@@ -12,9 +12,16 @@ import '../../core/services/native_sheet_bridge.dart';
 /// native sheet only pushes a page it was given.
 @immutable
 class SettingsPagesState {
-  const SettingsPagesState({this.pages = const {}});
+  const SettingsPagesState({
+    this.pages = const {},
+    this.closeRequests = const {},
+  });
 
   final Map<String, NativeSheetDetailConfig> pages;
+
+  /// How many times each page was asked to close; a page that sees its
+  /// count change goes back to the page that opened it.
+  final Map<String, int> closeRequests;
 
   NativeSheetDetailConfig? operator [](String id) => pages[id];
 
@@ -69,9 +76,24 @@ class SettingsPages extends Notifier<SettingsPagesState> {
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {
-      state = SettingsPagesState(pages: pages);
+      state = SettingsPagesState(
+        pages: pages,
+        closeRequests: state.closeRequests,
+      );
     }
     return existing != null;
+  }
+
+  /// Asks page [detailId], when it is open, to go back to the page that
+  /// opened it.
+  void requestClose(String detailId) {
+    state = SettingsPagesState(
+      pages: state.pages,
+      closeRequests: {
+        ...state.closeRequests,
+        detailId: (state.closeRequests[detailId] ?? 0) + 1,
+      },
+    );
   }
 
   /// Forgets every page, as the native sheet does when it closes.
@@ -124,6 +146,13 @@ class SettingsSurface {
       detailSheets: detailSheets,
     );
     return native || flutter;
+  }
+
+  /// Closes page [detailId] wherever it is open, back to the page that
+  /// opened it: after a save, or once what it showed is gone.
+  Future<void> closeDetail(String detailId) async {
+    _ref.read(settingsPagesProvider.notifier).requestClose(detailId);
+    await NativeSheetBridge.instance.closeDetail(detailId);
   }
 
   /// Sends page [detail] as a whole, and the pages it leads to.

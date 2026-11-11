@@ -1619,6 +1619,7 @@ class PlatformNativeSheetItem {
     this.accent,
     this.usesProfileAvatar,
     this.filterAllLabel,
+    this.confirmMessage,
   });
 
   String id;
@@ -1693,6 +1694,9 @@ class PlatformNativeSheetItem {
 
   String? filterAllLabel;
 
+  /// Asked before the row acts; the row's title confirms.
+  String? confirmMessage;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -1728,6 +1732,7 @@ class PlatformNativeSheetItem {
       accent,
       usesProfileAvatar,
       filterAllLabel,
+      confirmMessage,
     ];
   }
 
@@ -1771,6 +1776,7 @@ class PlatformNativeSheetItem {
       accent: result[30] as bool?,
       usesProfileAvatar: result[31] as bool?,
       filterAllLabel: result[32] as String?,
+      confirmMessage: result[33] as String?,
     );
   }
 
@@ -1815,7 +1821,8 @@ class PlatformNativeSheetItem {
         _deepEquals(checked, other.checked) &&
         _deepEquals(accent, other.accent) &&
         _deepEquals(usesProfileAvatar, other.usesProfileAvatar) &&
-        _deepEquals(filterAllLabel, other.filterAllLabel);
+        _deepEquals(filterAllLabel, other.filterAllLabel) &&
+        _deepEquals(confirmMessage, other.confirmMessage);
   }
 
   @override
@@ -1824,7 +1831,7 @@ class PlatformNativeSheetItem {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel)';
+    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel, confirmMessage: $confirmMessage)';
   }
 }
 
@@ -6158,6 +6165,29 @@ class NativeSheetHostApi {
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
       <Object?>[request],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Closes the open page [detailId] of the native Settings sheet, going
+  /// back to the page that opened it. Returns whether it was open.
+  Future<bool> closeDetail(String detailId) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.closeDetail$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[detailId],
     );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 

@@ -25,9 +25,9 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart' show Scaffold, TextField;
+import 'package:material_ui/material_ui.dart' show Scaffold;
+import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -255,12 +255,6 @@ Future<_NativeSettings> _pumpApp(
   return native;
 }
 
-/// A segment of the memory editor's type control, by its label.
-Finder _typeSegment(String label) => find.descendant(
-  of: find.byKey(const Key('memory-type')),
-  matching: find.text(label),
-);
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -286,16 +280,18 @@ void main() {
 
       await native.detailAppeared('memory-manage');
       final add = native
-          .items('memory-manage')
-          .singleWhere((item) => item.id == 'memory-add');
-      expect(add.dismissOnSelect, isFalse);
-      final details = native.patch('memory-manage').detailSheets!;
-      expect(details.map((detail) => detail.id), contains('memory-add'));
+          .patch('memory-manage')
+          .detailSheets!
+          .singleWhere((detail) => detail.id == 'memory-add');
+      expect(add.confirmActionId, isNull);
+      expect(add.items.map((item) => item.id), ['memory-add-content']);
+      final edit = native
+          .patch('memory-manage')
+          .detailSheets!
+          .singleWhere((detail) => detail.id == 'memory-edit:m1');
       expect(
-        details
-            .expand((detail) => detail.items)
-            .where((item) => item.id.startsWith('memory-classification:')),
-        isEmpty,
+        edit.sections.expand((section) => section.items).map((item) => item.id),
+        isNot(contains('memory-type:m1')),
       );
 
       await native.control('memory-add-content', 'I prefer metric units');
@@ -307,38 +303,34 @@ void main() {
   });
 
   group('with Advanced on', () {
-    testWidgets('Add memory opens the editor with the type and path', (
+    testWidgets('Add memory holds the text, type and path until Done', (
       tester,
     ) async {
       final native = await _pumpApp(tester, advanced: true);
 
       await native.detailAppeared('memory-manage');
       final add = native
-          .items('memory-manage')
-          .singleWhere((item) => item.id == 'memory-add');
-      expect(add.dismissOnSelect, isTrue);
-      expect(add.actionId, 'memory-editor-new');
+          .patch('memory-manage')
+          .detailSheets!
+          .singleWhere((detail) => detail.id == 'memory-add');
+      expect(add.confirmActionId, nativeMemoryNewSaveId);
       expect(
-        native.patch('memory-manage').detailSheets!.map((detail) => detail.id),
-        isNot(contains('memory-add')),
+        add.sections.expand((section) => section.items).map((item) => item.id),
+        [nativeMemoryNewContentId, nativeMemoryNewTypeId, nativeMemoryNewPathId],
       );
 
-      await native.control('memory-editor-new', true);
-
-      expect(find.byKey(const Key('memory-type')), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, 'Repo notes');
-      await tester.tap(_typeSegment('Context'));
-      await tester.pump();
-      await tester.enterText(find.byKey(const Key('memory-path')), 'repos/a');
-      await tester.tap(find.text('Save').last);
-      await tester.pumpAndSettle();
+      await native.control(nativeMemoryNewContentId, 'Repo notes');
+      await native.control(nativeMemoryNewTypeId, 'context');
+      await native.control(nativeMemoryNewPathId, 'repos/a');
+      expect(native.api.adds, isEmpty);
+      await native.control(nativeMemoryNewSaveId, true);
 
       expect(native.api.adds, [
         (content: 'Repo notes', type: 'context', path: 'repos/a'),
       ]);
     });
 
-    testWidgets('a memory row offers its type and path and edits them', (
+    testWidgets("a memory's page saves its type and path as they change", (
       tester,
     ) async {
       final native = await _pumpApp(tester, advanced: true);
@@ -348,19 +340,16 @@ void main() {
           .patch('memory-manage')
           .detailSheets!
           .singleWhere((detail) => detail.id == 'memory-edit:m1');
-      final row = detail.items.singleWhere(
-        (item) => item.id == 'memory-classification:m1',
+      final rows = detail.sections.expand((section) => section.items);
+      final type = rows.singleWhere((item) => item.id == 'memory-type:m1');
+      expect(type.value, 'context');
+      expect(
+        rows.singleWhere((item) => item.id == 'memory-path:m1').value,
+        'projects/conduit',
       );
-      expect(row.dismissOnSelect, isTrue);
-      expect(row.subtitle, 'Context · projects/conduit');
-      // Delete stays in the native detail.
-      expect(detail.items.map((item) => item.id), contains('memory-delete:m1'));
+      expect(rows.map((item) => item.id), contains('memory-delete:m1'));
 
-      await native.control(row.actionId!, true);
-      await tester.tap(_typeSegment('User'));
-      await tester.pump();
-      await tester.tap(find.text('Save').last);
-      await tester.pumpAndSettle();
+      await native.control('memory-type:m1', 'user');
 
       expect(native.api.updates, [
         (content: 'Prefers metric units', type: 'user', path: null),
@@ -385,12 +374,12 @@ void main() {
         isNot(contains('personalization-memory')),
       );
 
-      await native.control('memory-editor-new', true);
+      await native.control(nativeMemoryNewContentId, 'denied');
+      await native.control(nativeMemoryNewSaveId, true);
       await native.control('memory-add-content', 'denied');
       await native.control('memory-save:m1', 'denied');
       await native.control('memory-delete:m1', true);
 
-      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);
@@ -405,14 +394,14 @@ void main() {
 
       native.switchAccount();
       await tester.pumpAndSettle();
-      await native.control('memory-editor-new', true);
-      await native.control('memory-editor:m1', true);
+      await native.control(nativeMemoryNewContentId, 'from account A');
+      await native.control(nativeMemoryNewSaveId, true);
+      await native.control('memory-type:m1', 'user');
       await native.control('memory-add-content', 'from account A');
       await native.control('memory-save:m1', 'from account A');
       await native.control('memory-delete:m1', true);
       await native.control('memory-clear-all', true);
 
-      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);

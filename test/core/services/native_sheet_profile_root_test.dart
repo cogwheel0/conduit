@@ -12,6 +12,7 @@ import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter/widgets.dart' show Locale;
+import 'package:conduit_core/features/release_notes/models/release_note.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _l10n = lookupAppLocalizations(const Locale('en'));
@@ -657,7 +658,7 @@ void main() {
     });
   });
 
-  test('About rows that open Flutter pages close the sheet with a chevron', () {
+  test("What's New and the licenses are pages of Settings's own", () {
     final items = buildNativeAboutItems(_l10n, appVersion: '1.0');
 
     for (final id in [
@@ -665,9 +666,55 @@ void main() {
       NativeSheetRoutes.openSourceLicenses,
     ]) {
       final item = items.singleWhere((item) => item.id == id);
-      expect(item.dismissOnSelect, isTrue, reason: id);
-      expect(item.showsDisclosure, isTrue, reason: id);
+      expect(item.dismissOnSelect, isFalse, reason: id);
+      expect(item.url, isNull, reason: id);
     }
+  });
+
+  test("What's New lists each release's highlights, then rating and support",
+      () {
+    final page = buildNativeReleaseNotesDetail(
+      _l10n,
+      notes: [
+        ReleaseNote(
+          version: '2.0.0',
+          title: 'New',
+          intro: 'Hello.',
+          bullets: const ['Faster', 'Hermes'],
+          bulletIcons: const ['direct', 'hermes'],
+        ),
+      ],
+      reviewUrl: 'https://example.com/review',
+      supportUrl: 'https://example.com/support',
+    );
+
+    final release = page.sections.first;
+    expect(release.title, '2.0.0');
+    expect(release.items.first.kind, NativeSheetItemKind.readOnlyText);
+    expect(release.items.first.value, 'Hello.');
+    expect(release.items[1].title, 'Faster');
+    expect(release.items[1].sfSymbol, 'bolt');
+    expect(release.items[2].iconAsset, 'assets/icons/hermes_agent.png');
+    expect(page.sections.last.items.map((item) => item.url), [
+      'https://example.com/review',
+      'https://example.com/support',
+    ]);
+  });
+
+  test('the licenses list each package once, in order, opening its texts', () {
+    final list = buildNativeLicensesDetail(_l10n, {'zeta': 1, 'Alpha': 2});
+    final rows = list.sections.single.items;
+    expect(rows.map((row) => row.title), ['Alpha', 'zeta']);
+    expect(rows.first.id, '${nativeLicensePagePrefix}Alpha');
+    expect(rows.first.subtitle, '2');
+
+    final texts = buildNativeLicenseDetail('Alpha', ['MIT', 'BSD']);
+    expect(texts.id, rows.first.id);
+    expect(texts.items.map((item) => item.value), ['MIT', 'BSD']);
+    expect(
+      texts.items.every((item) => item.kind == NativeSheetItemKind.readOnlyText),
+      isTrue,
+    );
   });
 
   group('Webhook destinations row', () {
