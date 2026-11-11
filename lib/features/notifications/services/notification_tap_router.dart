@@ -5,6 +5,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind, kChatStorageKindMetadataKey;
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show authStatusProvider;
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
@@ -262,7 +265,28 @@ class NotificationTapRouter {
           _navigator.openSignIn();
           return false;
         }
-        return _awaitSettledAccount(accountId);
+        if (!await _awaitSettledAccount(accountId)) return false;
+        // A saved session can still be refused once the account is in use:
+        // the switch from LibreChat doesn't say so.
+        if (!await _awaitSignedIn()) {
+          if (_ref.mounted) _navigator.openSignIn();
+          return false;
+        }
+        return true;
+    }
+  }
+
+  /// Whether the account in use is signed in, once its auth has settled.
+  Future<bool> _awaitSignedIn() async {
+    final deadline = DateTime.now().add(_settleTimeout);
+    while (true) {
+      if (!_ref.mounted) return false;
+      final status = _ref.read(authStatusProvider);
+      if (status != AuthStatus.initial && status != AuthStatus.loading) {
+        return status == AuthStatus.authenticated;
+      }
+      if (DateTime.now().isAfter(deadline)) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
 
