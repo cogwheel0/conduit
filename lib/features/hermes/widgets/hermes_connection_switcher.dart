@@ -124,7 +124,9 @@ Future<void> showHermesConnectionPicker(
       },
     ),
   );
-  if (picked == null || picked == activeId || !context.mounted) return;
+  if (picked == null || !context.mounted) return;
+  // Read again: the active connection may have changed while it was open.
+  if (picked == ref.read(hermesActiveConnectionIdProvider)) return;
   await switchHermesConnection(context, ref, picked);
 }
 
@@ -155,7 +157,9 @@ Future<void> showHermesConnectionMenu(
         ),
     ],
   );
-  if (picked == null || picked == activeId || !anchor.mounted) return;
+  if (picked == null || !anchor.mounted) return;
+  // Read again: the active connection may have changed while it was open.
+  if (picked == ref.read(hermesActiveConnectionIdProvider)) return;
   await switchHermesConnection(anchor, ref, picked);
 }
 
