@@ -917,10 +917,14 @@ int _logicalLength(
         :final result,
         :final files,
         :final embeds,
+        :final runningLabel,
+        :final completedLabel,
       ):
         length +=
             id.length +
             name.length +
+            (runningLabel?.length ?? 0) +
+            (completedLabel?.length ?? 0) +
             _valueLogicalLength(arguments) +
             _valueLogicalLength(result) +
             _valueLogicalLength(files) +
@@ -928,6 +932,8 @@ int _logicalLength(
             1;
       case StructuredOutputCodeInterpreterBlock(:final code, :final output):
         length += code.length + _valueLogicalLength(output);
+      case StructuredOutputImageBlock(:final url):
+        length += url.length;
     }
   }
   return length;
@@ -1133,6 +1139,8 @@ bool _requiresImmediateReplacement(
           result: final beforeResult,
           files: final beforeFiles,
           embeds: final beforeEmbeds,
+          runningLabel: final beforeRunningLabel,
+          completedLabel: final beforeCompletedLabel,
         ),
         StructuredOutputToolCallBlock(
           id: final afterId,
@@ -1143,10 +1151,14 @@ bool _requiresImmediateReplacement(
           result: final afterResult,
           files: final afterFiles,
           embeds: final afterEmbeds,
+          runningLabel: final afterRunningLabel,
+          completedLabel: final afterCompletedLabel,
         ),
       ):
         if (beforeId != afterId ||
             beforeName != afterName ||
+            beforeRunningLabel != afterRunningLabel ||
+            beforeCompletedLabel != afterCompletedLabel ||
             beforeDone != afterDone ||
             beforeStatus != afterStatus ||
             _valueUpdateRequiresImmediateReplacement(
@@ -1208,6 +1220,12 @@ bool _requiresImmediateReplacement(
         )) {
           return true;
         }
+      case (
+        StructuredOutputImageBlock(url: final beforeUrl),
+        StructuredOutputImageBlock(url: final afterUrl),
+      ):
+        // A finished image does not change; only another one does.
+        if (beforeUrl != afterUrl) return true;
       default:
         return true;
     }
@@ -1290,6 +1308,8 @@ bool _blocksEquivalent(
         result: final aResult,
         files: final aFiles,
         embeds: final aEmbeds,
+        runningLabel: final aRunningLabel,
+        completedLabel: final aCompletedLabel,
       ),
       StructuredOutputToolCallBlock(
         id: final bId,
@@ -1300,10 +1320,14 @@ bool _blocksEquivalent(
         result: final bResult,
         files: final bFiles,
         embeds: final bEmbeds,
+        runningLabel: final bRunningLabel,
+        completedLabel: final bCompletedLabel,
       ),
     ) =>
       aId == bId &&
           aName == bName &&
+          aRunningLabel == bRunningLabel &&
+          aCompletedLabel == bCompletedLabel &&
           aDone == bDone &&
           aStatus == bStatus &&
           _deepEquals(aArguments, bArguments) &&
@@ -1335,6 +1359,11 @@ bool _blocksEquivalent(
             onPrefixValidation: onPrefixValidation,
           ) &&
           _deepEquals(aOutput, bOutput),
+    (
+      StructuredOutputImageBlock(url: final aUrl),
+      StructuredOutputImageBlock(url: final bUrl),
+    ) =>
+      aUrl == bUrl,
     _ => false,
   };
 }
@@ -1494,6 +1523,8 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
         :final result,
         :final files,
         :final embeds,
+        :final runningLabel,
+        :final completedLabel,
       ):
         semanticBlocks.add(
           SemanticDetailsBlock.toolCall(
@@ -1505,6 +1536,16 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
             result: result,
             files: files,
             embeds: embeds,
+            runningLabel: runningLabel,
+            completedLabel: completedLabel,
+          ),
+        );
+      case StructuredOutputImageBlock(:final url, :final description):
+        // Shown as the web client shows it: the image on its own, described
+        // by the prompt it was made from where the call gave one.
+        semanticBlocks.add(
+          SemanticTextBlock.openWebUI(
+            '\n\n![${_imageAltText(description)}]($url)\n\n',
           ),
         );
       case StructuredOutputCodeInterpreterBlock(
@@ -1566,4 +1607,16 @@ List<String>? _replacementTextParts(
     offset = nextOffset;
   }
   return parts;
+}
+
+/// [description] as markdown image alt text: on one line, with the brackets
+/// and backslashes that would end it escaped, and cut to a readable length.
+String _imageAltText(String? description) {
+  if (description == null) return '';
+  var text = description.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (text.length > 200) text = '${text.substring(0, 199).trimRight()}…';
+  return text.replaceAllMapped(
+    RegExp(r'[\\\[\]]'),
+    (match) => '\\${match[0]}',
+  );
 }

@@ -1,5 +1,6 @@
 package app.cogwheel.conduit
 
+import android.os.ParcelFileDescriptor
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.audio.AudioSource
@@ -47,9 +48,9 @@ private class MlKitRecognizer(private val recognizer: SpeechRecognizer) : OnDevi
         }
     }
 
-    override fun startRecognition(): Flow<OnDeviceSpeechEvent> {
+    override fun startRecognition(input: ParcelFileDescriptor?): Flow<OnDeviceSpeechEvent> {
         val request = speechRecognizerRequest {
-            audioSource = AudioSource.fromMic()
+            audioSource = input?.let { AudioSource.fromPfd(it) } ?: AudioSource.fromMic()
         }
         return recognizer.startRecognition(request).mapNotNull { response ->
             when (response) {

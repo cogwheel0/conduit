@@ -14,6 +14,7 @@ import '../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../features/chat/voice_mode/voice_mode_error_text.dart';
 import '../shared/services/navigation_service.dart';
 import '../core/services/media_upload_controller.dart';
+import '../features/navigation/providers/sidebar_providers.dart';
 
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 
@@ -39,9 +40,34 @@ class ScreenContextNotifier extends Notifier<String?> {
 class AndroidAssistantHandler {
   static const platform = MethodChannel('app.cogwheel.conduit/assistant');
   final Ref _ref;
+  final void Function(Ref ref) _resetChat;
 
-  AndroidAssistantHandler(this._ref) {
+  AndroidAssistantHandler(
+    this._ref, {
+    @visibleForTesting void Function(Ref ref) resetChat = startNewChat,
+  }) : _resetChat = resetChat {
     platform.setMethodCallHandler(_handleMethodCall);
+    unawaited(_takePendingAction());
+  }
+
+  /// Runs what the assistant asked for before this handler listened. A cold
+  /// start delivers the request before Dart runs, so Android holds it (#514).
+  Future<void> _takePendingAction() async {
+    try {
+      final pending = await platform.invokeMapMethod<String, Object?>(
+        'takePendingAction',
+      );
+      final method = pending?['method'];
+      if (method is! String) return;
+      await _handleMethodCall(MethodCall(method, pending?['arguments']));
+    } on MissingPluginException {
+      // Only Android answers on this channel.
+    } catch (e) {
+      DebugLogger.log(
+        'Failed to take pending assistant action: $e',
+        scope: 'assistant',
+      );
+    }
   }
 
   Future<void> _handleMethodCall(MethodCall call) async {
@@ -54,8 +80,20 @@ class AndroidAssistantHandler {
     } else if (call.method == 'startVoiceCall') {
       await _startVoiceCall();
     } else if (call.method == 'startNewChat') {
-      await _startNewChat();
+      final arguments = call.arguments;
+      await _startNewChat(
+        focusComposer: arguments is Map && arguments['focusComposer'] == true,
+      );
     }
+  }
+
+  /// Brings the chat page itself to the front. The router reports the page
+  /// under a pushed one as current, so Settings pushed over chat still reads
+  /// as chat; going to chat closes it either way. The sidebar is not a route,
+  /// so it is asked to close as well.
+  Future<void> _showChat() async {
+    await NavigationService.navigateToChat();
+    _ref.read(sidebarOverlayDismissRequestProvider.notifier).request();
   }
 
   Future<void> _processScreenshot(String screenshotPath) async {
@@ -74,14 +112,11 @@ class AndroidAssistantHandler {
         return;
       }
 
-      // Navigate to chat if not already there
-      if (NavigationService.currentRoute != Routes.chat) {
-        await NavigationService.navigateToChat();
-        if (NavigationService.currentRoute != Routes.chat) return;
-      }
+      await _showChat();
+      if (NavigationService.currentRoute != Routes.chat) return;
 
       // Start a fresh chat context
-      startNewChat(_ref);
+      _resetChat(_ref);
 
       // Add screenshot as attachment
       final file = File(screenshotPath);
@@ -130,6 +165,11 @@ class AndroidAssistantHandler {
   Future<void> _startVoiceCall() async {
     try {
       DebugLogger.log('Starting voice call from assistant', scope: 'assistant');
+      // A cold start can still be signing in or loading models, and a call
+      // started then fails back to text chat (#514).
+      if (await waitForChatEntryReady(_ref, requireModel: true)) {
+        await _showChat();
+      }
       await _ref
           .read(voiceCallLauncherProvider)
           .launch(startNewConversation: true);
@@ -156,7 +196,7 @@ class AndroidAssistantHandler {
     }
   }
 
-  Future<void> _startNewChat() async {
+  Future<void> _startNewChat({bool focusComposer = false}) async {
     try {
       DebugLogger.log('Starting new chat from assistant', scope: 'assistant');
 
@@ -165,12 +205,15 @@ class AndroidAssistantHandler {
         return;
       }
 
-      final isOnChatRoute = NavigationService.currentRoute == Routes.chat;
-      if (!isOnChatRoute) {
-        await NavigationService.navigateToChat();
+      await _showChat();
+      _resetChat(_ref);
+      if (focusComposer) {
+        // Opening the sidebar turns composer autofocus off, and the composer
+        // ignores a focus request until it is back on.
+        _ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+        final tick = _ref.read(inputFocusTriggerProvider);
+        _ref.read(inputFocusTriggerProvider.notifier).set(tick + 1);
       }
-
-      startNewChat(_ref);
       DebugLogger.log('New chat started from assistant', scope: 'assistant');
     } catch (e) {
       DebugLogger.log('Failed to start new chat: $e', scope: 'assistant');

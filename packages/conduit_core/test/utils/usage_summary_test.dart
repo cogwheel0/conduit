@@ -60,7 +60,101 @@ void main() {
     expect(summary.totalTokens, 20);
   });
 
+  test('Open WebUI 0.12.5: usage some steps did not report is incomplete', () {
+    final partial = UsageSummary.fromUsage(<String, dynamic>{
+      'output_tokens': 120,
+      'incomplete': true,
+    });
+    expect(partial.incomplete, isTrue);
+    expect(partial.generationTokens, 120);
+    expect(
+      UsageSummary.fromUsage(<String, dynamic>{'output_tokens': 120}).incomplete,
+      isFalse,
+    );
+  });
+
   test('nothing usable is empty', () {
     expect(UsageSummary.fromUsage(<String, dynamic>{'x': 'y'}).isEmpty, isTrue);
+  });
+
+  test('Open WebUI 0.12.5: a reply over tool rounds counts every call', () {
+    // `prompt_tokens`/`completion_tokens` hold the last call; the canonical
+    // counts are the reply's.
+    final summary = UsageSummary.fromUsage(<String, dynamic>{
+      'prompt_tokens': 900,
+      'completion_tokens': 40,
+      'input_tokens': 1500,
+      'output_tokens': 120,
+      'total_tokens': 1620,
+    });
+    expect(summary.promptTokens, 1500);
+    expect(summary.generationTokens, 120);
+    // The total is the two counts shown, so it is not repeated.
+    expect(summary.totalTokens, isNull);
+  });
+
+  test('a rate keeps its call\'s count, and the reply\'s total shows', () {
+    final summary = UsageSummary.fromUsage(<String, dynamic>{
+      'completion_tokens': 40,
+      'completion_time': 2,
+      'prompt_tokens': 900,
+      'prompt_time': 1,
+      'input_tokens': 1500,
+      'output_tokens': 120,
+      'total_tokens': 1620,
+    });
+    expect(summary.generationPerSecond, 20);
+    expect(summary.generationTokens, 40);
+    expect(summary.promptTokens, 900);
+    expect(summary.totalTokens, 1620);
+  });
+
+  test('the context window holds the last call\'s prompt and answer', () {
+    int? context(Map<String, dynamic> usage) =>
+        UsageSummary.fromUsage(usage).contextTokens;
+
+    // Over tool rounds, the last call's counts, not the reply's sums.
+    expect(
+      context(<String, dynamic>{
+        'prompt_tokens': 900,
+        'completion_tokens': 40,
+        'input_tokens': 1500,
+        'output_tokens': 120,
+      }),
+      940,
+    );
+    expect(
+      context(<String, dynamic>{'prompt_eval_count': 50, 'eval_count': 100}),
+      150,
+    );
+    // llama.cpp counts the prompt it reused from its cache apart.
+    expect(
+      context(<String, dynamic>{
+        'prompt_n': 10,
+        'cache_n': 500,
+        'predicted_n': 85,
+      }),
+      595,
+    );
+    expect(
+      context(<String, dynamic>{'input_tokens': 1500, 'output_tokens': 120}),
+      1620,
+    );
+    // One side alone says nothing about what the window held.
+    expect(context(<String, dynamic>{'completion_tokens': 40}), isNull);
+    expect(
+      context(<String, dynamic>{'prompt_tokens': 900, 'output_tokens': 120}),
+      isNull,
+    );
+  });
+
+  test('usage holding only the incomplete mark reports nothing', () {
+    expect(usageHasReport(<String, dynamic>{'incomplete': true}), isFalse);
+    expect(usageHasReport(null), isFalse);
+    expect(usageHasReport(<String, dynamic>{}), isFalse);
+    expect(
+      usageHasReport(<String, dynamic>{'incomplete': true, 'output_tokens': 3}),
+      isTrue,
+    );
   });
 }

@@ -207,17 +207,27 @@ mixin _ChatsApi on _ApiServiceBase {
     }
   }
 
+  /// Changes only the given keys of chat [id]: every supported server merges
+  /// the chat's top-level keys, and leaves its date alone when no messages
+  /// are sent. [models] is the chat's model list.
   Future<void> updateConversation(
     String id, {
     String? title,
     String? systemPrompt,
+    List<String>? models,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     // OpenWebUI expects POST to /api/v1/chats/{id} with ChatForm { chat: {...} }
     final chatPayload = <String, dynamic>{
       'title': ?title,
       'system': ?systemPrompt,
+      'models': ?models,
     };
-    await _dio.post('/api/v1/chats/$id', data: {'chat': chatPayload});
+    await _dio.post(
+      '/api/v1/chats/$id',
+      data: {'chat': chatPayload},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
   Future<void> deleteConversation(String id) async {
@@ -236,6 +246,14 @@ mixin _ChatsApi on _ApiServiceBase {
       endpoint: '/api/v1/chats/$id/pin',
       desired: pinned,
     );
+  }
+
+  /// POST `/api/v1/chats/{id}/unread` (Open WebUI 0.11+) stores
+  /// `last_read_at = 0`, which every client shows as unread until the chat is
+  /// opened again.
+  Future<void> markConversationUnread(String id) async {
+    _traceApi('Marking conversation unread: $id');
+    await _dio.post('/api/v1/chats/$id/unread');
   }
 
   // Archive/Unarchive conversation

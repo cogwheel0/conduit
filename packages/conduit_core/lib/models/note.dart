@@ -44,11 +44,41 @@ sealed class NoteContent with _$NoteContent {
       _$NoteContentFromJson(json);
 }
 
+/// One page of a note, as Open WebUI 0.12.5 and later store them.
+@freezed
+sealed class NotePage with _$NotePage {
+  const NotePage._();
+
+  const factory NotePage({
+    required String id,
+
+    /// The page this one sits under, or null for a top-level page.
+    @JsonKey(name: 'parent_id') String? parentId,
+
+    @Default('') String title,
+
+    @Default(NoteContent()) NoteContent content,
+
+    /// Counts the page's content saves; the server's conflict check.
+    @Default(0) int revision,
+
+    /// Whether the main page is titled with the note, as it is until it is
+    /// renamed on its own.
+    @JsonKey(name: 'inherit_note_title') @Default(true) bool inheritNoteTitle,
+  }) = _NotePage;
+
+  factory NotePage.fromJson(Map<String, dynamic> json) =>
+      _$NotePageFromJson(json);
+}
+
 /// Data payload for a note, containing content and optional files/versions.
 @freezed
 sealed class NoteData with _$NoteData {
+  const NoteData._();
+
   const factory NoteData({
-    /// The main content of the note
+    /// The main content of the note. On a note with several pages this is a
+    /// read-only view of every page, which the server builds.
     @Default(NoteContent()) NoteContent content,
 
     /// Previous versions for undo/history
@@ -56,10 +86,24 @@ sealed class NoteData with _$NoteData {
 
     /// Attached files (if any)
     @_FileListConverter() List<Map<String, dynamic>>? files,
+
+    /// The note's pages, from a 0.12.5 or later server; empty from an older
+    /// one. Never written back: the server refuses pages in a save.
+    @JsonKey(includeFromJson: false, includeToJson: false)
+    @Default(<NotePage>[])
+    List<NotePage> pages,
   }) = _NoteData;
 
   factory NoteData.fromJson(Map<String, dynamic> json) =>
       _$NoteDataFromJson(json);
+
+  /// Whether the note has more than one page, so [content] is no single
+  /// page's text.
+  bool get isMultiPage => pages.length > 1;
+
+  /// Whether the note is in the paged shape of a 0.12.5 or later server,
+  /// where attachments are links in the page content rather than [files].
+  bool get hasPages => pages.isNotEmpty;
 }
 
 /// Converter for files list which can be null or a list of maps.
@@ -156,6 +200,9 @@ sealed class Note with _$Note {
   /// Get the markdown content of the note
   String get markdownContent => data.content.md;
 
+  /// Whether the note has more than one page (Open WebUI 0.12.5+).
+  bool get isMultiPage => data.isMultiPage;
+
   /// Get markdown suitable for list previews.
   ///
   /// Cached list rows intentionally avoid materializing the full note body, so
@@ -234,7 +281,21 @@ class _NoteDataConverter implements JsonConverter<NoteData, Object?> {
         files = filesJson.whereType<Map<String, dynamic>>().toList();
       }
 
-      return NoteData(content: content, versions: versions, files: files);
+      // Pages (0.12.5+)
+      final pagesJson = json['pages'];
+      final pages = <NotePage>[
+        if (pagesJson is List)
+          for (final page in pagesJson)
+            if (page is Map<String, dynamic> && page['id'] is String)
+              NotePage.fromJson(page),
+      ];
+
+      return NoteData(
+        content: content,
+        versions: versions,
+        files: files,
+        pages: pages,
+      );
     }
     return const NoteData();
   }

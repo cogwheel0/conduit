@@ -1,7 +1,10 @@
 // ignore_for_file: invalid_annotation_target
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'channel_app.dart';
 import 'user.dart';
+
+export 'channel_app.dart';
 
 part 'channel_message.freezed.dart';
 part 'channel_message.g.dart';
@@ -13,6 +16,10 @@ sealed class ChannelMessage with _$ChannelMessage {
     required String id,
     @JsonKey(name: 'channel_id') String? channelId,
     @JsonKey(name: 'user_id') String? userId,
+
+    /// The external app that posted this message (Open WebUI 0.12.1). App
+    /// messages have no [userId]; [user] names the app.
+    @JsonKey(name: 'app_id') String? appId,
     @Default('') String content,
 
     @JsonKey(name: 'user') ChannelMessageUser? user,
@@ -60,6 +67,31 @@ sealed class ChannelMessage with _$ChannelMessage {
 
   /// Display name from the embedded user object.
   String get userName => user?.name ?? 'Unknown';
+
+  /// Whether an external app posted this message.
+  bool get isAppMessage => appId != null;
+
+  /// The cards of an app message, from `data.app.embeds`. Only an app can
+  /// post them, so another author's `data.app` is ignored.
+  List<AppEmbed> get appEmbeds => AppEmbed.listFromJson(_appData?['embeds']);
+
+  /// The buttons and links of an app message, from `data.app.actions`.
+  List<AppAction> get appActions =>
+      AppAction.listFromJson(_appData?['actions']);
+
+  Map<Object?, Object?>? get _appData {
+    if (!isAppMessage) return null;
+    final app = data?['app'];
+    return app is Map ? app : null;
+  }
+
+  /// The text of this message with the text of its app cards, for a reply
+  /// preview. A card-only app message has no content of its own. Mirrors
+  /// Open WebUI's `getAppMessageText` (src/lib/utils/apps.ts).
+  String get previewText => [
+    content,
+    for (final embed in appEmbeds) embed.previewText,
+  ].where((part) => part.isNotEmpty).join('\n\n');
 
   /// This message with [sender] embedded when the server left it out: the
   /// post endpoint answers with a bare row that names only `user_id`.

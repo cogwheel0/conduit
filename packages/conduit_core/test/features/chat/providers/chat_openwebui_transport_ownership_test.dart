@@ -21,6 +21,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/connectivity_service.dart'
@@ -30,6 +31,7 @@ import 'package:conduit_core/services/openwebui_stream_parser.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -38,8 +40,11 @@ import 'package:conduit_core/testing.dart'
     show FakeOpenWebUiServer, FakeSyncApiClient, openWebUiStorageOpenOverrides;
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show LocalReasoningEfforts, localReasoningEffortsProvider;
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
@@ -268,6 +273,18 @@ class _FetchedConfig extends BackendConfigNotifier {
       (await api.getBackendConfig())?.copyWith(serverId: api.serverConfig.id);
 }
 
+/// A server config that has loaded.
+class _LoadedConfig extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() async => const BackendConfig();
+}
+
+/// A server config that is still being fetched.
+class _LoadingConfig extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() => Completer<BackendConfig?>().future;
+}
+
 /// A real [ApiService] whose HTTP layer is an in-memory server: it serves the
 /// user's settings document, answers `/api/chat/completions` with a finished
 /// completion and keeps the request bodies it was sent. Nothing between the
@@ -317,6 +334,19 @@ class _WireCompletionApi extends ApiService implements _AssistantIdSource {
   /// The `Authorization` header every request arrived with, by path.
   final List<({String path, String? authorization})> credentials = [];
 
+  /// How the server answers a temporary chat resume: 200 when it holds the
+  /// chat, 404 when it does not, 405 for a server before Open WebUI 0.13.
+  int resumeStatus = 405;
+
+  /// The detail of a 404 resume; Open WebUI 0.13's own unless set.
+  String resumeNotFoundDetail = TemporaryChatUnavailable.serverDetail;
+
+  /// The chat id and session of every temporary chat resume.
+  final List<({String chatId, Object? sessionId})> resumes = [];
+
+  /// When set, `/api/chat/completions` refuses with this status and detail.
+  ({int status, String detail})? completionRefusal;
+
   @override
   String? get assistantMessageId =>
       completionBodies.isEmpty ? null : completionBodies.last['id'] as String?;
@@ -362,6 +392,41 @@ class _WireAdapter implements HttpClientAdapter {
       path: options.path,
       authorization: options.headers['Authorization'] as String?,
     ));
+    const resumePrefix = '/api/tasks/chat/';
+    const resumeSuffix = '/resume';
+    if (options.path.startsWith(resumePrefix) &&
+        options.path.endsWith(resumeSuffix)) {
+      api.resumes.add((
+        chatId: Uri.decodeComponent(
+          options.path.substring(
+            resumePrefix.length,
+            options.path.length - resumeSuffix.length,
+          ),
+        ),
+        sessionId: (options.data as Map)['session_id'],
+      ));
+      return switch (api.resumeStatus) {
+        200 => _json(<String, dynamic>{
+          'task_ids': <String>[],
+          'streams': <Object>[],
+        }),
+        404 => _json(<String, dynamic>{
+          'detail': api.resumeNotFoundDetail,
+        }, status: 404),
+        final status => _json(<String, dynamic>{
+          'detail': 'Method Not Allowed',
+        }, status: status),
+      };
+    }
+    final refusal = api.completionRefusal;
+    if (refusal != null && options.path == '/api/chat/completions') {
+      api.completionBodies.add(
+        jsonDecode(jsonEncode(options.data)) as Map<String, dynamic>,
+      );
+      return _json(<String, dynamic>{
+        'detail': refusal.detail,
+      }, status: refusal.status);
+    }
     switch (options.path) {
       case '/api/config':
         api.duringConfig?.call();
@@ -479,6 +544,24 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
 
   /// Runs as the completion request leaves, before the server could answer.
   void Function()? onSend;
+
+  /// How often the session endpoint was asked.
+  int sessionChecks = 0;
+
+  @override
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    sessionChecks++;
+    return const User(
+      id: 'user-1',
+      username: 'user',
+      email: 'user@example.test',
+      role: 'user',
+    );
+  }
 
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
@@ -800,6 +883,133 @@ class _PersistingSyncEngine extends SyncEngine {
   }
 }
 
+/// Lands a new chat's creation as the outbox drain does: its rows take the
+/// server id and the remap is announced, during the drain or when the test
+/// says so.
+class _RemappingSyncEngine extends _PersistingSyncEngine {
+  _RemappingSyncEngine(super.db, super.api, {required this.remapOnDrain});
+
+  final bool remapOnDrain;
+  final _remaps = StreamController<RemapEvent>.broadcast(sync: true);
+
+  @override
+  Stream<RemapEvent> get remapEvents => _remaps.stream;
+
+  @override
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {
+    if (remapOnDrain) await landCreation();
+  }
+
+  Future<String> localChatId() async => (await db.select(db.chats).get())
+      .singleWhere((chat) => chat.id.startsWith('local:'))
+      .id;
+
+  Future<void> landCreation() async {
+    final localId = await localChatId();
+    await IdRemapper(db).remapChat(
+      localId: localId,
+      serverId: 'server-chat',
+      serverCreatedAt: 1,
+      serverUpdatedAt: 1,
+    );
+    _remaps.add(
+      RemapEvent(fromId: localId, toId: 'server-chat', entityKind: 'chat'),
+    );
+  }
+}
+
+/// Answers the title and tag tasks, and notes what is written back.
+class _VoiceMetadataApi extends _GatedCompletionApi {
+  _VoiceMetadataApi() : super(Completer<void>()..complete());
+
+  final taskChatIds = <String?>[];
+  List<Map<String, dynamic>>? taskMessages;
+  final renamed = <(String, String?)>[];
+
+  /// The chat's title on the server: the one its creation sent, until it is
+  /// renamed.
+  String serverTitle = 'Plan a weekend in Oslo';
+  Completer<void>? titleGate;
+
+  /// Each request's name, and whether it carried a session snapshot.
+  final requests = <String, bool>{};
+  final tagged = <(String, String)>[];
+  var settingsReads = 0;
+
+  @override
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) {
+    settingsReads += 1;
+    requests['settings'] = authSnapshot != null;
+    return super.getUserSettings(authSnapshot: authSnapshot);
+  }
+
+  @override
+  Future<String?> generateChatTitle({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    requests['title'] = authSnapshot != null;
+    taskChatIds.add(chatId);
+    taskMessages = messages;
+    await titleGate?.future;
+    return 'Weekend in Oslo';
+  }
+
+  @override
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    requests['chat'] = authSnapshot != null;
+    return Conversation(
+      id: id,
+      title: serverTitle,
+      createdAt: DateTime.utc(2026, 10, 15),
+      updatedAt: DateTime.utc(2026, 10, 15),
+    );
+  }
+
+  @override
+  Future<List<String>> generateChatTags({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    requests['tags'] = authSnapshot != null;
+    taskChatIds.add(chatId);
+    return const ['Travel'];
+  }
+
+  @override
+  Future<void> updateConversation(
+    String id, {
+    String? title,
+    String? systemPrompt,
+    List<String>? models,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    requests['rename'] = authSnapshot != null;
+    renamed.add((id, title));
+    if (title != null) serverTitle = title;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> addChatTag(
+    String chatId,
+    String name, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    requests['tag'] = authSnapshot != null;
+    tagged.add((chatId, name));
+    return [
+      {'id': name.toLowerCase(), 'name': name},
+    ];
+  }
+}
+
 /// An engine whose outbox drain is a no-op, so a durable admission can be
 /// inspected exactly as it was written, before any runner picks it up.
 class _NoDrainSyncEngine extends _PersistingSyncEngine {
@@ -946,6 +1156,79 @@ Future<void> _seedChat(
       );
 }
 
+/// A selected model a test can change, as a picker does.
+final class _SelectableModel extends SelectedModel {
+  _SelectableModel(this._initial);
+
+  final Model? _initial;
+
+  @override
+  Model? build() => _initial;
+}
+
+/// A socket to the wire server. It is connected as [session], or, when that
+/// is null, connects as [connectAs] on the [connectOnAttempt]th attempt and
+/// never without [connectAs].
+class _WireSocket extends SocketService {
+  _WireSocket({String? session = 'socket-a', this.connectAs, this.connectOnAttempt = 1})
+    : _session = session,
+      super(
+        serverConfig: const ServerConfig(
+          id: 'wire-server',
+          name: 'Wire server',
+          url: 'https://example.com',
+        ),
+      );
+
+  String? _session;
+  final String? connectAs;
+  final int connectOnAttempt;
+  int _attempts = 0;
+
+  /// How often a connection was asked for.
+  int get attempts => _attempts;
+
+  /// Holds each connection attempt until completed, when set.
+  Completer<void>? hold;
+
+  @override
+  bool get isConnected => _session != null;
+
+  @override
+  String? get sessionId => _session;
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (_session == null) _attempts++;
+    await hold?.future;
+    if (_session == null && connectAs != null && _attempts >= connectOnAttempt) {
+      _session = connectAs;
+    }
+    return _session != null;
+  }
+
+  @override
+  SocketEventSubscription addChatEventHandler({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+    bool requireFocus = true,
+    bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
+    required SocketChatEventHandler handler,
+  }) => SocketEventSubscription(() {});
+
+  @override
+  SocketEventSubscription addChannelEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChannelEventHandler handler,
+  }) => SocketEventSubscription(() {});
+}
+
 ProviderContainer _container({
   required AppDatabase db,
   required Conversation? active,
@@ -955,8 +1238,11 @@ ProviderContainer _container({
   List<Override> extraOverrides = const [],
   SocketService? socket,
   Model model = const Model(id: 'model-1', name: 'Model 1'),
+  bool modelSelectable = false,
   String? terminalId,
   bool webSearchAvailable = false,
+  PersonalConnectionsAccess personalConnections =
+      const PersonalConnectionsAccess.allowed(),
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -965,7 +1251,10 @@ ProviderContainer _container({
       activeConversationProvider.overrideWith(() => _SeededActive(active)),
       chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
       apiServiceProvider.overrideWithValue(api),
-      selectedModelProvider.overrideWithValue(model),
+      if (modelSelectable)
+        selectedModelProvider.overrideWith(() => _SelectableModel(model))
+      else
+        selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
       socketServiceProvider.overrideWithValue(socket),
       temporaryChatEnabledProvider.overrideWith(_FalseTemporaryChat.new),
@@ -976,6 +1265,7 @@ ProviderContainer _container({
       selectedFilterIdsProvider.overrideWithValue(const <String>[]),
       selectedTerminalIdProvider.overrideWithValue(terminalId),
       syncEngineProvider.overrideWith(() => syncEngine),
+      personalConnectionsAccessProvider.overrideWithValue(personalConnections),
     ],
   );
   container.read(chatMessagesProvider.notifier).setMessages(messages);
@@ -991,6 +1281,305 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  group('temporary chats', () {
+    // Open WebUI 0.13 reads the socket session that started a temporary chat
+    // from its id and refuses the chat from any other session, or without one.
+    final uuid = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    );
+
+    Future<({_WireCompletionApi api, ProviderContainer container})> send({
+      required SocketService socket,
+      required bool serverNeedsSocket,
+      Conversation? active,
+      List<ChatMessage> messages = const [],
+      int resumeStatus = 405,
+      String? resumeNotFoundDetail,
+      ({int status, String detail})? completionRefusal,
+    }) async {
+      final api = _WireCompletionApi()
+        ..resumeStatus = resumeStatus
+        ..completionRefusal = completionRefusal;
+      if (resumeNotFoundDetail != null) {
+        api.resumeNotFoundDetail = resumeNotFoundDetail;
+      }
+      final container = _container(
+        db: db,
+        active: active,
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        socket: socket,
+        extraOverrides: [
+          temporaryChatNeedsSocketProvider.overrideWithValue(serverNeedsSocket),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(temporaryChatEnabledProvider, (_, _) {});
+      container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+      await sendMessageWithContainer(container, 'hello', null);
+      return (api: api, container: container);
+    }
+
+    test('names the socket session it is sent from', () async {
+      final sent = await send(socket: _WireSocket(), serverNeedsSocket: true);
+
+      final body = sent.api.sentBody;
+      final chatId = body['chat_id'] as String;
+      check(body['session_id']).equals('socket-a');
+      check(chatId).startsWith('local:socket-a:');
+      check(uuid.hasMatch(chatId.substring('local:socket-a:'.length))).isTrue();
+      check(sent.container.read(activeConversationProvider)!.id).equals(chatId);
+      check(isTemporaryChat(chatId)).isTrue();
+    });
+
+    test('is not sent without a socket to a server that needs one', () async {
+      final sent = await send(
+        socket: _WireSocket(session: null),
+        serverNeedsSocket: true,
+      );
+
+      check(sent.api.completionBodies).isEmpty();
+      final reply = sent.container.read(chatMessagesProvider).last;
+      check(reply.role).equals('assistant');
+      check(reply.error?.content).isNotNull().contains('live connection');
+    });
+
+    test('is named for the session it is sent from when the socket connects '
+        'late', () async {
+      // The first look at the socket finds it still connecting.
+      final sent = await send(
+        socket: _WireSocket(
+          session: null,
+          connectAs: 'socket-b',
+          connectOnAttempt: 2,
+        ),
+        serverNeedsSocket: true,
+      );
+
+      final body = sent.api.sentBody;
+      final chatId = body['chat_id'] as String;
+      check(body['session_id']).equals('socket-b');
+      check(chatId).startsWith('local:socket-b:');
+      check(sent.container.read(activeConversationProvider)!.id).equals(chatId);
+      // A new chat is never asked about: the server cannot hold it yet.
+      check(sent.api.resumes).isEmpty();
+      final messages = sent.container.read(chatMessagesProvider);
+      check(messages.map((m) => m.role).toList()).deepEquals([
+        'user',
+        'assistant',
+      ]);
+      check(messages.first.content).equals('hello');
+    });
+
+    group('a chat named for an earlier session', () {
+      const earlierId = 'local:socket-a:6f1c4b1e-1d7a-4c49-9a8d-6a1f3e2b9c10';
+      final earlier = <ChatMessage>[
+        _user('earlier-user', 'first question'),
+        ChatMessage(
+          id: 'earlier-assistant',
+          role: 'assistant',
+          content: 'first answer',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: 'model-1',
+        ),
+      ];
+      final conversation = Conversation(
+        id: earlierId,
+        title: 'New Chat',
+        createdAt: DateTime.utc(2026, 7, 13),
+        updatedAt: DateTime.utc(2026, 7, 13),
+        messages: earlier,
+      );
+
+      test('keeps its id while the server holds it', () async {
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: true,
+          active: conversation,
+          messages: earlier,
+          resumeStatus: 200,
+        );
+
+        check(sent.api.resumes.single.chatId).equals(earlierId);
+        check(sent.api.resumes.single.sessionId).equals('socket-b');
+        check(sent.api.sentBody['chat_id']).equals(earlierId);
+        check(sent.api.sentBody['session_id']).equals('socket-b');
+      });
+
+      test('is renamed for the new session when the server does not hold '
+          'it', () async {
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: true,
+          active: conversation,
+          messages: earlier,
+          resumeStatus: 404,
+        );
+
+        final chatId = sent.api.sentBody['chat_id'] as String;
+        check(chatId).startsWith('local:socket-b:');
+        check(chatId).not((it) => it.equals(earlierId));
+        check(sent.api.sentBody['session_id']).equals('socket-b');
+        check(
+          sent.container.read(activeConversationProvider)!.id,
+        ).equals(chatId);
+        // The conversation so far is kept and sent.
+        final roles = (sent.api.sentBody['messages'] as List)
+            .cast<Map<String, dynamic>>()
+            .map((m) => m['role'])
+            .where((role) => role != 'system')
+            .toList();
+        check(roles).deepEquals(['user', 'assistant', 'user']);
+        check(
+          sent.container.read(chatMessagesProvider).first.id,
+        ).equals('earlier-user');
+      });
+
+      test('keeps its id when the resume route is unknown', () async {
+        // A proxy before an older server can answer an unknown route so.
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: true,
+          active: conversation,
+          messages: earlier,
+          resumeStatus: 404,
+          resumeNotFoundDetail: 'Not Found',
+        );
+
+        check(sent.api.sentBody['chat_id']).equals(earlierId);
+      });
+
+      test('keeps its id on a server before 0.13', () async {
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: false,
+          active: conversation,
+          messages: earlier,
+        );
+
+        check(sent.api.sentBody['chat_id']).equals(earlierId);
+      });
+    });
+
+    test('switching chats while the socket connects leaves the other chat '
+        'alone', () async {
+      final socket = _WireSocket(session: null, connectAs: 'socket-b')
+        ..hold = Completer<void>();
+      final api = _WireCompletionApi();
+      final container = _container(
+        db: db,
+        active: null,
+        messages: const [],
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        socket: socket,
+        extraOverrides: [temporaryChatNeedsSocketProvider.overrideWithValue(true)],
+      );
+      addTearDown(container.dispose);
+      container.listen(temporaryChatEnabledProvider, (_, _) {});
+      container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+      final sending = sendMessageWithContainer(container, 'hello', null);
+      // Wait until the send is held on the socket.
+      for (var i = 0; i < 200 && socket.attempts == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      check(socket.attempts).equals(1);
+      final other = Conversation(
+        id: 'other-chat',
+        title: 'Other',
+        createdAt: DateTime.utc(2026, 7, 13),
+        updatedAt: DateTime.utc(2026, 7, 13),
+      );
+      container.read(activeConversationProvider.notifier).set(other);
+      socket.hold!.complete();
+      await sending.then((_) {}, onError: (Object _) {});
+
+      check(container.read(activeConversationProvider)!.id).equals('other-chat');
+      check(api.completionBodies).isEmpty();
+    });
+
+    test('an older server is not waited for before the chat is named', () async {
+      // No socket: an older server answers over HTTP, after one attempt to
+      // connect as the request goes out, not two.
+      final socket = _WireSocket(session: null);
+      final sent = await send(socket: socket, serverNeedsSocket: false);
+
+      check(socket.attempts).equals(1);
+      check(sent.api.sentBody.containsKey('session_id')).isFalse();
+    });
+
+    test('a saved chat open in temporary mode keeps its id', () async {
+      final saved = Conversation(
+        id: 'server-chat-1',
+        title: 'Saved',
+        createdAt: DateTime.utc(2026, 7, 13),
+        updatedAt: DateTime.utc(2026, 7, 13),
+        messages: [_user('saved-user', 'earlier')],
+      );
+      final sent = await send(
+        socket: _WireSocket(session: 'socket-b'),
+        serverNeedsSocket: true,
+        active: saved,
+        messages: [_user('saved-user', 'earlier')],
+        resumeStatus: 404,
+      );
+
+      check(sent.api.resumes).isEmpty();
+      check(
+        sent.container.read(activeConversationProvider)!.id,
+      ).equals('server-chat-1');
+    });
+
+    test('a refusal without a socket on a server of unknown version says it '
+        'needs one', () async {
+      final sent = await send(
+        socket: _WireSocket(session: null),
+        serverNeedsSocket: false,
+        completionRefusal: (
+          status: 404,
+          detail: TemporaryChatUnavailable.serverDetail,
+        ),
+      );
+
+      check(sent.api.sentBody.containsKey('session_id')).isFalse();
+      final reply = sent.container.read(chatMessagesProvider).last;
+      check(reply.error?.content).isNotNull().contains('live connection');
+    });
+
+    test('an older server still answers without a socket', () async {
+      final sent = await send(
+        socket: _WireSocket(session: null),
+        serverNeedsSocket: false,
+      );
+
+      final body = sent.api.sentBody;
+      check(body.containsKey('session_id')).isFalse();
+      final chatId = body['chat_id'] as String;
+      check(chatId).startsWith('local:');
+      check(uuid.hasMatch(chatId.substring('local:'.length))).isTrue();
+    });
+
+    test('a refusal for a chat the server forgot says so', () {
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(
+            404,
+            TemporaryChatUnavailable.serverDetail,
+          ),
+        ),
+      ).equals(TemporaryChatUnavailable.userMessage);
+      // Any other 404 is still a missing model.
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(404, 'Model not found'),
+        ),
+      ).contains('model');
+    });
   });
 
   group('personal tool servers and terminals reach the completion request', () {
@@ -1027,6 +1616,9 @@ void main() {
       List<String> toolIds = const <String>[],
       SocketService? socket,
       void Function()? onSend,
+      PersonalConnectionsAccess personalConnections =
+          const PersonalConnectionsAccess.allowed(),
+      BackendConfigNotifier Function()? config,
     }) async {
       const chatId = 'personal-connections-chat';
       const assistantId = 'personal-connections-assistant';
@@ -1045,8 +1637,17 @@ void main() {
         api: api,
         syncEngine: _PersistingSyncEngine(db, api),
         socket: socket,
+        personalConnections: personalConnections,
+        extraOverrides: [
+          if (config != null) backendConfigProvider.overrideWith(config),
+        ],
       );
       addTearDown(container.dispose);
+      if (config != null) {
+        // The app reads the config at sign-in, long before a turn runs.
+        container.read(backendConfigProvider);
+        await Future<void>.delayed(Duration.zero);
+      }
       final runnerProvider = Provider<RequestCompletionRunner>(
         (ref) => ChatRequestCompletionRunner(ref),
       );
@@ -1093,6 +1694,94 @@ void main() {
         check(alpha.authorizations).isEmpty();
       },
     );
+
+    test('nothing is sent or read while the server keeps them off', () async {
+      // Open WebUI 0.12.4 ignores personal servers while Direct Integrations
+      // is off, and Conduit would not run their tools.
+      final servers = <dynamic>[toolServer('alpha', alpha, key: 'alpha-key')];
+      final api = await runCompletion(
+        settings: <String, dynamic>{
+          'ui': <String, dynamic>{
+            'toolServers': servers,
+            'terminalServers': <dynamic>[
+              <String, dynamic>{
+                'url': beta.url,
+                'key': 'terminal-key',
+                'path': '/openapi.json',
+                'auth_type': 'bearer',
+                'enabled': true,
+                'config': <String, dynamic>{},
+              },
+            ],
+          },
+        },
+        toolIds: <String>[personalToolServerSelectionId(servers, 0)],
+        personalConnections: const PersonalConnectionsAccess.blocked(
+          PersonalConnectionsBlock.serverDisabled,
+        ),
+        config: _LoadedConfig.new,
+      );
+
+      check(api.submittedToolServers).isNull();
+      check(alpha.authorizations).isEmpty();
+      check(beta.authorizations).isEmpty();
+    });
+
+    test('a turn run before the config loads still sends them', () async {
+      // A queued turn replayed at launch can run before the config is in, so
+      // the refusal it reads then has not been decided.
+      final servers = <dynamic>[toolServer('alpha', alpha, key: 'alpha-key')];
+      final api = await runCompletion(
+        settings: <String, dynamic>{
+          'ui': <String, dynamic>{'toolServers': servers},
+        },
+        toolIds: <String>[personalToolServerSelectionId(servers, 0)],
+        personalConnections: const PersonalConnectionsAccess.blocked(
+          PersonalConnectionsBlock.serverDisabled,
+        ),
+        config: _LoadingConfig.new,
+      );
+
+      check(api.submittedToolServers!.single['url']).equals(alpha.url);
+      check(alpha.authorizations).deepEquals(<String?>['Bearer alpha-key']);
+    });
+
+    test('a typed message leaves them out and keeps the selection', () async {
+      const chatId = 'personal-connections-off-chat';
+      const assistantId = 'personal-connections-off-assistant';
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final servers = <dynamic>[toolServer('alpha', alpha, key: 'alpha-key')];
+      final api = _GatedCompletionApi(Completer<void>()..complete())
+        ..settings = <String, dynamic>{
+          'ui': <String, dynamic>{'toolServers': servers},
+        };
+      final messages = <ChatMessage>[
+        _user('personal-connections-off-user', 'use my tools'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        personalConnections: const PersonalConnectionsAccess.blocked(
+          PersonalConnectionsBlock.serverDisabled,
+        ),
+        extraOverrides: [backendConfigProvider.overrideWith(_LoadedConfig.new)],
+      );
+      addTearDown(container.dispose);
+      await container.read(backendConfigProvider.future);
+      final selection = <String>[personalToolServerSelectionId(servers, 0)];
+      container.read(selectedToolIdsProvider.notifier).set(selection);
+
+      await sendMessageWithContainer(container, 'hello', null, selection);
+
+      check(api.submittedToolServers).isNull();
+      check(alpha.authorizations).isEmpty();
+      // It applies again once the server offers personal connections.
+      check(container.read(selectedToolIdsProvider)).deepEquals(selection);
+    });
 
     test('a selection of a server that is gone sends no server', () async {
       final before = <dynamic>[
@@ -1570,6 +2259,48 @@ void main() {
     },
   );
 
+  test('a completion refused with 401 checks the session instead of '
+      'reloading it', () async {
+    // Open WebUI 0.12 hands back a provider's own 401 or 403, such as a bad
+    // upstream API key, as well as its own for an ended session.
+    const chatId = 'provider-rejected-chat';
+    await _seedChat(db, chatId);
+    final api = _GatedCompletionApi(Completer<void>())
+      ..onSend = () => throw const ChatCompletionHttpException(
+        401,
+        'Incorrect API key provided',
+      );
+    final syncEngine = _PersistingSyncEngine(db, api);
+    final messages = <ChatMessage>[_user('user-existing', 'History')];
+    var authBuilds = 0;
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+      extraOverrides: [
+        authStateManagerProvider.overrideWith(
+          () => _CountingAuthStateManager(() => authBuilds++),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final authSub = container.listen(authStateManagerProvider, (_, _) {});
+    addTearDown(authSub.close);
+    await container.read(authStateManagerProvider.future);
+
+    await sendMessageWithContainer(container, 'A new turn', null);
+    await Future<void>.delayed(Duration.zero);
+
+    check(api.completionCalls).equals(1);
+    check(container.read(chatMessagesProvider).last.error).isNotNull();
+    check(authBuilds).equals(1);
+    // The session endpoint is asked once; its refusal, not this one, would
+    // end the session through the auth interceptor.
+    check(api.sessionChecks).equals(1);
+  });
+
   test('inline POST navigation continues A headlessly without touching colliding B', () async {
     const chatId = 'same-chat-id';
     await _seedChat(db, chatId);
@@ -1754,6 +2485,9 @@ void main() {
         selectedFilterIdsProvider.overrideWithValue(const <String>[]),
         selectedTerminalIdProvider.overrideWithValue(null),
         syncEngineProvider.overrideWith(() => syncEngineA),
+        personalConnectionsAccessProvider.overrideWithValue(
+          const PersonalConnectionsAccess.allowed(),
+        ),
       ]);
       final bSnapshot = _snapshot(bMessages);
       container
@@ -2752,6 +3486,267 @@ void main() {
               ops.singleWhere((op) => op.kind == 'requestCompletion').payload,
             ) as Map<String, dynamic>,
           );
+
+      test('a voice reply is stored as a finished answer, and runs nothing', () async {
+        await _seedChat(db, chatId);
+        final api = _GatedCompletionApi(Completer<void>()..complete());
+        final messages = <ChatMessage>[_user('u0', 'earlier')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+        const userVoice = {'call_id': 'call-1', 'input_item_id': 'item-1'};
+        const replyVoice = {
+          'call_id': 'call-1',
+          'model': 'gpt-realtime',
+          'speech': [
+            {'item_id': 'speech-1', 'transcript': 'Hi! How can I help?'},
+          ],
+        };
+
+        await durableSend(
+          container,
+          'Hello',
+          null,
+          contextAttachments: const [],
+          voice: const ChatSendVoiceContext.answered(
+            userVoice: userVoice,
+            reply: ChatVoiceReply(
+              text: 'Hi! How can I help?',
+              model: 'gpt-realtime',
+              voice: replyVoice,
+            ),
+          ),
+        );
+
+        check((await pendingOps(chatId)).map((op) => op.kind))
+            .not((it) => it.contains('requestCompletion'));
+        final rows = await db.messagesDao.getForChat(chatId);
+        final user = jsonDecode(
+          rows.singleWhere((row) => row.content == 'Hello').payload,
+        ) as Map<String, dynamic>;
+        check(user['meta']).isA<Map<String, dynamic>>().deepEquals({
+          'voice': userVoice,
+        });
+        final reply = rows.singleWhere((row) => row.role == 'assistant');
+        check(reply.content).equals('Hi! How can I help?');
+        check(reply.model).equals('gpt-realtime');
+        final payload = jsonDecode(reply.payload) as Map<String, dynamic>;
+        check(payload['done']).equals(true);
+        check(payload['meta']).isA<Map<String, dynamic>>().deepEquals({
+          'voice': replyVoice,
+        });
+        final shown = container.read(chatMessagesProvider).last;
+        check(shown.isStreaming).isFalse();
+        check(shown.content).equals('Hi! How can I help?');
+        check(api.completionCalls).equals(0);
+      });
+
+      test('a delegated voice turn is admitted like a typed one, marked as said', () async {
+        await _seedChat(db, chatId);
+        final api = _GatedCompletionApi(Completer<void>()..complete());
+        final messages = <ChatMessage>[_user('u0', 'earlier')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+
+        await durableSend(
+          container,
+          'Weather in Oslo?',
+          null,
+          contextAttachments: const [],
+          voice: const ChatSendVoiceContext.delegated(
+            userVoice: {'call_id': 'call-1', 'input_item_id': 'item-2'},
+          ),
+        );
+
+        check((await pendingOps(chatId)).map((op) => op.kind))
+            .contains('requestCompletion');
+        final user = (await db.messagesDao.getForChat(chatId))
+            .singleWhere((row) => row.content == 'Weather in Oslo?');
+        check((jsonDecode(user.payload) as Map)['meta'])
+            .isA<Map<dynamic, dynamic>>()
+            .deepEquals({
+              'voice': {'call_id': 'call-1', 'input_item_id': 'item-2'},
+            });
+      });
+
+      group('a chat a voice reply starts', () {
+        const exchange = ChatSendVoiceContext.answered(
+          userVoice: {'call_id': 'call-1', 'input_item_id': 'item-1'},
+          reply: ChatVoiceReply(
+            text: 'Sure, here is a plan.',
+            model: 'gpt-realtime',
+            voice: {'call_id': 'call-1', 'model': 'gpt-realtime'},
+          ),
+        );
+
+        Future<void> settle(
+          bool Function() done, [
+          Future<void> Function()? poll,
+        ]) async {
+          for (var i = 0; i < 200; i++) {
+            await poll?.call();
+            if (done()) return;
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+        }
+
+        test('is titled and tagged once its creation lands', () async {
+          final api = _VoiceMetadataApi();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await settle(() => api.tagged.isNotEmpty);
+
+          check(api.taskChatIds).deepEquals(['server-chat', 'server-chat']);
+          check(api.taskMessages).isNotNull().deepEquals([
+            {'role': 'user', 'content': 'Plan a weekend in Oslo'},
+          ]);
+          check(api.renamed).deepEquals([('server-chat', 'Weekend in Oslo')]);
+          check(api.tagged).deepEquals([('server-chat', 'Travel')]);
+          check(api.completionCalls).equals(0);
+          // Each goes with the session that sent, so a sign-in change on the
+          // way cancels it rather than sending it as another account.
+          check(api.requests).deepEquals({
+            'settings': true,
+            'title': true,
+            'chat': true,
+            'rename': true,
+            'tags': true,
+            'tag': true,
+          });
+          // The list and the open chat show it without waiting for a pull.
+          String? stored;
+          await settle(() => stored == 'Weekend in Oslo', () async {
+            stored = (await db.chatsDao.getChat('server-chat'))?.title;
+          });
+          check(stored).equals('Weekend in Oslo');
+        });
+
+        test('keeps a title the user gave it while it synced', () async {
+          final api = _VoiceMetadataApi();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: false);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          // Renamed here or on the web before the creation landed.
+          api.serverTitle = 'My trip';
+          await engine.landCreation();
+          await settle(() => api.tagged.isNotEmpty);
+
+          check(api.taskChatIds).deepEquals(['server-chat', 'server-chat']);
+          check(api.renamed).isEmpty();
+          check(api.tagged).deepEquals([('server-chat', 'Travel')]);
+        });
+
+        test('waits for a rename still reaching the server', () async {
+          final api = _VoiceMetadataApi()..titleGate = Completer<void>();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await settle(() => api.taskChatIds.isNotEmpty);
+          // The user renames the chat while its title is being generated.
+          final renameSent = Completer<void>();
+          final renaming = container
+              .read(chatTitleLocksProvider)
+              .runExclusive('server-chat', () async {
+                await renameSent.future;
+                api.serverTitle = 'My trip';
+              });
+          api.titleGate!.complete();
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          renameSent.complete();
+          await renaming;
+          await settle(() => api.tagged.isNotEmpty);
+
+          check(api.renamed).isEmpty();
+          check(api.serverTitle).equals('My trip');
+        });
+
+        test('follows the auto-title and auto-tag settings', () async {
+          final api = _VoiceMetadataApi()
+            ..settings = const {
+              'ui': {
+                'title': {'auto': false},
+                'autoTags': false,
+              },
+            };
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await settle(() => api.settingsReads > 0);
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+
+          check(api.taskChatIds).isEmpty();
+          check(api.renamed).isEmpty();
+          check(api.tagged).isEmpty();
+        });
+      });
 
       test('an existing chat is admitted with its stored settings and replays them', () async {
         await _seedChat(
@@ -4854,12 +5849,14 @@ void main() {
     open({
       List<Model> available = const [duplicate],
       Map<String, dynamic>? storedParams,
+      Map<String, String> picks = const {},
       bool socketConnected = true,
       bool trackSignIn = false,
       _QuietSyncEngine Function(AppDatabase, _FanOutApi)? engine,
       Map<String, dynamic>? storedBlob,
       User? account,
       bool webSearchAvailable = false,
+      bool modelSelectable = false,
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -4887,8 +5884,16 @@ void main() {
         syncEngine: engine?.call(db, api) ?? _QuietSyncEngine(db, api),
         socket: socket,
         webSearchAvailable: webSearchAvailable,
+        modelSelectable: modelSelectable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
+          // The picker's own pick per model id, on the fan-out server.
+          localReasoningEffortsProvider.overrideWith(
+            () => _FixedEfforts({
+              for (final MapEntry(:key, :value) in picks.entries)
+                'openwebui:fan-out:$key': value,
+            }),
+          ),
           if (account != null) ..._signedInAs(account),
           if (trackSignIn)
             openWebUiAuthSessionEpochProvider.overrideWith(
@@ -5229,6 +6234,28 @@ void main() {
           container.read(contextAttachmentsProvider).map((a) => a.displayName),
         ).deepEquals(['Newer']);
         check(container.read(webSearchEnabledProvider)).isFalse();
+      });
+
+      test('Temporary Chat switched on meanwhile refuses the turn before '
+          'anything is saved', () async {
+        final (:api, :container, :admitted, :navigated) = await begin();
+        container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+        api.holdFileInfo!.complete();
+        await check(admitted).throws<ComparisonAdmissionException>(
+          (it) => it
+              .has((e) => e.reason, 'reason')
+              .equals(ComparisonAdmissionFailure.unavailable),
+        );
+
+        // Nothing was written, sent or left on screen.
+        check(navigated).isEmpty();
+        check(await db.messagesDao.getForChat(chatId)).isEmpty();
+        check(await db.outboxDao.pendingForChat(chatId)).isEmpty();
+        check(api.requests).isEmpty();
+        check(
+          container.read(chatMessagesProvider).map((m) => m.id),
+        ).deepEquals(['u0']);
       });
     });
 
@@ -5740,20 +6767,33 @@ void main() {
       ).isA<String>().contains('cannot compare');
     });
 
-    test('mixed reasoning-effort support is refused in either slot order '
-        'until the override is removed', () async {
+    test('a saved effort joins only the models that would be sent '
+        'it', () async {
+      // A model that does not advertise reasoning effort is sent only its own
+      // pick (issue #611), and the group shares one value, so it joins a
+      // saved effort only when it picked that same value. A model that
+      // explicitly refuses the parameter blocks the group in either order.
       const reasoning = Model(
         id: 'reasoner',
         name: 'Reasoner',
         supportedParameters: ['reasoning_effort'],
       );
       const plain = Model(id: 'plain', name: 'Plain');
+      const picked = Model(id: 'picked', name: 'Picked');
+      const refuser = Model(
+        id: 'refuser',
+        name: 'Refuser',
+        capabilities: <String, dynamic>{'reasoning_effort': false},
+      );
       final (:api, :socket, :container) = await open(
-        available: const [reasoning, plain],
+        available: const [reasoning, plain, picked, refuser],
         storedParams: {'reasoning_effort': 'high'},
+        picks: const {'picked': 'high'},
       );
 
       for (final order in [
+        const [reasoning, refuser],
+        const [refuser, reasoning],
         const [reasoning, plain],
         const [plain, reasoning],
       ]) {
@@ -5771,24 +6811,60 @@ void main() {
       check(container.read(chatMessagesProvider)).length.equals(1);
       check(api.requests).isEmpty();
 
-      await db.chatsDao.patchChatParamsWithOutbox(
-        chatId,
-        remove: const ['reasoning_effort'],
-        updatedAt: 9,
-      );
-      await db.delete(db.outboxDao.outboxOps).go();
-
-      await durableCompareSend(
+      // With its own matching pick the undeclared model is admitted, and the
+      // one shared request carries the saved value for both answers.
+      final handles = await durableCompareSend(
         container,
         'compare',
         null,
-        models: const [plain, reasoning],
+        models: const [picked, reasoning],
       );
       await replay(container);
       check(api.requests).length.equals(1);
-      check(api.requests.single.chatParams).isNotNull().not(
-        (it) => it.containsKey('reasoning_effort'),
+      final params = api.requests.single.chatParams;
+      check(params).isNotNull();
+      check(params!['reasoning_effort']).equals('high');
+      check(handles).length.equals(2);
+    });
+
+    test('an undeclared model\'s own pick counts among the picker '
+        'values', () async {
+      // With nothing saved on the chat the picker's values must wire the
+      // same way for every answer. An undeclared model sends its own pick,
+      // so it agrees with a reasoning model that picked the same value and
+      // conflicts with a model left on Automatic.
+      const reasoning = Model(
+        id: 'reasoner',
+        name: 'Reasoner',
+        supportedParameters: ['reasoning_effort'],
       );
+      const plain = Model(id: 'plain', name: 'Plain');
+      const picked = Model(id: 'picked', name: 'Picked');
+      final (:api, :socket, :container) = await open(
+        available: const [reasoning, plain, picked],
+        picks: const {'reasoner': 'high', 'picked': 'high'},
+      );
+
+      await check(
+        durableCompareSend(
+          container,
+          'compare',
+          null,
+          models: const [picked, plain],
+        ),
+      ).throws<ComparisonAdmissionException>(
+        (it) => it
+            .has((e) => e.reason, 'reason')
+            .equals(ComparisonAdmissionFailure.settingsConflict),
+      );
+
+      final handles = await durableCompareSend(
+        container,
+        'compare',
+        null,
+        models: const [picked, reasoning],
+      );
+      check(handles).length.equals(2);
     });
 
     test('a chat that is not on screen is driven headlessly: one request, '
@@ -5901,6 +6977,609 @@ void main() {
           .read(chatMessagesProvider)
           .firstWhere((m) => m.id == request.messageIds!.single.messageId);
       check(regenerated.modelSlot).equals(1);
+    });
+
+    test('once another model is picked, regenerating a compared answer asks '
+        'that model, in the answer\'s column', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+
+      // The user picks a third model after the comparison was sent: Open
+      // WebUI 0.12.5 regenerates with the model picked now.
+      await saveChatModelChoice(container, third);
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-3'],
+      ]);
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-3']);
+
+      await regenerateMessage(container, 'compare these', null);
+
+      final request = api.requests.last;
+      check(request.model).equals('model-3');
+      check(request.messageIds!.single.modelIdx).equals(1);
+    });
+
+    test('a model picked while a reply streams is stored at once and sent '
+        'once the reply ends', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      await replay(container);
+      check(container.read(isChatStreamingProvider)).isTrue();
+
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // A server before 0.12 rewrites the whole chat to merge one key, which
+      // could overwrite the streaming reply: nothing is sent yet.
+      check(api.savedModels).isEmpty();
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-2']);
+
+      for (final h in handles) {
+        socket.deliver(h.assistantMessageId, 'chat:completion', {
+          'content': 'done',
+          'done': true,
+        });
+      }
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('of two quick picks the later one is saved', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      await replay(container);
+      final first = saveChatModelChoice(container, other);
+      final second = saveChatModelChoice(container, third);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      for (final h in handles) {
+        socket.deliver(h.assistantMessageId, 'chat:completion', {
+          'content': 'done',
+          'done': true,
+        });
+      }
+      await Future.wait([first, second]);
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-3'],
+      ]);
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-3']);
+    });
+
+    test('a model list is sent only once a push of the chat begun before it '
+        'has ended', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      // A push of the whole chat, with the old list, holds the chat.
+      final pushing = Completer<void>();
+      unawaited(
+        container
+            .read(chatLocksProvider)
+            .runExclusive(chatId, () => pushing.future),
+      );
+
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(api.savedModels).isEmpty();
+
+      pushing.complete();
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('a model list waits while the server runs a task in the chat, '
+        'though no reply streams on screen', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      check(container.read(isChatStreamingProvider)).isFalse();
+
+      final saving = saveChatModelChoice(container, other);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      check(api.savedModels).isEmpty();
+
+      container.read(activeChatIdsProvider.notifier).setInactive(chatId);
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('a chat whose reply still runs does not hold up another chat\'s '
+        'list', () async {
+      final (:api, :socket, :container) = await open();
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      final queue = container.read(chatModelSaveQueueProvider.notifier);
+
+      final waiting = queue.save(chatId, const ['model-2']);
+      unawaited(queue.save('idle-chat', const ['model-3']));
+      // The queue looks again within a moment.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+      ]);
+
+      container.read(activeChatIdsProvider.notifier).setInactive(chatId);
+      await waiting;
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+        chatId,
+      ]);
+    });
+
+    test('a model list held up by a push is neither stored nor sent once '
+        'another sign-in begins', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        trackSignIn: true,
+      );
+      // A push of the whole chat holds it while the user picks a model.
+      final pushing = Completer<void>();
+      unawaited(
+        container
+            .read(chatLocksProvider)
+            .runExclusive(chatId, () => pushing.future),
+      );
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      // What the next account's sync stores for the chat.
+      await db.chatsDao.setChatModels(chatId, const ['model-1']);
+      pushing.complete();
+      await saving;
+
+      check(api.savedModels).isEmpty();
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-1']);
+    });
+
+    test('a model list held up by a push waits for a reply that started '
+        'meanwhile', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      final pushing = Completer<void>();
+      unawaited(
+        container
+            .read(chatLocksProvider)
+            .runExclusive(chatId, () => pushing.future),
+      );
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // A reply starts in the chat before the push lets go of it.
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      pushing.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      check(api.savedModels).isEmpty();
+
+      container.read(activeChatIdsProvider.notifier).setInactive(chatId);
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('a pick from a picker another chat or sign-in came in under is '
+        'dropped', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+        trackSignIn: true,
+        modelSelectable: true,
+      );
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      // A picker for the chat open now applies its pick and saves it.
+      check(
+        applyChatModelPick(
+          container,
+          other,
+          target: captureChatModelPickTarget(container),
+        ),
+      ).isTrue();
+      await settle();
+      check(container.read(selectedModelProvider)?.id).equals('model-2');
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([chatId]);
+
+      // A notification opens another chat while the picker is up.
+      final opened = captureChatModelPickTarget(container);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('other-chat', [
+              _user('other-u', 'hello'),
+            ], ChatStorageKind.openWebUi),
+          );
+      check(applyChatModelPick(container, third, target: opened)).isFalse();
+      await settle();
+      check(container.read(selectedModelProvider)?.id).equals('model-2');
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([chatId]);
+
+      // Another sign-in begins while the picker is up.
+      final signedIn = captureChatModelPickTarget(container);
+      container.read(_signInEpochProvider.notifier).rotate();
+      check(applyChatModelPick(container, third, target: signedIn)).isFalse();
+      await settle();
+      check(container.read(selectedModelProvider)?.id).equals('model-2');
+      check(api.savedModels).length.equals(1);
+    });
+
+    test('a pick in a chat with a known owner is not saved before this '
+        'account is known', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      check(container.read(currentUserProvider2)).isNull();
+      final active = container.read(activeConversationProvider)!;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(active.copyWith(userId: 'someone-else'));
+
+      await saveChatModelChoice(container, other);
+
+      check(api.savedModels).isEmpty();
+      check(container.read(chatModelPickProvider)).isNull();
+    });
+
+    test('a model list the server never takes stops holding over its list',
+        () async {
+      final waits = ChatModelSaveQueue.modelSaveRetryWaits;
+      ChatModelSaveQueue.modelSaveRetryWaits = const [
+        Duration.zero,
+        Duration.zero,
+      ];
+      addTearDown(() => ChatModelSaveQueue.modelSaveRetryWaits = waits);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        engine: _FailingPullEngine.new,
+      );
+      api.failModelSaves = 3;
+      final engine = container.read(syncEngineProvider.notifier)
+          as _FailingPullEngine;
+      final pullsBefore = engine.pulls;
+
+      await saveChatModelChoice(container, other);
+
+      check(api.savedModels).length.equals(3);
+      // Given up: a change made elsewhere shows again, and the server's copy
+      // is read, as a pull would skip a chat the server has not changed.
+      check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
+      check(engine.pulls).equals(pullsBefore + 1);
+      // That read got the chat: it is not read again.
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(engine.pulls).equals(pullsBefore + 1);
+    });
+
+    test('a chat whose read fails after its model save is given up is read '
+        'again, until a read succeeds', () async {
+      final waits = ChatModelSaveQueue.modelSaveRetryWaits;
+      ChatModelSaveQueue.modelSaveRetryWaits = const [
+        Duration.zero,
+        Duration.zero,
+      ];
+      addTearDown(() => ChatModelSaveQueue.modelSaveRetryWaits = waits);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        engine: _FailingPullEngine.new,
+      );
+      api.failModelSaves = 3;
+      final engine =
+          container.read(syncEngineProvider.notifier) as _FailingPullEngine;
+      final pullsBefore = engine.pulls;
+      engine.failPulls = 1;
+
+      await saveChatModelChoice(container, other);
+
+      // The first read fails; the next one succeeds, and no more are made.
+      // Each read again waits a timer turn; more turns pass than it needs.
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(engine.pulls).equals(pullsBefore + 2);
+    });
+
+    test('a chat read for nothing after its model save is given up is read '
+        'again', () async {
+      final waits = ChatModelSaveQueue.modelSaveRetryWaits;
+      ChatModelSaveQueue.modelSaveRetryWaits = const [
+        Duration.zero,
+        Duration.zero,
+      ];
+      addTearDown(() => ChatModelSaveQueue.modelSaveRetryWaits = waits);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        engine: _FailingPullEngine.new,
+      );
+      api.failModelSaves = 3;
+      final engine =
+          container.read(syncEngineProvider.notifier) as _FailingPullEngine;
+      final pullsBefore = engine.pulls;
+      engine.emptyPulls = 1;
+
+      await saveChatModelChoice(container, other);
+
+      // The engine was not ready for the first read; the next gets the chat.
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(engine.pulls).equals(pullsBefore + 2);
+    });
+
+    test('a chat whose reads keep failing after its model save is given up '
+        'is read only as often as a save is sent', () async {
+      final waits = ChatModelSaveQueue.modelSaveRetryWaits;
+      ChatModelSaveQueue.modelSaveRetryWaits = const [
+        Duration.zero,
+        Duration.zero,
+      ];
+      addTearDown(() => ChatModelSaveQueue.modelSaveRetryWaits = waits);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        engine: _FailingPullEngine.new,
+      );
+      api.failModelSaves = 3;
+      final engine =
+          container.read(syncEngineProvider.notifier) as _FailingPullEngine;
+      final pullsBefore = engine.pulls;
+      engine.failPulls = 99;
+
+      await saveChatModelChoice(container, other);
+
+      // Each read again waits a timer turn; more turns pass than it needs.
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(engine.pulls).equals(pullsBefore + 3);
+    });
+
+    test('a model list the server did not take is sent again', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      api.failModelSaves = 1;
+      final engine = container.read(syncEngineProvider.notifier)
+          as _QuietSyncEngine;
+      final pullsBefore = engine.pulls;
+
+      await saveChatModelChoice(container, other);
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+        ['model-2'],
+      ]);
+      // The server has it now: copies it sends from here on are taken, and
+      // nothing needs reading again.
+      check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
+      check(engine.pulls).equals(pullsBefore);
+    });
+
+    test('a chat listed as running a task the server no longer runs does not '
+        'hold its model list back', () async {
+      final saved = ChatModelSaveQueue.listedTaskCheckAfter;
+      ChatModelSaveQueue.listedTaskCheckAfter = Duration.zero;
+      addTearDown(() => ChatModelSaveQueue.listedTaskCheckAfter = saved);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      // A listing an event missed left behind; the server runs nothing.
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      api.activeTaskIds = const [];
+
+      await saveChatModelChoice(
+        container,
+        other,
+      ).timeout(const Duration(seconds: 5));
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+      // The listing stays: in a shared chat it may be another person's task,
+      // which the server's list for this account leaves out.
+      check(container.read(activeChatIdsProvider)).contains(chatId);
+    });
+
+    test('a slow task lookup for a listed chat holds up neither another '
+        'chat\'s list nor a second lookup', () async {
+      final saved = ChatModelSaveQueue.listedTaskCheckAfter;
+      ChatModelSaveQueue.listedTaskCheckAfter = Duration.zero;
+      addTearDown(() => ChatModelSaveQueue.listedTaskCheckAfter = saved);
+      final (:api, :socket, :container) = await open();
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      final lookup = Completer<List<String>>();
+      api.holdTaskList = lookup;
+      final queue = container.read(chatModelSaveQueueProvider.notifier);
+
+      final waiting = queue.save(chatId, const ['model-2']);
+      await api.taskListEntered.future.timeout(const Duration(seconds: 5));
+      final asked = api.taskListRequests;
+      unawaited(queue.save('idle-chat', const ['model-3']));
+      // The queue looks again within a moment, while the lookup still waits.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+      ]);
+      check(api.taskListRequests).equals(asked);
+
+      // The server runs no task of this account's in the listed chat.
+      lookup.complete(const []);
+      await waiting.timeout(const Duration(seconds: 5));
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+        chatId,
+      ]);
+    });
+
+    test('a model pick is forgotten when another sign-in begins', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        trackSignIn: true,
+      );
+      await saveChatModelChoice(container, other);
+      check(container.read(chatModelPickProvider)).isNotNull();
+
+      container.read(_signInEpochProvider.notifier).rotate();
+
+      check(container.read(chatModelPickProvider)).isNull();
+    });
+
+    test('a model list answered after another sign-in is not stored for '
+        'it', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        trackSignIn: true,
+      );
+      api.holdModelSave = Completer<void>();
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(api.savedModels).length.equals(1);
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      // What the next account's sync stores for the chat.
+      await db.chatsDao.setChatModels(chatId, const ['model-1']);
+      api.holdModelSave!.complete();
+      await saving;
+
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-1']);
+    });
+
+    test('a model list still waiting when another sign-in begins is not '
+        'sent', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+        trackSignIn: true,
+      );
+      api.holdModelSave = Completer<void>();
+      final first = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // Another pick waits for the first save to be answered.
+      final second = saveChatModelChoice(container, third);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      api.holdModelSave!.complete();
+      await Future.wait([first, second]);
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('a model picked before a comparison was sent leaves its answers '
+        'their own models', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      container
+          .read(chatModelPickProvider.notifier)
+          .record(
+            chatId: chatId,
+            modelId: duplicate.id,
+            promptIds: const {'u0'},
+          );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+
+      await regenerateMessage(container, 'compare these', null);
+
+      check(api.requests.last.model).equals('model-2');
     });
 
     test('a model the server does not list is refused before anything is '
@@ -7322,6 +9001,1591 @@ void main() {
       ).deepEquals(['other-user']);
     });
 
+    test('another person\'s answer in a shared comparison stays running '
+        'when this account runs no task', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('mixed-chat', [
+              _user('mixed-u', 'compare these'),
+              ChatMessage(
+                id: 'mine',
+                role: 'assistant',
+                content: 'mine so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'me',
+                  kMessageUnfinishedAnswersMetadataKey: ['mine', 'theirs'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'mine': 'me',
+                    'theirs': 'someone-else',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(
+        container
+            .read(chatMessagesProvider)
+            .last
+            .metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['theirs']);
+    });
+
+    test('an unfinished answer whose author is not named is the chat '
+        'owner\'s, whoever wrote the answer shown', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('owned-chat', [
+              _user('owned-u', 'compare these'),
+              ChatMessage(
+                id: 'mine',
+                role: 'assistant',
+                content: 'mine so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'me',
+                  kMessageUnfinishedAnswersMetadataKey: ['mine', 'owners'],
+                  // The server named no author for the owner's answer.
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {'mine': 'me'},
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'owner'),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(
+        container
+            .read(chatMessagesProvider)
+            .last
+            .metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['owners']);
+    });
+
+    test('answers cut off before a later prompt are finished once the chat '
+        'runs no task', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('later-chat', [
+              _user('later-u0', 'compare these'),
+              ChatMessage(
+                id: 'cut-a',
+                role: 'assistant',
+                content: 'A so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+                },
+              ),
+              _user('later-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('the composer offers no Stop when the newest running reply is '
+        'another person\'s', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      ChatMessage running(String id, String author) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: 'writing',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        model: duplicate.id,
+        isStreaming: true,
+        metadata: <String, dynamic>{kMessageAuthorIdMetadataKey: author},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('newest-chat', [
+              _user('newest-u', 'hello'),
+              running('mine-older', 'me'),
+              running('theirs-newer', 'someone-else'),
+            ], ChatStorageKind.openWebUi),
+          );
+
+      check(container.read(isChatStreamingProvider)).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+    });
+
+    test('the composer offers Stop when this account\'s answer runs among '
+        'a shared comparison that shows another person\'s', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('shared-compare', [
+              _user('shared-cu', 'compare these'),
+              ChatMessage(
+                id: 'theirs',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                isStreaming: true,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs', 'mine'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs': 'someone-else',
+                    'mine': 'me',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+
+      check(container.read(isChatStreamingProvider)).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+    });
+
+    test('Stop for this account\'s answer among a shared comparison\'s '
+        'versions leaves the other person\'s shown answer running', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // This account's answer runs under its task until Stop, so only the
+      // stop can finish it.
+      api.activeTaskIds = const ['mine-task'];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('shared-stop', [
+              _user('shared-su', 'compare these'),
+              ChatMessage(
+                id: 'theirs',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                isStreaming: true,
+                metadata: const <String, dynamic>{
+                  'transport': 'taskSocket',
+                  'taskId': 'their-task',
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs', 'mine'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs': 'someone-else',
+                    'mine': 'me',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+      final notifier = container.read(chatMessagesProvider.notifier);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+
+      container.read(stopGenerationProvider)();
+      await until(() => api.stoppedChats.isNotEmpty);
+
+      // The chat's stop ends this account's tasks alone; the other person's
+      // task is not asked to stop, and their answer runs on, still followed.
+      check(api.stoppedChats.toSet()).deepEquals({'shared-stop'});
+      check(api.stoppedTasks).isEmpty();
+      final shown = container.read(chatMessagesProvider).last;
+      check(shown.id).equals('theirs');
+      check(shown.isStreaming).isTrue();
+      check(shown.content).equals('theirs so far');
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      // This account's answer among its versions is finished here, so Stop
+      // is no longer offered while theirs runs.
+      check(
+        shown.metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['theirs']);
+      check(container.read(isChatStreamingProvider)).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+
+      // This account's task is gone now. The next poll finds its list empty,
+      // which says nothing of the other person's reply: the server's copy,
+      // which still lists it as not done, keeps it running.
+      Conversation serverCopy({required bool running}) => _conversation(
+        'shared-stop',
+        [
+          _user('shared-su', 'compare these'),
+          ChatMessage(
+            id: 'theirs',
+            role: 'assistant',
+            content: running ? 'theirs, more' : 'theirs, all of it',
+            timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+            model: duplicate.id,
+            metadata: <String, dynamic>{
+              kMessageModelIdxMetadataKey: 0,
+              kMessageAuthorIdMetadataKey: 'someone-else',
+              if (running) kMessageUnfinishedAnswersMetadataKey: ['theirs'],
+            },
+          ),
+        ],
+        ChatStorageKind.openWebUi,
+      ).copyWith(userId: 'someone-else');
+      api.activeTaskIds = const [];
+      api.serverCopy = serverCopy(running: true);
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('theirs');
+      check(tail.isStreaming).isTrue();
+      check(tail.content).equals('theirs, more');
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+
+      // Once the server's copy says it is done, it is finished here too.
+      api.serverCopy = serverCopy(running: false);
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('theirs, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('a shared chat reopened while another person\'s web reply runs '
+        'shows it running, and follows it to its end', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // No task of this account's runs; the other person's is not listed.
+      api.activeTaskIds = const [];
+      Conversation chat({required bool running, required String content}) =>
+          _conversation('web-reply', [
+            _user('web-u', 'hello'),
+            // Written in the web client: `done: false` while it runs, and no
+            // `isStreaming`.
+            ChatMessage(
+              id: 'theirs',
+              role: 'assistant',
+              content: content,
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'someone-else',
+                if (running) kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      api.serverCopy = chat(running: true, content: 'theirs, more');
+      final notifier = container.read(chatMessagesProvider.notifier);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(running: true, content: 'theirs so far'));
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isTrue();
+      check(tail.content).equals('theirs, more');
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      // It is not this account's to stop.
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+
+      // The server's copy says it is done: it is finished here too.
+      api.serverCopy = chat(running: false, content: 'theirs, all of it');
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('theirs, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('another person\'s newer reply, still running when the one '
+        'followed is done, is followed in its turn', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      ChatMessage reply(
+        String id,
+        String content, {
+        required bool running,
+        required int second,
+      }) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, second),
+        model: duplicate.id,
+        metadata: <String, dynamic>{
+          kMessageAuthorIdMetadataKey: 'someone-else',
+          if (running) kMessageServerUnfinishedMetadataKey: true,
+        },
+      );
+      Conversation chat(List<ChatMessage> tail) => _conversation('web-reply', [
+        _user('web-u', 'hello'),
+        ...tail,
+      ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      List<ChatMessage> askedAgain({required bool running}) => [
+        reply('theirs', 'theirs, all of it', running: false, second: 1),
+        ChatMessage(
+          id: 'their-q2',
+          role: 'user',
+          content: 'and more?',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+        reply(
+          'theirs-2',
+          running ? 'more' : 'more, all of it',
+          running: running,
+          second: 3,
+        ),
+      ];
+      final opened = chat([
+        reply('theirs', 'theirs so far', running: true, second: 1),
+      ]);
+      api.serverCopy = opened;
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container.read(activeConversationProvider.notifier).set(opened);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      check(notifier.debugRemoteTaskMonitorMessageId).equals('theirs');
+
+      // Theirs is done, and they asked again: the server's copy ends on a
+      // newer reply of theirs, still running. It shows running, and is the
+      // one followed now.
+      api.serverCopy = chat(askedAgain(running: true));
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final messages = container.read(chatMessagesProvider);
+      check(
+        messages.map((message) => message.id),
+      ).deepEquals(['web-u', 'theirs', 'their-q2', 'theirs-2']);
+      check(messages[1].isStreaming).isFalse();
+      check(messages.last.isStreaming).isTrue();
+      check(notifier.debugRemoteTaskMonitorMessageId).equals('theirs-2');
+
+      // Once the copy has that one done too, it is finished here.
+      api.serverCopy = chat(askedAgain(running: false));
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('more, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('a shared chat reopened on a newer running reply of another '
+        'person\'s follows that reply to its end', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      ChatMessage reply(
+        String id,
+        String content, {
+        required bool running,
+        required int second,
+      }) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, second),
+        model: duplicate.id,
+        metadata: <String, dynamic>{
+          kMessageAuthorIdMetadataKey: 'someone-else',
+          if (running) kMessageServerUnfinishedMetadataKey: true,
+        },
+      );
+      Conversation chat(List<ChatMessage> tail) => _conversation('web-reply', [
+        _user('web-u', 'hello'),
+        ...tail,
+      ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      List<ChatMessage> askedAgain({required bool running}) => [
+        reply('theirs', 'theirs, all of it', running: false, second: 1),
+        ChatMessage(
+          id: 'their-q2',
+          role: 'user',
+          content: 'and more?',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+        reply(
+          'theirs-2',
+          running ? 'more' : 'more, all of it',
+          running: running,
+          second: 3,
+        ),
+      ];
+      // The chat is opened on their first reply running; by the time the
+      // server is asked, it is done and they asked again.
+      api.serverCopy = chat(askedAgain(running: true));
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            chat([reply('theirs', 'theirs so far', running: true, second: 1)]),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('theirs-2');
+      check(tail.isStreaming).isTrue();
+
+      // The copy has the newer one done: the monitor, on it, finishes it.
+      api.serverCopy = chat(askedAgain(running: false));
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('more, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('another person\'s reply the server\'s copy has done stays done, '
+        'though the reply shown here kept a running marker', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      Conversation chat({required bool running, List<String> followUps = const []}) =>
+          _conversation('web-reply', [
+            _user('web-u', 'hello'),
+            ChatMessage(
+              id: 'theirs',
+              role: 'assistant',
+              content: 'theirs, all of it',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              followUps: followUps,
+              metadata: <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'someone-else',
+                if (running) kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      // Shown running, with follow-ups the server's copy does not carry yet.
+      final opened = chat(running: true, followUps: const ['more?']);
+      api.serverCopy = opened;
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container.read(activeConversationProvider.notifier).set(opened);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      // The copy has it done. The follow-ups shown here are kept, and with
+      // them the running marker the copy dropped; the copy decides.
+      api.serverCopy = chat(running: false);
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.followUps).deepEquals(['more?']);
+      check(tail.isStreaming).isFalse();
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('another person\'s reply is done when the server\'s copy says so, '
+        'though this account runs a task in the chat', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      Conversation chat({required bool running, required String content}) =>
+          _conversation('web-reply', [
+            _user('web-u', 'hello'),
+            ChatMessage(
+              id: 'theirs',
+              role: 'assistant',
+              content: content,
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'someone-else',
+                if (running) kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      final opened = chat(running: true, content: 'theirs so far');
+      api.serverCopy = opened;
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container.read(activeConversationProvider.notifier).set(opened);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      // A task of this account's runs in the chat now, while the server's
+      // copy has their reply done: it is finished here, as the copy says.
+      api.activeTaskIds = const ['my-task'];
+      api.serverCopy = chat(running: false, content: 'theirs, all of it');
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('theirs, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('another person\'s web reply that starts while the chat is open '
+        'shows running until a copy of the chat says it is done', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      Conversation chat(List<ChatMessage> tail, DateTime updatedAt) =>
+          _conversation('open-chat', [
+            _user('open-u0', 'hello'),
+            ChatMessage(
+              id: 'mine',
+              role: 'assistant',
+              content: 'hi',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: const <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'me',
+              },
+            ),
+            ...tail,
+          ], ChatStorageKind.openWebUi).copyWith(
+            userId: 'me',
+            updatedAt: updatedAt,
+          );
+      List<ChatMessage> theirs({required bool running}) => [
+        ChatMessage(
+          id: 'their-q',
+          role: 'user',
+          content: 'and you?',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+        ChatMessage(
+          id: 'their-a',
+          role: 'assistant',
+          content: running ? 'well' : 'well, fine',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 3),
+          model: duplicate.id,
+          metadata: <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+            if (running) kMessageServerUnfinishedMetadataKey: true,
+          },
+        ),
+      ];
+      Future<void> settle() async {
+        for (var i = 0; i < 10; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(const [], DateTime.utc(2026, 7, 13)));
+      await settle();
+      check(container.read(isChatStreamingProvider)).isFalse();
+
+      // A copy with the other person's reply under way.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(theirs(running: true), DateTime.utc(2026, 7, 14)));
+      await settle();
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('their-a');
+      check(tail.isStreaming).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+      // It is followed, should no later copy come.
+      check(
+        container.read(chatMessagesProvider.notifier).debugHasRemoteTaskMonitor,
+      ).isTrue();
+
+      // The server's copy has it done; following it, so does the chat here.
+      final done = chat(theirs(running: false), DateTime.utc(2026, 7, 15));
+      api.serverCopy = done;
+      container.read(activeConversationProvider.notifier).set(done);
+      await settle();
+      container.read(chatMessagesProvider.notifier)
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await container.read(chatMessagesProvider.notifier).debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('well, fine');
+    });
+
+    test('another person\'s web reply shows running when the chat was open '
+        'before the transcript was first read', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('first-read', [
+              _user('first-u', 'hello'),
+              ChatMessage(
+                id: 'theirs',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageServerUnfinishedMetadataKey: true,
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+      // The transcript is read afresh with the chat already open.
+      container.invalidate(chatMessagesProvider);
+
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+    });
+
+    test('Stop in a shared turn stops and settles this account\'s answer, '
+        'and the other person\'s at the end runs on', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      ChatMessage running(
+        String id,
+        String author,
+        int slot, {
+        Map<String, dynamic> extra = const {},
+      }) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: '$id so far',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        model: duplicate.id,
+        isStreaming: true,
+        metadata: <String, dynamic>{
+          'transport': 'taskSocket',
+          'taskId': '$id-task',
+          kMessageModelIdxMetadataKey: slot,
+          kMessageAuthorIdMetadataKey: author,
+          ...extra,
+        },
+      );
+      api.activeTaskIds = const ['mine-task'];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('shared-turn', [
+              _user('shared-tu', 'compare these'),
+              running('mine', 'me', 0),
+              // Shown last, with another answer of this account's among its
+              // versions: Stop is offered for that one.
+              running(
+                'theirs',
+                'someone-else',
+                1,
+                extra: const {
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs', 'mine-v'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs': 'someone-else',
+                    'mine-v': 'me',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'me'),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+
+      container.read(stopGenerationProvider)();
+      await until(() => api.stoppedChats.isNotEmpty);
+
+      // The transport stopped is this account's newest answer's.
+      check(api.stoppedTasks).deepEquals(['mine-task']);
+      final messages = container.read(chatMessagesProvider);
+      final mine = messages.firstWhere((message) => message.id == 'mine');
+      final theirs = messages.last;
+      check(mine.isStreaming).isFalse();
+      check(theirs.id).equals('theirs');
+      check(theirs.isStreaming).isTrue();
+      check(
+        theirs.metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['theirs']);
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+    });
+
+    test('answers cut off before a later prompt are finished once the reply '
+        'that was running when the chat opened is done', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const ['later-reply-task'];
+      Conversation chat(List<ChatMessage> tail, DateTime updatedAt) =>
+          _conversation('reply-chat', [
+            _user('reply-u0', 'compare these'),
+            ChatMessage(
+              id: 'cut-a',
+              role: 'assistant',
+              content: 'A so far',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: const <String, dynamic>{
+                kMessageModelIdxMetadataKey: 0,
+                kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+              },
+            ),
+            _user('reply-u1', 'and then?'),
+            ...tail,
+          ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(const [], DateTime.utc(2026, 7, 13)));
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      ChatMessage reply(String content) => ChatMessage(
+        id: 'reply-a1',
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+        model: duplicate.id,
+      );
+
+      // The reply to the later prompt shows while its task still runs...
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat([reply('so far')], DateTime.utc(2026, 7, 14)));
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // ...then finishes, and its last copy arrives.
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat([reply('done')], DateTime.utc(2026, 7, 15)));
+      await until(() => api.taskListRequests > 2);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('answers cut off before a later prompt are finished while another '
+        'person\'s reply streams at the end', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // This account's task still runs when the chat opens.
+      api.activeTaskIds = const ['my-task'];
+      Conversation chat(DateTime updatedAt) => _conversation('foreign-tail', [
+        _user('foreign-u0', 'compare these'),
+        ChatMessage(
+          id: 'cut-a',
+          role: 'assistant',
+          content: 'A so far',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: duplicate.id,
+          metadata: const <String, dynamic>{
+            kMessageModelIdxMetadataKey: 0,
+            kMessageAuthorIdMetadataKey: 'me',
+            kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+            kMessageUnfinishedAnswerAuthorsMetadataKey: {
+              'cut-a': 'me',
+              'cut-b': 'me',
+            },
+          },
+        ),
+        _user('foreign-u1', 'and then?'),
+        ChatMessage(
+          id: 'their-reply',
+          role: 'assistant',
+          content: 'theirs so far',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          model: duplicate.id,
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+            // An answer of this account's another client just started among
+            // its versions: the server lists its task only a moment later.
+            kMessageUnfinishedAnswersMetadataKey: ['their-reply', 'mine-new'],
+            kMessageUnfinishedAnswerAuthorsMetadataKey: {
+              'their-reply': 'someone-else',
+              'mine-new': 'me',
+            },
+          },
+        ),
+      ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+      final notifier = container.read(chatMessagesProvider.notifier);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 13)));
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // The monitor is held still: what is checked is the chat's next copy.
+      notifier.debugCancelRemoteTaskMonitorTimer();
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // This account's task ends; the other person's reply still streams,
+      // under a task this account's list never shows.
+      api.activeTaskIds = const [];
+      final asked = api.taskListRequests;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 14)));
+      await until(() => api.taskListRequests > asked);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('their-reply');
+      check(tail.isStreaming).isTrue();
+      // The streaming turn is the task monitor's: this account's new answer
+      // in it is not finished by a lookup made before its task is listed.
+      check(
+        tail.metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['their-reply', 'mine-new']);
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+    });
+
+    test('the chat\'s tasks are not asked for when only another person\'s '
+        'answers show unfinished', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('theirs-chat', [
+              _user('theirs-u0', 'compare these'),
+              ChatMessage(
+                id: 'theirs-a',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs-a', 'theirs-b'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs-a': 'someone-else',
+                    'theirs-b': 'someone-else',
+                  },
+                },
+              ),
+              _user('theirs-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(api.taskListRequests).equals(0);
+    });
+
+    ChatMessage cutAnswer(String id) => ChatMessage(
+      id: id,
+      role: 'assistant',
+      content: 'so far',
+      timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+      model: duplicate.id,
+      metadata: <String, dynamic>{
+        kMessageModelIdxMetadataKey: 0,
+        kMessageUnfinishedAnswersMetadataKey: [id, '$id-b'],
+      },
+    );
+
+    test('answers cut off are finished when the copy that first shows them '
+        'arrives', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('first-chat', [
+              _user('first-u0', 'compare these'),
+              _user('first-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // The next copy carries the comparison's answers, cut off.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('first-chat', [
+              _user('first-u0', 'compare these'),
+              cutAnswer('first-a'),
+              _user('first-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi).copyWith(
+              updatedAt: DateTime.utc(2026, 7, 14),
+            ),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'first-a');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('an answer that shows up while the tasks are asked for waits for '
+        'the next check', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('bound-chat', [
+              _user('bound-u0', 'compare these'),
+              cutAnswer('old-cut'),
+              _user('bound-u1', 'and these?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+
+      // A new comparison starts while the server is asked about the old one.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('bound-chat', [
+              _user('bound-u0', 'compare these'),
+              cutAnswer('old-cut'),
+              _user('bound-u1', 'and these?'),
+              cutAnswer('new-run'),
+              _user('bound-u2', 'and then?'),
+            ], ChatStorageKind.openWebUi).copyWith(
+              updatedAt: DateTime.utc(2026, 7, 14),
+            ),
+          );
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      api.holdTaskList = Completer<List<String>>();
+      pending.complete(const []);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      ChatMessage message(String id) => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == id);
+      check(
+        message('old-cut').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isNull();
+      check(
+        message('new-run').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isNotNull();
+      api.holdTaskList!.complete(const ['new-task']);
+    });
+
+    test('a copy that arrives while the tasks are asked for is checked once '
+        'the ask fails', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      Conversation chat(DateTime updatedAt) => _conversation('queued-chat', [
+        _user('queued-u0', 'compare these'),
+        cutAnswer('queued-cut'),
+        _user('queued-u1', 'and then?'),
+      ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 13)));
+      await until(() => api.taskListRequests > 0);
+      // A newer copy arrives while the server is asked.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 14)));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(api.taskListRequests).equals(1);
+
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      pending.completeError(StateError('offline'));
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'queued-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('an earlier answer shown as streaming stops once it is finished', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('streaming-chat', [
+              _user('streaming-u0', 'compare these'),
+              cutAnswer('streaming-cut').copyWith(isStreaming: true),
+              _user('streaming-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'streaming-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      check(cut.isStreaming).isFalse();
+    });
+
+    test('an answer whose owner turns out to be someone else while the tasks '
+        'are asked for is not finished', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      Conversation chat({String? owner}) => _conversation('owned-later', [
+        _user('owned-u0', 'compare these'),
+        cutAnswer('owned-cut'),
+        _user('owned-u1', 'and then?'),
+      ], ChatStorageKind.openWebUi).copyWith(userId: owner);
+
+      container.read(activeConversationProvider.notifier).set(chat());
+      await until(() => api.taskListRequests > 0);
+      // A copy that names the chat's owner arrives meanwhile.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(owner: 'someone-else'));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      pending.complete(const []);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'owned-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+    });
+
+    test('answers cut off are finished while a listing a missed event left '
+        'stands, which stays', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // The server runs none of this account's tasks; the listing is stale.
+      api.activeTaskIds = const [];
+      container.read(activeChatIdsProvider.notifier).setActive('stale-chat');
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('stale-chat', [
+              _user('stale-u0', 'compare these'),
+              cutAnswer('stale-cut'),
+              _user('stale-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'stale-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      check(container.read(activeChatIdsProvider)).contains('stale-chat');
+    });
+
+    test('answers cut off are finished once the chat stops being listed as '
+        'running a task', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const ['listed-task'];
+      container.read(activeChatIdsProvider.notifier).setActive('listed-chat');
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('listed-chat', [
+              _user('listed-u0', 'compare these'),
+              cutAnswer('listed-cut'),
+              _user('listed-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'listed-cut');
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // The task's end is told, with no new copy of the chat after it.
+      api.activeTaskIds = const [];
+      container.read(activeChatIdsProvider.notifier).setInactive('listed-chat');
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('a chat opened while another chat\'s tasks are asked for is asked '
+        'about too', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-a', [
+              _user('a-u0', 'compare these'),
+              cutAnswer('a-cut'),
+              _user('a-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+
+      // The user opens another chat while chat A's answer is awaited.
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-b', [
+              _user('b-u0', 'compare these'),
+              cutAnswer('b-cut'),
+              _user('b-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'b-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      pending.complete(const []);
+    });
+
+    test('answers cut off before a later prompt are finished by a later copy '
+        'of the chat once a first check failed', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final failing = Completer<List<String>>();
+      api.holdTaskList = failing;
+      Conversation chat({DateTime? updatedAt}) =>
+          _conversation('retry-chat', [
+            _user('retry-u0', 'compare these'),
+            ChatMessage(
+              id: 'cut-a',
+              role: 'assistant',
+              content: 'A so far',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: const <String, dynamic>{
+                kMessageModelIdxMetadataKey: 0,
+                kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+              },
+            ),
+            _user('retry-u1', 'and then?'),
+          ], ChatStorageKind.openWebUi).copyWith(
+            updatedAt: updatedAt ?? DateTime.utc(2026, 7, 13),
+          );
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+
+      container.read(activeConversationProvider.notifier).set(chat());
+      await until(() => api.taskListRequests > 0);
+      failing.completeError(StateError('offline'));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // The server is back; the next copy of the chat checks again.
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(updatedAt: DateTime.utc(2026, 7, 14)));
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    for (final author in [null, 'me', 'someone-else']) {
+      test('the composer offers Stop only for a reply of this account '
+          '(author: $author)', () async {
+        final (:api, :socket, :client, :container) = await openDraft(
+          account: const User(
+            id: 'me',
+            username: 'Me',
+            email: 'me@example.com',
+            role: 'user',
+          ),
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('shared-chat', [
+                _user('shared-u', 'hello'),
+                ChatMessage(
+                  id: 'shared-a',
+                  role: 'assistant',
+                  content: 'writing',
+                  timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                  model: duplicate.id,
+                  isStreaming: true,
+                  metadata: <String, dynamic>{
+                    kMessageAuthorIdMetadataKey: ?author,
+                  },
+                ),
+              ], ChatStorageKind.openWebUi),
+            );
+
+        check(container.read(isChatStreamingProvider)).isTrue();
+        check(
+          container.read(isOwnChatStreamingProvider),
+        ).equals(author != 'someone-else');
+      });
+
+      test(
+        author == 'someone-else'
+            ? 'another person\'s unfinished answers stay running when this '
+                  'account runs no task in the chat'
+            : 'answers a server restart cut off are finished once the chat '
+                  'runs no task (author: $author)',
+        () async {
+          final (:api, :socket, :client, :container) = await openDraft(
+            account: const User(
+              id: 'me',
+              username: 'Me',
+              email: 'me@example.com',
+              role: 'user',
+            ),
+          );
+          api.activeTaskIds = const [];
+          // Open WebUI 0.12.5 marks each answer not done when it starts; a
+          // restart left these so for good.
+          final shown = ChatMessage(
+            id: 'cut-a',
+            role: 'assistant',
+            content: 'A so far',
+            timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+            model: duplicate.id,
+            metadata: <String, dynamic>{
+              kMessageModelIdxMetadataKey: 0,
+              kMessageUnfinishedAnswersMetadataKey: const ['cut-a', 'cut-b'],
+              kMessageAuthorIdMetadataKey: ?author,
+              // The server named the same author for both answers.
+              if (author != null)
+                kMessageUnfinishedAnswerAuthorsMetadataKey: <String, String>{
+                  'cut-a': author,
+                  'cut-b': author,
+                },
+            },
+          );
+          container
+              .read(activeConversationProvider.notifier)
+              .set(
+                _conversation('cut-chat', [
+                  _user('cut-u', 'compare these'),
+                  shown,
+                ], ChatStorageKind.openWebUi),
+              );
+          await until(() => api.taskListRequests > 0);
+          for (var i = 0; i < 5; i++) {
+            await Future<void>.delayed(Duration.zero);
+          }
+
+          ChatMessage tail() => container.read(chatMessagesProvider).last;
+          if (author == 'someone-else') {
+            check(
+              tail().metadata?[kMessageUnfinishedAnswersMetadataKey],
+            ).isA<List>().deepEquals(['cut-a', 'cut-b']);
+          } else {
+            check(tail().metadata?[kMessageUnfinishedAnswersMetadataKey])
+                .isNull();
+            check(
+              ChatComparisonGroup.fromMessage(
+                tail(),
+              ).slots.expand((slot) => slot.answers).any((a) => a.isStreaming),
+            ).isFalse();
+
+            // The server keeps them not done for good: its next copy of the
+            // chat does not bring them back as running.
+            container
+                .read(activeConversationProvider.notifier)
+                .set(
+                  _conversation('cut-chat', [
+                    _user('cut-u', 'compare these'),
+                    shown,
+                  ], ChatStorageKind.openWebUi).copyWith(
+                    updatedAt: DateTime.utc(2026, 7, 14),
+                  ),
+                );
+            await Future<void>.delayed(Duration.zero);
+            check(tail().metadata?[kMessageUnfinishedAnswersMetadataKey])
+                .isNull();
+          }
+        },
+      );
+    }
+
     test('a new sign-in while the server is asked for the chat\'s tasks leaves '
         'the old account\'s unfinished answers as they were', () async {
       final (:api, :socket, :client, :container) = await openDraft(
@@ -7786,6 +11050,31 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   final List<_FanOutRequest> requests = [];
   final List<String> stoppedTasks = [];
+
+  /// Model lists saved with `updateConversation`, by chat id.
+  final List<(String, List<String>?)> savedModels = [];
+
+  /// While set, a model list save is answered only once this completes.
+  Completer<void>? holdModelSave;
+
+  /// How many model list saves fail, from the next one on.
+  int failModelSaves = 0;
+
+  @override
+  Future<void> updateConversation(
+    String id, {
+    String? title,
+    String? systemPrompt,
+    List<String>? models,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    savedModels.add((id, models));
+    await holdModelSave?.future;
+    if (failModelSaves > 0) {
+      failModelSaves--;
+      throw StateError('offline');
+    }
+  }
   final List<String> stoppedChats = [];
   bool answerSynchronously = false;
 
@@ -7848,6 +11137,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   /// The tasks the server reports as still running for a chat.
   List<String> activeTaskIds = const [];
+  int taskListRequests = 0;
 
   /// When set, the task list is answered only once this completes, and
   /// [taskListEntered] marks the wait: the window in which the account can
@@ -7857,6 +11147,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async {
+    taskListRequests++;
     final hold = holdTaskList;
     if (hold == null) return activeTaskIds;
     if (!taskListEntered.isCompleted) taskListEntered.complete();
@@ -7907,11 +11198,14 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     );
   }
 
+  /// The chat as the server has it, when a test sets one; offline otherwise.
+  Conversation? serverCopy;
+
   @override
   Future<Conversation> getConversation(
     String id, {
     ApiAuthSnapshot? authSnapshot,
-  }) async => throw StateError('offline');
+  }) async => serverCopy ?? (throw StateError('offline'));
 
   @override
   Future<ChatCompletionSession> sendMessageSession({
@@ -8066,6 +11360,36 @@ class _QuietSyncEngine extends _PersistingSyncEngine {
   Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {}
 }
 
+/// An engine whose next [failPulls] reads of a chat fail, as an unreachable
+/// server's would, and whose next [emptyPulls] after those read nothing, as
+/// an engine not ready yet does; later reads return the chat.
+class _FailingPullEngine extends _QuietSyncEngine {
+  _FailingPullEngine(super.db, super.api);
+
+  int failPulls = 0;
+  int emptyPulls = 0;
+
+  @override
+  Future<Conversation?> pullChatNow(String requestedChatId) async {
+    pulls += 1;
+    if (failPulls > 0) {
+      failPulls--;
+      throw StateError('offline');
+    }
+    if (emptyPulls > 0) {
+      emptyPulls--;
+      return null;
+    }
+    return Conversation(
+      id: requestedChatId,
+      title: 'A',
+      createdAt: DateTime.utc(2026, 7, 13),
+      updatedAt: DateTime.utc(2026, 7, 13),
+      messages: const [],
+    );
+  }
+}
+
 /// An engine whose outbox drain fails, as an unreachable server or a closed
 /// database would after a turn was already committed.
 class _ThrowingDrainEngine extends _QuietSyncEngine {
@@ -8110,6 +11434,15 @@ class _ListedModels extends Models {
   Future<List<Model>> build() async => listed;
 }
 
+class _FixedEfforts extends LocalReasoningEfforts {
+  _FixedEfforts(this.efforts);
+
+  final Map<String, String> efforts;
+
+  @override
+  Map<String, String> build() => efforts;
+}
+
 /// An engine whose pull lands only the listed answers, as a server that has
 /// finished some answers of a comparison and not others.
 class _PartialLandingEngine extends _QuietSyncEngine {
@@ -8138,5 +11471,18 @@ class _PartialLandingEngine extends _QuietSyncEngine {
       ),
       ChatStorageKind.openWebUi,
     );
+  }
+}
+
+/// Counts how often auth is built, so a send that reloads it shows.
+class _CountingAuthStateManager extends AuthStateManager {
+  _CountingAuthStateManager(this.onBuild);
+
+  final void Function() onBuild;
+
+  @override
+  Future<AuthState> build() async {
+    onBuild();
+    return const AuthState(status: AuthStatus.authenticated);
   }
 }

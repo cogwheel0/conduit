@@ -10,9 +10,11 @@ import 'package:conduit_core/features/integrations/personal_connection_edits.dar
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../../core/services/haptic_service.dart';
+import '../../../core/utils/account_display.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -103,7 +105,10 @@ class _PersonalConnectionsPageState
       Text(
         l10n.personalConnectionsStoredOn(
           snapshot.accountName,
-          snapshot.serverName,
+          configServerDisplayName(
+            snapshot.session.api.serverConfig,
+            ref.watch(openWebUiAccountsProvider).value,
+          ),
         ),
         key: const Key('personal-connections-account'),
         style: AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary),

@@ -297,7 +297,7 @@ class HermesJobsSheet extends ConsumerWidget {
                 ),
               );
             },
-            loading: () => const Center(child: CircularProgressIndicator()),
+            loading: () => const Center(child: AdaptiveProgressIndicator()),
             error: (_, _) => Center(
               child: Padding(
                 padding: const EdgeInsets.all(Spacing.xl),
@@ -368,13 +368,16 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  job.displayName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.standard.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
+                ExcludeSemantics(
+                  excluding: !_toggling,
+                  child: Text(
+                    job.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.standard.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: Spacing.xxs),
@@ -433,12 +436,13 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
               child: SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: AdaptiveProgressIndicator(strokeWidth: 2),
               ),
             )
           else
             AdaptiveSwitch(
               value: job.enabled,
+              semanticLabel: job.displayName,
               onChanged: widget.writable ? _setEnabled : null,
             ),
         ],

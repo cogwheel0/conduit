@@ -4,7 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart'
-    show ChatStorageKind, kChatStorageKindMetadataKey;
+    show ChatStorageIdentity, ChatStorageKind, kChatStorageKindMetadataKey;
 import 'package:conduit_core/database/local_conversation_loader.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
@@ -21,6 +21,7 @@ import '../../../core/utils/current_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../hermes/widgets/hermes_session_tile.dart';
+import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/providers/conversation_selection_provider.dart';
 import '../../profile/widgets/account_actions.dart' as accounts;
 import 'local_notification_service.dart';
@@ -287,10 +288,13 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
   Future<void> openOpenWebUiChat(String chatId) async {
     final ownership = captureOpenWebUiConversationRead(_ref);
     if (ownership == null) return;
-    final outgoing = _ref.read(activeConversationProvider);
-    if (outgoing == null || !conversationMatchesScopedId(outgoing, chatId)) {
-      clearSelectedFiltersForConversationBoundary(_ref);
-    }
+    // The notification names an Open WebUI chat: an on-device chat with the
+    // same raw id is another chat.
+    final tappedId = ChatStorageIdentity(
+      rawId: chatId,
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    final chatWasOnScreen = chatPageOnScreen();
     // DB-first open, mirroring the conversation-list selection flow.
     await NavigationService.navigateToChat();
     if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
@@ -301,6 +305,17 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
     );
     if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
     if (local != null) {
+      // The picks of the chat open now, or of one opened while this one
+      // loaded, are not this chat's. They start again only here, once this
+      // chat opens: a tap whose chat is not stored leaves the open chat, and
+      // its picks, as they are.
+      final current = _ref.read(activeConversationProvider);
+      if (current == null || !conversationMatchesScopedId(current, tappedId)) {
+        clearSelectedFiltersForConversationBoundary(_ref);
+      }
+      _ref
+          .read(chatBackOpensListProvider.notifier)
+          .switchTo(local, chatOnScreen: chatWasOnScreen);
       _ref.read(activeConversationProvider.notifier).set(local);
     }
     schedulePullChatNow(_ref, chatId, ownership: ownership);
@@ -342,6 +357,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       context,
       _ref.read,
       HermesSessionSummary(id: sessionId, title: sessionTitle),
+      invalidate: _ref.invalidate,
     );
   }
 

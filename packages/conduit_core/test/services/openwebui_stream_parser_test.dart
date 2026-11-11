@@ -590,6 +590,40 @@ void main() {
           .equals('Hi');
     });
 
+    test('a refusal delta is the answer', () async {
+      // Open WebUI 0.13 streams a Responses API connection to a client
+      // without a socket as chat completion chunks.
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"refusal":"I can\'t help with that."}}]}\n\n',
+          ),
+          utf8.encode('data: {"choices":[{"delta":{"refusal":null}}]}\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates.single)
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals("I can't help with that.");
+    });
+
+    test("a completed reply's refusal is the answer", () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"message":{"content":null,"refusal":"No."}}]}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates.single)
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('No.');
+    });
+
     test('parses both reasoning_content and content in same delta', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([

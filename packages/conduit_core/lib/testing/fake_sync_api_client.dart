@@ -285,6 +285,26 @@ class FakeSyncApiClient implements SyncApiClient {
     return true;
   }
 
+  /// Ids in the order [updateFolderExpanded] calls STARTED.
+  final List<String> updateFolderExpandedStarts = <String>[];
+
+  /// When set, every [updateFolderExpanded] awaits this future before it
+  /// reaches the server, holding its op in flight.
+  Future<void>? updateFolderExpandedGate;
+
+  @override
+  Future<bool> updateFolderExpanded(String id, bool isExpanded) async {
+    updateFolderExpandedStarts.add(id);
+    await Future<void>.delayed(Duration.zero);
+    final gate = updateFolderExpandedGate;
+    if (gate != null) await gate;
+    _maybeThrow(id);
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return false;
+    server.updateFolderExpanded(id, isExpanded);
+    return true;
+  }
+
   @override
   Future<bool> deleteFolder(String id, {bool deleteContents = false}) async {
     return server.deleteFolder(id, deleteContents: deleteContents);
@@ -339,6 +359,10 @@ class FakeSyncApiClient implements SyncApiClient {
   /// Patch maps passed to [updateNote], keyed by note id (last write wins).
   final Map<String, Map<String, dynamic>> lastNotePatch =
       <String, Map<String, dynamic>>{};
+
+  /// Every patch passed to [updateNote], in order, including refused ones.
+  final List<({String id, Map<String, dynamic> patch})> notePatches =
+      <({String id, Map<String, dynamic> patch})>[];
 
   void _maybeThrowNote(String id) {
     if (failNoteWriteIds.contains(id)) {
@@ -400,9 +424,19 @@ class FakeSyncApiClient implements SyncApiClient {
   ) async {
     updateNoteCalls++;
     lastNotePatch[id] = Map<String, dynamic>.from(patch);
+    notePatches.add((id: id, patch: Map<String, dynamic>.from(patch)));
     await Future<void>.delayed(Duration.zero);
     _maybeThrowNote(id);
-    return server.updateNote(id, patch);
+    try {
+      return server.updateNote(id, patch);
+    } on FakeOpenWebUiHttpException catch (e) {
+      // The production client turns a refused body into this, as ApiService
+      // does for a 400/422 from the update route.
+      if (e.statusCode == 400 || e.statusCode == 422) {
+        throw SyncRejectedException(statusCode: e.statusCode, detail: e.detail);
+      }
+      rethrow;
+    }
   }
 
   @override

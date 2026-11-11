@@ -25,8 +25,8 @@ PushState _push(PushStatus status) => pushStateWith([
 
 void main() {
   group('the editor', () {
-    Future<HermesJobDraft?> open(WidgetTester tester, {bool? notify}) async {
-      HermesJobDraft? result;
+    Future<HermesJobEditorResult?> open(WidgetTester tester, {bool? notify}) async {
+      HermesJobEditorResult? result;
       await tester.pumpWidget(
         MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -112,7 +112,7 @@ void main() {
     }
 
     Future<void> createJob(WidgetTester tester, {required bool offered}) async {
-      await tester.tap(find.text('New scheduled job'));
+      await tester.tap(find.text('New Scheduled Job'));
       await tester.pumpAndSettle();
       expect(find.text('Notify me'), offered ? findsOneWidget : findsNothing);
       if (offered) {
@@ -163,7 +163,7 @@ void main() {
           ),
         ],
       );
-      await tester.tap(find.byTooltip('Edit scheduled job'));
+      await tester.tap(find.byTooltip('Edit Scheduled Job'));
       await tester.pumpAndSettle();
       final toggle = find.descendant(
         of: find.byKey(const Key('hermes-job-notify')),
@@ -201,6 +201,8 @@ final class _Jobs extends HermesJobsController {
     String? name,
     String? prompt,
     String? schedule,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
   }) async {}
 
   @override
@@ -208,6 +210,8 @@ final class _Jobs extends HermesJobsController {
     required String name,
     required String prompt,
     required String schedule,
+    String? deliver,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async => HermesJob(
     id: 'job-new',
     name: name,

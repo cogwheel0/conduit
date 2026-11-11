@@ -14,6 +14,9 @@ import 'package:conduit_core/features/direct_connections/models/openrouter_reaso
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/models/model_controls.dart';
 
 part 'reasoning_effort_provider.g.dart';
 
@@ -282,7 +285,11 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
     ).effectiveConfiguredEffort(modelEffort);
   }
 
-  if (ref.watch(apiServiceProvider) != null) {
+  // The user-level fallback is only safe for models that advertise support:
+  // a silent value an undeclared model never opted into is what issue #613
+  // guards against, while issue #779 is solved by the explicit pick above.
+  if (model.advertisesReasoningEffort &&
+      ref.watch(apiServiceProvider) != null) {
     final configured = ref
         .watch(personalizationSettingsProvider)
         .asData
@@ -361,7 +368,7 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
     return policy.effectiveConfiguredEffort(modelEffort) ??
         kAutomaticReasoningEffort;
   }
-  if (read(apiServiceProvider) != null) {
+  if (model.advertisesReasoningEffort && read(apiServiceProvider) != null) {
     final configured = read(personalizationSettingsProvider)
         .asData
         ?.value
@@ -388,15 +395,24 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
       allowsCustom: false,
     );
   }
+  // A coding agent, or a model with an effort control of its own, takes its
+  // effort from that control; a second picker would only contradict it.
+  if (isTerminalAgentModel(model) || modelHasReasoningEffortControl(model)) {
+    return ReasoningEffortPolicy.unsupported;
+  }
   if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
+  // A LibreChat turn sends its spec's preset or the server's own settings,
+  // so a pick here would change nothing.
+  if (isLibreChatModel(model)) return ReasoningEffortPolicy.unsupported;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) {
-    final detailedModelEffort = _isOpenWebUiWorkspaceModel(model)
-        ? read(serverModelReasoningEffortProvider(model)).asData?.value.value
-        : null;
-    return model.supportsReasoningEffort || detailedModelEffort != null
-        ? ReasoningEffortPolicy.generic
-        : ReasoningEffortPolicy.unsupported;
+    // Open WebUI server model: the picker is offered for every model that
+    // does not explicitly refuse the parameter (issue #779). Whether a value
+    // is actually sent is decided by the explicit-pick rules in this file and
+    // at the request boundary.
+    return model.explicitlyRejectsReasoningEffort
+        ? ReasoningEffortPolicy.unsupported
+        : ReasoningEffortPolicy.generic;
   }
   if (binding.adapterKey == kOllamaAdapterKey) {
     return const ReasoningEffortPolicy(

@@ -1,5 +1,6 @@
 package app.cogwheel.conduit
 
+import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -13,8 +14,11 @@ internal interface OnDeviceRecognizer : AutoCloseable {
 
     fun download(): Flow<OnDeviceDownload>
 
-    /** Listens to the microphone until [stopRecognition] or completion. */
-    fun startRecognition(): Flow<OnDeviceSpeechEvent>
+    /**
+     * Listens until [stopRecognition] or completion: to [input], mono 16 kHz
+     * PCM16, or to the microphone when it is null.
+     */
+    fun startRecognition(input: ParcelFileDescriptor? = null): Flow<OnDeviceSpeechEvent>
 
     suspend fun stopRecognition()
 

@@ -216,7 +216,7 @@ void main() {
       'signInNeeded': (
         _owui(PushStatus.signInNeeded),
         'Sign in to use push',
-        'Sign in',
+        'Sign In',
       ),
       'failed': (
         _owui(

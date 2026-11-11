@@ -89,7 +89,7 @@ final class _HermesDashboardAuthPageState
 
   @override
   Widget build(BuildContext context) => ConnectionWebAuthScaffold(
-    title: 'Hermes sign in',
+    title: 'Hermes Sign-In',
     backLabel: 'Back',
     onBack: () => Navigator.of(context).pop(false),
     onRefresh: _controller == null || !_policy.supported

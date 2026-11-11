@@ -36,6 +36,8 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
     this.result,
     this.files,
     this.embeds,
+    this.runningLabel,
+    this.completedLabel,
   });
 
   final String id;
@@ -46,6 +48,25 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
   final Object? result;
   final Object? files;
   final Object? embeds;
+
+  /// What the call is doing, in the user's language, as the model described
+  /// it for Open WebUI 0.13.1's tool call labels; null without one.
+  final String? runningLabel;
+
+  /// What the call did, likewise; null without one.
+  final String? completedLabel;
+}
+
+/// An image the model made itself, as a Responses API `image_generation_call`
+/// carries it: a `data:` URL.
+final class StructuredOutputImageBlock extends StructuredOutputBlock {
+  const StructuredOutputImageBlock({required this.url, this.description});
+
+  final String url;
+
+  /// The prompt the image was made from (`revised_prompt`), which describes
+  /// it for screen readers; null when the call gave none.
+  final String? description;
 }
 
 final class StructuredOutputCodeInterpreterBlock extends StructuredOutputBlock {
@@ -113,14 +134,22 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
             (item['status'] == 'pending' || item['status'] == 'in_progress')) {
           continue;
         }
+        if (itemType == 'function_call' && _isHiddenToolCall(item)) continue;
         final callId =
             item['call_id']?.toString() ?? item['id']?.toString() ?? '';
         final resultItem = toolOutputs[callId];
+        final labels = item['display_labels'];
         blocks.add(
           StructuredOutputToolCallBlock(
             id: callId,
             name: _toolName(item, itemType),
-            arguments: item['arguments'] ?? item['input'] ?? '',
+            arguments: _shownToolArguments(
+              item['arguments'] ?? item['input'] ?? '',
+            ),
+            runningLabel: _label(labels is Map ? labels['running'] : null),
+            completedLabel:
+                _label(labels is Map ? labels['completed'] : null) ??
+                _label(item['display_label']),
             status: itemType == 'function_call'
                 ? item['status']?.toString() ?? ''
                 : null,
@@ -147,6 +176,22 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
             result: _openAiToolSummary(item),
           ),
         );
+      case 'image_generation_call':
+        final result = item['result'];
+        if (result is String && result.isNotEmpty) {
+          final format = item['output_format']?.toString();
+          final revisedPrompt = item['revised_prompt'];
+          blocks.add(
+            StructuredOutputImageBlock(
+              url: result.startsWith('data:')
+                  ? result
+                  : 'data:image/${format == null || format.isEmpty ? 'png' : format};base64,$result',
+              description: revisedPrompt is String && revisedPrompt.isNotEmpty
+                  ? revisedPrompt
+                  : null,
+            ),
+          );
+        }
       case 'code_interpreter':
       case 'open_webui:code_interpreter':
         blocks.add(
@@ -168,6 +213,89 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
   }
 
   return List<StructuredOutputBlock>.unmodifiable(blocks);
+}
+
+final RegExp _openWebUiFilePath = RegExp(r'^/api/v1/files/([\w-]+)/content$');
+
+/// The files a model showed in the chat with Open WebUI's `display_file` tool
+/// (0.12.5+), in [output] order, each once, as entries of a message's file
+/// list. The tool tells the model the user already sees the file, so it must
+/// be shown with the reply. A terminal's file opens in the terminal pane
+/// instead and is not among them.
+List<Map<String, dynamic>> displayedChatFiles(List<dynamic>? output) {
+  if (output == null || output.isEmpty) return const [];
+  final results = <String, Map<String, dynamic>>{};
+  for (final item in output) {
+    if (item is Map && item['type'] == 'function_call_output') {
+      final callId = item['call_id']?.toString() ?? item['id']?.toString();
+      if (callId != null) results[callId] = _coerceJsonMap(item);
+    }
+  }
+  final files = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  for (final item in output) {
+    if (item is! Map || item['type'] != 'function_call') continue;
+    final call = _coerceJsonMap(item);
+    final callId = call['call_id']?.toString() ?? call['id']?.toString();
+    final file = _displayedChatFile(call, results[callId]);
+    if (file != null && seen.add(file['id'] as String)) files.add(file);
+  }
+  return files;
+}
+
+/// The file one `display_file` call showed, from its result: an Open WebUI
+/// file that exists, as a message file entry. Null for any other call or
+/// result.
+Map<String, dynamic>? _displayedChatFile(
+  Map<String, dynamic> call,
+  Map<String, dynamic>? result,
+) {
+  if (result == null || call['name'] != 'display_file') return null;
+  final parsed = _jsonValue(
+    _toolResultText(result['output'] ?? result['content']),
+  );
+  if (parsed is! Map ||
+      parsed['type'] != 'file' ||
+      parsed['exists'] == false ||
+      parsed['source'] != 'open_webui') {
+    return null;
+  }
+  final path = parsed['path'];
+  final match = path is String ? _openWebUiFilePath.firstMatch(path) : null;
+  if (match == null) return null;
+  final id = match.group(1)!;
+  final name = parsed['name'];
+  final rawType = parsed['content_type'] ?? parsed['mime_type'];
+  final contentType = rawType is String ? rawType : null;
+  return <String, dynamic>{
+    'type': (contentType?.startsWith('image/') ?? false) ? 'image' : 'file',
+    'id': id,
+    'url': path,
+    'name': name is String && name.isNotEmpty ? name : id,
+    'content_type': ?contentType,
+  };
+}
+
+String _toolResultText(Object? output) {
+  if (output is String) return output;
+  if (output is! List) return '';
+  return [
+    for (final part in output)
+      if (part is Map && part['text'] is String) part['text'] as String,
+  ].join();
+}
+
+/// [text] decoded as JSON, twice when it holds an encoded string.
+Object? _jsonValue(String text) {
+  Object? value = text;
+  for (var i = 0; i < 2 && value is String; i++) {
+    try {
+      value = jsonDecode(value);
+    } catch (_) {
+      return null;
+    }
+  }
+  return value;
 }
 
 Map<String, dynamic> _coerceJsonMap(Map<dynamic, dynamic> value) {
@@ -237,6 +365,53 @@ bool _isDoneStatus(Object? status, {bool includeCompleted = true}) {
   return (includeCompleted && normalized == 'completed') ||
       normalized == 'failed' ||
       normalized == 'incomplete';
+}
+
+/// Mirrors upstream `isHiddenToolCall`: Open WebUI 0.13.1 keeps internal
+/// context (memory recall, the skills list, attached knowledge, skill
+/// preloads, Tool Search's dispatchers) as tool calls marked `hidden`, which
+/// the web client never shows, nor their results. One that still waits on
+/// the user stays visible so it can be answered.
+bool _isHiddenToolCall(Map<String, dynamic> item) =>
+    item['hidden'] == true &&
+    !const {'pending', 'queued', 'requires_approval'}.contains(item['status']);
+
+/// Arguments Open WebUI 0.13.1 adds to every tool for itself when tool call
+/// labels or Auto approval are on. The server takes them out of a call before
+/// it runs, but they stream with the call until then.
+const _serverToolArgumentKeys = {'__labels__', '__approval__'};
+
+/// [arguments] without [_serverToolArgumentKeys], once they are complete
+/// JSON. A fragment still streaming is left as it is.
+Object? _shownToolArguments(Object? arguments) {
+  if (arguments is Map) {
+    if (!arguments.keys.any(_serverToolArgumentKeys.contains)) {
+      return arguments;
+    }
+    return {
+      for (final entry in arguments.entries)
+        if (!_serverToolArgumentKeys.contains(entry.key))
+          entry.key: entry.value,
+    };
+  }
+  if (arguments is! String ||
+      !_serverToolArgumentKeys.any(arguments.contains)) {
+    return arguments;
+  }
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(arguments);
+  } catch (_) {
+    return arguments;
+  }
+  if (decoded is! Map) return arguments;
+  return jsonEncode(_shownToolArguments(decoded));
+}
+
+String? _label(Object? value) {
+  if (value is! String) return null;
+  final label = value.trim();
+  return label.isEmpty ? null : label;
 }
 
 String _toolName(Map<String, dynamic> item, String itemType) {

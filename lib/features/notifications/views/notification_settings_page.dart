@@ -48,6 +48,7 @@ class NotificationSettingsPage extends ConsumerWidget {
         toggled: value,
         trailing: AdaptiveSwitch(
           value: value,
+          semanticLabel: title,
           onChanged: interactive ? onChanged : null,
         ),
         onTap: interactive ? () => onChanged(!value) : null,

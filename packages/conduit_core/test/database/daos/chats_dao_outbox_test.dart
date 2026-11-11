@@ -1055,6 +1055,64 @@ void main() {
   });
 
   group('appendMessagesWithUpdateOp', () {
+    test('keeps the meta the stored message carries', () async {
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: 'c-meta',
+        title: 'Meta',
+        createdAt: 1,
+        updatedAt: 1,
+        blob: <String, dynamic>{
+          'title': 'Meta',
+          'history': <String, dynamic>{
+            'currentId': 'a1',
+            'messages': <String, dynamic>{
+              'a1': <String, dynamic>{
+                'id': 'a1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': 'spoken',
+                'timestamp': 1,
+                'meta': <String, dynamic>{
+                  'voice': <String, dynamic>{'call_id': 'web-call'},
+                },
+              },
+            },
+          },
+        },
+      );
+      await db.chatsDao.upsertServerChat(rows: rows);
+
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'c-meta',
+        messages: const <MessageRowData>[
+          MessageRowData(
+            id: 'a1',
+            chatId: 'c-meta',
+            role: 'assistant',
+            content: 'spoken, edited',
+            createdAt: 1,
+            orderIndex: 0,
+            payload: <String, dynamic>{
+              'id': 'a1',
+              'parentId': null,
+              'childrenIds': <String>[],
+              'role': 'assistant',
+              'content': 'spoken, edited',
+            },
+          ),
+        ],
+        enqueueCompletion: false,
+      );
+
+      final stored = await db.messagesDao.getMessage('c-meta', 'a1');
+      final payload = jsonDecode(stored!.payload) as Map<String, dynamic>;
+      check(payload['content']).equals('spoken, edited');
+      check(payload['meta']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': {'call_id': 'web-call'},
+      });
+    });
+
     test(
       'appends rows dirty, updates envelope, enqueues update + completion',
       () async {

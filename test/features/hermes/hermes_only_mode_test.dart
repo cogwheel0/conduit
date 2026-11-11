@@ -213,6 +213,9 @@ class _ThrowingChatDatabaseRepository extends Fake
   final Object error;
 
   @override
+  ChatDatabaseLocation? get libreChatLocation => null;
+
+  @override
   Future<LocatedConversation?> loadConversation(
     String chatId, {
     ChatStorageKind? preferred,
@@ -226,6 +229,9 @@ class _ThrowingChatDatabaseRepository extends Fake
 class _OpenWebUiPreferenceRepository extends Fake
     implements ChatDatabaseRepository {
   ChatStorageKind? preferredStorage;
+
+  @override
+  ChatDatabaseLocation? get libreChatLocation => null;
 
   @override
   Future<LocatedConversation?> loadConversation(

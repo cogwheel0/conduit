@@ -20,8 +20,11 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
+
 import 'chat_providers.dart'
     show chatMessagesProvider, conversationUsesOpenWebUiStorage;
+import 'reasoning_effort_provider.dart' show kAutomaticReasoningEffort;
 
 part 'queued_completion_provider.g.dart';
 
@@ -56,6 +59,8 @@ class QueuedCompletionInfo {
     required this.isOffline,
     this.lastError,
     this.nextAttemptAt,
+    this.frozenReasoningEffort,
+    this.frozenPickedReasoningEffort,
   }) : _databaseOwner = databaseOwner,
        _ownership = null;
 
@@ -69,6 +74,8 @@ class QueuedCompletionInfo {
     required this.isOffline,
     this.lastError,
     this.nextAttemptAt,
+    this.frozenReasoningEffort,
+    this.frozenPickedReasoningEffort,
   }) : _databaseOwner = ownership.session.database!,
        _ownership = ownership;
 
@@ -82,6 +89,17 @@ class QueuedCompletionInfo {
   final bool isOffline;
   final String? lastError;
   final int? nextAttemptAt;
+
+  /// The non-automatic `reasoning_effort` frozen in the op's settings
+  /// snapshot — the value a manual replay would still send even after the
+  /// picker and the chat override moved on. Null when the snapshot holds no
+  /// explicit effort (or only the automatic one, e.g. after a prior
+  /// without-effort recovery froze it).
+  final String? frozenReasoningEffort;
+
+  /// The picker's non-automatic value frozen in the snapshot: the only effort
+  /// a replay sends a model that does not advertise support (issue #611).
+  final String? frozenPickedReasoningEffort;
 
   bool get isFailed => phase == QueuedCompletionPhase.failed;
 
@@ -108,7 +126,9 @@ class QueuedCompletionInfo {
           phase == other.phase &&
           isOffline == other.isOffline &&
           lastError == other.lastError &&
-          nextAttemptAt == other.nextAttemptAt;
+          nextAttemptAt == other.nextAttemptAt &&
+          frozenReasoningEffort == other.frozenReasoningEffort &&
+          frozenPickedReasoningEffort == other.frozenPickedReasoningEffort;
 
   @override
   int get hashCode => Object.hash(
@@ -122,6 +142,8 @@ class QueuedCompletionInfo {
     isOffline,
     lastError,
     nextAttemptAt,
+    frozenReasoningEffort,
+    frozenPickedReasoningEffort,
   );
 }
 
@@ -250,6 +272,9 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
         }
       }
 
+      final frozen = phase == QueuedCompletionPhase.failed
+          ? _frozenReasoningEffortsFromPayload(op.payload)
+          : null;
       infos[id] = QueuedCompletionInfo._owned(
         ownership: ownership,
         seq: op.seq,
@@ -260,6 +285,8 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
         isOffline: offline,
         lastError: op.lastError,
         nextAttemptAt: op.nextAttemptAt,
+        frozenReasoningEffort: frozen?.chat ?? frozen?.picked,
+        frozenPickedReasoningEffort: frozen?.picked,
       );
     }
     return Map<String, QueuedCompletionInfo>.unmodifiable(infos);
@@ -315,6 +342,44 @@ class QueuedCompletionActions {
       info: info,
       database: db,
       mutation: () async {
+        final now = _ref.read(syncClockProvider).nowEpochSeconds();
+        if (info.phase == QueuedCompletionPhase.failed) {
+          await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
+        } else {
+          await db.outboxDao.retryPendingNow(info.seq, nowEpochSeconds: now);
+        }
+        return true;
+      },
+      afterCommit: () async {
+        if (!info._isCurrent(_ref)) return;
+        await _ref.read(syncEngineProvider.notifier).drainNowForDatabase(db);
+      },
+    );
+    if (!result.committed) return;
+  }
+
+  /// Manual retry without the frozen `reasoning_effort` (issue #779
+  /// recovery): freezes an explicit automatic into the queued completion's
+  /// settings snapshot before re-arming, so the replay can neither resend
+  /// the rejected value nor fall back to the admitted global default.
+  /// Plain [retry] replays the stored snapshot verbatim.
+  Future<void> retryWithoutReasoningEffort(QueuedCompletionInfo info) async {
+    final db = _ref.read(appDatabaseProvider);
+    if (db == null ||
+        !identical(info._databaseOwner, db) ||
+        !info._isCurrent(_ref)) {
+      return;
+    }
+
+    final result = await _runSessionAtomicMutation<bool>(
+      info: info,
+      database: db,
+      mutation: () async {
+        if (!await db.outboxDao.freezeAutomaticReasoningEffortOnCompletion(
+          info.seq,
+        )) {
+          return false;
+        }
         final now = _ref.read(syncClockProvider).nowEpochSeconds();
         if (info.phase == QueuedCompletionPhase.failed) {
           await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
@@ -444,6 +509,39 @@ String? _assistantMessageIdFromPayload(String rawPayload) {
       final id = decoded['assistantMessageId'] as String;
       return id.isEmpty ? null : id;
     }
+  } catch (_) {}
+  return null;
+}
+
+/// The non-automatic `reasoning_effort` values frozen in the op's settings
+/// snapshot, [chat] saved on the chat and [picked] the picker's admitted one:
+/// what a manual replay can put on the wire whatever the picker and the chat
+/// hold now (issue #779). A default saved on the chat outranks the pick, so
+/// [picked] is null then too. Both are null after a without-effort recovery
+/// froze `automatic`.
+({String? chat, String? picked})? _frozenReasoningEffortsFromPayload(
+  String rawPayload,
+) {
+  String? explicit(Object? value) =>
+      value is String &&
+          value.trim().isNotEmpty &&
+          value.trim().toLowerCase() != kAutomaticReasoningEffort
+      ? value
+      : null;
+  try {
+    final decoded = jsonDecode(rawPayload);
+    if (decoded is! Map) return null;
+    final settings = OpenWebUiChatSettingsSnapshot.tryFromJson(
+      decoded['chatSettings'],
+    );
+    if (settings == null) return null;
+    final chat = explicit(settings.params[kChatParamReasoningEffort]);
+    final chatSavedDefault =
+        settings.params.containsKey(kChatParamReasoningEffort) && chat == null;
+    return (
+      chat: chat,
+      picked: chatSavedDefault ? null : explicit(settings.reasoningEffort),
+    );
   } catch (_) {}
   return null;
 }

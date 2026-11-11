@@ -161,6 +161,7 @@ final class _Router extends NotificationRouter {
   Future<NotificationSurface> route(
     AppNotification notification, {
     bool alreadyClaimed = false,
+    bool alert = true,
   }) async {
     routed.add((notification, alreadyClaimed));
     return NotificationSurface.banner;
