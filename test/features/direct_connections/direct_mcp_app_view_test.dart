@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_app.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -156,7 +157,12 @@ void main() {
   test('pins the native WebView to ephemeral default-deny settings', () {
     final settings = directMcpAppWebViewSettings('https://app.mcp-app.invalid');
 
-    expect(settings.incognito, isTrue);
+    // Android's incognito deletes every web view's cookies in the app, so
+    // the view relies on refusing cookies and storage there instead.
+    expect(
+      settings.incognito,
+      defaultTargetPlatform != TargetPlatform.android,
+    );
     expect(settings.cacheEnabled, isFalse);
     expect(settings.domStorageEnabled, isFalse);
     expect(settings.databaseEnabled, isFalse);

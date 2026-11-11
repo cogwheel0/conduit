@@ -19,6 +19,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         isChatStreamingProvider,
         localChatGenerationActiveProvider,
+        stopAllLibreChatRunsProvider,
         stopGenerationProvider,
         stopOpenWebUiMainResponse;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -84,7 +85,11 @@ final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
 /// Stops the replies [accountChangeReplyGuardProvider] reported, once the
 /// user has agreed to leave the account anyway.
 final accountChangeStopRepliesProvider = Provider<void Function()>((ref) {
-  return () => ref.read(stopGenerationProvider)();
+  return () {
+    ref.read(stopGenerationProvider)();
+    // LibreChat replies run on in chats not open, which the guard counts.
+    ref.read(stopAllLibreChatRunsProvider)();
+  };
 });
 
 /// Called after the active Open WebUI account changed, with the new one (or
@@ -434,27 +439,33 @@ class OpenWebUiAccountsController {
   }
 
   Future<void> _fallBackWithoutOpenWebUi() async {
-    var fallback = PreferredBackend.hermes;
-    if (!_ref.read(hermesConfigProvider).isUsable) {
-      // The synchronous view can still be loading with no value, which would
-      // send a user who has usable Direct profiles back to backend selection.
-      var hasUsableDirect = false;
-      try {
-        final direct = await _ref.read(
-          effectiveDirectConnectionProfilesFutureProvider.future,
-        );
-        hasUsableDirect = direct.any((profile) => profile.isUsable);
-      } catch (error) {
-        DebugLogger.warning(
-          'direct-profiles-unavailable',
-          scope: 'auth/accounts',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-      }
-      fallback = hasUsableDirect
-          ? PreferredBackend.direct
-          : PreferredBackend.unset;
+    // With LibreChat owning the Chats tab, Open WebUI was parked, not left:
+    // losing its last account changes nothing about which backend is in use.
+    if (_ref.read(preferredBackendProvider) == PreferredBackend.libreChat) {
+      return;
     }
+    // Direct comes before Hermes: Hermes joins a Direct primary, while
+    // Hermes-only mode hides every Direct provider.
+    // The synchronous view can still be loading with no value, which would
+    // send a user who has usable Direct profiles back to backend selection.
+    var hasUsableDirect = false;
+    try {
+      final direct = await _ref.read(
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      hasUsableDirect = direct.any((profile) => profile.isUsable);
+    } catch (error) {
+      DebugLogger.warning(
+        'direct-profiles-unavailable',
+        scope: 'auth/accounts',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    final fallback = hasUsableDirect
+        ? PreferredBackend.direct
+        : _ref.read(hermesConfigProvider).isUsable
+        ? PreferredBackend.hermes
+        : PreferredBackend.unset;
     // A sign-in can have made an account active while this waited; the app
     // stays on Open WebUI then, and when that cannot be read.
     try {

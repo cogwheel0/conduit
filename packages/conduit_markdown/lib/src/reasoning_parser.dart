@@ -674,15 +674,24 @@ final class RawReasoningTagEnd extends RawReasoningTagEvent {
 /// [flush], so a tag split across chunks is still recognized. Callers must
 /// [flush] before rendering any interleaved event (tool status, explicit
 /// reasoning delta) so held text keeps its place in the stream.
+///
+/// With [ignoreTagsInCode], an opening tag inside Markdown code in the answer
+/// text (a fenced block, or an inline code span) stays answer text, so an
+/// answer can show `` `<think>` `` literally. Open WebUI's server splits tags
+/// wherever they appear, so its own streams keep the default.
 class StreamingReasoningTagSplitter {
-  StreamingReasoningTagSplitter({List<(String, String)>? tagPairs})
-    : _tagPairs = tagPairs ?? defaultReasoningTagPairs;
+  StreamingReasoningTagSplitter({
+    List<(String, String)>? tagPairs,
+    bool ignoreTagsInCode = false,
+  }) : _tagPairs = tagPairs ?? defaultReasoningTagPairs,
+       _code = ignoreTagsInCode ? _MarkdownCodeState() : null;
 
   /// Longest text held back while an attributed opening tag (`<think foo=`)
   /// is still unterminated; beyond this the text is treated as prose.
   static const int maxHeldLength = 256;
 
   final List<(String, String)> _tagPairs;
+  final _MarkdownCodeState? _code;
   String _pending = '';
   (String, String)? _open;
 
@@ -736,13 +745,19 @@ class StreamingReasoningTagSplitter {
         if (match == null || matched == null) {
           final hold = _openingHoldLength(buffer);
           final emit = buffer.substring(0, buffer.length - hold);
-          if (emit.isNotEmpty) events.add(RawReasoningTagText(emit));
+          if (emit.isNotEmpty) _addText(events, emit);
           _pending = buffer.substring(buffer.length - hold);
           break;
         }
-        if (match.start > 0) {
-          events.add(RawReasoningTagText(buffer.substring(0, match.start)));
+        final before = buffer.substring(0, match.start);
+        final code = _code;
+        if (code != null && code.isInsideCodeAfter(before)) {
+          // A tag written inside Markdown code is part of the answer.
+          _addText(events, buffer.substring(0, match.end));
+          buffer = buffer.substring(match.end);
+          continue;
         }
+        if (before.isNotEmpty) _addText(events, before);
         _open = matched;
         buffer = buffer.substring(match.end);
       } else {
@@ -770,6 +785,7 @@ class StreamingReasoningTagSplitter {
   void reset() {
     _pending = '';
     _open = null;
+    _code?.reset();
   }
 
   /// Releases any held-back fragment as ordinary text or reasoning text.
@@ -777,11 +793,18 @@ class StreamingReasoningTagSplitter {
     final pending = _pending;
     _pending = '';
     if (pending.isEmpty) return const [];
-    return [
-      _open == null
-          ? RawReasoningTagText(pending)
-          : RawReasoningTagReasoning(pending),
-    ];
+    if (_open == null) {
+      final events = <RawReasoningTagEvent>[];
+      _addText(events, pending);
+      return events;
+    }
+    return [RawReasoningTagReasoning(pending)];
+  }
+
+  /// Emits answer text, keeping the Markdown code state in step with it.
+  void _addText(List<RawReasoningTagEvent> events, String text) {
+    events.add(RawReasoningTagText(text));
+    _code?.advance(text);
   }
 
   /// How much of [buffer]'s tail may still become an opening tag: a literal
@@ -815,5 +838,149 @@ class StreamingReasoningTagSplitter {
       }
     }
     return longest;
+  }
+}
+
+/// Whether streamed Markdown answer text currently sits inside code.
+///
+/// Tracks fenced blocks (a run of three or more backticks or tildes that
+/// starts a line, indented at most three spaces, closed by a run of the same
+/// character at least as long with only whitespace after it on its line) and
+/// inline code spans (a backtick run closed by a run of the same length). An
+/// inline span also ends at a blank line, since a span cannot cross
+/// paragraphs. A backtick or tilde run is only complete once a different
+/// character follows, so a run split across chunks is still read as one run.
+/// Outside code a backslash escapes the next character, so `` \` `` is a
+/// literal backtick; inside code a backslash is literal.
+final class _MarkdownCodeState {
+  String? _fenceChar;
+  int _fenceLength = 0;
+  bool _closePending = false;
+  int _inlineTicks = 0;
+  int _indent = 0;
+  bool _lineHasText = false;
+  bool _lineIsBlank = true;
+  String? _runChar;
+  int _runLength = 0;
+  bool _runStartsLine = false;
+  bool _escaped = false;
+
+  /// Whether a tag that follows [text] would sit inside code. The tag's first
+  /// character ends any backtick run [text] closes with.
+  bool isInsideCodeAfter(String text) {
+    final probe = _copy()..advance(text);
+    probe._endRun();
+    return probe._isInsideCode;
+  }
+
+  void advance(String text) {
+    for (var index = 0; index < text.length; index++) {
+      _push(text[index]);
+    }
+  }
+
+  void reset() {
+    _fenceChar = null;
+    _fenceLength = 0;
+    _closePending = false;
+    _inlineTicks = 0;
+    _indent = 0;
+    _lineHasText = false;
+    _lineIsBlank = true;
+    _runChar = null;
+    _runLength = 0;
+    _runStartsLine = false;
+    _escaped = false;
+  }
+
+  _MarkdownCodeState _copy() => _MarkdownCodeState()
+    .._fenceChar = _fenceChar
+    .._fenceLength = _fenceLength
+    .._closePending = _closePending
+    .._inlineTicks = _inlineTicks
+    .._indent = _indent
+    .._lineHasText = _lineHasText
+    .._lineIsBlank = _lineIsBlank
+    .._runChar = _runChar
+    .._runLength = _runLength
+    .._runStartsLine = _runStartsLine
+    .._escaped = _escaped;
+
+  bool get _canStartFence => !_lineHasText && _indent <= 3;
+
+  bool get _isInsideCode => _fenceChar != null || _inlineTicks > 0;
+
+  void _push(String char) {
+    if (_runChar != null) {
+      if (char == _runChar) {
+        _runLength++;
+        return;
+      }
+      _endRun();
+    }
+    if (_closePending) {
+      // A closing marker closes the fence only once its line ends with
+      // nothing but whitespace after it (so `~~~xml` does not close `~~~`).
+      if (char == '\n') {
+        _fenceChar = null;
+        _fenceLength = 0;
+        _closePending = false;
+      } else if (char != ' ' && char != '\t' && char != '\r') {
+        _closePending = false;
+      }
+    }
+    final escaped = _escaped;
+    _escaped = false;
+    switch (char) {
+      case '`' when !escaped:
+        _startRun(char);
+      case '~' when _canStartFence:
+        _startRun(char);
+      case '\n':
+        if (_lineIsBlank) _inlineTicks = 0;
+        _indent = 0;
+        _lineHasText = false;
+        _lineIsBlank = true;
+      case ' ' || '\t' || '\r':
+        if (!_lineHasText) _indent += char == '\t' ? 4 : 1;
+      default:
+        if (char == '\\' && !escaped && !_isInsideCode) _escaped = true;
+        _lineHasText = true;
+        _lineIsBlank = false;
+    }
+  }
+
+  void _startRun(String char) {
+    _runChar = char;
+    _runLength = 1;
+    _runStartsLine = _canStartFence;
+  }
+
+  void _endRun() {
+    final char = _runChar;
+    if (char == null) return;
+    final length = _runLength;
+    final startsLine = _runStartsLine;
+    _runChar = null;
+    _runLength = 0;
+    _lineHasText = true;
+    _lineIsBlank = false;
+    if (_fenceChar != null) {
+      if (startsLine && char == _fenceChar && length >= _fenceLength) {
+        _closePending = true;
+      }
+      return;
+    }
+    if (startsLine && length >= 3 && _inlineTicks == 0) {
+      _fenceChar = char;
+      _fenceLength = length;
+      return;
+    }
+    if (char != '`') return;
+    if (_inlineTicks == 0) {
+      _inlineTicks = length;
+    } else if (_inlineTicks == length) {
+      _inlineTicks = 0;
+    }
   }
 }

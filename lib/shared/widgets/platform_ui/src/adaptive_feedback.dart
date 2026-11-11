@@ -6,7 +6,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../theme/color_tokens.dart';
 import '../../../theme/theme_extensions.dart';
+import 'adaptive_glass_controls.dart';
 import 'platform_ui_capabilities.dart';
+import 'placeholder_caret_gap.dart';
+import 'ios_text_magnifier.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
 
@@ -49,7 +52,7 @@ class AdaptiveSnackBar {
 
     if (!PlatformUiCapabilities.isIOS) {
       final status = _statusColors(context, type);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
             message,
@@ -201,7 +204,9 @@ class _IOSBannerState extends State<_IOSBanner> {
           liveRegion: true,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: bannerColor,
+              color: PlatformUiCapabilities.usesNativeIOS26
+                  ? null
+                  : bannerColor,
               borderRadius: BorderRadius.circular(14),
               boxShadow: const [
                 BoxShadow(
@@ -211,34 +216,48 @@ class _IOSBannerState extends State<_IOSBanner> {
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Icon(icon, color: tint, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      widget.message,
-                      style: TextStyle(
-                        color:
-                            conduitTheme?.textPrimary ??
-                            CupertinoColors.label.resolveFrom(context),
-                      ),
+            child: Stack(
+              fit: StackFit.passthrough,
+              children: [
+                if (PlatformUiCapabilities.usesNativeIOS26)
+                  Positioned.fill(
+                    child: AdaptiveGlassBackdrop(
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  if (widget.action != null)
-                    CupertinoButton(
-                      padding: const EdgeInsets.only(left: 10),
-                      minimumSize: const Size(36, 36),
-                      onPressed: () {
-                        widget.onActionPressed?.call();
-                        widget.onDismiss();
-                      },
-                      child: Text(widget.action!),
-                    ),
-                ],
-              ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: tint, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.message,
+                          style: TextStyle(
+                            color:
+                                conduitTheme?.textPrimary ??
+                                CupertinoColors.label.resolveFrom(context),
+                          ),
+                        ),
+                      ),
+                      if (widget.action != null)
+                        CupertinoButton(
+                          padding: const EdgeInsets.only(left: 10),
+                          minimumSize: const Size(36, 36),
+                          onPressed: () {
+                            widget.onActionPressed?.call();
+                            widget.onDismiss();
+                          },
+                          child: Text(widget.action!),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -279,6 +298,8 @@ class AdaptiveAlertDialogInput {
     this.initialValue,
     this.keyboardType,
     this.obscureText = false,
+    this.autocorrect = true,
+    this.maxLines = 1,
     this.maxLength,
   });
 
@@ -286,6 +307,8 @@ class AdaptiveAlertDialogInput {
   final String? initialValue;
   final TextInputType? keyboardType;
   final bool obscureText;
+  final bool autocorrect;
+  final int maxLines;
   final int? maxLength;
 }
 
@@ -298,6 +321,39 @@ class AdaptiveAlertDialog {
     String? message,
     required List<AlertAction> actions,
   }) async {
+    // CNAlert opens in the app theme's brightness (read through
+    // LegacyDesignCompatibility), so a forced light or dark theme stays native.
+    if (PlatformUiCapabilities.usesNativeIOS26 &&
+        actions.any(_isEnabled) &&
+        actions.where((a) => a.style == AlertActionStyle.cancel).length <= 1 &&
+        actions.where((a) => a.style == AlertActionStyle.primary).length <= 1) {
+      final presentedActions = List<AlertAction>.of(actions);
+      final result = await CNAlert.show<int>(
+        context: context,
+        title: title,
+        message: message,
+        actions: [
+          for (var index = 0; index < presentedActions.length; index++)
+            CNAlertAction(
+              label: presentedActions[index].title,
+              value: index,
+              isCancel:
+                  presentedActions[index].style == AlertActionStyle.cancel,
+              isDefault:
+                  presentedActions[index].style == AlertActionStyle.primary,
+              isDestructive:
+                  presentedActions[index].style == AlertActionStyle.destructive,
+              enabled: _isEnabled(presentedActions[index]),
+            ),
+        ],
+      );
+      if (!context.mounted) return;
+      final index = result?.value;
+      if (index != null && _isEnabled(presentedActions[index])) {
+        presentedActions[index].onPressed();
+      }
+      return;
+    }
     if (PlatformUiCapabilities.isIOS) {
       await showCupertinoDialog<void>(
         context: context,
@@ -353,6 +409,9 @@ class AdaptiveAlertDialog {
     );
   }
 
+  static bool _isEnabled(AlertAction action) =>
+      action.enabled && action.style != AlertActionStyle.disabled;
+
   static Future<String?> inputShow({
     required BuildContext context,
     required String title,
@@ -361,89 +420,119 @@ class AdaptiveAlertDialog {
     required AdaptiveAlertDialogInput input,
   }) async {
     final controller = TextEditingController(text: input.initialValue);
+    ModalRoute<dynamic>? dialogRoute;
     try {
       if (PlatformUiCapabilities.isIOS) {
         return await showCupertinoDialog<String?>(
           context: context,
-          builder: (dialogContext) => CupertinoAlertDialog(
-            title: Text(title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message != null) Text(message),
-                const SizedBox(height: 10),
-                CupertinoTextField(
-                  controller: controller,
-                  placeholder: input.placeholder,
-                  keyboardType: input.keyboardType,
-                  obscureText: input.obscureText,
-                  maxLength: input.maxLength,
-                  autofocus: true,
-                ),
+          builder: (dialogContext) {
+            dialogRoute = ModalRoute.of(dialogContext);
+            return CupertinoAlertDialog(
+              title: Text(title),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message != null) Text(message),
+                  const SizedBox(height: 10),
+                  CupertinoTextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
+                    controller: controller,
+                    placeholder: placeholderClearOfCaret(input.placeholder),
+                    keyboardType: input.keyboardType,
+                    obscureText: input.obscureText,
+                    autocorrect: input.autocorrect,
+                    enableSuggestions: input.autocorrect,
+                    smartDashesType: input.autocorrect
+                        ? null
+                        : SmartDashesType.disabled,
+                    smartQuotesType: input.autocorrect
+                        ? null
+                        : SmartQuotesType.disabled,
+                    maxLength: input.maxLength,
+                    maxLines: input.maxLines,
+                    autofocus: true,
+                  ),
+                ],
+              ),
+              actions: [
+                for (final action in actions)
+                  CupertinoDialogAction(
+                    onPressed:
+                        !action.enabled ||
+                            action.style == AlertActionStyle.disabled
+                        ? null
+                        : () {
+                            final isCancel =
+                                action.style == AlertActionStyle.cancel;
+                            Navigator.of(dialogContext)
+                                .pop(isCancel ? null : controller.text);
+                            action.onPressed();
+                          },
+                    isDefaultAction: action.style == AlertActionStyle.primary,
+                    isDestructiveAction:
+                        action.style == AlertActionStyle.destructive,
+                    child: Text(action.title),
+                  ),
               ],
+            );
+          },
+        );
+      }
+      return await showDialog<String?>(
+        context: context,
+        builder: (dialogContext) {
+          dialogRoute = ModalRoute.of(dialogContext);
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              magnifierConfiguration: nativeIosTextMagnifierConfiguration,
+              controller: controller,
+              keyboardType: input.keyboardType,
+              obscureText: input.obscureText,
+              autocorrect: input.autocorrect,
+              enableSuggestions: input.autocorrect,
+              smartDashesType: input.autocorrect
+                  ? null
+                  : SmartDashesType.disabled,
+              smartQuotesType: input.autocorrect
+                  ? null
+                  : SmartQuotesType.disabled,
+              maxLength: input.maxLength,
+              maxLines: input.maxLines,
+              autofocus: true,
+              decoration: InputDecoration(hintText: input.placeholder),
             ),
             actions: [
               for (final action in actions)
-                CupertinoDialogAction(
+                TextButton(
+                  style: action.style == AlertActionStyle.destructive
+                      ? TextButton.styleFrom(
+                          foregroundColor: Theme.of(dialogContext)
+                              .colorScheme
+                              .error,
+                        )
+                      : null,
                   onPressed:
                       !action.enabled ||
                           action.style == AlertActionStyle.disabled
                       ? null
                       : () {
-                          final isCancel =
-                              action.style == AlertActionStyle.cancel;
-                          Navigator.of(dialogContext)
-                              .pop(isCancel ? null : controller.text);
+                          Navigator.of(dialogContext).pop(
+                            action.style == AlertActionStyle.cancel
+                                ? null
+                                : controller.text,
+                          );
                           action.onPressed();
                         },
-                  isDefaultAction: action.style == AlertActionStyle.primary,
-                  isDestructiveAction:
-                      action.style == AlertActionStyle.destructive,
                   child: Text(action.title),
                 ),
             ],
-          ),
-        );
-      }
-      return await showDialog<String?>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: controller,
-            keyboardType: input.keyboardType,
-            obscureText: input.obscureText,
-            maxLength: input.maxLength,
-            autofocus: true,
-            decoration: InputDecoration(hintText: input.placeholder),
-          ),
-          actions: [
-            for (final action in actions)
-              TextButton(
-                style: action.style == AlertActionStyle.destructive
-                    ? TextButton.styleFrom(
-                        foregroundColor: Theme.of(dialogContext)
-                            .colorScheme
-                            .error,
-                      )
-                    : null,
-                onPressed:
-                    !action.enabled || action.style == AlertActionStyle.disabled
-                    ? null
-                    : () {
-                        Navigator.of(dialogContext).pop(
-                          action.style == AlertActionStyle.cancel
-                              ? null
-                              : controller.text,
-                        );
-                        action.onPressed();
-                      },
-                child: Text(action.title),
-              ),
-          ],
-        ),
+          );
+        },
       );
     } finally {
+      // Pop completes before the closing animation unmounts the text field.
+      await dialogRoute?.completed;
       controller.dispose();
     }
   }

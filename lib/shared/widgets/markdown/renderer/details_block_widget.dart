@@ -3,12 +3,15 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../assistant_detail_header.dart';
 import '../../themed_sheets.dart';
 import '../../web_content_embed.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
+import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import '../markdown_config.dart';
 import 'details_group_widget.dart';
 import 'markdown_style.dart';
@@ -137,6 +140,13 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: embeds,
             );
+    }
+
+    if (isEmptyFinishedReasoning(_detailsData)) {
+      // Nothing to open and no honest duration to report: providers that
+      // keep their reasoning private still emit a block, timed from its
+      // first to its last chunk rather than from the wait the reader saw.
+      return const SizedBox.shrink();
     }
 
     final title = _headerTitle(context);
@@ -369,7 +379,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return SizedBox(
         width: spinnerSize,
         height: spinnerSize,
-        child: CircularProgressIndicator(
+        child: AdaptiveProgressIndicator(
           strokeWidth: 1.8,
           color: theme.textSecondary,
         ),
@@ -410,6 +420,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       if (_toolCallData.hasEmbeds) {
         return safeName;
       }
+      final label = _toolCallLabel;
+      if (label != null) return label;
       final status = _detailsData.status;
       if (status == 'pending') return 'Tool Approval Needed: $safeName';
       if (status == 'rejected') return 'Denied $safeName';
@@ -425,6 +437,24 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
     final summary = _detailsData.summaryText.trim();
     return summary.isEmpty ? 'Details' : summary;
+  }
+
+  /// Mirrors ToolCallDisplay.svelte's `displayLabel`: the model's label for
+  /// what the call is doing or did, only while it runs or once it succeeded.
+  String? get _toolCallLabel {
+    final data = _toolCallData;
+    if (data.isError ||
+        const {
+          'pending',
+          'queued',
+          'requires_approval',
+          'incomplete',
+          'rejected',
+        }.contains(_detailsData.status)) {
+      return null;
+    }
+    final label = _isPending ? data.runningLabel : data.completedLabel;
+    return label.isEmpty ? null : label;
   }
 
   String _modalTitle(BuildContext context) {
@@ -501,7 +531,11 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                           Expanded(
                             child: SelectableText(
                               entry.value,
+                              magnifierConfiguration:
+                                  nativeIosTextMagnifierConfiguration,
                               style: markdownStyle.detailValue,
+                              contextMenuBuilder:
+                                  AdaptiveTextSelectionMenu.editableText,
                             ),
                           ),
                         ],
@@ -549,7 +583,9 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                 isTruncated
                     ? resultText.substring(0, _resultPreviewLimit)
                     : resultText,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: markdownStyle.detailCode,
+                contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
               ),
             );
             if (isTruncated) {
@@ -566,7 +602,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                     alignment: Alignment.centerLeft,
                   ),
                   child: Text(
-                    'Show all (${resultText.length} characters)',
+                    'Show All (${resultText.length} characters)',
                     style: markdownStyle.detailAction,
                   ),
                 ),
@@ -679,6 +715,15 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
               ),
             ),
           ],
+          for (final (index, embed) in data.mcpApps.indexed)
+            if (OpenWebUiMcpApp.tryParse(embed) case final app?) ...[
+              if (index > 0 || data.embedSources.isNotEmpty)
+                const SizedBox(height: Spacing.sm),
+              KeyedSubtree(
+                key: ValueKey('tool-call-mcp-app-$index-${app.binding}'),
+                child: McpAppEmbed(app: app),
+              ),
+            ],
         ],
       ),
     ];
@@ -708,6 +753,14 @@ final class ReasoningHeaderThoughts extends ReasoningHeader {
   const ReasoningHeaderThoughts();
 }
 
+/// Whether [data] is a finished reasoning block with no text to show: some
+/// providers keep their reasoning private and send only an opaque marker, so
+/// the header would open onto nothing.
+bool isEmptyFinishedReasoning(CompiledMarkdownDetailsData data) =>
+    data.kind == CompiledMarkdownDetailsKind.reasoning &&
+    data.isDone &&
+    !data.hasBody;
+
 /// Mirrors upstream `Collapsible.svelte`: a reasoning block reads
 /// "Thought for…" only once it is done AND carries a duration. A pending
 /// block always reads "Thinking…"; a finished block with no timing at all
@@ -730,7 +783,12 @@ ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
         : const ReasoningHeaderThinking();
   }
 
-  if (data.hasDuration) {
+  // The server times a reasoning block from its first chunk to its last, not
+  // from the request. A block that arrives in one burst after a long silent
+  // wait therefore reads "0", which would claim "less than a second" right
+  // after the reader waited several. Under a second says nothing reliable,
+  // so it falls through to the neutral label.
+  if (data.hasDuration && data.durationSeconds >= 1) {
     return ReasoningHeaderThoughtFor(data.durationSeconds);
   }
   if (summaryDuration != null) {
@@ -738,7 +796,12 @@ ReasoningHeader resolveReasoningHeader(CompiledMarkdownDetailsData data) {
     final seconds = int.tryParse(
       summaryDuration.group(1) ?? summaryDuration.group(2) ?? '',
     );
-    return ReasoningHeaderThoughtFor(seconds ?? data.durationSeconds);
+    if (seconds != null && seconds >= 1) {
+      return ReasoningHeaderThoughtFor(seconds);
+    }
+  }
+  if (summaryDuration != null || data.hasDuration) {
+    return const ReasoningHeaderThoughts();
   }
 
   // Done without any timing: upstream would keep reading "Thinking…", which

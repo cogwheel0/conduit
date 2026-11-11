@@ -39,6 +39,23 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
 
   HermesDashboardRestBridge._(this._accessHeaders, this._session);
 
+  /// Signs [root]'s dashboard session out ([HermesDashboardSignOut]) from a
+  /// hidden page of its own, closed again after.
+  static Future<bool> signOutOf({
+    required Uri root,
+    required Map<String, String> accessHeaders,
+  }) async {
+    final bridge = HermesDashboardRestBridge(
+      root: root,
+      accessHeaders: accessHeaders,
+    );
+    try {
+      return await bridge.signOut();
+    } finally {
+      await bridge.close();
+    }
+  }
+
   final Map<String, String> _accessHeaders;
   final HermesDashboardRestSession _session;
 
@@ -47,11 +64,31 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     String method,
     Uri uri, {
     String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
-    // The headers reach the page through a script that must run before the
-    // page's own, so a device that cannot guarantee that (an Android WebView
-    // without document-start scripts, or iOS, which has no header support at
-    // all) never sends them.
+    await _requireHeaderSupport();
+    return _session.request(
+      method,
+      uri,
+      body: body,
+      urgent: urgent,
+      beforeSend: beforeSend,
+    );
+  }
+
+  /// Signs the dashboard's session out on the server
+  /// ([HermesDashboardRestSession.signOut]).
+  Future<bool> signOut() async {
+    await _requireHeaderSupport();
+    return _session.signOut();
+  }
+
+  /// The headers reach the page through a script that must run before the
+  /// page's own, so a device that cannot guarantee that (an Android WebView
+  /// without document-start scripts, or iOS, which has no header support at
+  /// all) never sends them.
+  Future<void> _requireHeaderSupport() async {
     if (_accessHeaders.isNotEmpty &&
         !await HermesDashboardWebViewPolicy.headersSupported(_accessHeaders)) {
       throw StateError(
@@ -59,7 +96,6 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
         'dashboard is unavailable.',
       );
     }
-    return _session.request(method, uri, body: body);
   }
 
   @override

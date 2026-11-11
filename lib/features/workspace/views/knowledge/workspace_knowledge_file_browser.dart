@@ -7,6 +7,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/services/api_service.dart'
+    show KnowledgeUploadRefused;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/chat/widgets/server_file_picker_sheet.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
@@ -245,15 +247,17 @@ class _Browser extends ConsumerWidget {
     final files = await FilePicker.pickFiles(type: FileType.any);
     if (files.isEmpty || !context.mounted) return;
     await _guard(context, () async {
-      final ids = <String>[];
+      final sources = <WorkspaceUploadSource>[];
       for (final picked in files) {
-        final bytes = picked.path != null
-            ? await File(picked.path!).readAsBytes()
-            : await picked.readAsBytes();
-        if (bytes.isEmpty) continue;
-        ids.add(await notifier.uploadForBatch(picked.name, bytes));
+        sources.add((
+          name: picked.name,
+          size: await picked.length() ?? -1,
+          read: () async => picked.path != null
+              ? await File(picked.path!).readAsBytes()
+              : await picked.readAsBytes(),
+        ));
       }
-      await notifier.batchAttach(ids);
+      await notifier.uploadMany(sources);
     }, failureText: l10n.workspaceKnowledgeUploadFailed);
   }
 
@@ -459,7 +463,8 @@ class _Browser extends ConsumerWidget {
       if (context.mounted) {
         AdaptiveSnackBar.show(
           context,
-          message: failureText,
+          // A refusal for the knowledge base's limits says which one.
+          message: error is KnowledgeUploadRefused ? error.reason : failureText,
           type: AdaptiveSnackBarType.error,
         );
       }

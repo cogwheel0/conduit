@@ -3,6 +3,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'platform_ui_capabilities.dart';
+import 'ios_text_magnifier.dart';
+import 'placeholder_caret_gap.dart';
+
+export 'package:material_ui/material_ui.dart' show InputBorder, InputDecoration;
 
 class AdaptiveTextField extends StatelessWidget {
   const AdaptiveTextField({
@@ -85,6 +89,7 @@ class AdaptiveTextField extends StatelessWidget {
         keyboardType: keyboardType,
         textInputAction: textInputAction,
         textCapitalization: textCapitalization,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: style,
         textAlign: textAlign,
         maxLines: maxLines,
@@ -105,10 +110,14 @@ class AdaptiveTextField extends StatelessWidget {
     return CupertinoTextField(
       controller: controller,
       focusNode: focusNode,
-      placeholder: placeholder ?? decoration?.hintText,
+      placeholder: maybePlaceholderClearOfCaret(
+        placeholder ?? decoration?.hintText,
+        textAlign: textAlign,
+      ),
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       textCapitalization: textCapitalization,
+      magnifierConfiguration: nativeIosTextMagnifierConfiguration,
       style: style,
       textAlign: textAlign,
       maxLines: maxLines,
@@ -311,6 +320,7 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
         keyboardType: widget.keyboardType,
         textInputAction: widget.textInputAction,
         textCapitalization: widget.textCapitalization,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: widget.style,
         textAlign: widget.textAlign,
         maxLines: widget.maxLines,
@@ -347,10 +357,14 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
           CupertinoTextField(
             controller: _effectiveController,
             focusNode: widget.focusNode,
-            placeholder: widget.placeholder ?? widget.decoration?.hintText,
+            placeholder: maybePlaceholderClearOfCaret(
+              widget.placeholder ?? widget.decoration?.hintText,
+              textAlign: widget.textAlign,
+            ),
             keyboardType: widget.keyboardType,
             textInputAction: widget.textInputAction,
             textCapitalization: widget.textCapitalization,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: widget.style,
             textAlign: widget.textAlign,
             maxLines: widget.maxLines,

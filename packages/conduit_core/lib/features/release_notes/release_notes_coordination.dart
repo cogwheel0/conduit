@@ -23,7 +23,9 @@ bool canPresentReleaseNotes(
           true,
     PreferredBackend.hermes =>
       PreferencesStore.getBool(PreferenceKeys.hermesEnabled) == true,
-    PreferredBackend.unset || PreferredBackend.owui => false,
+    PreferredBackend.unset ||
+    PreferredBackend.owui ||
+    PreferredBackend.libreChat => false,
   };
 }
 

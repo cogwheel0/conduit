@@ -42,6 +42,12 @@ enum PlatformNativeSheetItemKind {
   readOnlyText,
   source,
   statusUpdate,
+
+  /// A choice among a few looks, drawn as preview tiles with a label and a
+  /// selection mark under each, as Display & Brightness draws Light and Dark.
+  /// Each option's swatches paint its preview; one with dark swatches too
+  /// previews both halves.
+  appearanceTiles,
 }
 
 class PlatformBackgroundStreamLease {
@@ -312,6 +318,9 @@ class PlatformNativeSheetOption {
     required this.ancestorHasMoreSiblings,
     required this.showBranch,
     required this.hasMoreSiblings,
+    this.filterGroup,
+    this.swatchesArgb,
+    this.darkSwatchesArgb,
   });
 
   String id;
@@ -323,6 +332,13 @@ class PlatformNativeSheetOption {
   List<bool> ancestorHasMoreSiblings;
   bool showBranch;
   bool hasMoreSiblings;
+
+  String? filterGroup;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, in light
+  /// and dark appearance. Null for an ordinary option.
+  List<int>? swatchesArgb;
+  List<int>? darkSwatchesArgb;
 }
 
 class PlatformNativeSheetTheme {
@@ -389,6 +405,7 @@ class PlatformNativeSheetItem {
     this.checked,
     this.accent,
     this.usesProfileAvatar,
+    this.filterAllLabel,
   });
 
   String id;
@@ -433,6 +450,8 @@ class PlatformNativeSheetItem {
   /// Draws the row as the sheet's profile summary: its large avatar beside
   /// the row's own title and subtitle.
   bool? usesProfileAvatar;
+
+  String? filterAllLabel;
 }
 
 class PlatformNativeSheetLink {
@@ -444,11 +463,17 @@ class PlatformNativeSheetLink {
 }
 
 class PlatformNativeSheetSection {
-  PlatformNativeSheetSection({this.title, this.footer, required this.items});
+  PlatformNativeSheetSection({
+    this.title,
+    this.footer,
+    required this.items,
+    this.reorderActionId,
+  });
 
   String? title;
   String? footer;
   List<PlatformNativeSheetItem> items;
+  String? reorderActionId;
 }
 
 class PlatformNativeEditProfileSheetConfig {
@@ -629,6 +654,8 @@ class PlatformNativeSheetModelSelectorRequest {
     required this.allowsCustomReasoningEffort,
     required this.customReasoningEffortTitle,
     required this.customReasoningEffortHint,
+    required this.modelControls,
+    required this.modelControlDefaultTitle,
   });
 
   String presentationId;
@@ -649,6 +676,32 @@ class PlatformNativeSheetModelSelectorRequest {
   bool allowsCustomReasoningEffort;
   String customReasoningEffortTitle;
   String customReasoningEffortHint;
+
+  /// The selected model's own settings (a coding agent's effort or service
+  /// tier), one row each.
+  List<PlatformNativeSheetModelControl> modelControls;
+
+  /// What a control's row says while nothing is picked and it has no default.
+  String modelControlDefaultTitle;
+}
+
+/// One of a model's own settings, as the model selector offers it.
+class PlatformNativeSheetModelControl {
+  PlatformNativeSheetModelControl({
+    required this.key,
+    required this.title,
+    this.value,
+    required this.options,
+    required this.labels,
+  });
+
+  String key;
+  String title;
+
+  /// The option that applies now, or null when none does.
+  String? value;
+  List<String> options;
+  Map<String, String> labels;
 }
 
 class PlatformNativeSheetOptionsSelectorRequest {
@@ -658,6 +711,7 @@ class PlatformNativeSheetOptionsSelectorRequest {
     this.selectedOptionId,
     required this.searchable,
     required this.options,
+    this.filterAllLabel,
   });
 
   String title;
@@ -665,6 +719,8 @@ class PlatformNativeSheetOptionsSelectorRequest {
   String? selectedOptionId;
   bool searchable;
   List<PlatformNativeSheetOption> options;
+
+  String? filterAllLabel;
 }
 
 class PlatformNativeSheetDatePickerRequest {
@@ -694,6 +750,7 @@ class PlatformNativeSheetTextEditorRequest {
     required this.valueId,
     required this.sendActionId,
     required this.closeActionId,
+    this.emitChanges = false,
   });
 
   String title;
@@ -703,6 +760,7 @@ class PlatformNativeSheetTextEditorRequest {
   String valueId;
   String sendActionId;
   String closeActionId;
+  bool emitChanges;
 }
 
 class PlatformNativeSheetResultRequest {
@@ -757,6 +815,16 @@ class PlatformNativeSheetModelPinToggledEvent {
 class PlatformNativeSheetReasoningEffortChangedEvent {
   PlatformNativeSheetReasoningEffortChangedEvent({required this.value});
 
+  String value;
+}
+
+class PlatformNativeSheetModelControlChangedEvent {
+  PlatformNativeSheetModelControlChangedEvent({
+    required this.key,
+    required this.value,
+  });
+
+  String key;
   String value;
 }
 
@@ -996,6 +1064,18 @@ abstract class NativeKeyboardAttachmentFlutterApi {
 abstract class NativeDropdownHostApi {
   @async
   String? show(PlatformDropdownRequest request);
+
+  /// Prepares native menu presentation and reports availability.
+  bool initializeContextMenu();
+
+  @async
+  String? showContextMenu(
+    int requestId,
+    PlatformDropdownRequest request,
+    Uint8List previewPng,
+  );
+
+  void cancelContextMenu(int requestId);
 }
 
 /// iOS only. Presents local image files in Quick Look.
@@ -1041,6 +1121,13 @@ abstract class NativeSheetHostApi {
     bool allowsCustom,
   );
 
+  /// Shows [controls] as the open selector's control rows again, as the
+  /// account holds them (after a pick that could not be saved).
+  void updateModelSelectorModelControls(
+    String presentationId,
+    List<PlatformNativeSheetModelControl> controls,
+  );
+
   @async
   String? presentOptionsSelector(
     PlatformNativeSheetOptionsSelectorRequest request,
@@ -1072,6 +1159,7 @@ abstract class NativeSheetFlutterApi {
   void onReasoningEffortChanged(
     PlatformNativeSheetReasoningEffortChangedEvent event,
   );
+  void onModelControlChanged(PlatformNativeSheetModelControlChangedEvent event);
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
 }
 

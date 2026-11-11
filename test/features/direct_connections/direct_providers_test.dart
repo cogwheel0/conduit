@@ -10,10 +10,12 @@ import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_connection_profile_store.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_cache_store.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
@@ -155,6 +157,72 @@ void main() {
       firstModelId: 4096,
       secondModelId: 8192,
     });
+  });
+
+  test('images per request defaults to ten and persists a choice', () async {
+    final container = ProviderContainer();
+    expect(
+      container.read(directMaxImagesPerRequestProvider),
+      kDefaultDirectMaxImagesPerRequest,
+    );
+
+    await container.read(directMaxImagesPerRequestProvider.notifier).set(20);
+    expect(container.read(directMaxImagesPerRequestProvider), 20);
+    container.dispose();
+
+    final restored = ProviderContainer();
+    addTearDown(restored.dispose);
+    expect(restored.read(directMaxImagesPerRequestProvider), 20);
+    expect(
+      () => restored
+          .read(directMaxImagesPerRequestProvider.notifier)
+          .set(kMaxDirectMaxImagesPerRequest + 1),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+    'an out-of-range stored image count falls back to the default',
+    () async {
+      await PreferencesStore.put(PreferenceKeys.directMaxImagesPerRequest, 0);
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      expect(
+        container.read(directMaxImagesPerRequestProvider),
+        kDefaultDirectMaxImagesPerRequest,
+      );
+    },
+  );
+
+  test('a chosen context limit reaches local Ollama as num_ctx', () async {
+    final http = _OllamaLoadCaptureAdapter();
+    final pool = DirectHttpClientPool(dioFactory: (_) => _dio(http));
+    addTearDown(pool.dispose);
+    final container = ProviderContainer(
+      overrides: [directHttpClientPoolProvider.overrideWithValue(pool)],
+    );
+    addTearDown(container.dispose);
+    final profile = DirectConnectionProfile(
+      id: 'home',
+      name: 'Home Ollama',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://192.168.1.5:11434',
+    );
+    final adapter =
+        container
+                .read(directProviderAdapterRegistryProvider)
+                .require(kOllamaAdapterKey)
+            as DirectModelLifecycleAdapter;
+
+    await adapter.loadModel(profile, 'llama3.2:latest');
+    await container
+        .read(directContextLengthOverridesProvider.notifier)
+        .set(DirectModelId.encode('home', 'llama3.2:latest'), 32768);
+    await adapter.loadModel(profile, 'llama3.2:latest');
+
+    expect(http.bodies.first.containsKey('options'), isFalse);
+    expect(http.bodies.last['options'], {'num_ctx': 32768});
   });
 
   test('concurrent Apple preferences apply the latest invocation', () async {
@@ -2289,6 +2357,36 @@ final class _SupersededOllamaHttpAdapter implements HttpClientAdapter {
       Headers.contentTypeHeader: ['application/json; charset=utf-8'],
     },
   );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+final class _OllamaLoadCaptureAdapter implements HttpClientAdapter {
+  final List<Map<String, dynamic>> bodies = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (!options.path.endsWith('api/chat')) {
+      throw StateError('Unexpected Ollama request: ${options.uri}');
+    }
+    bodies.add(Map<String, dynamic>.from(options.data as Map));
+    return ResponseBody(
+      Stream<Uint8List>.value(
+        Uint8List.fromList(
+          utf8.encode(jsonEncode({'model': 'llama3.2:latest', 'done': true})),
+        ),
+      ),
+      200,
+      headers: {
+        Headers.contentTypeHeader: ['application/json; charset=utf-8'],
+      },
+    );
+  }
 
   @override
   void close({bool force = false}) {}

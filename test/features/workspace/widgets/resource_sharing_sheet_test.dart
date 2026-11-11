@@ -26,6 +26,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/native_platform_views.dart';
+
 const _server = ServerConfig(
   id: 'test-server',
   name: 'Test Server',
@@ -352,7 +354,7 @@ void main() {
     await tester.pumpAndSettle();
     final everyone = tester.widget<PopupMenuItem<int>>(
       find.ancestor(
-        of: find.text('Everyone on this server').last,
+        of: find.text('Everyone on This Server').last,
         matching: find.byType(PopupMenuItem<int>),
       ),
     );
@@ -423,7 +425,7 @@ void main() {
     expect(find.text('Trip plan'), findsOneWidget);
     expect(find.text('Bob Builder'), findsOneWidget);
     expect(find.text('bob@example.com'), findsOneWidget);
-    expect(find.text('Unknown person'), findsOneWidget);
+    expect(find.text('Unknown Person'), findsOneWidget);
     expect(find.textContaining('ghost'), findsNothing);
     final lookups = [
       for (final r in server.requests)
@@ -562,6 +564,7 @@ void main() {
           showKeyboard(tester, up: false);
           addTearDown(tester.view.reset);
           if (native) {
+            stubNativePlatformViews();
             PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
             PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
             PlatformUiCapabilities.debugNativeIOS26Override = true;
@@ -667,6 +670,8 @@ void main() {
             _row('user', 'bob', 'read'),
             _row('user', 'u33', 'read'),
           ]);
+          // Complete the saved-feedback banner's native-view availability probe.
+          await tester.pump(const Duration(milliseconds: 500));
         },
       );
     }
@@ -714,9 +719,9 @@ void main() {
     }
 
     const labels = {
-      ResourceAudience.private: 'Only people added',
-      ResourceAudience.public: 'Everyone on this server',
-      ResourceAudience.open: 'Anyone with the link',
+      ResourceAudience.private: 'Only People Added',
+      ResourceAudience.public: 'Everyone on This Server',
+      ResourceAudience.open: 'Anyone with the Link',
     };
 
     ResourceAudience shown(WidgetTester tester) => labels.entries
@@ -968,8 +973,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('workspace-access-general')));
       await tester.pumpAndSettle();
-      expect(find.text('Everyone on this server'), findsOneWidget);
-      expect(find.text('Anyone with the link'), findsNothing);
+      expect(find.text('Everyone on This Server'), findsOneWidget);
+      expect(find.text('Anyone with the Link'), findsNothing);
     });
   });
 

@@ -10,10 +10,10 @@ import 'package:conduit_core/features/direct_connections/models/direct_remote_mo
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_reasoning_tags.dart';
 
 export 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
-const int _kApplePccMaxImages = 4;
 const int _kApplePccMaxImageBytes = 20 * 1024 * 1024;
 const int _kApplePccMaxSchemaCharacters = 64 * 1024;
 const Duration _kAppleStatusTimeout = Duration(seconds: 10);
@@ -222,7 +222,7 @@ final class ApplePccAdapter
       id: runId,
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: controller.stream,
+      events: splitInlineReasoningTags(controller.stream),
       cancelToken: cancelToken,
       done: controller.done,
     );
@@ -273,11 +273,17 @@ final class ApplePccAdapter
       return _cancelledToolResult;
     }
     try {
-      // ponytail: Foundation Models does not expose native round IDs. Counting
-      // each callback as a round keeps Apple stricter than the shared limits.
-      if (++run.toolCallCount > kDirectMaxToolRounds) {
-        throw const DirectProviderException(
-          'Apple Foundation Models exceeded Conduit\'s tool-call limit.',
+      // Foundation Models runs the tool loop natively, exposes no round IDs
+      // and has no tool_choice, so each callback counts as a round. Once the
+      // shared guard wants the answer, a callback gets that instruction
+      // instead of running the tool; a model that keeps asking is stopped.
+      if (run.toolLoop.mustAnswer) {
+        if (++run.callsAfterFinalAnswer > kDirectMaxConsecutiveToolFailures) {
+          throw const DirectProviderException(kDirectToolLoopNoAnswerMessage);
+        }
+        return PlatformPccToolResult(
+          content: kDirectFinalAnswerToolNote,
+          cancelled: false,
         );
       }
       if (utf8.encode(call.argumentsJson).length >
@@ -358,7 +364,15 @@ final class ApplePccAdapter
           isError: result.isError,
         ),
       );
-      return PlatformPccToolResult(content: result.text, cancelled: false);
+      run.toolLoop
+        ..recordResult(isError: result.isError)
+        ..completeRound();
+      return PlatformPccToolResult(
+        content: run.toolLoop.mustAnswer
+            ? withDirectFinalAnswerNote(result.text)
+            : result.text,
+        cancelled: false,
+      );
     } on DirectProviderException catch (error) {
       _abortToolRun(call.runId, run, error.message);
       return _cancelledToolResult;
@@ -394,7 +408,7 @@ final class ApplePccAdapter
         final image = _platformImage(part);
         imageCount++;
         imageBytes += image.bytes.length;
-        if (imageCount > _kApplePccMaxImages ||
+        if (imageCount > kApplePccMaxImages ||
             imageBytes > _kApplePccMaxImageBytes) {
           throw DirectProviderException(
             '$displayName supports up to 4 images and 20 MB per request.',
@@ -638,7 +652,8 @@ final class _ApplePccRun {
   final String displayName;
   final DirectToolRuntime? tools;
   final CancelToken cancelToken;
-  int toolCallCount = 0;
+  final DirectToolLoopGuard toolLoop = DirectToolLoopGuard();
+  int callsAfterFinalAnswer = 0;
   bool terminal = false;
 }
 

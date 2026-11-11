@@ -1,5 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,9 +20,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 
 void main() {
-  testWidgets('Appearance contains only display and language settings', (
-    tester,
-  ) async {
+  testWidgets('Appearance contains display and language; the Notes button is '
+      'a Chat setting', (tester) async {
     await tester.pumpWidget(
       _sectionHarness(AppCustomizationSection.appearance),
     );
@@ -30,9 +30,10 @@ void main() {
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Display'), findsNothing);
     expect(find.text('App Language'), findsWidgets);
-    expect(find.text('Quick actions in chat'), findsNothing);
+    expect(find.text('Save Drafts as Notes'), findsNothing);
+    expect(find.text('Quick Actions'), findsNothing);
     expect(find.text('Send with Enter'), findsNothing);
-    expect(find.text('Transport mode'), findsNothing);
+    expect(find.text('Transport Mode'), findsNothing);
   });
 
   testWidgets('direct-only Chat hides server-backed prompt settings', (
@@ -43,13 +44,230 @@ void main() {
 
     expect(find.text('Chat'), findsWidgets);
     expect(find.text('Send with Enter'), findsOneWidget);
-    expect(find.text('Start temporary chats'), findsOneWidget);
-    expect(find.text('Prompt overrides'), findsNothing);
+    expect(find.text('Save Drafts as Notes'), findsOneWidget);
+    expect(find.text('Start Temporary Chats'), findsOneWidget);
+    expect(
+      find.text('Mute Streaming Haptics', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('Prompt Overrides'), findsNothing);
     expect(find.text('App Language'), findsNothing);
-    expect(find.text('Transport mode'), findsNothing);
+    expect(find.text('Transport Mode'), findsNothing);
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('message action drag order persists on ${platform.name}', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      addTearDown(PreferencesStore.debugReset);
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      });
+      await tester.pumpWidget(
+        _sectionHarness(
+          AppCustomizationSection.chat,
+          persistSettings: true,
+          platform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Message Actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Automatic Actions'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('message-action-drag-copy')),
+        findsNothing,
+      );
+      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic Actions'));
+      await tester.pumpAndSettle();
+      final handle = find.byKey(
+        const ValueKey('message-action-drag-regenerate'),
+      );
+      final target = tester.getCenter(
+        find.byKey(const ValueKey('message-action-drag-copy')),
+      );
+      final gesture = await tester.startGesture(tester.getCenter(handle));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -30));
+      await tester.pump();
+      await gesture.moveTo(target - const Offset(0, 100));
+      await tester.pump(const Duration(seconds: 1));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(
+        PreferencesStore.getStringList(PreferenceKeys.inlineMessageActions),
+        ['regenerate', 'copy', 'tts'],
+      );
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'regenerate',
+        'copy',
+        'tts',
+      ]);
+      final regenerate = tester
+          .getTopLeft(find.widgetWithText(UtilityRow, 'Regenerate'))
+          .dy;
+      final copy = tester
+          .getTopLeft(find.widgetWithText(UtilityRow, 'Copy'))
+          .dy;
+      expect(regenerate, lessThan(copy));
+      await tester.tap(find.widgetWithText(UtilityRow, 'Copy'));
+      await tester.pumpAndSettle();
+      expect(
+        PreferencesStore.getStringList(PreferenceKeys.inlineMessageActions),
+        ['regenerate', 'tts'],
+      );
+      await tester.ensureVisible(find.widgetWithText(UtilityRow, 'Copy'));
+      await tester.tap(find.widgetWithText(UtilityRow, 'Copy'));
+      await tester.pumpAndSettle();
+      expect(
+        PreferencesStore.getStringList(PreferenceKeys.inlineMessageActions),
+        ['regenerate', 'tts', 'copy'],
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('message action choices save and reset on ${platform.name}', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      addTearDown(PreferencesStore.debugReset);
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      });
+      await tester.pumpWidget(
+        _sectionHarness(
+          AppCustomizationSection.chat,
+          persistSettings: true,
+          platform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Message Actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Automatic Actions'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('message-action-drag-copy')),
+        findsNothing,
+      );
+      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic Actions'));
+      await tester.pumpAndSettle();
+      final copy = find.widgetWithText(UtilityRow, 'Copy');
+      await tester.tap(copy);
+      await tester.pumpAndSettle();
+      expect(
+        PreferencesStore.getStringList(PreferenceKeys.inlineMessageActions),
+        ['tts', 'regenerate'],
+      );
+      await tester.scrollUntilVisible(
+        find.text('Reset to Defaults'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset to Defaults'));
+      await tester.pumpAndSettle();
+      expect(
+        PreferencesStore.containsKey(PreferenceKeys.inlineMessageActions),
+        isFalse,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Chat saves Computer availability on ${platform.name}', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      addTearDown(PreferencesStore.debugReset);
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      });
+      await tester.pumpWidget(
+        _sectionHarness(
+          AppCustomizationSection.chat,
+          persistSettings: true,
+          platform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('chat-computer-enabled-toggle'));
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.ensureVisible(toggle);
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.computerEnabled),
+          isFalse,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.computerEnabled),
+          isTrue,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    testWidgets('Chat saves Notes button visibility on ${platform.name}', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      addTearDown(PreferencesStore.debugReset);
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      });
+      await tester.pumpWidget(
+        _sectionHarness(
+          AppCustomizationSection.chat,
+          persistSettings: true,
+          platform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('appearance-composer-notes-toggle'));
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.ensureVisible(toggle);
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
+          isFalse,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
+          isTrue,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets(
       'quick actions save selection and clearing on ${platform.name}',
       (tester) async {
@@ -72,7 +290,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          await tester.tap(find.text('Quick actions in chat'));
+          await tester.tap(find.text('Quick Actions'));
           await tester.pumpAndSettle();
           expect(find.text('Web'), findsOneWidget);
           expect(find.text('Image Gen'), findsOneWidget);
@@ -110,8 +328,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('Prompt overrides'), 300);
-    expect(find.text('Prompt overrides'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Prompt Overrides'), 300);
+    expect(find.text('Prompt Overrides'), findsOneWidget);
   });
 
   testWidgets('Advanced is the last section, on its own, with a footer', (
@@ -141,22 +359,29 @@ void main() {
     // Below everything else on the page, prompt overrides included.
     expect(
       tester.getTopLeft(section).dy,
-      greaterThan(tester.getTopLeft(find.text('Prompt overrides')).dy),
+      greaterThan(tester.getTopLeft(find.text('Prompt Overrides')).dy),
     );
   });
 
   testWidgets('switch rows announce their state', (tester) async {
     final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(_sectionHarness(AppCustomizationSection.chat));
-    await tester.pumpAndSettle();
-
-    expect(
-      tester.getSemantics(
+    try {
+      await tester.pumpWidget(_sectionHarness(AppCustomizationSection.chat));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
         find.byKey(const Key('chat-settings-advanced-toggle')),
-      ),
-      isSemantics(hasToggledState: true, isToggled: false),
-    );
-    semantics.dispose();
+        300,
+      );
+
+      expect(
+        tester.getSemantics(
+          find.byKey(const Key('chat-settings-advanced-toggle')),
+        ),
+        isSemantics(hasToggledState: true, isToggled: false),
+      );
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('Chat toggles the persisted Advanced preference', (tester) async {
@@ -187,7 +412,7 @@ void main() {
     );
   });
 
-  testWidgets('Data and Connection owns transport and streaming diagnostics', (
+  testWidgets('Data and Connection owns transport and connection health', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -196,8 +421,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Connection'), findsWidgets);
-    expect(find.text('Transport mode'), findsOneWidget);
-    expect(find.text('Disable haptics while streaming'), findsOneWidget);
+    expect(find.text('Transport Mode'), findsOneWidget);
+    // How a streaming reply feels is a Chat setting.
+    expect(find.text('Mute Streaming Haptics'), findsNothing);
     expect(find.text('Send with Enter'), findsNothing);
     expect(find.text('App Language'), findsNothing);
   });

@@ -1,0 +1,6 @@
+event: message
+data: {"message":{"sender":"User","messageId":"u7","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c7","isCreatedByUser":true,"text":"Hi"},"created":true}
+
+event: error
+data: {"sender":"AI","messageId":"e7","conversationId":"c7","parentMessageId":"u7","unfinished":false,"error":true,"final":true,"text":"{\"type\": \"message_limit\", \"max\": 40, \"windowInMinutes\": 1}","isCreatedByUser":false}
+

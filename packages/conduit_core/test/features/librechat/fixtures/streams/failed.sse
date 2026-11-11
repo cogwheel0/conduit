@@ -1,0 +1,6 @@
+event: message
+data: {"created":true,"message":{"messageId":"u5","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c5","text":"Hi","isCreatedByUser":true},"streamId":"c5"}
+
+event: error
+data: {"error":"The model is not available.","generationProtocolVersion":2}
+

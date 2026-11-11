@@ -127,10 +127,13 @@ mixin _NotesApi on _ApiServiceBase {
     meta: meta,
     accessControl: accessControl,
   );
+  /// [pageId] names the page of an Open WebUI 0.12.5+ note that `data`'s
+  /// content belongs to; older servers ignore it.
   Future<Map<String, dynamic>> updateNoteForSession(
     String id, {
     String? title,
     Map<String, dynamic>? data,
+    String? pageId,
     Map<String, dynamic>? meta,
     Map<String, dynamic>? accessControl,
     ApiAuthSnapshot? authSnapshot,
@@ -142,6 +145,7 @@ mixin _NotesApi on _ApiServiceBase {
       data: {
         'title': ?title,
         'data': ?data,
+        'page_id': ?pageId,
         'meta': ?meta,
         'access_control': ?accessControl,
       },
@@ -224,7 +228,8 @@ mixin _NotesApi on _ApiServiceBase {
   }
 
   /// POST `/api/v1/notes/{id}/update` body = the patch map. Returns the updated
-  /// note map; null on 404; 401/403 -> [SyncTerminalException].
+  /// note map; null on 404; 401/403 -> [SyncTerminalException]; a refused
+  /// body (400/422) -> [SyncRejectedException].
   Future<Map<String, dynamic>?> updateNoteRaw(
     String id,
     Map<String, dynamic> patch,
@@ -239,6 +244,14 @@ mixin _NotesApi on _ApiServiceBase {
         throw SyncTerminalException(
           statusCode: code,
           message: 'updateNote $id forbidden',
+        );
+      }
+      if (code == 400 || code == 422) {
+        final body = e.response?.data;
+        final detail = body is Map ? body['detail'] : null;
+        throw SyncRejectedException(
+          statusCode: code!,
+          detail: detail is String ? detail : null,
         );
       }
       rethrow;

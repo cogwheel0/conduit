@@ -6,28 +6,21 @@ import 'package:test/test.dart';
 
 void main() {
   group('resolveChatFeatureDefaultsForTest', () {
-    test('prefers local app overrides over server and model defaults', () {
+    test('a choice stored for every chat by earlier builds no longer '
+        'overrides the account\'s and the model\'s defaults', () {
       final defaults = resolveChatFeatureDefaultsForTest(
         appSettings: const AppSettings(
           chatWebSearchEnabled: false,
           chatImageGenerationEnabled: true,
         ),
         userSettings: const {
-          'ui': {'webSearch': 'always', 'imageGeneration': 'always'},
+          'ui': {'webSearch': 'always'},
         },
-        model: const Model(
-          id: 'default-tools',
-          name: 'Default Tools',
-          metadata: {
-            'meta': {
-              'defaultFeatureIds': ['web_search', 'image_generation'],
-            },
-          },
-        ),
+        model: const Model(id: 'plain', name: 'Plain'),
       );
 
-      check(defaults.webSearchEnabled).isFalse();
-      check(defaults.imageGenerationEnabled).isTrue();
+      check(defaults.webSearchEnabled).isTrue();
+      check(defaults.imageGenerationEnabled).isFalse();
     });
 
     test('uses OpenWebUI always-on defaults when no local override exists', () {
