@@ -1790,6 +1790,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   // would: the reply, or its failure. Only for a native Hermes chat; a Hermes
   // turn inside an Open WebUI chat belongs to that chat.
   var announcedFinish = false;
+  // Its own id: a regeneration runs into the same assistant message.
+  final turnRunId = const Uuid().v4();
   void announceFinished() {
     if (announcedFinish || owner.usesOpenWebUiBackend) return;
     announcedFinish = true;
@@ -1807,6 +1809,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           connectionId: connectionId,
           sessionId: sessionId,
           message: message,
+          runId: turnRunId,
           title: owner._conversationSnapshot?.title,
         ),
       );

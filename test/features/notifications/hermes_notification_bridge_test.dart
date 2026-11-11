@@ -51,6 +51,7 @@ void main() {
   HermesTurnCompletion turn() => HermesTurnCompletion(
     connectionId: 'conn-1',
     sessionId: '20261010_101500_ab12cd',
+    runId: 'run-1',
     title: 'Refactor plan',
     message: ChatMessage(
       id: 'assistant-1',
