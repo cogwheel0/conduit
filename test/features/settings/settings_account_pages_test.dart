@@ -8,8 +8,10 @@ import 'package:conduit/features/settings/views/settings_page_view.dart';
 import 'package:conduit/features/settings/views/settings_profile_editors.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/services/app_package_info.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'dart:async';
 
@@ -28,6 +30,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -185,14 +188,24 @@ Future<_Rig> _pump(
   );
   final profile = _Profile(cached: cached, fresh: fresh);
   final container = ProviderContainer(
+    // A read that fails stays failed, as the tests expect.
+    retry: (_, _) => null,
     overrides: [
       currentUserProvider2.overrideWith((ref) => ref.watch(signedIn)),
       apiServiceProvider.overrideWithValue(_Api()),
       accountProfileProvider.overrideWith(() => profile),
-      // The server allows a password change.
       // By default the server allows a password change.
       serverAboutInfoProvider.overrideWith(
         (ref) => (serverAbout ?? () async => null)(),
+      ),
+      hermesOnlyModeProvider.overrideWithValue(false),
+      packageInfoProvider.overrideWith(
+        (ref) async => PackageInfo(
+          appName: 'Conduit',
+          packageName: 'app.example.settings',
+          version: '1.0.0',
+          buildNumber: '7',
+        ),
       ),
     ],
   );
@@ -371,6 +384,37 @@ void main() {
     await tester.pumpAndSettle();
 
     check(rig.page(page)).identicalTo(next);
+  });
+
+  testWidgets("About keeps the rows that need no server when the server's "
+      'details cannot be read', (tester) async {
+    final rig = await _pump(
+      tester,
+      serverAbout: () async => throw StateError('offline'),
+    );
+    rig.pages.register([
+      buildNativeLoadingDetail(
+        l10n: _l10n,
+        id: NativeSheetRoutes.about,
+        title: '',
+      ),
+    ]);
+
+    await rig.container
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.about);
+
+    final rows = rig.rows(NativeSheetRoutes.about);
+    check(rows.singleWhere((row) => row.id == 'server-name').subtitle)
+        .equals(_l10n.serverInfoUnavailable);
+    check(rows.map((row) => row.id)).deepEquals([
+      'app-version',
+      'server-name',
+      'server-version',
+      NativeSheetRoutes.releaseNotesManual,
+      'github',
+      NativeSheetRoutes.openSourceLicenses,
+    ]);
   });
 
   group('Change Password', () {

@@ -81,6 +81,12 @@ final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+/// Closing a page of the sheet, which the sheet always does.
+final _closeDetailChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.closeDetail',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 ServerMemory _memory({String? type, String? path}) => ServerMemory(
   id: 'm1',
   userId: 'user-1',
@@ -122,10 +128,7 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    if (failingWrites > 0) {
-      failingWrites--;
-      throw StateError('server unavailable');
-    }
+    _refuseIfFailing();
     adds.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
   }
@@ -138,8 +141,16 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    _refuseIfFailing();
     updates.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
+  }
+
+  void _refuseIfFailing() {
+    if (failingWrites > 0) {
+      failingWrites--;
+      throw StateError('server unavailable');
+    }
   }
 
   @override
@@ -255,6 +266,11 @@ Future<_NativeSettings> _pumpApp(
         );
         return <Object?>[true];
       });
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockDecodedMessageHandler<Object?>(
+        _closeDetailChannel,
+        (_) async => <Object?>[true],
+      );
 
   await tester.pumpWidget(
     UncontrolledProviderScope(container: container, child: const ConduitApp()),
@@ -280,6 +296,8 @@ void main() {
     NativeSheetBridge.instance.debugIsIOSOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_closeDetailChannel, null);
   });
 
   group('with Advanced off', () {
@@ -323,17 +341,86 @@ void main() {
       final rows = native.items('memory-add');
       expect(rows.first.title, AppLocalizationsEn().errorMessage);
       final retry = rows.singleWhere((row) => row.id == nativeMemoryAddRetryId);
-      expect(retry.value, 'I prefer metric units');
+      expect(retry.value, isNull);
       expect(
         native.container.read(settingsPagesProvider).closeRequests.keys,
         isNot(contains('memory-add')),
       );
 
-      // The Retry row sends what it holds, as the page's own row does.
+      // The Retry row sends the text that failed, as the page's own row does.
       await native.control(retry.id, retry.value);
       expect(native.api.adds.map((write) => write.content), [
         'I prefer metric units',
       ]);
+    });
+
+    testWidgets('Retry sends nothing more once text typed since went in', (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+      await native.control('memory-add-content', 'I prefer metric units');
+
+      // Retry tapped with new text in the field: the text is sent first,
+      // then the row tapped.
+      final retry = native
+          .items('memory-add')
+          .singleWhere((row) => row.id == nativeMemoryAddRetryId);
+      await native.control('memory-add-content', 'I prefer imperial units');
+      await native.control(retry.id, retry.value);
+
+      expect(native.api.adds.map((write) => write.content), [
+        'I prefer imperial units',
+      ]);
+    });
+
+    testWidgets("a memory's page says why a save failed, and Retry saves "
+        'that text', (tester) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+
+      await native.control('memory-save:m1', 'Prefers metric units always');
+      final rows = native.items('memory-edit:m1');
+      expect(rows.first.title, AppLocalizationsEn().errorMessage);
+      final retry = rows.singleWhere((row) => row.id == 'memory-save-retry:m1');
+
+      await native.control(retry.id, retry.value);
+
+      expect(native.api.updates.map((write) => write.content), [
+        'Prefers metric units always',
+      ]);
+      // Saved, the page no longer says it failed.
+      expect(
+        native.items('memory-edit:m1').map((row) => row.id),
+        isNot(contains('memory-save-retry:m1')),
+      );
+    });
+
+    testWidgets("a memory's Retry does not put back text replaced since", (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+      await native.control('memory-save:m1', 'Prefers metric units always');
+
+      // Retry tapped with new text in the field: the text is sent first,
+      // then the row tapped.
+      final retry = native
+          .items('memory-edit:m1')
+          .singleWhere((row) => row.id == 'memory-save-retry:m1');
+      await native.control('memory-save:m1', 'Prefers imperial units');
+      await native.control(retry.id, retry.value);
+
+      expect(native.api.updates.map((write) => write.content), [
+        'Prefers imperial units',
+      ]);
+      expect(
+        native.items('memory-edit:m1').map((row) => row.id),
+        isNot(contains('memory-save-retry:m1')),
+      );
     });
   });
 

@@ -2064,18 +2064,16 @@ const nativeMemoryAddRetryId = 'memory-add-retry';
 /// save failed; the memory's URI-encoded id follows.
 const nativeMemorySaveRetryPrefix = 'memory-save-retry:';
 
-/// Sends [content] again, as the page's own row does.
-NativeSheetItemConfig _nativeMemoryRetry(
-  AppLocalizations l10n,
-  String id,
-  String content,
-) => NativeSheetItemConfig(
-  id: id,
-  title: l10n.retry,
-  sfSymbol: 'arrow.clockwise',
-  accent: true,
-  value: content,
-);
+/// Sends again the text its page last failed to send. The row holds no
+/// text of its own: the Settings controller keeps the attempt, so a Retry
+/// never sends text older than what was typed since.
+NativeSheetItemConfig _nativeMemoryRetry(AppLocalizations l10n, String id) =>
+    NativeSheetItemConfig(
+      id: id,
+      title: l10n.retry,
+      sfSymbol: 'arrow.clockwise',
+      accent: true,
+    );
 
 /// The Add memory page. The text alone is added as soon as it is done;
 /// with [advanced] the page also has the type and path, and Done adds the
@@ -2101,7 +2099,7 @@ NativeSheetDetailConfig buildNativeMemoryAddDetail(
       items: [
         if (notice != null) _nativeMemoryNotice(pageId, notice),
         if (notice != null && canRetry && content.trim().isNotEmpty)
-          _nativeMemoryRetry(l10n, nativeMemoryAddRetryId, content),
+          _nativeMemoryRetry(l10n, nativeMemoryAddRetryId),
         NativeSheetItemConfig(
           id: 'memory-add-content',
           title: l10n.addMemory,
@@ -2194,11 +2192,7 @@ NativeSheetDetailConfig buildNativeMemoryEditDetail(
           items: [
             _nativeMemoryNotice(pageId, notice),
             if (canRetry && content != null)
-              _nativeMemoryRetry(
-                l10n,
-                '$nativeMemorySaveRetryPrefix$encoded',
-                content,
-              ),
+              _nativeMemoryRetry(l10n, '$nativeMemorySaveRetryPrefix$encoded'),
           ],
         ),
       NativeSheetSectionConfig(

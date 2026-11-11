@@ -35,6 +35,7 @@ import 'package:conduit_core/models/model_controls.dart';
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
     show isTerminalAgentModel;
 import 'package:conduit_core/utils/model_display_name.dart';
+import 'package:conduit_core/models/server_about_info.dart';
 import 'package:conduit_core/models/tool.dart';
 
 import '../network/image_header_utils.dart';
@@ -1017,6 +1018,22 @@ class NativeSheetHydrationService {
     }
   }
 
+  /// The server's name and version, or null when they can't be read: About
+  /// then says so in their rows and keeps the rows that need no server.
+  Future<ServerAboutInfo?> _readServerAbout() async {
+    try {
+      return await _ref.read(serverAboutInfoProvider.future);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-about-server-lookup-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
   Future<void> _hydrateNativeAboutDetail(
     BuildContext context,
     AppLocalizations l10n, {
@@ -1027,9 +1044,7 @@ class NativeSheetHydrationService {
       // the server name/version rows entirely.
       final hermesOnly = _ref.read(hermesOnlyModeProvider);
       final packageInfo = await _ref.read(packageInfoProvider.future);
-      final about = hermesOnly
-          ? null
-          : await _ref.read(serverAboutInfoProvider.future);
+      final about = hermesOnly ? null : await _readServerAbout();
       if (!context.mounted) return;
 
       final appVersionLabel = packageInfo.buildNumber.isEmpty
