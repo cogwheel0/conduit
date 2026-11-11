@@ -158,14 +158,17 @@ class SidebarSectionHeader extends StatelessWidget {
             // no row below takes any part of its target, while its content,
             // centred on the header, is drawn down on the title's line: half
             // the difference between the space above the title and the
-            // space below it.
-            child: Transform.translate(
-              offset: Offset(
-                0,
-                (topSpacing - kSidebarSectionHeaderBottomSpacing) / 2,
+            // space below it. Merged above the move, it is one node for
+            // assistive technologies, over the same box that takes taps.
+            child: MergeSemantics(
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  (topSpacing - kSidebarSectionHeaderBottomSpacing) / 2,
+                ),
+                transformHitTests: false,
+                child: trailing,
               ),
-              transformHitTests: false,
-              child: trailing,
             ),
           ),
         ],

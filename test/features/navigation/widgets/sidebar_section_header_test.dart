@@ -6,6 +6,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -224,17 +225,19 @@ void main() {
     }
   });
 
-  testWidgets('on iOS, a compact icon button takes taps at the header\'s '
-      'top and bottom edges', (tester) async {
+  testWidgets('on iOS, a compact icon button takes taps and is announced '
+      'over the header\'s height', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
     tester.view.physicalSize = const Size(_windowWidth, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final semantics = tester.ensureSemantics();
     var presses = 0;
     var toggles = 0;
 
     for (final isFirst in [true, false]) {
+      final reason = 'first $isFirst';
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light(TweakcnThemes.conduit),
@@ -243,17 +246,23 @@ void main() {
               alignment: Alignment.topLeft,
               child: SizedBox(
                 width: _windowWidth,
-                child: SidebarSectionHeader(
-                  title: 'Folders',
-                  isFirst: isFirst,
-                  isExpanded: true,
-                  onToggle: () => toggles++,
-                  trailing: ConduitIconButton(
-                    icon: Icons.create_new_folder_outlined,
-                    tooltip: 'New Folder',
-                    isCompact: true,
-                    onPressed: () => presses++,
-                  ),
+                // A sidebar list gives its headers unbounded height.
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SidebarSectionHeader(
+                      title: 'Folders',
+                      isFirst: isFirst,
+                      isExpanded: true,
+                      onToggle: () => toggles++,
+                      trailing: ConduitIconButton(
+                        icon: Icons.create_new_folder_outlined,
+                        tooltip: 'New Folder',
+                        isCompact: true,
+                        onPressed: () => presses++,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -267,10 +276,36 @@ void main() {
         final before = presses;
         await tester.tapAt(Offset(x, y));
         await tester.pumpAndSettle();
-        expect(presses, before + 1, reason: 'first $isFirst, y $y');
+        expect(presses, before + 1, reason: '$reason, y $y');
       }
+
+      // The symbol's node, which takes the tap, lies over the box that takes
+      // the taps, not where the symbol is drawn.
+      final node = tester.getSemantics(find.byType(Icon));
+      expect(
+        node.getSemanticsData().hasAction(SemanticsAction.tap),
+        isTrue,
+        reason: reason,
+      );
+      var rect = node.rect;
+      for (SemanticsNode? n = node; n != null; n = n.parent) {
+        if (n.transform case final transform?) {
+          rect = MatrixUtils.transformRect(transform, rect);
+        }
+      }
+      expect(
+        rect,
+        Rect.fromLTRB(
+          _windowWidth - kSidebarRowContentInset - TouchTarget.minimum,
+          header.top,
+          _windowWidth - kSidebarRowContentInset,
+          header.bottom,
+        ),
+        reason: reason,
+      );
     }
     expect(toggles, 0);
+    semantics.dispose();
   });
 
   testWidgets('dark section headers sit quieter than secondary text', (
