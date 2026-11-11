@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -431,6 +432,104 @@ void main() {
           .equals(7001);
       // Stored as it was read, with no second read.
       check(reader.reads).equals(1);
+    });
+
+    test('a re-run after a params edit leaves the edit to the update still '
+        'owed, past a copy from before it read in the same second', () async {
+      const localId = 'local:params-edit';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+
+      // A pull reads the chat...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final pulling = PullSync(
+        client: _HeldChatReadClient(server, read: read, release: release),
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+      await read.future;
+      // ...its temperature is changed here, in the same second...
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.patchChatParamsWithOutbox(
+          serverId,
+          set: {'temperature': 0.2},
+          updatedAt: 7000,
+        ),
+      );
+      // ...the create runs again (its done mark was lost) and sends
+      // nothing...
+      check(await push.pushCreateChat(serverId, contentHash: contentHash))
+          .equals(serverId);
+      check(client.createChatCalls).equals(1);
+      // ...and the copy from before the edit comes back after it.
+      release.complete();
+      await pulling;
+
+      check(await db.chatsDao.getChatParams(serverId))
+          .isNotNull()
+          .deepEquals({'temperature': 0.2});
+      // The update the edit queued sends it.
+      check(await outboxOpsForChat(db, serverId)).single
+          .has((op) => op.kind, 'kind')
+          .equals(OutboxKind.updateChat.name);
+      await push.pushUpdateChat(serverId);
+      check((server.getChatById(serverId)!['chat'] as Map)['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'temperature': 0.2});
+    });
+
+    test('a re-run after a pin, which its snapshot leaves out, leaves the pin '
+        'to the update still owed', () async {
+      const localId = 'local:pin-after-create';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+
+      // Pinned here, then the create runs again and sends nothing...
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.updateEnvelopeWithOutbox(
+          serverId,
+          pinned: const Value(true),
+          enqueue: true,
+        ),
+      );
+      check(await push.pushCreateChat(serverId, contentHash: contentHash))
+          .equals(serverId);
+      // ...and the chat is pulled by name, in the same second.
+      await PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(serverId);
+
+      check(await db.chatsDao.getChat(serverId))
+          .isNotNull()
+          .has((c) => c.pinned, 'pinned')
+          .isTrue();
+      await push.pushUpdateChat(serverId);
+      check(server.getChatById(serverId)!['pinned']).equals(true);
     });
 
     test('a checklist event that comes while a copy from before the create '
