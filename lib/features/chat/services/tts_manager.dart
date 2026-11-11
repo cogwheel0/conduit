@@ -1332,6 +1332,7 @@ class TtsManager {
       }
     }
 
+    if (_activeSession?.id != session.id) return; // stopped meanwhile
     await _player.stop();
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
@@ -1574,6 +1575,12 @@ class TtsManager {
               nextIndex,
               chunk,
             );
+            // The session may have been stopped (e.g. a barge-in) while the
+            // chunk file was written; never push a stale chunk into the player
+            // or advance the shared indices of the session that replaced it.
+            if (_activeSession?.id != session.id) {
+              return;
+            }
             if (_isStreamingSession &&
                 nextIndex == 0 &&
                 _serverLastEnqueuedIndex < 0) {
@@ -1751,6 +1758,7 @@ class TtsManager {
   }
 
   void _resetPlaybackState() {
+    _isTransitioningChunks = false; // a stop mid-transition must not leak it
     _currentChunkIndex = -1;
     _serverCurrentIndex = -1;
     _serverLastEnqueuedIndex = -1;
