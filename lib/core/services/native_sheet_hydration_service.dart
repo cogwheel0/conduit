@@ -1663,6 +1663,7 @@ class NativeSheetHydrationService {
       NativeSheetDetailConfig(
         id: NativeSheetRoutes.voice,
         title: l10n.voice,
+        discardPrompt: nativeDiscardPrompt(l10n),
         sections: nativeAudio.mainSections,
       ),
       nativeAudio.voicePickerDetail,
@@ -2717,17 +2718,7 @@ class NativeSheetHydrationService {
   Future<void> _applyNativeDetail(
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
-  }) {
-    return _surface.applyDetailPatch(
-      detailId: detail.id,
-      title: detail.title,
-      subtitle: detail.subtitle,
-      clearSubtitle: detail.subtitle == null,
-      items: detail.items,
-      sections: detail.sections,
-      detailSheets: detailSheets,
-    );
-  }
+  }) => _surface.applyDetail(detail, detailSheets: detailSheets);
 }
 
 /// The colour a palette row previews in Appearance, as ARGB: the palette's

@@ -303,4 +303,80 @@ void main() {
 
     check(switchOn()).isFalse();
   });
+
+  testWidgets('a form asks before Back drops what was changed, and not when '
+      'nothing was', (tester) async {
+    NativeSheetDetailConfig form() => NativeSheetDetailConfig(
+      id: 'webhook-new',
+      title: 'New Destination',
+      confirmActionId: 'webhook.save:webhook-new',
+      discardPrompt: const NativeSheetDiscardPrompt(
+        title: 'Discard changes?',
+        message: 'Unsaved changes will be lost.',
+        discardLabel: 'Discard',
+        keepLabel: 'Keep Editing',
+      ),
+      sections: [
+        const NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'webhook.enabled:webhook-new',
+              title: 'Enabled',
+              kind: NativeSheetItemKind.toggle,
+              value: true,
+            ),
+          ],
+        ),
+      ],
+    );
+    final controller = _RecordingController();
+    final container = ProviderContainer(
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('settings root'),
+          routes: [
+            GoRoute(
+              path: 'form',
+              builder: (_, _) => SettingsPageView(detail: form()),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    // Untouched, Back leaves at once.
+    router.push('/form');
+    await tester.pumpAndSettle();
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isNotEmpty();
+
+    // Changed, Back asks; keeping the edits stays on the form.
+    router.push('/form');
+    await tester.pumpAndSettle();
+    await tester.tap(_row('webhook.enabled:webhook-new'));
+    await tester.pumpAndSettle();
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    check(find.text(l10n.workspaceEditorDiscardTitle).evaluate()).isNotEmpty();
+    await tester.tap(find.text(l10n.workspaceEditorKeepEditing));
+    await tester.pumpAndSettle();
+    check(find.text('New Destination').evaluate()).isNotEmpty();
+  });
 }

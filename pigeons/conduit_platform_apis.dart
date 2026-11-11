@@ -576,6 +576,10 @@ class PlatformNativeSheetDetail {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.discardTitle,
+    this.discardMessage,
+    this.discardConfirmLabel,
+    this.discardCancelLabel,
   });
 
   String id;
@@ -590,6 +594,13 @@ class PlatformNativeSheetDetail {
   /// A bar button that closes the sheet and then sends this action.
   String? trailingActionId;
   String? trailingActionSfSymbol;
+
+  /// What the page asks before its unsaved changes are dropped, by Back,
+  /// a swipe back, or the sheet swiped away. Null drops them without asking.
+  String? discardTitle;
+  String? discardMessage;
+  String? discardConfirmLabel;
+  String? discardCancelLabel;
 }
 
 class PlatformNativeProfileSheetConfig {
@@ -788,6 +799,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     this.subtitle,
     required this.clearSubtitle,
     this.detailSheets,
+    this.whole,
   });
 
   String detailId;
@@ -797,6 +809,10 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   String? subtitle;
   bool clearSubtitle;
   List<PlatformNativeSheetDetail>? detailSheets;
+
+  /// The page in full, replacing everything it was -- its bar actions and
+  /// discard question too, which a patch of rows keeps.
+  PlatformNativeSheetDetail? whole;
 }
 
 class PlatformNativeSheetControlChangedEvent {

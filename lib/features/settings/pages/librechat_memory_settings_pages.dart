@@ -152,6 +152,7 @@ NativeSheetDetailConfig buildLibreChatMemoryPage(
     title: memory == null ? l10n.addMemory : l10n.editMemory,
     confirmActionId: row('save'),
     confirmActionLabel: l10n.save,
+    discardPrompt: nativeDiscardPrompt(l10n),
     sections: [
       if (notice != null)
         NativeSheetSectionConfig(

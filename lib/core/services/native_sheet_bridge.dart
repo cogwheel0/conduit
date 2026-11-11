@@ -658,6 +658,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     String? subtitle,
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
+    NativeSheetDetailConfig? whole,
   }) async {
     if (items.isNotEmpty && sections.isNotEmpty) {
       throw ArgumentError(
@@ -677,6 +678,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           detailSheets: detailSheets.isEmpty
               ? null
               : detailSheets.map((detail) => detail.toPlatform()).toList(),
+          whole: whole?.toPlatform(),
         ),
       );
     } on PlatformException catch (error, stackTrace) {
@@ -1046,6 +1048,7 @@ class NativeSheetDetailConfig {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.discardPrompt,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1067,6 +1070,12 @@ class NativeSheetDetailConfig {
   final String? trailingActionId;
   final String? trailingActionSfSymbol;
 
+  /// What the page asks before its unsaved changes are dropped -- by Back,
+  /// a swipe back, or the sheet swiped away. Null drops them without asking.
+  /// Changes are text not yet done, or, on a page with a confirm action,
+  /// anything changed since it appeared.
+  final NativeSheetDiscardPrompt? discardPrompt;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1081,8 +1090,30 @@ class NativeSheetDetailConfig {
       if (trailingActionId != null) 'trailingActionId': trailingActionId,
       if (trailingActionSfSymbol != null)
         'trailingActionSfSymbol': trailingActionSfSymbol,
+      if (discardPrompt case final prompt?) ...{
+        'discardTitle': prompt.title,
+        'discardMessage': prompt.message,
+        'discardConfirmLabel': prompt.discardLabel,
+        'discardCancelLabel': prompt.keepLabel,
+      },
     };
   }
+}
+
+/// The question a page asks before its unsaved changes are dropped.
+@immutable
+class NativeSheetDiscardPrompt {
+  const NativeSheetDiscardPrompt({
+    required this.title,
+    required this.message,
+    required this.discardLabel,
+    required this.keepLabel,
+  });
+
+  final String title;
+  final String message;
+  final String discardLabel;
+  final String keepLabel;
 }
 
 class NativeSheetLinkConfig {
@@ -1523,6 +1554,10 @@ extension on NativeSheetDetailConfig {
       maxHeightFraction: maxHeightFraction,
       trailingActionId: trailingActionId,
       trailingActionSfSymbol: trailingActionSfSymbol,
+      discardTitle: discardPrompt?.title,
+      discardMessage: discardPrompt?.message,
+      discardConfirmLabel: discardPrompt?.discardLabel,
+      discardCancelLabel: discardPrompt?.keepLabel,
     );
   }
 }

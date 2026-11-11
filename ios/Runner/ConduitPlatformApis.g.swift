@@ -1979,6 +1979,12 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
   /// A bar button that closes the sheet and then sends this action.
   var trailingActionId: String? = nil
   var trailingActionSfSymbol: String? = nil
+  /// What the page asks before its unsaved changes are dropped, by Back,
+  /// a swipe back, or the sheet swiped away. Null drops them without asking.
+  var discardTitle: String? = nil
+  var discardMessage: String? = nil
+  var discardConfirmLabel: String? = nil
+  var discardCancelLabel: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1993,6 +1999,10 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     let maxHeightFraction: Double? = nilOrValue(pigeonVar_list[7])
     let trailingActionId: String? = nilOrValue(pigeonVar_list[8])
     let trailingActionSfSymbol: String? = nilOrValue(pigeonVar_list[9])
+    let discardTitle: String? = nilOrValue(pigeonVar_list[10])
+    let discardMessage: String? = nilOrValue(pigeonVar_list[11])
+    let discardConfirmLabel: String? = nilOrValue(pigeonVar_list[12])
+    let discardCancelLabel: String? = nilOrValue(pigeonVar_list[13])
 
     return PlatformNativeSheetDetail(
       id: id,
@@ -2004,7 +2014,11 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
       confirmActionLabel: confirmActionLabel,
       maxHeightFraction: maxHeightFraction,
       trailingActionId: trailingActionId,
-      trailingActionSfSymbol: trailingActionSfSymbol
+      trailingActionSfSymbol: trailingActionSfSymbol,
+      discardTitle: discardTitle,
+      discardMessage: discardMessage,
+      discardConfirmLabel: discardConfirmLabel,
+      discardCancelLabel: discardCancelLabel
     )
   }
   func toList() -> [Any?] {
@@ -2019,13 +2033,17 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
       maxHeightFraction,
       trailingActionId,
       trailingActionSfSymbol,
+      discardTitle,
+      discardMessage,
+      discardConfirmLabel,
+      discardCancelLabel,
     ]
   }
   static func == (lhs: PlatformNativeSheetDetail, rhs: PlatformNativeSheetDetail) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionId, rhs.confirmActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionLabel, rhs.confirmActionLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxHeightFraction, rhs.maxHeightFraction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionId, rhs.trailingActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionSfSymbol, rhs.trailingActionSfSymbol)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionId, rhs.confirmActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionLabel, rhs.confirmActionLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxHeightFraction, rhs.maxHeightFraction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionId, rhs.trailingActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionSfSymbol, rhs.trailingActionSfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardTitle, rhs.discardTitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardMessage, rhs.discardMessage) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardConfirmLabel, rhs.discardConfirmLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardCancelLabel, rhs.discardCancelLabel)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2040,10 +2058,14 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: maxHeightFraction, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionSfSymbol, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: discardTitle, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: discardMessage, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: discardConfirmLabel, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: discardCancelLabel, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetDetail(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), items: \(String(describing: items)), sections: \(String(describing: sections)), confirmActionId: \(String(describing: confirmActionId)), confirmActionLabel: \(String(describing: confirmActionLabel)), maxHeightFraction: \(String(describing: maxHeightFraction)), trailingActionId: \(String(describing: trailingActionId)), trailingActionSfSymbol: \(String(describing: trailingActionSfSymbol)))"
+    return "PlatformNativeSheetDetail(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), items: \(String(describing: items)), sections: \(String(describing: sections)), confirmActionId: \(String(describing: confirmActionId)), confirmActionLabel: \(String(describing: confirmActionLabel)), maxHeightFraction: \(String(describing: maxHeightFraction)), trailingActionId: \(String(describing: trailingActionId)), trailingActionSfSymbol: \(String(describing: trailingActionSfSymbol)), discardTitle: \(String(describing: discardTitle)), discardMessage: \(String(describing: discardMessage)), discardConfirmLabel: \(String(describing: discardConfirmLabel)), discardCancelLabel: \(String(describing: discardCancelLabel)))"
   }
 }
 
@@ -2627,6 +2649,9 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
   var subtitle: String? = nil
   var clearSubtitle: Bool
   var detailSheets: [PlatformNativeSheetDetail]? = nil
+  /// The page in full, replacing everything it was -- its bar actions and
+  /// discard question too, which a patch of rows keeps.
+  var whole: PlatformNativeSheetDetail? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -2638,6 +2663,7 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
     let subtitle: String? = nilOrValue(pigeonVar_list[4])
     let clearSubtitle = pigeonVar_list[5] as! Bool
     let detailSheets: [PlatformNativeSheetDetail]? = nilOrValue(pigeonVar_list[6])
+    let whole: PlatformNativeSheetDetail? = nilOrValue(pigeonVar_list[7])
 
     return PlatformNativeSheetApplyDetailPatchRequest(
       detailId: detailId,
@@ -2646,7 +2672,8 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
       title: title,
       subtitle: subtitle,
       clearSubtitle: clearSubtitle,
-      detailSheets: detailSheets
+      detailSheets: detailSheets,
+      whole: whole
     )
   }
   func toList() -> [Any?] {
@@ -2658,13 +2685,14 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
       subtitle,
       clearSubtitle,
       detailSheets,
+      whole,
     ]
   }
   static func == (lhs: PlatformNativeSheetApplyDetailPatchRequest, rhs: PlatformNativeSheetApplyDetailPatchRequest) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailId, rhs.detailId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.clearSubtitle, rhs.clearSubtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailSheets, rhs.detailSheets)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailId, rhs.detailId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.clearSubtitle, rhs.clearSubtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailSheets, rhs.detailSheets) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.whole, rhs.whole)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2676,10 +2704,11 @@ struct PlatformNativeSheetApplyDetailPatchRequest: Hashable, CustomStringConvert
     ConduitPlatformApisPigeonInternal.deepHash(value: subtitle, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: clearSubtitle, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: detailSheets, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: whole, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetApplyDetailPatchRequest(detailId: \(String(describing: detailId)), items: \(String(describing: items)), sections: \(String(describing: sections)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), clearSubtitle: \(String(describing: clearSubtitle)), detailSheets: \(String(describing: detailSheets)))"
+    return "PlatformNativeSheetApplyDetailPatchRequest(detailId: \(String(describing: detailId)), items: \(String(describing: items)), sections: \(String(describing: sections)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), clearSubtitle: \(String(describing: clearSubtitle)), detailSheets: \(String(describing: detailSheets)), whole: \(String(describing: whole)))"
   }
 }
 

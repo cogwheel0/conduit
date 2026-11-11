@@ -74,6 +74,7 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     NativeSheetDetailConfig(
       id: NativeSheetRoutes.voice,
       title: l10n.voice,
+      discardPrompt: nativeDiscardPrompt(l10n),
       sections: nativeAudio.mainSections,
     ),
     nativeAudio.voicePickerDetail,

@@ -55,13 +55,16 @@ class SettingsPages extends Notifier<SettingsPagesState> {
     String? subtitle,
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
+    NativeSheetDetailConfig? whole,
   }) {
     final existing = state.pages[detailId];
     final pages = {
       ...state.pages,
       for (final detail in detailSheets) detail.id: detail,
     };
-    if (existing != null) {
+    if (existing != null && whole != null) {
+      pages[detailId] = whole;
+    } else if (existing != null) {
       pages[detailId] = NativeSheetDetailConfig(
         id: existing.id,
         title: title ?? existing.title,
@@ -73,6 +76,7 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         maxHeightFraction: existing.maxHeightFraction,
         trailingActionId: existing.trailingActionId,
         trailingActionSfSymbol: existing.trailingActionSfSymbol,
+        discardPrompt: existing.discardPrompt,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {
@@ -119,6 +123,7 @@ class SettingsSurface {
     String? subtitle,
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
+    NativeSheetDetailConfig? whole,
   }) async {
     if (items.isNotEmpty && sections.isNotEmpty) {
       throw ArgumentError(
@@ -135,6 +140,7 @@ class SettingsSurface {
           subtitle: subtitle,
           clearSubtitle: clearSubtitle,
           detailSheets: detailSheets,
+          whole: whole,
         );
     final native = await NativeSheetBridge.instance.applyDetailPatch(
       detailId: detailId,
@@ -144,6 +150,7 @@ class SettingsSurface {
       subtitle: subtitle,
       clearSubtitle: clearSubtitle,
       detailSheets: detailSheets,
+      whole: whole,
     );
     return native || flutter;
   }
@@ -155,7 +162,8 @@ class SettingsSurface {
     await NativeSheetBridge.instance.closeDetail(detailId);
   }
 
-  /// Sends page [detail] as a whole, and the pages it leads to.
+  /// Sends page [detail] as a whole -- its bar actions and discard question
+  /// too -- and the pages it leads to.
   Future<bool> applyDetail(
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
@@ -167,5 +175,6 @@ class SettingsSurface {
     items: detail.items,
     sections: detail.sections,
     detailSheets: detailSheets,
+    whole: detail,
   );
 }

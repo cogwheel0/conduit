@@ -1971,7 +1971,15 @@ data class PlatformNativeSheetDetail (
   val maxHeightFraction: Double? = null,
   /** A bar button that closes the sheet and then sends this action. */
   val trailingActionId: String? = null,
-  val trailingActionSfSymbol: String? = null
+  val trailingActionSfSymbol: String? = null,
+  /**
+   * What the page asks before its unsaved changes are dropped, by Back,
+   * a swipe back, or the sheet swiped away. Null drops them without asking.
+   */
+  val discardTitle: String? = null,
+  val discardMessage: String? = null,
+  val discardConfirmLabel: String? = null,
+  val discardCancelLabel: String? = null
 )
  {
   companion object {
@@ -1986,7 +1994,11 @@ data class PlatformNativeSheetDetail (
       val maxHeightFraction = pigeonVar_list[7] as Double?
       val trailingActionId = pigeonVar_list[8] as String?
       val trailingActionSfSymbol = pigeonVar_list[9] as String?
-      return PlatformNativeSheetDetail(id, title, subtitle, items, sections, confirmActionId, confirmActionLabel, maxHeightFraction, trailingActionId, trailingActionSfSymbol)
+      val discardTitle = pigeonVar_list[10] as String?
+      val discardMessage = pigeonVar_list[11] as String?
+      val discardConfirmLabel = pigeonVar_list[12] as String?
+      val discardCancelLabel = pigeonVar_list[13] as String?
+      return PlatformNativeSheetDetail(id, title, subtitle, items, sections, confirmActionId, confirmActionLabel, maxHeightFraction, trailingActionId, trailingActionSfSymbol, discardTitle, discardMessage, discardConfirmLabel, discardCancelLabel)
     }
   }
   fun toList(): List<Any?> {
@@ -2001,6 +2013,10 @@ data class PlatformNativeSheetDetail (
       maxHeightFraction,
       trailingActionId,
       trailingActionSfSymbol,
+      discardTitle,
+      discardMessage,
+      discardConfirmLabel,
+      discardCancelLabel,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -2011,7 +2027,7 @@ data class PlatformNativeSheetDetail (
       return true
     }
     val other = other as PlatformNativeSheetDetail
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionId, other.confirmActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionLabel, other.confirmActionLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.maxHeightFraction, other.maxHeightFraction) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionId, other.trailingActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionSfSymbol, other.trailingActionSfSymbol)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionId, other.confirmActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionLabel, other.confirmActionLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.maxHeightFraction, other.maxHeightFraction) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionId, other.trailingActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionSfSymbol, other.trailingActionSfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardTitle, other.discardTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardMessage, other.discardMessage) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardConfirmLabel, other.discardConfirmLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardCancelLabel, other.discardCancelLabel)
   }
 
   override fun hashCode(): Int {
@@ -2026,10 +2042,14 @@ data class PlatformNativeSheetDetail (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.maxHeightFraction)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.trailingActionId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.trailingActionSfSymbol)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardTitle)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardMessage)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardConfirmLabel)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardCancelLabel)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetDetail(id=$id, title=$title, subtitle=$subtitle, items=$items, sections=$sections, confirmActionId=$confirmActionId, confirmActionLabel=$confirmActionLabel, maxHeightFraction=$maxHeightFraction, trailingActionId=$trailingActionId, trailingActionSfSymbol=$trailingActionSfSymbol)"
+    return "PlatformNativeSheetDetail(id=$id, title=$title, subtitle=$subtitle, items=$items, sections=$sections, confirmActionId=$confirmActionId, confirmActionLabel=$confirmActionLabel, maxHeightFraction=$maxHeightFraction, trailingActionId=$trailingActionId, trailingActionSfSymbol=$trailingActionSfSymbol, discardTitle=$discardTitle, discardMessage=$discardMessage, discardConfirmLabel=$discardConfirmLabel, discardCancelLabel=$discardCancelLabel)"
   }
 }
 
@@ -2575,7 +2595,12 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
   val title: String? = null,
   val subtitle: String? = null,
   val clearSubtitle: Boolean,
-  val detailSheets: List<PlatformNativeSheetDetail>? = null
+  val detailSheets: List<PlatformNativeSheetDetail>? = null,
+  /**
+   * The page in full, replacing everything it was -- its bar actions and
+   * discard question too, which a patch of rows keeps.
+   */
+  val whole: PlatformNativeSheetDetail? = null
 )
  {
   companion object {
@@ -2587,7 +2612,8 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       val subtitle = pigeonVar_list[4] as String?
       val clearSubtitle = pigeonVar_list[5] as Boolean
       val detailSheets = pigeonVar_list[6] as List<PlatformNativeSheetDetail>?
-      return PlatformNativeSheetApplyDetailPatchRequest(detailId, items, sections, title, subtitle, clearSubtitle, detailSheets)
+      val whole = pigeonVar_list[7] as PlatformNativeSheetDetail?
+      return PlatformNativeSheetApplyDetailPatchRequest(detailId, items, sections, title, subtitle, clearSubtitle, detailSheets, whole)
     }
   }
   fun toList(): List<Any?> {
@@ -2599,6 +2625,7 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       subtitle,
       clearSubtitle,
       detailSheets,
+      whole,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -2609,7 +2636,7 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
       return true
     }
     val other = other as PlatformNativeSheetApplyDetailPatchRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.clearSubtitle, other.clearSubtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailSheets, other.detailSheets)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.clearSubtitle, other.clearSubtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailSheets, other.detailSheets) && ConduitPlatformApisPigeonUtils.deepEquals(this.whole, other.whole)
   }
 
   override fun hashCode(): Int {
@@ -2621,10 +2648,11 @@ data class PlatformNativeSheetApplyDetailPatchRequest (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.subtitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.clearSubtitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.detailSheets)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.whole)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetApplyDetailPatchRequest(detailId=$detailId, items=$items, sections=$sections, title=$title, subtitle=$subtitle, clearSubtitle=$clearSubtitle, detailSheets=$detailSheets)"
+    return "PlatformNativeSheetApplyDetailPatchRequest(detailId=$detailId, items=$items, sections=$sections, title=$title, subtitle=$subtitle, clearSubtitle=$clearSubtitle, detailSheets=$detailSheets, whole=$whole)"
   }
 }
 

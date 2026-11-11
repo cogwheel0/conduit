@@ -88,6 +88,10 @@ void main() {
 
       final titles = session.rows(_ops).map((row) => row.title);
       expect(titles, containsAll(['Chat finished', 'Channel message']));
+      // A form: Done saves it, and leaving with changes asks first.
+      final page = session.container.read(settingsPagesProvider)[_ops]!;
+      expect(page.confirmActionId, webhookRowId('save', _ops));
+      expect(page.discardPrompt, isNotNull);
       expect(titles, isNot(contains('retrieval.content.process_failed')));
     });
 
