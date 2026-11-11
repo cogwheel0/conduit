@@ -24,7 +24,6 @@ import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dar
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_bot_tile.dart';
-import 'hermes_connection_switcher.dart';
 import 'hermes_jobs_sheet.dart';
 import 'hermes_rooms_section.dart';
 import 'hermes_session_tile.dart';
@@ -77,8 +76,6 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         SliverToBoxAdapter(
           child: SizedBox(height: sidebarTabContentTopPadding(context)),
         ),
-        // Names the active connection; switches when several are saved.
-        const SliverToBoxAdapter(child: HermesConnectionSwitcherTile()),
         ..._botSlivers(context, ref.watch(hermesBotsProvider).asData?.value),
         const HermesRoomsSection(),
         if (showJobs) const SliverToBoxAdapter(child: _ScheduledAgentsTile()),

@@ -35,6 +35,7 @@ import 'conversation_tile.dart'
         kSidebarRowHorizontalPadding,
         sidebarRowTitleLineStyle;
 import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
+import '../../hermes/widgets/hermes_connection_switcher.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
@@ -475,6 +476,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
     required List<AdaptiveAppBarAction> actions,
     required bool isSearchExpanded,
     required double toolbarWidth,
+    Widget? middle,
   }) {
     final backgroundColor = context.conduitTheme.surfaceBackground;
     return AppBar(
@@ -483,6 +485,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       toolbarHeight: kTextTabBarHeight,
+      title: middle,
+      centerTitle: true,
       leadingWidth: isSearchExpanded
           ? (toolbarWidth - _kSidebarSearchCloseActionReserve)
                 .clamp(0.0, toolbarWidth)
@@ -573,6 +577,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       isSearchExpanded: isSearchExpanded,
       activeTab: activeTab,
     );
+    // Hermes names its connection at the centre when there is another to
+    // switch to; an open search field takes the whole bar.
+    final appBarMiddle =
+        activeTab.id == SidebarTabId.hermes && !isSearchExpanded
+        ? const HermesConnectionHeaderSwitcher()
+        : null;
 
     void onTap(int index) {
       ConduitHaptics.selectionClick();
@@ -651,6 +661,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             return SidebarIos26Scaffold(
               bottomNavigationBar: bottomNavigationBar,
               leading: adaptiveAppBarLeading,
+              middle: appBarMiddle,
               actions: appBarActions,
               showNativeView: composeNativeIos26Chrome,
               body: sidebarBody,
@@ -661,6 +672,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             appBar: AdaptiveAppBar(
               useNativeToolbar: true,
               leading: adaptiveAppBarLeading,
+              titleWidget: appBarMiddle,
               actions: appBarActions,
               appBar: _sidebarMaterialAppBar(
                 context: context,
@@ -668,6 +680,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
                 actions: appBarActions,
                 isSearchExpanded: isSearchExpanded,
                 toolbarWidth: toolbarWidth,
+                middle: appBarMiddle,
               ),
             ),
             bottomNavigationBar: bottomNavigationBar,
@@ -708,7 +721,6 @@ class _SlidingSidebarPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
     final historyTabs = [
@@ -806,43 +818,31 @@ class _SlidingSidebarPage extends ConsumerWidget {
                   end: Spacing.inputPadding,
                 ),
                 child: LayoutBuilder(
-                  builder: (context, constraints) => Row(
+                  builder: (context, constraints) => Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: isSearching
-                              ? SidebarSearchAppBarLeading(
-                                  hintText: l10n.searchConversations,
-                                  maxWidth:
-                                      constraints.maxWidth -
-                                      controlExtent -
-                                      Spacing.sm,
-                                )
-                              : composeChrome
-                              ? const SidebarProfileAppBarLeading()
-                              : SizedBox.square(dimension: controlExtent),
-                        ),
+                      _slidingSidebarToolbarRow(
+                        context: context,
+                        ref: ref,
+                        constraints: constraints,
+                        isSearching: isSearching,
+                        composeChrome: composeChrome,
+                        chatTab: chatTab,
+                        controlExtent: controlExtent,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      // Search filters the Open WebUI history only.
-                      if (chatTab.id == SidebarTabId.hermes)
-                        const SizedBox.shrink()
-                      else if (composeChrome)
-                        ConduitAdaptiveAppBarIconButton(
-                          key: const ValueKey<String>('sidebar-search-button'),
-                          icon: isSearching ? UiUtils.closeIcon : Icons.search,
-                          iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
-                          semanticLabel: isSearching
-                              ? l10n.close
-                              : l10n.searchConversations,
-                          onPressed: () => isSearching
-                              ? closeSidebarSearch(ref)
-                              : openSidebarSearch(ref),
-                          iconColor: theme.textPrimary,
-                        )
-                      else
-                        SizedBox.square(dimension: controlExtent),
+                      // Hermes names its connection at the centre when there
+                      // is another to switch to.
+                      if (chatTab.id == SidebarTabId.hermes &&
+                          composeChrome &&
+                          !isSearching)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: controlExtent + Spacing.sm,
+                          ),
+                          child: const Center(
+                            child: HermesConnectionHeaderSwitcher(),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -881,6 +881,54 @@ class _SlidingSidebarPage extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  /// The sliding sidebar's bar: the profile (or the search field) at the
+  /// start, the search button at the end.
+  Widget _slidingSidebarToolbarRow({
+    required BuildContext context,
+    required WidgetRef ref,
+    required BoxConstraints constraints,
+    required bool isSearching,
+    required bool composeChrome,
+    required SidebarTabDescriptor chatTab,
+    required double controlExtent,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: isSearching
+                ? SidebarSearchAppBarLeading(
+                    hintText: l10n.searchConversations,
+                    maxWidth: constraints.maxWidth - controlExtent - Spacing.sm,
+                  )
+                : composeChrome
+                ? const SidebarProfileAppBarLeading()
+                : SizedBox.square(dimension: controlExtent),
+          ),
+        ),
+        const SizedBox(width: Spacing.sm),
+        // Search filters the Open WebUI history only.
+        if (chatTab.id == SidebarTabId.hermes)
+          const SizedBox.shrink()
+        else if (composeChrome)
+          ConduitAdaptiveAppBarIconButton(
+            key: const ValueKey<String>('sidebar-search-button'),
+            icon: isSearching ? UiUtils.closeIcon : Icons.search,
+            iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
+            semanticLabel: isSearching ? l10n.close : l10n.searchConversations,
+            onPressed: () =>
+                isSearching ? closeSidebarSearch(ref) : openSidebarSearch(ref),
+            iconColor: theme.textPrimary,
+          )
+        else
+          SizedBox.square(dimension: controlExtent),
+      ],
     );
   }
 }
