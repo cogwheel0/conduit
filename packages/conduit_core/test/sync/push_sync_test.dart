@@ -645,10 +645,26 @@ void main() {
         for (final m in await db.messagesDao.getForChat('srv-race')) m.id,
       ];
       check(ids).deepEquals(['q1', 'a1', 'q2', 'a2']);
-      // The next pull, read after the push, is taken as before.
+      // The answer is written on the server in that same second, and the
+      // next pull, read after the push, takes it as before.
+      final blob =
+          server.getChatById('srv-race')!['chat'] as Map<String, dynamic>;
+      final history = blob['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      (messages['a2'] as Map<String, dynamic>)
+        ..['content'] = 'Basil once the nights are warm.'
+        ..['done'] = true;
+      server.seedChat(
+        id: 'srv-race',
+        blob: blob,
+        createdAt: 100,
+        updatedAt: 7000,
+      );
       await pull.pullChat('srv-race');
-      check([for (final m in await db.messagesDao.getForChat('srv-race')) m.id])
+      final stored = await db.messagesDao.getForChat('srv-race');
+      check([for (final m in stored) m.id])
           .deepEquals(['q1', 'a1', 'q2', 'a2']);
+      check(stored.last.content).equals('Basil once the nights are warm.');
     });
 
     for (final byName in [false, true]) {
