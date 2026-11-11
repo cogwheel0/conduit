@@ -48,10 +48,10 @@ class _HeldChatReadClient extends FakeSyncApiClient {
   final Completer<void> read;
   final Completer<void> release;
 
-  /// Laid over every copy: what Open WebUI keeps beside the chat without
-  /// moving its `updated_at` (tags, a share link), which the fake server
-  /// does not hold.
-  final Map<String, dynamic> envelope;
+  /// Laid over each copy as it is read: what Open WebUI keeps beside the
+  /// chat without moving its `updated_at` (tags, a share link), which the
+  /// fake server does not hold.
+  Map<String, dynamic> envelope;
 
   /// How many times the chat was read.
   int reads = 0;
@@ -60,10 +60,21 @@ class _HeldChatReadClient extends FakeSyncApiClient {
   Future<Map<String, dynamic>?> getChatRaw(String id) async {
     reads++;
     final copy = await super.getChatRaw(id);
+    final beside = envelope;
     if (!read.isCompleted) read.complete();
     await release.future;
-    return copy == null ? null : {...copy, ...envelope};
+    return copy == null ? null : {...copy, ...beside};
   }
+}
+
+/// Fails the pin that follows an update: the update has reached the server,
+/// and the push has not finished.
+class _PinFailsClient extends FakeSyncApiClient {
+  _PinFailsClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> togglePin(String id) async =>
+      throw StateError('connection reset while pinning $id');
 }
 
 /// Lets a create reach the server, then holds its answer until [release]:
@@ -665,6 +676,116 @@ void main() {
       check([for (final m in stored) m.id])
           .deepEquals(['q1', 'a1', 'q2', 'a2']);
       check(stored.last.content).equals('Basil once the nights are warm.');
+    });
+
+    test('a copy read before an update reached the server is read again when '
+        'the pin after the update fails', () async {
+      server.seedChat(
+        id: 'srv-pin-fails',
+        blob: {
+          'title': 'Potting mix',
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'What goes in a potting mix?',
+              },
+            },
+            'currentId': 'q1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      await PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat('srv-pin-fails');
+
+      // A message sent and the chat pinned here, pending one push.
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'srv-pin-fails',
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: 'q2',
+            chatId: 'srv-pin-fails',
+            parentId: 'q1',
+            role: 'user',
+            content: 'And for seedlings?',
+            createdAt: 7000,
+            orderIndex: 0,
+            payload: <String, dynamic>{
+              'id': 'q2',
+              'parentId': 'q1',
+              'childrenIds': <String>[],
+              'role': 'user',
+              'content': 'And for seedlings?',
+            },
+          ),
+        ],
+        currentMessageId: 'q2',
+        updatedAt: 7000,
+        enqueueCompletion: false,
+      );
+      await chatLocks.runExclusive(
+        'srv-pin-fails',
+        () => db.chatsDao.updateEnvelopeWithOutbox(
+          'srv-pin-fails',
+          pinned: const Value(true),
+          enqueue: true,
+        ),
+      );
+
+      // A pull reads the chat, with the link it is shared by, before the
+      // push...
+      final read = Completer<void>();
+      final release = Completer<void>();
+      final reader = _HeldChatReadClient(
+        server,
+        read: read,
+        release: release,
+        envelope: {'share_id': 'share-mix'},
+      );
+      final pulling = PullSync(
+        client: reader,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat('srv-pin-fails');
+      await read.future;
+      // ...the update lands, in the same second, and the pin after it
+      // fails...
+      await check(
+        PushSync(
+          client: _PinFailsClient(server),
+          db: db,
+          chatLocks: chatLocks,
+          folderLocks: folderLocks,
+          clock: clock,
+          remapper: remapper,
+        ).pushUpdateChat('srv-pin-fails'),
+      ).throws<StateError>();
+      final history =
+          (server.getChatById('srv-pin-fails')!['chat'] as Map)['history']
+              as Map;
+      check((history['messages'] as Map).keys).contains('q2');
+      // ...the link is taken down elsewhere...
+      reader.envelope = const {'share_id': null};
+      // ...and the copy from before the update comes back after it.
+      release.complete();
+      await pulling;
+
+      // None of it is stored: the chat is read again, link and all.
+      check(reader.reads).equals(2);
+      check(await db.chatsDao.getChat('srv-pin-fails'))
+          .isNotNull()
+          .has((c) => c.shareId, 'shareId')
+          .isNull();
     });
 
     for (final byName in [false, true]) {

@@ -225,6 +225,10 @@ class PushSync {
         );
         return;
       }
+      // The server holds these rows now, whatever happens to the reconcile
+      // below: a copy read before this is older than them, even should a
+      // pin or a move fail and leave the push to run again.
+      _db.chatsDao.notePushLanded(chatId);
       final serverUpdatedAt = _epoch(resp['updated_at']) ?? chat.updatedAt;
 
       // folder-move delta runs BEFORE the pin/archive reconcile: the server's
@@ -285,7 +289,9 @@ class PushSync {
 
       // Store serverUpdatedAt + clear dirty ONLY for the captured snapshot:
       // any row dirtied after the capture (none possible inside this single
-      // lock span, but defensively) stays dirty.
+      // lock span, but defensively) stays dirty. Noted again: the folder
+      // move, pin and archive above write too, so a copy read between them
+      // and the update is older than the chat as pushed.
       _db.chatsDao.notePushLanded(chatId);
       await _clearDirty(
         chatId: chatId,
