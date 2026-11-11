@@ -4,6 +4,8 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/color_tokens.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -220,6 +222,55 @@ void main() {
         expect(toggles, 0, reason: reason);
       }
     }
+  });
+
+  testWidgets('on iOS, a compact icon button takes taps at the header\'s '
+      'top and bottom edges', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    tester.view.physicalSize = const Size(_windowWidth, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var presses = 0;
+    var toggles = 0;
+
+    for (final isFirst in [true, false]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.conduit),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: _windowWidth,
+                child: SidebarSectionHeader(
+                  title: 'Folders',
+                  isFirst: isFirst,
+                  isExpanded: true,
+                  onToggle: () => toggles++,
+                  trailing: ConduitIconButton(
+                    icon: Icons.create_new_folder_outlined,
+                    tooltip: 'New Folder',
+                    isCompact: true,
+                    onPressed: () => presses++,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final header = tester.getRect(find.byType(SidebarSectionHeader));
+      final x = tester.getCenter(find.byType(Icon)).dx;
+      // The button is round, so its edges count along the symbol's column.
+      for (final y in [header.top + 2, header.bottom - 2]) {
+        final before = presses;
+        await tester.tapAt(Offset(x, y));
+        await tester.pumpAndSettle();
+        expect(presses, before + 1, reason: 'first $isFirst, y $y');
+      }
+    }
+    expect(toggles, 0);
   });
 
   testWidgets('dark section headers sit quieter than secondary text', (
