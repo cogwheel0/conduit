@@ -1183,6 +1183,60 @@ void main() {
     check(client.createNoteCalls).equals(1);
   });
 
+  test('a note edited while a create that reached the server waits to run '
+      'again sends the edit', () async {
+    final remapper = IdRemapper(db);
+    addTearDown(remapper.dispose);
+    final push = NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: locks,
+      remapper: remapper,
+    );
+    const localId = 'local:n-edited-after-create';
+    await db.notesDao.insertLocalNoteWithCreateOp(
+      note: NotesCompanion.insert(
+        id: localId,
+        title: 'Seed order',
+        data: Value(
+          jsonEncode({
+            'content': {'md': 'Tomatoes, then basil.'},
+          }),
+        ),
+        createdAt: kT1,
+        updatedAt: kT1,
+      ),
+    );
+    // The create reaches the server and its op takes the server id with the
+    // row, but its done mark is lost...
+    final serverId = (await push.pushNoteCreate(localId))!;
+    // ...and the note is renamed before the create runs again.
+    await locks.runExclusive(
+      serverId,
+      () => db.notesDao.updateNoteWithOutbox(
+        serverId,
+        title: const Value('Seed order for spring'),
+        localUpdatedAtNs: kT1 + 1,
+        enqueue: true,
+      ),
+    );
+
+    for (final op in await db.outboxDao.pendingForChat(serverId)) {
+      if (op.kind == OutboxKind.noteCreate.name) {
+        await push.pushNoteCreate(op.chatId!);
+      } else if (op.kind == OutboxKind.noteUpdate.name) {
+        await push.pushNoteUpdate(
+          op.chatId!,
+          jsonDecode(op.payload) as Map<String, dynamic>,
+        );
+      }
+      await db.outboxDao.markDone(op.seq);
+    }
+
+    check(server.getNoteById(serverId)?['title']).equals('Seed order for spring');
+    check(client.createNoteCalls).equals(1);
+  });
+
   test('pull does not enqueue noteUpdate for pin-only dirty notes', () async {
     server.seedNote(
       id: 'p1',

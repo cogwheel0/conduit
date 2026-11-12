@@ -914,7 +914,13 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         return const _CoalesceDecision(insert: true);
 
       case OutboxKind.folderDelete:
-        final hasLocalCreate = pending.any(_isLocalFolderCreate);
+        // As for chats and notes: a create whose folder already has its
+        // server id reached the server. Its op keeps the local id in its
+        // payload (the remap rewrites only the op's folder id), so the
+        // folder id the delete names decides, or the next pull brings the
+        // folder back.
+        final hasLocalCreate =
+            chatId.startsWith('local:') && pending.any(_isLocalFolderCreate);
         final priorDelete = newestOfKind(OutboxKind.folderDelete);
         return _CoalesceDecision(
           // A brand-new local folderUpsert means the folder never reached the
@@ -947,7 +953,13 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         // carries the latest title/data. Refresh the surviving create's
         // contentHash too; crash-heal matches the server-created note against
         // the CURRENT row content that pushNoteCreate will POST.
-        final create = newestOfKind(OutboxKind.noteCreate);
+        //
+        // As for chats: not a create whose note already has its server id.
+        // It reached the server, and run again it sends nothing
+        // (`NotePushSync.pushNoteCreate`), so the edit needs its own update.
+        final create = chatId.startsWith('local:')
+            ? newestOfKind(OutboxKind.noteCreate)
+            : null;
         if (create != null) {
           final note = await attachedDatabase.notesDao.getNote(chatId);
           if (note == null) {
