@@ -2890,10 +2890,6 @@
   "@personalConnectionsUnsupported": {
     "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
   },
-  "personalConnectionsDeleteTitle": "Usunąć połączenie?",
-  "@personalConnectionsDeleteTitle": {
-    "description": "Title of the confirmation for deleting a personal connection."
-  },
   "personalConnectionsDeleteMessage": "{name} zostanie usunięte z Twojego konta Open WebUI.",
   "@personalConnectionsDeleteMessage": {
     "description": "Confirmation text naming the personal connection {name} that will be deleted.",
@@ -7832,7 +7828,6 @@
   "personalToolSettingsSaved": "Zapisano ustawienia narzędzi",
   "personalToolSettingsLoadFailed": "Nie można wczytać ustawień narzędzi.",
   "personalToolSettingsSaveFailed": "Nie można zapisać ustawień narzędzi.",
-  "scheduledTaskDeleteTitle": "Usunąć zaplanowane zadanie?",
   "scheduledTaskRunning": "Trwa uruchamianie…",
   "scheduledTaskRunFinished": "Uruchomienie zakończone.",
   "scheduledTaskRunFailedNotice": "Uruchomienie nie powiodło się. Szczegóły znajdziesz w Historii.",
@@ -7845,7 +7840,6 @@
       }
     }
   },
-  "scheduledTaskFolderSearchHint": "Szukaj folderów",
   "scheduledTasksEmptyHint": "Niech model wykonuje Twoje instrukcje według harmonogramu, na przykład poranny przegląd wiadomości.",
   "scheduledTasksShowAll": "Pokaż wszystkie zadania",
   "personalConnectionsEmptyToolServersHint": "Dodaj serwer narzędzi OpenAPI, aby korzystać z jego narzędzi w czatach.",
@@ -9135,8 +9129,6 @@
   "@modelPickerCodingAgents": {"description": "Heading in the model picker over the coding agents (such as Codex or Claude Code) that the selected Open WebUI terminal offers as models."},
   "modelControlServiceTier": "Poziom usługi",
   "@modelControlServiceTier": {"description": "Row title in the model picker for a coding agent's service tier setting (which processing tier, such as faster or cheaper, the agent's model uses)."},
-  "scheduledTaskTerminalSearchHint": "Szukaj terminali",
-  "@scheduledTaskTerminalSearchHint": {"description": "Search field hint in the list of terminals a scheduled task can run with."},
   "scheduledTaskWorkingFolderLabel": "Folder roboczy",
   "@scheduledTaskWorkingFolderLabel": {"description": "Label of the field for the folder on the terminal where a scheduled task starts. Optional."},
   "scheduledTaskWorkingFolderHint": "Domyślny folder terminala",
@@ -9314,10 +9306,6 @@
     }
   },
   "hermesMcpTestFailed": "Test MCP nie powiódł się.",
-  "scheduledTasksSearchLabel": "Szukaj",
-  "@scheduledTasksSearchLabel": {
-    "description": "Title of the row searching scheduled tasks by name or instructions."
-  },
   "scheduledTasksFilterLabel": "Pokaż",
   "@scheduledTasksFilterLabel": {
     "description": "Title of the row choosing which scheduled tasks the list shows: all, active or paused."

@@ -2621,10 +2621,6 @@
   "@personalConnectionsUnsupported": {
     "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
   },
-  "personalConnectionsDeleteTitle": "Smazat připojení?",
-  "@personalConnectionsDeleteTitle": {
-    "description": "Title of the confirmation for deleting a personal connection."
-  },
   "personalConnectionsDeleteMessage": "{name} bude odebráno z vašeho účtu Open WebUI.",
   "@personalConnectionsDeleteMessage": {
     "description": "Confirmation text naming the personal connection {name} that will be deleted.",
@@ -6210,13 +6206,11 @@
   "personalToolSettingsSaved": "Nastavení nástrojů uloženo",
   "personalToolSettingsLoadFailed": "Nastavení nástrojů se nepodařilo načíst.",
   "personalToolSettingsSaveFailed": "Nastavení nástrojů se nepodařilo uložit.",
-  "scheduledTaskDeleteTitle": "Smazat naplánovanou úlohu?",
   "scheduledTaskRunning": "Probíhá…",
   "scheduledTaskRunFinished": "Spuštění bylo dokončeno.",
   "scheduledTaskRunFailedNotice": "Spuštění selhalo. Podrobnosti najdete v Historii.",
   "scheduledTaskLastRunFailed": "Poslední spuštění selhalo",
   "scheduledTaskRruleRuns": "Spouští se: {summary}",
-  "scheduledTaskFolderSearchHint": "Hledat složky",
   "scheduledTasksEmptyHint": "Nechte model plnit vaše pokyny podle plánu, například ranní přehled zpráv.",
   "scheduledTasksShowAll": "Zobrazit všechny úlohy",
   "personalConnectionsEmptyToolServersHint": "Přidejte server nástrojů OpenAPI a používejte jeho nástroje v chatech.",
@@ -6704,7 +6698,6 @@
   "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
   "modelPickerCodingAgents": "Programovací agenti",
   "modelControlServiceTier": "Úroveň služby",
-  "scheduledTaskTerminalSearchHint": "Hledat terminály",
   "scheduledTaskWorkingFolderLabel": "Pracovní složka",
   "scheduledTaskWorkingFolderHint": "Výchozí složka terminálu",
   "scheduledTaskTerminalRequired": "Vyberte terminál, na kterém tento agent poběží.",
@@ -6862,7 +6855,6 @@
     }
   },
   "hermesMcpTestFailed": "Test MCP selhal.",
-  "scheduledTasksSearchLabel": "Hledat",
   "scheduledTasksFilterLabel": "Zobrazit",
   "personalConnectionsTurnOn": "Zapnout",
   "personalConnectionsTurnOff": "Vypnout",

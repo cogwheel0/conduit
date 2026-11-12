@@ -2621,10 +2621,6 @@
   "@personalConnectionsUnsupported": {
     "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
   },
-  "personalConnectionsDeleteTitle": "Odstrániť pripojenie?",
-  "@personalConnectionsDeleteTitle": {
-    "description": "Title of the confirmation for deleting a personal connection."
-  },
   "personalConnectionsDeleteMessage": "{name} sa odstráni z vášho účtu Open WebUI.",
   "@personalConnectionsDeleteMessage": {
     "description": "Confirmation text naming the personal connection {name} that will be deleted.",
@@ -6210,13 +6206,11 @@
   "personalToolSettingsSaved": "Nastavenia nástrojov uložené",
   "personalToolSettingsLoadFailed": "Nastavenia nástrojov sa nepodarilo načítať.",
   "personalToolSettingsSaveFailed": "Nastavenia nástrojov sa nepodarilo uložiť.",
-  "scheduledTaskDeleteTitle": "Odstrániť naplánovanú úlohu?",
   "scheduledTaskRunning": "Prebieha…",
   "scheduledTaskRunFinished": "Spustenie bolo dokončené.",
   "scheduledTaskRunFailedNotice": "Spustenie zlyhalo. Podrobnosti nájdete v Histórii.",
   "scheduledTaskLastRunFailed": "Posledné spustenie zlyhalo",
   "scheduledTaskRruleRuns": "Spúšťa sa: {summary}",
-  "scheduledTaskFolderSearchHint": "Hľadať priečinky",
   "scheduledTasksEmptyHint": "Nechajte model plniť vaše pokyny podľa plánu, napríklad ranný prehľad správ.",
   "scheduledTasksShowAll": "Zobraziť všetky úlohy",
   "personalConnectionsEmptyToolServersHint": "Pridajte server nástrojov OpenAPI a používajte jeho nástroje v chatoch.",
@@ -6704,7 +6698,6 @@
   "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
   "modelPickerCodingAgents": "Programovací agenti",
   "modelControlServiceTier": "Úroveň služby",
-  "scheduledTaskTerminalSearchHint": "Hľadať terminály",
   "scheduledTaskWorkingFolderLabel": "Pracovný priečinok",
   "scheduledTaskWorkingFolderHint": "Predvolený priečinok terminálu",
   "scheduledTaskTerminalRequired": "Vyberte terminál, na ktorom tento agent beží.",
@@ -6862,7 +6855,6 @@
     }
   },
   "hermesMcpTestFailed": "Test MCP zlyhal.",
-  "scheduledTasksSearchLabel": "Hľadať",
   "scheduledTasksFilterLabel": "Zobraziť",
   "personalConnectionsTurnOn": "Zapnúť",
   "personalConnectionsTurnOff": "Vypnúť",
