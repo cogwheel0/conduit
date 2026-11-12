@@ -301,22 +301,30 @@ class _ShellEscape extends ShortcutActivator {
 /// Whether Escape belongs to what has focus rather than to the shell:
 /// - a field whose input method is still composing text, which Escape
 ///   cancels;
-/// - anything that dismisses on Escape, such as a dismissible sheet,
-///   dialog or menu;
-/// - a dialog, sheet or menu in front that does not, which keeps the layers
-///   behind it out of reach.
+/// - a route the app's default Escape would pop: one whose barrier
+///   dismisses it, as `DismissIntent` checks;
+/// - a dialog, sheet or menu route in front even when Escape cannot dismiss
+///   it, which keeps the layers behind it out of reach;
+/// - a selection's menu that is showing (the menu over selected reply
+///   text), which Escape hides first: the selection's own `DismissIntent`
+///   does that.
+///
+/// Widgets that merely pass `DismissIntent` on (a text field or selectable
+/// message text with no toolbar showing) do not own Escape: the shell's
+/// order (close search, then the overlay sidebar, then leave the focus)
+/// still runs there. An open menu needs no check: its anchor and panel map
+/// Escape themselves, nearer the focus than these bindings.
 bool _focusOwnsEscape() {
   final context = FocusManager.instance.primaryFocus?.context;
   if (context == null) return false;
-  final field = context.findAncestorStateOfType<EditableTextState>();
-  final composing = field?.textEditingValue.composing;
+  final composing = context
+      .findAncestorStateOfType<EditableTextState>()
+      ?.textEditingValue
+      .composing;
   if (composing != null && composing.isValid && !composing.isCollapsed) {
     return true;
   }
-  // A text field answers DismissIntent itself, then passes it on to what
-  // encloses it, so whether Escape dismisses anything is decided above it.
-  final dismissFrom = field?.context ?? context;
-  return Actions.handler<DismissIntent>(dismissFrom, const DismissIntent()) !=
-          null ||
-      ModalRoute.of(context) is PopupRoute;
+  if (AdaptiveTextSelectionMenu.isShowing) return true;
+  final route = ModalRoute.of(context);
+  return route is PopupRoute || (route?.barrierDismissible ?? false);
 }
