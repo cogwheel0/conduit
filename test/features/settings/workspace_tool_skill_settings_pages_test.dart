@@ -1103,6 +1103,24 @@ void main() {
           .not((it) => it.equals('Private Trail'));
     });
 
+    testWidgets('a skill with unsaved changes asks for them to be saved or '
+        'discarded before it is duplicated', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(
+        _skillRow('description', _skillKey),
+        'Plans a long hike',
+      );
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).isEmpty();
+      check(skills.created).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceSkillCloneSaveFirst);
+    });
+
     testWidgets('a server without its own duplicate gets a copy made from '
         'the skill as read', (tester) async {
       final skills = _Skills()

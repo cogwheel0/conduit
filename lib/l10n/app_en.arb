@@ -11571,6 +11571,10 @@
   "@hermesJobNotifyNeedsScheduled": {
     "description": "Hint under the disabled \"Notify me\" switch in the Hermes job editor while the \"Scheduled tasks\" notification kind is turned off in the Notifications settings."
   },
+  "workspaceSkillCloneSaveFirst": "Save or discard your changes before duplicating the skill.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
   "hermesShowScheduledRuns": "Show Scheduled Runs",
   "@hermesShowScheduledRuns": {
     "description": "Switch in Hermes settings, in the Conversations group, that shows or leaves out the chats a scheduled agent (cron job) starts each time it runs."

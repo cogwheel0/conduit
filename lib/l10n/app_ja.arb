@@ -6633,6 +6633,10 @@
   "hermesJobCreatedNotifyFailed": "ジョブは作成されましたが、通知をオンにできませんでした。",
   "hermesJobUpdatedNotifyFailed": "ジョブは保存されましたが、通知を変更できませんでした。",
   "hermesJobNotifyNeedsScheduled": "使うには、通知で「スケジュールされたタスク」をオンにしてください。",
+  "workspaceSkillCloneSaveFirst": "スキルを複製する前に、変更を保存するか破棄してください。",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
   "hermesShowScheduledRuns": "スケジュール実行を表示",
   "hermesShowScheduledRunsDescription": "スケジュールされたエージェントは実行のたびに新しいチャットを作成します。オフにすると、それらのチャットを Hermes の一覧に表示しません。ピン留めしたものは残ります。",
   "hermesScheduledRunsHidden": "{count, plural, other{{count} 件のスケジュール実行を非表示}}",

@@ -715,6 +715,13 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
   ) async {
     final summary = editor.summary;
     if (summary == null || editor.readOnly) return;
+    // The copy is of the skill as saved: changes not saved yet are saved or
+    // discarded first, as switching it on or off asks.
+    if (editor.dirty) {
+      _say(editor, l10n.workspaceSkillCloneSaveFirst);
+      await _applyEditor(l10n, editor, withPages: false);
+      return;
+    }
     final base = editor.id.trim();
     final description = editor.description.trim();
     final id = base.isEmpty ? 'skill_clone' : '${base}_clone';

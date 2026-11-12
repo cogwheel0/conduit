@@ -6939,6 +6939,10 @@
   "hermesJobCreatedNotifyFailed": "Úloha bola vytvorená, ale upozornenia pre ňu sa nepodarilo zapnúť.",
   "hermesJobUpdatedNotifyFailed": "Úloha bola uložená, ale jej upozornenia sa nepodarilo zmeniť.",
   "hermesJobNotifyNeedsScheduled": "Ak to chcete použiť, zapnite v Upozorneniach Naplánované úlohy.",
+  "workspaceSkillCloneSaveFirst": "Pred duplikovaním zručnosti zmeny uložte alebo zahoďte.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
   "hermesShowScheduledRuns": "Zobrazovať naplánované spustenia",
   "hermesShowScheduledRunsDescription": "Každé spustenie naplánovaného agenta vytvorí vlastný chat. Vypnutím tieto chaty vynecháte zo zoznamu Hermes. Pripnuté zostanú.",
   "hermesScheduledRunsHidden": "{count, plural, one{Skryté 1 naplánované spustenie} few{Skryté {count} naplánované spustenia} other{Skrytých {count} naplánovaných spustení}}",

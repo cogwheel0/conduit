@@ -4791,6 +4791,10 @@
   "hermesJobCreatedNotifyFailed": "작업을 만들었지만 알림을 켜지 못했습니다.",
   "hermesJobUpdatedNotifyFailed": "작업을 저장했지만 알림을 변경하지 못했습니다.",
   "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요.",
+  "workspaceSkillCloneSaveFirst": "스킬을 복제하기 전에 변경 사항을 저장하거나 취소하세요.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
   "hermesShowScheduledRuns": "예약 실행 표시",
   "hermesShowScheduledRunsDescription": "예약된 에이전트는 실행될 때마다 새 채팅을 만듭니다. 이 설정을 끄면 해당 채팅이 Hermes 목록에 표시되지 않습니다. 고정한 채팅은 그대로 표시됩니다.",
   "hermesScheduledRunsHidden": "{count, plural, other{예약 실행 {count}개 숨김}}",

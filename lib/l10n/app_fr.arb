@@ -5019,6 +5019,10 @@
   "hermesJobCreatedNotifyFailed": "Tâche créée, mais ses notifications n'ont pas pu être activées.",
   "hermesJobUpdatedNotifyFailed": "Tâche enregistrée, mais ses notifications n'ont pas pu être modifiées.",
   "hermesJobNotifyNeedsScheduled": "Activez Tâches planifiées dans Notifications pour l'utiliser.",
+  "workspaceSkillCloneSaveFirst": "Enregistrez ou abandonnez vos modifications avant de dupliquer la compétence.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
   "hermesShowScheduledRuns": "Afficher les exécutions planifiées",
   "hermesShowScheduledRunsDescription": "Chaque exécution d’un agent planifié démarre sa propre conversation. Désactivez cette option pour retirer ces conversations de la liste Hermes. Celles qui sont épinglées restent.",
   "hermesScheduledRunsHidden": "{count, plural, =1{1 exécution planifiée masquée} other{{count} exécutions planifiées masquées}}",
