@@ -425,13 +425,21 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
 }
 
 String _catalogSubtitle(AppLocalizations l10n, HermesMcpCatalogEntry entry) {
-  final names = entry.credentials.map((it) => it.name).join(', ');
+  // An optional value is named as optional; only the required ones are
+  // what this connection cannot send.
+  final asks = entry.credentials
+      .map((it) => it.required ? it.name : l10n.hermesMcpValueOptional(it.name))
+      .join(', ');
+  final required = entry.credentials.where((it) => it.required);
+  final needs = (required.isEmpty ? entry.credentials : required)
+      .map((it) => it.name)
+      .join(', ');
   return [
     if (entry.description.isNotEmpty) entry.description,
     if (entry.credentials.isNotEmpty)
       entry.canAdd
-          ? l10n.hermesMcpCatalogAsks(names)
-          : l10n.hermesMcpCatalogNeeds(names),
+          ? l10n.hermesMcpCatalogAsks(asks)
+          : l10n.hermesMcpCatalogNeeds(needs),
   ].join('\n');
 }
 
@@ -751,6 +759,16 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     if (name != null) await _applyServer(l10n, name);
   }
 
+  /// Counts list reads: one that started before a later one does not
+  /// replace what the later one read (the list after an addition, say).
+  int _listReads = 0;
+
+  Future<void> _readServers(HermesDesktopApiService service) async {
+    final read = ++_listReads;
+    final servers = await service.mcpServers();
+    if (read == _listReads) _servers = servers;
+  }
+
   /// Reads the servers again; answers whether that worked.
   Future<bool> _load(AppLocalizations l10n) async {
     final service = _service;
@@ -761,7 +779,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     }
     var read = false;
     try {
-      _servers = await service.mcpServers();
+      await _readServers(service);
       _failed = false;
       read = true;
     } catch (error) {
@@ -850,22 +868,45 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         if (!await service.authenticateMcpServer(name)) {
           throw StateError('MCP authentication failed.');
         }
-        _servers = await service.mcpServers();
+        await _readServers(service);
       });
 
   Future<void> _setEnabled(AppLocalizations l10n, String name, bool enabled) =>
       _run(l10n, name, _busy, (service) async {
         await service.setMcpServerEnabled(name, enabled);
-        _servers = await service.mcpServers();
+        await _readAfter(l10n, service);
       });
 
   Future<void> _remove(AppLocalizations l10n, String name) async {
     final removed = await _run(l10n, name, _busy, (service) async {
       await service.removeMcpServer(name);
-      _servers = await service.mcpServers();
+      // Removed, whatever the read after it says: it leaves the list now.
+      _servers = [
+        for (final server in _servers ?? const <HermesMcpServer>[])
+          if (server.name != name) server,
+      ];
       _testResults.remove(name);
+      await _readAfter(l10n, service);
     });
     if (removed) await _surface.closeDetail(hermesMcpServerPageId(name));
+  }
+
+  /// Reads the list after a change that went through. Not read, the change
+  /// still stands; the page says the list could not be read.
+  Future<void> _readAfter(
+    AppLocalizations l10n,
+    HermesDesktopApiService service,
+  ) async {
+    try {
+      await _readServers(service);
+    } catch (error) {
+      DebugLogger.warning(
+        'mcp-reload-failed',
+        scope: 'settings/hermes-mcp',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      _notice = l10n.hermesMcpLoadFailed;
+    }
   }
 
   Future<void> _addServer(AppLocalizations l10n) async {

@@ -458,6 +458,22 @@ void main() {
     rig.leave();
   });
 
+  testWidgets('Run Now does not hold the rows behind it while the run '
+      'waits', (tester) async {
+    final jobs = _Jobs([_job()]);
+    final rig = await _pump(tester, jobs);
+
+    // Answered at once, though the run itself is still on its way.
+    await rig.change(_run);
+    check(jobs.runCalls).equals(1);
+    check(rig.listRow.pending).equals(true);
+
+    jobs.running!.complete();
+    await rig.frames();
+    check(rig.notice).equals(_l10n.hermesJobStarted);
+    rig.leave();
+  });
+
   testWidgets("a job's menu pauses it, and a paused job's resumes it", (
     tester,
   ) async {

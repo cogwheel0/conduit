@@ -703,7 +703,12 @@ class HermesJobSettingsPages extends SettingsPageModule {
   bool _creating = false;
   String? _notice;
   HermesDeliveryOptions? _deliveryOptions;
-  bool _deliveryLoading = false;
+
+  /// The connection delivery options are being read for, and were read
+  /// for: another connection's are never offered.
+  String? _deliveryLoadingFor;
+  String? _deliveryFor;
+  bool get _deliveryLoading => _deliveryLoadingFor != null;
   Set<String> _liveJobIds = const {};
   Timer? _pollTimer;
   Duration? _pollInterval;
@@ -826,10 +831,13 @@ class HermesJobSettingsPages extends SettingsPageModule {
       }
     }
     final state = _state();
+    // Pages already known keep what they show (an open editor included);
+    // only new ones are drawn loading until they appear.
+    final known = _ref.read(settingsPagesProvider);
     if (pageId == hermesJobsPageId) {
       await _surface.applyDetail(
         buildHermesJobsPage(l10n, state),
-        detailSheets: [
+        detailSheets: _unknown(known, [
           for (final job in state.jobs ?? const <HermesJob>[]) ...[
             buildNativeLoadingDetail(
               l10n: l10n,
@@ -847,7 +855,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
             id: hermesJobEditorPageId(null),
             title: l10n.hermesJobNew,
           ),
-        ],
+        ]),
       );
       return;
     }
@@ -862,15 +870,23 @@ class HermesJobSettingsPages extends SettingsPageModule {
         runs: _runs[jobId],
         runsFailed: _runsFailed.contains(jobId),
       ),
-      detailSheets: [
+      detailSheets: _unknown(known, [
         buildNativeLoadingDetail(
           l10n: l10n,
           id: hermesJobEditorPageId(jobId),
           title: l10n.hermesJobEditorEditTitle,
         ),
-      ],
+      ]),
     );
   }
+
+  static List<NativeSheetDetailConfig> _unknown(
+    SettingsPagesState known,
+    List<NativeSheetDetailConfig> pages,
+  ) => [
+    for (final page in pages)
+      if (!known.contains(page.id)) page,
+  ];
 
   /// Draws the list and each agent's page that is shown again.
   Future<void> _applyShown() async {
@@ -951,25 +967,39 @@ class HermesJobSettingsPages extends SettingsPageModule {
   }
 
   Future<void> _readDeliveryOptions() async {
-    if (!_desktop || _deliveryLoading) return;
-    _deliveryLoading = true;
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
+    // Another connection in use: the last one's rooms and bots go.
+    if (connection != _deliveryFor) {
+      _deliveryFor = connection;
+      _deliveryOptions = null;
+    }
+    if (!_desktop || _deliveryLoadingFor == connection) return;
+    _deliveryLoadingFor = connection;
     final listening = _ref.listen(hermesJobDeliveryOptionsProvider, (_, _) {});
     try {
-      _deliveryOptions = await _ref
+      final options = await _ref
           .read(hermesJobDeliveryOptionsProvider.future)
           .timeout(const Duration(seconds: 15));
+      // Read for a connection no longer in use: not offered for this one.
+      if (_ref.read(hermesActiveConnectionIdProvider) == connection) {
+        _deliveryOptions = options;
+      }
     } catch (_) {
       // Only local delivery and the job's own targets are offered.
     } finally {
       listening.close();
-      _deliveryLoading = false;
+      if (_deliveryLoadingFor == connection) _deliveryLoadingFor = null;
     }
+    if (_ref.read(hermesActiveConnectionIdProvider) != connection) return;
     final l10n = _l10n;
     if (l10n == null) return;
-    // A copy: a draft can go (saved, left) while one is drawn.
+    // A copy: a draft can go (saved, left) while one is drawn. Each draft's
+    // Deliver To page is drawn too, as it may be the one on screen.
     for (final entry in _drafts.entries.toList()) {
       if (!identical(_drafts[entry.key], entry.value)) continue;
       await _applyEditor(l10n, entry.key, entry.value);
+      if (!identical(_drafts[entry.key], entry.value)) continue;
+      await _applyDelivery(l10n, entry.key, entry.value);
     }
   }
 
@@ -1105,8 +1135,12 @@ class HermesJobSettingsPages extends SettingsPageModule {
         );
       }
       _notice = editing ? l10n.hermesJobUpdated : l10n.hermesJobCreated;
-      _drafts.remove(key);
-      await _surface.closeDetail('$hermesJobEditorPagePrefix$key');
+      // Saved; the editor closes unless it was left and opened again
+      // meanwhile, when the new visit's work is not this one's to close.
+      if (identical(_drafts[key], draft)) {
+        _drafts.remove(key);
+        await _surface.closeDetail('$hermesJobEditorPagePrefix$key');
+      }
       await _applyShown();
     } catch (_) {
       draft
@@ -1259,7 +1293,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
     final jobId = Uri.decodeComponent(key);
     switch (field) {
       case 'run':
-        await _runNow(l10n, jobId);
+        // Followed by its own state, not by the row queue: a Desktop run is
+        // waited on until it ends, and Stop must reach it meanwhile.
+        unawaited(_runNow(l10n, jobId));
       case 'stop':
         await _stop(l10n, jobId);
       case 'enabled':

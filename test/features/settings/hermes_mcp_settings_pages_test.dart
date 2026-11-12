@@ -293,7 +293,8 @@ void main() {
     final rig = await openCatalog(tester, hermes);
     check(rig.rows(hermesMcpCatalogPageId).single.subtitle).equals(
       'Tide times for the coast\n'
-      '${_l10n.hermesMcpCatalogAsks('TIDE_API_KEY, TIDE_REGION')}',
+      // The optional value is named as optional.
+      '${_l10n.hermesMcpCatalogAsks('TIDE_API_KEY, ${_l10n.hermesMcpValueOptional('TIDE_REGION')}')}',
     );
     await rig.open(_entryPage('tide-tables'));
     check(rig.titles(_entryPage('tide-tables')))
@@ -488,6 +489,34 @@ void main() {
     // added, and the page says where to sign in again.
     check(rig.page(hermesMcpPageId).announcement)
         .equals(_l10n.hermesMcpAddedSignInUnfinished('tide-calendar'));
+    await hermes.dispose();
+  });
+
+  testWidgets('a server removed whose list then cannot be read is still '
+      'gone', (tester) async {
+    final hermes = _Hermes();
+    hermes.servers.add({
+      'name': 'tide-notes',
+      'transport': 'http',
+      'url': 'https://tides.example/mcp',
+      'enabled': true,
+    });
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    check(rig.titles(hermesMcpPageId)).contains('tide-notes');
+
+    hermes.failListOnceAdded = true;
+    await rig.change(hermesMcpRowId('remove', 'tide-notes'));
+
+    check(hermes.calls('mcp.servers.remove')).length.equals(1);
+    check(rig.titles(hermesMcpPageId))
+      ..not((it) => it.contains('tide-notes'))
+      ..contains(_l10n.hermesMcpLoadFailed);
     await hermes.dispose();
   });
 
