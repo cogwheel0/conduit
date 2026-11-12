@@ -263,4 +263,71 @@ void main() {
       await server.stalledResponseReleased.timeout(const Duration(seconds: 3));
     },
   );
+
+  group('a redirect to another origin is never followed', () {
+    // What reaches the other origin, with the custom header it carried.
+    late HttpServer elsewhere;
+    late List<String> reachedElsewhere;
+    const credentials = {'X-Api-Key': 'synthetic-key'};
+
+    setUp(() async {
+      reachedElsewhere = [];
+      elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      elsewhere.listen((request) {
+        reachedElsewhere.add(
+          '${request.method} ${request.headers.value('x-api-key')}',
+        );
+        request.response.close();
+      });
+    });
+
+    tearDown(() => elsewhere.close(force: true));
+
+    Uri elsewhereUrl() => Uri.parse('http://127.0.0.1:${elsewhere.port}');
+
+    test('for the handshake', () async {
+      server.redirectTo = elsewhereUrl();
+
+      final redirected = EngineIoPollingSocket.connect(
+        pollingUrl(),
+        client: client,
+        headers: credentials,
+      );
+      await check(redirected).throws<ws.WebSocketException>(
+        (refusal) => refusal.has((e) => e.message, 'message').contains('302'),
+      );
+      check(reachedElsewhere).isEmpty();
+    });
+
+    test('for a poll', () async {
+      final socket = await open(headers: credentials);
+      final events = socket.events.toList();
+      server
+        ..redirectTo = elsewhereUrl()
+        ..push('2'); // Answers the held poll; the next one is redirected.
+
+      final close = (await events.timeout(const Duration(seconds: 5))).last;
+      check(close).isA<ws.CloseReceived>()
+        ..has((c) => c.code, 'code').equals(1006)
+        ..has((c) => c.reason, 'reason').contains('302');
+      check(reachedElsewhere).isEmpty();
+    });
+
+    test('for a POST', () async {
+      final socket = await open(headers: credentials);
+      final events = socket.events.toList();
+      // Redirect only once the first poll is held, so the POST meets it first.
+      while (!server.requests.any((r) => r.method == 'GET' && r.sid != null)) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      server.redirectTo = elsewhereUrl();
+      socket.sendText('40');
+
+      final close = (await events.timeout(const Duration(seconds: 5))).last;
+      check(close).isA<ws.CloseReceived>()
+        ..has((c) => c.code, 'code').equals(1006)
+        ..has((c) => c.reason, 'reason').contains('303');
+      check(reachedElsewhere).isEmpty();
+    });
+  });
 }

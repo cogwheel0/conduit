@@ -39,6 +39,13 @@ WebSocketChannel connectNoRedirectWebSocket(
   );
 }
 
+/// Wraps [delegate] for `WebSocket.connect`'s `customClient`, so the upgrade
+/// request never follows a redirect and its credentials stay with the host
+/// that was asked. Only opening requests and closing are delegated, which is
+/// all a WebSocket handshake uses. Closing it closes [delegate].
+HttpClient noRedirectWebSocketClient(HttpClient delegate) =>
+    _NoRedirectHttpClient(delegate);
+
 final class _NoRedirectHttpClient implements HttpClient {
   _NoRedirectHttpClient(this._delegate);
 

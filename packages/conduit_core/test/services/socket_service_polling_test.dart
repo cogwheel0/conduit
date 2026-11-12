@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -180,6 +181,38 @@ void main() {
     check(await second.ensureConnected(timeout: const Duration(seconds: 5)))
         .isTrue();
     check(second.currentTransport).equals('polling');
+  });
+
+  test('a server that redirects elsewhere is not followed by either '
+      'transport, so its custom headers stay with it', () async {
+    final elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => elsewhere.close(force: true));
+    final reachedElsewhere = <String?>[];
+    elsewhere.listen((request) {
+      reachedElsewhere.add(request.headers.value('x-api-key'));
+      request.response.close();
+    });
+    final server = await FakeEngineIoServer.start();
+    addTearDown(server.close);
+    server.redirectTo = Uri.parse('http://127.0.0.1:${elsewhere.port}');
+
+    final service = SocketService(
+      serverConfig: _config(server)
+          .copyWith(customHeaders: const {'X-Api-Key': 'synthetic-key'}),
+      websocketOnly: true,
+    );
+    addTearDown(service.dispose);
+
+    check(
+      await service.ensureConnected(
+        timeout: const Duration(milliseconds: 1500),
+      ),
+    ).isFalse();
+    // The WebSocket was tried, then the polling fallback, and both refused
+    // the redirect.
+    check(server.requests.map((r) => r.transport)).contains('websocket');
+    check(server.requests.map((r) => r.transport)).contains('polling');
+    check(reachedElsewhere).isEmpty();
   });
 
   group('a socket the server never completed a handshake for', () {

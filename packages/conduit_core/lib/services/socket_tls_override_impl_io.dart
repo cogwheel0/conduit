@@ -7,6 +7,7 @@ import 'package:web_socket/web_socket.dart' as ws;
 import 'package:conduit_core/models/server_config.dart';
 
 import '../network/conduit_user_agent.dart';
+import '../network/no_redirect_web_socket.dart';
 import 'engine_io_polling_socket_io.dart';
 import 'server_tls_http_client_factory.dart';
 
@@ -54,9 +55,15 @@ Uri? _tryParseUri(String url) {
 }
 
 class _ScopedWebSocketConnector {
-  _ScopedWebSocketConnector(this._httpClient);
+  _ScopedWebSocketConnector(this._httpClient)
+    : _upgradeClient = noRedirectWebSocketClient(_httpClient);
 
   final HttpClient _httpClient;
+
+  // The WebSocket handshake never follows a redirect, as browsers do not
+  // either; dart:io would otherwise carry the custom headers to another
+  // origin. Polling requests refuse redirects themselves.
+  final HttpClient _upgradeClient;
 
   // socket_io_client's connector contract returns package:web_socket sockets.
   Future<ws.WebSocket> connect(
@@ -83,7 +90,7 @@ class _ScopedWebSocketConnector {
       uri.toString(),
       protocols: protocols,
       headers: forwardedHeaders,
-      customClient: _httpClient,
+      customClient: _upgradeClient,
     );
     return IOWebSocket.fromWebSocket(socket);
   }

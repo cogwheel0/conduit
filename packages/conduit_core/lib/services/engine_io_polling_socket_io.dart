@@ -444,6 +444,13 @@ final class _Exchange {
         return;
       }
       _request = request;
+      // A redirect would carry the server's custom headers (an API key, a
+      // proxy's access token) to wherever it points, which dart:io allows
+      // across origins. It is answered as the failure it is instead, and the
+      // socket reconnects later as for any other.
+      request
+        ..followRedirects = false
+        ..maxRedirects = 0;
       headers.forEach(request.headers.set);
       if (body != null) {
         final bytes = utf8.encode(body);

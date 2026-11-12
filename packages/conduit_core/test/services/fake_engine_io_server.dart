@@ -123,6 +123,10 @@ final class FakeEngineIoServer {
   /// When set, each POST is answered only once this completes.
   Completer<void>? holdPosts;
 
+  /// When set, every request from now on is redirected there (a 302, or for
+  /// a POST the 303 an HTTP client would follow), keeping its path and query.
+  Uri? redirectTo;
+
   /// Completes once the client lets go of a stalled handshake's connection.
   Future<void> get stalledResponseReleased => _stalledReleased.future;
   final _stalledReleased = Completer<void>();
@@ -185,6 +189,19 @@ final class FakeEngineIoServer {
     requests.add(FakeEngineIoRequest(request));
     if (!request.uri.path.startsWith('/ws/socket.io')) {
       return _reply(request, HttpStatus.notFound, 'not found');
+    }
+    final redirect = redirectTo;
+    if (redirect != null) {
+      request.response
+        ..statusCode = request.method == 'POST'
+            ? HttpStatus.seeOther
+            : HttpStatus.found
+        ..headers.set(
+          HttpHeaders.locationHeader,
+          redirect.replace(path: request.uri.path, query: request.uri.query),
+        );
+      await request.response.close();
+      return;
     }
     if (WebSocketTransformer.isUpgradeRequest(request)) {
       return _handleUpgrade(request);
