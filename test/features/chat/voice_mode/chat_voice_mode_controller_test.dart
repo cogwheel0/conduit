@@ -169,6 +169,38 @@ void main() {
         .equals(l10n.voiceCallLibreChatUnavailable);
   });
 
+  test('launcher refuses a call when a LibreChat chat opens while it '
+      'waits', () async {
+    // The socket's connection is read after the eligibility wait, before
+    // navigation: the open chat changes there.
+    final controller = _RecordingVoiceStartController();
+    late ProviderContainer container;
+    final socket = _SelectionChangingSocketService(() {
+      container.read(activeConversationProvider.notifier).set(_libreChatChat());
+    });
+    container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        socketServiceProvider.overrideWithValue(socket),
+        chatVoiceModeControllerProvider.overrideWith(() => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(socket.dispose);
+
+    await expectLater(
+      container
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false),
+      throwsA(isA<VoiceCallStartException>()),
+    );
+    check(controller.startedByStartNewConversation).isEmpty();
+  });
+
   test('a call that starts a new chat is not refused for the LibreChat chat '
       'left open', () async {
     // Quick actions, the home widget, Siri and the Android assistant start
@@ -350,13 +382,15 @@ class _FakeAudioSession extends NoVoiceAudioSession {
 /// A LibreChat chat is the one open.
 final class _OpenLibreChatChat extends ActiveConversationNotifier {
   @override
-  Conversation? build() => annotateConversationStorage(
-    Conversation(
-      id: 'librechat-chat',
-      title: 'Seed order',
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-    ),
-    ChatStorageKind.libreChat,
-  );
+  Conversation? build() => _libreChatChat();
 }
+
+Conversation _libreChatChat() => annotateConversationStorage(
+  Conversation(
+    id: 'librechat-chat',
+    title: 'Seed order',
+    createdAt: DateTime(2026),
+    updatedAt: DateTime(2026),
+  ),
+  ChatStorageKind.libreChat,
+);
