@@ -244,11 +244,15 @@ void main() {
 
   test('Apple profiles are enabled by default on supported iOS', () async {
     final container = ProviderContainer(
-      overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+      overrides: [
+        applePccPlatformSupportedProvider.overrideWithValue(true),
+        applePccHostProvider.overrideWithValue(_ReadyAppleHost()),
+      ],
     );
     addTearDown(container.dispose);
 
     await container.read(directConnectionProfilesProvider.future);
+    await container.read(appleOnDeviceStatusProvider.future);
     final profiles = container
         .read(effectiveDirectConnectionProfilesProvider)
         .requireValue;
@@ -298,11 +302,15 @@ void main() {
       await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
       await PreferencesStore.put(PreferenceKeys.applePccEnabled, false);
       final container = ProviderContainer(
-        overrides: [applePccPlatformSupportedProvider.overrideWithValue(true)],
+        overrides: [
+          applePccPlatformSupportedProvider.overrideWithValue(true),
+          applePccHostProvider.overrideWithValue(_ReadyAppleHost()),
+        ],
       );
       addTearDown(container.dispose);
 
       await container.read(directConnectionProfilesProvider.future);
+      await container.read(appleOnDeviceStatusProvider.future);
       final profiles = container
           .read(effectiveDirectConnectionProfilesProvider)
           .requireValue;
@@ -2531,6 +2539,18 @@ final class _FailingReloadSecureStorage implements SecureKeyValueStore {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// An iPhone whose Apple models can answer.
+final class _ReadyAppleHost extends UnavailableApplePccHost {
+  @override
+  Future<PlatformPccStatus> getStatus(PlatformAppleModel model) async =>
+      PlatformPccStatus(
+        availability: PlatformPccAvailability.available,
+        quotaStatus: PlatformPccQuotaStatus.unknown,
+        quotaLimitReached: false,
+        canIncreaseQuota: false,
+      );
 }
 
 /// Fails loudly if a status probe reaches the platform channel where Apple
