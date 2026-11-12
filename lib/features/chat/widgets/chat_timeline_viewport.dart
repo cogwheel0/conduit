@@ -425,8 +425,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _geometryUnavailable = false;
   bool _geometryRecoveryCallbackScheduled = false;
 
+  // Lazily empty until _syncTimelineEntries assigns it: initState runs that
+  // sync, and the per-row extent invalidation reads the previous entries
+  // before the first one exists (issue #854).
   late List<({String id, int sourceIndex, Object? rebuildKey})>
-  _timelineEntries;
+  _timelineEntries = const [];
   late List<String> _messageIds;
   late Set<String> _messageIdSet;
   late Map<String, int> _messageIndexById;
@@ -527,8 +530,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         !identical(oldWidget.rowRebuildKeys, widget.rowRebuildKeys) ||
         rowBuilderChanged;
     if (rowBuilderChanged) _rowWidgetCache.clear();
-    if (rowBuilderChanged ||
-        oldWidget.horizontalPadding != widget.horizontalPadding) {
+    // Row content changes ride through per-row rebuild keys: rows whose
+    // key is unchanged keep their measured extent across builder identity
+    // changes, and rows whose key changed are invalidated in
+    // _syncTimelineEntries (issue #854).
+    if (oldWidget.horizontalPadding != widget.horizontalPadding) {
       _rowExtents.clear();
       _rowExtentIndex = null;
       _typicalRowExtent = null;
@@ -744,6 +750,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   void _syncTimelineEntries() {
     _rowExtentIndex = null;
     _typicalRowExtent = null;
+    final previousKeyById = {
+      for (final entry in _timelineEntries) entry.id: entry.rebuildKey,
+    };
     final seen = <String>{};
     final entries = <({String id, int sourceIndex, Object? rebuildKey})>[];
     for (var index = 0; index < widget.messageIds.length; index += 1) {
@@ -754,8 +763,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
             : widget.rowRebuildKeys[index];
         // A changed row may lay out at a different height; forget the
         // remembered extent so the estimate does not treat it as exact.
-        final cached = _rowWidgetCache[id];
-        if (cached != null && cached.rebuildKey != rebuildKey) {
+        // Compare against the previous sync's keys: _rowWidgetCache is
+        // cleared on builder changes before this runs, and containsKey
+        // distinguishes a new row from one whose previous key was null.
+        // With explicit rebuild keys, a builder identity change alone
+        // leaves rows' content — and their measured extents — intact
+        // (issue #854); in the default mode the builder closure is the
+        // key, so a builder change still forgets every extent there.
+        final previousKey = previousKeyById[id];
+        if (previousKeyById.containsKey(id) && previousKey != rebuildKey) {
           _rowExtents.remove(id);
         }
         entries.add((id: id, sourceIndex: index, rebuildKey: rebuildKey));

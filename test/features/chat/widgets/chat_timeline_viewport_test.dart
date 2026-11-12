@@ -878,6 +878,201 @@ void main() {
     expect(estimates - estimatesAtRest, 0);
   });
 
+  _viewportTest('unchanged rebuild keys keep extents across a builder change', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List.generate(60, (index) => 'synthetic-$index');
+    var measuredExtents = 0;
+    late StateSetter rebuild;
+    ChatTimelineRowBuilder buildRow =
+        (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+    var rebuildKeys = List.generate(60, (index) => 'key-$index');
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          rebuild = setState;
+          return _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-30',
+                offsetWithinMessage: 0,
+              ),
+              rowBuilder: buildRow,
+              rowRebuildKeys: rebuildKeys,
+              onRowExtentMeasured: (_, _) => measuredExtents++,
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    final measuredAtRest = measuredExtents;
+    expect(measuredAtRest, greaterThan(0));
+
+    // Like ChatPage, a parent rebuild hands the viewport a fresh builder
+    // closure while every row's rebuild key is unchanged.
+    rebuild(() {
+      buildRow = (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(measuredExtents, measuredAtRest);
+  });
+
+  _viewportTest('a changed rebuild key forgets only that row extent', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List.generate(60, (index) => 'synthetic-$index');
+    final measured = <int>{};
+    late StateSetter rebuild;
+    ChatTimelineRowBuilder buildRow =
+        (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+    var rebuildKeys = List.generate(60, (index) => 'key-$index');
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          rebuild = setState;
+          return _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-30',
+                offsetWithinMessage: 0,
+              ),
+              rowBuilder: buildRow,
+              rowRebuildKeys: rebuildKeys,
+              onRowExtentMeasured: (index, _) => measured.add(index),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(measured, isNotEmpty);
+    measured.clear();
+
+    // The builder changes together with the keys, and one row's key
+    // changed: only that row's extent is forgotten and re-measured.
+    rebuild(() {
+      buildRow = (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+      rebuildKeys = List.generate(60, (index) => 'key-$index')
+        ..[30] = 'key-30-changed';
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(measured, {30});
+  });
+
+  _viewportTest('a null rebuild key change forgets that row extent', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List.generate(60, (index) => 'synthetic-$index');
+    final measured = <int>{};
+    late StateSetter rebuild;
+    ChatTimelineRowBuilder buildRow =
+        (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+    var rebuildKeys = List<Object?>.generate(
+      60,
+      (index) => index == 30 || index == 40 ? null : 'key-$index',
+    );
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          rebuild = setState;
+          return _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-30',
+                offsetWithinMessage: 0,
+              ),
+              rowBuilder: buildRow,
+              rowRebuildKeys: rebuildKeys,
+              onRowExtentMeasured: (index, _) => measured.add(index),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(measured, isNotEmpty);
+    measured.clear();
+
+    // Row 30's key flips from null to non-null and must be re-measured;
+    // row 40's key stays null and every other key is unchanged, so only
+    // row 30 may reappear.
+    rebuild(() {
+      buildRow = (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+      rebuildKeys = List<Object?>.generate(60, (index) => 'key-$index')
+        ..[30] = 'key-30-changed'
+        ..[40] = null;
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(measured, {30});
+  });
+
+  _viewportTest('a builder change forgets extents without rebuild keys', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List.generate(60, (index) => 'synthetic-$index');
+    var measuredExtents = 0;
+    late StateSetter rebuild;
+    ChatTimelineRowBuilder buildRow =
+        (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          rebuild = setState;
+          return _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-30',
+                offsetWithinMessage: 0,
+              ),
+              rowBuilder: buildRow,
+              onRowExtentMeasured: (_, _) => measuredExtents++,
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    final measuredAtRest = measuredExtents;
+    expect(measuredAtRest, greaterThan(0));
+
+    // Without per-row keys the builder closure is the content signature;
+    // a builder change forgets every remembered extent.
+    rebuild(() {
+      buildRow = (context, index) => SizedBox(height: index.isEven ? 60 : 240);
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(measuredExtents, greaterThan(measuredAtRest));
+  });
+
   for (final direction in [-1, 1]) {
     _viewportTest(
       'scrollbar advances consistently in direction $direction past inaccurate row estimates',
