@@ -304,7 +304,10 @@ class _ShellEscape extends ShortcutActivator {
 /// - a route the app's default Escape would pop: one whose barrier
 ///   dismisses it, as `DismissIntent` checks;
 /// - a dialog, sheet or menu route in front even when Escape cannot dismiss
-///   it, which keeps the layers behind it out of reach.
+///   it, which keeps the layers behind it out of reach;
+/// - a selection's menu that is showing (the menu over selected reply
+///   text), which Escape hides first: the selection's own `DismissIntent`
+///   does that.
 ///
 /// Widgets that merely pass `DismissIntent` on (a text field or selectable
 /// message text with no toolbar showing) do not own Escape: the shell's
@@ -321,6 +324,7 @@ bool _focusOwnsEscape() {
   if (composing != null && composing.isValid && !composing.isCollapsed) {
     return true;
   }
+  if (AdaptiveTextSelectionMenu.isShowing) return true;
   final route = ModalRoute.of(context);
   return route is PopupRoute || (route?.barrierDismissible ?? false);
 }

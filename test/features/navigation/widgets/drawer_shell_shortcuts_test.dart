@@ -960,6 +960,76 @@ void main() {
     expect(reply.hasFocus, isFalse);
   });
 
+  testWidgets('Escape hides a selection menu before it closes search', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    final reply = FocusNode();
+    addTearDown(reply.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => Scaffold(
+                  body: Column(
+                    children: [
+                      const Consumer(builder: _searchShortcutTestChild),
+                      // As a settled reply's selection shows its menu.
+                      SelectionArea(
+                        focusNode: reply,
+                        contextMenuBuilder: (context, region) =>
+                            AdaptiveTextSelectionMenu(
+                              selectionRect: Rect.fromCenter(
+                                center: region.contextMenuAnchors.primaryAnchor,
+                                width: 1,
+                                height: 1,
+                              ),
+                              anchors: region.contextMenuAnchors,
+                              buttonItems: region.contextMenuButtonItems,
+                              onDismiss: () => region.hideToolbar(false),
+                            ),
+                        child: const Text('Synthetic reply'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Content')),
+    );
+    container
+        .read(sidebarHeaderSearchExpandedProvider.notifier)
+        .setExpanded(true);
+    reply.requestFocus();
+    await tester.pump();
+    tester
+        .state<SelectableRegionState>(find.byType(SelectableRegion))
+        .selectAll(SelectionChangedCause.toolbar);
+    await tester.pumpAndSettle();
+    final menu = find.byType(AdaptiveTextSelectionMenu);
+    expect(menu, findsOneWidget);
+    expect(AdaptiveTextSelectionMenu.isShowing, isTrue);
+
+    // The first Escape hides the menu and leaves search open.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(menu, findsNothing);
+    expect(AdaptiveTextSelectionMenu.isShowing, isFalse);
+    expect(container.read(sidebarHeaderSearchExpandedProvider), isTrue);
+
+    // With no menu showing, the next one closes search.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(container.read(sidebarHeaderSearchExpandedProvider), isFalse);
+  });
+
   testWidgets('Escape closes an open menu before search', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     final menu = MenuController();

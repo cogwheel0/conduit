@@ -40,6 +40,11 @@ class AdaptiveTextSelectionMenu extends StatefulWidget {
   final List<ContextMenuButtonItem> buttonItems;
   final VoidCallback onDismiss;
 
+  /// Whether a selection's menu is up anywhere: one of these is mounted, as
+  /// the selection's context menu, from when the menu shows until it is
+  /// dismissed, whether UIKit or Flutter's toolbar draws it.
+  static bool get isShowing => _AdaptiveTextSelectionMenuState._mounted > 0;
+
   /// Creates the presentation's session and fallback state.
   @override
   State<AdaptiveTextSelectionMenu> createState() =>
@@ -51,9 +56,18 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
     'app.cogwheel.conduit/text_selection_menu',
   );
   static int _nextSession = 0;
+
+  /// Menus mounted now; see [AdaptiveTextSelectionMenu.isShowing].
+  static int _mounted = 0;
   int? _session;
   bool _fallback = false;
   bool _scheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mounted++;
+  }
 
   /// Refreshes presentation after view, theme, or localization changes.
   @override
@@ -156,6 +170,7 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
   /// Removes this session's menu without dismissing a newer selection's menu.
   @override
   void dispose() {
+    _mounted--;
     final session = _session;
     if (session != null) unawaited(_hide(session));
     super.dispose();
