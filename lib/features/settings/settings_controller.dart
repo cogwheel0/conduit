@@ -1219,7 +1219,15 @@ class SettingsController {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = NavigationService.navigatorKey.currentContext;
       if (context == null || !context.mounted) return;
-      unawaited(showPushTargetDetailSheet(context, scope));
+      unawaited(
+        showPushTargetDetailSheet(context, scope).then((_) async {
+          // A fix made in the sheet changed the target's status: the pages
+          // under it say so now, not when they are next opened.
+          final hydration = ref.read(nativeSheetHydrationServiceProvider);
+          await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
+          await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
+        }),
+      );
     });
   }
 
