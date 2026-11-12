@@ -237,8 +237,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     }
 
     // A held answer that outlives even that wait still belongs to a turn the
-    // server took: its saved reply is read, as for a JSON null answer, and the
-    // turn is never sent again (a queued retry would POST it once more).
+    // server took and may still be running: its saved reply is waited for,
+    // and the turn is never sent again (a queued retry would POST it once
+    // more).
     Future<Response<ResponseBody>?> post(
       _ChatRequestMetadataFormat metadataFormat,
     ) async {
@@ -258,10 +259,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       }
     }
 
-    ChatCompletionSession readSavedReply() => _recoverJsonNullChatCompletion(
+    ChatCompletionSession readSavedReply() => _awaitHeldReply(
+      chatId: savedChatId,
       messageId: messageId,
       sessionId: sessionId,
-      conversationId: conversationId,
       abort: abort,
     );
 

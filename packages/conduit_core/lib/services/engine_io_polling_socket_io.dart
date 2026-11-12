@@ -54,6 +54,12 @@ final class EngineIoPollingSocket implements ws.WebSocket {
   /// How long one POST of client packets may take.
   static const Duration sendTimeout = Duration(seconds: 30);
 
+  /// The longest the HTTP client may take to open a connection, shorter than
+  /// any request's own time. A request that gives up while its connection is
+  /// still being opened cannot stop that attempt (dart:io gives no handle to
+  /// it), so the client's own connection timeout must end it.
+  static const Duration connectTimeout = Duration(seconds: 15);
+
   /// The most packets one POST carries. python-engineio refuses a payload of
   /// more (`Payload.max_decode_packets`) and still answers it with `OK`, so
   /// the packets of a larger one would be lost without a sign.
@@ -90,6 +96,9 @@ final class EngineIoPollingSocket implements ws.WebSocket {
   /// Opens a polling session at [url], the `ws`/`wss` address socket_io_client
   /// asks for, by performing the Engine.IO handshake over HTTP.
   ///
+  /// Lowers [client]'s `connectionTimeout` to [connectTimeout] when it has a
+  /// longer one or none.
+  ///
   /// Throws [ws.WebSocketException] when the server does not answer with an
   /// Engine.IO open packet, and passes on network and timeout errors.
   static Future<EngineIoPollingSocket> connect(
@@ -98,6 +107,10 @@ final class EngineIoPollingSocket implements ws.WebSocket {
     Map<String, String>? headers,
     Duration timeout = handshakeTimeout,
   }) async {
+    final opening = client.connectionTimeout;
+    if (opening == null || opening > connectTimeout) {
+      client.connectionTimeout = connectTimeout;
+    }
     final endpoint = url.replace(
       scheme: switch (url.scheme) {
         'wss' => 'https',

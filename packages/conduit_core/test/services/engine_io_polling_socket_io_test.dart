@@ -264,6 +264,30 @@ void main() {
     },
   );
 
+  test('the client takes no longer to open a connection than a request may '
+      'wait, since a request cannot stop an attempt still opening', () async {
+    check(EngineIoPollingSocket.connectTimeout)
+      ..isLessThan(EngineIoPollingSocket.handshakeTimeout)
+      ..isLessThan(EngineIoPollingSocket.sendTimeout);
+
+    final unbounded = HttpClient();
+    addTearDown(() => unbounded.close(force: true));
+    final quicker = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 3);
+    addTearDown(() => quicker.close(force: true));
+    for (final candidate in [unbounded, quicker]) {
+      final socket = await EngineIoPollingSocket.connect(
+        pollingUrl(),
+        client: candidate,
+      );
+      await socket.close();
+    }
+
+    check(unbounded.connectionTimeout)
+        .equals(EngineIoPollingSocket.connectTimeout);
+    check(quicker.connectionTimeout).equals(const Duration(seconds: 3));
+  });
+
   group('a redirect to another origin is never followed', () {
     // What reaches the other origin, with the custom header it carried.
     late HttpServer elsewhere;
