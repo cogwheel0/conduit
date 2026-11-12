@@ -41,6 +41,8 @@ import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart'
+    show kHermesScheduledSessionSource;
 
 part 'hermes_desktop_administration.dart';
 part 'hermes_desktop_audio.dart';
@@ -534,7 +536,9 @@ final class HermesDesktopApiService
     cancelToken: cancelToken,
   );
   @override
-  Future<List<Map<String, dynamic>>> listSessions() => _runtimeListSessions();
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) => _runtimeListSessions(excludeScheduledRuns: excludeScheduledRuns);
   @override
   Future<List<Map<String, dynamic>>> getSessionMessages(
     String id, {

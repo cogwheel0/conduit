@@ -4950,5 +4950,15 @@
   "hermesJobUpdatedNotifyFailed": "Задание сохранено, но изменить его уведомления не удалось.",
   "hermesJobNotifyNeedsScheduled": "Чтобы пользоваться этим, включите «Запланированные задачи» в уведомлениях.",
   "hermesShowScheduledRuns": "Показывать запланированные запуски",
-  "hermesShowScheduledRunsDescription": "Каждый запуск запланированного агента создаёт отдельный чат. Отключите, чтобы не показывать такие чаты в списке Hermes. Закреплённые останутся."
+  "hermesShowScheduledRunsDescription": "Каждый запуск запланированного агента создаёт отдельный чат. Отключите, чтобы не показывать такие чаты в списке Hermes. Закреплённые останутся.",
+  "hermesScheduledRunsHidden": "{count, plural, one{Скрыт {count} запланированный запуск} few{Скрыто {count} запланированных запуска} many{Скрыто {count} запланированных запусков} other{Скрыто {count} запланированного запуска}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Показать"
 }

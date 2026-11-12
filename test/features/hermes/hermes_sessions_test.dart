@@ -94,7 +94,9 @@ class _FailingForkHistoryService extends HermesApiService {
   int deleteCalls = 0;
 
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async => const [];
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async => const [];
 
   @override
   Future<String> forkSession(String id) async => 'fork-target';
@@ -130,7 +132,9 @@ class _DeleteTrackingHermesService extends HermesApiService {
   int deleteCalls = 0;
 
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async => const [];
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async => const [];
 
   @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {

@@ -9288,5 +9288,16 @@
   "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
   "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach.",
   "hermesShowScheduledRuns": "Pokazuj zaplanowane uruchomienia",
-  "hermesShowScheduledRunsDescription": "Każde uruchomienie zaplanowanego agenta tworzy osobny czat. Wyłącz to, aby pominąć te czaty na liście Hermes. Przypięte pozostaną."
+  "hermesShowScheduledRunsDescription": "Każde uruchomienie zaplanowanego agenta tworzy osobny czat. Wyłącz to, aby pominąć te czaty na liście Hermes. Przypięte pozostaną.",
+  "hermesScheduledRunsHidden": "{count, plural, one{Ukryto 1 zaplanowane uruchomienie} few{Ukryto {count} zaplanowane uruchomienia} many{Ukryto {count} zaplanowanych uruchomień} other{Ukryto {count} zaplanowanego uruchomienia}}",
+  "@hermesScheduledRunsHidden": {
+    "description": "Row in the Hermes chat list, shown while Show Scheduled Runs is off, saying how many chats that scheduled agents started were left out of the list.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Pokaż"
 }

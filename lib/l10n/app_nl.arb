@@ -4912,5 +4912,15 @@
   "hermesJobUpdatedNotifyFailed": "Taak opgeslagen, maar de meldingen ervan konden niet worden gewijzigd.",
   "hermesJobNotifyNeedsScheduled": "Zet Geplande taken aan bij Meldingen om dit te gebruiken.",
   "hermesShowScheduledRuns": "Geplande uitvoeringen tonen",
-  "hermesShowScheduledRunsDescription": "Elke uitvoering van een geplande agent start een eigen chat. Zet dit uit om die chats uit de Hermes-lijst weg te laten. Vastgepinde chats blijven staan."
+  "hermesShowScheduledRunsDescription": "Elke uitvoering van een geplande agent start een eigen chat. Zet dit uit om die chats uit de Hermes-lijst weg te laten. Vastgepinde chats blijven staan.",
+  "hermesScheduledRunsHidden": "{count, plural, =1{1 geplande uitvoering verborgen} other{{count} geplande uitvoeringen verborgen}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Tonen"
 }

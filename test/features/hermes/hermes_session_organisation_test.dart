@@ -50,7 +50,9 @@ class _FlagsService extends HermesApiService {
   final edits = <String>[];
 
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async => sessions;
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async => sessions;
 
   @override
   Future<Map<String, dynamic>> getCapabilities() async => const {};
@@ -321,6 +323,64 @@ void main() {
       find.byKey(const ValueKey<String>('hermes-archived-sessions')),
       findsNothing,
     );
+    // This server listed the runs anyway, so the list says how many it
+    // leaves out, and Show lists them again.
+    final hiddenRow = find.byKey(
+      const ValueKey<String>('hermes-hidden-scheduled-runs'),
+    );
+    expect(
+      find.descendant(
+        of: hiddenRow,
+        matching: find.text(_l10n.hermesScheduledRunsHidden(2)),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.descendant(
+        of: hiddenRow,
+        matching: find.text(_l10n.hermesShowScheduledRunsAction),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      container.read(appSettingsProvider).hermesShowScheduledSessions,
+      isTrue,
+    );
+    expect(find.text('Synthetic nightly digest'), findsOneWidget);
+    expect(hiddenRow, findsNothing);
+  });
+
+  testWidgets('a list of nothing but runs says they are hidden rather than '
+      'that there are no chats', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final service = _FlagsService(
+      sessions: [
+        for (var i = 0; i < 3; i++)
+          {
+            'id': 'run-$i',
+            'title': 'Synthetic digest $i',
+            'source': 'cron',
+            'last_active': 300 - i,
+          },
+      ],
+    );
+    final container = _container(service);
+    await container
+        .read(appSettingsProvider.notifier)
+        .setHermesShowScheduledSessions(false);
+    await tester.pumpWidget(
+      _host(
+        container,
+        const HermesSessionsTab(showBottomNavigationBar: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Synthetic digest 0'), findsNothing);
+    expect(find.text(_l10n.hermesNoConversationsMessage), findsNothing);
+    expect(find.text(_l10n.hermesScheduledRunsHidden(3)), findsOneWidget);
   });
 
   testWidgets('hidden chats are listed in settings and can be unhidden', (

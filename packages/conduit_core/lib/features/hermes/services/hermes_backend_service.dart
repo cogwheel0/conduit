@@ -36,7 +36,13 @@ abstract interface class HermesBackendService {
   Future<bool> health();
   Future<List<Map<String, dynamic>>> listSkills();
   Future<String> createSession({String? title, CancelToken? cancelToken});
-  Future<List<Map<String, dynamic>>> listSessions();
+  /// Lists sessions. With [excludeScheduledRuns], asks the server to leave
+  /// out the sessions scheduled jobs start (source `cron`) where it can, so
+  /// they do not crowd chats out of the page it returns. A server that
+  /// cannot still lists them; callers filter as well.
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  });
   Future<List<Map<String, dynamic>>> getSessionMessages(
     String id, {
     CancelToken? cancelToken,

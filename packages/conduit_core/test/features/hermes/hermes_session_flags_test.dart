@@ -13,6 +13,7 @@ import 'package:conduit_core/features/hermes/services/hermes_backend_service.dar
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_set_aside_session_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:dio/dio.dart';
@@ -310,6 +311,37 @@ void main() {
   });
 
   group('the sessions controller', () {
+    for (final hidden in [false, true]) {
+      test('asks each server to leave scheduled runs out only once they are '
+          'hidden (hidden: $hidden)', () async {
+        if (hidden) {
+          await PreferencesStore.put(
+            PreferenceKeys.hermesShowScheduledSessions,
+            false,
+          );
+        }
+        final api = _Routes({
+          'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        });
+        await _container(_rest(api)).read(hermesSessionsProvider.future);
+        // The API server cannot leave a source out: it lists its largest
+        // page instead, so runs crowd out fewer chats.
+        check(
+          api.called('GET', '/api/sessions').single.query['limit'],
+        ).equals(hidden ? '$kHermesApiServerMaxSessionPage' : null);
+
+        final dashboard = _Routes({
+          'GET /api/sessions': (_) => (200, {'sessions': <Object>[]}),
+        });
+        await _container(
+          _desktop(dashboard),
+        ).read(hermesSessionsProvider.future);
+        final list = dashboard.called('GET', '/api/sessions').single;
+        check(list.query['exclude_sources']).equals(hidden ? 'cron' : null);
+        check(list.query['limit']).equals('100');
+      });
+    }
+
     test('leaves archived and hidden rows out of the list', () async {
       final routes = _Routes({
         'GET /api/sessions': (_) => (

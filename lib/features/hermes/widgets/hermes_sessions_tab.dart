@@ -160,8 +160,9 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     );
     final archivedAsync = ref.watch(hermesArchivedSessionsProvider);
     // A failed refresh keeps the chats it last listed, and says it failed.
+    final archivedListed = archivedAsync.value ?? const [];
     final archived = hermesListedSessions(
-      archivedAsync.value ?? const [],
+      archivedListed,
       showScheduled: showScheduled,
     );
     // The archived list has its own loading and failure: neither reads as
@@ -174,7 +175,18 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
           listed,
           showScheduled: showScheduled,
         );
-        if (sessions.isEmpty && archived.isEmpty && !archivedFailed) {
+        // Runs left out here rather than by the server, which cannot on
+        // every backend: they may be most of what it listed, so the list
+        // says so instead of reading as empty.
+        final hiddenRuns =
+            listed.length -
+            sessions.length +
+            archivedListed.length -
+            archived.length;
+        if (sessions.isEmpty &&
+            archived.isEmpty &&
+            !archivedFailed &&
+            hiddenRuns == 0) {
           if (archivedLoading) return _loadingSlivers;
           return [
             SliverToBoxAdapter(
@@ -211,6 +223,15 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
             ),
             _sessionList(recent),
           ],
+          if (hiddenRuns > 0)
+            SliverToBoxAdapter(
+              child: _HiddenScheduledRuns(
+                count: hiddenRuns,
+                onShow: () => ref
+                    .read(appSettingsProvider.notifier)
+                    .setHermesShowScheduledSessions(true),
+              ),
+            ),
           if (archived.isNotEmpty) ...[
             SliverToBoxAdapter(
               child: _SectionHeader(
@@ -402,6 +423,47 @@ class _ScheduledAgentsTile extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Says how many scheduled runs the list leaves out, with a button that
+/// lists them again.
+class _HiddenScheduledRuns extends StatelessWidget {
+  const _HiddenScheduledRuns({required this.count, required this.onShow});
+
+  final int count;
+  final VoidCallback onShow;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      key: const ValueKey<String>('hermes-hidden-scheduled-runs'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.xs,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              l10n.hermesScheduledRunsHidden(count),
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          AdaptiveButton(
+            onPressed: onShow,
+            label: l10n.hermesShowScheduledRunsAction,
+            style: AdaptiveButtonStyle.tinted,
+            size: AdaptiveButtonSize.small,
+          ),
+        ],
       ),
     );
   }

@@ -392,7 +392,9 @@ class _RestTranscript extends HermesApiService {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async => const [];
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async => const [];
 }
 
 final _picnic = markNativeHermesConversation(

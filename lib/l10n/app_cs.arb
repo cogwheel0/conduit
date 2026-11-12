@@ -6835,5 +6835,15 @@
   "hermesJobUpdatedNotifyFailed": "Úloha byla uložena, ale její oznámení se nepodařilo změnit.",
   "hermesJobNotifyNeedsScheduled": "Chcete-li to použít, zapněte v Oznámeních Naplánované úlohy.",
   "hermesShowScheduledRuns": "Zobrazovat naplánovaná spuštění",
-  "hermesShowScheduledRunsDescription": "Každé spuštění naplánovaného agenta založí vlastní chat. Vypnutím tyto chaty vynecháte ze seznamu Hermes. Připnuté zůstanou."
+  "hermesShowScheduledRunsDescription": "Každé spuštění naplánovaného agenta založí vlastní chat. Vypnutím tyto chaty vynecháte ze seznamu Hermes. Připnuté zůstanou.",
+  "hermesScheduledRunsHidden": "{count, plural, one{Skryto 1 naplánované spuštění} few{Skryta {count} naplánovaná spuštění} other{Skryto {count} naplánovaných spuštění}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Zobrazit"
 }

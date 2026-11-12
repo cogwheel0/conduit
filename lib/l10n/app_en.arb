@@ -11329,5 +11329,19 @@
   "hermesShowScheduledRunsDescription": "Each run of a scheduled agent starts its own chat. Turn this off to leave those chats out of the Hermes list. Pinned ones stay.",
   "@hermesShowScheduledRunsDescription": {
     "description": "Explains the Show Scheduled Runs switch in Hermes settings: scheduled agents start a new chat per run, and pinned chats stay listed when it is off."
+  },
+  "hermesScheduledRunsHidden": "{count, plural, =1{1 scheduled run hidden} other{{count} scheduled runs hidden}}",
+  "@hermesScheduledRunsHidden": {
+    "description": "Row in the Hermes chat list, shown while Show Scheduled Runs is off, saying how many chats that scheduled agents started were left out of the list.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Show",
+  "@hermesShowScheduledRunsAction": {
+    "description": "Button on the row that says scheduled runs are hidden from the Hermes chat list; turns Show Scheduled Runs back on."
   }
 }

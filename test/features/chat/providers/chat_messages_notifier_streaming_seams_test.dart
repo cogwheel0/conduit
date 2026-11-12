@@ -538,7 +538,9 @@ class _SessionListingHermesApi extends _SessionRecordingHermesApi {
   var listSessionsCalls = 0;
 
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async {
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async {
     listSessionsCalls++;
     if (createSessionCalls == 0) return const [];
     return const [
@@ -1006,7 +1008,9 @@ class _ResponseSessionListingHermesApi extends _ResponsesHermesApi {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async {
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async {
     listSessionsCalls++;
     if (!sessionAlreadyExists && createSessionCalls == 0 && inputs.isEmpty) {
       return const [];

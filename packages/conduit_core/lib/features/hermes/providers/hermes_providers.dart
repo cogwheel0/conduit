@@ -31,6 +31,7 @@ import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 
 import 'package:conduit_core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -2638,7 +2639,12 @@ class HermesSessionsController
   Future<List<HermesSessionSummary>> build() async {
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
-    final raw = await service.listSessions();
+    final showScheduled = ref.watch(
+      appSettingsProvider.select((s) => s.hermesShowScheduledSessions),
+    );
+    final raw = await service.listSessions(
+      excludeScheduledRuns: !showScheduled,
+    );
     return [
       for (final session in _hermesSessionSummaries(raw))
         if (!session.archived && !session.hidden) session,
