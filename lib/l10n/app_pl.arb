@@ -6206,7 +6206,7 @@
   "@ollamaUnloadModelConfirmMessage": {
     "description": "Confirmation message shown before unloading an Ollama model."
   },
-  "ollamaKeepAlive": "Keep alive",
+  "ollamaKeepAlive": "Utrzymywanie w pamięci",
   "@ollamaKeepAlive": {
     "description": "Setting that controls how long an Ollama model remains loaded."
   },
