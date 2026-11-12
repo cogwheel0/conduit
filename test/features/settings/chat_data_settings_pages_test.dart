@@ -1134,6 +1134,26 @@ void main() {
       expect(session.files.picks, 2);
     });
 
+    testWidgets('a picker answered late does not free the one opened after '
+        'it', (tester) async {
+      final session = await open(tester);
+      final first = session.files.pickGate = Completer<PickedChatFile?>();
+      final module = session.module as ChatDataSettingsPages;
+      await module.handleChange(chatDataRowId('import'), true, _l10n);
+      module.pageLeft(chatDataControlsPageId);
+      await session.appear();
+      session.files.pickGate = Completer<PickedChatFile?>();
+      await session.tap('import');
+      expect(session.files.picks, 2);
+
+      // The first picker answers at last, while the second is still open.
+      first.complete(null);
+      await tester.pump();
+      await session.tap('import');
+
+      expect(session.files.picks, 2);
+    });
+
     testWidgets('a page opened again while an import is with the server '
         'does not send it again', (tester) async {
       final session = await open(tester);

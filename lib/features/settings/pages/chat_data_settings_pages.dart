@@ -442,8 +442,9 @@ class ChatDataSettingsPages extends SettingsPageModule {
     _importError = null;
     _chatsRead = 0;
     // A picker whose answer never came (its screen torn down) holds the
-    // next visit no longer.
+    // next visit no longer, nor frees the one a later visit opens.
     _picking = false;
+    _pickRun++;
     // [_importing] stays: an upload still with the server is shown with its
     // count on the next visit, and the next import sets it anew.
   }
@@ -710,6 +711,9 @@ class ChatDataSettingsPages extends SettingsPageModule {
   /// Import's file picker is open: a second tap meanwhile does nothing.
   bool _picking = false;
 
+  /// Counts the pickers opened, so one answered late frees no later one.
+  int _pickRun = 0;
+
   Future<void> _sync(ChatDataControlsOwner owner) async {
     _activity = ChatDataActivity.syncing;
     _origin = ChatDataOrigin.sync;
@@ -819,12 +823,13 @@ class ChatDataSettingsPages extends SettingsPageModule {
     ChatDataControlsOwner owner,
   ) async {
     final files = _ref.read(chatBackupFilesProvider);
+    final run = ++_pickRun;
     // Over the Settings sheet, as a picker opened from one of its rows.
     final PickedChatFile? picked;
     try {
       picked = await files.pickImportFile();
     } finally {
-      _picking = false;
+      if (run == _pickRun) _picking = false;
     }
     if (picked == null || !_openFor(owner)) return;
     _picked = picked;

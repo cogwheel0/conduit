@@ -682,18 +682,25 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         pushAttention: readNativePushAttention(_ref.read),
       ),
       detailSheets: [
+        // An editor kept open (through a reorder) keeps the page it shows.
         if (server != null) ...[
           for (final endpoint in server.endpoints)
+            if (!keepEditors ||
+                !_editors.containsKey(
+                  serverAddressEditorKey(serverId, endpoint.id),
+                ))
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: serverAddressPageId(serverId, endpoint.id),
+                title: l10n.accountsEditAddress,
+              ),
+          if (!keepEditors ||
+              !_editors.containsKey(serverAddressEditorKey(serverId, null)))
             buildNativeLoadingDetail(
               l10n: l10n,
-              id: serverAddressPageId(serverId, endpoint.id),
-              title: l10n.accountsEditAddress,
+              id: serverAddressPageId(serverId, null),
+              title: l10n.accountsAddAddress,
             ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: serverAddressPageId(serverId, null),
-            title: l10n.accountsAddAddress,
-          ),
         ],
       ],
     );

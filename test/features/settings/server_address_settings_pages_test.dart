@@ -396,6 +396,8 @@ void main() {
       serverAddressPageId('home', 'public'),
       serverAddressPageId('home', 'lan'),
     ]);
+    // The open editor's page is not put back to loading under it.
+    expect(rig.rows(editor).map((r) => r.id), contains(row('url', 'lan')));
     await rig.open(editor);
 
     expect(
