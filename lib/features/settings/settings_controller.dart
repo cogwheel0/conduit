@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show currentUserProvider2;
-import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -433,24 +431,6 @@ class SettingsController {
       }
 
       if (await _handleNativeAccountAction(event.id, value)) return;
-
-      if (event.id == NativeSheetRoutes.calendar) {
-        // As for Scheduled tasks: the sheet was built before this arrived, so
-        // a row that went stale (the account or its permission changed) must
-        // not navigate.
-        if (!ref.read(calendarAvailableProvider)) {
-          _showNativeOptionUnavailable();
-          return;
-        }
-        final request = calendarNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
 
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
@@ -1552,14 +1532,6 @@ class SettingsController {
     final l10n = AppLocalizations.of(context);
     if (l10n == null) return;
     UiUtils.showMessage(context, message(l10n));
-  }
-
-  void _showNativeOptionUnavailable() {
-    final context = NavigationService.context;
-    if (context == null || !context.mounted) return;
-    final l10n = AppLocalizations.of(context);
-    if (l10n == null) return;
-    UiUtils.showMessage(context, l10n.nativeSheetOptionUnavailable);
   }
 
   Future<void> _handleNativeTtsVoicePick(

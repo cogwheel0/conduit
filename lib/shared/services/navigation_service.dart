@@ -14,17 +14,6 @@ final class NativeSheetNavigationOrigin {
   const NativeSheetNavigationOrigin();
 }
 
-typedef NativeSheetNavigationRequest = ({String routeName, Object extra});
-
-/// The calendar is pushed as the native Settings sheet starts to slide away,
-/// so the page is already underneath when it has gone. Keep its route and
-/// transition marker coupled so this entry point cannot accidentally restore
-/// a second Cupertino transition over the native sheet.
-const NativeSheetNavigationRequest calendarNativeSheetNavigationRequest = (
-  routeName: RouteNames.calendar,
-  extra: NativeSheetNavigationOrigin(),
-);
-
 /// Service for handling navigation throughout the app.
 ///
 /// With GoRouter in place, this class mostly provides convenient wrappers

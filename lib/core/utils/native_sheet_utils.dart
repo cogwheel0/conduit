@@ -400,9 +400,11 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   ];
   // Everyday server places: things to open and use, not to configure.
   final placeItems = <NativeSheetItemConfig>[
+    // A page of Settings's own in the native sheet; where Flutter draws
+    // Settings it is the Flutter calendar.
     if (visibility.showCalendar)
-      _nativeRootPageItem(
-        NativeSheetRoutes.calendar,
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.calendar,
         title: l10n.calendarTitle,
         sfSymbol: 'calendar',
       ),

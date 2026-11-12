@@ -4938,6 +4938,7 @@
   "scheduledTasksFilterLabel": "顯示",
   "personalConnectionsTurnOn": "開啟",
   "personalConnectionsTurnOff": "關閉",
+  "calendarDayEmpty": "沒有活動",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新通知",
   "pushReplyTitle": "新回覆",

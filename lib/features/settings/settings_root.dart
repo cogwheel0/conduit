@@ -117,6 +117,12 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     ),
     buildNativeLoadingDetail(
       l10n: l10n,
+      id: NativeSheetRoutes.calendar,
+      title: l10n.calendarTitle,
+      subtitle: l10n.loadingShort,
+    ),
+    buildNativeLoadingDetail(
+      l10n: l10n,
       id: NativeSheetRoutes.scheduledTasks,
       title: l10n.scheduledTasksTitle,
       subtitle: l10n.loadingShort,

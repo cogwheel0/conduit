@@ -753,7 +753,7 @@ void main() {
   for (final visible in <bool>[true, false]) {
     testWidgets(
       visible
-          ? 'native settings list Calendar as a dismissing action'
+          ? 'native settings list Calendar as a page of their own'
           : 'native settings leave out Calendar when hidden',
       (tester) async {
         NativeProfileSheetConfig? presented;
@@ -808,14 +808,18 @@ void main() {
           expect(items, isEmpty);
           return;
         }
-        // Both the flat menu and the sections carry it, and selecting it
-        // dismisses the sheet and reports the id the app handles.
+        // Both the flat menu and the sections carry it, and it opens a page
+        // inside the sheet rather than closing it.
         expect(items, hasLength(2));
         for (final item in items) {
           expect(item.title, 'Calendar');
-          expect(item.dismissOnSelect, isTrue);
-          expect(item.actionId, NativeSheetRoutes.calendar);
+          expect(item.dismissOnSelect, isFalse);
+          expect(item.actionId, isNull);
         }
+        expect(
+          presented!.detailSheets.map((detail) => detail.id),
+          contains(NativeSheetRoutes.calendar),
+        );
       },
     );
   }
