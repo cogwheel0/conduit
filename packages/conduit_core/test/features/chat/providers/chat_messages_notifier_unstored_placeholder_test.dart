@@ -120,6 +120,31 @@ void main() {
     },
   );
 
+  test('a copy of the chat read again keeps the answer placeholder', () {
+    // The chat read again from the server, as when its tags change, comes
+    // back as the active chat before the new answer's transport attaches.
+    final c = container();
+    Conversation chat(List<ChatMessage> messages) => withChatStorageProvenance(
+      Conversation(
+        id: 'server-chat',
+        title: 'New Chat',
+        createdAt: now,
+        updatedAt: now,
+        messages: messages,
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    c
+        .read(activeConversationProvider.notifier)
+        .set(chat([question('q1'), placeholder('a1')]));
+    expect(c.read(chatMessagesProvider).map((m) => m.id), ['q1', 'a1']);
+
+    c.read(activeConversationProvider.notifier).set(chat([question('q1')]));
+
+    expect(c.read(chatMessagesProvider).map((m) => m.id), ['q1', 'a1']);
+    expect(c.read(chatMessagesProvider).last.isStreaming, isTrue);
+  });
+
   test(
     'a regeneration that gives up before its answer takes stored copies again',
     () async {

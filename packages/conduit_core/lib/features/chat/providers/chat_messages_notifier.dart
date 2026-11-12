@@ -658,12 +658,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       )) {
         return;
       }
-      // A send's answer placeholder is local until its transport attaches,
-      // and only then is it protected. A new chat is pulled into the
-      // database before that, so its first emission holds the question and
-      // not the placeholder: adopting it dropped the placeholder, and the
-      // stream that attached a moment later had no answer to write into.
-      if (_awaitsUnstoredPlaceholder(conversation.messages)) return;
       // Rows read from the LibreChat database carry its provenance, stamped
       // here as on every LibreChat load: stored metadata is never trusted
       // for it.
@@ -1081,6 +1075,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       DebugLogger.log(
         'Skipping server state adoption during active streaming '
         '(source: $source, message: ${state.lastOrNull?.id ?? "unknown"})',
+        scope: 'chat/providers',
+      );
+      return;
+    }
+
+    // A send's answer placeholder is local until its transport attaches,
+    // and only then is it protected. A copy of the chat that lands first --
+    // a new chat pulled into the database, the chat read again after its
+    // tags changed -- has the question and not the placeholder: adopting it
+    // dropped the placeholder, and the stream that attached a moment later
+    // had no answer to write into.
+    if (_awaitsUnstoredPlaceholder(storedMessages)) {
+      DebugLogger.log(
+        'Skipping server state adoption while an answer is only local '
+        '(source: $source)',
         scope: 'chat/providers',
       );
       return;
