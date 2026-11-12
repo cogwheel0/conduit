@@ -225,6 +225,12 @@ internal class TelecomCallBridge(
                 // Nothing to hold, and this press already took the route over.
                 if (generation == routeGeneration) routeHoldRunning = false
                 result.success(null)
+            } else if (generation != routeGeneration) {
+                // A newer press found the call while this lookup was still
+                // polling, and owns the route now. Asking for this press's
+                // route would undo that one, so this only answers, with where
+                // the phone is, as a superseded hold does.
+                result.success(mapOf("loudspeaker" to loudspeaker()))
             } else {
                 routeAudio(telecomCall, speaker, generation, result)
             }
@@ -279,11 +285,12 @@ internal class TelecomCallBridge(
         // Telecom's report can already match this press, or still show the
         // route from before the hold. Neither means the phone is playing it
         // there, and the next re-ask is 400 ms away, past the 900 ms the
-        // caller gives this press. A running hold asks for the route it would
-        // re-ask for, now. With no hold running, an already-correct route
-        // stays put.
+        // caller gives this press. So the press asks for the route it would
+        // re-ask for, now, while a hold is running or while the phone's own
+        // read-back disagrees with the press. Otherwise a route Telecom
+        // already reports as correct stays put.
         val holdWasRunning = routeHoldRunning
-        if (holdWasRunning) {
+        if (holdWasRunning || loudspeaker() != speaker) {
             call.setAudioRoute(telecomAudioRouteToHold(speaker, route, supportedRoutes))
         } else {
             telecomAudioRouteFor(speaker, route, supportedRoutes)?.let(call::setAudioRoute)

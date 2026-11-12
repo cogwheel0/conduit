@@ -216,6 +216,47 @@ class TelecomCallRouteHoldTest {
     }
 
     @Test
+    fun aPressAsksImmediatelyWhenTelecomReportsARouteThePhoneIsNotPlaying() {
+        val call = FakeCall()
+        // No hold is running, and Telecom reports the speaker it accepted and
+        // then dropped while the phone still plays the earpiece.
+        call.audioRoute = ROUTE_SPEAKER
+        val answer = route(bridge(call), speaker = true)
+
+        // The read-back disagrees, so the press asks with it rather than on
+        // the re-ask 400 ms later, which can miss the caller's 900 ms window.
+        assertEquals(listOf(ROUTE_SPEAKER), call.requests)
+        assertEquals(true, answer.answered)
+        assertEquals(true, loudspeaker(answer))
+    }
+
+    @Test
+    fun aLookupStillPollingLeavesTheRouteToTheLaterPress() {
+        val call = FakeCall()
+        var created = false
+        val bridge = TelecomCallBridge(
+            RuntimeEnvironment.getApplication(),
+            loudspeaker = { call.playing == ROUTE_SPEAKER },
+            callLookup = { if (created) call else null },
+        )
+        // Telecom has not created the connection yet, so this press polls.
+        val first = route(bridge, speaker = true)
+        // The connection arrives, and an earpiece press finds it first.
+        created = true
+        val second = route(bridge, speaker = false)
+        assertEquals(true, second.answered)
+        assertEquals(false, loudspeaker(second))
+
+        idle(200)
+        // The first press's next poll finds the call too. It answers with
+        // where the phone is and leaves the later press's route alone.
+        assertEquals(true, first.answered)
+        assertEquals(false, loudspeaker(first))
+        assertEquals(emptyList<Int>(), call.requests)
+        assertEquals(ROUTE_EARPIECE, call.playing)
+    }
+
+    @Test
     fun disposingStopsTheHoldAndAnswersTheCaller() {
         val call = FakeCall()
         call.applies = false
