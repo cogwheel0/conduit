@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
@@ -825,6 +826,15 @@ class HermesJobSettingsPages extends SettingsPageModule {
       if (jobs != null) _onJobs(jobs);
       if (_listShown || _shownJobs.isNotEmpty) unawaited(_applyShown());
     });
+    // What the server lets this account change: the pages shown offer no
+    // more than it allows, as soon as it says.
+    _ref.listen<AsyncValue<HermesCapabilities>>(hermesCapabilitiesProvider, (
+      previous,
+      next,
+    ) {
+      if (previous?.value?.jobsAdmin == next.value?.jobsAdmin) return;
+      if (_listShown || _shownJobs.isNotEmpty) unawaited(_applyShown());
+    });
     // Rows waiting on the last connection's requests are free on another
     // one, which may have jobs by the same ids, and a Stop left behind can
     // no longer be settled; its run history is not this one's. (A token
@@ -1360,9 +1370,15 @@ class HermesJobSettingsPages extends SettingsPageModule {
         if (!editing) _creating = false;
         // The editor, still open, is no longer waiting on anything.
         draft.saving = false;
-        if (identical(_drafts[key], draft)) {
+        if (!identical(_drafts[key], draft)) return;
+        if (editing) {
           await _applyEditor(l10n, key, draft, withPages: false);
+          return;
         }
+        // The job was made: its editor goes, so a Save back on that
+        // connection cannot make it twice.
+        _drafts.remove(key);
+        await _surface.closeDetail('$hermesJobEditorPagePrefix$key');
         return;
       }
       _notice = changesNotify
@@ -1466,11 +1482,12 @@ class HermesJobSettingsPages extends SettingsPageModule {
     _stopRequests[jobId] = onStop;
     final visit = _connectionVisit;
     try {
-      final started = await _mutate(
-        jobId,
-        () => _ref.read(hermesJobsProvider.notifier).runNow(jobId),
-        failureMessage: l10n.hermesJobRunFailed,
-      );
+      final started = await _mutate(jobId, () async {
+        // A Stop asked for while the row was drawn busy: there is no run to
+        // withdraw yet, so none is started.
+        if (stopRequested) return;
+        await _ref.read(hermesJobsProvider.notifier).runNow(jobId);
+      }, failureMessage: l10n.hermesJobRunFailed);
       // A Stop asked for meanwhile announces itself, not a started run.
       if (started && !stopRequested) {
         _notice = l10n.hermesJobStarted;

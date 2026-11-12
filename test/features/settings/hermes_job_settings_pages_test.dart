@@ -197,6 +197,17 @@ final _connectionIdProvider = NotifierProvider<_ConnectionId, String?>(
   _ConnectionId.new,
 );
 
+/// What the server lets the account do, changed by a test.
+final class _Capabilities extends Notifier<HermesCapabilities> {
+  @override
+  HermesCapabilities build() => const HermesCapabilities();
+
+  void use(HermesCapabilities capabilities) => state = capabilities;
+}
+
+final _capabilitiesProvider =
+    NotifierProvider<_Capabilities, HermesCapabilities>(_Capabilities.new);
+
 final class _Rig {
   _Rig(this.tester, this.container, this.jobs);
 
@@ -300,7 +311,7 @@ Future<_Rig> _pump(
       ),
       hermesJobsProvider.overrideWith(() => jobs),
       hermesCapabilitiesProvider.overrideWith(
-        (ref) async => const HermesCapabilities(),
+        (ref) async => ref.watch(_capabilitiesProvider),
       ),
       hermesApiServiceProvider.overrideWith(
         (ref) => ref.watch(_connectionProvider),
@@ -649,6 +660,27 @@ void main() {
       rig.leave();
     });
 
+    testWidgets('a Stop asked for before a Run Now was sent starts nothing', (
+      tester,
+    ) async {
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs);
+      final surface =
+          rig.container.read(settingsSurfaceProvider) as _GatedSurface;
+      final gate = surface.gate = Completer<void>();
+
+      rig.start(_run);
+      await rig.frames();
+      surface.gate = null;
+      rig.start(_stop);
+      await rig.frames();
+      gate.complete();
+      await rig.frames();
+
+      check(jobs.runCalls).equals(0);
+      rig.leave();
+    });
+
     testWidgets('a Run now withdrawn before it was sent reads stopped', (
       tester,
     ) async {
@@ -754,6 +786,21 @@ void main() {
     check(
       rig.rows(page).singleWhere((row) => row.id == '$page-delivery').subtitle,
     ).equals('Save in Hermes, Bot Chat: research, Group Chat: standup');
+    rig.leave();
+  });
+
+  testWidgets('the list offers no changes once the server says the account '
+      'may not make them', (tester) async {
+    final rig = await _pump(tester, _Jobs([_job()]));
+    check(rig.page(hermesJobsPageId).sections.first.footer).isNull();
+
+    rig.container
+        .read(_capabilitiesProvider.notifier)
+        .use(const HermesCapabilities(jobsAdmin: false));
+    await rig.frames();
+
+    check(rig.page(hermesJobsPageId).sections.first.footer)
+        .equals(_l10n.hermesJobAdminDisabled);
     rig.leave();
   });
 
@@ -971,8 +1018,15 @@ void main() {
 
       check(jobs.created).length.equals(1);
       check(rig.notice).not((it) => it.equals(_l10n.hermesJobCreated));
-      // Its editor, still open, no longer waits.
-      check(rig.page(editor).busy).isFalse();
+      // The job was made: its editor closes rather than offer Save again.
+      check(rig.container.read(settingsPagesProvider).closeRequests[editor])
+          .equals(1);
+
+      // Back on the first connection, a Save has nothing to make twice.
+      rig.container.read(_connectionIdProvider.notifier).use('home');
+      await rig.frames();
+      await rig.change(field('save'));
+      check(jobs.created).length.equals(1);
       rig.leave();
     });
 

@@ -81,9 +81,9 @@ final class _Hermes implements HttpClientAdapter {
         _ => <String, Object?>{},
       };
       final answer = jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result});
-      final gate = method == 'mcp.servers.add' ? addGate : null;
+      final gate = method == 'mcp.servers.add' ? addGate : gates.remove(method);
       if (gate != null) {
-        addGate = null;
+        if (method == 'mcp.servers.add') addGate = null;
         unawaited(gate.future.then((_) => incoming.add(answer)));
         return;
       }
@@ -93,6 +93,12 @@ final class _Hermes implements HttpClientAdapter {
 
   /// Holds the next addition's answer until completed, when set.
   Completer<void>? addGate;
+
+  /// Holds the next answer to each method named until completed.
+  final gates = <String, Completer<void>>{};
+
+  /// Holds the next dashboard install until completed, when set.
+  Completer<void>? installGate;
 
   final List<Map<String, Object?>>? dashboardCatalog;
   final List<Map<String, Object?>> gatewayCatalog;
@@ -153,6 +159,11 @@ final class _Hermes implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    if (options.uri.path == '/api/mcp/catalog/install') {
+      final gate = installGate;
+      installGate = null;
+      await gate?.future;
+    }
     final (status, body) = switch ('${options.method} ${options.uri.path}') {
       'GET /api/status' => (
         200,
@@ -554,6 +565,103 @@ void main() {
     check(rig.titles(hermesMcpPageId))
       ..not((it) => it.contains('tide-notes'))
       ..contains(_l10n.hermesMcpLoadFailed);
+    await hermes.dispose();
+  });
+
+  /// The MCP page on a connection a test can switch away from.
+  Future<(_Rig, NotifierProvider<_Active, String?>)> onConnection(
+    WidgetTester tester,
+    _Hermes hermes,
+  ) async {
+    final active = NotifierProvider<_Active, String?>(_Active.new);
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(hermes.service),
+        hermesActiveConnectionIdProvider.overrideWith(
+          (ref) => ref.watch(active),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    return (rig, active);
+  }
+
+  testWidgets('an install answered after another connection took over goes '
+      'on to no sign-in there', (tester) async {
+    final hermes = _Hermes(
+      dashboardCatalog: [
+        {
+          'name': 'tide-calendar',
+          'installed': false,
+          'auth_type': 'oauth',
+          'required_env': <Object?>[],
+        },
+      ],
+    )..oauth.add('tide-calendar');
+    final (rig, active) = await onConnection(tester, hermes);
+    await rig.open(hermesMcpCatalogPageId);
+    await rig.open(_entryPage('tide-calendar'));
+    final gate = hermes.installGate = Completer<void>();
+    final adding = rig.module.handleChange(
+      hermesMcpRowId('catalog-add', 'tide-calendar'),
+      true,
+      _l10n,
+    );
+    await tester.pump();
+
+    rig.container.read(active.notifier).use('work');
+    gate.complete();
+    await rig.settle(adding);
+
+    check(hermes.calls('mcp.servers.oauth.start')).isEmpty();
+    check(rig.page(hermesMcpPageId).announcement).isNull();
+    await hermes.dispose();
+  });
+
+  testWidgets('a test answered after another connection took over says '
+      'nothing there', (tester) async {
+    final hermes = _Hermes();
+    hermes.servers.add({
+      'name': 'tide-notes',
+      'transport': 'http',
+      'url': 'https://tides.example/mcp',
+      'enabled': true,
+    });
+    final (rig, active) = await onConnection(tester, hermes);
+    final server = hermesMcpServerPageId('tide-notes');
+    await rig.open(server);
+    final gate = hermes.gates['mcp.servers.test'] = Completer<void>();
+    final testing = rig.module.handleChange(
+      hermesMcpRowId('test', 'tide-notes'),
+      true,
+      _l10n,
+    );
+    await tester.pump();
+
+    rig.container.read(active.notifier).use('work');
+    await rig.open(hermesMcpPageId);
+    gate.complete();
+    await rig.settle(testing);
+
+    check(rig.page(hermesMcpPageId).announcement).isNull();
+    await hermes.dispose();
+  });
+
+  testWidgets('an Add form drawn keeps its values as the list is drawn '
+      'again', (tester) async {
+    final hermes = _Hermes();
+    final (rig, _) = await onConnection(tester, hermes);
+    await rig.open(hermesMcpAddPageId);
+    final drawn = buildHermesMcpAddPage(_l10n, name: 'tide-notes');
+    rig.container.read(settingsPagesProvider.notifier).register([drawn]);
+
+    await rig.open(hermesMcpPageId);
+
+    check(rig.container.read(settingsPagesProvider)[hermesMcpAddPageId])
+        .identicalTo(drawn);
     await hermes.dispose();
   });
 

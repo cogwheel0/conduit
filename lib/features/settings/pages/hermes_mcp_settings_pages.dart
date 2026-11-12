@@ -753,7 +753,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     return _surface.applyDetail(
       buildHermesMcpPage(l10n, state),
       detailSheets: [
-        buildHermesMcpAddPage(l10n),
+        // An Add form already drawn keeps the values it shows.
+        if (!_ref.read(settingsPagesProvider).contains(hermesMcpAddPageId))
+          buildHermesMcpAddPage(l10n),
         // A catalog already drawn keeps what it shows.
         if (!_ref.read(settingsPagesProvider).contains(hermesMcpCatalogPageId))
           buildNativeLoadingDetail(
@@ -867,6 +869,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   ) async {
     final service = _service;
     if (service == null || !marks.add(name)) return false;
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
     _notice = null;
     await _applyAll(l10n, name);
     var succeeded = false;
@@ -879,7 +882,10 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         scope: 'settings/hermes-mcp',
         data: {'errorType': error.runtimeType.toString()},
       );
-      _notice = l10n.hermesMcpActionFailed;
+      // Another connection's page says nothing of this one's failure.
+      if (_ref.read(hermesActiveConnectionIdProvider) == connection) {
+        _notice = l10n.hermesMcpActionFailed;
+      }
     } finally {
       marks.remove(name);
     }
@@ -887,12 +893,17 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     return succeeded;
   }
 
-  Future<void> _test(AppLocalizations l10n, String name) =>
-      _run(l10n, name, _testing, (service) async {
-        final result = await service.testMcpServer(name);
-        _testResults[name] = result;
-        _notice = _testOutcome(l10n, result);
-      });
+  Future<void> _test(AppLocalizations l10n, String name) {
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
+    return _run(l10n, name, _testing, (service) async {
+      final result = await service.testMcpServer(name);
+      // Another connection in use since: a server by the same name there
+      // is not the one tested.
+      if (_ref.read(hermesActiveConnectionIdProvider) != connection) return;
+      _testResults[name] = result;
+      _notice = _testOutcome(l10n, result);
+    });
+  }
 
   Future<void> _oauth(AppLocalizations l10n, String name) =>
       _run(l10n, name, _authenticating, (service) async {
@@ -1021,6 +1032,14 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     ),
   );
 
+  /// Whether another connection took over while [service] installed a
+  /// server: the form's values go, and nothing more is done there.
+  bool _installedOnOtherConnection(HermesDesktopApiService service) {
+    if (!_formOnOtherConnection && identical(service, _service)) return false;
+    _credentials.clear();
+    return true;
+  }
+
   Future<void> _addFromCatalog(AppLocalizations l10n, String name) async {
     final entry = _catalogEntry(name);
     final service = _service;
@@ -1061,6 +1080,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _catalogAdding = false;
+      if (_installedOnOtherConnection(service)) return;
       // Shows what Hermes has even when a step after the install failed,
       // so the entry is not asked for again.
       await _load(l10n);
@@ -1070,6 +1090,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       return applyEntry();
     }
     _catalogAdding = false;
+    // Another connection in use since: what follows the install -- its
+    // list, a notice, a sign-in -- is not that one's.
+    if (_installedOnOtherConnection(service)) return;
     // Left and opened again meanwhile: the new visit's form is its own.
     if (visit != _formVisit) {
       await _load(l10n);
