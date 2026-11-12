@@ -12,6 +12,8 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart'
+    show answeredWithWebPage;
 
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -3442,10 +3444,14 @@ class AuthStateManager extends _$AuthStateManager {
   /// background, as a launch should. On a Retry that showed the session
   /// signed in while the server, or a proxy in front of it, still turned it
   /// away, until the check came back. Here the server taking the session
-  /// as the same user signs back in, a 401 or 403 ends the session as any
-  /// refused token does, and any other answer leaves the issue shown with
-  /// the session kept. A server that does not answer at all, and an issue
-  /// with no session kept, are refreshed as before.
+  /// as the same user signs back in, and Open WebUI's own 401 or 403 ends
+  /// the session as any refused token does. Any other answer leaves the
+  /// issue shown with the session kept: a proxy's sign-in page, even one
+  /// sent with a 401 or 403, refuses the route and not the token, as the
+  /// API client reads it everywhere else; so does a dropped connection or
+  /// a timeout. Only a connection that could not be made at all (offline)
+  /// is refreshed as before, as on launch, and so is an issue with no
+  /// session kept.
   Future<void> retryConnectionIssue() async {
     final kept = _current;
     final token = kept.token;
@@ -3471,12 +3477,17 @@ class AuthStateManager extends _$AuthStateManager {
         _current.token != token) {
       return;
     }
-    if (_isConfirmedAuthFailure(error)) {
+    final proxyPage = error is DioException &&
+        error.response != null &&
+        answeredWithWebPage(error.response!.headers);
+    if (!proxyPage && _isConfirmedAuthFailure(error)) {
       await onTokenInvalidated();
       return;
     }
-    if (error is DioException && error.response == null) {
-      // Not reached: offline, as on launch.
+    if (error is DioException &&
+        error.response == null &&
+        error.type == DioExceptionType.connectionError) {
+      // No connection could be made: offline, refreshed as on launch.
       await refresh();
       return;
     }

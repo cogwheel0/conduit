@@ -1362,6 +1362,39 @@ void main() {
     check(refused.token).equals(token);
     check(refused.user).equals(user);
 
+    // The proxy's sign-in page sent with a 401 refuses the route, not the
+    // token, as every other request reads it.
+    api.currentUserFailure = DioException(
+      requestOptions: request,
+      response: Response<void>(
+        requestOptions: request,
+        statusCode: 401,
+        headers: Headers.fromMap({
+          Headers.contentTypeHeader: ['text/html; charset=utf-8'],
+        }),
+      ),
+      type: DioExceptionType.badResponse,
+    );
+    await notifier.retryConnectionIssue();
+    await pumpEventQueue();
+    check(seen).not((it) => it.contains(AuthStatus.authenticated));
+    final pageRefused = container.read(authStateManagerProvider).requireValue;
+    check(pageRefused.status).equals(AuthStatus.error);
+    check(pageRefused.token).equals(token);
+
+    // A proxy that holds the request until it times out has not answered,
+    // but neither is the device offline: the issue stays shown.
+    api.currentUserFailure = DioException(
+      requestOptions: request,
+      type: DioExceptionType.receiveTimeout,
+    );
+    await notifier.retryConnectionIssue();
+    await pumpEventQueue();
+    check(seen).not((it) => it.contains(AuthStatus.authenticated));
+    final timedOut = container.read(authStateManagerProvider).requireValue;
+    check(timedOut.status).equals(AuthStatus.error);
+    check(timedOut.token).equals(token);
+
     // The proxy lets the session through again.
     api.currentUserFailure = null;
     await notifier.retryConnectionIssue();
