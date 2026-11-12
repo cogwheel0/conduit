@@ -37,7 +37,7 @@ class AssistantTileServiceTest {
         assertTrue(launch.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
         assertTrue(launch.flags and Intent.FLAG_ACTIVITY_CLEAR_TOP != 0)
 
-        val action = AssistantLaunchAction.take(launch)
+        val action = AssistantLaunchAction.take(launch, RuntimeEnvironment.getApplication().cacheDir)
         assertEquals("startNewChat", action?.method)
         assertEquals(mapOf("focusComposer" to true), action?.arguments)
     }
@@ -49,7 +49,7 @@ class AssistantTileServiceTest {
         val launch = startedActivity()
         assertNotNull(launch)
         assertEquals(MainActivity::class.java.name, launch!!.component?.className)
-        val action = AssistantLaunchAction.take(launch)
+        val action = AssistantLaunchAction.take(launch, RuntimeEnvironment.getApplication().cacheDir)
         assertEquals("startVoiceCall", action?.method)
     }
 

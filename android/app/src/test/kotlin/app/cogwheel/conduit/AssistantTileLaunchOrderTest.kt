@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
@@ -57,7 +58,7 @@ class AssistantTileLaunchOrderTest {
         val launch = shadow.launches.single()
         assertEquals(expectedKind, launch.kind)
         assertEquals(MainActivity::class.java.name, launch.intent.component?.className)
-        val action = AssistantLaunchAction.take(launch.intent)
+        val action = AssistantLaunchAction.take(launch.intent, RuntimeEnvironment.getApplication().cacheDir)
         assertEquals("startNewChat", action?.method)
         // The composer, not just the chat: the tile is for asking something.
         assertEquals(mapOf("focusComposer" to true), action?.arguments)
@@ -76,7 +77,7 @@ class AssistantTileLaunchOrderTest {
         assertEquals(listOf(Event.UNLOCK, Event.LAUNCH), shadow.events)
         val launch = shadow.launches.single()
         assertEquals(expectedKind, launch.kind)
-        assertEquals("startVoiceCall", AssistantLaunchAction.take(launch.intent)?.method)
+        assertEquals("startVoiceCall", AssistantLaunchAction.take(launch.intent, RuntimeEnvironment.getApplication().cacheDir)?.method)
     }
 
     @Test
