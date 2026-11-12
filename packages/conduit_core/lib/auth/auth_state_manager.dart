@@ -3426,6 +3426,59 @@ class AuthStateManager extends _$AuthStateManager {
       return false;
     }
     _connectionIssueRechecked = true;
+    final (:accepted, :error) = await _checkKeptSession(token, user);
+    if (accepted) {
+      DebugLogger.auth('session-rechecked-on-new-route', scope: 'auth/state');
+    } else if (error != null) {
+      _logAuthenticationFailure('session-recheck-on-new-route-failed', error);
+    }
+    return accepted;
+  }
+
+  /// The connection issue's Retry, for a session the issue kept: the server
+  /// is asked about it before it is shown signed in again.
+  ///
+  /// [refresh] trusts a stored token at once and checks it in the
+  /// background, as a launch should. On a Retry that showed the session
+  /// signed in while the server, or a proxy in front of it, still turned it
+  /// away, until the check came back. Here the server taking the session
+  /// as the same user signs back in, a 401 or 403 ends the session as any
+  /// refused token does, and any other answer leaves the issue shown with
+  /// the session kept. A server that does not answer at all, and an issue
+  /// with no session kept, are refreshed as before.
+  Future<void> retryConnectionIssue() async {
+    final kept = _current;
+    final token = kept.token;
+    final user = kept.user;
+    if (kept.status != AuthStatus.error ||
+        token == null ||
+        token.isEmpty ||
+        user == null) {
+      await refresh();
+      return;
+    }
+    final (:accepted, :error) = await _checkKeptSession(token, user);
+    if (accepted || error == null) return;
+    if (_isConfirmedAuthFailure(error)) {
+      if (_current.token == token) await onTokenInvalidated();
+      return;
+    }
+    if (error is DioException && error.response == null) {
+      // Not reached: offline, as on launch.
+      await refresh();
+      return;
+    }
+    _logAuthenticationFailure('connection-issue-retry-refused', error);
+  }
+
+  /// Asks the server whether it takes [token] as [user], kept by the
+  /// connection issue shown now; signs back in when it does. [error] is the
+  /// server's refusal, when the check got that far; neither is set when the
+  /// session or the client changed meanwhile.
+  Future<({bool accepted, Object? error})> _checkKeptSession(
+    String token,
+    User user,
+  ) async {
     final attemptRevision = _authAttemptRevision;
     final safetyEpoch = _sessionSafetyEpoch;
     bool stillKept() =>
@@ -3434,12 +3487,13 @@ class AuthStateManager extends _$AuthStateManager {
         _sessionSafetyEpoch == safetyEpoch &&
         _current.status == AuthStatus.error &&
         _current.token == token;
+    const notAsked = (accepted: false, error: null);
     try {
       // The client follows the address moved to once this settles.
       await ref.read(activeServerProvider.future);
-      if (!stillKept()) return false;
+      if (!stillKept()) return notAsked;
       final api = ref.read(apiServiceProvider);
-      if (api == null || api.authToken != token) return false;
+      if (api == null || api.authToken != token) return notAsked;
       final accepted = await api.getCurrentUser(
         suppressAuthFailureNotification: true,
         authSnapshot: api.captureAuthSnapshot(),
@@ -3449,7 +3503,7 @@ class AuthStateManager extends _$AuthStateManager {
       if (!stillKept() ||
           !identical(ref.read(apiServiceProvider), api) ||
           accepted.id != user.id) {
-        return false;
+        return notAsked;
       }
       _recordValidatedIdentity(token, accepted);
       _update(
@@ -3461,11 +3515,9 @@ class AuthStateManager extends _$AuthStateManager {
         ),
         cache: true,
       );
-      DebugLogger.auth('session-rechecked-on-new-route', scope: 'auth/state');
-      return true;
+      return (accepted: true, error: null);
     } catch (error) {
-      _logAuthenticationFailure('session-recheck-on-new-route-failed', error);
-      return false;
+      return stillKept() ? (accepted: false, error: error) : notAsked;
     }
   }
 

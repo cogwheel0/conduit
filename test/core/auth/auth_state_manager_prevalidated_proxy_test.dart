@@ -1280,6 +1280,96 @@ void main() {
     check(kept.token).equals(token);
   });
 
+  // The connection issue's Retry, behind a sign-in proxy whose own session
+  // ran out: the server is asked before the kept session is shown signed in
+  // again, so the app never flashes the chat while the proxy still turns
+  // the session away.
+  test('the connection issue Retry asks the server before showing the kept '
+      'session signed in', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    addTearDown(PreferencesStore.debugReset);
+    final storage = _Storage();
+    var storedToken = '';
+    when(() => storage.getAuthTokenStrict())
+        .thenAnswer((_) async => storedToken);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getLocalUserWithAvatar()).thenAnswer((_) async => user);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
+    when(
+      () => storage.captureServerSessionOwnership(
+        validatedConfig: any(named: 'validatedConfig'),
+        requireActive: true,
+      ),
+    ).thenAnswer(
+      (_) async =>
+          (revision: 1, serverConfig: previousConfig, requireActive: true),
+    );
+    when(
+      () => storage.commitExistingServerSession(
+        ownership: any(named: 'ownership'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        rememberedCredentials: any(named: 'rememberedCredentials'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      storedToken = token;
+      return true;
+    });
+    final api = _SuccessfulAuthApi();
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) async => previousConfig),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(api.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    final notifier = container.read(authStateManagerProvider.notifier);
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+    final seen = <AuthStatus?>[];
+    final watch = container.listen(
+      authStateManagerProvider,
+      (_, next) => seen.add(next.value?.status),
+    );
+    addTearDown(watch.close);
+
+    // The proxy answers with its own sign-in page, not Open WebUI's.
+    final request = RequestOptions(path: '/api/v1/auths/');
+    api.currentUserFailure = DioException(
+      requestOptions: request,
+      response: Response<void>(requestOptions: request, statusCode: 302),
+      type: DioExceptionType.badResponse,
+    );
+    await notifier.retryConnectionIssue();
+    await pumpEventQueue();
+    check(seen).not((it) => it.contains(AuthStatus.authenticated));
+    final refused = container.read(authStateManagerProvider).requireValue;
+    check(refused.status).equals(AuthStatus.error);
+    check(refused.token).equals(token);
+    check(refused.user).equals(user);
+
+    // The proxy lets the session through again.
+    api.currentUserFailure = null;
+    await notifier.retryConnectionIssue();
+    final restored = container.read(authStateManagerProvider).requireValue;
+    check(restored.status).equals(AuthStatus.authenticated);
+    check(restored.token).equals(token);
+  });
+
   test(
     'successful refresh carries newer session ownership past delayed logout',
     () async {
