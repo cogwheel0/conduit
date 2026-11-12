@@ -389,9 +389,13 @@ final class _Rig {
   }
 
   /// A row change, handed to the modules as the controller does.
-  Future<void> change(String id, [Object? value = true]) => settle(() async {
+  Future<void> change(
+    String id, [
+    Object? value = true,
+    AppLocalizations? l10n,
+  ]) => settle(() async {
     for (final module in container.read(settingsPageModulesProvider)) {
-      if (await module.handleChange(id, value, _l10n)) return;
+      if (await module.handleChange(id, value, l10n ?? _l10n)) return;
     }
   }());
 
@@ -1239,6 +1243,33 @@ void main() {
       check(prompts.created.single.accessGrants).isEmpty();
       check(prompts.created.single.name).contains('Packing List');
     });
+
+    for (final (locale, expected) in [
+      ('en', 'packing-list-copy'),
+      ('de', 'packing-list-kopie'),
+      // A suffix that makes no command of its own.
+      ('zh', 'packing-list-copy'),
+    ]) {
+      testWidgets('a duplicate made in $locale is named $expected', (
+        tester,
+      ) async {
+        final prompts = _Prompts();
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+
+        await rig.change(
+          _promptRow('clone', _prompt1Key),
+          true,
+          lookupAppLocalizations(Locale(locale)),
+        );
+
+        check(prompts.created.single.command).equals(expected);
+      });
+    }
 
     testWidgets('switches the prompt off, and deletes it', (tester) async {
       final prompts = _Prompts();

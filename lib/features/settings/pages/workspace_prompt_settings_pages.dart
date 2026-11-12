@@ -1203,8 +1203,13 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
   ) async {
     if (!editor.writeAccess) return;
     final baseCommand = WorkspacePromptCommand.strip(editor.command);
+    // A suffix in a non-Latin script slugifies to nothing (for example
+    // "（副本）"), which would leave a bare trailing hyphen; use "copy" then.
+    final suffixToken = WorkspacePromptCommand.slugify(
+      l10n.workspacePromptCloneSuffix,
+    );
     final cloneCommand = WorkspacePromptCommand.slugify(
-      '$baseCommand-${l10n.workspacePromptCloneSuffix}',
+      '$baseCommand-${suffixToken.isEmpty ? 'copy' : suffixToken}',
     );
     // Clones never inherit the source prompt's sharing grants.
     final form = WorkspacePromptForm(
