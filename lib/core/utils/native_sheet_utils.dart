@@ -1678,12 +1678,25 @@ String _nativeVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
 /// Change Password's Done: the one control that sends the change.
 const nativePasswordSaveActionId = 'password-save';
 
+/// The Change Password page: three fields and Done, or, once [changed],
+/// a note that the password was changed and nothing more to do there.
 NativeSheetDetailConfig buildNativePasswordDetail(
   AppLocalizations l10n, {
   required bool passwordChangeEnabled,
+  bool changed = false,
   String? subtitle,
 }) {
-  final items = passwordChangeEnabled
+  final form = passwordChangeEnabled && !changed;
+  final items = changed && passwordChangeEnabled
+      ? [
+          NativeSheetItemConfig(
+            id: 'password-changed',
+            title: l10n.passwordUpdated,
+            sfSymbol: 'checkmark.circle',
+            kind: NativeSheetItemKind.info,
+          ),
+        ]
+      : passwordChangeEnabled
       ? [
           NativeSheetItemConfig(
             id: 'current-password',
@@ -1722,10 +1735,11 @@ NativeSheetDetailConfig buildNativePasswordDetail(
   return NativeSheetDetailConfig(
     id: 'password',
     title: l10n.changePasswordTitle,
-    discardPrompt: nativeDiscardPrompt(l10n),
-    subtitle: passwordChangeEnabled ? subtitle : null,
+    // Leaving with anything typed asks first; Back never sends it.
+    discardPrompt: form ? nativeDiscardPrompt(l10n) : null,
+    subtitle: form ? subtitle : null,
     // Typing fills a draft; only Done sends it.
-    confirmActionId: passwordChangeEnabled ? nativePasswordSaveActionId : null,
+    confirmActionId: form ? nativePasswordSaveActionId : null,
     items: items,
   );
 }

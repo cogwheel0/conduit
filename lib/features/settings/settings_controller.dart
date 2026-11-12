@@ -1115,7 +1115,7 @@ class SettingsController {
     // and nothing typed stays behind.
     _forgetPasswordDraft();
     final visit = _passwordVisit;
-    String outcome;
+    String? outcome;
     if (current == null ||
         current.isEmpty ||
         next == null ||
@@ -1130,7 +1130,6 @@ class SettingsController {
         await ref
             .read(accountProfileProvider.notifier)
             .updatePassword(password: current, newPassword: next);
-        outcome = l10n.passwordUpdated;
       } catch (error, stackTrace) {
         DebugLogger.error(
           'settings-password-change-failed',
@@ -1144,10 +1143,13 @@ class SettingsController {
     // The page was left, or opened again, while the change was sent: the
     // outcome is not put over what that visit shows.
     if (visit != _passwordVisit) return;
+    // Changed, the page says so in place of its fields, with nothing left
+    // to send or to lose; refused, it starts over saying why.
     await _surface.applyDetail(
       buildNativePasswordDetail(
         l10n,
         passwordChangeEnabled: true,
+        changed: outcome == null,
         subtitle: outcome,
       ),
     );

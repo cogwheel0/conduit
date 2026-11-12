@@ -445,8 +445,10 @@ void main() {
 
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
-      // The second Done found nothing typed: the outcome stays.
-      check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
+      // The second Done found nothing typed: the outcome stays, with no
+      // Done left to tap.
+      check(rig.rows('password').single.title).equals(_l10n.passwordUpdated);
+      check(rig.page('password')!.confirmActionId).isNull();
     });
 
     testWidgets('a Done with nothing typed leaves what the page says', (
@@ -513,6 +515,28 @@ void main() {
           .not((ids) => ids.contains('current-password'));
     });
 
+    testWidgets('a typed field asks before it is left; a page whose change '
+        'went through has nothing to lose', (tester) async {
+      final rig = await _pump(tester);
+      final form = buildNativePasswordDetail(
+        _l10n,
+        passwordChangeEnabled: true,
+      );
+      rig.pages.register([form]);
+      check(form.discardPrompt).isNotNull();
+
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
+
+      final changed = rig.page('password')!;
+      check(changed.discardPrompt).isNull();
+      check(changed.confirmActionId).isNull();
+      check(changed.items.map((row) => row.title))
+          .deepEquals([_l10n.passwordUpdated]);
+    });
+
     testWidgets('Settings forgets the pages it drew once the sheet closes, '
         'as the sheet does', (tester) async {
       final rig = await _pump(tester);
@@ -571,7 +595,7 @@ void main() {
       await rig.change(nativePasswordSaveActionId, true);
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
-      check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
+      check(rig.rows('password').single.title).equals(_l10n.passwordUpdated);
     });
 
     testWidgets('a change sent on a visit since left does not report on the '
