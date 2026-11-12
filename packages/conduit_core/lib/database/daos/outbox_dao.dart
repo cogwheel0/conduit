@@ -1009,7 +1009,10 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       case OutboxKind.noteDelete:
         // Annihilates EVERY earlier pending op for this note.
         final priorDelete = newestOfKind(OutboxKind.noteDelete);
-        if (pendingKinds.contains(OutboxKind.noteCreate)) {
+        // As for chats: a create whose note already has its server id reached
+        // the server, so the server copy must be deleted too.
+        if (chatId.startsWith('local:') &&
+            pendingKinds.contains(OutboxKind.noteCreate)) {
           // Never reached the server ⇒ pure local drop: delete all pending,
           // emit no noteDelete op. NotesDao.tombstoneWithOutbox removes the
           // local note row inline after this returns -1.
