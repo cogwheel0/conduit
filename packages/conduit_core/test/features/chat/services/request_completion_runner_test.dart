@@ -345,11 +345,10 @@ void main() {
       'warning', () async {
     const chatId = 'chat-missing-placeholder-warning';
     await seedChat(chatId);
-    final (:container, :runner) = makeRunner(
+    final (container: _, :runner) = makeRunner(
       isStreaming: false,
       active: conv('a-different-chat'),
     );
-    container;
     final records = <(LogLevel, String)>[];
     DebugLogger.sink = _RecordingLogSink(records);
     addTearDown(() => DebugLogger.sink = const NullLogSink());
