@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/settings/pages/server_address_settings_pages.dart';
@@ -15,9 +17,51 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+
+/// A file picked from Files, held in memory.
+final class _File extends PlatformFile {
+  _File(this.name, String text) : _bytes = utf8.encode(text);
+
+  @override
+  final String name;
+  final Uint8List _bytes;
+
+  @override
+  Uri get uri => Uri(scheme: 'memory', path: name);
+
+  @override
+  Never get xFile => throw UnimplementedError();
+
+  @override
+  Future<int> length() async => _bytes.length;
+
+  @override
+  int lengthSync() => _bytes.length;
+
+  @override
+  Future<Uint8List> readAsBytes() async => _bytes;
+
+  @override
+  Stream<Uint8List> readAsByteStream() => Stream.value(_bytes);
+}
+
+/// The Files picker, answering each pick when the test completes [next].
+final class _Picker
+    with MockPlatformInterfaceMixin
+    implements FilePickerPlatform {
+  Completer<PlatformFile?> next = Completer<PlatformFile?>();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      invocation.memberName == #pickFile
+      ? next.future
+      : super.noSuchMethod(invocation);
+}
 
 final AppLocalizations _l10n = AppLocalizationsEn();
 
@@ -115,11 +159,14 @@ void main() {
   // The server's addresses as stored, and each list saved in turn. Saves
   // land one at a time, as under the storage lock, each held at [gate].
   late List<OpenWebUiEndpoint> stored;
+  // While set, the saved servers cannot be read.
+  var locked = false;
   late List<List<String>> saved;
   late Future<void> landing;
   Completer<void>? gate;
 
   setUp(() {
+    locked = false;
     saved = [];
     gate = null;
     _Routes.reasons.clear();
@@ -150,6 +197,7 @@ void main() {
     final storage = _Storage();
     when(storage.getOpenWebUiRegistryStrict).thenAnswer((_) async {
       if (unreadableOnce && reads++ == 0) throw StateError('Keychain locked');
+      if (locked) throw StateError('Keychain locked');
       return OpenWebUiRegistry(
         servers: [
           if (stored.isNotEmpty)
@@ -420,6 +468,54 @@ void main() {
 
       await rig.change(row('self-signed', 'lan'), false);
       expect(rig.page(editor).edited, isFalse);
+    });
+
+    testWidgets('an editor whose address cannot be read says so, and Retry '
+        'reads it again', (tester) async {
+      final rig = await pump(tester);
+      final editor = serverAddressPageId('home', 'lan');
+      locked = true;
+      await rig.open(editor);
+
+      final rows = rig.rows(editor);
+      expect(rows.first.title, _l10n.errorMessage);
+      final retry = rows.singleWhere((r) => r.id == row('reload', 'lan'));
+
+      locked = false;
+      await rig.change(retry.id, retry.value);
+      expect(
+        rig.rows(editor).singleWhere((r) => r.id == row('url', 'lan')).value,
+        'http://10.0.0.2:3000',
+      );
+    });
+
+    testWidgets('a file picked for an editor since closed and opened again '
+        'is not drawn on the new one', (tester) async {
+      final picker = _Picker();
+      final previous = FilePickerPlatform.instance;
+      FilePickerPlatform.instance = picker;
+      addTearDown(() => FilePickerPlatform.instance = previous);
+      final rig = await pump(tester);
+      final editor = serverAddressPageId('home', 'lan');
+      final advanced =
+          '$serverAddressAdvancedPagePrefix${serverAddressEditorKey('home', 'lan')}';
+      await rig.open(editor);
+      await rig.open(advanced);
+      final picking = rig.module.handleChange(
+        row('pick-certificate', 'lan'),
+        true,
+        _l10n,
+      );
+      await tester.pump();
+
+      // Left while Files was up, then opened again.
+      rig.module.pageLeft(editor);
+      await rig.open(editor);
+      final drawn = rig.page(advanced);
+      picker.next.complete(_File('client.pem', 'not a certificate'));
+      await rig._settle(picking);
+
+      expect(identical(rig.page(advanced), drawn), isTrue);
     });
 
     testWidgets('an editor left keeps none of what was typed, though one '

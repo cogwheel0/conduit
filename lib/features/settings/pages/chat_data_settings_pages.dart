@@ -420,9 +420,22 @@ class ChatDataSettingsPages extends SettingsPageModule {
   /// the page opened next acts on the account signed in then.
   void _stop() {
     _cancel?.cancel();
+    _cancel = null;
     _progressTick?.cancel();
     _progressTick = null;
     _owner = null;
+    // The next visit starts clear: no action shown running, no counts or
+    // results from this one. An action still finishing changes nothing on
+    // it (see [_openFor]).
+    _activity = ChatDataActivity.idle;
+    _origin = null;
+    _scope = null;
+    _status = null;
+    _statusIsError = false;
+    _picked = null;
+    _importError = null;
+    _chatsRead = 0;
+    _importing = 0;
   }
 
   ChatDataControlsService _service(ChatDataControlsOwner owner) =>
@@ -504,6 +517,23 @@ class ChatDataSettingsPages extends SettingsPageModule {
     } catch (_) {
       // The counts are a disclosure; the actions read them again themselves.
     }
+  }
+
+  /// Shows [message] as the outcome of an action for [owner], when the page
+  /// it ran from is still open.
+  void _showFor(
+    ChatDataControlsOwner owner,
+    String message, {
+    bool error = false,
+  }) {
+    if (_openFor(owner)) _show(message, error: error);
+  }
+
+  /// An action for [owner] is over: its page, when still open, shows it so.
+  Future<void> _settle(ChatDataControlsOwner owner) async {
+    if (!_openFor(owner)) return;
+    _activity = ChatDataActivity.idle;
+    await _apply();
   }
 
   void _show(String message, {bool error = false}) {
@@ -603,6 +633,13 @@ class ChatDataSettingsPages extends SettingsPageModule {
         // A row of a page another account took over, or a second tap while
         // one runs, does nothing.
         return true;
+      case 'export' when !_allowed('export'):
+      case 'import' || 'choose-another' when !_allowed('import'):
+      case 'delete' when !_allowed('delete'):
+        // A row left from before the account lost the right to it: the
+        // page is drawn again without it. (The server checks as well.)
+        await _apply();
+        return true;
       case 'sync':
         await _sync(owner);
       case 'export':
@@ -631,6 +668,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
     } catch (_) {
       // Whatever could not be sent stays counted on the page.
     }
+    if (!_openFor(owner)) return;
     _activity = ChatDataActivity.idle;
     await _apply();
     await _refreshScope();
@@ -642,6 +680,9 @@ class ChatDataSettingsPages extends SettingsPageModule {
   ) async {
     final files = _ref.read(chatBackupFilesProvider);
     final service = _service(owner);
+    // Bound to this run before anything waits, so closing the page at any
+    // point stops it.
+    final cancel = _cancel = CancelToken();
     _activity = ChatDataActivity.preparing;
     _origin = ChatDataOrigin.export;
     _chatsRead = 0;
@@ -667,8 +708,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
           )) {
         return;
       }
-      if (!_openFor(owner)) return;
-      final cancel = _cancel = CancelToken();
+      if (!_openFor(owner) || cancel.isCancelled) return;
       _activity = ChatDataActivity.exporting;
       await _apply();
       file = await files.create(libraryBackupFileName(DateTime.now()));
@@ -681,7 +721,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
       );
       if (result.chats == 0) {
         await file.abort();
-        _show(l10n.chatDataControlsExportEmpty);
+        _showFor(owner, l10n.chatDataControlsExportEmpty);
       } else {
         // Left as the last chats arrived: nobody is there to share it with,
         // and the file is thrown away.
@@ -690,33 +730,33 @@ class ChatDataSettingsPages extends SettingsPageModule {
         // sheet opens over Settings.
         await files.deliver(file, origin: _shareOrigin());
         delivered = true;
-        _show(l10n.chatDataControlsExportReady(result.chats));
+        _showFor(owner, l10n.chatDataControlsExportReady(result.chats));
       }
     } on ChatBackupException catch (error) {
-      _show(switch (error.failure) {
+      _showFor(owner, switch (error.failure) {
         ChatBackupFailure.cancelled => l10n.chatDataControlsExportStopped,
         ChatBackupFailure.ownerChanged => l10n.chatDataControlsOwnerChanged,
         _ => l10n.chatDataControlsExportFailed,
       }, error: error.failure != ChatBackupFailure.cancelled);
     } on DioException catch (error) {
       final status = error.response?.statusCode;
-      _show(
+      _showFor(
+        owner,
         status == 401 || status == 403
             ? l10n.chatDataControlsForbidden
             : l10n.chatDataControlsExportFailed,
         error: true,
       );
     } catch (_) {
-      _show(l10n.chatDataControlsExportFailed, error: true);
+      _showFor(owner, l10n.chatDataControlsExportFailed, error: true);
     } finally {
-      _cancel = null;
-      _progressTick?.cancel();
+      if (identical(_cancel, cancel)) _cancel = null;
+      if (_openFor(owner)) _progressTick?.cancel();
       // A file never handed over must not be left behind; one that was is
       // the share sheet's to read, and the next backup clears it.
       final staged = file;
       if (staged != null && !delivered) await staged.abort();
-      _activity = ChatDataActivity.idle;
-      await _apply();
+      await _settle(owner);
     }
   }
 
@@ -745,6 +785,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
       }
       preview = await prepareChatImportFile(_container, await picked.read());
     } on ChatBackupException catch (error) {
+      if (!_openFor(owner)) return;
       // The choice stays on the page, so the user sees which file it was.
       _importError = switch (error.failure) {
         ChatBackupFailure.emptyImport => l10n.chatDataControlsImportEmpty,
@@ -754,13 +795,12 @@ class ChatDataSettingsPages extends SettingsPageModule {
           l10n.chatDataControlsImportBadEntry(error.index! + 1),
         _ => l10n.chatDataControlsImportInvalid,
       };
-      _activity = ChatDataActivity.idle;
-      await _apply();
+      await _settle(owner);
       return;
     } catch (_) {
+      if (!_openFor(owner)) return;
       _importError = l10n.chatDataControlsImportInvalid;
-      _activity = ChatDataActivity.idle;
-      await _apply();
+      await _settle(owner);
       return;
     }
 
@@ -777,8 +817,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
           confirm: l10n.chatDataControlsImportAction,
         ) ||
         !_openFor(owner)) {
-      _activity = ChatDataActivity.idle;
-      await _apply();
+      await _settle(owner);
       return;
     }
 
@@ -787,9 +826,14 @@ class ChatDataSettingsPages extends SettingsPageModule {
     await _apply();
     try {
       final result = await _service(owner).importChats(preview);
-      if (!_ownerIsCurrent()) return;
-      refreshConversationsCache(_container);
-      _show(
+      // The chats are on the server whether or not the page is still up;
+      // the app's list follows them for the account they went to.
+      if (chatDataControlsOwnerIsCurrent(_container, owner)) {
+        refreshConversationsCache(_container);
+      }
+      if (!_openFor(owner)) return;
+      _showFor(
+        owner,
         result.stored < result.imported
             ? '${l10n.chatDataControlsImported(result.imported)} '
                   '${l10n.chatDataControlsImportedSyncNote}'
@@ -800,7 +844,8 @@ class ChatDataSettingsPages extends SettingsPageModule {
       // Sent again, an import duplicates every chat, so when no answer came
       // the user is told it may have happened rather than that it is safe
       // to repeat.
-      _show(
+      _showFor(
+        owner,
         error is ChatDataControlsException &&
                 error.failure == ChatDataControlsFailure.outcomeUnknown
             ? l10n.chatDataControlsImportUnknown
@@ -808,8 +853,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
         error: true,
       );
     } finally {
-      _activity = ChatDataActivity.idle;
-      await _apply();
+      await _settle(owner);
       unawaited(_refreshScope());
     }
   }
@@ -835,7 +879,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
       var discard = false;
       if (kind == _Bulk.delete &&
           (scope.runningResponses > 0 || _ref.read(isChatStreamingProvider))) {
-        _show(l10n.chatDataControlsResponseRunning, error: true);
+        _showFor(owner, l10n.chatDataControlsResponseRunning, error: true);
         return;
       }
       if (kind == _Bulk.delete) discard = scope.hasWorkTheServerLacks;
@@ -896,17 +940,16 @@ class ChatDataSettingsPages extends SettingsPageModule {
       applyChatBulkOutcome(_container, owner, change, outcome);
       // It reaches every chat on the server, so the result names no count:
       // the outcome counts only the chats this device had.
-      _show(switch (kind) {
+      _showFor(owner, switch (kind) {
         _Bulk.archive => l10n.chatDataControlsArchivedAll,
         _Bulk.unarchive => l10n.chatDataControlsUnarchivedAll,
         _Bulk.unshare => l10n.chatDataControlsUnsharedAll,
         _Bulk.delete => l10n.chatDataControlsDeletedAll,
       });
     } catch (error) {
-      _show(_failureText(l10n, error), error: true);
+      _showFor(owner, _failureText(l10n, error), error: true);
     } finally {
-      _activity = ChatDataActivity.idle;
-      await _apply();
+      await _settle(owner);
       unawaited(_refreshScope());
     }
   }

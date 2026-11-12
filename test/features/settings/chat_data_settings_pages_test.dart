@@ -687,6 +687,23 @@ void main() {
       },
     );
 
+    testWidgets('a row left from before the account lost the right to it '
+        'does nothing', (tester) async {
+      final session = await open(
+        tester,
+        permissions: {
+          'chat': {'import': false, 'export': false, 'delete': false},
+        },
+      );
+
+      await session.tap('export');
+      await session.tap('delete');
+
+      expect(session.surface.asked, isEmpty);
+      expect(session.files.created, isEmpty);
+      expect(session.wire.requests, isEmpty);
+    });
+
     testWidgets('hides the controls the account may not use', (tester) async {
       final user = await open(
         tester,
@@ -1234,6 +1251,26 @@ void main() {
         ],
       );
       expect(archived, [true, false, false]);
+    });
+
+    testWidgets('a page opened again while an earlier visit waits starts '
+        'clear', (tester) async {
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
+      );
+      await session.tap('archive');
+
+      session.module.pageLeft(chatDataControlsPageId);
+      await session.appear();
+      expect(session.row('unarchive')!.disabled, isFalse);
+      expect(session.row('archive')!.pending, isFalse);
+
+      // The earlier visit's question is answered after all.
+      await session.confirm();
+      expect(session.wire.to('POST', '/api/v1/chats/archive/all'), isEmpty);
+      expect(session.row('unarchive')!.disabled, isFalse);
+      expect(session.status, isNull);
     });
 
     testWidgets('a change agreed to after its page closed is not made', (

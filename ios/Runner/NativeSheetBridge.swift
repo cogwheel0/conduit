@@ -1760,6 +1760,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 trailingActionSfSymbol: existing.trailingActionSfSymbol,
                 discardPrompt: existing.discardPrompt,
                 busy: existing.busy,
+                // Kept, so the same announcement sent again is not read out
+                // twice.
+                announcement: existing.announcement,
                 edited: existing.edited
             )
             self.detailPayloads[detailId] = patched
@@ -2760,6 +2763,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private func dismissActive(completion: (() -> Void)? = nil) {
         flushActiveSheetEditing()
         let controller = activeController
+        // Closed from Dart, or after its discard question, Settings tells
+        // Flutter as a swipe does: UIKit reports only a swipe, and the
+        // presentation delegate goes below.
+        let notifyDismiss = controller != nil && activeSheetMode == .profileMenu
         controller?.dismiss(animated: true, completion: completion)
         if controller == nil {
             completion?()
@@ -2798,6 +2805,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
         activeTextEditorController = nil
         activeSheetMode = .profileMenu
+        if notifyDismiss {
+            flutterApi?.onDismissed { _ in }
+        }
     }
 
     private var activeNavigationController: UINavigationController? {
@@ -5715,6 +5725,12 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Popped, a page with no discard question keeps the text typed into
+        // it, as if done: an address's key password typed on its Advanced
+        // page, say, then Back.
+        if isMovingFromParent, detail.discardPrompt == nil {
+            commitPendingTextChanges()
+        }
         view.endEditing(true)
     }
 

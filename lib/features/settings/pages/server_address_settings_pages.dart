@@ -533,23 +533,57 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       await _hydrateServer(l10n, serverId);
     } else if (detailId.startsWith(serverAddressPagePrefix)) {
       final key = detailId.substring(serverAddressPagePrefix.length);
-      final editor = await _editor(key);
+      final editor = await _editorFor(l10n, detailId, key);
       if (editor == null) return;
       await _applyEditor(l10n, key, editor);
     } else if (detailId.startsWith(serverAddressAdvancedPagePrefix)) {
       final key = detailId.substring(serverAddressAdvancedPagePrefix.length);
-      final editor = await _editor(key);
+      final editor = await _editorFor(l10n, detailId, key);
       if (editor == null) return;
       await _applyAdvanced(l10n, key, editor);
     } else if (detailId.startsWith(serverAddressHeaderPagePrefix)) {
       final key = detailId.substring(serverAddressHeaderPagePrefix.length);
-      final editor = await _editor(key);
+      final editor = await _editorFor(l10n, detailId, key);
       if (editor == null) return;
       editor
         ..headerName = ''
         ..headerValue = ''
         ..headerNotice = null;
       await _applyHeader(l10n, key, editor);
+    }
+  }
+
+  /// The editor page [detailId] (or a page of it) edits, read as [_editor]
+  /// does. When the saved address cannot be read, the page says so in
+  /// place of its loading row, with a row to read it again.
+  Future<_Editor?> _editorFor(
+    AppLocalizations l10n,
+    String detailId,
+    String key,
+  ) async {
+    try {
+      return await _editor(key);
+    } catch (_) {
+      await _surface.applyDetailPatch(
+        detailId: detailId,
+        items: [
+          NativeSheetItemConfig(
+            id: '$detailId-notice',
+            title: l10n.errorMessage,
+            sfSymbol: 'exclamationmark.triangle',
+            kind: NativeSheetItemKind.info,
+          ),
+          NativeSheetItemConfig(
+            id: serverAddressRowId('reload', key),
+            title: l10n.retry,
+            sfSymbol: 'arrow.clockwise',
+            accent: true,
+            showsDisclosure: false,
+            value: detailId,
+          ),
+        ],
+      );
+      return null;
     }
   }
 
@@ -663,7 +697,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         error: error,
         stackTrace: stackTrace,
       );
-      return null;
+      rethrow;
     }
   }
 
@@ -718,6 +752,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     String key,
     _Editor editor,
   ) async {
+    if (!identical(_editors[key], editor)) return;
     if (editor.edited == editor.shownEdited) return;
     await _applyEditor(l10n, key, editor, withPages: false);
   }
@@ -776,6 +811,11 @@ class ServerAddressSettingsPages extends SettingsPageModule {
 
     if (field == 'remove') {
       await _remove(l10n, parsed.serverId, parsed.endpointId, key);
+      return true;
+    }
+    // Retry on a page whose address could not be read: [value] is the page.
+    if (field == 'reload') {
+      if (value is String) await hydrate(value, l10n);
       return true;
     }
     // A row of an editor already closed (a second Done on its way) does
@@ -843,6 +883,9 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       );
       if (file == null) return;
       final pem = await readPickedPemFile(file, l10n);
+      // Closed (and maybe opened again) while the file was chosen and read:
+      // it is not this editor's any more.
+      if (!identical(_editors[key], editor)) return;
       final problem = validatePickedPem(
         pem,
         isPrivateKey: isPrivateKey,
@@ -877,6 +920,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       );
       editor.advancedNotice = l10n.mutualTlsFileReadFailed;
     }
+    if (!identical(_editors[key], editor)) return;
     await _applyAdvanced(l10n, key, editor);
   }
 
@@ -1011,6 +1055,8 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     String? endpointId,
     _Editor editor,
   ) async {
+    // Left while the address was checked: nothing more is asked about it.
+    if (!identical(_editors[key], editor)) return;
     final answer = await _surface.ask(
       title: l10n.proxyAuthRequired,
       message: l10n.proxyAuthRequiredDescription,
@@ -1023,7 +1069,8 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         NativeSheetAlertAction('sign-in', l10n.authenticateThroughProxy),
       ],
     );
-    if (answer != 'sign-in' || !identical(_editors[key], editor)) {
+    if (!identical(_editors[key], editor)) return;
+    if (answer != 'sign-in') {
       await _applyEditor(l10n, key, editor);
       return;
     }

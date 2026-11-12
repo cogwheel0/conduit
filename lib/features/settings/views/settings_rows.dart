@@ -227,7 +227,22 @@ class SettingsRow extends StatelessWidget {
             size: IconSize.small,
           )
         : null;
-    final trailing = _trailing([_pendingMark() ?? mark, _actionsMenu(context)]);
+    final status = _pendingMark() ?? mark;
+    final menu = _actionsMenu(context);
+    // A row that opens a page and has a menu shows both: the chevron says
+    // what a tap does, the menu what else the row offers.
+    final trailing = _trailing([
+      status,
+      if (chevron && status == null && menu != null)
+        Icon(
+          context.usesCupertinoChrome
+              ? CupertinoIcons.chevron_right
+              : Icons.chevron_right,
+          color: theme.iconSecondary,
+          size: IconSize.small,
+        ),
+      menu,
+    ]);
     return UtilityRow(
       key: ValueKey<String>('settings-row-${item.id}'),
       leading: leading ?? SettingsRowGlyph(item: item),

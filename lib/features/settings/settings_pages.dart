@@ -85,6 +85,8 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         discardPrompt: existing.discardPrompt,
         busy: existing.busy,
         edited: existing.edited,
+        // Kept, so the same announcement sent again is not read out twice.
+        announcement: existing.announcement,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {
