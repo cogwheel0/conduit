@@ -60,7 +60,8 @@ mixin _ChatsApi on _ApiServiceBase {
         'parentId': parentId,
         'childrenIds': [],
         'role': msg.role,
-        'content': msg.content,
+        'content': projectOpenWebUiContent(msg.role, msg.content, msg.output),
+        if (msg.output != null) 'output': msg.output,
         'timestamp': msg.timestamp.millisecondsSinceEpoch ~/ 1000,
         // Assistant message fields
         if (msg.role == 'assistant' && msg.model != null) 'model': msg.model,
@@ -102,7 +103,8 @@ mixin _ChatsApi on _ApiServiceBase {
         'parentId': parentId,
         'childrenIds': [],
         'role': msg.role,
-        'content': msg.content,
+        'content': projectOpenWebUiContent(msg.role, msg.content, msg.output),
+        if (msg.output != null) 'output': msg.output,
         'timestamp': msg.timestamp.millisecondsSinceEpoch ~/ 1000,
         // Assistant message fields
         if (msg.role == 'assistant' && msg.model != null) 'model': msg.model,
