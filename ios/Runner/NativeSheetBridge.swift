@@ -1405,6 +1405,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private weak var activeProfileMenuController: NativeProfileMenuTableViewController?
     private var profileChannel: FlutterMethodChannel?
     private var activeSheetMode: ActiveSheetMode = .profileMenu
+    /// Counts the times Settings was presented.
+    private var settingsPresentations = 0
     private var pendingModelSelectorResult: PendingStringResult?
     private var pendingOptionsSelectorResult: PendingStringResult?
     private var pendingDatePickerResult: PendingStringResult?
@@ -1867,6 +1869,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         let presented = present(navigation, initialDetent: .large)
         if presented {
             activeProfileMenuController = controller
+            settingsPresentations += 1
         }
         return presented
     }
@@ -2767,7 +2770,16 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         // Flutter as a swipe does: UIKit reports only a swipe, and the
         // presentation delegate goes below.
         let notifyDismiss = controller != nil && activeSheetMode == .profileMenu
-        controller?.dismiss(animated: true, completion: completion)
+        let presentation = settingsPresentations
+        // Told once the sheet has gone, so Dart can present what comes next
+        // (a sign-out question) rather than over a sheet still leaving --
+        // unless Settings has opened again since.
+        controller?.dismiss(animated: true) { [weak self] in
+            completion?()
+            if notifyDismiss, let self, self.settingsPresentations == presentation {
+                self.flutterApi?.onDismissed { _ in }
+            }
+        }
         if controller == nil {
             completion?()
         }
@@ -2805,9 +2817,6 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
         activeTextEditorController = nil
         activeSheetMode = .profileMenu
-        if notifyDismiss {
-            flutterApi?.onDismissed { _ in }
-        }
     }
 
     private var activeNavigationController: UINavigationController? {

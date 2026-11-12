@@ -161,12 +161,18 @@ void main() {
   late List<OpenWebUiEndpoint> stored;
   // While set, the saved servers cannot be read.
   var locked = false;
+  // While set, the next read waits for it.
+  Completer<void>? readGate;
+  // While set, an edit of the addresses is refused.
+  var refuseEdits = false;
   late List<List<String>> saved;
   late Future<void> landing;
   Completer<void>? gate;
 
   setUp(() {
     locked = false;
+    readGate = null;
+    refuseEdits = false;
     saved = [];
     gate = null;
     _Routes.reasons.clear();
@@ -198,17 +204,26 @@ void main() {
     when(storage.getOpenWebUiRegistryStrict).thenAnswer((_) async {
       if (unreadableOnce && reads++ == 0) throw StateError('Keychain locked');
       if (locked) throw StateError('Keychain locked');
-      return OpenWebUiRegistry(
+      // Read as stored now, answered when the gate opens.
+      final registry = OpenWebUiRegistry(
         servers: [
           if (stored.isNotEmpty)
             OpenWebUiServer(id: shown.id, name: shown.name, endpoints: stored),
         ],
       );
+      final gate = readGate;
+      if (gate != null) {
+        readGate = null;
+        await gate.future;
+      }
+      return registry;
     });
     when(() => storage.sessionRevocationRevision).thenReturn(0);
-    when(() => storage.editServerEndpoints(any(), any())).thenAnswer(
-      (invocation) => land(invocation.positionalArguments[1] as _Edit),
-    );
+    when(() => storage.editServerEndpoints(any(), any()))
+        .thenAnswer((invocation) async {
+          if (refuseEdits) throw StateError('Keychain locked');
+          return land(invocation.positionalArguments[1] as _Edit);
+        });
     late final _Surface surface;
     final container = ProviderContainer(
       overrides: [
@@ -468,6 +483,54 @@ void main() {
 
       await rig.change(row('self-signed', 'lan'), false);
       expect(rig.page(editor).edited, isFalse);
+    });
+
+    testWidgets('an address read for an editor since left is not kept for '
+        'the next visit', (tester) async {
+      final rig = await pump(tester);
+      final editor = serverAddressPageId('home', 'lan');
+      final gate = readGate = Completer<void>();
+      final opening = rig.module.hydrate(editor, _l10n);
+      await tester.pump();
+
+      // Left before the read came back; the address changes meanwhile.
+      rig.module.pageLeft(editor);
+      stored = [
+        for (final endpoint in stored)
+          endpoint.id == 'lan'
+              ? OpenWebUiEndpoint(
+                  id: 'lan',
+                  url: 'http://10.0.0.9:3000',
+                  label: 'LAN',
+                )
+              : endpoint,
+      ];
+      gate.complete();
+      await rig._settle(opening);
+
+      await rig.open(editor);
+      expect(
+        rig.rows(editor).singleWhere((r) => r.id == row('url', 'lan')).value,
+        'http://10.0.0.9:3000',
+      );
+    });
+
+    testWidgets('an address that could not be removed keeps its editor and '
+        'what it holds', (tester) async {
+      final rig = await pump(tester);
+      final editor = serverAddressPageId('home', 'lan');
+      await rig.open(editor);
+      await rig.change(row('url', 'lan'), 'http://10.0.0.3:3000');
+      refuseEdits = true;
+
+      await rig.change(row('remove', 'lan'), true);
+
+      expect(rig.closed, isNot(contains(editor)));
+      expect(rig.rows(editor).first.title, _l10n.errorMessage);
+      expect(
+        rig.rows(editor).singleWhere((r) => r.id == row('url', 'lan')).value,
+        'http://10.0.0.3:3000',
+      );
     });
 
     testWidgets('an editor whose address cannot be read says so, and Retry '

@@ -513,6 +513,11 @@ class ServerAddressSettingsPages extends SettingsPageModule {
 
   final Ref _ref;
   final Map<String, _Editor> _editors = {};
+
+  /// Times each editor page was left, and Settings closed: a read of an
+  /// address finished after its page went is not kept for the next visit.
+  final Map<String, int> _leaves = {};
+  int _closings = 0;
   final Map<String, String> _notices = {};
 
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
@@ -593,7 +598,9 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   @override
   void pageLeft(String detailId) {
     if (detailId.startsWith(serverAddressPagePrefix)) {
-      _editors.remove(detailId.substring(serverAddressPagePrefix.length));
+      final key = detailId.substring(serverAddressPagePrefix.length);
+      _editors.remove(key);
+      _leaves[key] = (_leaves[key] ?? 0) + 1;
     }
   }
 
@@ -601,6 +608,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   void settingsClosed() {
     _editors.clear();
     _notices.clear();
+    _closings++;
   }
 
   /// The server's page as stored now. Any editor opened from an earlier
@@ -683,12 +691,16 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     if (endpointId == null) {
       return _editors[key] = _Editor(ServerAddressDraft());
     }
+    final visit = (_leaves[key], _closings);
     try {
       final registry = await _ref
           .read(optimizedStorageServiceProvider)
           .getOpenWebUiRegistryStrict();
       final endpoint = registry.server(parsed.serverId)?.endpoint(endpointId);
       if (endpoint == null) return null;
+      // Its page went while the address was read: nobody waits for this
+      // editor, and the next visit reads the address afresh.
+      if (visit != (_leaves[key], _closings)) return null;
       return _editors[key] ??= _Editor(ServerAddressDraft.of(endpoint));
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -719,6 +731,10 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     bool withPages = true,
   }) async {
     final parsed = _parseEditorKey(key)!;
+    final removable = await _removable(parsed.serverId);
+    // Closed (and maybe opened again) while that was read: the page is not
+    // this editor's any more.
+    if (!identical(_editors[key], editor)) return;
     editor.shownEdited = editor.edited;
     await _surface.applyDetail(
       buildServerAddressPage(
@@ -726,7 +742,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         serverId: parsed.serverId,
         endpointId: parsed.endpointId,
         draft: editor.draft,
-        removable: await _removable(parsed.serverId),
+        removable: removable,
         edited: editor.edited,
         busy: editor.busy,
         notice: editor.notice,
@@ -1074,10 +1090,15 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       await _applyEditor(l10n, key, editor);
       return;
     }
+    // Settings closes first, so the connection page is not opened under
+    // it; if it stays open, the editor stays, with what it holds.
+    if (!await NativeSheetBridge.instance.dismissSettings()) {
+      editor.notice = l10n.errorMessage;
+      await _applyEditor(l10n, key, editor);
+      return;
+    }
     _editors.remove(key);
     await _surface.closeDetail(serverAddressPageId(serverId, endpointId));
-    final bridge = NativeSheetBridge.instance;
-    if (bridge.settingsSheetOpen) await bridge.dismiss();
     unawaited(
       NavigationService.router.pushNamed<void>(
         RouteNames.serverAddressEditor,
@@ -1139,7 +1160,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         !await _mayChangeAddressInUse(l10n)) {
       return;
     }
-    await _editRoutes(
+    final removed = await _editRoutes(
       l10n,
       serverId,
       (endpoints) => [
@@ -1147,6 +1168,13 @@ class ServerAddressSettingsPages extends SettingsPageModule {
           if (endpoint.id != endpointId) endpoint,
       ],
     );
+    final editor = _editors[key];
+    if (!removed && editor != null) {
+      // Still stored: its editor stays, with what it holds, and says why.
+      editor.notice = _notices.remove(serverId);
+      await _applyEditor(l10n, key, editor);
+      return;
+    }
     _editors.remove(key);
     await _surface.closeDetail(serverAddressPageId(serverId, endpointId));
     await _hydrateServer(l10n, serverId);
@@ -1179,7 +1207,9 @@ class ServerAddressSettingsPages extends SettingsPageModule {
 
   /// Applies [edit] to the addresses as stored, not as the page last showed
   /// them: another edit may have landed since.
-  Future<void> _editRoutes(
+  /// Saves the server's addresses as [edit] makes them. Returns whether
+  /// they were saved; when not, the server's page says so.
+  Future<bool> _editRoutes(
     AppLocalizations l10n,
     String serverId,
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>) edit,
@@ -1189,6 +1219,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
           .read(optimizedStorageServiceProvider)
           .editServerEndpoints(serverId, edit);
       await reloadAfterRoutesEdited(_ref.container, serverId);
+      return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
         'server-addresses-save-failed',
@@ -1197,6 +1228,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
       _notices[serverId] = l10n.errorMessage;
+      return false;
     }
   }
 }

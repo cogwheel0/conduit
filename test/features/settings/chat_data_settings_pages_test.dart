@@ -231,6 +231,9 @@ class _Settings extends AppSettingsNotifier {
 
   @override
   AppSettings build() => _settings;
+
+  void turnAdvanced(bool on) =>
+      state = state.copyWith(advancedFeaturesEnabled: on);
 }
 
 typedef _Question = ({
@@ -1271,6 +1274,25 @@ void main() {
       expect(session.wire.to('POST', '/api/v1/chats/archive/all'), isEmpty);
       expect(session.row('unarchive')!.disabled, isFalse);
       expect(session.status, isNull);
+    });
+
+    testWidgets('a change agreed to after Advanced was turned off is not '
+        'made, and a row left from before does nothing', (tester) async {
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
+      );
+      await session.tap('archive');
+
+      final settings =
+          session.container.read(appSettingsProvider.notifier) as _Settings;
+      settings.turnAdvanced(false);
+      await session.confirm();
+      expect(session.wire.to('POST', '/api/v1/chats/archive/all'), isEmpty);
+
+      final asked = session.surface.asked.length;
+      await session.tap('unarchive');
+      expect(session.surface.asked, hasLength(asked));
     });
 
     testWidgets('a change agreed to after its page closed is not made', (

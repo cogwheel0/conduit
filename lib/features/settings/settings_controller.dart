@@ -232,8 +232,9 @@ class SettingsController {
     // Settings sheet closes first, as the sign-out page's own rows do.
     const signOutOfPrefix = '$nativeAccountSignOutOfActionId:';
     if (actionId.startsWith(signOutOfPrefix)) {
-      final bridge = NativeSheetBridge.instance;
-      if (bridge.settingsSheetOpen) await bridge.dismiss();
+      // Waited for, so the sign-out question is not presented over the
+      // sheet as it leaves, where it could be dropped.
+      if (!await NativeSheetBridge.instance.dismissSettings()) return true;
       return _handleNativeAccountAction(
         nativeAccountSignOutOfActionId,
         actionId.substring(signOutOfPrefix.length),

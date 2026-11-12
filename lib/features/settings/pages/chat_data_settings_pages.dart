@@ -447,6 +447,10 @@ class ChatDataSettingsPages extends SettingsPageModule {
   /// any more.
   bool _openFor(ChatDataControlsOwner owner) => identical(_owner, owner);
 
+  /// Whether Advanced is on, which these controls need: a row left from
+  /// before it was turned off does nothing.
+  bool get _advanced => _ref.read(appSettingsProvider).advancedFeaturesEnabled;
+
   bool _ownerIsCurrent() {
     final owner = _owner;
     return owner != null && chatDataControlsOwnerIsCurrent(_container, owner);
@@ -512,7 +516,10 @@ class ChatDataSettingsPages extends SettingsPageModule {
     final owner = _owner;
     if (owner == null || !_ownerIsCurrent()) return;
     try {
-      _scope = await _service(owner).scope();
+      final scope = await _service(owner).scope();
+      // Counted for a visit since closed: the open one counts its own.
+      if (!_openFor(owner)) return;
+      _scope = scope;
       await _apply();
     } catch (_) {
       // The counts are a disclosure; the actions read them again themselves.
@@ -629,7 +636,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
       case 'cancel-export':
         _cancel?.cancel();
         return true;
-      case _ when owner == null || _busy || !_ownerIsCurrent():
+      case _ when owner == null || _busy || !_ownerIsCurrent() || !_advanced:
         // A row of a page another account took over, or a second tap while
         // one runs, does nothing.
         return true;
@@ -708,7 +715,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
           )) {
         return;
       }
-      if (!_openFor(owner) || cancel.isCancelled) return;
+      if (!_openFor(owner) || cancel.isCancelled || !_advanced) return;
       _activity = ChatDataActivity.exporting;
       await _apply();
       file = await files.create(libraryBackupFileName(DateTime.now()));
@@ -816,7 +823,8 @@ class ChatDataSettingsPages extends SettingsPageModule {
           ),
           confirm: l10n.chatDataControlsImportAction,
         ) ||
-        !_openFor(owner)) {
+        !_openFor(owner) ||
+        !_advanced) {
       await _settle(owner);
       return;
     }
@@ -913,7 +921,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
         },
         destructive: kind == _Bulk.delete,
       );
-      if (!proceed || !_openFor(owner)) return;
+      if (!proceed || !_openFor(owner) || !_advanced) return;
 
       _activity = ChatDataActivity.changing;
       await _apply();

@@ -218,6 +218,27 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
   }
 
+  /// Closes the Settings sheet and waits until it has gone, so whatever is
+  /// shown next is not presented over a sheet still leaving. Returns
+  /// whether Settings is closed: true when it was not open.
+  Future<bool> dismissSettings({
+    Duration patience = const Duration(seconds: 2),
+  }) async {
+    if (!_isIOS || !_settingsSheetOpen) return true;
+    final gone = _events.stream
+        .firstWhere((event) => event is NativeSheetDismissed)
+        .timeout(patience, onTimeout: () => const NativeSheetDismissed());
+    if (!await dismiss()) {
+      unawaited(gone.then((_) {}, onError: (_) {}));
+      return false;
+    }
+    await gone;
+    return true;
+  }
+
+  @visibleForTesting
+  set debugSettingsSheetOpen(bool open) => _settingsSheetOpen = open;
+
   Future<bool> requestAppStoreReview() async {
     if (!_isIOS) return false;
     try {
