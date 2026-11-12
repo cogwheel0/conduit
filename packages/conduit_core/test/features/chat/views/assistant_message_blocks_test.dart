@@ -126,6 +126,39 @@ void main() {
       expect(files.map((f) => f['name']), <String>['chart.png', 'notes.pdf']);
     });
 
+    test('groups files as the mobile app shows them: images, videos, rest', () {
+      final files =
+          (assistantMessageBlocks(
+                    ChatMessage(
+                      id: 'msg-files',
+                      role: 'assistant',
+                      content: 'Here they are.',
+                      timestamp: DateTime.utc(2026, 11, 8),
+                      files: const <Map<String, dynamic>>[
+                        {'type': 'file', 'id': 'f1', 'name': 'tides.pdf'},
+                        {'type': 'image', 'id': 'f2', 'name': 'chart.png'},
+                        {
+                          'type': 'file',
+                          'id': 'f3',
+                          'name': 'swell.mp4',
+                          'content_type': 'video/mp4',
+                        },
+                        {'type': 'file', 'id': 'f4', 'name': 'notes.txt'},
+                        {'type': 'image', 'id': 'f5', 'name': 'map.png'},
+                      ],
+                    ),
+                  ).first
+                  as AssistantFilesBlock)
+              .files;
+      expect(files.map((f) => f['name']), <String>[
+        'chart.png',
+        'map.png',
+        'swell.mp4',
+        'tides.pdf',
+        'notes.txt',
+      ]);
+    });
+
     test('reads its status lines as Open WebUI words them', () {
       final status = blocks[1] as AssistantStatusBlock;
       expect(status.pending, isFalse);

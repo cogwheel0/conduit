@@ -5,7 +5,8 @@ import '../../../models/chat_message.dart';
 import '../../../services/structured_output.dart' show displayedChatFiles;
 import '../../web_search/services/direct_web_search_mode.dart'
     show isDirectToolsUnsupportedError;
-import '../utils/file_utils.dart' show chatFilesWithShown;
+import '../utils/file_utils.dart'
+    show chatFilesWithShown, isImageFile, isVideoFile;
 import 'chat_status_display.dart';
 import 'chat_turn_render_state.dart';
 
@@ -37,7 +38,8 @@ sealed class AssistantBlock {
   const AssistantBlock();
 }
 
-/// The answer's files, in the order the mobile app shows them.
+/// The answer's files, in the order the mobile app shows them: images,
+/// then videos, then the rest.
 final class AssistantFilesBlock extends AssistantBlock {
   AssistantFilesBlock(List<Map<String, dynamic>> files)
     : files = List<Map<String, dynamic>>.unmodifiable(files);
@@ -281,7 +283,17 @@ List<AssistantBlock> _assemble({
     displayedChatFiles(output),
     attachmentIds: attachmentIds,
   ).whereType<Map<String, dynamic>>().toList(growable: false);
-  if (shownFiles.isNotEmpty) blocks.add(AssistantFilesBlock(shownFiles));
+  if (shownFiles.isNotEmpty) {
+    // Images first, then videos, then the rest, each in their own order,
+    // as the mobile app draws them.
+    blocks.add(
+      AssistantFilesBlock([
+        ...shownFiles.where(isImageFile),
+        ...shownFiles.where((file) => !isImageFile(file) && isVideoFile(file)),
+        ...shownFiles.where((file) => !isImageFile(file) && !isVideoFile(file)),
+      ]),
+    );
+  }
 
   final statuses = filterVisibleStatusUpdates(
     statusHistory,
