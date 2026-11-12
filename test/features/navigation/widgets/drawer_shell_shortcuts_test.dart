@@ -803,6 +803,152 @@ void main() {
     expect(container.read(sidebarHeaderSearchExpandedProvider), true);
   });
 
+  testWidgets('Command-K still works after Escape leaves a field', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    final field = FocusNode();
+    addTearDown(field.dispose);
+
+    // The route's focus scope sits above the shortcuts, as the shell's own
+    // page does in the app.
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Material(
+              child: Consumer(
+                builder: (context, ref, _) => Column(
+                  children: [
+                    TextField(focusNode: field),
+                    Focus(
+                      focusNode: ref.watch(sidebarSearchFieldFocusNodeProvider),
+                      child: const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TextField)),
+    );
+    await tester.showKeyboard(find.byType(TextField));
+    expect(field.hasFocus, isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(field.hasFocus, isFalse);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pump();
+    expect(container.read(sidebarHeaderSearchExpandedProvider), isTrue);
+  });
+
+  for (final kind in ['dialog', 'sheet']) {
+    testWidgets('Escape closes a dismissible $kind inside the shell first', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: AppKeyboardShortcuts(
+              // The shell's routes live in a navigator under the shortcuts.
+              child: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (_) => const Scaffold(
+                    body: Consumer(builder: _searchShortcutTestChild),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final context = tester.element(find.text('Content'));
+      final container = ProviderScope.containerOf(context);
+      container
+          .read(sidebarHeaderSearchExpandedProvider.notifier)
+          .setExpanded(true);
+      await tester.pump();
+      if (kind == 'dialog') {
+        unawaited(
+          showDialog<void>(
+            context: context,
+            useRootNavigator: false,
+            builder: (_) => const AlertDialog(content: Text('Synthetic')),
+          ),
+        );
+      } else {
+        unawaited(
+          showModalBottomSheet<void>(
+            context: context,
+            builder: (_) => const Text('Synthetic'),
+          ),
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('Synthetic'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Synthetic'), findsNothing);
+      // Search behind it is left as it was.
+      expect(container.read(sidebarHeaderSearchExpandedProvider), isTrue);
+
+      // With nothing in front, Escape is the shell's again.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(container.read(sidebarHeaderSearchExpandedProvider), isFalse);
+    });
+  }
+
+  testWidgets('a dialog that Escape cannot dismiss keeps the layers behind '
+      'it', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(
+                  body: Consumer(builder: _searchShortcutTestChild),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final context = tester.element(find.text('Content'));
+    final container = ProviderScope.containerOf(context);
+    container
+        .read(sidebarHeaderSearchExpandedProvider.notifier)
+        .setExpanded(true);
+    await tester.pump();
+    unawaited(
+      showDialog<void>(
+        context: context,
+        useRootNavigator: false,
+        barrierDismissible: false,
+        builder: (_) => const AlertDialog(content: Text('Synthetic')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('Synthetic'), findsOneWidget);
+    expect(container.read(sidebarHeaderSearchExpandedProvider), isTrue);
+  });
+
   testWidgets('Android does not install the shortcuts', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
 
