@@ -1395,9 +1395,20 @@ void main() {
     check(timedOut.status).equals(AuthStatus.error);
     check(timedOut.token).equals(token);
 
-    // A connection that could not even be opened in time is offline (a
-    // network that drops the packets): refreshed as on launch, which reads
-    // the stored session again.
+    // The proxy lets the session through again.
+    api.currentUserFailure = null;
+    await notifier.retryConnectionIssue();
+    final restored = container.read(authStateManagerProvider).requireValue;
+    check(restored.status).equals(AuthStatus.authenticated);
+    check(restored.token).equals(token);
+
+    // Back on the connection issue, a connection that could not even be
+    // opened in time is offline (a network that drops the packets):
+    // refreshed as on launch, which reads the stored session again. Last,
+    // since a refresh shows the stored session signed in.
+    notifier.onAuthIssue();
+    check(container.read(authStateManagerProvider).requireValue.status)
+        .equals(AuthStatus.error);
     api.currentUserFailure = DioException(
       requestOptions: request,
       type: DioExceptionType.connectionTimeout,
@@ -1406,13 +1417,6 @@ void main() {
     await notifier.retryConnectionIssue();
     await pumpEventQueue();
     verify(() => storage.getAuthTokenStrict()).called(greaterThanOrEqualTo(1));
-
-    // The proxy lets the session through again.
-    api.currentUserFailure = null;
-    await notifier.retryConnectionIssue();
-    final restored = container.read(authStateManagerProvider).requireValue;
-    check(restored.status).equals(AuthStatus.authenticated);
-    check(restored.token).equals(token);
   });
 
   test('a Retry refused on an address moved away from meanwhile keeps the '
