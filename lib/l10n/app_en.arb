@@ -11321,5 +11321,13 @@
   "hermesJobNotifyNeedsScheduled": "Turn on Scheduled Tasks in Notifications to use this.",
   "@hermesJobNotifyNeedsScheduled": {
     "description": "Hint under the disabled \"Notify me\" switch in the Hermes job editor while the \"Scheduled tasks\" notification kind is turned off in the Notifications settings."
+  },
+  "hermesShowScheduledRuns": "Show Scheduled Runs",
+  "@hermesShowScheduledRuns": {
+    "description": "Switch in Hermes settings, in the Conversations group, that shows or leaves out the chats a scheduled agent (cron job) starts each time it runs."
+  },
+  "hermesShowScheduledRunsDescription": "Each run of a scheduled agent starts its own chat. Turn this off to leave those chats out of the Hermes list. Pinned ones stay.",
+  "@hermesShowScheduledRunsDescription": {
+    "description": "Explains the Show Scheduled Runs switch in Hermes settings: scheduled agents start a new chat per run, and pinned chats stay listed when it is off."
   }
 }

@@ -9,6 +9,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
@@ -148,6 +149,9 @@ class HermesConnectionsPage extends ConsumerWidget {
           gap,
           InsetGroupedList(
             title: l10n.hermesConversationsTitle,
+            footer: PlatformInfo.isIOS
+                ? l10n.hermesShowScheduledRunsDescription
+                : null,
             children: [
               UtilityRow(
                 key: const ValueKey<String>('hermes-hidden-chats-row'),
@@ -167,10 +171,51 @@ class HermesConnectionsPage extends ConsumerWidget {
                 onTap: () =>
                     context.pushNamed(RouteNames.hermesHiddenSessions),
               ),
+              const _ShowScheduledRunsRow(),
             ],
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Shows or leaves out the chats scheduled agents start, one per run, in
+/// the Hermes chat list.
+class _ShowScheduledRunsRow extends ConsumerWidget {
+  const _ShowScheduledRunsRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final show = ref.watch(
+      appSettingsProvider.select((s) => s.hermesShowScheduledSessions),
+    );
+    void set(bool value) => ref
+        .read(appSettingsProvider.notifier)
+        .setHermesShowScheduledSessions(value);
+    return UtilityRow(
+      key: const ValueKey<String>('hermes-show-scheduled-runs-row'),
+      leading: SizedBox(
+        width: IconSize.xl,
+        height: IconSize.xl,
+        child: Icon(
+          context.usesCupertinoChrome ? CupertinoIcons.clock : Icons.schedule,
+          size: IconSize.medium,
+          color: context.conduitTheme.buttonPrimary,
+        ),
+      ),
+      title: l10n.hermesShowScheduledRuns,
+      subtitle: PlatformInfo.isIOS
+          ? null
+          : l10n.hermesShowScheduledRunsDescription,
+      toggled: show,
+      trailing: AdaptiveSwitch(
+        value: show,
+        semanticLabel: l10n.hermesShowScheduledRuns,
+        onChanged: set,
+      ),
+      onTap: () => set(!show),
     );
   }
 }

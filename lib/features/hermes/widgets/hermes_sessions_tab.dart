@@ -21,6 +21,7 @@ import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_bot_tile.dart';
@@ -154,15 +155,25 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final showScheduled = ref.watch(
+      appSettingsProvider.select((s) => s.hermesShowScheduledSessions),
+    );
     final archivedAsync = ref.watch(hermesArchivedSessionsProvider);
     // A failed refresh keeps the chats it last listed, and says it failed.
-    final archived = archivedAsync.value ?? const [];
+    final archived = hermesListedSessions(
+      archivedAsync.value ?? const [],
+      showScheduled: showScheduled,
+    );
     // The archived list has its own loading and failure: neither reads as
     // having no archived chats.
     final archivedFailed = archivedAsync.hasError;
     final archivedLoading = archivedAsync.isLoading && !archivedAsync.hasValue;
     return sessionsAsync.when(
-      data: (sessions) {
+      data: (listed) {
+        final sessions = hermesListedSessions(
+          listed,
+          showScheduled: showScheduled,
+        );
         if (sessions.isEmpty && archived.isEmpty && !archivedFailed) {
           if (archivedLoading) return _loadingSlivers;
           return [

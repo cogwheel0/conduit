@@ -6833,5 +6833,7 @@
   "pushHermesCommandLatest": "Týmto sa nainštaluje najnovšia zverejnená verzia pluginu.",
   "hermesJobCreatedNotifyFailed": "Úloha bola vytvorená, ale upozornenia pre ňu sa nepodarilo zapnúť.",
   "hermesJobUpdatedNotifyFailed": "Úloha bola uložená, ale jej upozornenia sa nepodarilo zmeniť.",
-  "hermesJobNotifyNeedsScheduled": "Ak to chcete použiť, zapnite v Upozorneniach Naplánované úlohy."
+  "hermesJobNotifyNeedsScheduled": "Ak to chcete použiť, zapnite v Upozorneniach Naplánované úlohy.",
+  "hermesShowScheduledRuns": "Zobrazovať naplánované spustenia",
+  "hermesShowScheduledRunsDescription": "Každé spustenie naplánovaného agenta vytvorí vlastný chat. Vypnutím tieto chaty vynecháte zo zoznamu Hermes. Pripnuté zostanú."
 }
