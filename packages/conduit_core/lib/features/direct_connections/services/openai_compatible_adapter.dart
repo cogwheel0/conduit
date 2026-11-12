@@ -359,6 +359,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final responsesMode =
               profile.openAiApiMode == DirectOpenAiApiMode.responses;
+          final toolTurnOverResponses =
+              !responsesMode && _sendsToolTurnOverResponses(profile, request);
           final useOpenRouterImageApi =
               profile.supportsOpenRouterImageGeneration &&
               request.enableImageGeneration;
@@ -376,7 +378,13 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               useResponsesApi: responsesMode,
             );
             transportCompletedCleanly = emitter.completedSuccessfully;
-          } else if (responsesMode) {
+          } else if (responsesMode || toolTurnOverResponses) {
+            if (toolTurnOverResponses) {
+              DebugLogger.info(
+                'chat-completions-tools-routed-to-responses',
+                scope: 'direct-connections/openai',
+              );
+            }
             await _runResponsesRounds(
               dio: dio,
               profile: profile,
@@ -384,6 +392,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               cancelToken: transportCancelToken,
               runCancelToken: cancelToken,
               emitter: emitter,
+              stateless: toolTurnOverResponses,
             );
             transportCompletedCleanly = emitter.completedSuccessfully;
           } else if (request.tools != null) {
@@ -1052,9 +1061,14 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     required CancelToken cancelToken,
     required CancelToken runCancelToken,
     required _DirectEmitter emitter,
+    bool stateless = false,
   }) async {
     final runtime = request.tools;
-    final requestBody = _responsesRequestBody(request, profile);
+    final requestBody = _responsesRequestBody(
+      request,
+      profile,
+      stateless: stateless,
+    );
     final rawInput = requestBody['input'];
     if (rawInput is! List) {
       throw const FormatException('Responses API input is invalid.');
@@ -1083,7 +1097,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         }),
       );
       final response = await dio.post<ResponseBody>(
-        _completionEndpoint(profile),
+        // Also the endpoint for a Chat Completions profile's routed tool turn.
+        'responses',
         cancelToken: roundCancelToken,
         data: <String, dynamic>{
           ...requestBody,
@@ -1664,15 +1679,6 @@ Map<String, dynamic> _chatRequestBody(
       ]
       ..['parallel_tool_calls'] = false;
     if (profile.isOpenRouter) body['max_tool_calls'] = kDirectMaxToolCalls;
-    // OpenAI's Chat Completions refuses `reasoning_effort` next to function
-    // tools for its newer reasoning models (issue #1031). The tool turn runs
-    // at the model's default effort; Responses mode keeps the picked one.
-    if (profile.isOpenAiPlatform && body.remove('reasoning_effort') != null) {
-      DebugLogger.info(
-        'reasoning-effort-omitted-with-tools',
-        scope: 'direct-connections/openai',
-      );
-    }
   }
   return body;
 }
@@ -1823,10 +1829,29 @@ Map<String, dynamic> _rawChatMessage(DirectChatMessage message) {
   };
 }
 
+/// Whether a Chat Completions turn goes over Responses instead. OpenAI's Chat
+/// Completions refuses `reasoning_effort` beside function tools for its newer
+/// reasoning models, except `none` (#1031), so an OpenAI turn with tools and
+/// any other effort is sent over Responses, which accepts the pair.
+bool _sendsToolTurnOverResponses(
+  DirectConnectionProfile profile,
+  DirectCompletionRequest request,
+) {
+  if (!profile.isOpenAiPlatform || request.tools == null) return false;
+  final effort = request.parameters['reasoning_effort'];
+  if (effort is! String) return false;
+  final normalized = effort.trim().toLowerCase();
+  return normalized.isNotEmpty && normalized != 'none';
+}
+
+/// The Responses request body. A [stateless] turn, a Chat Completions turn
+/// routed here, asks OpenAI to store nothing (`store: false`), so the tool
+/// loop replays reasoning from its encrypted content rather than by id.
 Map<String, dynamic> _responsesRequestBody(
   DirectCompletionRequest request,
-  DirectConnectionProfile profile,
-) {
+  DirectConnectionProfile profile, {
+  bool stateless = false,
+}) {
   final messages = requireSerializableDirectMessages(request.messages);
   if (messages.any((message) => message.annotations.isNotEmpty)) {
     throw const DirectProviderException(
@@ -1848,6 +1873,7 @@ Map<String, dynamic> _responsesRequestBody(
     input: openai.ResponseInput.items([
       for (final message in messages) _responseMessage(message),
     ]),
+    store: stateless ? false : null,
   );
   final input = core['input'];
   if (input is List && input.length == messages.length) {
@@ -1865,6 +1891,7 @@ Map<String, dynamic> _responsesRequestBody(
     ...request.parameters,
     ...core,
     'stream': true,
+    if (stateless) 'include': const ['reasoning.encrypted_content'],
   };
   final runtime = request.tools;
   if (runtime != null) {

@@ -39,6 +39,14 @@ void main() {
     check(isOpenAiPlatformBaseUrl('https://notapi.openai.com/v1')).isFalse();
     check(isOpenAiPlatformBaseUrl('https://example.openai.azure.com/openai'))
         .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com:443/v1')).isTrue();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com:8443/v1')).isFalse();
+    check(isOpenAiPlatformBaseUrl('https://user:pass@api.openai.com/v1'))
+        .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com/v1?key=leak'))
+        .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com/v1#fragment'))
+        .isFalse();
   });
 
   group('DirectConnectionProfile security', () {

@@ -582,7 +582,14 @@ bool isOpenRouterApiBaseUrl(String value) {
 
 bool isOpenAiPlatformBaseUrl(String value) {
   final uri = Uri.tryParse(value.trim());
-  if (uri == null || uri.scheme.toLowerCase() != 'https') return false;
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      (uri.hasPort && uri.port != 443) ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    return false;
+  }
   final host = uri.host.toLowerCase();
   return host == 'api.openai.com' || host.endsWith('.api.openai.com');
 }
