@@ -141,6 +141,68 @@ void main() {
     ).any((it) => it.has((p) => p.isAppleOnDevice, 'isAppleOnDevice').isTrue());
   });
 
+  test('a model refresh finishes with the model\'s new answer', () async {
+    final container = await iPhone();
+    final subscription = container.listen(
+      effectiveDirectConnectionProfilesProvider,
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    check(await effective(container)).isEmpty();
+
+    // The model finished downloading, and takes a moment to say so.
+    host
+      ..onDevice = PlatformPccAvailability.available
+      ..onDeviceAnswer = Completer<void>();
+    final asked = host.onDeviceAsked;
+    List<DirectConnectionProfile>? whenRefreshed;
+    final refreshed = container
+        .read(directModelDiscoveryProvider.notifier)
+        .refresh()
+        .then(
+          (_) => whenRefreshed = container
+              .read(effectiveDirectConnectionProfilesProvider)
+              .value,
+        );
+    while (host.onDeviceAsked == asked) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    for (var turn = 0; turn < 20; turn++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    host.onDeviceAnswer!.complete();
+    await refreshed;
+
+    check(whenRefreshed).isNotNull().any(
+      (it) => it.has((p) => p.isAppleOnDevice, 'isAppleOnDevice').isTrue(),
+    );
+  });
+
+  test('turning Apple On-Device back on asks its model again', () async {
+    host.onDevice = PlatformPccAvailability.available;
+    final container = await iPhone();
+    final subscription = container.listen(
+      effectiveDirectConnectionProfilesProvider,
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    check(await effective(container)).any(
+      (it) => it.has((p) => p.isAppleOnDevice, 'isAppleOnDevice').isTrue(),
+    );
+    final enabled = container.read(appleOnDeviceEnabledProvider.notifier);
+    await enabled.setEnabled(false);
+    check(await effective(container)).isEmpty();
+
+    // Apple Intelligence is turned off while Apple On-Device is off.
+    host.onDevice = PlatformPccAvailability.unavailable;
+    final asked = host.onDeviceAsked;
+    await enabled.setEnabled(true);
+
+    check(host.onDeviceAsked).isGreaterThan(asked);
+    check(container.read(appleOnDeviceOfferedProvider)).equals(false);
+    check(await effective(container)).isEmpty();
+  });
+
   test('Private Cloud Compute is offered as before, whatever the on-device '
       'model says', () async {
     final container = await iPhone(pccEnabled: true);

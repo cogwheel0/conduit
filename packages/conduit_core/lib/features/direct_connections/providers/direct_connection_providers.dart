@@ -277,6 +277,22 @@ class AppleOnDeviceEnabledController extends _QueuedBoolPreferenceController {
 
   @override
   bool get defaultValue => true;
+
+  /// Turning it back on asks the model again before it can be offered: its
+  /// model may have finished downloading, or stopped answering, while it was
+  /// off, and the answer kept from before would otherwise decide the offer.
+  @override
+  Future<void> _persist(bool enabled) async {
+    if (enabled && !state && ref.read(applePccPlatformSupportedProvider)) {
+      ref.invalidate(appleOnDeviceStatusProvider);
+      try {
+        await ref.read(appleOnDeviceStatusProvider.future);
+      } catch (_) {
+        // An unanswered model is simply not offered.
+      }
+    }
+    await super._persist(enabled);
+  }
 }
 
 final appleOnDeviceEnabledProvider =
@@ -2096,16 +2112,24 @@ class DirectModelDiscoveryController
 
     // Apple On-Device is offered only while its model answers, and a model
     // can finish downloading (or be turned off) at any time: ask it again.
-    // When the answer changes, the profiles change and discovery runs anew.
+    // The pass below discovers the profiles that answer decides, so it waits
+    // for it; the last answer stays shown meanwhile.
+    Future<void>? onDeviceAnswer;
     if (ref.read(applePccPlatformSupportedProvider) &&
         ref.read(appleOnDeviceEnabledProvider)) {
       ref.invalidate(appleOnDeviceStatusProvider);
+      onDeviceAnswer = ref
+          .read(appleOnDeviceStatusProvider.future)
+          .then<void>((_) {}, onError: (Object _) {});
     }
 
     // Defer the first pass by one event turn so bursts of UI/system refresh
     // requests collapse into one provider discovery. Requests arriving while
     // that pass is active schedule at most one superseding pass.
-    final operation = Future<void>(() => _runRefreshLoop());
+    final operation = Future<void>(() async {
+      await onDeviceAnswer;
+      await _runRefreshLoop();
+    });
     _refreshInFlight = operation;
     return operation;
   }
