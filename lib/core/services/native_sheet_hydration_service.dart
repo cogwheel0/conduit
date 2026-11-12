@@ -1650,7 +1650,7 @@ class NativeSheetHydrationService {
     try {
       _pushDistributors = await _ref
           .read(pushCoordinatorProvider.notifier)
-          .distributors();
+          .distributors(throwOnFailure: true);
       _pushDistributorsFailed = false;
     } catch (error, stackTrace) {
       DebugLogger.error(

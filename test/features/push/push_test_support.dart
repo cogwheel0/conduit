@@ -149,9 +149,14 @@ final class FakePushCoordinator extends PushCoordinator {
   Object? distributorsError;
 
   @override
-  Future<List<String>> distributors() async {
+  Future<List<String>> distributors({bool throwOnFailure = false}) async {
     final error = distributorsError;
-    if (error != null) throw error;
+    // As the real coordinator: a failed read counts as none, unless asked
+    // to say so.
+    if (error != null) {
+      if (throwOnFailure) throw error;
+      return const [];
+    }
     return distributorList;
   }
 

@@ -397,12 +397,15 @@ class PushCoordinator extends _$PushCoordinator {
     }
   }
 
-  /// Installed UnifiedPush distributors (package names). Android only.
-  Future<List<String>> distributors() async {
+  /// Installed UnifiedPush distributors (package names). Android only. A
+  /// read that fails counts as none installed; with [throwOnFailure], it
+  /// throws instead, for a page that says the read failed.
+  Future<List<String>> distributors({bool throwOnFailure = false}) async {
     try {
       return await _platform.unifiedPushDistributors();
     } catch (error) {
       _log('push-distributors-failed', error);
+      if (throwOnFailure) rethrow;
       return const [];
     }
   }

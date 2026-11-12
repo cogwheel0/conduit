@@ -1910,6 +1910,9 @@ const nativePushDistributorPrefix = 'push-distributor:';
 /// Control id of Reset Encryption Keys, under Advanced.
 const nativePushResetKeysId = 'push-reset-keys';
 
+/// Reads the UnifiedPush distributors again after a read that failed.
+const nativePushDistributorsRetryId = 'push-distributors-retry';
+
 /// The push groups of the Notifications page, on iOS and Android alike: the
 /// switch, and while push is on, a row into the per-target list and the
 /// privacy explainer. Android without a relay points at UnifiedPush; with
@@ -1917,9 +1920,6 @@ const nativePushResetKeysId = 'push-reset-keys';
 /// Android chooses its delivery service and distributor, and either
 /// platform may reset its keys. [push] is null where push was never turned
 /// on; [distributors] is null until read.
-/// Reads the UnifiedPush distributors again after a read that failed.
-const nativePushDistributorsRetryId = 'push-distributors-retry';
-
 List<NativeSheetSectionConfig> buildNativePushSections(
   AppLocalizations l10n,
   PushState? push, {
