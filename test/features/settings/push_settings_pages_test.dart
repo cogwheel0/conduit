@@ -58,12 +58,16 @@ final class _Surface extends SettingsSurface {
   /// The pages drawn, in order.
   final drawn = <String>[];
 
+  /// The pages handed over with them, for their rows to open.
+  final handed = <String>[];
+
   @override
   Future<bool> applyDetail(
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) {
     drawn.add(detail.id);
+    handed.addAll(detailSheets.map((page) => page.id));
     return super.applyDetail(detail, detailSheets: detailSheets);
   }
 
@@ -581,6 +585,26 @@ void main() {
     check(row.dismissOnSelect).equals(false);
     // Known, so the row pushes it.
     check(rig.page(pushTargetPageId(_owuiScope))).isNotNull();
+  });
+
+  testWidgets('Settings opened again hands the sheet the targets the list '
+      'leads to', (tester) async {
+    final rig = await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: rig.container, child: const _App()),
+    );
+    final target = pushTargetPageId(_owuiScope);
+    await rig.open(NativeSheetRoutes.pushTargets);
+    await rig.open(target);
+
+    // The sheet closes, forgetting every page, and opens again.
+    rig.container
+        .read(settingsControllerProvider)
+        .handle(const NativeSheetDismissed());
+    rig.surface.handed.clear();
+    await rig.open(NativeSheetRoutes.pushTargets);
+
+    check(rig.surface.handed).contains(target);
   });
 
   test('How Push Stays Private is a page of Settings, with the full '

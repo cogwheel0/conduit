@@ -691,10 +691,14 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       detailSheets: [
         // The push page of an account whose push needs the user, which its
         // row menu opens.
+        // One already drawn keeps what it shows.
         for (final scope in pushAttention)
           if (accounts.any(
-            (entry) => PushTarget.openWebUiScope(entry.id) == scope,
-          ))
+                (entry) => PushTarget.openWebUiScope(entry.id) == scope,
+              ) &&
+              !_ref
+                  .read(settingsPagesProvider)
+                  .contains(pushTargetPageId(scope)))
             buildPushTargetLoadingPage(l10n, scope),
         // An editor kept open (through a reorder) keeps the page it shows.
         if (server != null) ...[
