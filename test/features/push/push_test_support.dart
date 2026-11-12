@@ -46,8 +46,11 @@ PushState pushStateWith(
 final class FakePushCoordinator extends PushCoordinator {
   FakePushCoordinator(this.initial, {this.distributorList = const []});
 
+  /// Thrown by [resetKeys].
+  Object? resetKeysError;
+
   final PushState initial;
-  final List<String> distributorList;
+  List<String> distributorList;
   final calls = <String>[];
   bool testArrives = true;
 
@@ -118,7 +121,11 @@ final class FakePushCoordinator extends PushCoordinator {
   }
 
   @override
-  Future<void> resetKeys() async => calls.add('resetKeys');
+  Future<void> resetKeys() async {
+    calls.add('resetKeys');
+    final error = resetKeysError;
+    if (error != null) throw error;
+  }
 
   @override
   Future<void> setAndroidTransport(

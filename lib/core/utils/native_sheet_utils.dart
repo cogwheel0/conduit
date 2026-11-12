@@ -1921,7 +1921,7 @@ List<NativeSheetSectionConfig> buildNativePushSections(
   NativeSheetItemConfig getDistributor(String id) => NativeSheetItemConfig(
     id: id,
     title: l10n.pushGetDistributor,
-    sfSymbol: 'arrow.up.right.square',
+    sfSymbol: 'link',
     url: kUnifiedPushDistributorsUrl,
     showsDisclosure: false,
   );

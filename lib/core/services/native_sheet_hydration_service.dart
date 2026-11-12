@@ -1469,10 +1469,19 @@ class NativeSheetHydrationService {
           ),
       ],
     );
+    // Push is its own switch, with its keys and how it stays private: it
+    // stays, so it can be turned off with the rest.
+    final pushSections = buildNativePushSections(
+      l10n,
+      _ref.read(pushStateIfUsedProvider),
+      android: defaultTargetPlatform == TargetPlatform.android,
+      advanced: s.advancedFeaturesEnabled,
+      distributors: _pushDistributors,
+    );
     // With notifications off the rest cannot do anything, so it is not
     // shown, as Settings hides an app's alert options until they are
     // allowed. Turning them on redraws the page with every option.
-    if (!s.notificationsEnabled) return [masterSection];
+    if (!s.notificationsEnabled) return [masterSection, ...pushSections];
     final deliveryItems = <NativeSheetItemConfig>[
       NativeSheetItemConfig(
         id: 'notification-in-app-banner',
@@ -1545,13 +1554,7 @@ class NativeSheetHydrationService {
     ];
     return [
       masterSection,
-      ...buildNativePushSections(
-        l10n,
-        _ref.read(pushStateIfUsedProvider),
-        android: defaultTargetPlatform == TargetPlatform.android,
-        advanced: s.advancedFeaturesEnabled,
-        distributors: _pushDistributors,
-      ),
+      ...pushSections,
       NativeSheetSectionConfig(items: deliveryItems),
       NativeSheetSectionConfig(items: soundItems),
       NativeSheetSectionConfig(items: contentItems),
@@ -1629,14 +1632,15 @@ class NativeSheetHydrationService {
   List<String>? _pushDistributors;
 
   /// Reads the distributors where Android's Advanced delivery options show
-  /// them and they have not been read. Returns whether it read them.
+  /// them. Returns whether it read them.
   Future<bool> _readPushDistributors() async {
-    if (_pushDistributors != null ||
-        defaultTargetPlatform != TargetPlatform.android ||
+    if (defaultTargetPlatform != TargetPlatform.android ||
         !_ref.read(appSettingsProvider).advancedFeaturesEnabled ||
         !(_ref.read(pushStateIfUsedProvider)?.enabled ?? false)) {
       return false;
     }
+    // Read on every visit: one installed from the link on this page shows
+    // when it is opened again. A read that fails keeps the last list.
     try {
       _pushDistributors = await _ref
           .read(pushCoordinatorProvider.notifier)
@@ -1648,7 +1652,7 @@ class NativeSheetHydrationService {
         error: error,
         stackTrace: stackTrace,
       );
-      _pushDistributors = const [];
+      return false;
     }
     return true;
   }

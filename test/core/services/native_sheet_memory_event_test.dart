@@ -162,6 +162,7 @@ final class _MemoriesApi extends ApiService {
     String memoryId, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    await _refuseIfFailing();
     deleted.add(memoryId);
   }
 }
@@ -441,6 +442,25 @@ void main() {
       );
     });
 
+    testWidgets("a memory's failed text stays when its delete fails too", (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 2;
+      await native.control('memory-save:m1', 'Prefers metric units always');
+
+      await native.control('memory-delete:m1', true);
+
+      expect(
+        native
+            .items('memory-edit:m1')
+            .singleWhere((row) => row.id == 'memory-save:m1')
+            .value,
+        'Prefers metric units always',
+      );
+    });
+
     testWidgets("a change to a memory no longer on the server says so", (
       tester,
     ) async {
@@ -529,6 +549,33 @@ void main() {
       await native.control(nativeMemoryNewContentId, 'Fresh');
       await native.control(nativeMemoryNewSaveId, true);
       expect(native.api.adds, [(content: 'Fresh', type: 'user', path: null)]);
+    });
+
+    testWidgets('an Add Memory change queued before the page was left is '
+        'not kept', (tester) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+      // A save still on its way holds the changes after it.
+      native.api.writeGate = Completer<void>();
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'memory-save:m1',
+          value: 'Prefers metric units always',
+        ),
+      );
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: nativeMemoryNewContentId,
+          value: 'Left behind',
+        ),
+      );
+      // Back on the list, then Add Memory again, before the save lands.
+      await native.detailAppeared('memory-manage');
+      native.api.writeGate!.complete();
+      await tester.pumpAndSettle();
+
+      await native.control(nativeMemoryNewSaveId, true);
+      expect(native.api.adds, isEmpty);
     });
 
     testWidgets("a memory's page saves its type and path as they change", (

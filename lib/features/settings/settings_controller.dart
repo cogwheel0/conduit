@@ -162,9 +162,14 @@ class SettingsController {
         // account may have taken over, and the change, made on a page of the
         // last one, is dropped rather than sent to the new one.
         final owner = _controlOwner();
+        final draft = _newMemoryDraftVisit;
         _nativeSheetControlQueue = _nativeSheetControlQueue.then((_) {
           if (owner != _controlOwner()) return null;
-          return _handleNativeSheetControlChanged(event, source);
+          return _handleNativeSheetControlChanged(
+            event,
+            source,
+            newMemoryDraftVisit: draft,
+          );
         });
       case NativeSheetDetailAppeared(:final detailId):
         // A password typed on an earlier visit is not combined with this one.
@@ -351,8 +356,9 @@ class SettingsController {
 
   Future<void> _handleNativeSheetControlChanged(
     NativeSheetControlChanged sent,
-    SettingsEventSource source,
-  ) async {
+    SettingsEventSource source, {
+    int? newMemoryDraftVisit,
+  }) async {
     // A memory page's Retry sends the text its page last failed to send, as
     // the row it stands for; once a send from the page went through, there
     // is nothing left to send.
@@ -504,7 +510,13 @@ class SettingsController {
 
       if (await _handlePushOption(event.id)) return;
 
-      if (await _handleMemoryEditorChange(event.id, value)) return;
+      if (await _handleMemoryEditorChange(
+        event.id,
+        value,
+        draftVisit: newMemoryDraftVisit,
+      )) {
+        return;
+      }
 
       if (event.id.startsWith('memory-save:')) {
         final encoded = event.id.substring('memory-save:'.length);
@@ -534,7 +546,12 @@ class SettingsController {
         );
         if (session != _memorySession) return;
         if (refusal != null) {
-          await _showMemoryEditRefusal(memoryId, refusal);
+          // Text whose save failed stays on the page through it.
+          await _showMemoryEditRefusal(
+            memoryId,
+            refusal,
+            content: _memoryNotices[_memoryEditPageId(memoryId)],
+          );
           return;
         }
         // The memory is gone, and so is its page.
@@ -1331,15 +1348,26 @@ class SettingsController {
       return true;
     }
     if (id == nativePushResetKeysId) {
+      // Subscriptions are released and set up again: the pages show how
+      // that went once it has, and say so if it did not.
       unawaited(
-        coordinator.resetKeys().catchError((Object error, StackTrace stack) {
-          DebugLogger.error(
-            'push-reset-keys-failed',
-            scope: 'native-sheet',
-            error: error,
-            stackTrace: stack,
-          );
-        }),
+        coordinator
+            .resetKeys()
+            .catchError((Object error, StackTrace stack) {
+              DebugLogger.error(
+                'push-reset-keys-failed',
+                scope: 'native-sheet',
+                error: error,
+                stackTrace: stack,
+              );
+              _showMessage((l10n) => l10n.errorMessage);
+            })
+            .whenComplete(() async {
+              await hydration.hydrateDetail(
+                NativeSheetRoutes.notificationSettings,
+              );
+              await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
+            }),
       );
       return true;
     }
@@ -1413,14 +1441,31 @@ class SettingsController {
   String? _newMemoryType;
   String? _newMemoryPath;
 
-  void _clearNewMemoryDraft() =>
-      _newMemoryContent = _newMemoryType = _newMemoryPath = null;
+  /// Counts the Add Memory visits: a field change queued on one that has
+  /// since been left is not put into the next one's draft.
+  int _newMemoryDraftVisit = 0;
+
+  void _clearNewMemoryDraft() {
+    _newMemoryContent = _newMemoryType = _newMemoryPath = null;
+    _newMemoryDraftVisit++;
+  }
 
   /// The Advanced memory rows: the new memory's fields and Done, and one
   /// memory's type and path, saved as they change. Returns whether [id] was
   /// one of them.
-  Future<bool> _handleMemoryEditorChange(String id, Object? value) async {
+  Future<bool> _handleMemoryEditorChange(
+    String id,
+    Object? value, {
+    int? draftVisit,
+  }) async {
+    final staleDraft = draftVisit != null && draftVisit != _newMemoryDraftVisit;
     switch (id) {
+      case nativeMemoryNewContentId ||
+              nativeMemoryNewTypeId ||
+              nativeMemoryNewPathId ||
+              nativeMemoryNewSaveId
+          when staleDraft:
+        return true;
       case nativeMemoryNewContentId:
         if (value is String) _newMemoryContent = value;
         return true;

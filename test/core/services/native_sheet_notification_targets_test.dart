@@ -351,16 +351,17 @@ void main() {
     await native.detailAppeared(_detail);
 
     final patch = native.patches.lastWhere((p) => p.detailId == _detail);
-    expect(patch.sections.single.items.map((item) => item.id), [
+    expect(patch.sections.first.items.map((item) => item.id), [
       'notifications-enabled',
       'notification-system-settings',
     ]);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   // With notifications off the options under the switch could not do
-  // anything, so only the switch shows, as in Settings.
-  testWidgets('with notifications off only the switch shows, explained by '
-      'its footer', (tester) async {
+  // anything, so only the switch shows, as in Settings, and push, which is
+  // turned off on its own.
+  testWidgets('with notifications off only the switch and push show, the '
+      'switch explained by its footer', (tester) async {
     final native = await _pumpApp(
       tester,
       advanced: false,
@@ -370,8 +371,9 @@ void main() {
     await native.detailAppeared(_detail);
 
     final patch = native.patches.lastWhere((p) => p.detailId == _detail);
-    expect(patch.sections, hasLength(1));
-    final master = patch.sections.single;
+    expect(patch.sections, hasLength(2));
+    expect(patch.sections.last.items.first.id, 'push-enabled');
+    final master = patch.sections.first;
     expect(master.items.map((item) => item.id), ['notifications-enabled']);
     expect(master.items.single.value, isFalse);
     expect(master.items.single.subtitle, isNull);

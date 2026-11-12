@@ -102,6 +102,40 @@ void main() {
     check(controller.changes.last).equals(('send-on-enter', false));
   });
 
+  testWidgets('a choice in use is marked, as iOS marks it', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail(const [
+        NativeSheetItemConfig(
+          id: 'delivery-auto',
+          title: 'Automatic',
+          kind: NativeSheetItemKind.info,
+          checked: true,
+        ),
+        NativeSheetItemConfig(
+          id: 'delivery-fcm',
+          title: 'Google',
+          kind: NativeSheetItemKind.info,
+        ),
+      ]),
+    );
+
+    expect(
+      find.descendant(
+        of: _row('delivery-auto'),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _row('delivery-fcm'),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('a row naming a known page opens that page rather than '
       'sending a change', (tester) async {
     final controller = await _pumpPage(

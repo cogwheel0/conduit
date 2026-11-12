@@ -712,4 +712,73 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('push stays on the page with notifications off', (tester) async {
+    final state = pushStateWith(const [
+      PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+    ]);
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: state,
+      coordinator: FakePushCoordinator(state),
+    );
+    await native.detailAppeared(_detail);
+
+    await native.control('notifications-enabled', false);
+
+    final ids = _ids(native.items(_detail));
+    expect(ids, contains('push-enabled'));
+    expect(ids, isNot(contains('notification-in-app-banner')));
+  });
+
+  testWidgets('a distributor installed since shows when the page opens '
+      'again', (tester) async {
+    await onPlatform(() async {
+      final fake = FakePushCoordinator(
+        pushStateWith(
+          const [
+            PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+          ],
+          transports: const [PushTransport.fcm],
+          androidTransport: PushAndroidTransport.unifiedPush,
+        ),
+      );
+      final native = await _pumpApp(
+        tester,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+      expect(_ids(native.items(_detail)), contains('push-no-distributor'));
+
+      fake.distributorList = const ['io.heckel.ntfy'];
+      await native.detailAppeared(_detail);
+
+      expect(item(native, 'push-distributor:io.heckel.ntfy').checked, isTrue);
+    });
+  });
+
+  testWidgets('a key reset that fails says so', (tester) async {
+    final state = pushStateWith(const [
+      PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+    ]);
+    final fake = FakePushCoordinator(state)..resetKeysError = StateError('x');
+    final native = await _pumpApp(tester, push: state, coordinator: fake);
+    await native.detailAppeared(_detail);
+    final drawn = native.patches.length;
+
+    await native.control('push-reset-keys', true);
+
+    expect(fake.calls, ['resetKeys']);
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
+    // The page is drawn again once the reset has run its course.
+    expect(
+      native.patches.skip(drawn).map((patch) => patch.detailId),
+      contains(_detail),
+    );
+  });
 }
