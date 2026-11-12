@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind, annotateConversationStorage;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
@@ -638,6 +640,30 @@ void main() {
         ),
         reviewerModeProvider.overrideWithValue(false),
         selectedModelProvider.overrideWithValue(libreChatModel),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final eligibility = container.read(voiceCallEligibilityProvider);
+
+    check(eligibility.canStart).isFalse();
+    check(eligibility.reason)
+        .equals(VoiceCallEligibilityReason.backendUnsupported);
+    check(eligibility.errorMessage).equals(voiceCallLibreChatRefusal);
+  });
+
+  test('voice eligibility refuses a LibreChat chat whose selection still '
+      'holds another backend\'s model', () {
+    // A LibreChat chat reopened after its saved model went away keeps the
+    // model chosen before, here an Open WebUI one.
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.needsLogin,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(_model),
+        activeConversationProvider.overrideWith(_LibreChatConversation.new),
       ],
     );
     addTearDown(container.dispose);
@@ -3746,4 +3772,18 @@ final class _RealtimeAudio implements RealtimePcmAudioPort {
 
   @override
   Future<void> stop() async => stopped = true;
+}
+
+/// A LibreChat chat is the one open.
+final class _LibreChatConversation extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => annotateConversationStorage(
+    Conversation(
+      id: 'librechat-chat',
+      title: 'Seed order',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    ),
+    ChatStorageKind.libreChat,
+  );
 }

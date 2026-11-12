@@ -79,6 +79,16 @@ final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>((ref) {
     return VoiceCallEligibility.eligible(model);
   }
 
+  // A LibreChat chat offers no calls, whatever the selection holds: one
+  // reopened after its saved model went away keeps the model chosen before.
+  if (isLibreChatConversation(ref.watch(activeConversationProvider))) {
+    return VoiceCallEligibility.blocked(
+      reason: VoiceCallEligibilityReason.backendUnsupported,
+      model: model,
+      errorMessage: voiceCallLibreChatRefusal,
+    );
+  }
+
   if (isHermesModel(model)) {
     if (ref.watch(hermesSecretsLoadingProvider)) {
       return VoiceCallEligibility.blocked(
