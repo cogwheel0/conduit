@@ -117,6 +117,18 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     ),
     buildNativeLoadingDetail(
       l10n: l10n,
+      id: NativeSheetRoutes.scheduledTasks,
+      title: l10n.scheduledTasksTitle,
+      subtitle: l10n.loadingShort,
+    ),
+    buildNativeLoadingDetail(
+      l10n: l10n,
+      id: NativeSheetRoutes.personalConnections,
+      title: l10n.personalConnectionsTitle,
+      subtitle: l10n.loadingShort,
+    ),
+    buildNativeLoadingDetail(
+      l10n: l10n,
       id: NativeSheetRoutes.helpAbout,
       title: l10n.aboutApp,
       subtitle: l10n.loadingShort,

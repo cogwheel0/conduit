@@ -6862,6 +6862,10 @@
     }
   },
   "hermesMcpTestFailed": "Test MCP zlyhal.",
+  "scheduledTasksSearchLabel": "Hľadať",
+  "scheduledTasksFilterLabel": "Zobraziť",
+  "personalConnectionsTurnOn": "Zapnúť",
+  "personalConnectionsTurnOff": "Vypnúť",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nové upozornenie",
   "pushReplyTitle": "Nová odpoveď",

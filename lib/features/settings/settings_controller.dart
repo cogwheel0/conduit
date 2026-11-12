@@ -3,14 +3,11 @@ import 'dart:async';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show currentUserProvider2;
-import 'package:conduit_core/features/automations/providers/automation_providers.dart'
-    show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
     show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/push/models/push_status.dart'
     show PushAndroidTransport;
@@ -436,42 +433,6 @@ class SettingsController {
       }
 
       if (await _handleNativeAccountAction(event.id, value)) return;
-
-      if (event.id == NativeSheetRoutes.personalConnections) {
-        // The sheet was built before this arrived, and Advanced or the
-        // account's access can change while it is open. The page enforces the
-        // same rule, but a stale row should not even navigate.
-        if (!ref.read(personalConnectionsEntryVisibleProvider)) {
-          _showNativeOptionUnavailable();
-          return;
-        }
-        final request = personalConnectionsNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
-
-      if (event.id == NativeSheetRoutes.scheduledTasks) {
-        // As for Personal connections: the sheet was built before this
-        // arrived, so a row that went stale (Advanced turned off, the account
-        // or its permission changed) must not navigate.
-        if (!ref.read(scheduledTasksEntryVisibleProvider)) {
-          _showNativeOptionUnavailable();
-          return;
-        }
-        final request = scheduledTasksNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
 
       if (event.id == NativeSheetRoutes.calendar) {
         // As for Scheduled tasks: the sheet was built before this arrived, so

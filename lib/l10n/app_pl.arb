@@ -9314,6 +9314,22 @@
     }
   },
   "hermesMcpTestFailed": "Test MCP nie powiódł się.",
+  "scheduledTasksSearchLabel": "Szukaj",
+  "@scheduledTasksSearchLabel": {
+    "description": "Title of the row searching scheduled tasks by name or instructions."
+  },
+  "scheduledTasksFilterLabel": "Pokaż",
+  "@scheduledTasksFilterLabel": {
+    "description": "Title of the row choosing which scheduled tasks the list shows: all, active or paused."
+  },
+  "personalConnectionsTurnOn": "Włącz",
+  "@personalConnectionsTurnOn": {
+    "description": "Menu action on a personal tool server or terminal row that turns it on."
+  },
+  "personalConnectionsTurnOff": "Wyłącz",
+  "@personalConnectionsTurnOff": {
+    "description": "Menu action on a personal tool server or terminal row that turns it off."
+  },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nowe powiadomienie",
   "pushReplyTitle": "Nowa odpowiedź",

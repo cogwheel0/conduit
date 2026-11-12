@@ -11069,6 +11069,22 @@
   "@hermesMcpTestFailed": {
     "description": "Result of an MCP server test that failed without saying why."
   },
+  "scheduledTasksSearchLabel": "Search",
+  "@scheduledTasksSearchLabel": {
+    "description": "Title of the row searching scheduled tasks by name or instructions."
+  },
+  "scheduledTasksFilterLabel": "Show",
+  "@scheduledTasksFilterLabel": {
+    "description": "Title of the row choosing which scheduled tasks the list shows: all, active or paused."
+  },
+  "personalConnectionsTurnOn": "Turn On",
+  "@personalConnectionsTurnOn": {
+    "description": "Menu action on a personal tool server or terminal row that turns it on."
+  },
+  "personalConnectionsTurnOff": "Turn Off",
+  "@personalConnectionsTurnOff": {
+    "description": "Menu action on a personal tool server or terminal row that turns it off."
+  },
   "pushFallbackTitle": "Conduit",
   "@pushFallbackTitle": {
     "description": "Title of a push notification that could not be decrypted on this device, or that has no title. Usually the app name."

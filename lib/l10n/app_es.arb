@@ -4939,6 +4939,10 @@
     }
   },
   "hermesMcpTestFailed": "La prueba de MCP falló.",
+  "scheduledTasksSearchLabel": "Buscar",
+  "scheduledTasksFilterLabel": "Mostrar",
+  "personalConnectionsTurnOn": "Activar",
+  "personalConnectionsTurnOff": "Desactivar",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nueva notificación",
   "pushReplyTitle": "Nueva respuesta",

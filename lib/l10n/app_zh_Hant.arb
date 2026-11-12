@@ -4939,6 +4939,10 @@
     }
   },
   "hermesMcpTestFailed": "MCP 測試失敗。",
+  "scheduledTasksSearchLabel": "搜尋",
+  "scheduledTasksFilterLabel": "顯示",
+  "personalConnectionsTurnOn": "開啟",
+  "personalConnectionsTurnOff": "關閉",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新通知",
   "pushReplyTitle": "新回覆",

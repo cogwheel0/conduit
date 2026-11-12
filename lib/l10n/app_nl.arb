@@ -4939,6 +4939,10 @@
     }
   },
   "hermesMcpTestFailed": "De MCP-test is mislukt.",
+  "scheduledTasksSearchLabel": "Zoeken",
+  "scheduledTasksFilterLabel": "Tonen",
+  "personalConnectionsTurnOn": "Inschakelen",
+  "personalConnectionsTurnOff": "Uitschakelen",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nieuwe melding",
   "pushReplyTitle": "Nieuw antwoord",

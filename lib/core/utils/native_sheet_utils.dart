@@ -416,15 +416,16 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   // Power-user pages Advanced reveals. The group goes with its last row, so
   // turning Advanced off leaves no empty heading behind.
   final advancedItems = <NativeSheetItemConfig>[
+    // Pages of Settings's own: they open inside Settings.
     if (visibility.showScheduledTasks)
-      _nativeRootPageItem(
-        NativeSheetRoutes.scheduledTasks,
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.scheduledTasks,
         title: l10n.scheduledTasksTitle,
         sfSymbol: 'clock.arrow.circlepath',
       ),
     if (visibility.showPersonalConnections)
-      _nativeRootPageItem(
-        NativeSheetRoutes.personalConnections,
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.personalConnections,
         title: l10n.personalConnectionsTitle,
         sfSymbol: 'server.rack',
       ),

@@ -4977,6 +4977,10 @@
     }
   },
   "hermesMcpTestFailed": "Проверка MCP не удалась.",
+  "scheduledTasksSearchLabel": "Поиск",
+  "scheduledTasksFilterLabel": "Показать",
+  "personalConnectionsTurnOn": "Включить",
+  "personalConnectionsTurnOff": "Выключить",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Новое уведомление",
   "pushReplyTitle": "Новый ответ",

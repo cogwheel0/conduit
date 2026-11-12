@@ -16,24 +16,10 @@ final class NativeSheetNavigationOrigin {
 
 typedef NativeSheetNavigationRequest = ({String routeName, Object extra});
 
-/// Personal connections are pushed as the native profile sheet starts to
-/// slide away, so the page is already underneath when it has gone. Keep its
-/// route and transition marker coupled so this entry point cannot
-/// accidentally restore a second Cupertino transition over the native sheet.
-const NativeSheetNavigationRequest
-personalConnectionsNativeSheetNavigationRequest = (
-  routeName: RouteNames.personalConnections,
-  extra: NativeSheetNavigationOrigin(),
-);
-
-/// Scheduled tasks open the same way, from the native Settings sheet.
-const NativeSheetNavigationRequest scheduledTasksNativeSheetNavigationRequest =
-    (
-      routeName: RouteNames.scheduledTasks,
-      extra: NativeSheetNavigationOrigin(),
-    );
-
-/// The calendar opens the same way, from the native Settings sheet.
+/// The calendar is pushed as the native profile sheet starts to slide away,
+/// so the page is already underneath when it has gone. Keep its route and
+/// transition marker coupled so this entry point cannot accidentally restore
+/// a second Cupertino transition over the native sheet.
 const NativeSheetNavigationRequest calendarNativeSheetNavigationRequest = (
   routeName: RouteNames.calendar,
   extra: NativeSheetNavigationOrigin(),

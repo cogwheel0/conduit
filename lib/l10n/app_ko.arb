@@ -4711,6 +4711,10 @@
     }
   },
   "hermesMcpTestFailed": "MCP 테스트에 실패했습니다.",
+  "scheduledTasksSearchLabel": "검색",
+  "scheduledTasksFilterLabel": "표시",
+  "personalConnectionsTurnOn": "켜기",
+  "personalConnectionsTurnOff": "끄기",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "새 알림",
   "pushReplyTitle": "새 응답",
