@@ -434,7 +434,10 @@ class WorkspaceSkillForm {
   /// [content].
   final List<Map<String, dynamic>>? files;
   final Map<String, dynamic> meta;
-  final bool isActive;
+
+  /// Whether the skill is on; null leaves it as the server has it (an
+  /// update sent while another client switched it).
+  final bool? isActive;
 
   /// Null leaves who may open it as it is (an update).
   final List<WorkspaceAccessGrantInput>? accessGrants;
@@ -446,7 +449,7 @@ class WorkspaceSkillForm {
     'content': content,
     if (files != null) 'files': files,
     'meta': meta,
-    'is_active': isActive,
+    if (isActive != null) 'is_active': isActive,
     if (accessGrants case final grants?)
       'access_grants': workspaceGrantInputs(grants),
   };

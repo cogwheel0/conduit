@@ -5023,6 +5023,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "Sla je wijzigingen op of verwerp ze voordat je de vaardigheid in- of uitschakelt.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Geplande uitvoeringen tonen",
   "hermesShowScheduledRunsDescription": "Elke uitvoering van een geplande agent start een eigen chat. Zet dit uit om die chats uit de Hermes-lijst weg te laten. Vastgepinde chats blijven staan.",
   "hermesScheduledRunsHidden": "{count, plural, =1{1 geplande uitvoering verborgen} other{{count} geplande uitvoeringen verborgen}}",

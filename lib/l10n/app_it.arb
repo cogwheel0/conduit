@@ -5023,6 +5023,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "Salva o annulla le modifiche prima di attivare o disattivare la skill.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Mostra esecuzioni pianificate",
   "hermesShowScheduledRunsDescription": "Ogni esecuzione di un agente pianificato avvia una chat a sé. Disattiva questa opzione per escludere quelle chat dall’elenco di Hermes. Quelle fissate restano.",
   "hermesScheduledRunsHidden": "{count, plural, =1{1 esecuzione pianificata nascosta} other{{count} esecuzioni pianificate nascoste}}",

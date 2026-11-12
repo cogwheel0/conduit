@@ -5023,6 +5023,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "请先保存或放弃更改，再启用或停用该技能。",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "显示定时运行",
   "hermesShowScheduledRunsDescription": "定时智能体每次运行都会新建一个聊天。关闭后，这些聊天不会显示在 Hermes 列表中。已置顶的仍会保留。",
   "hermesScheduledRunsHidden": "{count, plural, other{已隐藏 {count} 个定时运行}}",

@@ -8,6 +8,7 @@ import 'package:conduit_core/features/workspace/models/workspace_resources.dart'
 import 'package:conduit_core/features/workspace/models/workspace_skill_content.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/navigation/routes.dart' show WorkspaceSection;
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -613,7 +614,9 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       description: description.isEmpty ? null : description,
       content: editor.content,
       meta: editor.meta,
-      isActive: editor.summary?.isActive ?? true,
+      // On or off is the switch's to change: an update leaves it as the
+      // server has it, should another client have switched it meanwhile.
+      isActive: editor.isCreate ? true : null,
       // Who may open it is saved on its Access page; an update leaves it
       // as it is, rather than putting back what was read on opening.
       accessGrants: editor.isCreate ? editor.grants : null,
@@ -715,8 +718,8 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
   ) async {
     final summary = editor.summary;
     if (summary == null || editor.readOnly) return;
-    // The copy is of the skill as saved: changes not saved yet are saved or
-    // discarded first, as switching it on or off asks.
+    // The copy is of the skill as saved, so a draft is refused with a
+    // prompt to save or discard it first.
     if (editor.dirty) {
       _say(editor, l10n.workspaceSkillCloneSaveFirst);
       await _applyEditor(l10n, editor, withPages: false);
@@ -739,15 +742,28 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       meta: editor.meta,
       isActive: editor.summary?.isActive ?? true,
     );
+    // Open WebUI 0.13 duplicates a skill itself, every file of its package
+    // included (the skill as read here has none); an older one is sent a
+    // copy made from what was read.
+    final serverClones = ServerVersionCompat.knownAtLeast(
+      _ref.read(workspaceServerVersionProvider),
+      '0.13.0',
+    );
     final ok = await _operate(l10n, editor, () async {
+      if (serverClones == false) {
+        await _notifier.create(form);
+        return;
+      }
       try {
-        // The server's own duplicate copies every file of the package; the
-        // skill as read here has none on Open WebUI 0.13.
         await _notifier.clone(summary.id, newId: id, name: name);
       } on DioException catch (error) {
-        // A server without it makes the copy from what was read.
+        // A server of a version not known to have it may not: a copy is
+        // made instead, while the account it was read for is still in use.
         final status = error.response?.statusCode;
-        if (status != 404 && status != 405) rethrow;
+        if (serverClones == true || (status != 404 && status != 405)) {
+          rethrow;
+        }
+        if (!_current(editor)) return;
         await _notifier.create(form);
       }
     });
@@ -762,6 +778,13 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
   ) async {
     final summary = editor.summary;
     if (summary == null || editor.readOnly) return;
+    // Switched at once, it would stay switched if the changes were then
+    // discarded: they are saved or discarded first.
+    if (editor.dirty) {
+      _say(editor, l10n.workspaceSkillToggleSaveFirst);
+      await _applyEditor(l10n, editor, withPages: false);
+      return;
+    }
     WorkspaceSkillSummary? toggled;
     final ok = await _operate(
       l10n,

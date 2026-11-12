@@ -6637,6 +6637,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "スキルを有効または無効にする前に、変更を保存するか破棄してください。",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "スケジュール実行を表示",
   "hermesShowScheduledRunsDescription": "スケジュールされたエージェントは実行のたびに新しいチャットを作成します。オフにすると、それらのチャットを Hermes の一覧に表示しません。ピン留めしたものは残ります。",
   "hermesScheduledRunsHidden": "{count, plural, other{{count} 件のスケジュール実行を非表示}}",

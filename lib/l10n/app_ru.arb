@@ -5061,6 +5061,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "Сохраните или отмените изменения, прежде чем включать или выключать навык.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Показывать запланированные запуски",
   "hermesShowScheduledRunsDescription": "Каждый запуск запланированного агента создаёт отдельный чат. Отключите, чтобы не показывать такие чаты в списке Hermes. Закреплённые останутся.",
   "hermesScheduledRunsHidden": "{count, plural, one{Скрыт {count} запланированный запуск} few{Скрыто {count} запланированных запуска} many{Скрыто {count} запланированных запусков} other{Скрыто {count} запланированного запуска}}",

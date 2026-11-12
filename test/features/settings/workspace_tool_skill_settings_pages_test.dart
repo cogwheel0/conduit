@@ -222,6 +222,9 @@ final class _Skills extends WorkspaceSkills {
   final cloned = <(String, String)>[];
   Object? cloneError;
 
+  /// Runs as a clone is asked for, before it answers.
+  void Function()? onClone;
+
   @override
   Future<WorkspaceCollectionState<WorkspaceSkillSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
@@ -232,6 +235,7 @@ final class _Skills extends WorkspaceSkills {
     required String newId,
     required String name,
   }) async {
+    onClone?.call();
     final error = cloneError;
     if (error != null) throw error;
     cloned.add((id, newId));
@@ -1121,22 +1125,90 @@ void main() {
           .equals(_l10n.workspaceSkillCloneSaveFirst);
     });
 
-    testWidgets('a server without its own duplicate gets a copy made from '
-        'the skill as read', (tester) async {
-      final skills = _Skills()
-        ..cloneError = DioException(
-          requestOptions: RequestOptions(),
-          response: Response(requestOptions: RequestOptions(), statusCode: 404),
-        );
-      final rig = await pump(tester, skills: skills);
+    DioException notFound() => DioException(
+      requestOptions: RequestOptions(),
+      response: Response(requestOptions: RequestOptions(), statusCode: 404),
+    );
+
+    testWidgets('an older server gets a copy made from the skill as read', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills, serverVersion: '0.12.4');
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).isEmpty();
+      check(skills.created.single.id).equals('skill-1_clone');
+      // Its SKILL.md alone: the content makes it, as it always did.
+      check(skills.created.single.files).isNull();
+      check(skills.created.single.accessGrants).isNotNull().isEmpty();
+    });
+
+    testWidgets('a server of unknown version without its own duplicate gets '
+        'a copy made instead', (tester) async {
+      final skills = _Skills()..cloneError = notFound();
+      final rig = await pump(tester, skills: skills, serverVersion: null);
       await rig.open(_skill1);
 
       await rig.change(_skillRow('clone', _skillKey));
 
       check(skills.created.single.id).equals('skill-1_clone');
-      // Its SKILL.md alone: the content makes it, as it always did.
-      check(skills.created.single.files).isNull();
-      check(skills.created.single.accessGrants).isNotNull().isEmpty();
+    });
+
+    testWidgets('a duplicate refused after another account signed in makes '
+        'no copy for it', (tester) async {
+      final skills = _Skills()..cloneError = notFound();
+      final rig = await pump(tester, skills: skills, serverVersion: null);
+      skills.onClone = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.created).isEmpty();
+    });
+
+    testWidgets('a skill gone from Open WebUI 0.13 is not made again from '
+        'what was read', (tester) async {
+      final skills = _Skills()..cloneError = notFound();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.created).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceSkillSaveFailed);
+    });
+
+    testWidgets('a save leaves whether the skill is on to the server', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a hike');
+
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated.single.isActive).isNull();
+    });
+
+    testWidgets('a skill with unsaved changes is not switched on or off', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a hike');
+
+      await rig.change(_skillRow('active', _skillKey));
+
+      check(skills.toggled).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceSkillToggleSaveFirst);
     });
 
     testWidgets('a skill the account may only view offers no changes', (

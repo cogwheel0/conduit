@@ -11575,6 +11575,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "Save or discard your changes before switching the skill on or off.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Show Scheduled Runs",
   "@hermesShowScheduledRuns": {
     "description": "Switch in Hermes settings, in the Conversations group, that shows or leaves out the chats a scheduled agent (cron job) starts each time it runs."

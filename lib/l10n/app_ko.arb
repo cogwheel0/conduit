@@ -4795,6 +4795,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "스킬을 켜거나 끄기 전에 변경 사항을 저장하거나 취소하세요.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "예약 실행 표시",
   "hermesShowScheduledRunsDescription": "예약된 에이전트는 실행될 때마다 새 채팅을 만듭니다. 이 설정을 끄면 해당 채팅이 Hermes 목록에 표시되지 않습니다. 고정한 채팅은 그대로 표시됩니다.",
   "hermesScheduledRunsHidden": "{count, plural, other{예약 실행 {count}개 숨김}}",

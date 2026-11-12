@@ -6943,6 +6943,10 @@
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
   },
+  "workspaceSkillToggleSaveFirst": "Pred zapnutím alebo vypnutím zručnosti zmeny uložte alebo zahoďte.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Zobrazovať naplánované spustenia",
   "hermesShowScheduledRunsDescription": "Každé spustenie naplánovaného agenta vytvorí vlastný chat. Vypnutím tieto chaty vynecháte zo zoznamu Hermes. Pripnuté zostanú.",
   "hermesScheduledRunsHidden": "{count, plural, one{Skryté 1 naplánované spustenie} few{Skryté {count} naplánované spustenia} other{Skrytých {count} naplánovaných spustení}}",
