@@ -295,8 +295,10 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       authManager.resetRetryCounter();
 
       if (hasValidToken) {
-        // User has a valid token - just refresh to verify connection
-        await authManager.refresh();
+        // Ask the server about the kept session before it shows signed in:
+        // a refresh would trust it at once and route to the chat, then come
+        // back here while a sign-in proxy still turns it away.
+        await authManager.retryConnectionIssue();
       } else {
         // No valid token - attempt silent login with saved credentials
         await authManager.silentLogin();
