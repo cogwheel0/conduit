@@ -1025,7 +1025,13 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       }
       _running.remove(section);
     }
-    if (cancelled || _account() != account) return;
+    if (_account() != account) return;
+    if (cancelled) {
+      // Stopped by an account change, and back on this account: the list
+      // no longer waits on the import, which says nothing more.
+      if (_listsShown.contains(section)) await _applyList(l10n, section);
+      return;
+    }
     _notices[section] = report == null
         ? (text: l10n.workspaceImportBatchFailed, error: true)
         : (

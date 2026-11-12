@@ -813,6 +813,13 @@ void main() {
       check(models.imported.map((item) => item['id']))
           .deepEquals(['imported-1']);
       check(rig.page(modelsPage).announcement).isNull();
+      // Its row no longer waits on the import.
+      final import = rig.row(
+        modelsPage,
+        workspaceRowId('list-import', 'models'),
+      );
+      check(import!.pending).not((it) => it.equals(true));
+      check(import.disabled).isFalse();
     });
 
     testWidgets('a file that is not JSON imports nothing and says so', (
