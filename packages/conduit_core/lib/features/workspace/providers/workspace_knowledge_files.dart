@@ -234,12 +234,12 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   /// Reloads only the ingestion (pending) list. When nothing remains pending,
   /// also refreshes the file list so newly-processed files appear.
   Future<void> refreshPending() async {
-    final current = _current;
     final session = WorkspaceSessionIdentity.read(ref);
+    final hadPending = _current.pending.isNotEmpty;
     final pending = await _loadPending(session.api);
     if (!session.isCurrent(ref)) return;
-    final hadPending = current.pending.isNotEmpty;
-    state = AsyncData(current.copyWith(pending: pending));
+    // Into the browser as it is now: a folder opened meanwhile stays open.
+    state = AsyncData(_current.copyWith(pending: pending));
     if (hadPending && pending.isEmpty) {
       await refresh();
     }
@@ -250,6 +250,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   /// Uploads raw bytes to `/files/` then attaches the resulting file into the
   /// current directory. Surfaces send progress via [WorkspaceUploadProgress].
   Future<void> uploadBytes(String filename, List<int> bytes) async {
+    final destination = _destination;
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
       await session.api.validateWorkspaceKnowledgeUpload(
@@ -284,13 +285,14 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         session,
         await _waitForProcessing(session, [fileId]),
       );
-      await _attachUploaded(session.api, [fileId]);
+      await _attachUploaded(session.api, [fileId], destination);
       session.ensureCurrent(ref);
     });
   }
 
   /// Creates a plain-text file from [content] and attaches it.
   Future<void> addTextFile(String filename, String content) async {
+    final destination = _destination;
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
       final name = filename.toLowerCase().endsWith('.txt')
@@ -309,7 +311,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         session,
         await _waitForProcessing(session, [fileId]),
       );
-      await _attachUploaded(session.api, [fileId]);
+      await _attachUploaded(session.api, [fileId], destination);
       session.ensureCurrent(ref);
     });
   }
@@ -318,10 +320,11 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   /// Nothing is uploaded, so the server's own check on linking decides: it
   /// lets a full base take a file it already holds.
   Future<void> attachExisting(String fileId) async {
+    final destination = _destination;
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
       try {
-        await _attach(session.api, fileId);
+        await _attach(session.api, fileId, destination);
       } on DioException catch (error) {
         // The file is the user's own; it stays where it was.
         throw _limitRefusal(error) ?? error;
@@ -348,6 +351,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
     ];
     if (files.isEmpty) return;
     final sizeUnknown = files.any((file) => file.size < 0);
+    final destination = _destination;
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
       await session.api.validateWorkspaceKnowledgeUpload(
@@ -387,7 +391,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
           if (!failed.containsKey(id)) id,
       ];
       if (processed.isNotEmpty) {
-        await _attachUploaded(session.api, processed);
+        await _attachUploaded(session.api, processed, destination);
         session.ensureCurrent(ref);
       }
       if (failed.isNotEmpty) throw _unprocessed(failed, names: names);
@@ -449,12 +453,20 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   /// server refuses them, as for the knowledge base's limits, they are
   /// deleted so they do not linger among the user's files, and the server's
   /// reason is thrown as [KnowledgeUploadRefused].
-  Future<void> _attachUploaded(ApiService api, List<String> fileIds) async {
+  /// The folder files go into: the one open as the change began, null for
+  /// the root. Read once, so opening another folder while an upload is
+  /// processed does not move where it lands.
+  String? get _destination => _current.isRoot ? null : _current.directoryId;
+
+  Future<void> _attachUploaded(
+    ApiService api,
+    List<String> fileIds,
+    String? directoryId,
+  ) async {
     try {
       if (fileIds.length == 1) {
-        await _attach(api, fileIds.single);
+        await _attach(api, fileIds.single, directoryId);
       } else {
-        final directoryId = _current.isRoot ? null : _current.directoryId;
         final added = await api.attachWorkspaceKnowledgeFiles(
           knowledgeId,
           fileIds
@@ -502,8 +514,11 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
 
   /// Attaches a single [fileId] into the current directory via the JSON
   /// `/file/add` route (upload-then-link flow, the verified v0.10.2 contract).
-  Future<void> _attach(ApiService api, String fileId) async {
-    final directoryId = _current.isRoot ? null : _current.directoryId;
+  Future<void> _attach(
+    ApiService api,
+    String fileId,
+    String? directoryId,
+  ) async {
     await api.attachWorkspaceKnowledgeFile(
       knowledgeId,
       fileId,
