@@ -202,8 +202,19 @@ final class _Files extends WorkspaceKnowledgeFiles {
   @override
   Future<void> openDirectory(String directoryId) async {
     opened.add(directoryId);
+    final error = openError;
+    if (error != null) {
+      // As the provider keeps the last folder's entries on a failed read.
+      state = AsyncData(
+        state.requireValue.copyWith(directoryId: directoryId, error: error),
+      );
+      throw error;
+    }
     state = AsyncData(_at(directoryId));
   }
+
+  /// Thrown by [openDirectory] while set.
+  Object? openError;
 
   void _maybeFail() {
     final error = failure;
@@ -267,7 +278,13 @@ final class _UserFiles extends UserFiles {
   final List<FileInfo> files;
 
   @override
-  Future<List<FileInfo>> build() async => files;
+  Future<List<FileInfo>> build() async {
+    // Another account's files cannot be read here.
+    if (ref.watch(currentUserProvider2)?.id == 'user-2') {
+      throw StateError('offline');
+    }
+    return files;
+  }
 }
 
 /// Settings as the pages see it: each question is answered with [answer].
@@ -693,6 +710,28 @@ void main() {
       check(rig.export.shared).deepEquals(['Trail Notes.zip']);
     });
 
+    testWidgets("an editor kept from another account is not shown to the "
+        'next', (tester) async {
+      final rig = await pump(tester);
+      await rig.open(_base1);
+      await rig.change(_row('name', _key), 'Private Trail');
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await rig.open(_base1);
+
+      check(rig.row(_base1, _row('name', _key))?.value)
+          .not((it) => it.equals('Private Trail'));
+    });
+
     testWidgets('a connected base reads without fields or file changes', (
       tester,
     ) async {
@@ -985,6 +1024,44 @@ void main() {
       await rig.change(_row('attach-pick', _key, '|srv-1'));
       check(browser.attached).deepEquals(['srv-1']);
       check(rig.closed).deepEquals([text, attach]);
+    });
+
+    testWidgets('a folder that cannot be read offers Retry, not the last '
+        "folder's files", (tester) async {
+      final browser = _Files()..openError = StateError('offline');
+      final rig = await files(tester, browser: browser);
+      final maps = workspaceKnowledgeFolderPageId(_key, 'dir-1');
+
+      await rig.open(maps);
+
+      check(rig.row(maps, _row('files-retry', _key, 'dir-1'))).isNotNull();
+      check(rig.row(maps, '$maps-file-file-1')).isNull();
+    });
+
+    testWidgets("another account's Attach form shows none of the last one's "
+        'files', (tester) async {
+      final rig = await files(
+        tester,
+        userFiles: [_serverFile('srv-1', 'gear.md')],
+      );
+      final attach = _form(WorkspaceKnowledgeForms.attach, '');
+      await rig.open(attach);
+      check(rig.titles(attach)).deepEquals(['gear.md']);
+      rig.leave(attach);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await rig.open(attach);
+
+      check(rig.titles(attach)).not((it) => it.contains('gear.md'));
     });
 
     testWidgets('a form left keeps nothing typed into it', (tester) async {

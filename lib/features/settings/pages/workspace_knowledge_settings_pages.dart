@@ -379,7 +379,11 @@ NativeSheetDetailConfig buildWorkspaceKnowledgeFolderPage(
       ? l10n.workspaceKnowledgeFilesTitle
       : editor.folderNames[directoryId] ?? l10n.workspaceKnowledgeFilesTitle;
   final showing = browser != null && browser.directoryId == directoryId;
-  if (!showing || (browser.isLoading && !browser.isLoadingMore)) {
+  // A folder that could not be read keeps the last one's entries in the
+  // browser: it offers Retry, not those.
+  if (!showing ||
+      editor.filesFailed ||
+      (browser.isLoading && !browser.isLoadingMore)) {
     return NativeSheetDetailConfig(
       id: pageId,
       title: title,
@@ -776,6 +780,21 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
 
   /// The account's files the attach forms list, by query.
   final Map<String, List<FileInfo>> _attachFiles = {};
+  (String, String)? _attachFilesFor;
+
+  /// The Attach form's files, by search, for the account signed in: another
+  /// account's are dropped rather than shown.
+  Map<String, List<FileInfo>> _attachCache() {
+    final session = _session();
+    final account = session == null ? null : (session.serverId, session.userId);
+    if (account != _attachFilesFor) {
+      _attachFiles.clear();
+      _attachFailed.clear();
+      _attachFilesFor = account;
+    }
+    return _attachFiles;
+  }
+
   final Set<String> _attachFailed = {};
 
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
@@ -869,10 +888,13 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     }
     final key = detailId.substring(workspaceKnowledgePagePrefix.length);
     final open = _editors[key];
-    if (open != null) {
+    if (open != null && _current(open)) {
       await _applyEditor(l10n, open);
       return;
     }
+    // Another account's editor, kept from before it signed out: dropped
+    // unseen, and this account's base read afresh.
+    if (open != null) _editors.remove(key);
     final editor = _editors[key] = WorkspaceKnowledgeEditor(key, _session());
     await _applyEditor(l10n, editor);
     if (key != workspaceNewKey) await _load(editor);
@@ -1102,7 +1124,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
         target: target,
         draft: draft,
         browser: _browser(editor),
-        files: _attachFiles[draft.query],
+        files: _attachCache()[draft.query],
         filesFailed: _attachFailed.contains(draft.query),
       ),
     );
@@ -1304,7 +1326,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     if (files == null) {
       _attachFailed.add(query);
     } else {
-      _attachFiles[query] = files;
+      _attachCache()[query] = files;
     }
     await _applyForm(l10n, editor, kind, target);
   }
@@ -1495,6 +1517,9 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the write.
+    if (!_current(editor)) return;
     WorkspaceKnowledgeDetail? saved;
     try {
       saved = creating
@@ -1561,6 +1586,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    if (!_current(editor)) return false;
     Object? failed;
     try {
       await operation();
@@ -1900,6 +1926,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyForm(l10n, editor, kind, target);
+    if (!_current(editor)) return;
     String? problem;
     try {
       await action(_ref.read(provider.notifier));
