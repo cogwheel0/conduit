@@ -458,7 +458,7 @@
   "themePaletteT3ChatDescription": "T3 Stack 브랜드에서 영감을 받은 장난스러운 그라디언트.",
   "themePaletteCatppuccinLabel": "Catppuccin",
   "themePaletteCatppuccinDescription": "부드러운 파스텔 팔레트.",
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "탠저린",
   "themePaletteTangerineDescription": "따뜻한 오렌지와 슬레이트 팔레트.",
   "themeLight": "라이트",
   "currentlyUsingDarkTheme": "현재 다크 테마 사용 중",
@@ -536,7 +536,7 @@
   "sttSilenceDuration": "침묵 지속 시간",
   "sttSilenceDurationDescription": "침묵 후 자동 녹음 중지 전 대기 시간",
   "sttTranscriptionLanguage": "전사 언어",
-  "sttTranscriptionLanguageDescription": "자동은 이 기기의 언어를 따릅니다. 또는 en 같은 코드를 입력하세요.",
+  "sttTranscriptionLanguageDescription": "자동을 선택하면 서버가 말하는 언어를 추정합니다. 또는 en 같은 코드를 입력하세요.",
   "sttTranscriptionLanguageAuto": "자동",
   "sttTranscriptionLanguageCustom": "사용자 지정 언어 코드",
   "sttTranscriptionLanguagePlaceholder": "ISO-639-1 코드, 예: en",
@@ -1860,218 +1860,218 @@
   "settingsAppearanceSubtitle": "테마, 색상 팔레트 및 언어",
   "settingsChatSubtitle": "채팅 동작, 빠른 작업 및 고급 프롬프트",
   "workspaceTitle": "워크스페이스",
-  "workspaceSubtitle": "Manage server resources and access.",
-  "workspaceModels": "Models",
-  "workspaceKnowledge": "Knowledge",
-  "workspacePrompts": "Prompts",
-  "workspaceTools": "Tools",
-  "workspaceSkills": "Skills",
-  "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
-  "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
-  "workspaceLoadFailed": "Workspace could not be loaded.",
-  "workspaceRetry": "Retry",
-  "workspaceSelectItem": "Select an item to view its details.",
-  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
-  "workspaceSearchHint": "Search workspace resources",
-  "workspaceLoadMore": "Load more",
-  "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
-  "workspaceAccessPeopleHeading": "People & groups",
-  "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
-  "workspaceAccessEmpty": "Not shared with anyone yet.",
-  "workspaceAccessAddPeople": "Add people or groups",
-  "workspaceAccessAddGroups": "Add groups",
+  "workspaceSubtitle": "서버 리소스 및 접근 권한 관리",
+  "workspaceModels": "모델",
+  "workspaceKnowledge": "지식",
+  "workspacePrompts": "프롬프트",
+  "workspaceTools": "도구",
+  "workspaceSkills": "스킬",
+  "workspaceCreate": "만들기",
+  "workspaceEmpty": "아직 항목이 없습니다.",
+  "workspaceDenied": "이 워크스페이스 섹션을 관리할 권한이 없습니다.",
+  "workspaceUnsupported": "이 서버는 워크스페이스 관리를 지원하지 않습니다.",
+  "workspaceLoadFailed": "워크스페이스를 불러올 수 없습니다.",
+  "workspaceRetry": "다시 시도",
+  "workspaceSelectItem": "세부 정보를 보려면 항목을 선택하세요.",
+  "workspaceEditorComingSoon": "이 편집기는 다음 워크스페이스 업데이트에서 제공될 예정입니다.",
+  "workspaceSearchHint": "워크스페이스 리소스 검색",
+  "workspaceLoadMore": "더 불러오기",
+  "workspaceAccessPublicDisabled": "이 항목을 공개로 공유할 권한이 없습니다.",
+  "workspaceAccessPeopleHeading": "사용자 및 그룹",
+  "workspaceAccessUsersDisabled": "개별 사용자와의 공유가 꺼져 있어 그룹과만 공유할 수 있습니다.",
+  "workspaceAccessEmpty": "아직 아무와도 공유하지 않았습니다.",
+  "workspaceAccessAddPeople": "사용자 또는 그룹 추가",
+  "workspaceAccessAddGroups": "그룹 추가",
   "workspaceAccessAddUsers": "사용자 추가",
   "workspaceAccessGroupsDisabled": "그룹과의 공유가 비활성화되어 있어 개별 사용자와만 공유할 수 있습니다.",
   "workspaceAccessGrantsDisabled": "사용자 또는 그룹과 공유할 권한이 없습니다. 기존 접근 권한은 유지됩니다.",
-  "workspaceAccessGroupBadge": "Group",
-  "workspaceAccessUserBadge": "Person",
-  "workspaceAccessCanEdit": "Can edit",
-  "workspaceAccessRemoveGrant": "Remove access",
-  "workspacePrincipalTitle": "Add people or groups",
-  "workspacePrincipalUsersTab": "People",
-  "workspacePrincipalGroupsTab": "Groups",
-  "workspacePrincipalSearchHint": "Search people by name or email",
-  "workspacePrincipalLoadFailed": "Could not load results.",
-  "workspacePrincipalSearchPrompt": "Search to find people to share with.",
-  "workspacePrincipalNoResults": "No matches found.",
-  "workspaceReadOnlyBadge": "Read only",
-  "workspaceReadOnlyExplanation": "You have view-only access to this resource.",
-  "workspaceEditorDiscardTitle": "Discard changes?",
-  "workspaceEditorDiscardMessage": "Your unsaved changes will be lost.",
-  "workspaceEditorDiscardConfirm": "Discard",
-  "workspaceEditorKeepEditing": "Keep editing",
-  "workspaceEditorSaveTooltip": "Save changes",
-  "workspaceEditorSaving": "Saving…",
-  "workspaceEditorMoreActions": "More actions",
-  "workspaceImportChooseFile": "Choose JSON file",
-  "workspaceImportPasteLabel": "Or paste JSON",
-  "workspaceImportPasteHint": "Paste exported JSON here",
-  "workspaceImportRun": "Import",
-  "workspaceImportInvalidJson": "That doesn't look like valid JSON.",
-  "workspaceImportEmpty": "No items were found to import.",
-  "workspaceImportReadFailed": "Could not read the selected file.",
-  "workspaceImportBatchFailed": "The import could not be completed.",
-  "workspaceImportSummary": "Imported {success} of {total} items",
-  "workspaceImportItemImported": "Imported",
-  "workspaceImportItemFailed": "Import failed",
-  "workspaceImportDone": "Done",
-  "workspaceModelNewTitle": "New model",
+  "workspaceAccessGroupBadge": "그룹",
+  "workspaceAccessUserBadge": "사용자",
+  "workspaceAccessCanEdit": "편집 가능",
+  "workspaceAccessRemoveGrant": "접근 권한 삭제",
+  "workspacePrincipalTitle": "사용자 또는 그룹 추가",
+  "workspacePrincipalUsersTab": "사용자",
+  "workspacePrincipalGroupsTab": "그룹",
+  "workspacePrincipalSearchHint": "이름이나 이메일로 사용자 검색",
+  "workspacePrincipalLoadFailed": "결과를 불러올 수 없습니다.",
+  "workspacePrincipalSearchPrompt": "공유할 사용자를 검색하세요.",
+  "workspacePrincipalNoResults": "일치하는 결과가 없습니다.",
+  "workspaceReadOnlyBadge": "읽기 전용",
+  "workspaceReadOnlyExplanation": "이 리소스는 보기만 할 수 있습니다.",
+  "workspaceEditorDiscardTitle": "변경 사항을 버리시겠습니까?",
+  "workspaceEditorDiscardMessage": "저장하지 않은 변경 사항이 사라집니다.",
+  "workspaceEditorDiscardConfirm": "버리기",
+  "workspaceEditorKeepEditing": "계속 편집",
+  "workspaceEditorSaveTooltip": "변경 사항 저장",
+  "workspaceEditorSaving": "저장 중…",
+  "workspaceEditorMoreActions": "추가 작업",
+  "workspaceImportChooseFile": "JSON 파일 선택",
+  "workspaceImportPasteLabel": "또는 JSON 붙여넣기",
+  "workspaceImportPasteHint": "내보낸 JSON을 여기에 붙여넣으세요",
+  "workspaceImportRun": "가져오기",
+  "workspaceImportInvalidJson": "올바른 JSON이 아닌 것 같습니다.",
+  "workspaceImportEmpty": "가져올 항목을 찾지 못했습니다.",
+  "workspaceImportReadFailed": "선택한 파일을 읽을 수 없습니다.",
+  "workspaceImportBatchFailed": "가져오기를 완료할 수 없습니다.",
+  "workspaceImportSummary": "{total}개 중 {success}개 항목을 가져왔습니다",
+  "workspaceImportItemImported": "가져옴",
+  "workspaceImportItemFailed": "가져오기 실패",
+  "workspaceImportDone": "완료",
+  "workspaceModelNewTitle": "새 모델",
   "@workspaceModelNewTitle": {
     "description": "Title shown when creating a new workspace model."
   },
-  "workspaceModelIdLabel": "Model ID",
+  "workspaceModelIdLabel": "모델 ID",
   "@workspaceModelIdLabel": {
     "description": "Label for the unique model identifier field."
   },
-  "workspaceModelBaseModel": "Base model",
+  "workspaceModelBaseModel": "기본 모델",
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelNone": "없음(사용자 지정)",
   "workspaceModelBaseModelRequired": "기본 모델을 선택하세요.",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
-  "workspaceModelName": "Name",
+  "workspaceModelName": "이름",
   "@workspaceModelName": {
     "description": "Label for the model display-name field."
   },
-  "workspaceModelDescription": "Description",
+  "workspaceModelDescription": "설명",
   "@workspaceModelDescription": {
     "description": "Label for the model description field."
   },
-  "workspaceModelTags": "Tags",
+  "workspaceModelTags": "태그",
   "@workspaceModelTags": {
     "description": "Label for the model tags editor."
   },
-  "workspaceModelTagsHint": "Add tag",
+  "workspaceModelTagsHint": "태그 추가",
   "@workspaceModelTagsHint": {
     "description": "Action chip label to add a new tag."
   },
-  "workspaceModelSystemPrompt": "System prompt",
+  "workspaceModelSystemPrompt": "시스템 프롬프트",
   "@workspaceModelSystemPrompt": {
     "description": "Label for the model system prompt field."
   },
-  "workspaceModelSuggestionPrompts": "Suggested prompts",
+  "workspaceModelSuggestionPrompts": "추천 프롬프트",
   "@workspaceModelSuggestionPrompts": {
     "description": "Label for the suggested prompts editor."
   },
-  "workspaceModelAddSuggestion": "Add suggestion",
+  "workspaceModelAddSuggestion": "추천 항목 추가",
   "@workspaceModelAddSuggestion": {
     "description": "Button to add a suggested prompt."
   },
-  "workspaceModelRemoveSuggestion": "Remove suggestion",
+  "workspaceModelRemoveSuggestion": "추천 항목 삭제",
   "@workspaceModelRemoveSuggestion": {
     "description": "Tooltip to remove a suggested prompt."
   },
-  "workspaceModelStopSequences": "Stop sequences",
+  "workspaceModelStopSequences": "중지 시퀀스",
   "@workspaceModelStopSequences": {
     "description": "Label for the stop-sequences field."
   },
-  "workspaceModelStopHint": "Comma-separated stop sequences",
+  "workspaceModelStopHint": "쉼표로 구분한 중지 시퀀스",
   "@workspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field."
   },
-  "workspaceModelAdvancedParams": "Advanced parameters (JSON)",
+  "workspaceModelAdvancedParams": "고급 매개변수(JSON)",
   "@workspaceModelAdvancedParams": {
     "description": "Label for the advanced inference parameters JSON field."
   },
-  "workspaceModelParamsHint": "JSON object of additional parameters",
+  "workspaceModelParamsHint": "추가 매개변수를 담은 JSON 객체",
   "@workspaceModelParamsHint": {
     "description": "Helper text for a JSON parameters field."
   },
-  "workspaceModelInvalidJson": "Enter a valid JSON object.",
+  "workspaceModelInvalidJson": "올바른 JSON 객체를 입력하세요.",
   "@workspaceModelInvalidJson": {
     "description": "Validation error for a malformed JSON field."
   },
-  "workspaceModelCapabilities": "Capabilities",
+  "workspaceModelCapabilities": "기능",
   "@workspaceModelCapabilities": {
     "description": "Label for the model capability toggles."
   },
-  "workspaceModelTerminal": "Terminal ID",
+  "workspaceModelTerminal": "터미널 ID",
   "@workspaceModelTerminal": {
     "description": "Label for the terminal identifier field."
   },
-  "workspaceModelTtsVoice": "Text-to-speech voice",
+  "workspaceModelTtsVoice": "텍스트 음성 변환 음성",
   "@workspaceModelTtsVoice": {
     "description": "Label for the TTS voice field."
   },
-  "workspaceModelDefaultFeatures": "Default features",
+  "workspaceModelDefaultFeatures": "기본 기능",
   "@workspaceModelDefaultFeatures": {
     "description": "Label for the default feature IDs field."
   },
-  "workspaceModelBuiltinTools": "Built-in tools (JSON)",
+  "workspaceModelBuiltinTools": "기본 제공 도구(JSON)",
   "@workspaceModelBuiltinTools": {
     "description": "Label for the built-in tools JSON field."
   },
-  "workspaceModelKnowledge": "Knowledge",
+  "workspaceModelKnowledge": "지식",
   "@workspaceModelKnowledge": {
     "description": "Label for the knowledge relationship selector."
   },
-  "workspaceModelTools": "Tools",
+  "workspaceModelTools": "도구",
   "@workspaceModelTools": {
     "description": "Label for the tools relationship selector."
   },
-  "workspaceModelSkills": "Skills",
+  "workspaceModelSkills": "스킬",
   "@workspaceModelSkills": {
     "description": "Label for the skills relationship selector."
   },
-  "workspaceModelFilters": "Filters",
+  "workspaceModelFilters": "필터",
   "@workspaceModelFilters": {
     "description": "Label for the filter functions selector."
   },
-  "workspaceModelDefaultFilters": "Default filters",
+  "workspaceModelDefaultFilters": "기본 필터",
   "@workspaceModelDefaultFilters": {
     "description": "Label for the default filter functions selector."
   },
-  "workspaceModelActions": "Actions",
+  "workspaceModelActions": "작업",
   "@workspaceModelActions": {
     "description": "Label for the action functions selector."
   },
-  "workspaceModelSectionBasics": "Basics",
+  "workspaceModelSectionBasics": "기본 정보",
   "@workspaceModelSectionBasics": {
     "description": "Section header for basic model fields."
   },
-  "workspaceModelSectionPrompt": "Prompt",
+  "workspaceModelSectionPrompt": "프롬프트",
   "@workspaceModelSectionPrompt": {
     "description": "Section header for prompt-related model fields."
   },
-  "workspaceModelSectionAdvanced": "Advanced",
+  "workspaceModelSectionAdvanced": "고급",
   "@workspaceModelSectionAdvanced": {
     "description": "Section header for advanced model fields."
   },
-  "workspaceModelSectionRelationships": "Relationships",
+  "workspaceModelSectionRelationships": "연결 항목",
   "@workspaceModelSectionRelationships": {
     "description": "Section header for model relationship selectors."
   },
-  "workspaceModelSectionAccess": "Access",
+  "workspaceModelSectionAccess": "접근 권한",
   "@workspaceModelSectionAccess": {
     "description": "Section header for model access controls."
   },
-  "workspaceModelProfileImage": "Profile image",
+  "workspaceModelProfileImage": "프로필 이미지",
   "@workspaceModelProfileImage": {
     "description": "Label for the model profile image."
   },
-  "workspaceModelChangeImage": "Change image",
+  "workspaceModelChangeImage": "이미지 변경",
   "@workspaceModelChangeImage": {
     "description": "Button to pick a new profile image."
   },
-  "workspaceModelRemoveImage": "Remove image",
+  "workspaceModelRemoveImage": "이미지 삭제",
   "@workspaceModelRemoveImage": {
     "description": "Button to clear the profile image."
   },
-  "workspaceModelImageFailed": "Could not load the selected image.",
+  "workspaceModelImageFailed": "선택한 이미지를 불러올 수 없습니다.",
   "@workspaceModelImageFailed": {
     "description": "Error when picking a profile image fails."
   },
-  "workspaceModelSelectNone": "None selected",
+  "workspaceModelSelectNone": "선택된 항목 없음",
   "@workspaceModelSelectNone": {
     "description": "Subtitle when no relationship items are selected."
   },
-  "workspaceModelSelectCount": "{count} selected",
+  "workspaceModelSelectCount": "{count}개 선택됨",
   "@workspaceModelSelectCount": {
     "description": "Subtitle showing how many relationship items are selected.",
     "placeholders": {
@@ -2080,47 +2080,47 @@
       }
     }
   },
-  "workspaceModelRelationshipEmpty": "Nothing available to select.",
+  "workspaceModelRelationshipEmpty": "선택할 수 있는 항목이 없습니다.",
   "@workspaceModelRelationshipEmpty": {
     "description": "Empty state for a relationship picker."
   },
-  "workspaceModelManageAccess": "Manage access",
+  "workspaceModelManageAccess": "접근 권한 관리",
   "@workspaceModelManageAccess": {
     "description": "Action to open the access-grants sheet for a model."
   },
-  "workspaceModelClone": "Duplicate",
+  "workspaceModelClone": "복제",
   "@workspaceModelClone": {
     "description": "Action that duplicates the model."
   },
-  "workspaceModelCloneSuffix": "(copy)",
+  "workspaceModelCloneSuffix": "(사본)",
   "@workspaceModelCloneSuffix": {
     "description": "Suffix appended to a duplicated model name."
   },
-  "workspaceModelActivate": "Activate",
+  "workspaceModelActivate": "활성화",
   "@workspaceModelActivate": {
     "description": "Action that marks the model active."
   },
-  "workspaceModelDeactivate": "Deactivate",
+  "workspaceModelDeactivate": "비활성화",
   "@workspaceModelDeactivate": {
     "description": "Action that marks the model inactive."
   },
-  "workspaceModelHide": "Hide from selector",
+  "workspaceModelHide": "선택 목록에서 숨기기",
   "@workspaceModelHide": {
     "description": "Action that hides the model from model selectors."
   },
-  "workspaceModelUnhide": "Show in selector",
+  "workspaceModelUnhide": "선택 목록에 표시",
   "@workspaceModelUnhide": {
     "description": "Action that unhides the model in model selectors."
   },
-  "workspaceModelDelete": "Delete model",
+  "workspaceModelDelete": "모델 삭제",
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
+  "workspaceModelDeleteConfirmTitle": "모델을 삭제하시겠습니까?",
   "@workspaceModelDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a model."
   },
-  "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "workspaceModelDeleteConfirmMessage": "{name}이(가) 영구적으로 삭제됩니다.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
     "placeholders": {
@@ -2129,83 +2129,83 @@
       }
     }
   },
-  "workspaceModelExport": "Export model",
+  "workspaceModelExport": "모델 내보내기",
   "@workspaceModelExport": {
     "description": "Action that exports a single model as JSON."
   },
-  "workspaceModelExportAll": "Export all models",
+  "workspaceModelExportAll": "모든 모델 내보내기",
   "@workspaceModelExportAll": {
     "description": "Action that exports every readable model as JSON."
   },
-  "workspaceModelExportFailed": "The export could not be completed.",
+  "workspaceModelExportFailed": "내보내기를 완료할 수 없습니다.",
   "@workspaceModelExportFailed": {
     "description": "Error when exporting models fails."
   },
-  "workspaceModelImport": "Import models",
+  "workspaceModelImport": "모델 가져오기",
   "@workspaceModelImport": {
     "description": "Action that imports models from JSON."
   },
-  "workspaceModelIdRequired": "A model ID is required.",
+  "workspaceModelIdRequired": "모델 ID가 필요합니다.",
   "@workspaceModelIdRequired": {
     "description": "Validation error when the model ID is empty."
   },
-  "workspaceModelNameRequired": "A name is required.",
+  "workspaceModelNameRequired": "이름이 필요합니다.",
   "@workspaceModelNameRequired": {
     "description": "Validation error when the model name is empty."
   },
-  "workspaceModelSaved": "Model saved.",
+  "workspaceModelSaved": "모델을 저장했습니다.",
   "@workspaceModelSaved": {
     "description": "Confirmation that the model was saved."
   },
-  "workspaceModelSaveFailed": "The model could not be saved.",
+  "workspaceModelSaveFailed": "모델을 저장할 수 없습니다.",
   "@workspaceModelSaveFailed": {
     "description": "Error when saving the model fails."
   },
-  "workspaceModelDeleted": "Model deleted.",
+  "workspaceModelDeleted": "모델을 삭제했습니다.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
   },
-  "workspaceModelAddAction": "Add",
+  "workspaceModelAddAction": "추가",
   "@workspaceModelAddAction": {
     "description": "Confirm button in a small add-text dialog."
   },
-  "workspaceKnowledgeCreateTitle": "New knowledge base",
+  "workspaceKnowledgeCreateTitle": "새 지식 베이스",
   "@workspaceKnowledgeCreateTitle": {
     "description": "Title of the create form for a new knowledge base."
   },
-  "workspaceKnowledgeName": "Name",
+  "workspaceKnowledgeName": "이름",
   "@workspaceKnowledgeName": {
     "description": "Label for the knowledge base name field."
   },
-  "workspaceKnowledgeDescription": "Description",
+  "workspaceKnowledgeDescription": "설명",
   "@workspaceKnowledgeDescription": {
     "description": "Label for the knowledge base description field."
   },
-  "workspaceKnowledgeNameRequired": "A name is required.",
+  "workspaceKnowledgeNameRequired": "이름이 필요합니다.",
   "@workspaceKnowledgeNameRequired": {
     "description": "Validation error when the knowledge base name is empty."
   },
-  "workspaceKnowledgeSaved": "Knowledge base saved.",
+  "workspaceKnowledgeSaved": "지식 베이스를 저장했습니다.",
   "@workspaceKnowledgeSaved": {
     "description": "Confirmation that the knowledge base was saved."
   },
-  "workspaceKnowledgeSaveFailed": "The knowledge base could not be saved.",
+  "workspaceKnowledgeSaveFailed": "지식 베이스를 저장할 수 없습니다.",
   "@workspaceKnowledgeSaveFailed": {
     "description": "Error when saving a knowledge base fails."
   },
-  "workspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "workspaceKnowledgeDeleted": "지식 베이스를 삭제했습니다.",
   "@workspaceKnowledgeDeleted": {
     "description": "Confirmation that the knowledge base was deleted."
   },
-  "workspaceKnowledgeDelete": "Delete knowledge base",
+  "workspaceKnowledgeDelete": "지식 베이스 삭제",
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "workspaceKnowledgeDeleteConfirmTitle": "지식 베이스를 삭제하시겠습니까?",
   "@workspaceKnowledgeDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "workspaceKnowledgeDeleteConfirmMessage": "{name}이(가) 영구적으로 삭제되고 파일 연결이 해제됩니다.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
     "placeholders": {
@@ -2214,15 +2214,15 @@
       }
     }
   },
-  "workspaceKnowledgeReset": "Reset",
+  "workspaceKnowledgeReset": "초기화",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "workspaceKnowledgeResetConfirmTitle": "지식 베이스를 초기화하시겠습니까?",
   "@workspaceKnowledgeResetConfirmTitle": {
     "description": "Confirmation dialog title for resetting a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "workspaceKnowledgeResetConfirmMessage": "{name}에서 모든 파일이 제거되지만 지식 베이스는 유지됩니다.",
   "@workspaceKnowledgeResetConfirmMessage": {
     "description": "Confirmation dialog body for resetting a knowledge base.",
     "placeholders": {
@@ -2231,83 +2231,83 @@
       }
     }
   },
-  "workspaceKnowledgeResetDone": "Knowledge base reset.",
+  "workspaceKnowledgeResetDone": "지식 베이스를 초기화했습니다.",
   "@workspaceKnowledgeResetDone": {
     "description": "Confirmation that the knowledge base files were reset."
   },
-  "workspaceKnowledgeExport": "Export knowledge base",
+  "workspaceKnowledgeExport": "지식 베이스 내보내기",
   "@workspaceKnowledgeExport": {
     "description": "Overflow action that exports a knowledge base archive."
   },
-  "workspaceKnowledgeExportFailed": "The export could not be completed.",
+  "workspaceKnowledgeExportFailed": "내보내기를 완료할 수 없습니다.",
   "@workspaceKnowledgeExportFailed": {
     "description": "Error when exporting a knowledge base fails."
   },
-  "workspaceKnowledgeManageAccess": "Manage access",
+  "workspaceKnowledgeManageAccess": "접근 권한 관리",
   "@workspaceKnowledgeManageAccess": {
     "description": "Action that opens the sharing and access sheet for a knowledge base."
   },
-  "workspaceKnowledgeViewAll": "All",
+  "workspaceKnowledgeViewAll": "전체",
   "@workspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases."
   },
-  "workspaceKnowledgeViewCreated": "Created by you",
+  "workspaceKnowledgeViewCreated": "내가 만든 항목",
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Shared with you",
+  "workspaceKnowledgeViewShared": "나와 공유된 항목",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },
-  "workspaceKnowledgeSourceAll": "All sources",
+  "workspaceKnowledgeSourceAll": "모든 소스",
   "@workspaceKnowledgeSourceAll": {
     "description": "Knowledge collection filter showing both local and connected sources."
   },
-  "workspaceKnowledgeSourceLocal": "Local",
+  "workspaceKnowledgeSourceLocal": "로컬",
   "@workspaceKnowledgeSourceLocal": {
     "description": "Knowledge collection filter showing only local knowledge bases."
   },
-  "workspaceKnowledgeSourceExternal": "Connected",
+  "workspaceKnowledgeSourceExternal": "연결됨",
   "@workspaceKnowledgeSourceExternal": {
     "description": "Knowledge collection filter showing only external/connected knowledge bases."
   },
-  "workspaceKnowledgeExternalBadge": "Connected",
+  "workspaceKnowledgeExternalBadge": "연결됨",
   "@workspaceKnowledgeExternalBadge": {
     "description": "Badge marking a knowledge base as external/connected (read-only)."
   },
-  "workspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "workspaceKnowledgeExternalReadOnly": "연결된 지식 베이스는 이 앱에서 읽기 전용입니다.",
   "@workspaceKnowledgeExternalReadOnly": {
     "description": "Notice shown when viewing an external/connected knowledge base."
   },
-  "workspaceKnowledgeFilesTitle": "Files",
+  "workspaceKnowledgeFilesTitle": "파일",
   "@workspaceKnowledgeFilesTitle": {
     "description": "Heading of the knowledge base file browser."
   },
-  "workspaceKnowledgeFilesEmpty": "No files yet.",
+  "workspaceKnowledgeFilesEmpty": "아직 파일이 없습니다.",
   "@workspaceKnowledgeFilesEmpty": {
     "description": "Empty state when a knowledge base directory contains no files."
   },
-  "workspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "workspaceKnowledgeFilesLoadFailed": "파일을 불러올 수 없습니다.",
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Refresh",
+  "workspaceKnowledgeRefreshFiles": "새로 고침",
   "@workspaceKnowledgeRefreshFiles": {
     "description": "Tooltip for the button that refreshes the knowledge file list."
   },
-  "workspaceKnowledgeRoot": "Root",
+  "workspaceKnowledgeRoot": "루트",
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Add files",
+  "workspaceKnowledgeAddMenu": "파일 추가",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
-  "workspaceKnowledgeUpload": "Upload file",
+  "workspaceKnowledgeUpload": "파일 업로드",
   "@workspaceKnowledgeUpload": {
     "description": "Menu item to upload a single local file into a knowledge base."
   },
-  "workspaceKnowledgeUploading": "Uploading {name}…",
+  "workspaceKnowledgeUploading": "{name} 업로드 중…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
     "placeholders": {
@@ -2316,63 +2316,63 @@
       }
     }
   },
-  "workspaceKnowledgeUploadFailed": "The file could not be uploaded.",
+  "workspaceKnowledgeUploadFailed": "파일을 업로드할 수 없습니다.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
   },
-  "workspaceKnowledgeBatchAttach": "Upload multiple files",
+  "workspaceKnowledgeBatchAttach": "여러 파일 업로드",
   "@workspaceKnowledgeBatchAttach": {
     "description": "Menu item to upload several local files into a knowledge base at once."
   },
-  "workspaceKnowledgeAttachExisting": "Attach server file",
+  "workspaceKnowledgeAttachExisting": "서버 파일 첨부",
   "@workspaceKnowledgeAttachExisting": {
     "description": "Menu item to attach an existing server file to a knowledge base."
   },
-  "workspaceKnowledgeAttachFailed": "The file could not be attached.",
+  "workspaceKnowledgeAttachFailed": "파일을 첨부할 수 없습니다.",
   "@workspaceKnowledgeAttachFailed": {
     "description": "Error when attaching an existing file to a knowledge base fails."
   },
-  "workspaceKnowledgeAddText": "Add text file",
+  "workspaceKnowledgeAddText": "텍스트 파일 추가",
   "@workspaceKnowledgeAddText": {
     "description": "Menu item to create a text file and attach it to a knowledge base."
   },
-  "workspaceKnowledgeAddTextName": "File name",
+  "workspaceKnowledgeAddTextName": "파일 이름",
   "@workspaceKnowledgeAddTextName": {
     "description": "Label for the file name field when adding a text file."
   },
-  "workspaceKnowledgeAddTextContent": "Content",
+  "workspaceKnowledgeAddTextContent": "내용",
   "@workspaceKnowledgeAddTextContent": {
     "description": "Label for the content field when adding a text file."
   },
-  "workspaceKnowledgeAddTextFailed": "The text file could not be added.",
+  "workspaceKnowledgeAddTextFailed": "텍스트 파일을 추가할 수 없습니다.",
   "@workspaceKnowledgeAddTextFailed": {
     "description": "Error when adding a text file to a knowledge base fails."
   },
-  "workspaceKnowledgeNewFolder": "New folder",
+  "workspaceKnowledgeNewFolder": "새 폴더",
   "@workspaceKnowledgeNewFolder": {
     "description": "Menu item and dialog title to create a new directory in a knowledge base."
   },
-  "workspaceKnowledgeFolderName": "Folder name",
+  "workspaceKnowledgeFolderName": "폴더 이름",
   "@workspaceKnowledgeFolderName": {
     "description": "Label for the folder name field."
   },
-  "workspaceKnowledgeFolderCreateFailed": "The folder could not be created.",
+  "workspaceKnowledgeFolderCreateFailed": "폴더를 만들 수 없습니다.",
   "@workspaceKnowledgeFolderCreateFailed": {
     "description": "Error when creating or renaming a knowledge base folder fails."
   },
-  "workspaceKnowledgeRenameFolder": "Rename folder",
+  "workspaceKnowledgeRenameFolder": "폴더 이름 변경",
   "@workspaceKnowledgeRenameFolder": {
     "description": "Action to rename a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolder": "Delete folder",
+  "workspaceKnowledgeDeleteFolder": "폴더 삭제",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "workspaceKnowledgeDeleteFolderConfirmTitle": "폴더를 삭제하시겠습니까?",
   "@workspaceKnowledgeDeleteFolderConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "workspaceKnowledgeDeleteFolderConfirmMessage": "{name} 안의 파일은 상위 폴더로 이동합니다.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base directory.",
     "placeholders": {
@@ -2381,43 +2381,43 @@
       }
     }
   },
-  "workspaceKnowledgeFolderDeleteFailed": "The folder could not be deleted.",
+  "workspaceKnowledgeFolderDeleteFailed": "폴더를 삭제할 수 없습니다.",
   "@workspaceKnowledgeFolderDeleteFailed": {
     "description": "Error when deleting a knowledge base folder fails."
   },
-  "workspaceKnowledgeFileRename": "Rename",
+  "workspaceKnowledgeFileRename": "이름 변경",
   "@workspaceKnowledgeFileRename": {
     "description": "Per-file action to rename a knowledge base file."
   },
-  "workspaceKnowledgeFileRefresh": "Re-index",
+  "workspaceKnowledgeFileRefresh": "다시 인덱싱",
   "@workspaceKnowledgeFileRefresh": {
     "description": "Per-file action to re-index a knowledge base file."
   },
-  "workspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "workspaceKnowledgeFileReindexed": "다시 인덱싱을 시작했습니다.",
   "@workspaceKnowledgeFileReindexed": {
     "description": "Confirmation that re-indexing a knowledge base file began."
   },
-  "workspaceKnowledgeFileMove": "Move",
+  "workspaceKnowledgeFileMove": "이동",
   "@workspaceKnowledgeFileMove": {
     "description": "Per-file action to move a knowledge base file to another folder."
   },
-  "workspaceKnowledgeFileRenameFailed": "The file could not be renamed.",
+  "workspaceKnowledgeFileRenameFailed": "파일 이름을 변경할 수 없습니다.",
   "@workspaceKnowledgeFileRenameFailed": {
     "description": "Error when renaming a knowledge base file fails."
   },
-  "workspaceKnowledgeFileMoveFailed": "The file could not be moved.",
+  "workspaceKnowledgeFileMoveFailed": "파일을 이동할 수 없습니다.",
   "@workspaceKnowledgeFileMoveFailed": {
     "description": "Error when moving a knowledge base file fails."
   },
-  "workspaceKnowledgeFileDetach": "Remove from knowledge",
+  "workspaceKnowledgeFileDetach": "지식에서 제거",
   "@workspaceKnowledgeFileDetach": {
     "description": "Per-file action to detach a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachTitle": "Remove file?",
+  "workspaceKnowledgeFileDetachTitle": "파일을 제거하시겠습니까?",
   "@workspaceKnowledgeFileDetachTitle": {
     "description": "Confirmation dialog title for detaching a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "workspaceKnowledgeFileDetachMessage": "이 지식 베이스에서 {name}을(를) 제거하시겠습니까?",
   "@workspaceKnowledgeFileDetachMessage": {
     "description": "Confirmation dialog body for detaching a file from a knowledge base.",
     "placeholders": {
@@ -2426,151 +2426,151 @@
       }
     }
   },
-  "workspaceKnowledgeFileDeleteUnderlying": "Also delete the underlying file",
+  "workspaceKnowledgeFileDeleteUnderlying": "원본 파일도 삭제",
   "@workspaceKnowledgeFileDeleteUnderlying": {
     "description": "Checkbox to delete the stored file when detaching, shown to owners/admins."
   },
-  "workspaceKnowledgeFileDetachFailed": "The file could not be removed.",
+  "workspaceKnowledgeFileDetachFailed": "파일을 제거할 수 없습니다.",
   "@workspaceKnowledgeFileDetachFailed": {
     "description": "Error when detaching a file from a knowledge base fails."
   },
-  "workspaceKnowledgeMoveTitle": "Move to folder",
+  "workspaceKnowledgeMoveTitle": "폴더로 이동",
   "@workspaceKnowledgeMoveTitle": {
     "description": "Title of the sheet for choosing a destination folder."
   },
-  "workspaceKnowledgeMoveRoot": "Root (no folder)",
+  "workspaceKnowledgeMoveRoot": "루트(폴더 없음)",
   "@workspaceKnowledgeMoveRoot": {
     "description": "Move destination representing the knowledge base root."
   },
-  "workspaceKnowledgeStatusPending": "Processing…",
+  "workspaceKnowledgeStatusPending": "처리 중…",
   "@workspaceKnowledgeStatusPending": {
     "description": "Status shown for a knowledge base file still being ingested."
   },
-  "workspaceKnowledgeStatusFailed": "Failed",
+  "workspaceKnowledgeStatusFailed": "실패",
   "@workspaceKnowledgeStatusFailed": {
     "description": "Status shown for a knowledge base file whose ingestion failed."
   },
-  "workspacePromptCreateTitle": "New prompt",
+  "workspacePromptCreateTitle": "새 프롬프트",
   "@workspacePromptCreateTitle": {
     "description": "Title shown while creating a new workspace prompt."
   },
-  "workspacePromptName": "Name",
+  "workspacePromptName": "이름",
   "@workspacePromptName": {
     "description": "Label for the prompt name field."
   },
-  "workspacePromptNameRequired": "Name is required.",
+  "workspacePromptNameRequired": "이름이 필요합니다.",
   "@workspacePromptNameRequired": {
     "description": "Validation error when the prompt name is empty."
   },
-  "workspacePromptCommand": "Command",
+  "workspacePromptCommand": "명령어",
   "@workspacePromptCommand": {
     "description": "Label for the prompt slash-command field."
   },
-  "workspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "workspacePromptCommandHint": "영문자, 숫자, 하이픈, 밑줄만 사용할 수 있습니다. 채팅에서 슬래시 명령어로 입력하세요.",
   "@workspacePromptCommandHint": {
     "description": "Helper text explaining the allowed prompt command characters."
   },
-  "workspacePromptCommandRequired": "Command is required.",
+  "workspacePromptCommandRequired": "명령어가 필요합니다.",
   "@workspacePromptCommandRequired": {
     "description": "Validation error when the prompt command is empty."
   },
-  "workspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspacePromptCommandInvalid": "영문자, 숫자, 하이픈, 밑줄만 사용할 수 있습니다.",
   "@workspacePromptCommandInvalid": {
     "description": "Validation error when the prompt command contains illegal characters."
   },
-  "workspacePromptCommandTaken": "That command is already in use.",
+  "workspacePromptCommandTaken": "이미 사용 중인 명령어입니다.",
   "@workspacePromptCommandTaken": {
     "description": "Error shown when saving a prompt whose command collides with another prompt."
   },
-  "workspacePromptContent": "Prompt content",
+  "workspacePromptContent": "프롬프트 내용",
   "@workspacePromptContent": {
     "description": "Label for the prompt template body field."
   },
-  "workspacePromptContentHint": "Write the prompt template…",
+  "workspacePromptContentHint": "프롬프트 템플릿을 작성하세요…",
   "@workspacePromptContentHint": {
     "description": "Placeholder text for the empty prompt content field."
   },
-  "workspacePromptContentRequired": "Prompt content is required.",
+  "workspacePromptContentRequired": "프롬프트 내용이 필요합니다.",
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Write",
+  "workspacePromptWriteTab": "작성",
   "@workspacePromptWriteTab": {
     "description": "Toggle label for the editable prompt content view."
   },
-  "workspacePromptPreviewTab": "Preview",
+  "workspacePromptPreviewTab": "미리 보기",
   "@workspacePromptPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the prompt content."
   },
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "workspacePromptPreviewEmpty": "아직 미리 볼 내용이 없습니다.",
   "@workspacePromptPreviewEmpty": {
     "description": "Empty-state text shown in the prompt preview when there is no content."
   },
-  "workspacePromptTags": "Tags",
+  "workspacePromptTags": "태그",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
   },
-  "workspacePromptTagAdd": "Add tag",
+  "workspacePromptTagAdd": "태그 추가",
   "@workspacePromptTagAdd": {
     "description": "Action to add a tag to a prompt."
   },
-  "workspacePromptVersionSection": "Version",
+  "workspacePromptVersionSection": "버전",
   "@workspacePromptVersionSection": {
     "description": "Section header for prompt versioning controls."
   },
-  "workspacePromptCommitMessage": "Commit message",
+  "workspacePromptCommitMessage": "커밋 메시지",
   "@workspacePromptCommitMessage": {
     "description": "Label for the optional commit message recorded with a prompt version."
   },
-  "workspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "workspacePromptCommitMessageHint": "변경 내용 설명(선택 사항)",
   "@workspacePromptCommitMessageHint": {
     "description": "Placeholder for the prompt commit message field."
   },
-  "workspacePromptSetProduction": "Set as production version",
+  "workspacePromptSetProduction": "프로덕션 버전으로 설정",
   "@workspacePromptSetProduction": {
     "description": "Toggle that marks the saved prompt version as the live production version."
   },
-  "workspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "workspacePromptSetProductionSubtitle": "이 버전을 채팅에서 사용하는 라이브 버전으로 만듭니다.",
   "@workspacePromptSetProductionSubtitle": {
     "description": "Explanation for the production-version toggle."
   },
-  "workspacePromptManageAccess": "Manage access",
+  "workspacePromptManageAccess": "접근 권한 관리",
   "@workspacePromptManageAccess": {
     "description": "Action to open the sharing/access editor for a prompt."
   },
-  "workspacePromptClone": "Duplicate",
+  "workspacePromptClone": "복제",
   "@workspacePromptClone": {
     "description": "Overflow action that clones a prompt."
   },
-  "workspacePromptCloneSuffix": "(copy)",
+  "workspacePromptCloneSuffix": "(사본)",
   "@workspacePromptCloneSuffix": {
     "description": "Suffix appended to the name and command of a cloned prompt."
   },
-  "workspacePromptUpdateDetails": "Save name & command only",
+  "workspacePromptUpdateDetails": "이름과 명령어만 저장",
   "@workspacePromptUpdateDetails": {
     "description": "Overflow action that updates prompt metadata without creating a new version."
   },
-  "workspacePromptDetailsSaved": "Details saved",
+  "workspacePromptDetailsSaved": "세부 정보를 저장했습니다",
   "@workspacePromptDetailsSaved": {
     "description": "Confirmation that prompt name and command were updated."
   },
-  "workspacePromptActivate": "Activate",
+  "workspacePromptActivate": "활성화",
   "@workspacePromptActivate": {
     "description": "Overflow action that enables a prompt."
   },
-  "workspacePromptDeactivate": "Deactivate",
+  "workspacePromptDeactivate": "비활성화",
   "@workspacePromptDeactivate": {
     "description": "Overflow action that disables a prompt."
   },
-  "workspacePromptDelete": "Delete prompt",
+  "workspacePromptDelete": "프롬프트 삭제",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
   },
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "workspacePromptDeleteConfirmTitle": "프롬프트를 삭제하시겠습니까?",
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspacePromptDeleteConfirmMessage": "\"{name}\"이(가) 영구적으로 삭제됩니다.",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -2579,211 +2579,211 @@
       }
     }
   },
-  "workspacePromptDeleted": "Prompt deleted",
+  "workspacePromptDeleted": "프롬프트를 삭제했습니다",
   "@workspacePromptDeleted": {
     "description": "Confirmation that a prompt was deleted."
   },
-  "workspacePromptSaved": "Prompt saved",
+  "workspacePromptSaved": "프롬프트를 저장했습니다",
   "@workspacePromptSaved": {
     "description": "Confirmation that a prompt was saved."
   },
-  "workspacePromptSaveFailed": "Couldn't save the prompt. Please try again.",
+  "workspacePromptSaveFailed": "프롬프트를 저장할 수 없습니다. 다시 시도하세요.",
   "@workspacePromptSaveFailed": {
     "description": "Error shown when saving a prompt fails."
   },
-  "workspacePromptImport": "Import prompts",
+  "workspacePromptImport": "프롬프트 가져오기",
   "@workspacePromptImport": {
     "description": "Overflow action that imports prompt definitions from JSON."
   },
-  "workspacePromptExport": "Export prompts",
+  "workspacePromptExport": "프롬프트 내보내기",
   "@workspacePromptExport": {
     "description": "Overflow action that exports readable prompts as JSON."
   },
-  "workspacePromptExportFailed": "Couldn't export prompts.",
+  "workspacePromptExportFailed": "프롬프트를 내보낼 수 없습니다.",
   "@workspacePromptExportFailed": {
     "description": "Error shown when exporting prompts fails."
   },
-  "workspacePromptHistory": "Version history",
+  "workspacePromptHistory": "버전 기록",
   "@workspacePromptHistory": {
     "description": "Header of the prompt version-history panel."
   },
-  "workspacePromptHistoryEmpty": "No versions yet.",
+  "workspacePromptHistoryEmpty": "아직 버전이 없습니다.",
   "@workspacePromptHistoryEmpty": {
     "description": "Empty-state text when a prompt has no version history."
   },
-  "workspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "workspacePromptHistoryLoadFailed": "버전 기록을 불러올 수 없습니다.",
   "@workspacePromptHistoryLoadFailed": {
     "description": "Error shown when loading prompt history fails."
   },
-  "workspacePromptHistoryCommitFallback": "No commit message",
+  "workspacePromptHistoryCommitFallback": "커밋 메시지 없음",
   "@workspacePromptHistoryCommitFallback": {
     "description": "Placeholder shown for a history entry without a commit message."
   },
-  "workspacePromptHistoryLive": "Live",
+  "workspacePromptHistoryLive": "라이브",
   "@workspacePromptHistoryLive": {
     "description": "Badge marking the active production version of a prompt."
   },
-  "workspacePromptHistoryDiff": "Compare with production",
+  "workspacePromptHistoryDiff": "프로덕션과 비교",
   "@workspacePromptHistoryDiff": {
     "description": "Action to diff a prompt version against the production version."
   },
-  "workspacePromptHistoryDiffTitle": "Version comparison",
+  "workspacePromptHistoryDiffTitle": "버전 비교",
   "@workspacePromptHistoryDiffTitle": {
     "description": "Title of the prompt version diff sheet."
   },
-  "workspacePromptHistoryDiffEmpty": "No content differences.",
+  "workspacePromptHistoryDiffEmpty": "내용 차이가 없습니다.",
   "@workspacePromptHistoryDiffEmpty": {
     "description": "Shown when two prompt versions have identical content."
   },
-  "workspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "workspacePromptHistoryDiffNameChanged": "두 버전 사이에 이름이 바뀌었습니다.",
   "@workspacePromptHistoryDiffNameChanged": {
     "description": "Note shown in the diff sheet when the prompt name changed."
   },
-  "workspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "workspacePromptHistoryDiffFailed": "차이를 계산할 수 없습니다.",
   "@workspacePromptHistoryDiffFailed": {
     "description": "Error shown when computing a prompt version diff fails."
   },
-  "workspacePromptHistoryRestore": "Restore this version",
+  "workspacePromptHistoryRestore": "이 버전 복원",
   "@workspacePromptHistoryRestore": {
     "description": "Action that loads a version snapshot back into the editor."
   },
-  "workspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "workspacePromptHistoryRestored": "버전 내용을 복원했습니다. 유지하려면 저장하세요.",
   "@workspacePromptHistoryRestored": {
     "description": "Confirmation that a version snapshot was loaded into the editor."
   },
-  "workspacePromptHistorySetProduction": "Set as production",
+  "workspacePromptHistorySetProduction": "프로덕션으로 설정",
   "@workspacePromptHistorySetProduction": {
     "description": "Action that pins a version as the production version."
   },
-  "workspacePromptHistoryProductionSet": "Production version updated.",
+  "workspacePromptHistoryProductionSet": "프로덕션 버전을 업데이트했습니다.",
   "@workspacePromptHistoryProductionSet": {
     "description": "Confirmation that the production version was changed."
   },
-  "workspacePromptHistoryDelete": "Delete version",
+  "workspacePromptHistoryDelete": "버전 삭제",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
   },
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "workspacePromptHistoryDeleteConfirmTitle": "버전을 삭제하시겠습니까?",
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "workspacePromptHistoryDeleteConfirmMessage": "이 버전 스냅샷이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleted": "Version deleted",
+  "workspacePromptHistoryDeleted": "버전을 삭제했습니다",
   "@workspacePromptHistoryDeleted": {
     "description": "Confirmation that a prompt version was deleted."
   },
-  "workspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "workspacePromptHistoryDeleteProduction": "라이브 프로덕션 버전은 삭제할 수 없습니다.",
   "@workspacePromptHistoryDeleteProduction": {
     "description": "Error shown when trying to delete the active production version."
   },
-  "workspaceSkillCreateTitle": "New skill",
+  "workspaceSkillCreateTitle": "새 스킬",
   "@workspaceSkillCreateTitle": {
     "description": "Title shown while creating a new workspace skill."
   },
-  "workspaceSkillName": "Name",
+  "workspaceSkillName": "이름",
   "@workspaceSkillName": {
     "description": "Label for the skill name field."
   },
-  "workspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "workspaceSkillNameHint": "예: 코드 리뷰 가이드라인",
   "@workspaceSkillNameHint": {
     "description": "Placeholder example for the skill name field."
   },
-  "workspaceSkillNameRequired": "Name is required.",
+  "workspaceSkillNameRequired": "이름이 필요합니다.",
   "@workspaceSkillNameRequired": {
     "description": "Validation error when the skill name is empty."
   },
-  "workspaceSkillId": "Skill ID",
+  "workspaceSkillId": "스킬 ID",
   "@workspaceSkillId": {
     "description": "Label for the skill identifier field."
   },
-  "workspaceSkillIdHint": "e.g. code-review-guidelines",
+  "workspaceSkillIdHint": "예: code-review-guidelines",
   "@workspaceSkillIdHint": {
     "description": "Placeholder example for the skill identifier field."
   },
-  "workspaceSkillIdRequired": "Skill ID is required.",
+  "workspaceSkillIdRequired": "스킬 ID가 필요합니다.",
   "@workspaceSkillIdRequired": {
     "description": "Validation error when the skill identifier is empty."
   },
-  "workspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspaceSkillIdInvalid": "영문자, 숫자, 하이픈, 밑줄만 사용할 수 있습니다.",
   "@workspaceSkillIdInvalid": {
     "description": "Validation error when the skill identifier contains illegal characters."
   },
-  "workspaceSkillIdTaken": "That skill ID or name is already in use.",
+  "workspaceSkillIdTaken": "이미 사용 중인 스킬 ID 또는 이름입니다.",
   "@workspaceSkillIdTaken": {
     "description": "Error shown when saving a skill whose id or name collides with another skill."
   },
-  "workspaceSkillDescription": "Description",
+  "workspaceSkillDescription": "설명",
   "@workspaceSkillDescription": {
     "description": "Label for the optional skill description field."
   },
-  "workspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "workspaceSkillDescriptionHint": "예: 코드 리뷰를 위한 단계별 지침",
   "@workspaceSkillDescriptionHint": {
     "description": "Placeholder example for the skill description field."
   },
-  "workspaceSkillContent": "Instructions",
+  "workspaceSkillContent": "지침",
   "@workspaceSkillContent": {
     "description": "Label for the skill Markdown instructions body field."
   },
-  "workspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "workspaceSkillContentHint": "스킬 지침을 Markdown으로 입력하세요…",
   "@workspaceSkillContentHint": {
     "description": "Placeholder text for the empty skill instructions field."
   },
-  "workspaceSkillContentRequired": "Instructions are required.",
+  "workspaceSkillContentRequired": "지침이 필요합니다.",
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Write",
+  "workspaceSkillWriteTab": "작성",
   "@workspaceSkillWriteTab": {
     "description": "Toggle label for the editable skill instructions view."
   },
-  "workspaceSkillPreviewTab": "Preview",
+  "workspaceSkillPreviewTab": "미리 보기",
   "@workspaceSkillPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the skill instructions."
   },
-  "workspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "workspaceSkillPreviewEmpty": "아직 미리 볼 내용이 없습니다.",
   "@workspaceSkillPreviewEmpty": {
     "description": "Empty-state text shown in the skill preview when there is no content."
   },
-  "workspaceSkillManageAccess": "Manage access",
+  "workspaceSkillManageAccess": "접근 권한 관리",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
   },
-  "workspaceSkillSaved": "Skill saved",
+  "workspaceSkillSaved": "스킬을 저장했습니다",
   "@workspaceSkillSaved": {
     "description": "Confirmation that a skill was saved."
   },
-  "workspaceSkillSaveFailed": "Couldn't save the skill. Please try again.",
+  "workspaceSkillSaveFailed": "스킬을 저장할 수 없습니다. 다시 시도하세요.",
   "@workspaceSkillSaveFailed": {
     "description": "Error shown when saving a skill fails."
   },
-  "workspaceSkillClone": "Duplicate",
+  "workspaceSkillClone": "복제",
   "@workspaceSkillClone": {
     "description": "Overflow action that clones a skill."
   },
-  "workspaceSkillCloneSuffix": "(Clone)",
+  "workspaceSkillCloneSuffix": "(복제본)",
   "@workspaceSkillCloneSuffix": {
     "description": "Suffix appended to the name of a cloned skill."
   },
-  "workspaceSkillActivate": "Activate",
+  "workspaceSkillActivate": "활성화",
   "@workspaceSkillActivate": {
     "description": "Overflow action that enables a skill."
   },
-  "workspaceSkillDeactivate": "Deactivate",
+  "workspaceSkillDeactivate": "비활성화",
   "@workspaceSkillDeactivate": {
     "description": "Overflow action that disables a skill."
   },
-  "workspaceSkillDelete": "Delete skill",
+  "workspaceSkillDelete": "스킬 삭제",
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "workspaceSkillDeleteConfirmTitle": "스킬을 삭제하시겠습니까?",
   "@workspaceSkillDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a skill."
   },
-  "workspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspaceSkillDeleteConfirmMessage": "\"{name}\"이(가) 영구적으로 삭제됩니다.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
     "placeholders": {
@@ -2792,97 +2792,97 @@
       }
     }
   },
-  "workspaceSkillDeleted": "Skill deleted",
+  "workspaceSkillDeleted": "스킬을 삭제했습니다",
   "@workspaceSkillDeleted": {
     "description": "Confirmation that a skill was deleted."
   },
-  "workspaceSkillImport": "Import skills",
+  "workspaceSkillImport": "스킬 가져오기",
   "@workspaceSkillImport": {
     "description": "Title of the JSON skill import sheet."
   },
-  "workspaceSkillImportMarkdown": "Import Markdown",
+  "workspaceSkillImportMarkdown": "Markdown 가져오기",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
   },
-  "workspaceSkillImportJson": "Import JSON",
+  "workspaceSkillImportJson": "JSON 가져오기",
   "@workspaceSkillImportJson": {
     "description": "Overflow action that imports one or more skills from a JSON file."
   },
-  "workspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "workspaceSkillImportMarkdownLoaded": "Markdown을 불러왔습니다. 검토한 후 저장하면 스킬이 만들어집니다.",
   "@workspaceSkillImportMarkdownLoaded": {
     "description": "Confirmation that a Markdown file was loaded into the unsaved skill editor."
   },
-  "workspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "workspaceSkillImportMarkdownFailed": "Markdown 파일을 읽을 수 없습니다.",
   "@workspaceSkillImportMarkdownFailed": {
     "description": "Error shown when reading a Markdown skill file fails."
   },
-  "workspaceSkillExport": "Export skills",
+  "workspaceSkillExport": "스킬 내보내기",
   "@workspaceSkillExport": {
     "description": "Overflow action that exports readable skills as JSON."
   },
-  "workspaceSkillExportFailed": "Couldn't export skills.",
+  "workspaceSkillExportFailed": "스킬을 내보낼 수 없습니다.",
   "@workspaceSkillExportFailed": {
     "description": "Error shown when exporting skills fails."
   },
-  "workspaceToolCreateTitle": "Create tool",
-  "workspaceToolName": "Name",
-  "workspaceToolNameHint": "e.g. My Tools",
-  "workspaceToolNameRequired": "Enter a tool name.",
-  "workspaceToolId": "Tool ID",
-  "workspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
-  "workspaceToolIdRequired": "Enter a tool ID.",
-  "workspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
-  "workspaceToolIdTaken": "That tool ID is already in use.",
-  "workspaceToolDescription": "Description",
-  "workspaceToolDescriptionHint": "e.g. Tools for performing various operations",
-  "workspaceToolContent": "Python source",
-  "workspaceToolContentHint": "Write your tool as a Python class named Tools…",
-  "workspaceToolContentRequired": "Add Python source before saving.",
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
-  "workspaceToolSaved": "Tool saved",
-  "workspaceToolDeleted": "Tool deleted",
-  "workspaceToolSaveFailed": "Couldn't save the tool.",
-  "workspaceToolManageAccess": "Manage access",
-  "workspaceToolClone": "Duplicate",
-  "workspaceToolCloneSuffix": "(Clone)",
-  "workspaceToolDelete": "Delete",
-  "workspaceToolDeleteConfirmTitle": "Delete tool?",
-  "workspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
-  "workspaceToolImport": "Import tools",
-  "workspaceToolImportJson": "Import JSON",
-  "workspaceToolImportUrl": "Import from URL",
-  "workspaceToolImportUrlTitle": "Import tool from URL",
-  "workspaceToolImportUrlHint": "Enter a raw or GitHub URL to a tool's Python file",
+  "workspaceToolCreateTitle": "도구 만들기",
+  "workspaceToolName": "이름",
+  "workspaceToolNameHint": "예: 내 도구",
+  "workspaceToolNameRequired": "도구 이름을 입력하세요.",
+  "workspaceToolId": "도구 ID",
+  "workspaceToolIdHint": "영문자, 숫자, 밑줄을 사용할 수 있으며 숫자로 시작할 수 없습니다.",
+  "workspaceToolIdRequired": "도구 ID를 입력하세요.",
+  "workspaceToolIdInvalid": "도구 ID에는 영문자, 숫자, 밑줄만 사용할 수 있으며 숫자로 시작할 수 없습니다.",
+  "workspaceToolIdTaken": "이미 사용 중인 도구 ID입니다.",
+  "workspaceToolDescription": "설명",
+  "workspaceToolDescriptionHint": "예: 다양한 작업을 수행하는 도구",
+  "workspaceToolContent": "Python 소스",
+  "workspaceToolContentHint": "Tools라는 이름의 Python 클래스로 도구를 작성하세요…",
+  "workspaceToolContentRequired": "저장하기 전에 Python 소스를 추가하세요.",
+  "workspaceToolWarning": "도구는 서버에서 임의의 Python 코드를 실행합니다. 신뢰할 수 있는 출처의 코드만 추가하세요.",
+  "workspaceToolSaved": "도구를 저장했습니다",
+  "workspaceToolDeleted": "도구를 삭제했습니다",
+  "workspaceToolSaveFailed": "도구를 저장할 수 없습니다.",
+  "workspaceToolManageAccess": "접근 권한 관리",
+  "workspaceToolClone": "복제",
+  "workspaceToolCloneSuffix": "(복제본)",
+  "workspaceToolDelete": "삭제",
+  "workspaceToolDeleteConfirmTitle": "도구를 삭제하시겠습니까?",
+  "workspaceToolDeleteConfirmMessage": "\"{name}\"이(가) 영구적으로 삭제됩니다.",
+  "workspaceToolImport": "도구 가져오기",
+  "workspaceToolImportJson": "JSON 가져오기",
+  "workspaceToolImportUrl": "URL에서 가져오기",
+  "workspaceToolImportUrlTitle": "URL에서 도구 가져오기",
+  "workspaceToolImportUrlHint": "도구 Python 파일의 GitHub URL을 입력하세요",
   "workspaceToolImportUrlLabel": "URL",
-  "workspaceToolImportUrlInvalid": "Enter a valid URL.",
-  "workspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
-  "workspaceToolExport": "Export tools",
-  "workspaceToolExportFailed": "Couldn't export tools.",
-  "workspaceToolManifest": "Manifest",
-  "workspaceToolManifestVersion": "Version {version}",
-  "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
-  "workspaceToolManifestFunding": "Funding: {url}",
-  "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolImportUrlInvalid": "올바른 URL을 입력하세요.",
+  "workspaceToolImportUrlFailed": "해당 URL에서 도구를 가져올 수 없습니다.",
+  "workspaceToolImportUrlLoaded": "도구를 불러왔습니다. 검토한 후 저장하세요.",
+  "workspaceToolExport": "도구 내보내기",
+  "workspaceToolExportFailed": "도구를 내보낼 수 없습니다.",
+  "workspaceToolManifest": "매니페스트",
+  "workspaceToolManifestVersion": "버전 {version}",
+  "workspaceToolManifestRequiredVersion": "Open WebUI {version} 필요",
+  "workspaceToolManifestFunding": "후원: {url}",
+  "workspaceToolSpecs": "생성된 사양",
   "workspaceToolDetails": "도구 세부 정보",
   "workspaceToolFunctionCount": "함수 {count}개",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
-  "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
-  "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
-  "workspaceToolValves": "Valves",
-  "workspaceToolValvesTitle": "Valves",
-  "workspaceToolValvesServer": "Server valves",
-  "workspaceToolValvesUser": "User valves",
-  "workspaceToolValvesEmpty": "No valves",
-  "workspaceToolValvesSaved": "Valves updated",
-  "workspaceToolValvesSaveFailed": "Couldn't update valves.",
-  "workspaceToolValvesLoadFailed": "Couldn't load valves.",
-  "workspaceValveRequired": "required",
-  "workspaceValveDefault": "Default",
-  "workspaceValveCustom": "Custom",
-  "workspaceValveNone": "None",
-  "workspaceValveEnabled": "Enabled",
-  "workspaceValveDisabled": "Disabled",
+  "workspaceToolSpecsEmpty": "이 도구에 대해 생성된 사양이 없습니다.",
+  "workspaceToolIncompatible": "이 도구에는 Open WebUI v{required}이(가) 필요하지만 서버는 v{current}입니다. 저장하려면 서버를 업데이트하세요.",
+  "workspaceToolValves": "밸브",
+  "workspaceToolValvesTitle": "밸브",
+  "workspaceToolValvesServer": "서버 밸브",
+  "workspaceToolValvesUser": "사용자 밸브",
+  "workspaceToolValvesEmpty": "밸브 없음",
+  "workspaceToolValvesSaved": "밸브를 업데이트했습니다",
+  "workspaceToolValvesSaveFailed": "밸브를 업데이트할 수 없습니다.",
+  "workspaceToolValvesLoadFailed": "밸브를 불러올 수 없습니다.",
+  "workspaceValveRequired": "필수",
+  "workspaceValveDefault": "기본값",
+  "workspaceValveCustom": "사용자 지정",
+  "workspaceValveNone": "없음",
+  "workspaceValveEnabled": "사용",
+  "workspaceValveDisabled": "사용 안 함",
   "noteConflictCopyBadge": "충돌 복사본",
   "noteConflictCopySuffix": " (충돌 복사본)",
   "notificationChannelDescription": "누군가 채널이나 DM에서 메시지를 보내면 알립니다.",
@@ -3016,7 +3016,7 @@
   "directOpenRouterUrlInvalid": "OpenRouter의 HTTPS /api/v1 루트(글로벌 또는 EU)를 사용하세요.",
   "directOpenRouterBaseUrlDescription": "OpenRouter API 키, 인증된 모델 카탈로그 및 Conduit에서 관리하는 도구를 사용합니다.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions는 기본 웹 검색, 이미지 생성, PDF 분석 및 재사용 가능한 PDF 주석에 사용됩니다.",
-  "directCompletionApi": "Completion API",
+  "directCompletionApi": "API 유형",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
   "directChatCompletionsDescription": "LM Studio, vLLM, LocalAI, OpenRouter 등 OpenAI 호환 제공업체에서 사용할 수 있습니다.",
@@ -3338,31 +3338,31 @@
   "hermesSessionDeleteFailed": "대화를 삭제할 수 없습니다.",
   "hermesSessionLoadFailed": "이 대화를 불러올 수 없습니다. 연결을 확인하고 다시 시도하세요.",
   "hermesMemoryKeyFieldLabel": "메모리 키",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "거부", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "MCP 서버", "directMcpEmptyTitle": "아직 MCP 서버가 없습니다", "directMcpReachabilityHelp": "이 기기에서 연결할 수 있는 Streamable HTTP 엔드포인트를 추가하세요.", "directMcpEditorTitle": "MCP 서버 편집", "directMcpAddTitle": "MCP 서버 추가", "directMcpName": "서버 이름", "directMcpEndpoint": "Streamable HTTP 엔드포인트", "directMcpBearerToken": "Bearer 토큰(선택 사항)", "directMcpCustomHeaders": "사용자 지정 헤더(선택 사항)", "directMcpCustomHeadersHint": "한 줄에 하나씩: 이름: 값", "directMcpTestConnection": "연결 테스트", "directMcpTesting": "연결 테스트 중…", "directMcpTestSucceeded": "{count, plural, other{연결됨 — 도구 {count}개를 찾았습니다.}}", "directMcpTestFailed": "이 MCP 서버의 도구 목록을 가져올 수 없습니다.", "directMcpSaveFailed": "이 MCP 서버를 저장할 수 없습니다.", "directMcpLoadFailed": "보안 저장소에서 MCP 서버를 불러올 수 없습니다.", "directMcpMissing": "이 MCP 서버는 더 이상 존재하지 않습니다.", "directMcpCredentialTransferTitle": "새 서버에서 자격 증명을 사용하시겠습니까?", "directMcpCredentialTransferMessage": "Bearer 토큰과 사용자 지정 헤더가 새 서버로 전송됩니다. 신뢰하는 서버인 경우에만 계속하세요. 취소하면 자격 증명 없이 서버가 저장됩니다.", "directMcpCredentialTransferConfirm": "자격 증명 사용", "directMcpDeleteTitle": "MCP 서버를 삭제하시겠습니까?", "directMcpDeleteMessage": "이 기기에서 {name} 및 해당 자격 증명이 삭제됩니다.", "directMcpDeleteFailed": "이 MCP 서버를 삭제할 수 없습니다.", "directMcpAuthMode": "인증", "directMcpAuthNone": "없음", "directMcpAuthBearer": "Bearer 토큰", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "브라우저에서 연결", "directMcpOAuthReconnect": "브라우저에서 다시 연결", "directMcpOAuthDisconnect": "OAuth 연결 해제", "directMcpOAuthPending": "브라우저에서 승인을 기다리는 중…", "directMcpOAuthConnected": "OAuth가 연결되었습니다.", "directMcpOAuthConnectionDetails": "{issuerHost}에 연결됨 · {scopes}", "directMcpOAuthNoScopes": "보고된 범위 없음", "directMcpOAuthConnectFailed": "OAuth로 이 MCP 서버를 연결할 수 없습니다.", "directMcpOAuthDisconnectFailed": "이 MCP 서버에서 OAuth 연결을 해제할 수 없습니다.", "directMcpApprovalTitle": "도구 승인", "directMcpApprovalAllowOnce": "한 번 허용", "directMcpApprovalAllowSession": "이 세션 동안 허용", "directMcpApprovalAllowAlways": "항상 허용", "directMcpApprovalAlwaysTitle": "이 도구를 항상 허용하시겠습니까?", "directMcpApprovalAlwaysMessage": "{serverName}이(가) 다시 묻지 않고 {toolName}을(를) 실행할 수 있게 됩니다. 도구 스키마가 변경되면 승인이 자동으로 철회됩니다.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "이 승인을 기억할 수 없습니다. 다시 시도하거나 다른 옵션을 선택하세요.", "directMcpApprovalDeny": "거부", "directMcpApprovalAllowed": "한 번 허용됨", "directMcpApprovalAllowedSession": "이 세션 동안 허용됨", "directMcpApprovalAllowedAlways": "항상 허용됨", "directMcpApprovalDenied": "거부됨", "directMcpApprovalExpired": "승인 만료됨", "directMcpRememberedApprovalsTitle": "항상 허용된 도구", "directMcpRememberedApprovalsSubtitle": "서버와 입력 스키마가 변경되지 않는 한 이 도구들은 묻지 않고 실행될 수 있습니다.", "directMcpRememberedApprovalRevoke": "철회", "directMcpRememberedApprovalsRevokeAll": "모두 철회", "directMcpRememberedApprovalRevokeFailed": "기억된 승인을 철회할 수 없습니다."
+  ,"directMcpContentAction": "MCP 콘텐츠"
+  ,"directMcpContentTitle": "MCP 콘텐츠"
+  ,"directMcpContentServer": "MCP 서버"
+  ,"directMcpContentSearch": "프롬프트 및 리소스 검색"
+  ,"directMcpContentPrompts": "프롬프트"
+  ,"directMcpContentResources": "리소스"
+  ,"directMcpContentEmpty": "이 서버에는 프롬프트나 리소스가 없습니다."
+  ,"directMcpContentNoMatches": "일치하는 프롬프트나 리소스가 없습니다."
+  ,"directMcpContentLoadFailed": "이 MCP 서버에서 콘텐츠를 불러올 수 없습니다."
+  ,"directMcpContentRefresh": "MCP 콘텐츠 새로 고침"
+  ,"directMcpContentPreviewTitle": "미리 보기"
+  ,"directMcpContentInsert": "삽입"
+  ,"directMcpContentPromptHeading": "{serverName}의 MCP 프롬프트: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "{serverName}의 MCP 리소스: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
+  ,"directMcpContentRoleUser": "사용자"
+  ,"directMcpContentRoleAssistant": "어시스턴트"
+  ,"directMcpContentRequestFailed": "이 MCP 콘텐츠를 불러올 수 없습니다. 다시 시도하세요."
+  ,"directMcpContentUnsupported": "이 항목은 바이너리이거나 지원되지 않습니다. 텍스트 프롬프트나 텍스트 리소스를 선택하세요."
+  ,"directMcpContentChanged": "이 항목이 서버에서 변경되었습니다. 새로 고친 후 다시 선택하세요."
+  ,"directMcpContentTooLarge": "이 콘텐츠는 너무 커서 삽입할 수 없습니다."
+  ,"directMcpContentComposerTooLarge": "초안과 이 콘텐츠가 메시지 한도인 256KiB를 초과합니다. 초안이나 콘텐츠를 줄인 후 다시 시도하세요."
+  ,"directMcpContentLoading": "MCP 콘텐츠를 불러오는 중…"
   ,"directMcpInsecureCredentialsTitle": "암호화 없이 자격 증명을 보낼까요?"
   ,"directMcpInsecureCredentialsMessage": "이 서버는 암호화되지 않은 HTTP를 사용합니다. 베어러 토큰, OAuth 토큰, 사용자 지정 헤더가 네트워크에서 읽히거나 변경될 수 있습니다."
   ,"directMcpInsecureCredentialsConfirm": "암호화 없이 보내기"
@@ -3421,7 +3421,7 @@
   "notificationTargetEditTitle": "대상 편집",
   "notificationTargetNameLabel": "이름(선택 사항)",
   "notificationTargetNameHint": "예: team-chat",
-  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlLabel": "웹훅 URL",
   "notificationTargetUrlHint": "https://example.com/webhook",
   "notificationTargetUrlKeepHint": "현재 URL을 유지하려면 비워 두세요",
   "notificationTargetUrlRequired": "웹훅 URL을 입력하세요.",

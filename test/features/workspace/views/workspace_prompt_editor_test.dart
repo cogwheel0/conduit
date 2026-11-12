@@ -191,6 +191,34 @@ void main() {
     expect(prompts.created.single.accessGrants, isEmpty);
   });
 
+  for (final (locale, expected) in [
+    (const Locale('en'), 'summary-copy'),
+    (const Locale('de'), 'summary-kopie'),
+    (const Locale('zh'), 'summary-copy'),
+  ]) {
+    testWidgets('clone command in $locale is $expected', (tester) async {
+      final prompts = _FakePrompts();
+      await tester.pumpWidget(
+        _harness(
+          prompts,
+          mode: WorkspaceRouteMode.detail,
+          resourceId: 'p-1',
+          detail: _writable(),
+          locale: locale,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('workspace-prompt-action-clone')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(prompts.created.single.command, expected);
+    });
+  }
+
   testWidgets('toggle action toggles active state', (tester) async {
     final prompts = _FakePrompts();
     await tester.pumpWidget(
@@ -462,6 +490,7 @@ Widget _harness(
   String? resourceId,
   WorkspacePromptDetail? detail,
   WorkspaceCapabilities capabilities = WorkspaceCapabilities.all,
+  Locale? locale,
 }) {
   return ProviderScope(
     overrides: [
@@ -473,11 +502,11 @@ Widget _harness(
         workspacePromptDetailProvider(resourceId)
             .overrideWith((ref) async => detail),
     ],
-    child: _app(mode, resourceId),
+    child: _app(mode, resourceId, locale: locale),
   );
 }
 
-Widget _app(WorkspaceRouteMode mode, String? resourceId) {
+Widget _app(WorkspaceRouteMode mode, String? resourceId, {Locale? locale}) {
   Widget placeholder(_, _) => const Scaffold(body: Text('nav-target'));
   final router = GoRouter(
     initialLocation: '/editor',
@@ -496,6 +525,7 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
   return MaterialApp.router(
     routerConfig: router,
+    locale: locale,
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
   );

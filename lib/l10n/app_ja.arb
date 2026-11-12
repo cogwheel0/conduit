@@ -1448,7 +1448,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "タンジェリン",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -1637,11 +1637,11 @@
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Auto ではこのデバイスの言語を使用します。必要に応じて en などのコードを入力してください。",
+  "sttTranscriptionLanguageDescription": "自動検出では、サーバーが話されている言語を推定します。必要に応じて en などのコードを入力してください。",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageAuto": "自動検出",
   "@sttTranscriptionLanguageAuto": {
     "description": "Option label for using the device language as the server speech-to-text language hint."
   },
@@ -3699,218 +3699,218 @@
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
   "workspaceTitle": "ワークスペース",
-  "workspaceSubtitle": "Manage server resources and access.",
-  "workspaceModels": "Models",
-  "workspaceKnowledge": "Knowledge",
-  "workspacePrompts": "Prompts",
-  "workspaceTools": "Tools",
-  "workspaceSkills": "Skills",
-  "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
-  "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
-  "workspaceLoadFailed": "Workspace could not be loaded.",
-  "workspaceRetry": "Retry",
-  "workspaceSelectItem": "Select an item to view its details.",
-  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
-  "workspaceSearchHint": "Search workspace resources",
-  "workspaceLoadMore": "Load more",
-  "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
-  "workspaceAccessPeopleHeading": "People & groups",
-  "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
-  "workspaceAccessEmpty": "Not shared with anyone yet.",
-  "workspaceAccessAddPeople": "Add people or groups",
-  "workspaceAccessAddGroups": "Add groups",
+  "workspaceSubtitle": "サーバーのリソースとアクセスを管理",
+  "workspaceModels": "モデル",
+  "workspaceKnowledge": "ナレッジ",
+  "workspacePrompts": "プロンプト",
+  "workspaceTools": "ツール",
+  "workspaceSkills": "スキル",
+  "workspaceCreate": "作成",
+  "workspaceEmpty": "項目はまだありません。",
+  "workspaceDenied": "このワークスペースのセクションを管理する権限がありません。",
+  "workspaceUnsupported": "このサーバーはワークスペースの管理に対応していません。",
+  "workspaceLoadFailed": "ワークスペースを読み込めませんでした。",
+  "workspaceRetry": "再試行",
+  "workspaceSelectItem": "項目を選択すると詳細が表示されます。",
+  "workspaceEditorComingSoon": "このエディタは、ワークスペースの次の段階で利用できるようになります。",
+  "workspaceSearchHint": "ワークスペースのリソースを検索",
+  "workspaceLoadMore": "さらに読み込む",
+  "workspaceAccessPublicDisabled": "これを公開で共有する権限がありません。",
+  "workspaceAccessPeopleHeading": "ユーザーとグループ",
+  "workspaceAccessUsersDisabled": "個別のユーザーとの共有は無効になっています。共有できるのはグループのみです。",
+  "workspaceAccessEmpty": "まだ誰とも共有していません。",
+  "workspaceAccessAddPeople": "ユーザーまたはグループを追加",
+  "workspaceAccessAddGroups": "グループを追加",
   "workspaceAccessAddUsers": "ユーザーを追加",
   "workspaceAccessGroupsDisabled": "グループとの共有は無効です。個人とのみ共有できます。",
   "workspaceAccessGrantsDisabled": "ユーザーやグループと共有する権限がありません。既存のアクセス権は維持されます。",
-  "workspaceAccessGroupBadge": "Group",
-  "workspaceAccessUserBadge": "Person",
-  "workspaceAccessCanEdit": "Can edit",
-  "workspaceAccessRemoveGrant": "Remove access",
-  "workspacePrincipalTitle": "Add people or groups",
-  "workspacePrincipalUsersTab": "People",
-  "workspacePrincipalGroupsTab": "Groups",
-  "workspacePrincipalSearchHint": "Search people by name or email",
-  "workspacePrincipalLoadFailed": "Could not load results.",
-  "workspacePrincipalSearchPrompt": "Search to find people to share with.",
-  "workspacePrincipalNoResults": "No matches found.",
-  "workspaceReadOnlyBadge": "Read only",
-  "workspaceReadOnlyExplanation": "You have view-only access to this resource.",
-  "workspaceEditorDiscardTitle": "Discard changes?",
-  "workspaceEditorDiscardMessage": "Your unsaved changes will be lost.",
-  "workspaceEditorDiscardConfirm": "Discard",
-  "workspaceEditorKeepEditing": "Keep editing",
-  "workspaceEditorSaveTooltip": "Save changes",
-  "workspaceEditorSaving": "Saving…",
-  "workspaceEditorMoreActions": "More actions",
-  "workspaceImportChooseFile": "Choose JSON file",
-  "workspaceImportPasteLabel": "Or paste JSON",
-  "workspaceImportPasteHint": "Paste exported JSON here",
-  "workspaceImportRun": "Import",
-  "workspaceImportInvalidJson": "That doesn't look like valid JSON.",
-  "workspaceImportEmpty": "No items were found to import.",
-  "workspaceImportReadFailed": "Could not read the selected file.",
-  "workspaceImportBatchFailed": "The import could not be completed.",
-  "workspaceImportSummary": "Imported {success} of {total} items",
-  "workspaceImportItemImported": "Imported",
-  "workspaceImportItemFailed": "Import failed",
-  "workspaceImportDone": "Done",
-  "workspaceModelNewTitle": "New model",
+  "workspaceAccessGroupBadge": "グループ",
+  "workspaceAccessUserBadge": "ユーザー",
+  "workspaceAccessCanEdit": "編集可能",
+  "workspaceAccessRemoveGrant": "アクセス権を削除",
+  "workspacePrincipalTitle": "ユーザーまたはグループを追加",
+  "workspacePrincipalUsersTab": "ユーザー",
+  "workspacePrincipalGroupsTab": "グループ",
+  "workspacePrincipalSearchHint": "名前またはメールアドレスでユーザーを検索",
+  "workspacePrincipalLoadFailed": "結果を読み込めませんでした。",
+  "workspacePrincipalSearchPrompt": "共有するユーザーを検索してください。",
+  "workspacePrincipalNoResults": "一致する結果はありません。",
+  "workspaceReadOnlyBadge": "読み取り専用",
+  "workspaceReadOnlyExplanation": "このリソースは閲覧のみ可能です。",
+  "workspaceEditorDiscardTitle": "変更を破棄しますか？",
+  "workspaceEditorDiscardMessage": "保存していない変更は失われます。",
+  "workspaceEditorDiscardConfirm": "破棄",
+  "workspaceEditorKeepEditing": "編集を続ける",
+  "workspaceEditorSaveTooltip": "変更を保存",
+  "workspaceEditorSaving": "保存しています…",
+  "workspaceEditorMoreActions": "その他の操作",
+  "workspaceImportChooseFile": "JSON ファイルを選択",
+  "workspaceImportPasteLabel": "または JSON を貼り付け",
+  "workspaceImportPasteHint": "エクスポートした JSON をここに貼り付け",
+  "workspaceImportRun": "インポート",
+  "workspaceImportInvalidJson": "有効な JSON ではないようです。",
+  "workspaceImportEmpty": "インポートする項目が見つかりませんでした。",
+  "workspaceImportReadFailed": "選択したファイルを読み取れませんでした。",
+  "workspaceImportBatchFailed": "インポートを完了できませんでした。",
+  "workspaceImportSummary": "{total} 件中 {success} 件をインポートしました",
+  "workspaceImportItemImported": "インポート済み",
+  "workspaceImportItemFailed": "インポートに失敗しました",
+  "workspaceImportDone": "完了",
+  "workspaceModelNewTitle": "新しいモデル",
   "@workspaceModelNewTitle": {
     "description": "Title shown when creating a new workspace model."
   },
-  "workspaceModelIdLabel": "Model ID",
+  "workspaceModelIdLabel": "モデル ID",
   "@workspaceModelIdLabel": {
     "description": "Label for the unique model identifier field."
   },
-  "workspaceModelBaseModel": "Base model",
+  "workspaceModelBaseModel": "ベースモデル",
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelNone": "なし（カスタム）",
   "workspaceModelBaseModelRequired": "ベースモデルを選択してください。",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
-  "workspaceModelName": "Name",
+  "workspaceModelName": "名前",
   "@workspaceModelName": {
     "description": "Label for the model display-name field."
   },
-  "workspaceModelDescription": "Description",
+  "workspaceModelDescription": "説明",
   "@workspaceModelDescription": {
     "description": "Label for the model description field."
   },
-  "workspaceModelTags": "Tags",
+  "workspaceModelTags": "タグ",
   "@workspaceModelTags": {
     "description": "Label for the model tags editor."
   },
-  "workspaceModelTagsHint": "Add tag",
+  "workspaceModelTagsHint": "タグを追加",
   "@workspaceModelTagsHint": {
     "description": "Action chip label to add a new tag."
   },
-  "workspaceModelSystemPrompt": "System prompt",
+  "workspaceModelSystemPrompt": "システムプロンプト",
   "@workspaceModelSystemPrompt": {
     "description": "Label for the model system prompt field."
   },
-  "workspaceModelSuggestionPrompts": "Suggested prompts",
+  "workspaceModelSuggestionPrompts": "おすすめのプロンプト",
   "@workspaceModelSuggestionPrompts": {
     "description": "Label for the suggested prompts editor."
   },
-  "workspaceModelAddSuggestion": "Add suggestion",
+  "workspaceModelAddSuggestion": "候補を追加",
   "@workspaceModelAddSuggestion": {
     "description": "Button to add a suggested prompt."
   },
-  "workspaceModelRemoveSuggestion": "Remove suggestion",
+  "workspaceModelRemoveSuggestion": "候補を削除",
   "@workspaceModelRemoveSuggestion": {
     "description": "Tooltip to remove a suggested prompt."
   },
-  "workspaceModelStopSequences": "Stop sequences",
+  "workspaceModelStopSequences": "停止シーケンス",
   "@workspaceModelStopSequences": {
     "description": "Label for the stop-sequences field."
   },
-  "workspaceModelStopHint": "Comma-separated stop sequences",
+  "workspaceModelStopHint": "停止シーケンス（カンマ区切り）",
   "@workspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field."
   },
-  "workspaceModelAdvancedParams": "Advanced parameters (JSON)",
+  "workspaceModelAdvancedParams": "詳細パラメーター（JSON）",
   "@workspaceModelAdvancedParams": {
     "description": "Label for the advanced inference parameters JSON field."
   },
-  "workspaceModelParamsHint": "JSON object of additional parameters",
+  "workspaceModelParamsHint": "追加パラメーターの JSON オブジェクト",
   "@workspaceModelParamsHint": {
     "description": "Helper text for a JSON parameters field."
   },
-  "workspaceModelInvalidJson": "Enter a valid JSON object.",
+  "workspaceModelInvalidJson": "有効な JSON オブジェクトを入力してください。",
   "@workspaceModelInvalidJson": {
     "description": "Validation error for a malformed JSON field."
   },
-  "workspaceModelCapabilities": "Capabilities",
+  "workspaceModelCapabilities": "機能",
   "@workspaceModelCapabilities": {
     "description": "Label for the model capability toggles."
   },
-  "workspaceModelTerminal": "Terminal ID",
+  "workspaceModelTerminal": "ターミナル ID",
   "@workspaceModelTerminal": {
     "description": "Label for the terminal identifier field."
   },
-  "workspaceModelTtsVoice": "Text-to-speech voice",
+  "workspaceModelTtsVoice": "読み上げの音声",
   "@workspaceModelTtsVoice": {
     "description": "Label for the TTS voice field."
   },
-  "workspaceModelDefaultFeatures": "Default features",
+  "workspaceModelDefaultFeatures": "既定の機能",
   "@workspaceModelDefaultFeatures": {
     "description": "Label for the default feature IDs field."
   },
-  "workspaceModelBuiltinTools": "Built-in tools (JSON)",
+  "workspaceModelBuiltinTools": "組み込みツール（JSON）",
   "@workspaceModelBuiltinTools": {
     "description": "Label for the built-in tools JSON field."
   },
-  "workspaceModelKnowledge": "Knowledge",
+  "workspaceModelKnowledge": "ナレッジ",
   "@workspaceModelKnowledge": {
     "description": "Label for the knowledge relationship selector."
   },
-  "workspaceModelTools": "Tools",
+  "workspaceModelTools": "ツール",
   "@workspaceModelTools": {
     "description": "Label for the tools relationship selector."
   },
-  "workspaceModelSkills": "Skills",
+  "workspaceModelSkills": "スキル",
   "@workspaceModelSkills": {
     "description": "Label for the skills relationship selector."
   },
-  "workspaceModelFilters": "Filters",
+  "workspaceModelFilters": "フィルター",
   "@workspaceModelFilters": {
     "description": "Label for the filter functions selector."
   },
-  "workspaceModelDefaultFilters": "Default filters",
+  "workspaceModelDefaultFilters": "既定のフィルター",
   "@workspaceModelDefaultFilters": {
     "description": "Label for the default filter functions selector."
   },
-  "workspaceModelActions": "Actions",
+  "workspaceModelActions": "アクション",
   "@workspaceModelActions": {
     "description": "Label for the action functions selector."
   },
-  "workspaceModelSectionBasics": "Basics",
+  "workspaceModelSectionBasics": "基本",
   "@workspaceModelSectionBasics": {
     "description": "Section header for basic model fields."
   },
-  "workspaceModelSectionPrompt": "Prompt",
+  "workspaceModelSectionPrompt": "プロンプト",
   "@workspaceModelSectionPrompt": {
     "description": "Section header for prompt-related model fields."
   },
-  "workspaceModelSectionAdvanced": "Advanced",
+  "workspaceModelSectionAdvanced": "詳細",
   "@workspaceModelSectionAdvanced": {
     "description": "Section header for advanced model fields."
   },
-  "workspaceModelSectionRelationships": "Relationships",
+  "workspaceModelSectionRelationships": "関連付け",
   "@workspaceModelSectionRelationships": {
     "description": "Section header for model relationship selectors."
   },
-  "workspaceModelSectionAccess": "Access",
+  "workspaceModelSectionAccess": "アクセス",
   "@workspaceModelSectionAccess": {
     "description": "Section header for model access controls."
   },
-  "workspaceModelProfileImage": "Profile image",
+  "workspaceModelProfileImage": "プロフィール画像",
   "@workspaceModelProfileImage": {
     "description": "Label for the model profile image."
   },
-  "workspaceModelChangeImage": "Change image",
+  "workspaceModelChangeImage": "画像を変更",
   "@workspaceModelChangeImage": {
     "description": "Button to pick a new profile image."
   },
-  "workspaceModelRemoveImage": "Remove image",
+  "workspaceModelRemoveImage": "画像を削除",
   "@workspaceModelRemoveImage": {
     "description": "Button to clear the profile image."
   },
-  "workspaceModelImageFailed": "Could not load the selected image.",
+  "workspaceModelImageFailed": "選択した画像を読み込めませんでした。",
   "@workspaceModelImageFailed": {
     "description": "Error when picking a profile image fails."
   },
-  "workspaceModelSelectNone": "None selected",
+  "workspaceModelSelectNone": "未選択",
   "@workspaceModelSelectNone": {
     "description": "Subtitle when no relationship items are selected."
   },
-  "workspaceModelSelectCount": "{count} selected",
+  "workspaceModelSelectCount": "{count} 件を選択中",
   "@workspaceModelSelectCount": {
     "description": "Subtitle showing how many relationship items are selected.",
     "placeholders": {
@@ -3919,47 +3919,47 @@
       }
     }
   },
-  "workspaceModelRelationshipEmpty": "Nothing available to select.",
+  "workspaceModelRelationshipEmpty": "選択できる項目がありません。",
   "@workspaceModelRelationshipEmpty": {
     "description": "Empty state for a relationship picker."
   },
-  "workspaceModelManageAccess": "Manage access",
+  "workspaceModelManageAccess": "アクセスを管理",
   "@workspaceModelManageAccess": {
     "description": "Action to open the access-grants sheet for a model."
   },
-  "workspaceModelClone": "Duplicate",
+  "workspaceModelClone": "複製",
   "@workspaceModelClone": {
     "description": "Action that duplicates the model."
   },
-  "workspaceModelCloneSuffix": "(copy)",
+  "workspaceModelCloneSuffix": "（コピー）",
   "@workspaceModelCloneSuffix": {
     "description": "Suffix appended to a duplicated model name."
   },
-  "workspaceModelActivate": "Activate",
+  "workspaceModelActivate": "有効にする",
   "@workspaceModelActivate": {
     "description": "Action that marks the model active."
   },
-  "workspaceModelDeactivate": "Deactivate",
+  "workspaceModelDeactivate": "無効にする",
   "@workspaceModelDeactivate": {
     "description": "Action that marks the model inactive."
   },
-  "workspaceModelHide": "Hide from selector",
+  "workspaceModelHide": "選択肢から隠す",
   "@workspaceModelHide": {
     "description": "Action that hides the model from model selectors."
   },
-  "workspaceModelUnhide": "Show in selector",
+  "workspaceModelUnhide": "選択肢に表示",
   "@workspaceModelUnhide": {
     "description": "Action that unhides the model in model selectors."
   },
-  "workspaceModelDelete": "Delete model",
+  "workspaceModelDelete": "モデルを削除",
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
+  "workspaceModelDeleteConfirmTitle": "モデルを削除しますか？",
   "@workspaceModelDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a model."
   },
-  "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "workspaceModelDeleteConfirmMessage": "{name} を完全に削除します。",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
     "placeholders": {
@@ -3968,83 +3968,83 @@
       }
     }
   },
-  "workspaceModelExport": "Export model",
+  "workspaceModelExport": "モデルをエクスポート",
   "@workspaceModelExport": {
     "description": "Action that exports a single model as JSON."
   },
-  "workspaceModelExportAll": "Export all models",
+  "workspaceModelExportAll": "すべてのモデルをエクスポート",
   "@workspaceModelExportAll": {
     "description": "Action that exports every readable model as JSON."
   },
-  "workspaceModelExportFailed": "The export could not be completed.",
+  "workspaceModelExportFailed": "エクスポートを完了できませんでした。",
   "@workspaceModelExportFailed": {
     "description": "Error when exporting models fails."
   },
-  "workspaceModelImport": "Import models",
+  "workspaceModelImport": "モデルをインポート",
   "@workspaceModelImport": {
     "description": "Action that imports models from JSON."
   },
-  "workspaceModelIdRequired": "A model ID is required.",
+  "workspaceModelIdRequired": "モデル ID は必須です。",
   "@workspaceModelIdRequired": {
     "description": "Validation error when the model ID is empty."
   },
-  "workspaceModelNameRequired": "A name is required.",
+  "workspaceModelNameRequired": "名前は必須です。",
   "@workspaceModelNameRequired": {
     "description": "Validation error when the model name is empty."
   },
-  "workspaceModelSaved": "Model saved.",
+  "workspaceModelSaved": "モデルを保存しました。",
   "@workspaceModelSaved": {
     "description": "Confirmation that the model was saved."
   },
-  "workspaceModelSaveFailed": "The model could not be saved.",
+  "workspaceModelSaveFailed": "モデルを保存できませんでした。",
   "@workspaceModelSaveFailed": {
     "description": "Error when saving the model fails."
   },
-  "workspaceModelDeleted": "Model deleted.",
+  "workspaceModelDeleted": "モデルを削除しました。",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
   },
-  "workspaceModelAddAction": "Add",
+  "workspaceModelAddAction": "追加",
   "@workspaceModelAddAction": {
     "description": "Confirm button in a small add-text dialog."
   },
-  "workspaceKnowledgeCreateTitle": "New knowledge base",
+  "workspaceKnowledgeCreateTitle": "新しいナレッジベース",
   "@workspaceKnowledgeCreateTitle": {
     "description": "Title of the create form for a new knowledge base."
   },
-  "workspaceKnowledgeName": "Name",
+  "workspaceKnowledgeName": "名前",
   "@workspaceKnowledgeName": {
     "description": "Label for the knowledge base name field."
   },
-  "workspaceKnowledgeDescription": "Description",
+  "workspaceKnowledgeDescription": "説明",
   "@workspaceKnowledgeDescription": {
     "description": "Label for the knowledge base description field."
   },
-  "workspaceKnowledgeNameRequired": "A name is required.",
+  "workspaceKnowledgeNameRequired": "名前は必須です。",
   "@workspaceKnowledgeNameRequired": {
     "description": "Validation error when the knowledge base name is empty."
   },
-  "workspaceKnowledgeSaved": "Knowledge base saved.",
+  "workspaceKnowledgeSaved": "ナレッジベースを保存しました。",
   "@workspaceKnowledgeSaved": {
     "description": "Confirmation that the knowledge base was saved."
   },
-  "workspaceKnowledgeSaveFailed": "The knowledge base could not be saved.",
+  "workspaceKnowledgeSaveFailed": "ナレッジベースを保存できませんでした。",
   "@workspaceKnowledgeSaveFailed": {
     "description": "Error when saving a knowledge base fails."
   },
-  "workspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "workspaceKnowledgeDeleted": "ナレッジベースを削除しました。",
   "@workspaceKnowledgeDeleted": {
     "description": "Confirmation that the knowledge base was deleted."
   },
-  "workspaceKnowledgeDelete": "Delete knowledge base",
+  "workspaceKnowledgeDelete": "ナレッジベースを削除",
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "workspaceKnowledgeDeleteConfirmTitle": "ナレッジベースを削除しますか？",
   "@workspaceKnowledgeDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "workspaceKnowledgeDeleteConfirmMessage": "{name} を完全に削除し、ファイルの関連付けを解除します。",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
     "placeholders": {
@@ -4053,15 +4053,15 @@
       }
     }
   },
-  "workspaceKnowledgeReset": "Reset",
+  "workspaceKnowledgeReset": "リセット",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "workspaceKnowledgeResetConfirmTitle": "ナレッジベースをリセットしますか？",
   "@workspaceKnowledgeResetConfirmTitle": {
     "description": "Confirmation dialog title for resetting a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "workspaceKnowledgeResetConfirmMessage": "{name} からすべてのファイルを削除します。ナレッジベース自体は残ります。",
   "@workspaceKnowledgeResetConfirmMessage": {
     "description": "Confirmation dialog body for resetting a knowledge base.",
     "placeholders": {
@@ -4070,83 +4070,83 @@
       }
     }
   },
-  "workspaceKnowledgeResetDone": "Knowledge base reset.",
+  "workspaceKnowledgeResetDone": "ナレッジベースをリセットしました。",
   "@workspaceKnowledgeResetDone": {
     "description": "Confirmation that the knowledge base files were reset."
   },
-  "workspaceKnowledgeExport": "Export knowledge base",
+  "workspaceKnowledgeExport": "ナレッジベースをエクスポート",
   "@workspaceKnowledgeExport": {
     "description": "Overflow action that exports a knowledge base archive."
   },
-  "workspaceKnowledgeExportFailed": "The export could not be completed.",
+  "workspaceKnowledgeExportFailed": "エクスポートを完了できませんでした。",
   "@workspaceKnowledgeExportFailed": {
     "description": "Error when exporting a knowledge base fails."
   },
-  "workspaceKnowledgeManageAccess": "Manage access",
+  "workspaceKnowledgeManageAccess": "アクセスを管理",
   "@workspaceKnowledgeManageAccess": {
     "description": "Action that opens the sharing and access sheet for a knowledge base."
   },
-  "workspaceKnowledgeViewAll": "All",
+  "workspaceKnowledgeViewAll": "すべて",
   "@workspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases."
   },
-  "workspaceKnowledgeViewCreated": "Created by you",
+  "workspaceKnowledgeViewCreated": "自分が作成",
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Shared with you",
+  "workspaceKnowledgeViewShared": "自分と共有",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },
-  "workspaceKnowledgeSourceAll": "All sources",
+  "workspaceKnowledgeSourceAll": "すべてのソース",
   "@workspaceKnowledgeSourceAll": {
     "description": "Knowledge collection filter showing both local and connected sources."
   },
-  "workspaceKnowledgeSourceLocal": "Local",
+  "workspaceKnowledgeSourceLocal": "ローカル",
   "@workspaceKnowledgeSourceLocal": {
     "description": "Knowledge collection filter showing only local knowledge bases."
   },
-  "workspaceKnowledgeSourceExternal": "Connected",
+  "workspaceKnowledgeSourceExternal": "接続済み",
   "@workspaceKnowledgeSourceExternal": {
     "description": "Knowledge collection filter showing only external/connected knowledge bases."
   },
-  "workspaceKnowledgeExternalBadge": "Connected",
+  "workspaceKnowledgeExternalBadge": "接続済み",
   "@workspaceKnowledgeExternalBadge": {
     "description": "Badge marking a knowledge base as external/connected (read-only)."
   },
-  "workspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "workspaceKnowledgeExternalReadOnly": "接続済みのナレッジベースは、このアプリでは読み取り専用です。",
   "@workspaceKnowledgeExternalReadOnly": {
     "description": "Notice shown when viewing an external/connected knowledge base."
   },
-  "workspaceKnowledgeFilesTitle": "Files",
+  "workspaceKnowledgeFilesTitle": "ファイル",
   "@workspaceKnowledgeFilesTitle": {
     "description": "Heading of the knowledge base file browser."
   },
-  "workspaceKnowledgeFilesEmpty": "No files yet.",
+  "workspaceKnowledgeFilesEmpty": "ファイルはまだありません。",
   "@workspaceKnowledgeFilesEmpty": {
     "description": "Empty state when a knowledge base directory contains no files."
   },
-  "workspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "workspaceKnowledgeFilesLoadFailed": "ファイルを読み込めませんでした。",
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Refresh",
+  "workspaceKnowledgeRefreshFiles": "更新",
   "@workspaceKnowledgeRefreshFiles": {
     "description": "Tooltip for the button that refreshes the knowledge file list."
   },
-  "workspaceKnowledgeRoot": "Root",
+  "workspaceKnowledgeRoot": "ルート",
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Add files",
+  "workspaceKnowledgeAddMenu": "ファイルを追加",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
-  "workspaceKnowledgeUpload": "Upload file",
+  "workspaceKnowledgeUpload": "ファイルをアップロード",
   "@workspaceKnowledgeUpload": {
     "description": "Menu item to upload a single local file into a knowledge base."
   },
-  "workspaceKnowledgeUploading": "Uploading {name}…",
+  "workspaceKnowledgeUploading": "{name} をアップロードしています…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
     "placeholders": {
@@ -4155,63 +4155,63 @@
       }
     }
   },
-  "workspaceKnowledgeUploadFailed": "The file could not be uploaded.",
+  "workspaceKnowledgeUploadFailed": "ファイルをアップロードできませんでした。",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
   },
-  "workspaceKnowledgeBatchAttach": "Upload multiple files",
+  "workspaceKnowledgeBatchAttach": "複数のファイルをアップロード",
   "@workspaceKnowledgeBatchAttach": {
     "description": "Menu item to upload several local files into a knowledge base at once."
   },
-  "workspaceKnowledgeAttachExisting": "Attach server file",
+  "workspaceKnowledgeAttachExisting": "サーバーのファイルを添付",
   "@workspaceKnowledgeAttachExisting": {
     "description": "Menu item to attach an existing server file to a knowledge base."
   },
-  "workspaceKnowledgeAttachFailed": "The file could not be attached.",
+  "workspaceKnowledgeAttachFailed": "ファイルを添付できませんでした。",
   "@workspaceKnowledgeAttachFailed": {
     "description": "Error when attaching an existing file to a knowledge base fails."
   },
-  "workspaceKnowledgeAddText": "Add text file",
+  "workspaceKnowledgeAddText": "テキストファイルを追加",
   "@workspaceKnowledgeAddText": {
     "description": "Menu item to create a text file and attach it to a knowledge base."
   },
-  "workspaceKnowledgeAddTextName": "File name",
+  "workspaceKnowledgeAddTextName": "ファイル名",
   "@workspaceKnowledgeAddTextName": {
     "description": "Label for the file name field when adding a text file."
   },
-  "workspaceKnowledgeAddTextContent": "Content",
+  "workspaceKnowledgeAddTextContent": "内容",
   "@workspaceKnowledgeAddTextContent": {
     "description": "Label for the content field when adding a text file."
   },
-  "workspaceKnowledgeAddTextFailed": "The text file could not be added.",
+  "workspaceKnowledgeAddTextFailed": "テキストファイルを追加できませんでした。",
   "@workspaceKnowledgeAddTextFailed": {
     "description": "Error when adding a text file to a knowledge base fails."
   },
-  "workspaceKnowledgeNewFolder": "New folder",
+  "workspaceKnowledgeNewFolder": "新しいフォルダー",
   "@workspaceKnowledgeNewFolder": {
     "description": "Menu item and dialog title to create a new directory in a knowledge base."
   },
-  "workspaceKnowledgeFolderName": "Folder name",
+  "workspaceKnowledgeFolderName": "フォルダー名",
   "@workspaceKnowledgeFolderName": {
     "description": "Label for the folder name field."
   },
-  "workspaceKnowledgeFolderCreateFailed": "The folder could not be created.",
+  "workspaceKnowledgeFolderCreateFailed": "フォルダーを作成できませんでした。",
   "@workspaceKnowledgeFolderCreateFailed": {
     "description": "Error when creating or renaming a knowledge base folder fails."
   },
-  "workspaceKnowledgeRenameFolder": "Rename folder",
+  "workspaceKnowledgeRenameFolder": "フォルダー名を変更",
   "@workspaceKnowledgeRenameFolder": {
     "description": "Action to rename a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolder": "Delete folder",
+  "workspaceKnowledgeDeleteFolder": "フォルダーを削除",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "workspaceKnowledgeDeleteFolderConfirmTitle": "フォルダーを削除しますか？",
   "@workspaceKnowledgeDeleteFolderConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "workspaceKnowledgeDeleteFolderConfirmMessage": "{name} 内のファイルは親フォルダーに移動します。",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base directory.",
     "placeholders": {
@@ -4220,43 +4220,43 @@
       }
     }
   },
-  "workspaceKnowledgeFolderDeleteFailed": "The folder could not be deleted.",
+  "workspaceKnowledgeFolderDeleteFailed": "フォルダーを削除できませんでした。",
   "@workspaceKnowledgeFolderDeleteFailed": {
     "description": "Error when deleting a knowledge base folder fails."
   },
-  "workspaceKnowledgeFileRename": "Rename",
+  "workspaceKnowledgeFileRename": "名前を変更",
   "@workspaceKnowledgeFileRename": {
     "description": "Per-file action to rename a knowledge base file."
   },
-  "workspaceKnowledgeFileRefresh": "Re-index",
+  "workspaceKnowledgeFileRefresh": "再インデックス",
   "@workspaceKnowledgeFileRefresh": {
     "description": "Per-file action to re-index a knowledge base file."
   },
-  "workspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "workspaceKnowledgeFileReindexed": "再インデックスを開始しました。",
   "@workspaceKnowledgeFileReindexed": {
     "description": "Confirmation that re-indexing a knowledge base file began."
   },
-  "workspaceKnowledgeFileMove": "Move",
+  "workspaceKnowledgeFileMove": "移動",
   "@workspaceKnowledgeFileMove": {
     "description": "Per-file action to move a knowledge base file to another folder."
   },
-  "workspaceKnowledgeFileRenameFailed": "The file could not be renamed.",
+  "workspaceKnowledgeFileRenameFailed": "ファイル名を変更できませんでした。",
   "@workspaceKnowledgeFileRenameFailed": {
     "description": "Error when renaming a knowledge base file fails."
   },
-  "workspaceKnowledgeFileMoveFailed": "The file could not be moved.",
+  "workspaceKnowledgeFileMoveFailed": "ファイルを移動できませんでした。",
   "@workspaceKnowledgeFileMoveFailed": {
     "description": "Error when moving a knowledge base file fails."
   },
-  "workspaceKnowledgeFileDetach": "Remove from knowledge",
+  "workspaceKnowledgeFileDetach": "ナレッジから外す",
   "@workspaceKnowledgeFileDetach": {
     "description": "Per-file action to detach a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachTitle": "Remove file?",
+  "workspaceKnowledgeFileDetachTitle": "ファイルを外しますか？",
   "@workspaceKnowledgeFileDetachTitle": {
     "description": "Confirmation dialog title for detaching a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "workspaceKnowledgeFileDetachMessage": "{name} をこのナレッジベースから外しますか？",
   "@workspaceKnowledgeFileDetachMessage": {
     "description": "Confirmation dialog body for detaching a file from a knowledge base.",
     "placeholders": {
@@ -4265,151 +4265,151 @@
       }
     }
   },
-  "workspaceKnowledgeFileDeleteUnderlying": "Also delete the underlying file",
+  "workspaceKnowledgeFileDeleteUnderlying": "元のファイルも削除",
   "@workspaceKnowledgeFileDeleteUnderlying": {
     "description": "Checkbox to delete the stored file when detaching, shown to owners/admins."
   },
-  "workspaceKnowledgeFileDetachFailed": "The file could not be removed.",
+  "workspaceKnowledgeFileDetachFailed": "ファイルを外せませんでした。",
   "@workspaceKnowledgeFileDetachFailed": {
     "description": "Error when detaching a file from a knowledge base fails."
   },
-  "workspaceKnowledgeMoveTitle": "Move to folder",
+  "workspaceKnowledgeMoveTitle": "フォルダーに移動",
   "@workspaceKnowledgeMoveTitle": {
     "description": "Title of the sheet for choosing a destination folder."
   },
-  "workspaceKnowledgeMoveRoot": "Root (no folder)",
+  "workspaceKnowledgeMoveRoot": "ルート（フォルダーなし）",
   "@workspaceKnowledgeMoveRoot": {
     "description": "Move destination representing the knowledge base root."
   },
-  "workspaceKnowledgeStatusPending": "Processing…",
+  "workspaceKnowledgeStatusPending": "処理中…",
   "@workspaceKnowledgeStatusPending": {
     "description": "Status shown for a knowledge base file still being ingested."
   },
-  "workspaceKnowledgeStatusFailed": "Failed",
+  "workspaceKnowledgeStatusFailed": "失敗",
   "@workspaceKnowledgeStatusFailed": {
     "description": "Status shown for a knowledge base file whose ingestion failed."
   },
-  "workspacePromptCreateTitle": "New prompt",
+  "workspacePromptCreateTitle": "新しいプロンプト",
   "@workspacePromptCreateTitle": {
     "description": "Title shown while creating a new workspace prompt."
   },
-  "workspacePromptName": "Name",
+  "workspacePromptName": "名前",
   "@workspacePromptName": {
     "description": "Label for the prompt name field."
   },
-  "workspacePromptNameRequired": "Name is required.",
+  "workspacePromptNameRequired": "名前は必須です。",
   "@workspacePromptNameRequired": {
     "description": "Validation error when the prompt name is empty."
   },
-  "workspacePromptCommand": "Command",
+  "workspacePromptCommand": "コマンド",
   "@workspacePromptCommand": {
     "description": "Label for the prompt slash-command field."
   },
-  "workspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "workspacePromptCommandHint": "英数字、ハイフン、アンダースコアのみ使用できます。チャットでスラッシュコマンドとして入力します。",
   "@workspacePromptCommandHint": {
     "description": "Helper text explaining the allowed prompt command characters."
   },
-  "workspacePromptCommandRequired": "Command is required.",
+  "workspacePromptCommandRequired": "コマンドは必須です。",
   "@workspacePromptCommandRequired": {
     "description": "Validation error when the prompt command is empty."
   },
-  "workspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspacePromptCommandInvalid": "使用できるのは英数字、ハイフン、アンダースコアのみです。",
   "@workspacePromptCommandInvalid": {
     "description": "Validation error when the prompt command contains illegal characters."
   },
-  "workspacePromptCommandTaken": "That command is already in use.",
+  "workspacePromptCommandTaken": "このコマンドはすでに使われています。",
   "@workspacePromptCommandTaken": {
     "description": "Error shown when saving a prompt whose command collides with another prompt."
   },
-  "workspacePromptContent": "Prompt content",
+  "workspacePromptContent": "プロンプトの内容",
   "@workspacePromptContent": {
     "description": "Label for the prompt template body field."
   },
-  "workspacePromptContentHint": "Write the prompt template…",
+  "workspacePromptContentHint": "プロンプトのテンプレートを入力…",
   "@workspacePromptContentHint": {
     "description": "Placeholder text for the empty prompt content field."
   },
-  "workspacePromptContentRequired": "Prompt content is required.",
+  "workspacePromptContentRequired": "プロンプトの内容は必須です。",
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Write",
+  "workspacePromptWriteTab": "編集",
   "@workspacePromptWriteTab": {
     "description": "Toggle label for the editable prompt content view."
   },
-  "workspacePromptPreviewTab": "Preview",
+  "workspacePromptPreviewTab": "プレビュー",
   "@workspacePromptPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the prompt content."
   },
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "workspacePromptPreviewEmpty": "プレビューする内容はまだありません。",
   "@workspacePromptPreviewEmpty": {
     "description": "Empty-state text shown in the prompt preview when there is no content."
   },
-  "workspacePromptTags": "Tags",
+  "workspacePromptTags": "タグ",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
   },
-  "workspacePromptTagAdd": "Add tag",
+  "workspacePromptTagAdd": "タグを追加",
   "@workspacePromptTagAdd": {
     "description": "Action to add a tag to a prompt."
   },
-  "workspacePromptVersionSection": "Version",
+  "workspacePromptVersionSection": "バージョン",
   "@workspacePromptVersionSection": {
     "description": "Section header for prompt versioning controls."
   },
-  "workspacePromptCommitMessage": "Commit message",
+  "workspacePromptCommitMessage": "コミットメッセージ",
   "@workspacePromptCommitMessage": {
     "description": "Label for the optional commit message recorded with a prompt version."
   },
-  "workspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "workspacePromptCommitMessageHint": "変更内容の説明（任意）",
   "@workspacePromptCommitMessageHint": {
     "description": "Placeholder for the prompt commit message field."
   },
-  "workspacePromptSetProduction": "Set as production version",
+  "workspacePromptSetProduction": "本番バージョンに設定",
   "@workspacePromptSetProduction": {
     "description": "Toggle that marks the saved prompt version as the live production version."
   },
-  "workspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "workspacePromptSetProductionSubtitle": "このバージョンを、チャットで使う公開中のバージョンにします。",
   "@workspacePromptSetProductionSubtitle": {
     "description": "Explanation for the production-version toggle."
   },
-  "workspacePromptManageAccess": "Manage access",
+  "workspacePromptManageAccess": "アクセスを管理",
   "@workspacePromptManageAccess": {
     "description": "Action to open the sharing/access editor for a prompt."
   },
-  "workspacePromptClone": "Duplicate",
+  "workspacePromptClone": "複製",
   "@workspacePromptClone": {
     "description": "Overflow action that clones a prompt."
   },
-  "workspacePromptCloneSuffix": "(copy)",
+  "workspacePromptCloneSuffix": "（コピー）",
   "@workspacePromptCloneSuffix": {
     "description": "Suffix appended to the name and command of a cloned prompt."
   },
-  "workspacePromptUpdateDetails": "Save name & command only",
+  "workspacePromptUpdateDetails": "名前とコマンドのみ保存",
   "@workspacePromptUpdateDetails": {
     "description": "Overflow action that updates prompt metadata without creating a new version."
   },
-  "workspacePromptDetailsSaved": "Details saved",
+  "workspacePromptDetailsSaved": "詳細を保存しました",
   "@workspacePromptDetailsSaved": {
     "description": "Confirmation that prompt name and command were updated."
   },
-  "workspacePromptActivate": "Activate",
+  "workspacePromptActivate": "有効にする",
   "@workspacePromptActivate": {
     "description": "Overflow action that enables a prompt."
   },
-  "workspacePromptDeactivate": "Deactivate",
+  "workspacePromptDeactivate": "無効にする",
   "@workspacePromptDeactivate": {
     "description": "Overflow action that disables a prompt."
   },
-  "workspacePromptDelete": "Delete prompt",
+  "workspacePromptDelete": "プロンプトを削除",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
   },
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "workspacePromptDeleteConfirmTitle": "プロンプトを削除しますか？",
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspacePromptDeleteConfirmMessage": "「{name}」を完全に削除します。",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -4418,211 +4418,211 @@
       }
     }
   },
-  "workspacePromptDeleted": "Prompt deleted",
+  "workspacePromptDeleted": "プロンプトを削除しました",
   "@workspacePromptDeleted": {
     "description": "Confirmation that a prompt was deleted."
   },
-  "workspacePromptSaved": "Prompt saved",
+  "workspacePromptSaved": "プロンプトを保存しました",
   "@workspacePromptSaved": {
     "description": "Confirmation that a prompt was saved."
   },
-  "workspacePromptSaveFailed": "Couldn't save the prompt. Please try again.",
+  "workspacePromptSaveFailed": "プロンプトを保存できませんでした。もう一度お試しください。",
   "@workspacePromptSaveFailed": {
     "description": "Error shown when saving a prompt fails."
   },
-  "workspacePromptImport": "Import prompts",
+  "workspacePromptImport": "プロンプトをインポート",
   "@workspacePromptImport": {
     "description": "Overflow action that imports prompt definitions from JSON."
   },
-  "workspacePromptExport": "Export prompts",
+  "workspacePromptExport": "プロンプトをエクスポート",
   "@workspacePromptExport": {
     "description": "Overflow action that exports readable prompts as JSON."
   },
-  "workspacePromptExportFailed": "Couldn't export prompts.",
+  "workspacePromptExportFailed": "プロンプトをエクスポートできませんでした。",
   "@workspacePromptExportFailed": {
     "description": "Error shown when exporting prompts fails."
   },
-  "workspacePromptHistory": "Version history",
+  "workspacePromptHistory": "バージョン履歴",
   "@workspacePromptHistory": {
     "description": "Header of the prompt version-history panel."
   },
-  "workspacePromptHistoryEmpty": "No versions yet.",
+  "workspacePromptHistoryEmpty": "バージョンはまだありません。",
   "@workspacePromptHistoryEmpty": {
     "description": "Empty-state text when a prompt has no version history."
   },
-  "workspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "workspacePromptHistoryLoadFailed": "バージョン履歴を読み込めませんでした。",
   "@workspacePromptHistoryLoadFailed": {
     "description": "Error shown when loading prompt history fails."
   },
-  "workspacePromptHistoryCommitFallback": "No commit message",
+  "workspacePromptHistoryCommitFallback": "コミットメッセージなし",
   "@workspacePromptHistoryCommitFallback": {
     "description": "Placeholder shown for a history entry without a commit message."
   },
-  "workspacePromptHistoryLive": "Live",
+  "workspacePromptHistoryLive": "公開中",
   "@workspacePromptHistoryLive": {
     "description": "Badge marking the active production version of a prompt."
   },
-  "workspacePromptHistoryDiff": "Compare with production",
+  "workspacePromptHistoryDiff": "本番と比較",
   "@workspacePromptHistoryDiff": {
     "description": "Action to diff a prompt version against the production version."
   },
-  "workspacePromptHistoryDiffTitle": "Version comparison",
+  "workspacePromptHistoryDiffTitle": "バージョンの比較",
   "@workspacePromptHistoryDiffTitle": {
     "description": "Title of the prompt version diff sheet."
   },
-  "workspacePromptHistoryDiffEmpty": "No content differences.",
+  "workspacePromptHistoryDiffEmpty": "内容に違いはありません。",
   "@workspacePromptHistoryDiffEmpty": {
     "description": "Shown when two prompt versions have identical content."
   },
-  "workspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "workspacePromptHistoryDiffNameChanged": "これらのバージョン間で名前が変わっています。",
   "@workspacePromptHistoryDiffNameChanged": {
     "description": "Note shown in the diff sheet when the prompt name changed."
   },
-  "workspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "workspacePromptHistoryDiffFailed": "差分を計算できませんでした。",
   "@workspacePromptHistoryDiffFailed": {
     "description": "Error shown when computing a prompt version diff fails."
   },
-  "workspacePromptHistoryRestore": "Restore this version",
+  "workspacePromptHistoryRestore": "このバージョンを復元",
   "@workspacePromptHistoryRestore": {
     "description": "Action that loads a version snapshot back into the editor."
   },
-  "workspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "workspacePromptHistoryRestored": "バージョンの内容を復元しました。残すには保存してください。",
   "@workspacePromptHistoryRestored": {
     "description": "Confirmation that a version snapshot was loaded into the editor."
   },
-  "workspacePromptHistorySetProduction": "Set as production",
+  "workspacePromptHistorySetProduction": "本番に設定",
   "@workspacePromptHistorySetProduction": {
     "description": "Action that pins a version as the production version."
   },
-  "workspacePromptHistoryProductionSet": "Production version updated.",
+  "workspacePromptHistoryProductionSet": "本番バージョンを更新しました。",
   "@workspacePromptHistoryProductionSet": {
     "description": "Confirmation that the production version was changed."
   },
-  "workspacePromptHistoryDelete": "Delete version",
+  "workspacePromptHistoryDelete": "バージョンを削除",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
   },
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "workspacePromptHistoryDeleteConfirmTitle": "バージョンを削除しますか？",
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "workspacePromptHistoryDeleteConfirmMessage": "このバージョンのスナップショットを削除します。この操作は取り消せません。",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleted": "Version deleted",
+  "workspacePromptHistoryDeleted": "バージョンを削除しました",
   "@workspacePromptHistoryDeleted": {
     "description": "Confirmation that a prompt version was deleted."
   },
-  "workspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "workspacePromptHistoryDeleteProduction": "公開中の本番バージョンは削除できません。",
   "@workspacePromptHistoryDeleteProduction": {
     "description": "Error shown when trying to delete the active production version."
   },
-  "workspaceSkillCreateTitle": "New skill",
+  "workspaceSkillCreateTitle": "新しいスキル",
   "@workspaceSkillCreateTitle": {
     "description": "Title shown while creating a new workspace skill."
   },
-  "workspaceSkillName": "Name",
+  "workspaceSkillName": "名前",
   "@workspaceSkillName": {
     "description": "Label for the skill name field."
   },
-  "workspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "workspaceSkillNameHint": "例: コードレビューのガイドライン",
   "@workspaceSkillNameHint": {
     "description": "Placeholder example for the skill name field."
   },
-  "workspaceSkillNameRequired": "Name is required.",
+  "workspaceSkillNameRequired": "名前は必須です。",
   "@workspaceSkillNameRequired": {
     "description": "Validation error when the skill name is empty."
   },
-  "workspaceSkillId": "Skill ID",
+  "workspaceSkillId": "スキル ID",
   "@workspaceSkillId": {
     "description": "Label for the skill identifier field."
   },
-  "workspaceSkillIdHint": "e.g. code-review-guidelines",
+  "workspaceSkillIdHint": "例: code-review-guidelines",
   "@workspaceSkillIdHint": {
     "description": "Placeholder example for the skill identifier field."
   },
-  "workspaceSkillIdRequired": "Skill ID is required.",
+  "workspaceSkillIdRequired": "スキル ID は必須です。",
   "@workspaceSkillIdRequired": {
     "description": "Validation error when the skill identifier is empty."
   },
-  "workspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspaceSkillIdInvalid": "使用できるのは英数字、ハイフン、アンダースコアのみです。",
   "@workspaceSkillIdInvalid": {
     "description": "Validation error when the skill identifier contains illegal characters."
   },
-  "workspaceSkillIdTaken": "That skill ID or name is already in use.",
+  "workspaceSkillIdTaken": "このスキル ID または名前はすでに使われています。",
   "@workspaceSkillIdTaken": {
     "description": "Error shown when saving a skill whose id or name collides with another skill."
   },
-  "workspaceSkillDescription": "Description",
+  "workspaceSkillDescription": "説明",
   "@workspaceSkillDescription": {
     "description": "Label for the optional skill description field."
   },
-  "workspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "workspaceSkillDescriptionHint": "例: コードレビューの手順",
   "@workspaceSkillDescriptionHint": {
     "description": "Placeholder example for the skill description field."
   },
-  "workspaceSkillContent": "Instructions",
+  "workspaceSkillContent": "指示",
   "@workspaceSkillContent": {
     "description": "Label for the skill Markdown instructions body field."
   },
-  "workspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "workspaceSkillContentHint": "スキルの指示を Markdown で入力…",
   "@workspaceSkillContentHint": {
     "description": "Placeholder text for the empty skill instructions field."
   },
-  "workspaceSkillContentRequired": "Instructions are required.",
+  "workspaceSkillContentRequired": "指示は必須です。",
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Write",
+  "workspaceSkillWriteTab": "編集",
   "@workspaceSkillWriteTab": {
     "description": "Toggle label for the editable skill instructions view."
   },
-  "workspaceSkillPreviewTab": "Preview",
+  "workspaceSkillPreviewTab": "プレビュー",
   "@workspaceSkillPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the skill instructions."
   },
-  "workspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "workspaceSkillPreviewEmpty": "プレビューする内容はまだありません。",
   "@workspaceSkillPreviewEmpty": {
     "description": "Empty-state text shown in the skill preview when there is no content."
   },
-  "workspaceSkillManageAccess": "Manage access",
+  "workspaceSkillManageAccess": "アクセスを管理",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
   },
-  "workspaceSkillSaved": "Skill saved",
+  "workspaceSkillSaved": "スキルを保存しました",
   "@workspaceSkillSaved": {
     "description": "Confirmation that a skill was saved."
   },
-  "workspaceSkillSaveFailed": "Couldn't save the skill. Please try again.",
+  "workspaceSkillSaveFailed": "スキルを保存できませんでした。もう一度お試しください。",
   "@workspaceSkillSaveFailed": {
     "description": "Error shown when saving a skill fails."
   },
-  "workspaceSkillClone": "Duplicate",
+  "workspaceSkillClone": "複製",
   "@workspaceSkillClone": {
     "description": "Overflow action that clones a skill."
   },
-  "workspaceSkillCloneSuffix": "(Clone)",
+  "workspaceSkillCloneSuffix": "（複製）",
   "@workspaceSkillCloneSuffix": {
     "description": "Suffix appended to the name of a cloned skill."
   },
-  "workspaceSkillActivate": "Activate",
+  "workspaceSkillActivate": "有効にする",
   "@workspaceSkillActivate": {
     "description": "Overflow action that enables a skill."
   },
-  "workspaceSkillDeactivate": "Deactivate",
+  "workspaceSkillDeactivate": "無効にする",
   "@workspaceSkillDeactivate": {
     "description": "Overflow action that disables a skill."
   },
-  "workspaceSkillDelete": "Delete skill",
+  "workspaceSkillDelete": "スキルを削除",
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "workspaceSkillDeleteConfirmTitle": "スキルを削除しますか？",
   "@workspaceSkillDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a skill."
   },
-  "workspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspaceSkillDeleteConfirmMessage": "「{name}」を完全に削除します。",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
     "placeholders": {
@@ -4631,97 +4631,97 @@
       }
     }
   },
-  "workspaceSkillDeleted": "Skill deleted",
+  "workspaceSkillDeleted": "スキルを削除しました",
   "@workspaceSkillDeleted": {
     "description": "Confirmation that a skill was deleted."
   },
-  "workspaceSkillImport": "Import skills",
+  "workspaceSkillImport": "スキルをインポート",
   "@workspaceSkillImport": {
     "description": "Title of the JSON skill import sheet."
   },
-  "workspaceSkillImportMarkdown": "Import Markdown",
+  "workspaceSkillImportMarkdown": "Markdown をインポート",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
   },
-  "workspaceSkillImportJson": "Import JSON",
+  "workspaceSkillImportJson": "JSON をインポート",
   "@workspaceSkillImportJson": {
     "description": "Overflow action that imports one or more skills from a JSON file."
   },
-  "workspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "workspaceSkillImportMarkdownLoaded": "Markdown を読み込みました。内容を確認し、保存してスキルを作成してください。",
   "@workspaceSkillImportMarkdownLoaded": {
     "description": "Confirmation that a Markdown file was loaded into the unsaved skill editor."
   },
-  "workspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "workspaceSkillImportMarkdownFailed": "Markdown ファイルを読み取れませんでした。",
   "@workspaceSkillImportMarkdownFailed": {
     "description": "Error shown when reading a Markdown skill file fails."
   },
-  "workspaceSkillExport": "Export skills",
+  "workspaceSkillExport": "スキルをエクスポート",
   "@workspaceSkillExport": {
     "description": "Overflow action that exports readable skills as JSON."
   },
-  "workspaceSkillExportFailed": "Couldn't export skills.",
+  "workspaceSkillExportFailed": "スキルをエクスポートできませんでした。",
   "@workspaceSkillExportFailed": {
     "description": "Error shown when exporting skills fails."
   },
-  "workspaceToolCreateTitle": "Create tool",
-  "workspaceToolName": "Name",
-  "workspaceToolNameHint": "e.g. My Tools",
-  "workspaceToolNameRequired": "Enter a tool name.",
-  "workspaceToolId": "Tool ID",
-  "workspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
-  "workspaceToolIdRequired": "Enter a tool ID.",
-  "workspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
-  "workspaceToolIdTaken": "That tool ID is already in use.",
-  "workspaceToolDescription": "Description",
-  "workspaceToolDescriptionHint": "e.g. Tools for performing various operations",
-  "workspaceToolContent": "Python source",
-  "workspaceToolContentHint": "Write your tool as a Python class named Tools…",
-  "workspaceToolContentRequired": "Add Python source before saving.",
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
-  "workspaceToolSaved": "Tool saved",
-  "workspaceToolDeleted": "Tool deleted",
-  "workspaceToolSaveFailed": "Couldn't save the tool.",
-  "workspaceToolManageAccess": "Manage access",
-  "workspaceToolClone": "Duplicate",
-  "workspaceToolCloneSuffix": "(Clone)",
-  "workspaceToolDelete": "Delete",
-  "workspaceToolDeleteConfirmTitle": "Delete tool?",
-  "workspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
-  "workspaceToolImport": "Import tools",
-  "workspaceToolImportJson": "Import JSON",
-  "workspaceToolImportUrl": "Import from URL",
-  "workspaceToolImportUrlTitle": "Import tool from URL",
-  "workspaceToolImportUrlHint": "Enter a raw or GitHub URL to a tool's Python file",
+  "workspaceToolCreateTitle": "ツールを作成",
+  "workspaceToolName": "名前",
+  "workspaceToolNameHint": "例: マイツール",
+  "workspaceToolNameRequired": "ツール名を入力してください。",
+  "workspaceToolId": "ツール ID",
+  "workspaceToolIdHint": "英数字とアンダースコアが使えます。数字で始めることはできません。",
+  "workspaceToolIdRequired": "ツール ID を入力してください。",
+  "workspaceToolIdInvalid": "ツール ID に使えるのは英数字とアンダースコアのみで、数字で始めることはできません。",
+  "workspaceToolIdTaken": "このツール ID はすでに使われています。",
+  "workspaceToolDescription": "説明",
+  "workspaceToolDescriptionHint": "例: さまざまな操作を行うツール",
+  "workspaceToolContent": "Python ソース",
+  "workspaceToolContentHint": "Tools という名前の Python クラスとしてツールを記述…",
+  "workspaceToolContentRequired": "保存する前に Python ソースを追加してください。",
+  "workspaceToolWarning": "ツールはサーバー上で任意の Python コードを実行します。信頼できるソースのコードのみ追加してください。",
+  "workspaceToolSaved": "ツールを保存しました",
+  "workspaceToolDeleted": "ツールを削除しました",
+  "workspaceToolSaveFailed": "ツールを保存できませんでした。",
+  "workspaceToolManageAccess": "アクセスを管理",
+  "workspaceToolClone": "複製",
+  "workspaceToolCloneSuffix": "（複製）",
+  "workspaceToolDelete": "削除",
+  "workspaceToolDeleteConfirmTitle": "ツールを削除しますか？",
+  "workspaceToolDeleteConfirmMessage": "「{name}」を完全に削除します。",
+  "workspaceToolImport": "ツールをインポート",
+  "workspaceToolImportJson": "JSON をインポート",
+  "workspaceToolImportUrl": "URL からインポート",
+  "workspaceToolImportUrlTitle": "URL からツールをインポート",
+  "workspaceToolImportUrlHint": "ツールの Python ファイルの GitHub URL を入力",
   "workspaceToolImportUrlLabel": "URL",
-  "workspaceToolImportUrlInvalid": "Enter a valid URL.",
-  "workspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
-  "workspaceToolExport": "Export tools",
-  "workspaceToolExportFailed": "Couldn't export tools.",
-  "workspaceToolManifest": "Manifest",
-  "workspaceToolManifestVersion": "Version {version}",
-  "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
-  "workspaceToolManifestFunding": "Funding: {url}",
-  "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolImportUrlInvalid": "有効な URL を入力してください。",
+  "workspaceToolImportUrlFailed": "その URL からツールをインポートできませんでした。",
+  "workspaceToolImportUrlLoaded": "ツールを読み込みました。確認して保存してください。",
+  "workspaceToolExport": "ツールをエクスポート",
+  "workspaceToolExportFailed": "ツールをエクスポートできませんでした。",
+  "workspaceToolManifest": "マニフェスト",
+  "workspaceToolManifestVersion": "バージョン {version}",
+  "workspaceToolManifestRequiredVersion": "Open WebUI {version} が必要",
+  "workspaceToolManifestFunding": "支援: {url}",
+  "workspaceToolSpecs": "生成された仕様",
   "workspaceToolDetails": "ツールの詳細",
   "workspaceToolFunctionCount": "{count} 個の関数",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
-  "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
-  "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
-  "workspaceToolValves": "Valves",
-  "workspaceToolValvesTitle": "Valves",
-  "workspaceToolValvesServer": "Server valves",
-  "workspaceToolValvesUser": "User valves",
-  "workspaceToolValvesEmpty": "No valves",
-  "workspaceToolValvesSaved": "Valves updated",
-  "workspaceToolValvesSaveFailed": "Couldn't update valves.",
-  "workspaceToolValvesLoadFailed": "Couldn't load valves.",
-  "workspaceValveRequired": "required",
-  "workspaceValveDefault": "Default",
-  "workspaceValveCustom": "Custom",
-  "workspaceValveNone": "None",
-  "workspaceValveEnabled": "Enabled",
-  "workspaceValveDisabled": "Disabled",
+  "workspaceToolSpecsEmpty": "このツールの仕様は生成されませんでした。",
+  "workspaceToolIncompatible": "このツールには Open WebUI v{required} が必要ですが、サーバーは v{current} です。保存するにはサーバーを更新してください。",
+  "workspaceToolValves": "バルブ",
+  "workspaceToolValvesTitle": "バルブ",
+  "workspaceToolValvesServer": "サーバーのバルブ",
+  "workspaceToolValvesUser": "ユーザーのバルブ",
+  "workspaceToolValvesEmpty": "バルブはありません",
+  "workspaceToolValvesSaved": "バルブを更新しました",
+  "workspaceToolValvesSaveFailed": "バルブを更新できませんでした。",
+  "workspaceToolValvesLoadFailed": "バルブを読み込めませんでした。",
+  "workspaceValveRequired": "必須",
+  "workspaceValveDefault": "既定",
+  "workspaceValveCustom": "カスタム",
+  "workspaceValveNone": "なし",
+  "workspaceValveEnabled": "有効",
+  "workspaceValveDisabled": "無効",
   "noteConflictCopyBadge": "競合コピー",
   "noteConflictCopySuffix": "（競合コピー）",
   "notificationChannelDescription": "チャンネルまたはDMでメッセージが送信されたときに通知します。",
@@ -4747,66 +4747,66 @@
   "notificationsPermissionDenied": "通知はシステム設定でオフになっています。",
   "notificationsSubtitle": "返信、メッセージ、完了した応答の通知",
   "notificationsTitle": "通知",
-  "hermesSecretsUnavailable": "Could not access saved Hermes credentials. Unlock secure storage and retry.",
+  "hermesSecretsUnavailable": "保存された Hermes の認証情報にアクセスできませんでした。セキュアストレージのロックを解除して、もう一度お試しください。",
   "hermesAgentSettingsTitle": "Hermes Agent",
-  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
-  "connectOpenWebUITitle": "Connect to Open WebUI",
-  "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
+  "hermesAgentSettingsSubtitle": "セルフホストのエージェント",
+  "connectOpenWebUITitle": "Open WebUI に接続",
+  "connectOpenWebUISubtitle": "セルフホストの Open WebUI サーバーを追加",
   "backendChooserOpenWebUISubtitle": "サーバーにサインインして、チャットやノートなどを同期できます。",
   "backendChooserHermesTitle": "Hermes Agent",
   "backendChooserHermesSubtitle": "ツールを使い、過去のセッションを覚えている自分専用のエージェントとチャットできます。",
-  "hermesApprovalRequired": "Approval required",
-  "hermesApprovalFallback": "The agent is requesting permission to continue.",
+  "hermesApprovalRequired": "承認が必要です",
+  "hermesApprovalFallback": "エージェントが続行の許可を求めています。",
   "openWebUiPromptOther": "その他",
   "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
   "openWebUiPromptAnswerHint": "回答を入力",
   "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
   "openWebUiPromptSubmit": "送信",
   "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
-  "hermesApprovalApproved": "Approved ✓",
-  "hermesApprovalDenied": "Denied",
-  "hermesApprovalApproveAction": "Approve",
-  "hermesApprovalDenyAction": "Deny",
-  "hermesEnableTitle": "Enable Hermes Agent",
-  "hermesEnableSubtitle": "Use your self-hosted Hermes agent as a model in the picker.",
-  "hermesServerUrlTitle": "Server URL",
-  "hermesApiKeyTitle": "API key",
-  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API key",
-  "hermesMemoryKeyTitle": "Memory key (optional)",
-  "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
-  "hermesCapabilitiesTitle": "Capabilities",
-  "hermesCapabilityApproval": "Approval",
-  "hermesCapabilitySkills": "Skills",
-  "hermesCapabilityToolsets": "Toolsets",
-  "hermesCapabilityJobs": "Jobs",
-  "hermesCapabilitySessions": "Sessions",
-  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
-  "hermesTabInfoSubtitle": "Available in the Hermes tab once enabled.",
-  "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
-  "hermesSelfHostedAgentLabel": "Self-hosted agent",
-  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
-  "hermesConversationsTitle": "Conversations",
+  "hermesApprovalApproved": "承認済み ✓",
+  "hermesApprovalDenied": "拒否されました",
+  "hermesApprovalApproveAction": "承認",
+  "hermesApprovalDenyAction": "拒否",
+  "hermesEnableTitle": "Hermes Agent を有効にする",
+  "hermesEnableSubtitle": "セルフホストの Hermes エージェントを、モデル選択でモデルとして使用します。",
+  "hermesServerUrlTitle": "サーバー URL",
+  "hermesApiKeyTitle": "API キー",
+  "hermesConfiguredReplacePlaceholder": "設定済み（入力すると置き換えます）",
+  "hermesApiKeyPlaceholder": "API キーを入力",
+  "hermesMemoryKeyTitle": "メモリキー（任意）",
+  "hermesMemoryKeyPlaceholder": "空欄の場合は自動生成されます",
+  "hermesCapabilitiesTitle": "機能",
+  "hermesCapabilityApproval": "承認",
+  "hermesCapabilitySkills": "スキル",
+  "hermesCapabilityToolsets": "ツールセット",
+  "hermesCapabilityJobs": "ジョブ",
+  "hermesCapabilitySessions": "セッション",
+  "hermesTabInfoTitle": "会話とスケジュール",
+  "hermesTabInfoSubtitle": "有効にすると Hermes タブで利用できます。",
+  "hermesNativeSettingsSubtitle": "セルフホストの Hermes エージェントに直接接続します。",
+  "hermesSelfHostedAgentLabel": "セルフホストのエージェント",
+  "hermesNoConversationsMessage": "会話はまだありません",
+  "hermesConversationsTitle": "会話",
   "hermesBotsTitle": "ボット",
-  "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
-  "hermesSchedulesLoading": "Loading schedules…",
-  "hermesSchedulesUnavailable": "Schedules unavailable",
-  "hermesNoSchedulesYet": "No schedules yet",
-  "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
-  "hermesReviewSchedules": "Review schedules",
-  "hermesScheduledAgentsTitle": "Scheduled agents",
-  "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "hermesConversationsLoadError": "Hermes の会話を読み込めませんでした。\n設定 → Hermes Agent で接続を確認してください。",
+  "hermesSchedulesLoading": "スケジュールを読み込んでいます…",
+  "hermesSchedulesUnavailable": "スケジュールを利用できません",
+  "hermesNoSchedulesYet": "スケジュールはありません",
+  "hermesSchedulesSummary": "{active} 件が有効 · {total, plural, other{{total} 件のスケジュール}}",
+  "hermesReviewSchedules": "スケジュールを確認",
+  "hermesScheduledAgentsTitle": "スケジュールされたエージェント",
+  "workspaceToolImportUrlHost": "インポートできるのは GitHub のツール URL のみです。",
+  "signInServerDescription": "Open WebUI のアカウントで、下のサーバーにサインインします。",
+  "openWebUIServer": "Open WebUI サーバー",
+  "serverAddressUnavailable": "サーバーのアドレスを取得できません",
+  "showPassword": "パスワードを表示",
+  "hidePassword": "パスワードを隠す",
+  "reviewerModeEnabled": "レビュアーモードを有効にしました。サーバーなしでデモを開けます。",
+  "reviewerModeDisabled": "レビュアーモードを無効にしました。",
+  "openSourceLicenses": "オープンソースライセンス",
   "directConnectionsTitle": "ダイレクト接続",
-  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
-  "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
+  "directConnectionsSubtitle": "OpenAI 互換 API と Ollama",
+  "directConnectionsDescription": "Open WebUI を使わずにモデルプロバイダーに接続します。認証情報はこのデバイスに安全に保存され、リクエストとともにプロバイダーに送信されます。",
   "directConnectionsCombinedDescription": "Open WebUIと同期した接続、またはこのデバイスにのみ保存した接続を使って、モデルプロバイダーに直接接続します。",
   "openWebUiDirectConnectionsSectionTitle": "Open WebUIサーバー",
   "openWebUiDirectConnectionsSectionDescription": "Open WebUIアカウントに保存され、ログイン中のほかのクライアントでも利用できます。",
@@ -4826,130 +4826,130 @@
   "directConnectionNoLongerExists": "この接続はすでに削除されています。",
   "openWebUiDirectConnectionDeleteMessage": "Open WebUIアカウントと、ログイン中のほかのクライアントから{name}を削除します。",
   "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
-  "addDirectConnection": "Add connection",
-  "editDirectConnection": "Edit connection",
-  "directConnectionName": "Connection name",
+  "addDirectConnection": "接続を追加",
+  "editDirectConnection": "接続を編集",
+  "directConnectionName": "接続名",
   "directDefaultConnectionName": "マイプロバイダー",
   "sidebarButtonLabel": "サイドバー",
-  "directConnectionNameRequired": "Enter a connection name.",
-  "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
-  "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
-  "directConnectionApiKeyRequired": "Enter an API key or choose no authentication.",
-  "directConnectionHeaderNameRequired": "Enter a header name, then add the header.",
-  "directConnectionCredentialTransferTitle": "Use credentials with new server?",
-  "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
-  "directConnectionCredentialTransferConfirm": "Use credentials",
-  "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionNameRequired": "接続名を入力してください。",
+  "directConnectionUrlInvalid": "有効な http:// または https:// の URL を使用してください。",
+  "directConnectionCredentialsReentryRequired": "サーバーを変更するときは、認証情報を再入力してください。",
+  "directConnectionApiKeyRequired": "API キーを入力するか、「認証なし」を選択してください。",
+  "directConnectionHeaderNameRequired": "ヘッダー名を入力してから、ヘッダーを追加してください。",
+  "directConnectionCredentialTransferTitle": "新しいサーバーで認証情報を使用しますか？",
+  "directConnectionCredentialTransferMessage": "API キーとすべてのカスタムヘッダーが新しいサーバーに送信されます。信頼できる場合のみ続行してください。",
+  "directConnectionCredentialTransferConfirm": "認証情報を使用",
+  "directConnectionSaveFailed": "この接続を保存できませんでした。",
   "directConnectionSaveConflict": "この接続は別の場所で変更されました。保存する前に開き直してください。",
-  "directConnectionReachFailed": "Could not reach the provider.",
-  "directConnectionDeleteTitle": "Delete connection?",
-  "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",
-  "directConnectionDeleteFailed": "Could not delete this connection.",
-  "directConnectionProbeConnected": "Connected",
-  "directConnectionProbeConnectedModels": "{count, plural, =1{Connected · 1 model} other{Connected · {count} models}}",
-  "directProvider": "Provider type",
-  "openAICompatible": "OpenAI-compatible",
+  "directConnectionReachFailed": "プロバイダーに接続できませんでした。",
+  "directConnectionDeleteTitle": "接続を削除しますか？",
+  "directConnectionDeleteMessage": "{name} とその認証情報がこのデバイスから削除されます。",
+  "directConnectionDeleteFailed": "この接続を削除できませんでした。",
+  "directConnectionProbeConnected": "接続済み",
+  "directConnectionProbeConnectedModels": "{count, plural, other{接続済み · {count} 個のモデル}}",
+  "directProvider": "プロバイダーの種類",
+  "openAICompatible": "OpenAI 互換",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
-  "directApiBaseUrl": "Base URL",
-  "directOpenRouterUrlInvalid": "Use OpenRouter’s HTTPS /api/v1 root (global or EU).",
-  "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
-  "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
-  "directCompletionApi": "Completion API",
+  "directApiBaseUrl": "ベース URL",
+  "directOpenRouterUrlInvalid": "OpenRouter の HTTPS /api/v1 ルート（グローバルまたは EU）を使用してください。",
+  "directOpenRouterBaseUrlDescription": "OpenRouter の API キーで接続します。",
+  "directOpenRouterChatCompletionsDescription": "Chat Completions は、ネイティブの Web 検索、画像生成、PDF の解析、再利用可能な PDF 注釈に使用されます。",
+  "directCompletionApi": "API の種類",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
-  "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
-  "directResponsesDescription": "Use the typed Responses event stream. Choose this only when the provider exposes /responses.",
-  "directApiVersion": "API version",
-  "directApiVersionDescription": "Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.",
-  "directAuthentication": "Authentication",
-  "noAuthentication": "No authentication",
-  "bearerToken": "Bearer token",
-  "directApiKeyHeader": "API-key header",
-  "directApiKeyHeaderDescription": "Sends the credential in the api-key header used by Azure OpenAI.",
-  "directApiKey": "API key",
-  "directCustomHeaders": "Custom headers",
-  "directManualModelIds": "Manual model IDs",
+  "directChatCompletionsDescription": "OpenAI 互換 API 向け。",
+  "directResponsesDescription": "型付きの Responses イベントストリームを使用します。プロバイダーが /responses を公開している場合のみ選択してください。",
+  "directApiVersion": "API バージョン",
+  "directApiVersionDescription": "任意。Azure OpenAI のエンドポイントで必要な api-version クエリパラメーターを追加します。",
+  "directAuthentication": "認証",
+  "noAuthentication": "認証なし",
+  "bearerToken": "Bearer トークン",
+  "directApiKeyHeader": "api-key ヘッダー",
+  "directApiKeyHeaderDescription": "Azure OpenAI で使われる api-key ヘッダーで認証情報を送信します。",
+  "directApiKey": "API キー",
+  "directCustomHeaders": "カスタムヘッダー",
+  "directManualModelIds": "手動で指定するモデル ID",
   "directManualModelIdsDescription": "任意。サーバーがモデルを一覧表示できない場合は、1 行に 1 つの ID を入力します。",
   "@directManualModelIdsDescription": {"placeholders":{}},
-  "directModelIdPrefix": "Model ID prefix",
-  "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
-  "directModelTags": "Model tags",
-  "directModelTagsDescription": "Optional. Separate tags with commas or new lines.",
-  "syncDirectHistory": "Open WebUI history",
-  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
-  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
+  "directModelIdPrefix": "モデル ID のプレフィックス",
+  "directModelIdPrefixDescription": "任意。プロバイダーに送信するモデル ID は変えずに、studio.model-name のような表示用の名前空間を追加します。",
+  "directModelTags": "モデルのタグ",
+  "directModelTagsDescription": "任意。タグはカンマまたは改行で区切ります。",
+  "syncDirectHistory": "Open WebUI の履歴",
+  "syncDirectHistorySubtitle": "新しいダイレクトチャットを Open WebUI アカウントに保存します。",
+  "directHistoryLocalOnlySubtitle": "新しいダイレクトチャットをこのデバイスにのみ保存します。",
   "backendChooserDirectTitle": "モデルプロバイダ",
   "backendChooserDirectSubtitle": "OpenAI、OpenRouter、Ollama を通じてチャットできます。キーはこのデバイスに保存されます。",
-  "testDirectConnection": "Test connection",
-  "directConnectionTestUnavailable": "Connection testing is not available yet.",
-  "finishDirectSetup": "Start chatting",
-  "directProfilesEmptyTitle": "No direct connections yet",
-  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
-  "directConnectionsSectionTitle": "Connections",
-  "directSavedDataUnreadable": "The saved connection data could not be read.",
-  "directSecureStorageUnavailable": "Check secure storage access and try again.",
-  "onDevice": "On device",
-  "directConnectionError": "Direct connection error",
-  "directAttachmentUnsupported": "This direct model does not support this attachment.",
+  "testDirectConnection": "接続をテスト",
+  "directConnectionTestUnavailable": "接続テストはまだ利用できません。",
+  "finishDirectSetup": "チャットを始める",
+  "directProfilesEmptyTitle": "ダイレクト接続はまだありません",
+  "directProfilesEmptySubtitle": "API プロバイダーを追加してチャットを始めましょう。",
+  "directConnectionsSectionTitle": "接続",
+  "directSavedDataUnreadable": "保存された接続データを読み取れませんでした。",
+  "directSecureStorageUnavailable": "セキュアストレージへのアクセスを確認して、もう一度お試しください。",
+  "onDevice": "デバイス上",
+  "directConnectionError": "ダイレクト接続のエラー",
+  "directAttachmentUnsupported": "このダイレクトモデルはこの添付ファイルに対応していません。",
   "backendChooserOpenWebUITitle": "Open WebUI",
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
-  "moreModels": "More models",
-  "reasoningEffort": "Effort",
-  "reasoningEffortLow": "Low",
-  "reasoningEffortMedium": "Medium",
-  "reasoningEffortHigh": "High",
+  "hermesMemoryKeyDescription": "このデバイスの長期メモリを分けて保持します。空欄のままにすると、Conduit がキーを作成します。",
+  "moreModels": "その他のモデル",
+  "reasoningEffort": "推論レベル",
+  "reasoningEffortLow": "低",
+  "reasoningEffortMedium": "中",
+  "reasoningEffortHigh": "高",
   "reasoningEffortMinimal": "最小",
   "reasoningEffortExtraHigh": "非常に高い",
-  "reasoningEffortMaximum": "Maximum",
+  "reasoningEffortMaximum": "最大",
   "reasoningEffortNone": "なし",
-  "customReasoningEffort": "Custom effort",
-  "retryWithoutReasoningEffort": "Effort を使わずに再試行",
-  "reasoningEffortClearIncomplete": "Effort 設定を完全に解除できませんでした。この再試行では使わずに続行します。",
-  "customReasoningEffortHint": "Enter a provider-supported effort",
-  "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
-  "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",
-  "sidebarSyncingChats": "Syncing chats",
-  "sidebarSyncingNotes": "Syncing notes",
-  "sidebarFinishingSync": "Finishing sync",
-  "loadMermaidPreview": "Load Mermaid preview",
-  "loadChartPreview": "Load chart preview",
-  "loadPdfPreview": "Load PDF preview: {title}",
+  "customReasoningEffort": "カスタムレベル",
+  "retryWithoutReasoningEffort": "推論レベルを指定せずに再試行",
+  "reasoningEffortClearIncomplete": "推論レベルの設定を完全に解除できませんでした。この再試行では指定せずに続行します。",
+  "customReasoningEffortHint": "プロバイダーが対応しているレベルを入力",
+  "proxyServerVerificationFailed": "Open WebUI サーバーを確認できませんでした。プロキシのセッションの期限が切れているか、無効になっている可能性があります。もう一度お試しください。",
+  "proxyManualSignInRequired": "認証に失敗しました。手動でサインインしてください。",
+  "sidebarSyncingChats": "チャットを同期しています",
+  "sidebarSyncingNotes": "ノートを同期しています",
+  "sidebarFinishingSync": "同期を完了しています",
+  "loadMermaidPreview": "Mermaid のプレビューを読み込む",
+  "loadChartPreview": "グラフのプレビューを読み込む",
+  "loadPdfPreview": "PDF のプレビューを読み込む: {title}",
   "ollamaCloudDefaultName": "Ollama Cloud",
   "ollamaCloudBaseUrlHint": "https://ollama.com",
-  "ollamaCloudBaseUrlDescription": "Use https://ollama.com with an API key for Ollama Cloud.",
-  "ollamaModelLoaded": "Loaded",
-  "ollamaModelActions": "Model memory",
-  "ollamaModelActionsDescription": "Manage this model in Ollama's RAM or VRAM.",
-  "ollamaLoadModel": "Load model",
-  "ollamaLoadModelDescription": "Warm it now to make the first response faster.",
-  "ollamaUnloadModel": "Unload model",
-  "ollamaUnloadModelDescription": "Free its RAM or VRAM. It loads automatically on the next message.",
-  "ollamaUnloadModelConfirmTitle": "Unload {name}?",
-  "ollamaUnloadModelConfirmMessage": "This frees the model's RAM or VRAM. Ollama will load it again automatically when you send a message.",
-  "ollamaKeepAlive": "Keep alive",
-  "ollamaKeepAliveDescription": "Applied to this model after each chat request.",
-  "ollamaKeepAliveServerDefault": "Server default",
-  "ollamaKeepAliveFiveMinutes": "5 minutes",
-  "ollamaKeepAliveThirtyMinutes": "30 minutes",
-  "ollamaKeepAliveOneHour": "1 hour",
-  "ollamaKeepAliveAlways": "Always loaded",
-  "ollamaKeepAliveImmediate": "Unload after every response",
-  "ollamaKeepAliveCustom": "Custom",
-  "ollamaKeepAliveCustomHint": "Examples: 10m, 24h, 3600, -1, or 0",
-  "ollamaKeepAliveInvalid": "Use seconds or a duration such as 10m or 24h.",
-  "ollamaModelLoadedMessage": "{name} is loaded.",
-  "ollamaModelUnloadedMessage": "{name} was unloaded.",
-  "ollamaModelActionFailed": "Could not update this model's memory state.",
-  "ollamaThinking": "Thinking",
-  "ollamaCloudModelActionsDescription": "Configure how this Ollama Cloud model responds.",
-  "ollamaThinkingDescription": "Choose how much reasoning the model should use. Available levels depend on the model.",
-  "ollamaThinkingAutomatic": "Automatic",
-  "ollamaThinkingDisabled": "Off",
-  "ollamaThinkingLow": "Low",
-  "ollamaThinkingMedium": "Medium",
-  "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum",
+  "ollamaCloudBaseUrlDescription": "API キーを使って Ollama Cloud に接続します。",
+  "ollamaModelLoaded": "読み込み済み",
+  "ollamaModelActions": "モデルのメモリ",
+  "ollamaModelActionsDescription": "Ollama の RAM または VRAM 上でこのモデルを管理します。",
+  "ollamaLoadModel": "モデルを読み込む",
+  "ollamaLoadModelDescription": "今のうちに読み込んでおくと、最初の応答が速くなります。",
+  "ollamaUnloadModel": "モデルをアンロード",
+  "ollamaUnloadModelDescription": "RAM または VRAM を解放します。次のメッセージで自動的に読み込まれます。",
+  "ollamaUnloadModelConfirmTitle": "{name} をアンロードしますか？",
+  "ollamaUnloadModelConfirmMessage": "モデルの RAM または VRAM を解放します。メッセージを送信すると、Ollama が自動的に再度読み込みます。",
+  "ollamaKeepAlive": "メモリ保持",
+  "ollamaKeepAliveDescription": "チャットのリクエストのたびにこのモデルに適用されます。",
+  "ollamaKeepAliveServerDefault": "サーバーの既定値",
+  "ollamaKeepAliveFiveMinutes": "5 分",
+  "ollamaKeepAliveThirtyMinutes": "30 分",
+  "ollamaKeepAliveOneHour": "1 時間",
+  "ollamaKeepAliveAlways": "常に読み込む",
+  "ollamaKeepAliveImmediate": "応答のたびにアンロード",
+  "ollamaKeepAliveCustom": "カスタム",
+  "ollamaKeepAliveCustomHint": "例: 10m、24h、3600、-1、0",
+  "ollamaKeepAliveInvalid": "秒数、または 10m や 24h のような期間を使用してください。",
+  "ollamaModelLoadedMessage": "{name} を読み込みました。",
+  "ollamaModelUnloadedMessage": "{name} をアンロードしました。",
+  "ollamaModelActionFailed": "このモデルのメモリ状態を更新できませんでした。",
+  "ollamaThinking": "思考",
+  "ollamaCloudModelActionsDescription": "この Ollama Cloud モデルの応答方法を設定します。",
+  "ollamaThinkingDescription": "モデルが使う推論の量を選択します。使用できるレベルはモデルによって異なります。",
+  "ollamaThinkingAutomatic": "自動",
+  "ollamaThinkingDisabled": "オフ",
+  "ollamaThinkingLow": "低",
+  "ollamaThinkingMedium": "中",
+  "ollamaThinkingHigh": "高",
+  "ollamaThinkingMaximum": "最大",
   "releaseNotesSupportPromptHeading": "Conduit を気に入っていただけましたか?",
   "releaseNotesSupportPromptMessage": "短いレビューは、より多くの人が Conduit と出会う助けになります。小さなチップは、開発を続ける力になります。どちらも本当に励みになります。",
   "directConnectProvider": "プロバイダーに接続",
@@ -5177,31 +5177,31 @@
   "hermesSessionDeleteFailed": "会話を削除できませんでした。",
   "hermesSessionLoadFailed": "この会話を読み込めませんでした。接続を確認して、もう一度お試しください。",
   "hermesMemoryKeyFieldLabel": "メモリキー",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "拒否", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "MCP サーバー", "directMcpEmptyTitle": "MCP サーバーはまだありません", "directMcpReachabilityHelp": "このデバイスから接続できる Streamable HTTP エンドポイントを追加してください。", "directMcpEditorTitle": "MCP サーバーを編集", "directMcpAddTitle": "MCP サーバーを追加", "directMcpName": "サーバー名", "directMcpEndpoint": "Streamable HTTP エンドポイント", "directMcpBearerToken": "Bearer トークン（任意）", "directMcpCustomHeaders": "カスタムヘッダー（任意）", "directMcpCustomHeadersHint": "1 行に 1 つ: 名前: 値", "directMcpTestConnection": "接続をテスト", "directMcpTesting": "接続をテストしています…", "directMcpTestSucceeded": "{count, plural, other{接続しました — {count} 個のツールが見つかりました。}}", "directMcpTestFailed": "この MCP サーバーのツール一覧を取得できませんでした。", "directMcpSaveFailed": "この MCP サーバーを保存できませんでした。", "directMcpLoadFailed": "セキュアストレージから MCP サーバーを読み込めませんでした。", "directMcpMissing": "この MCP サーバーは存在しなくなりました。", "directMcpCredentialTransferTitle": "新しいサーバーで認証情報を使用しますか？", "directMcpCredentialTransferMessage": "Bearer トークンとカスタムヘッダーが新しいサーバーに送信されます。信頼できる場合のみ続行してください。キャンセルすると、認証情報なしでサーバーが保存されます。", "directMcpCredentialTransferConfirm": "認証情報を使用", "directMcpDeleteTitle": "MCP サーバーを削除しますか？", "directMcpDeleteMessage": "{name} とその認証情報がこのデバイスから削除されます。", "directMcpDeleteFailed": "この MCP サーバーを削除できませんでした。", "directMcpAuthMode": "認証", "directMcpAuthNone": "なし", "directMcpAuthBearer": "Bearer トークン", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "ブラウザで接続", "directMcpOAuthReconnect": "ブラウザで再接続", "directMcpOAuthDisconnect": "OAuth を切断", "directMcpOAuthPending": "ブラウザでの承認を待っています…", "directMcpOAuthConnected": "OAuth で接続しました。", "directMcpOAuthConnectionDetails": "{issuerHost} に接続済み · {scopes}", "directMcpOAuthNoScopes": "スコープの報告はありません", "directMcpOAuthConnectFailed": "この MCP サーバーを OAuth で接続できませんでした。", "directMcpOAuthDisconnectFailed": "この MCP サーバーの OAuth を切断できませんでした。", "directMcpApprovalTitle": "ツールの承認", "directMcpApprovalAllowOnce": "1 回だけ許可", "directMcpApprovalAllowSession": "このセッション中は許可", "directMcpApprovalAllowAlways": "常に許可", "directMcpApprovalAlwaysTitle": "このツールを常に許可しますか？", "directMcpApprovalAlwaysMessage": "{serverName} は今後、確認なしで {toolName} を実行できるようになります。ツールのスキーマが変わると、承認は自動的に取り消されます。", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "この承認を記憶できませんでした。再試行するか、別のオプションを選択してください。", "directMcpApprovalDeny": "拒否", "directMcpApprovalAllowed": "1 回だけ許可済み", "directMcpApprovalAllowedSession": "このセッション中は許可済み", "directMcpApprovalAllowedAlways": "常に許可済み", "directMcpApprovalDenied": "拒否されました", "directMcpApprovalExpired": "承認の期限切れ", "directMcpRememberedApprovalsTitle": "常に許可しているツール", "directMcpRememberedApprovalsSubtitle": "これらのツールは、サーバーと入力スキーマが変わらない限り、確認なしで実行できます。", "directMcpRememberedApprovalRevoke": "取り消す", "directMcpRememberedApprovalsRevokeAll": "すべて取り消す", "directMcpRememberedApprovalRevokeFailed": "記憶された承認を取り消せませんでした。"
+  ,"directMcpContentAction": "MCP コンテンツ"
+  ,"directMcpContentTitle": "MCP コンテンツ"
+  ,"directMcpContentServer": "MCP サーバー"
+  ,"directMcpContentSearch": "プロンプトとリソースを検索"
+  ,"directMcpContentPrompts": "プロンプト"
+  ,"directMcpContentResources": "リソース"
+  ,"directMcpContentEmpty": "このサーバーにはプロンプトもリソースもありません。"
+  ,"directMcpContentNoMatches": "一致するプロンプトやリソースはありません。"
+  ,"directMcpContentLoadFailed": "この MCP サーバーからコンテンツを読み込めませんでした。"
+  ,"directMcpContentRefresh": "MCP コンテンツを更新"
+  ,"directMcpContentPreviewTitle": "プレビュー"
+  ,"directMcpContentInsert": "挿入"
+  ,"directMcpContentPromptHeading": "{serverName} の MCP プロンプト: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "{serverName} の MCP リソース: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
+  ,"directMcpContentRoleUser": "ユーザー"
+  ,"directMcpContentRoleAssistant": "アシスタント"
+  ,"directMcpContentRequestFailed": "この MCP コンテンツを読み込めませんでした。もう一度お試しください。"
+  ,"directMcpContentUnsupported": "この項目はバイナリか、サポートされていません。テキストのプロンプトまたはリソースを選択してください。"
+  ,"directMcpContentChanged": "この項目はサーバー上で変更されました。更新してから、もう一度選択してください。"
+  ,"directMcpContentTooLarge": "このコンテンツは大きすぎるため挿入できません。"
+  ,"directMcpContentComposerTooLarge": "下書きとこのコンテンツの合計が、メッセージの上限 256 KiB を超えています。下書きまたはコンテンツを短くして、もう一度お試しください。"
+  ,"directMcpContentLoading": "MCP コンテンツを読み込んでいます…"
   ,"directMcpInsecureCredentialsTitle": "暗号化せずに認証情報を送信しますか？"
   ,"directMcpInsecureCredentialsMessage": "このサーバーは暗号化されていない HTTP を使用しています。ベアラートークン、OAuth トークン、カスタムヘッダーがネットワーク上で読み取られたり変更されたりするおそれがあります。"
   ,"directMcpInsecureCredentialsConfirm": "暗号化せずに送信"
@@ -5260,7 +5260,7 @@
   "notificationTargetEditTitle": "送信先を編集",
   "notificationTargetNameLabel": "名前（任意）",
   "notificationTargetNameHint": "例: team-chat",
-  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlLabel": "Webhook の URL",
   "notificationTargetUrlHint": "https://example.com/webhook",
   "notificationTargetUrlKeepHint": "現在の URL を維持する場合は空欄のままにしてください",
   "notificationTargetUrlRequired": "Webhook URL を入力してください。",

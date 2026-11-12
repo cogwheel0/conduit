@@ -6206,7 +6206,7 @@
   "@ollamaUnloadModelConfirmMessage": {
     "description": "Confirmation message shown before unloading an Ollama model."
   },
-  "ollamaKeepAlive": "Keep alive",
+  "ollamaKeepAlive": "Utrzymywanie w pamięci",
   "@ollamaKeepAlive": {
     "description": "Setting that controls how long an Ollama model remains loaded."
   },
@@ -7152,31 +7152,31 @@
   "@voiceCallSpeakerOff": {
     "description": "Tooltip for disabling the loudspeaker during a voice call."
   },
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "@directMcpTestSucceeded": {"placeholders":{"count":{"type":"int"}}}, "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "@directMcpDeleteMessage": {"placeholders":{"name":{"type":"String"}}}, "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "@directMcpOAuthConnectionDetails": {"placeholders":{"issuerHost":{"type":"String"},"scopes":{"type":"String"}}}, "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Odrzuć", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "Serwery MCP", "directMcpEmptyTitle": "Brak serwerów MCP", "directMcpReachabilityHelp": "Dodaj punkt końcowy Streamable HTTP, do którego to urządzenie ma dostęp.", "directMcpEditorTitle": "Edytuj serwer MCP", "directMcpAddTitle": "Dodaj serwer MCP", "directMcpName": "Nazwa serwera", "directMcpEndpoint": "Punkt końcowy Streamable HTTP", "directMcpBearerToken": "Token Bearer (opcjonalnie)", "directMcpCustomHeaders": "Własne nagłówki (opcjonalnie)", "directMcpCustomHeadersHint": "Jeden na wiersz: Nazwa: Wartość", "directMcpTestConnection": "Testuj połączenie", "directMcpTesting": "Testowanie połączenia…", "directMcpTestSucceeded": "{count, plural, one{Połączono — znaleziono {count} narzędzie.} few{Połączono — znaleziono {count} narzędzia.} many{Połączono — znaleziono {count} narzędzi.} other{Połączono — znaleziono {count} narzędzia.}}", "@directMcpTestSucceeded": {"placeholders":{"count":{"type":"int"}}}, "directMcpTestFailed": "Nie udało się pobrać listy narzędzi z tego serwera MCP.", "directMcpSaveFailed": "Nie można zapisać tego serwera MCP.", "directMcpLoadFailed": "Nie udało się wczytać serwerów MCP z bezpiecznego magazynu.", "directMcpMissing": "Ten serwer MCP już nie istnieje.", "directMcpCredentialTransferTitle": "Użyć danych logowania z nowym serwerem?", "directMcpCredentialTransferMessage": "Spowoduje to wysłanie tokena Bearer i własnych nagłówków do nowego serwera. Kontynuuj tylko wtedy, gdy mu ufasz. Anuluj zapisuje serwer bez danych logowania.", "directMcpCredentialTransferConfirm": "Użyj danych logowania", "directMcpDeleteTitle": "Usunąć serwer MCP?", "directMcpDeleteMessage": "Spowoduje to usunięcie serwera „{name}” i jego danych logowania z tego urządzenia.", "@directMcpDeleteMessage": {"placeholders":{"name":{"type":"String"}}}, "directMcpDeleteFailed": "Nie można usunąć tego serwera MCP.", "directMcpAuthMode": "Uwierzytelnianie", "directMcpAuthNone": "Brak", "directMcpAuthBearer": "Token Bearer", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Połącz w przeglądarce", "directMcpOAuthReconnect": "Połącz ponownie w przeglądarce", "directMcpOAuthDisconnect": "Rozłącz OAuth", "directMcpOAuthPending": "Oczekiwanie na autoryzację w przeglądarce…", "directMcpOAuthConnected": "Połączono przez OAuth.", "directMcpOAuthConnectionDetails": "Połączono z {issuerHost} · {scopes}", "@directMcpOAuthConnectionDetails": {"placeholders":{"issuerHost":{"type":"String"},"scopes":{"type":"String"}}}, "directMcpOAuthNoScopes": "Nie zgłoszono zakresów", "directMcpOAuthConnectFailed": "Nie udało się połączyć tego serwera MCP przez OAuth.", "directMcpOAuthDisconnectFailed": "Nie udało się rozłączyć OAuth od tego serwera MCP.", "directMcpApprovalTitle": "Zgoda na narzędzie", "directMcpApprovalAllowOnce": "Zezwól raz", "directMcpApprovalAllowSession": "Zezwól na czas sesji", "directMcpApprovalAllowAlways": "Zawsze zezwalaj", "directMcpApprovalAlwaysTitle": "Zawsze zezwalać na to narzędzie?", "directMcpApprovalAlwaysMessage": "{serverName} będzie mógł uruchamiać {toolName} bez ponownego pytania. Zgoda zostanie automatycznie cofnięta, jeśli zmieni się schemat narzędzia.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Nie udało się zapamiętać tej zgody. Możesz spróbować ponownie lub wybrać inną opcję.", "directMcpApprovalDeny": "Odrzuć", "directMcpApprovalAllowed": "Zezwolono raz", "directMcpApprovalAllowedSession": "Zezwolono na czas sesji", "directMcpApprovalAllowedAlways": "Zawsze dozwolone", "directMcpApprovalDenied": "Odrzucono", "directMcpApprovalExpired": "Zgoda wygasła", "directMcpRememberedApprovalsTitle": "Zawsze dozwolone narzędzia", "directMcpRememberedApprovalsSubtitle": "Właśnie te narzędzia mogą działać bez pytania, dopóki ich serwer i schemat wejściowy pozostają bez zmian.", "directMcpRememberedApprovalRevoke": "Cofnij", "directMcpRememberedApprovalsRevokeAll": "Cofnij wszystkie", "directMcpRememberedApprovalRevokeFailed": "Nie udało się cofnąć zapamiętanej zgody."
+  ,"directMcpContentAction": "Zawartość MCP"
+  ,"directMcpContentTitle": "Zawartość MCP"
+  ,"directMcpContentServer": "Serwer MCP"
+  ,"directMcpContentSearch": "Szukaj promptów i zasobów"
+  ,"directMcpContentPrompts": "Prompty"
+  ,"directMcpContentResources": "Zasoby"
+  ,"directMcpContentEmpty": "Ten serwer nie ma promptów ani zasobów."
+  ,"directMcpContentNoMatches": "Brak pasujących promptów lub zasobów."
+  ,"directMcpContentLoadFailed": "Nie udało się wczytać zawartości z tego serwera MCP."
+  ,"directMcpContentRefresh": "Odśwież zawartość MCP"
+  ,"directMcpContentPreviewTitle": "Podgląd"
+  ,"directMcpContentInsert": "Wstaw"
+  ,"directMcpContentPromptHeading": "Prompt MCP z serwera {serverName}: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "Zasób MCP z serwera {serverName}: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
+  ,"directMcpContentRoleUser": "Użytkownik"
+  ,"directMcpContentRoleAssistant": "Asystent"
+  ,"directMcpContentRequestFailed": "Nie udało się wczytać tej zawartości MCP. Spróbuj ponownie."
+  ,"directMcpContentUnsupported": "Ten element jest binarny lub nieobsługiwany. Wybierz prompt tekstowy lub zasób tekstowy."
+  ,"directMcpContentChanged": "Ten element zmienił się na serwerze. Odśwież i wybierz go ponownie."
+  ,"directMcpContentTooLarge": "Ta zawartość jest za duża, aby ją wstawić."
+  ,"directMcpContentComposerTooLarge": "Szkic i ta zawartość przekraczają limit wiadomości 256 KiB. Skróć szkic lub zawartość i spróbuj ponownie."
+  ,"directMcpContentLoading": "Wczytywanie zawartości MCP…"
   ,"directMcpInsecureCredentialsTitle": "Wysłać dane uwierzytelniające bez szyfrowania?"
   ,"directMcpInsecureCredentialsMessage": "Ten serwer używa nieszyfrowanego HTTP. Twój token bearer, token OAuth i niestandardowe nagłówki mogą zostać odczytane lub zmienione w sieci."
   ,"directMcpInsecureCredentialsConfirm": "Wyślij bez szyfrowania"
