@@ -521,7 +521,10 @@ class CalendarSettingsPages extends SettingsPageModule {
         error: view.error,
       ),
     );
-    await _surface.applyDetail(built.page, detailSheets: built.leadsTo);
+    await _surface.applyDetail(
+      built.page,
+      detailSheets: _unknown(built.leadsTo),
+    );
   }
 
   /// Reads the event's own record. A refusal keeps only what the agenda
@@ -753,7 +756,10 @@ class CalendarSettingsPages extends SettingsPageModule {
         error: editor.error,
       ),
     );
-    await _surface.applyDetail(built.page, detailSheets: built.leadsTo);
+    await _surface.applyDetail(
+      built.page,
+      detailSheets: _unknown(built.leadsTo),
+    );
   }
 
   /// Moves the start, or the end, to [wall]. A start moved past the end

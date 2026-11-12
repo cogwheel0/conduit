@@ -326,6 +326,21 @@ void main() {
       expect(rig.closed, contains(page));
     });
 
+    testWidgets('an editor open over its event keeps its rows as the event '
+        'is drawn again', (tester) async {
+      final rig = await _open(tester);
+      final page = eventPage(rig);
+      await rig.open(page);
+      final editor = calendarEditorPageId(calendarEditorKey('ev-mine'));
+      await rig.open(editor);
+      final title = calendarEditorRowId('title', calendarEditorKey('ev-mine'));
+      await rig.change(title, 'Planning, moved');
+
+      await rig.open(page);
+
+      expect(rig.row(editor, title).value, 'Planning, moved');
+    });
+
     testWidgets('a change whose re-read fails says the month may be out of '
         'date, with Retry', (tester) async {
       final rig = await _open(tester);
