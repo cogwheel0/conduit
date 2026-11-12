@@ -582,6 +582,52 @@ void main() {
           .deepEquals({'temperature': 0.2});
     });
 
+    test('a chat deleted while a create that reached the server waits to run '
+        'again is deleted on the server too', () async {
+      const localId = 'local:deleted-after-create';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final contentHash = createChatContentHash(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(localId))!,
+          await db.messagesDao.getForChat(localId),
+        ),
+      );
+      await db.transaction(
+        () => db.outboxDao.enqueue(
+          kind: OutboxKind.createChat,
+          chatId: localId,
+          contentHash: contentHash,
+        ),
+      );
+      // The create reaches the server and its op takes the server id with
+      // the row, but its done mark is lost...
+      final serverId = (await push.pushCreateChat(
+        localId,
+        contentHash: contentHash,
+      ))!;
+      check(server.getChatById(serverId)).isNotNull();
+      // ...and the chat is deleted before the create runs again.
+      await chatLocks.runExclusive(
+        serverId,
+        () => db.chatsDao.tombstoneWithOutbox(serverId),
+      );
+
+      final ops = await outboxOpsForChat(db, serverId)
+        ..sort((a, b) => a.seq.compareTo(b.seq));
+      for (final op in ops) {
+        if (op.kind == OutboxKind.createChat.name) {
+          await push.pushCreateChat(op.chatId!, contentHash: op.contentHash);
+        } else if (op.kind == OutboxKind.deleteChat.name) {
+          await push.pushDeleteChat(op.chatId!);
+        }
+        await db.outboxDao.markDone(op.seq);
+      }
+
+      check(server.getChatById(serverId)).isNull();
+      check(await db.chatsDao.getChat(serverId)).isNull();
+      check(client.createChatCalls).equals(1);
+    });
+
     test('a checklist event that comes while a copy from before the create '
         'is read is kept', () async {
       const localId = 'local:checklist';
