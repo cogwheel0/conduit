@@ -5909,6 +5909,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       useSafeArea: true,
       builder: (modalContext) => ExpandedTextEditorSheet(
         controller: modalController,
+        hint: widget.placeholder,
         onClose: () {
           FocusScope.of(modalContext).unfocus();
           Navigator.of(modalContext).pop(false);

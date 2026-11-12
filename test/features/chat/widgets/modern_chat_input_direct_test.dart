@@ -12,6 +12,7 @@ import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/composer_prominent_button.dart';
+import 'package:conduit/features/chat/widgets/expanded_text_editor.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
@@ -1553,6 +1554,56 @@ void main() {
     expect(compact, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('the expanded editor asks the chat\'s model too', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              placeholder: 'Ask GPT-5 mini',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // A long draft shows the expand button; the Flutter sheet opens.
+    await tester.enterText(
+      find.byType(EditableText),
+      'First line\nSecond line\nThird line\nFourth line',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.byKey(const ValueKey('composer-expand-button')));
+    await tester.pumpAndSettle();
+    final sheet = find.byType(ExpandedTextEditorSheet);
+    expect(sheet, findsOneWidget);
+
+    // Emptied, the editor rests on the chat's own placeholder.
+    final field = find.descendant(of: sheet, matching: find.byType(TextField));
+    await tester.enterText(field, '');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(field).decoration?.hintText,
+      'Ask GPT-5 mini',
+    );
+    expect(
+      find.descendant(of: sheet, matching: find.text('Ask GPT-5 mini')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('a visually wrapped second line expands the composer', (
     tester,

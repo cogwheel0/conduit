@@ -22,11 +22,16 @@ class ExpandedTextEditorSheet extends StatefulWidget {
     required this.controller,
     required this.onSend,
     required this.onClose,
+    this.hint,
   });
 
   final TextEditingController controller;
   final VoidCallback onSend;
   final VoidCallback onClose;
+
+  /// Shown while the editor is empty: the composer's own placeholder (such
+  /// as "Ask" and the chat's model), or "Ask Conduit".
+  final String? hint;
 
   @override
   State<ExpandedTextEditorSheet> createState() =>
@@ -138,7 +143,7 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
                 height: 1.5,
               ),
               decoration: context.conduitInputStyles
-                  .borderless(hint: l10n.messageHintText)
+                  .borderless(hint: widget.hint ?? l10n.messageHintText)
                   .copyWith(
                     contentPadding: const EdgeInsets.fromLTRB(
                       Spacing.md,
