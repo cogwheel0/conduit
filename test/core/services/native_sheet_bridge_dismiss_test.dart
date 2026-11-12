@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:flutter/services.dart';
@@ -56,6 +58,26 @@ void main() {
       await bridge.dismissSettings(patience: const Duration(milliseconds: 10)),
       isFalse,
     );
+  });
+
+  test('a sheet still leaving once the wait is over says when it has '
+      'gone', () async {
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _dismissChannel,
+      (_) async => <Object?>[true],
+    );
+    await bridge.dismissSettings(patience: const Duration(milliseconds: 10));
+    expect(bridge.settingsLeaving, isTrue);
+    var gone = false;
+    unawaited(bridge.untilSettingsClosed().then((_) => gone = true));
+    await Future<void>.delayed(Duration.zero);
+    expect(gone, isFalse);
+
+    bridge.onDismissed();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(gone, isTrue);
+    expect(bridge.settingsLeaving, isFalse);
   });
 
   test('a sheet that does not close says so', () async {

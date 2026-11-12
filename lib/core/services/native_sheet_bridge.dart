@@ -240,9 +240,21 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       unawaited(gone.then((_) {}, onError: (_) {}));
       return false;
     }
+    _settingsLeaving = true;
     await gone;
     return !waitedOut;
   }
+
+  bool _settingsLeaving = false;
+
+  /// Whether Settings was asked to close, agreed, and has not gone yet:
+  /// [dismissSettings] stopped waiting for a sheet still leaving.
+  bool get settingsLeaving => _settingsLeaving && _settingsSheetOpen;
+
+  /// Completes once Settings has closed, at once when it is not open.
+  Future<void> untilSettingsClosed() => _settingsSheetOpen
+      ? _events.stream.firstWhere((event) => event is NativeSheetDismissed)
+      : Future<void>.value();
 
   @visibleForTesting
   set debugSettingsSheetOpen(bool open) => _settingsSheetOpen = open;
@@ -805,6 +817,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   @override
   void onDismissed() {
     _settingsSheetOpen = false;
+    _settingsLeaving = false;
     _events.add(const NativeSheetDismissed());
   }
 

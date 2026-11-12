@@ -1149,23 +1149,33 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     }
     // Settings closes first, so the connection page is not opened under
     // it; if it stays open, the editor stays, with what it holds.
-    if (!await NativeSheetBridge.instance.dismissSettings()) {
+    final bridge = NativeSheetBridge.instance;
+    final request = ServerAddressEditorRequest(
+      serverId: serverId,
+      endpointId: endpointId,
+      draft: editor.draft,
+    );
+    void openSignIn() => unawaited(
+      NavigationService.router.pushNamed<void>(
+        RouteNames.serverAddressEditor,
+        extra: request,
+      ),
+    );
+    if (!await bridge.dismissSettings()) {
+      if (bridge.settingsLeaving) {
+        // Still leaving once the wait was over: the sign-in opens once it
+        // has gone, with the draft it was asked for (the sheet's close
+        // clears the editor).
+        unawaited(bridge.untilSettingsClosed().then((_) => openSignIn()));
+        return;
+      }
       editor.notice = l10n.errorMessage;
       await _applyEditor(l10n, key, editor);
       return;
     }
     _editors.remove(key);
     await _surface.closeDetail(serverAddressPageId(serverId, endpointId));
-    unawaited(
-      NavigationService.router.pushNamed<void>(
-        RouteNames.serverAddressEditor,
-        extra: ServerAddressEditorRequest(
-          serverId: serverId,
-          endpointId: endpointId,
-          draft: editor.draft,
-        ),
-      ),
-    );
+    openSignIn();
   }
 
   /// Whether the address in use may change: yes, unless a reply arrives
