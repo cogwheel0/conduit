@@ -1064,9 +1064,14 @@ class NativeSheetHydrationService {
       return;
     }
     if (allowed && !_passwordPageIsLoading()) return;
-    await _applyNativeDetail(
-      buildNativePasswordDetail(l10n, passwordChangeEnabled: allowed),
+    final page = buildNativePasswordDetail(
+      l10n,
+      passwordChangeEnabled: allowed,
     );
+    await _applyNativeDetail(page);
+    // The Flutter pages take it whole, Done and all: a patch keeps the bar
+    // actions a page had, and one opened from a link had none.
+    _ref.read(settingsPagesProvider.notifier).register([page]);
   }
 
   /// Whether the Flutter pages hold the Change Password page without its

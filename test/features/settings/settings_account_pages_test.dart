@@ -350,8 +350,72 @@ void main() {
 
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
-      check(rig.page('password')!.subtitle)
-          .equals(_l10n.passwordFieldsRequired);
+      // The second Done found nothing typed: the outcome stays.
+      check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
+    });
+
+    testWidgets('a Done with nothing typed leaves what the page says', (
+      tester,
+    ) async {
+      final rig = await _pump(tester);
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'first');
+      await rig.change('confirm-password', 'second');
+      await rig.change(nativePasswordSaveActionId, true);
+      check(rig.page('password')!.subtitle).equals(_l10n.passwordsDoNotMatch);
+
+      // Tapped again, with nothing typed since.
+      await rig.change(nativePasswordSaveActionId, true);
+
+      check(rig.page('password')!.subtitle).equals(_l10n.passwordsDoNotMatch);
+      check(rig.profile.passwordChanges).isEmpty();
+    });
+
+    testWidgets('a page opened from a link gets its Done; a server that '
+        'refuses changes shows none, and its Done brings no form back', (
+      tester,
+    ) async {
+      final rig = await _pump(
+        tester,
+        serverAbout: () async => const ServerAboutInfo(
+          name: 'Server',
+          version: '1.0',
+          enablePasswordChangeForm: true,
+        ),
+      );
+      rig.pages.register([
+        buildNativeLoadingDetail(l10n: _l10n, id: 'password', title: ''),
+      ]);
+      await rig.container
+          .read(nativeSheetHydrationServiceProvider)
+          .hydrateDetail('password');
+      await tester.pumpAndSettle();
+      check(rig.page('password')!.confirmActionId)
+          .equals(nativePasswordSaveActionId);
+
+      final refusing = await _pump(
+        tester,
+        serverAbout: () async => const ServerAboutInfo(
+          name: 'Server',
+          version: '1.0',
+          enablePasswordChangeForm: false,
+        ),
+      );
+      refusing.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+      await refusing.container
+          .read(nativeSheetHydrationServiceProvider)
+          .hydrateDetail('password');
+      await tester.pumpAndSettle();
+      check(refusing.page('password')!.confirmActionId).isNull();
+
+      await refusing.change(nativePasswordSaveActionId, true);
+      check(refusing.rows('password').map((row) => row.id))
+          .not((ids) => ids.contains('current-password'));
     });
 
     testWidgets('Settings forgets the pages it drew once the sheet closes, '

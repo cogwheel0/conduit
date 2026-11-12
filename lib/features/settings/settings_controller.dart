@@ -1067,6 +1067,11 @@ class SettingsController {
     final current = _nativeSheetDraftValues['current-password'];
     final next = _nativeSheetDraftValues['new-password'];
     final confirm = _nativeSheetDraftValues['confirm-password'];
+    // Nothing typed since the last Done -- tapped again, or on a page with
+    // no form -- leaves the page as it says.
+    if ([current, next, confirm].every((text) => text?.isEmpty ?? true)) {
+      return;
+    }
     final l10n = currentAppLocalizations();
     // Whatever the outcome, the page starts over with it said on the page,
     // and nothing typed stays behind.
