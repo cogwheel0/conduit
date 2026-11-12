@@ -4,6 +4,7 @@ import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -105,7 +106,10 @@ final _conversation = Conversation(
   updatedAt: DateTime.utc(2026, 10, 1),
 );
 
-Future<ProviderContainer> _pumpChatPage(WidgetTester tester) async {
+Future<ProviderContainer> _pumpChatPage(
+  WidgetTester tester, {
+  EdgeInsets? safePadding,
+}) async {
   tester.view.physicalSize = const Size(402, 874);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -158,6 +162,14 @@ Future<ProviderContainer> _pumpChatPage(WidgetTester tester) async {
             .copyWith(platform: TargetPlatform.iOS),
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        builder: safePadding == null
+            ? null
+            : (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(padding: safePadding, viewPadding: safePadding),
+                child: child!,
+              ),
         home: const ChatPage(),
       ),
     ),
@@ -359,6 +371,26 @@ void main() {
         .widget<ConduitAdaptiveAppBarModelSelector>(pill)
         .maxWidth;
     expect(maxWidth, 207);
+    await _tearDown(tester);
+  });
+
+  testWidgets('the header keeps clear of a side safe area, and the model '
+      'pill gives up that room', (tester) async {
+    // iPhone Duo's front display: the status bar runs down the right edge.
+    await _pumpChatPage(
+      tester,
+      safePadding: const EdgeInsets.only(top: 24, right: 54),
+    );
+    final pill = find.byType(ConduitAdaptiveAppBarModelSelector);
+    final sidebar = find.byKey(const ValueKey('chat-sidebar-toggle'));
+    final actions = find.byType(ConduitToolbarActionCluster);
+    expect(tester.getTopLeft(sidebar).dx, Spacing.inputPadding);
+    expect(tester.getTopRight(actions).dx, 402 - 54 - Spacing.inputPadding);
+    // 266 without the strip, less its 54 pt.
+    expect(
+      tester.widget<ConduitAdaptiveAppBarModelSelector>(pill).maxWidth,
+      212,
+    );
     await _tearDown(tester);
   });
 
