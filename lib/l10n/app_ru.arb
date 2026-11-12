@@ -831,7 +831,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Мандариновая",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -3684,7 +3684,7 @@
   "notificationTargetEditTitle": "Изменить адрес",
   "notificationTargetNameLabel": "Название (необязательно)",
   "notificationTargetNameHint": "например, team-chat",
-  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlLabel": "URL веб-хука",
   "notificationTargetUrlHint": "https://example.com/webhook",
   "notificationTargetUrlKeepHint": "Оставьте пустым, чтобы сохранить текущий URL",
   "notificationTargetUrlRequired": "Введите URL webhook.",

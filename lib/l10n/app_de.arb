@@ -200,7 +200,7 @@
   "technicalDetails": "Technische Details",
   "save": "Speichern",
   "chooseModel": "Modell wählen",
-  "reviewerMode": "REVIEWER MODE",
+  "reviewerMode": "PRÜFERMODUS",
   "selectLanguage": "Sprache auswählen",
   "newFolder": "Neuer Ordner",
   "folderName": "Ordnername",
@@ -422,7 +422,7 @@
   "sttSilenceDurationDescription": "Zeit nach Stille warten, bevor die Aufnahme automatisch gestoppt wird",
   "sttTranscriptionLanguage": "Transkriptionssprache",
   "sttTranscriptionLanguageDescription": "Auto verwendet die Sprache dieses Geräts. Alternativ kannst du einen Code wie en eingeben.",
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageAuto": "Automatisch erkennen",
   "sttTranscriptionLanguageCustom": "Benutzerdefinierter Sprachcode",
   "sttTranscriptionLanguagePlaceholder": "ISO-639-1-Code, z. B. en",
   "sttTranscriptionLanguageInvalid": "Verwende einen zweibuchstabigen Sprachcode wie en.",
@@ -529,7 +529,7 @@
   "@modelCapabilityMultimodal": {
     "description": "Capability chip label for models that support multimodal input."
   },
-  "modelCapabilityReasoning": "Reasoning",
+  "modelCapabilityReasoning": "Schlussfolgern",
   "@modelCapabilityReasoning": {
     "description": "Capability chip label for models that support reasoning features."
   },
@@ -827,7 +827,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Mandarine",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -1119,7 +1119,7 @@
   "chatSettingStop": "Stoppsequenzen",
   "chatSettingFunctionCalling": "Tool-Aufruf",
   "chatSettingFunctionCallingNative": "Nativ",
-  "chatSettingFunctionCallingLegacy": "Legacy",
+  "chatSettingFunctionCallingLegacy": "Klassisch",
   "chatSettingResponseFormat": "Antwortformat",
   "chatSettingErrorRequired": "Gib einen Wert ein.",
   "chatSettingErrorNotANumber": "Gib eine Zahl ein.",
@@ -3179,14 +3179,14 @@
   "hermesReviewSchedules": "Zeitpläne ansehen",
   "hermesScheduledAgentsTitle": "Geplante Agenten",
   "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "signInServerDescription": "Melde dich mit deinem Open WebUI-Konto bei dem unten angegebenen Server an.",
+  "openWebUIServer": "Open WebUI-Server",
+  "serverAddressUnavailable": "Serveradresse nicht verfügbar",
+  "showPassword": "Passwort anzeigen",
+  "hidePassword": "Passwort ausblenden",
+  "reviewerModeEnabled": "Prüfermodus aktiviert. Du kannst die Demo ohne Server öffnen.",
+  "reviewerModeDisabled": "Prüfermodus deaktiviert.",
+  "openSourceLicenses": "Open-Source-Lizenzen",
   "directConnectionsTitle": "Direktverbindungen",
   "directConnectionsSubtitle": "OpenAI-kompatible APIs und Ollama",
   "directConnectionsDescription": "Verbinde dich ohne Open WebUI mit Modellanbietern. Anmeldedaten werden sicher auf diesem Gerät gespeichert und mit den Anfragen an den Anbieter gesendet.",

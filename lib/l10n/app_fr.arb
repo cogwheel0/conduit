@@ -420,7 +420,7 @@
   "sttSilenceDurationDescription": "Temps d'attente après le silence avant d'arrêter automatiquement l'enregistrement",
   "sttTranscriptionLanguage": "Langue de transcription",
   "sttTranscriptionLanguageDescription": "Utilisez Auto pour suivre la langue de cet appareil, ou saisissez un code comme en.",
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageAuto": "Détection automatique",
   "sttTranscriptionLanguageCustom": "Code de langue personnalisé",
   "sttTranscriptionLanguagePlaceholder": "Code ISO-639-1, p. ex. en",
   "sttTranscriptionLanguageInvalid": "Utilisez un code de langue à deux lettres comme en.",
@@ -825,7 +825,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Mandarine",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },

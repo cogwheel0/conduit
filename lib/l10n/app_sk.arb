@@ -1448,7 +1448,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Mandarínková",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -5102,14 +5102,14 @@
   "hermesReviewSchedules": "Skontrolovať plány",
   "hermesScheduledAgentsTitle": "Naplánovaní agenti",
   "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "signInServerDescription": "Prihláste sa k nižšie uvedenému serveru pomocou účtu Open WebUI.",
+  "openWebUIServer": "Server Open WebUI",
+  "serverAddressUnavailable": "Adresa servera nie je k dispozícii",
+  "showPassword": "Zobraziť heslo",
+  "hidePassword": "Skryť heslo",
+  "reviewerModeEnabled": "Režim recenzenta je zapnutý. Demo môžete otvoriť bez servera.",
+  "reviewerModeDisabled": "Režim recenzenta je vypnutý.",
+  "openSourceLicenses": "Licencie open source",
   "directConnectionsTitle": "Priame pripojenia",
   "directConnectionsSubtitle": "API kompatibilné s OpenAI a Ollama",
   "directConnectionsDescription": "Pripojte sa k poskytovateľom modelov bez Open WebUI. Prihlasovacie údaje sú bezpečne uložené v tomto zariadení a odosielajú sa poskytovateľovi spolu s požiadavkami.",
