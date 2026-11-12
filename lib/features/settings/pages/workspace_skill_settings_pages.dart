@@ -20,6 +20,7 @@ import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../workspace/widgets/workspace_access_grants.dart'
     show workspaceAccessSummary;
+import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
 import 'workspace_access_settings_pages.dart';
@@ -28,10 +29,14 @@ import 'workspace_settings_pages.dart' show workspaceSectionCapabilities;
 
 /// One skill's editor while its page is open.
 final class WorkspaceSkillEditor {
-  WorkspaceSkillEditor(this.key, this.session);
+  WorkspaceSkillEditor(this.key, this.session, {this.since = 0});
 
   final String key;
   final WorkspaceSessionIdentity? session;
+
+  /// How many row changes had joined Settings's queue as this editor
+  /// opened: one numbered up to this was made on an editor before it.
+  final int since;
 
   WorkspaceSkillSummary? summary;
   bool loaded = false;
@@ -337,12 +342,30 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       identical(_editors[editor.key], editor) &&
       (editor.session?.isCurrent(_ref) ?? false);
 
+  /// Whether the row change being handled was queued before [editor]
+  /// opened: made on an editor since left under the same key, and not this
+  /// one's to apply.
+  bool _queuedBefore(WorkspaceSkillEditor editor) {
+    final handled = _ref.read(settingsControllerProvider).controlHandled;
+    return handled != null && handled <= editor.since;
+  }
+
+  /// The editor open under [key] for the account signed in now. One kept
+  /// from another account is dropped unseen, with its access draft, and
+  /// none is returned.
+  WorkspaceSkillEditor? _openEditor(String? key) {
+    final editor = key == null ? null : _editors[key];
+    if (key == null || editor == null || _current(editor)) return editor;
+    _editors.remove(key);
+    _access.forget(key);
+    return null;
+  }
+
   @override
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
     _l10n = l10n;
     if (_access.ownsPage(detailId)) {
-      final key = _access.editorKeyOf(detailId);
-      final editor = key == null ? null : _editors[key];
+      final editor = _openEditor(_access.editorKeyOf(detailId));
       if (editor != null && editor.ready) {
         _access.open(
           editorKey: editor.key,
@@ -356,22 +379,30 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       return;
     }
     if (detailId.startsWith(workspaceSkillContentPagePrefix)) {
-      final editor =
-          _editors[detailId.substring(workspaceSkillContentPagePrefix.length)];
+      final key = detailId.substring(workspaceSkillContentPagePrefix.length);
+      final kept = _editors[key];
+      final editor = _openEditor(key);
       if (editor != null) {
         await _surface.applyDetail(
           buildWorkspaceSkillContentPage(l10n, editor: editor),
         );
+      } else if (kept != null) {
+        // Another account's source: closed rather than drawn.
+        await _surface.closeDetail(detailId);
       }
       return;
     }
     final key = detailId.substring(workspaceSkillPagePrefix.length);
-    final open = _editors[key];
+    final open = _openEditor(key);
     if (open != null) {
       await _applyEditor(l10n, open);
       return;
     }
-    final editor = _editors[key] = WorkspaceSkillEditor(key, _session());
+    final editor = _editors[key] = WorkspaceSkillEditor(
+      key,
+      _session(),
+      since: _ref.read(settingsControllerProvider).controlsQueued,
+    );
     await _applyEditor(l10n, editor);
     if (!editor.isCreate) await _load(editor);
   }
@@ -464,7 +495,7 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     final row = parseWorkspaceRowId(id);
     if (row == null || !row.field.startsWith('skill-')) return false;
     final editor = _editors[row.key];
-    if (editor == null) return true;
+    if (editor == null || _queuedBefore(editor)) return true;
     final field = row.field.substring('skill-'.length);
     if (field == 'retry') {
       await _load(editor);
@@ -529,9 +560,6 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       ..noticeIsError = error;
   }
 
-  /// Whether the server refused the id as taken. Open WebUI answers 400
-  /// for other refusals too (source that does not load, a name in use), so
-  /// a 400 counts only when it says the id is the problem.
   /// Whether the server refused the id as taken: a 400 that says so. A
   /// 409 is a skill name already in use, which the id cannot fix.
   static bool _isConflict(Object error) {
@@ -595,6 +623,9 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       ..idError = false
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the write.
+    if (!_current(editor)) return;
     String? problem;
     try {
       if (editor.isCreate) {
@@ -638,6 +669,9 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the operation.
+    if (!_current(editor)) return false;
     Object? failed;
     try {
       await operation();
@@ -804,6 +838,9 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     final editor = _editors[draft.editorKey];
     final summary = editor?.summary;
     if (l10n == null || editor == null || summary == null) return null;
+    // Another account signed in while the page was drawn: nothing is sent,
+    // and the page says it was not saved.
+    if (!_current(editor)) return l10n.workspaceSkillSaveFailed;
     try {
       await _notifier.updateAccess(summary.id, grants);
     } catch (error, stackTrace) {

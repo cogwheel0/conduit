@@ -1651,7 +1651,16 @@ class NativeSheetItemConfig {
 }
 
 /// The keyboard a text row brings up.
-enum NativeSheetKeyboard { url, email, number }
+enum NativeSheetKeyboard {
+  url,
+  email,
+
+  /// Digits only: a whole number of zero or more.
+  number,
+
+  /// Digits with a sign and a decimal point.
+  decimal,
+}
 
 /// Which of the account's passwords a secure row holds: the one in use, or
 /// one being set.

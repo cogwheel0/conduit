@@ -22,6 +22,7 @@ import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../workspace/widgets/workspace_access_grants.dart'
     show workspaceAccessSummary;
+import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
 import 'workspace_access_settings_pages.dart';
@@ -59,10 +60,14 @@ class Tools:
 
 /// One tool's editor while its page is open.
 final class WorkspaceToolEditor {
-  WorkspaceToolEditor(this.key, this.session);
+  WorkspaceToolEditor(this.key, this.session, {this.since = 0});
 
   final String key;
   final WorkspaceSessionIdentity? session;
+
+  /// How many row changes had joined Settings's queue as this editor
+  /// opened: one numbered up to this was made on an editor before it.
+  final int since;
 
   WorkspaceToolSummary? summary;
   bool loaded = false;
@@ -106,6 +111,10 @@ final class WorkspaceToolEditor {
   String url = '';
   bool urlBusy = false;
   String? urlNotice;
+
+  /// Counts the URL page's visits: a load answered after its page was left
+  /// is not taken into the editor.
+  int urlVisit = 0;
 
   bool get isCreate => key == workspaceNewKey;
   bool get writeAccess => isCreate || (summary?.writeAccess ?? false);
@@ -590,8 +599,9 @@ NativeSheetDetailConfig buildWorkspaceToolValvesPage(
                             : l10n.chatSettingErrorNotANumber)
                       : null,
                   placeholder: title,
+                  // A value may have a sign, and a number a fraction.
                   keyboard: type == 'integer' || type == 'number'
-                      ? NativeSheetKeyboard.number
+                      ? NativeSheetKeyboard.decimal
                       : null,
                   disabled: editor.valvesBusy,
                 ),
@@ -705,12 +715,39 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       identical(_editors[editor.key], editor) &&
       (editor.session?.isCurrent(_ref) ?? false);
 
+  /// Whether the row change being handled was queued before [editor]
+  /// opened: made on an editor since left under the same key, and not this
+  /// one's to apply.
+  bool _queuedBefore(WorkspaceToolEditor editor) {
+    final handled = _ref.read(settingsControllerProvider).controlHandled;
+    return handled != null && handled <= editor.since;
+  }
+
+  /// The editor open under [key] for the account signed in now. One kept
+  /// from another account is dropped unseen, with its access draft, and
+  /// none is returned.
+  WorkspaceToolEditor? _openEditor(String? key) {
+    final editor = key == null ? null : _editors[key];
+    if (key == null || editor == null || _current(editor)) return editor;
+    _editors.remove(key);
+    _access.forget(key);
+    return null;
+  }
+
+  /// The editor [detailId] belongs to, as [_openEditor] finds it. A page
+  /// left from another account's editor is closed rather than drawn.
+  Future<WorkspaceToolEditor?> _ownerOf(String key, String detailId) async {
+    final kept = _editors[key];
+    final editor = _openEditor(key);
+    if (editor == null && kept != null) await _surface.closeDetail(detailId);
+    return editor;
+  }
+
   @override
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
     _l10n = l10n;
     if (_access.ownsPage(detailId)) {
-      final key = _access.editorKeyOf(detailId);
-      final editor = key == null ? null : _editors[key];
+      final editor = _openEditor(_access.editorKeyOf(detailId));
       if (editor != null && editor.ready) {
         _access.open(
           editorKey: editor.key,
@@ -724,8 +761,10 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       return;
     }
     if (detailId.startsWith(workspaceToolCodePagePrefix)) {
-      final editor =
-          _editors[detailId.substring(workspaceToolCodePagePrefix.length)];
+      final editor = await _ownerOf(
+        detailId.substring(workspaceToolCodePagePrefix.length),
+        detailId,
+      );
       if (editor != null) {
         await _surface.applyDetail(
           buildWorkspaceToolCodePage(l10n, editor: editor),
@@ -734,26 +773,34 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       return;
     }
     if (detailId.startsWith(workspaceToolValvesPagePrefix)) {
-      final editor =
-          _editors[detailId.substring(workspaceToolValvesPagePrefix.length)];
+      final editor = await _ownerOf(
+        detailId.substring(workspaceToolValvesPagePrefix.length),
+        detailId,
+      );
       if (editor == null) return;
       await _applyValves(l10n, editor);
       if (!editor.valvesLoaded) await _loadValves(editor);
       return;
     }
     if (detailId.startsWith(workspaceToolUrlPagePrefix)) {
-      final editor =
-          _editors[detailId.substring(workspaceToolUrlPagePrefix.length)];
+      final editor = await _ownerOf(
+        detailId.substring(workspaceToolUrlPagePrefix.length),
+        detailId,
+      );
       if (editor != null) await _applyUrl(l10n, editor);
       return;
     }
     final key = detailId.substring(workspaceToolPagePrefix.length);
-    final open = _editors[key];
+    final open = _openEditor(key);
     if (open != null) {
       await _applyEditor(l10n, open);
       return;
     }
-    final editor = _editors[key] = WorkspaceToolEditor(key, _session());
+    final editor = _editors[key] = WorkspaceToolEditor(
+      key,
+      _session(),
+      since: _ref.read(settingsControllerProvider).controlsQueued,
+    );
     if (editor.isCreate) editor.content = workspaceToolBoilerplate;
     await _applyEditor(l10n, editor);
     if (!editor.isCreate) await _load(editor);
@@ -781,9 +828,13 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     if (detailId.startsWith(workspaceToolUrlPagePrefix)) {
       final editor =
           _editors[detailId.substring(workspaceToolUrlPagePrefix.length)];
+      // Left, it keeps nothing typed, and a load still running is not
+      // taken in when it answers.
       editor
         ?..url = ''
-        ..urlNotice = null;
+        ..urlNotice = null
+        ..urlBusy = false
+        ..urlVisit += 1;
       return;
     }
     if (detailId.startsWith(workspaceToolPagePrefix)) {
@@ -943,7 +994,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     final row = parseWorkspaceRowId(id);
     if (row == null || !row.field.startsWith('tool-')) return false;
     final editor = _editors[row.key];
-    if (editor == null) return true;
+    if (editor == null || _queuedBefore(editor)) return true;
     final field = row.field.substring('tool-'.length);
     if (field == 'retry') {
       await _load(editor);
@@ -1140,6 +1191,9 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       ..idError = false
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the write.
+    if (!_current(editor)) return;
     String? problem;
     try {
       if (editor.isCreate) {
@@ -1185,6 +1239,9 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the operation.
+    if (!_current(editor)) return false;
     Object? failed;
     try {
       await operation();
@@ -1343,6 +1400,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     if (spec == null || editor.valvesBusy) return;
     final values = _valvesOf(editor);
     if ((values[property] != null) == custom) return;
+    // A draft that is no number goes with the value it was typed into.
+    editor.valveTexts.remove(property);
     values[property] = WorkspaceValveValues.toggleDefault(
       WorkspaceValveValues.propertySpec(spec, property),
       values[property],
@@ -1426,6 +1485,9 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       ..valvesBusy = true
       ..valvesNotice = null;
     await _applyValves(l10n, editor);
+    // Another account signed in while the page was drawn busy: nothing is
+    // sent, with no await between this and the write.
+    if (!_current(editor)) return;
     var saved = false;
     try {
       if (user) {
@@ -1483,6 +1545,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     editor
       ..urlBusy = true
       ..urlNotice = null;
+    final visit = editor.urlVisit;
     await _applyUrl(l10n, editor);
     Map<String, dynamic>? loaded;
     try {
@@ -1495,7 +1558,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     }
-    if (!_current(editor)) return;
+    // Its page left meanwhile: the editor keeps what it had.
+    if (!_current(editor) || editor.urlVisit != visit) return;
     editor.urlBusy = false;
     if (loaded == null) {
       editor.urlNotice = l10n.workspaceToolImportUrlFailed;
@@ -1528,6 +1592,9 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     final editor = _editors[draft.editorKey];
     final summary = editor?.summary;
     if (l10n == null || editor == null || summary == null) return null;
+    // Another account signed in while the page was drawn: nothing is sent,
+    // and the page says it was not saved.
+    if (!_current(editor)) return l10n.workspaceToolSaveFailed;
     try {
       await _notifier.updateAccess(summary.id, grants);
     } catch (error, stackTrace) {

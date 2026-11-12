@@ -734,6 +734,11 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
                     NativeSheetKeyboard.url => TextInputType.url,
                     NativeSheetKeyboard.email => TextInputType.emailAddress,
                     NativeSheetKeyboard.number => TextInputType.number,
+                    NativeSheetKeyboard.decimal =>
+                      const TextInputType.numberWithOptions(
+                        signed: true,
+                        decimal: true,
+                      ),
                     null => null,
                   },
             textInputAction: multiline

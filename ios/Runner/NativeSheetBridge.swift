@@ -242,7 +242,8 @@ private struct NativeSheetItem {
     let usesProfileAvatar: Bool
     /// Shown dimmed, taking no taps.
     let disabled: Bool
-    /// The keyboard a text row brings up: url, email, number; nil = default.
+    /// The keyboard a text row brings up: url, email, number, decimal;
+    /// nil = default.
     let keyboard: String?
     /// A secure row's password role: current, newPassword, or nil for any
     /// other secret.
@@ -5133,6 +5134,10 @@ private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
             textField.autocorrectionType = .no
         case "number":
             textField.keyboardType = .numberPad
+            textField.autocorrectionType = .no
+        case "decimal":
+            // The number pad has no minus sign or decimal point.
+            textField.keyboardType = .numbersAndPunctuation
             textField.autocorrectionType = .no
         default:
             break

@@ -7,6 +7,7 @@ import 'package:conduit/features/settings/pages/workspace_page_ids.dart';
 import 'package:conduit/features/settings/pages/workspace_settings_pages.dart';
 import 'package:conduit/features/settings/pages/workspace_skill_settings_pages.dart';
 import 'package:conduit/features/settings/pages/workspace_tool_settings_pages.dart';
+import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:conduit/features/settings/settings_page_module.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
@@ -39,6 +40,36 @@ const _server = ServerConfig(
 
 User _user({String role = 'user'}) =>
     User(id: 'owner', username: 'ada', email: 'ada@example.com', role: role);
+
+const _grace = User(
+  id: 'user-2',
+  username: 'grace',
+  email: 'grace@example.com',
+  role: 'user',
+);
+
+/// Who is signed in, when a test switches to another account.
+final class _SignedIn extends Notifier<User?> {
+  @override
+  User? build() => null;
+
+  void use(User user) => state = user;
+}
+
+final _signedInProvider = NotifierProvider<_SignedIn, User?>(_SignedIn.new);
+
+/// The Settings row queue as far as a page reads it: how many changes have
+/// joined it, and which one is handled now.
+final class _Queue extends SettingsController {
+  int queued = 0;
+  int? handling;
+
+  @override
+  int get controlsQueued => queued;
+
+  @override
+  int? get controlHandled => handling;
+}
 
 final _newTool = workspaceToolPageId(null);
 final _tool1 = workspaceToolPageId('tool-1');
@@ -93,6 +124,7 @@ final class _Tools extends WorkspaceTools {
   final deleted = <String>[];
   final fetched = <String>[];
   final valveSaves = <(bool, Map<String, dynamic>)>[];
+  Completer<void>? urlGate;
   Object? createError;
   Object? valvesError;
 
@@ -135,6 +167,7 @@ final class _Tools extends WorkspaceTools {
   @override
   Future<Map<String, dynamic>> loadFromUrl(String url) async {
     fetched.add(url);
+    await urlGate?.future;
     return {
       'name': 'moon_phase',
       'content': '"""\ntitle: Moon Phase\n"""\nclass Tools:\n    pass\n',
@@ -346,12 +379,17 @@ void main() {
     String? serverVersion = '0.13.0',
     String? markdown,
     _Export? export,
+    SettingsController? controller,
   }) async {
     final container = ProviderContainer(
       retry: (_, _) => null,
       overrides: [
         reviewerModeProvider.overrideWithValue(false),
-        currentUserProvider2.overrideWithValue(_user(role: role)),
+        currentUserProvider2.overrideWith(
+          (ref) => ref.watch(_signedInProvider) ?? _user(role: role),
+        ),
+        if (controller != null)
+          settingsControllerProvider.overrideWithValue(controller),
         apiServiceProvider.overrideWithValue(api),
         authTokenProvider3.overrideWithValue('token-a'),
         activeServerProvider.overrideWith((ref) async => _server),
@@ -632,6 +670,52 @@ void main() {
           .isNull();
     });
 
+    testWidgets('a change queued on an editor since left does not reach '
+        'the one opened in its place', (tester) async {
+      final queue = _Queue();
+      final rig = await pump(tester, controller: queue);
+      await rig.open(_newTool);
+      // A name typed there waits its turn behind a slower change.
+      queue.queued = 1;
+
+      // Left, and New Tool opened again, before that turn came.
+      rig.leave(_newTool);
+      await rig.open(_newTool);
+      queue.handling = 1;
+      await rig.change(_toolRow('name'), 'Old Name');
+      queue.handling = null;
+
+      check(rig.row(_newTool, _toolRow('name'))!.value)
+          .not((it) => it.equals('Old Name'));
+    });
+
+    testWidgets("an editor kept from another account is not shown to the "
+        'next', (tester) async {
+      final rig = await pump(tester);
+      await rig.open(_tool1);
+      await rig.change(_toolRow('name', _toolKey), 'Private Wrench');
+
+      rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_tool1);
+
+      check(rig.row(_tool1, _toolRow('name', _toolKey))!.value)
+          .not((it) => it.equals('Private Wrench'));
+    });
+
+    testWidgets('a save is not sent once another account signed in', (
+      tester,
+    ) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      await rig.change(_toolRow('name', _toolKey), 'Private Wrench');
+
+      rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_toolRow('save', _toolKey));
+
+      check(tools.updated).isEmpty();
+    });
+
     group('from a URL', () {
       final url = '$workspaceToolUrlPagePrefix$workspaceNewKey';
 
@@ -689,6 +773,32 @@ void main() {
         check(rig.row(_newTool, _toolRow('description'))!.value)
             .equals('Says the phase of the moon');
         check(rig.page(_newTool).edited).isTrue();
+      });
+
+      testWidgets('a load answered after its page was left is not taken in', (
+        tester,
+      ) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools, role: 'admin');
+        await rig.open(_newTool);
+        await rig.change(_toolRow('name'), 'Tide Table');
+        await rig.open(url);
+        final gate = tools.urlGate = Completer<void>();
+        await rig.change(
+          _toolRow('url'),
+          'https://github.com/example/tools/blob/main/moon.py',
+        );
+        final loading = rig
+            ._owner(url)
+            .handleChange(_toolRow('url-load'), true, _l10n);
+        await tester.pump(const Duration(milliseconds: 20));
+
+        rig.leave(url);
+        gate.complete();
+        await rig.settle(loading);
+
+        check(rig.row(_newTool, _toolRow('name'))!.value).equals('Tide Table');
+        check(rig.closed).isEmpty();
       });
     });
 
@@ -763,6 +873,9 @@ void main() {
         // On the way to a number, or not one: kept as typed.
         await rig.change(limit, '-');
         check(rig.row(valves, limit)!.value).equals('-');
+        // Its keyboard has a minus sign.
+        check(rig.row(valves, limit)!.keyboard)
+            .equals(NativeSheetKeyboard.decimal);
         check(rig.row(valves, limit)!.subtitle)
             .equals(_l10n.chatSettingErrorNotAWholeNumber);
         await rig.change(_toolRow('valves-save', _toolKey));
@@ -772,6 +885,22 @@ void main() {
         check(rig.row(valves, limit)!.subtitle).isNull();
         await rig.change(_toolRow('valves-save', _toolKey));
         check(tools.valveSaves.single.$2['limit']).equals(-12);
+      });
+
+      testWidgets('a value put back to its default drops the text typed into '
+          'it', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        final mode = _toolRow('valve-mode', _toolKey, 'limit');
+        await rig.change(mode, 'custom');
+        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '-');
+
+        await rig.change(mode, 'default');
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(tools.valveSaves).length.equals(1);
       });
 
       testWidgets('valves that cannot be read offer Retry', (tester) async {
@@ -926,6 +1055,39 @@ void main() {
       await again.open(_skill1);
       await again.change(_skillRow('delete', _skillKey));
       check(removing.deleted).deepEquals(['skill-1']);
+    });
+
+    testWidgets('a change queued on an editor since left does not reach '
+        'the one opened in its place', (tester) async {
+      final queue = _Queue();
+      final rig = await pump(tester, controller: queue);
+      await rig.open(_newSkill);
+      queue.queued = 1;
+
+      rig.leave(_newSkill);
+      await rig.open(_newSkill);
+      queue.handling = 1;
+      await rig.change(_skillRow('name'), 'Old Name');
+      queue.handling = null;
+
+      check(rig.row(_newSkill, _skillRow('name'))!.value)
+          .not((it) => it.equals('Old Name'));
+    });
+
+    testWidgets("an editor kept from another account is neither shown to "
+        'the next nor saved', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('name', _skillKey), 'Private Trail');
+
+      rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_skillRow('save', _skillKey));
+      check(skills.updated).isEmpty();
+
+      await rig.open(_skill1);
+      check(rig.row(_skill1, _skillRow('name', _skillKey))!.value)
+          .not((it) => it.equals('Private Trail'));
     });
 
     testWidgets('a skill the account may only view offers no changes', (
