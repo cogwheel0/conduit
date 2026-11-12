@@ -292,8 +292,13 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
     final baseCommand = WorkspacePromptCommand.strip(_commandController.text);
+    // A suffix in a non-Latin script slugifies to nothing (for example
+    // "（副本）"), which would leave a bare trailing hyphen; use "copy" then.
+    final suffixToken = WorkspacePromptCommand.slugify(
+      l10n.workspacePromptCloneSuffix,
+    );
     final cloneCommand = WorkspacePromptCommand.slugify(
-      '$baseCommand-${l10n.workspacePromptCloneSuffix}',
+      '$baseCommand-${suffixToken.isEmpty ? 'copy' : suffixToken}',
     );
     // Clones never inherit the source prompt's sharing grants.
     final form = WorkspacePromptForm(
