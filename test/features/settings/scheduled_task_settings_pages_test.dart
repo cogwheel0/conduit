@@ -99,8 +99,8 @@ void main() {
       expect(add.subtitle, _l10n.scheduledTasksEmptyHint);
     });
 
-    testWidgets('a search is sent once it is done, and an empty one shows '
-        'every task', (tester) async {
+    testWidgets('the search above the list asks the server as it is typed, '
+        'and an empty one shows every task', (tester) async {
       final session = await pumpAutomations(
         tester,
         tasks: [
@@ -109,14 +109,46 @@ void main() {
         ],
       );
       await session.open(_list);
+      final search = session.page(_list).search!;
+      expect(search.id, _listRow('search'));
+      expect(search.placeholder, _l10n.scheduledTasksSearchHint);
+      expect(search.value, '');
 
-      await session.change(_listRow('search'), 'weekly');
+      await session.change(search.id, 'weekly');
+      await session.idle();
       expect(_lastList(session.wire).uri.queryParameters['query'], 'weekly');
-      expect(session.row(_list, scheduledTaskPageId('a')), isNull);
+      expect(session.row(_list, _pageA), isNull);
+      expect(session.page(_list).search!.value, 'weekly');
 
-      await session.change(_listRow('search'), '');
+      await session.change(search.id, '');
+      await session.idle();
       expect(_lastList(session.wire).uri.queryParameters['query'], isNull);
-      expect(session.row(_list, scheduledTaskPageId('a')), isNotNull);
+      expect(session.row(_list, _pageA), isNotNull);
+    });
+
+    testWidgets("an earlier search's late answer is not shown for the one "
+        'typed since', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        tasks: [
+          taskJson('a', name: 'Weekend digest'),
+          taskJson('b', name: 'Weekly review'),
+        ],
+      );
+      await session.open(_list);
+      final hold = session.wire.hold('GET', '/api/v1/automations/list');
+
+      await session.change(_listRow('search'), 'week');
+      await reach(tester, hold);
+      // Typed on while the first answer is still on its way.
+      await session.change(_listRow('search'), 'weekly');
+      await session.idle();
+      hold.release();
+      await session.idle();
+
+      expect(session.row(_list, scheduledTaskPageId('b')), isNotNull);
+      expect(session.row(_list, _pageA), isNull);
+      expect(session.page(_list).search!.value, 'weekly');
     });
 
     testWidgets('a search that matches nothing offers the whole list', (
@@ -126,6 +158,7 @@ void main() {
       await session.open(_list);
 
       await session.change(_listRow('search'), 'nothing like it');
+      await session.idle();
       expect(
         session.titles(_list),
         contains(_l10n.scheduledTasksEmptyFiltered),

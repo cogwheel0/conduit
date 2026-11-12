@@ -794,6 +794,24 @@ private struct NativeResultSheetConfiguration {
 }
 
 /// The question a page asks before its unsaved changes are dropped.
+/// A page's search field, filtering its rows as the person types.
+private struct NativeSheetSearch: Equatable {
+    let id: String
+    let placeholder: String?
+    /// The query the page's rows answer.
+    let value: String
+
+    init?(_ payload: Any?) {
+        guard let payload = payload as? [String: Any],
+              let id = payload["id"] as? String,
+              !id.isEmpty
+        else { return nil }
+        self.id = id
+        placeholder = payload["placeholder"] as? String
+        value = payload["value"] as? String ?? ""
+    }
+}
+
 private struct NativeSheetDiscardPrompt {
     let title: String
     let message: String
@@ -836,6 +854,8 @@ private struct NativeSheetDetail {
     /// Holds changes not yet saved, as Dart counts them, here or on the
     /// pages it leads to: leaving asks the discard question.
     let edited: Bool
+    /// A search field above the rows, as a long list's filter.
+    let search: NativeSheetSearch?
 
     init(
         id: String,
@@ -851,7 +871,8 @@ private struct NativeSheetDetail {
         discardPrompt: NativeSheetDiscardPrompt? = nil,
         busy: Bool = false,
         announcement: String? = nil,
-        edited: Bool = false
+        edited: Bool = false,
+        search: NativeSheetSearch? = nil
     ) {
         self.id = id
         self.title = title
@@ -867,6 +888,7 @@ private struct NativeSheetDetail {
         self.busy = busy
         self.announcement = announcement
         self.edited = edited
+        self.search = search
     }
 
     init?(_ payload: [String: Any]) {
@@ -895,6 +917,7 @@ private struct NativeSheetDetail {
         busy = payload["busy"] as? Bool ?? false
         announcement = payload["announcement"] as? String
         edited = payload["edited"] as? Bool ?? false
+        search = NativeSheetSearch(payload["search"])
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -1091,6 +1114,11 @@ private extension PlatformNativeSheetDetail {
         payload["busy"] = busy
         payload["announcement"] = announcement
         payload["edited"] = edited
+        if let search {
+            var entry: [String: Any] = ["id": search.id, "value": search.value]
+            entry["placeholder"] = search.placeholder
+            payload["search"] = entry
+        }
         return payload
     }
 }
@@ -1775,7 +1803,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 // Kept, so the same announcement sent again is not read out
                 // twice.
                 announcement: existing.announcement,
-                edited: existing.edited
+                edited: existing.edited,
+                search: existing.search
             )
             self.detailPayloads[detailId] = patched
             // The page on top, and the same page further down the sheet: one
@@ -5600,6 +5629,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// draw this rather than the value they came with.
     private var chosenOptionValues: [String: String] = [:]
 
+    /// The page's search bar, kept above its rows as the list's filter.
+    private var searchController: UISearchController?
+    /// The query Dart last put in the search bar; text typed since stays
+    /// until Dart sends another.
+    private var shownSearchValue: String?
+    /// The query the search bar last sent; Dart echoing it back leaves the
+    /// text typed since alone.
+    private var sentSearchQuery: String?
+    private var searchDebounce: Timer?
+
     var detailId: String { detail.id }
 
     private var tableSections: [NativeSheetSection] {
@@ -5710,6 +5749,67 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         controlEdits = false
     }
 
+    /// Puts the page's search bar in its navigation item, always shown, so
+    /// it reads as the list's filter. Text being typed stays when the page
+    /// is described again; only a new query from Dart replaces it.
+    private func configureSearch() {
+        guard let search = detail.search else {
+            if searchController != nil {
+                navigationItem.searchController = nil
+                searchController = nil
+                shownSearchValue = nil
+            }
+            return
+        }
+        let controller: UISearchController
+        if let existing = searchController {
+            controller = existing
+        } else {
+            controller = UISearchController(searchResultsController: nil)
+            controller.obscuresBackgroundDuringPresentation = false
+            controller.hidesNavigationBarDuringPresentation = false
+            controller.searchBar.delegate = self
+            searchController = controller
+            navigationItem.searchController = controller
+            navigationItem.hidesSearchBarWhenScrolling = false
+            definesPresentationContext = true
+        }
+        controller.searchBar.placeholder = search.placeholder
+        if search.value != shownSearchValue {
+            shownSearchValue = search.value
+            if search.value != sentSearchQuery,
+               controller.searchBar.text != search.value {
+                controller.searchBar.text = search.value
+            }
+        }
+    }
+
+    /// Sends [query] as the page's search, as a change of its search id.
+    fileprivate func sendSearch(_ query: String) {
+        searchDebounce?.invalidate()
+        searchDebounce = nil
+        guard let search = detail.search,
+              let item = NativeSheetItem([
+                  "id": search.id,
+                  "title": search.placeholder ?? search.id,
+                  "kind": "search",
+              ])
+        else { return }
+        sentSearchQuery = query
+        sendControlChange(item, query)
+    }
+
+    /// Sends what is typed once typing pauses for a moment.
+    fileprivate func searchTextChanged(_ query: String) {
+        searchDebounce?.invalidate()
+        searchDebounce = Timer.scheduledTimer(
+            withTimeInterval: 0.25,
+            repeats: false
+        ) { [weak self] _ in
+            self?.sendSearch(query)
+        }
+    }
+
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         let previousSectionCount = tableSections.count
         let previousAnnouncement = detail.announcement
@@ -5732,6 +5832,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             return previous == (item.value as? String ?? "")
         }
         detail = newDetail
+        configureSearch()
         if let announcement = newDetail.announcement, !announcement.isEmpty,
            announcement != previousAnnouncement {
             UIAccessibility.post(notification: .announcement, argument: announcement)
@@ -5778,6 +5879,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             }
         }
         refreshNavigationAction()
+        configureSearch()
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(
             NativeSheetChoiceMenuTableViewCell.self,
@@ -9335,5 +9437,20 @@ final class NativeWebSignInViewController: UIViewController,
             ?? webView?.url
             ?? failedURL
         failureLabel.isHidden = false
+    }
+}
+
+extension NativeDetailTableViewController: UISearchBarDelegate {
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        searchTextChanged(searchText)
+    }
+
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        sendSearch(searchBar.text ?? "")
+    }
+
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+        // Cancel clears the field: the whole list comes back at once.
+        sendSearch("")
     }
 }

@@ -237,6 +237,47 @@ void main() {
         });
   });
 
+  test("a page's search field goes to the sheet with the page", () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+    final page = NativeSheetDetailConfig(
+      id: 'tasks',
+      title: 'Tasks',
+      items: const [NativeSheetItemConfig(id: 'row', title: 'Row')],
+      search: const NativeSheetSearchConfig(
+        id: 'tasks.search',
+        placeholder: 'Search tasks',
+        value: 'news',
+      ),
+    );
+
+    await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: page.id,
+      items: page.items,
+      whole: page,
+    );
+
+    final search = received!.whole!.search!;
+    check(search.id).equals('tasks.search');
+    check(search.placeholder).equals('Search tasks');
+    check(search.value).equals('news');
+    check(page.toMap()['search']! as Map<String, Object?>)
+        .deepEquals(<String, Object?>{
+          'id': 'tasks.search',
+          'placeholder': 'Search tasks',
+          'value': 'news',
+        });
+  });
+
   test(
     'a date or time row goes to the sheet as one, with its bounds',
     () async {

@@ -290,6 +290,63 @@ void main() {
         .deepEquals([('run-day', '2026-03-15T09:30:00.000')]);
   });
 
+  testWidgets("a page's search sends what is typed once typing pauses, and "
+      'keeps it when the page is described again', (tester) async {
+    final controller = _RecordingController();
+    final container = ProviderContainer(
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
+    );
+    addTearDown(container.dispose);
+    NativeSheetDetailConfig page(String value) => NativeSheetDetailConfig(
+      id: 'tasks',
+      title: 'Tasks',
+      search: NativeSheetSearchConfig(
+        id: 'tasks.search',
+        placeholder: 'Search tasks',
+        value: value,
+      ),
+      sections: const [
+        NativeSheetSectionConfig(
+          items: [NativeSheetItemConfig(id: 'row', title: 'Row')],
+        ),
+      ],
+    );
+    Future<void> show(NativeSheetDetailConfig detail) => tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: SettingsPageView(detail: detail),
+        ),
+      ),
+    );
+    final field = find.descendant(
+      of: find.byKey(const ValueKey<String>('settings-search-tasks.search')),
+      matching: find.byType(EditableText),
+    );
+    String text() => tester.widget<EditableText>(field).controller.text;
+    await show(page(''));
+
+    await tester.enterText(field, 'new');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(field, 'news');
+    await tester.pump(const Duration(milliseconds: 100));
+    check(controller.changes).isEmpty();
+    await tester.pump(settingsSearchDebounce);
+    check(controller.changes).deepEquals([('tasks.search', 'news')]);
+
+    // Described again while more is typed: the text stays.
+    await tester.enterText(field, 'news d');
+    await show(page('news'));
+    check(text()).equals('news d');
+    await tester.pump(settingsSearchDebounce);
+
+    // A query of the page's own replaces it.
+    await show(page(''));
+    check(text()).equals('');
+  });
+
   testWidgets('text stays a draft until Done sends it', (tester) async {
     final controller = await _pumpPage(
       tester,

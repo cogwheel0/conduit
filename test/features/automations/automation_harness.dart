@@ -436,6 +436,10 @@ final class AutomationSession {
   Future<void> change(String id, [Object? value = true]) =>
       settle(module.handleChange(id, value, automationL10n));
 
+  /// Lets work a change started without waiting for run to its end.
+  Future<void> idle() =>
+      settle(Future<void>.delayed(const Duration(milliseconds: 200)));
+
   /// Leaves page [id], as Back or a closing sheet does.
   Future<void> leave(String id) async {
     module.pageLeft(id);

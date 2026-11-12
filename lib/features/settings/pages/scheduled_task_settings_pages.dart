@@ -208,6 +208,11 @@ NativeSheetDetailConfig buildScheduledTasksPage(
     title: l10n.scheduledTasksTitle,
     subtitle: l10n.scheduledTasksDescription,
     announcement: state.notice,
+    search: NativeSheetSearchConfig(
+      id: scheduledTaskRowId('search', key),
+      placeholder: l10n.scheduledTasksSearchHint,
+      value: state.query,
+    ),
     sections: [
       if (state.notice != null)
         NativeSheetSectionConfig(
@@ -215,14 +220,6 @@ NativeSheetDetailConfig buildScheduledTasksPage(
         ),
       NativeSheetSectionConfig(
         items: [
-          NativeSheetItemConfig(
-            id: scheduledTaskRowId('search', key),
-            title: l10n.scheduledTasksSearchLabel,
-            sfSymbol: 'magnifyingglass',
-            kind: NativeSheetItemKind.textField,
-            value: state.query,
-            placeholder: l10n.scheduledTasksSearchHint,
-          ),
           NativeSheetItemConfig(
             id: scheduledTaskRowId('filter', key),
             title: l10n.scheduledTasksFilterLabel,
@@ -2314,9 +2311,11 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     if (key == scheduledTasksListKey) {
       switch (field) {
         case 'search' when value is String:
-          if (value.trim() != _ref.read(automationsProvider).value?.query) {
-            await _refresh(query: value);
-          }
+          // Each query goes as it is typed, without waiting for the last
+          // one's answer; only the answer to the newest is shown.
+          final asked =
+              _pendingQuery ?? _ref.read(automationsProvider).value?.query;
+          if (value.trim() != asked) unawaited(_refresh(query: value));
         case 'filter' when value is String:
           final status = AutomationStatusFilter.values.asNameMap()[value];
           if (status != null) await _refresh(status: status);

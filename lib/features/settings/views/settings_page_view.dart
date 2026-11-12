@@ -14,6 +14,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/conduit_components.dart'
+    show ConduitGlassSearchField;
 import '../../../shared/widgets/discard_changes.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
@@ -574,10 +576,18 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     // Rows that open pages gain their chevron once the page is known.
     ref.watch(settingsPagesProvider);
     final sections = _sections;
+    final search = widget.detail.search;
     final page = UtilityPageScaffold.settings(
       title: widget.detail.title,
       trailing: _barAction(context),
       children: [
+        if (search != null) ...[
+          SettingsSearchField(
+            search: search,
+            onQuery: (query) => _send(search.id, query),
+          ),
+          _sectionGap,
+        ],
         ...widget.leading,
         for (var index = 0; index < sections.length; index++) ...[
           if (index > 0 || widget.leading.isNotEmpty) _sectionGap,
@@ -602,4 +612,84 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       child: page,
     );
   }
+}
+
+/// How long typing in a page's search field pauses before the query goes.
+@visibleForTesting
+const settingsSearchDebounce = Duration(milliseconds: 250);
+
+/// A page's search field above its rows, as a long list's filter. What is
+/// typed goes to [onQuery] once typing pauses for [settingsSearchDebounce],
+/// and clearing it goes at once. The page described again keeps the text
+/// being typed unless its query is a new one the field did not send: the
+/// page echoing a query back must not drop what was typed since.
+@visibleForTesting
+class SettingsSearchField extends StatefulWidget {
+  const SettingsSearchField({
+    super.key,
+    required this.search,
+    required this.onQuery,
+  });
+
+  final NativeSheetSearchConfig search;
+  final ValueChanged<String> onQuery;
+
+  @override
+  State<SettingsSearchField> createState() => _SettingsSearchFieldState();
+}
+
+class _SettingsSearchFieldState extends State<SettingsSearchField> {
+  late final _controller = TextEditingController(text: widget.search.value);
+  Timer? _debounce;
+
+  /// The query this field last sent.
+  String? _sent;
+
+  @override
+  void didUpdateWidget(covariant SettingsSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final value = widget.search.value;
+    if (value != oldWidget.search.value &&
+        value != _sent &&
+        value != _controller.text) {
+      _controller.text = value;
+    }
+  }
+
+  void _send(String query) {
+    _sent = query;
+    widget.onQuery(query);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _changed(String query) {
+    setState(() {});
+    _debounce?.cancel();
+    _debounce = Timer(settingsSearchDebounce, () => _send(query));
+  }
+
+  void _clear() {
+    _debounce?.cancel();
+    _controller.clear();
+    setState(() {});
+    _send('');
+  }
+
+  @override
+  Widget build(BuildContext context) => KeyedSubtree(
+    key: ValueKey<String>('settings-search-${widget.search.id}'),
+    child: ConduitGlassSearchField(
+      controller: _controller,
+      hintText: widget.search.placeholder ?? '',
+      query: _controller.text,
+      onChanged: _changed,
+      onClear: _clear,
+    ),
+  );
 }
