@@ -2713,6 +2713,7 @@ class HermesSessionsController
             archived:
                 setAside == HermesSetAsideKind.hidden &&
                 (archived ?? session.archived),
+            source: session.source,
           );
     if (record != null) await HermesSetAsideSessionStore.remember(record);
     // A failed change keeps the record: Hermes may have applied it before
@@ -3460,6 +3461,7 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
             title: session!.title,
             kind: actual,
             archived: actual == HermesSetAsideKind.hidden && session.archived,
+            source: session.source ?? record.source,
           ),
         );
       }

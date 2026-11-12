@@ -342,6 +342,64 @@ void main() {
       });
     }
 
+    test('an archived run that cannot be read is still filtered as a run',
+        () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'PATCH /api/sessions/run_1': (_) => (200, {'session': {}}),
+        // The server is down when the archived row looks the run up.
+        'GET /api/sessions/run_1': (_) => (
+          503,
+          {
+            'error': {'code': 'unavailable', 'message': 'down'},
+          },
+        ),
+      });
+      final service = _rest(routes);
+      final container = _container(service);
+      const run = HermesSessionSummary(
+        id: 'run_1',
+        title: 'Synthetic digest',
+        source: 'cron',
+      );
+
+      await container
+          .read(hermesSessionsProvider.notifier)
+          .setArchived(run, true);
+      final record = HermesSetAsideSessionStore.find(
+        scope: hermesSetAsideScope(service.config),
+        sessionId: 'run_1',
+      );
+      check(record?.source).equals('cron');
+
+      final archived = await container.read(
+        hermesArchivedSessionsProvider.future,
+      );
+      check(archived.single)
+        ..has((session) => session.id, 'id').equals('run_1')
+        ..has((session) => session.source, 'source').equals('cron');
+      check(hermesListedSessions(archived, showScheduled: false)).isEmpty();
+    });
+
+    test('a kept record reads back its source; an older one has none', () {
+      const record = HermesSetAsideSession(
+        scope: 'conn-rest',
+        sessionId: 'run_1',
+        title: 'Synthetic digest',
+        kind: HermesSetAsideKind.archived,
+        source: 'cron',
+      );
+      final restored = HermesSetAsideSession.fromStorage(record.toStorage());
+      check(restored?.source).equals('cron');
+      check(restored?.toSummary().source).equals('cron');
+
+      final older = HermesSetAsideSession.fromStorage(
+        '{"scope":"conn-rest","session_id":"chat_1","title":"Synthetic",'
+        '"kind":"archived"}',
+      );
+      check(older).isNotNull().has((r) => r.source, 'source').isNull();
+    });
+
     test('leaves archived and hidden rows out of the list', () async {
       final routes = _Routes({
         'GET /api/sessions': (_) => (
