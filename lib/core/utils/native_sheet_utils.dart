@@ -877,10 +877,7 @@ NativeSheetDetailConfig buildNativeAccountSignOutDetail(
 /// addresses; the server's URI-encoded id follows.
 const nativeServerAddressesPagePrefix = 'server-addresses:';
 
-/// A saved Open WebUI account under its server: switched to on a tap, but
-/// the one in use, signed in, stays put. [rowActions] are what else the row
-/// can do.
-/// [subtitle], led by a word that push needs the user when [scope] is in
+/// [subtitle] led by "Push needs attention" when [scope] is in
 /// [pushAttention], as the Flutter account rows' chip said.
 String? nativePushAttentionSubtitle(
   AppLocalizations l10n,
@@ -891,6 +888,9 @@ String? nativePushAttentionSubtitle(
     ? [l10n.pushAttentionChip, ?subtitle].join(' · ')
     : subtitle;
 
+/// A saved Open WebUI account under its server: switched to on a tap, but
+/// the one in use, signed in, stays put. [rowActions] are what else the row
+/// can do.
 NativeSheetItemConfig buildNativeAccountItem(
   OpenWebUiAccountEntry entry,
   AppLocalizations l10n, {

@@ -439,7 +439,8 @@ class ChatDataSettingsPages extends SettingsPageModule {
     _picked = null;
     _importError = null;
     _chatsRead = 0;
-    _importing = 0;
+    // [_importing] stays: an upload still with the server is shown with its
+    // count on the next visit, and the next import sets it anew.
   }
 
   ChatDataControlsService _service(ChatDataControlsOwner owner) =>
