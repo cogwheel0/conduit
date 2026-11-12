@@ -1914,6 +1914,13 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             NativeSheetTheme.shared.apply(to: navigation)
             navigation.presentationController?.delegate = signIn
             presenter.present(navigation, animated: true)
+            // UIKit refuses a presentation it cannot make (the presenter is
+            // already presenting, or mid-transition) with only a console
+            // warning: answer now, rather than leave the sign-in waiting
+            // for a page that never appears.
+            if navigation.presentingViewController == nil {
+                completion(.success(false))
+            }
         }
     }
 

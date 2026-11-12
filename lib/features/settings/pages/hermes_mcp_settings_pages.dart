@@ -887,7 +887,8 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         if (!await service.authenticateMcpServer(name)) {
           throw StateError('MCP authentication failed.');
         }
-        await _readServers(service);
+        // Signed in, whatever the read after it says.
+        await _readAfter(l10n, service);
       });
 
   Future<void> _setEnabled(AppLocalizations l10n, String name, bool enabled) =>

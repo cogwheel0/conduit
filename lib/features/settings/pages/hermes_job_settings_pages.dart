@@ -778,6 +778,15 @@ class HermesJobSettingsPages extends SettingsPageModule {
   final Map<String, HermesJobDraft> _drafts = {};
   final Map<String, List<HermesSessionSummary>?> _runs = {};
   final Set<String> _runsFailed = {};
+
+  /// Counts the connections put in use. A request's outcome counts only
+  /// while the one it was sent on is still in use: switching away and back
+  /// is a new one, whose rows are not an earlier request's to change.
+  int _connectionVisit = 0;
+
+  /// Each job's last run as last read, to read its history again when a
+  /// run came and went between two reads of the list.
+  final Map<String, String> _lastRunSeen = {};
   final Map<String, String?> _stopping = {};
   final Set<String> _runPending = {};
   final Set<String> _busy = {};
@@ -816,18 +825,21 @@ class HermesJobSettingsPages extends SettingsPageModule {
       if (jobs != null) _onJobs(jobs);
       if (_listShown || _shownJobs.isNotEmpty) unawaited(_applyShown());
     });
-    // A Stop left behind by a connection switch can no longer be settled.
-    _ref.listen(hermesApiServiceProvider, (previous, next) {
-      if (identical(previous, next)) return;
+    // Rows waiting on the last connection's requests are free on another
+    // one, which may have jobs by the same ids, and a Stop left behind can
+    // no longer be settled; its run history is not this one's. (A token
+    // refresh keeps the connection, and its requests still say how they
+    // went.)
+    _ref.listen<String?>(hermesActiveConnectionIdProvider, (previous, next) {
+      if (previous == next) return;
+      _connectionVisit++;
+      _busy.clear();
       _stopping.clear();
       _runPending.clear();
       _stopUnsupported = false;
-    });
-    // Rows waiting on the last connection's requests are free on another
-    // one, which may have jobs by the same ids. (A token refresh keeps the
-    // connection, and its requests still say how they went.)
-    _ref.listen<String?>(hermesActiveConnectionIdProvider, (previous, next) {
-      if (previous != next) _busy.clear();
+      _runs.clear();
+      _runsFailed.clear();
+      _lastRunSeen.clear();
     });
   }
 
@@ -993,7 +1005,15 @@ class HermesJobSettingsPages extends SettingsPageModule {
     };
     // A run that ended (or was stopped) now has its final title, such as the
     // reason it was cancelled, in the run history.
-    for (final jobId in _liveJobIds.difference(live)) {
+    // So has one that started and ended between two reads of the list.
+    final ranSince = <String>{};
+    for (final job in jobs) {
+      final lastRun = '${job.latestExecution?.id}|${job.lastRun}';
+      final seen = _lastRunSeen[job.id];
+      if (seen != null && seen != lastRun) ranSince.add(job.id);
+      _lastRunSeen[job.id] = lastRun;
+    }
+    for (final jobId in {..._liveJobIds.difference(live), ...ranSince}) {
       _ref.invalidate(hermesJobRunsProvider(jobId));
       final l10n = _l10n;
       if (l10n != null && _shownJobs.contains(jobId)) {
@@ -1095,12 +1115,17 @@ class HermesJobSettingsPages extends SettingsPageModule {
     if (!_desktop) return;
     final provider = hermesJobRunsProvider(jobId);
     final listening = _ref.listen(provider, (_, _) {});
+    final visit = _connectionVisit;
     try {
-      _runs[jobId] = await _ref
+      final runs = await _ref
           .read(provider.future)
           .timeout(const Duration(seconds: 15));
+      // Read on a connection since left: not this one's history.
+      if (visit != _connectionVisit) return;
+      _runs[jobId] = runs;
       _runsFailed.remove(jobId);
     } catch (_) {
+      if (visit != _connectionVisit) return;
       _runsFailed.add(jobId);
     } finally {
       listening.close();
@@ -1286,7 +1311,20 @@ class HermesJobSettingsPages extends SettingsPageModule {
       ..saving = true
       ..notice = null;
     if (!editing) _creating = true;
+    final visit = _connectionVisit;
     await _applyEditor(l10n, key, draft, withPages: false);
+    // Checked again with nothing awaited before the request: a switch
+    // while the editor was drawn busy would send it to the other one.
+    if (visit != _connectionVisit) {
+      draft
+        ..saving = false
+        ..notice = editing
+            ? l10n.hermesJobUpdateFailed
+            : l10n.hermesJobCreateFailed;
+      if (!editing) _creating = false;
+      await _applyEditor(l10n, key, draft, withPages: false);
+      return;
+    }
     final jobs = _ref.read(hermesJobsProvider.notifier);
     try {
       String? jobId = draft.jobId;
@@ -1331,6 +1369,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
         final changed =
             jobId != null &&
             await _trySetJobNotify(notifyConnection, jobId, notify: notify);
+        // Another connection in use since: its pages say nothing of this
+        // one, and its rows are not this request's to free.
+        if (visit != _connectionVisit) return;
         if (jobId != null) _busy.remove(jobId);
         _notice = switch ((editing, changed)) {
           (true, true) => l10n.hermesJobUpdated,
@@ -1363,7 +1404,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
   }) async {
     if (_busy.contains(jobId)) return false;
     final api = _ref.read(hermesApiServiceProvider);
-    final connection = _ref.read(hermesActiveConnectionIdProvider);
+    final visit = _connectionVisit;
     if (api == null) {
       _notice = failureMessage;
       await _applyShown();
@@ -1372,6 +1413,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
     _busy.add(jobId);
     _notice = null;
     await _applyShown();
+    // Checked again with nothing awaited before the request: a switch while
+    // the rows were drawn busy would send it to the other connection.
+    if (visit != _connectionVisit) return false;
     var succeeded = false;
     try {
       await action();
@@ -1379,11 +1423,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
     } catch (_) {
       // Said below, for the connection that asked.
     }
-    // Another connection in use since: its pages say nothing of this one,
-    // and its rows are not this request's to free.
-    if (_ref.read(hermesActiveConnectionIdProvider) != connection) {
-      return false;
-    }
+    // Another connection in use since -- even the same one again: its pages
+    // say nothing of this request, and its rows are not this one's to free.
+    if (visit != _connectionVisit) return false;
     _busy.remove(jobId);
     if (!succeeded) {
       _notice = failureMessage;
@@ -1401,7 +1443,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
     var stopRequested = false;
     void onStop() => stopRequested = true;
     _stopRequests[jobId] = onStop;
-    final connection = _ref.read(hermesActiveConnectionIdProvider);
+    final visit = _connectionVisit;
     try {
       final started = await _mutate(
         jobId,
@@ -1417,9 +1459,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
       // This call's own: another connection's Run Now for a job by the same
       // id may be waiting now, and keeps its state.
       if (identical(_stopRequests[jobId], onStop)) _stopRequests.remove(jobId);
-      if (_ref.read(hermesActiveConnectionIdProvider) == connection) {
-        _runPending.remove(jobId);
-      }
+      if (visit == _connectionVisit) _runPending.remove(jobId);
       _syncPolling();
       await _applyShown();
     }
@@ -1432,9 +1472,10 @@ class HermesJobSettingsPages extends SettingsPageModule {
     if (_stopping.containsKey(jobId)) return;
     _stopRequests[jobId]?.call();
     final notifier = _ref.read(hermesJobsProvider.notifier);
-    final service = _ref.read(hermesApiServiceProvider);
-    // A reply from a connection since left says nothing about this one.
-    bool switched() => !identical(_ref.read(hermesApiServiceProvider), service);
+    final visit = _connectionVisit;
+    // A reply from a connection since left says nothing about this one; a
+    // client replaced on the same connection (a token refresh) still does.
+    bool switched() => visit != _connectionVisit;
     _stopping[jobId] = null;
     _notice = null;
     _syncPolling();

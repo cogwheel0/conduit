@@ -70,7 +70,10 @@ final class _Jobs extends HermesJobsController {
   List<HermesJob> jobs;
   final stops = <String>[];
   int runCalls = 0;
-  Completer<void>? running;
+
+  /// One per Run Now, in the order they were asked for.
+  final runs = <Completer<void>>[];
+  Completer<void>? get running => runs.firstOrNull;
   final created = <String>[];
   final toggled = <(String, bool)>[];
   Future<HermesJobStopResult> Function() onStop = () async =>
@@ -88,7 +91,9 @@ final class _Jobs extends HermesJobsController {
   @override
   Future<void> runNow(String id) {
     runCalls++;
-    return (running ??= Completer<void>()).future;
+    final run = Completer<void>();
+    runs.add(run);
+    return run.future;
   }
 
   @override
@@ -254,10 +259,28 @@ final class _Rig {
 const _stop = 'hermes-job.stop:job-1';
 const _run = 'hermes-job.run:job-1';
 
+/// Settings whose page updates wait, when a test holds [gate].
+final class _GatedSurface extends SettingsSurface {
+  _GatedSurface(super.ref);
+
+  Completer<void>? gate;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final applied = await super.applyDetail(detail, detailSheets: detailSheets);
+    await gate?.future;
+    return applied;
+  }
+}
+
 Future<_Rig> _pump(
   WidgetTester tester,
   _Jobs jobs, {
   bool desktop = true,
+  List<String>? runReads,
   PushState? push,
   FakePushCoordinator? pushCoordinator,
   bool scheduledKind = true,
@@ -279,7 +302,11 @@ Future<_Rig> _pump(
         (ref) => ref.watch(_connectionIdProvider),
       ),
       hermesJobDeliveryOptionsProvider.overrideWith((ref) async => _options),
-      hermesJobRunsProvider.overrideWith((ref, jobId) async => const []),
+      hermesJobRunsProvider.overrideWith((ref, jobId) async {
+        runReads?.add(jobId);
+        return const [];
+      }),
+      settingsSurfaceProvider.overrideWith(_GatedSurface.new),
       appSettingsProvider.overrideWith(
         () => FixedSettings(
           AppSettings(notificationScheduledEnabled: scheduledKind),
@@ -291,6 +318,8 @@ Future<_Rig> _pump(
     ],
   );
   addTearDown(container.dispose);
+  // Watched by the app's own Hermes UI, so it follows a switch at once.
+  container.listen(hermesActiveConnectionIdProvider, (_, _) {});
   final rig = _Rig(tester, container, jobs);
   await rig.open(hermesJobsPageId);
   return rig;
@@ -469,6 +498,68 @@ void main() {
       await rig.frames();
 
       check(rig.notice).not((it) => it.equals(_l10n.hermesJobStarted));
+      rig.leave();
+    });
+
+    testWidgets("a Run Now from before a switch away and back leaves the "
+        "newer one's row waiting", (tester) async {
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs);
+      final ids = rig.container.read(_connectionIdProvider.notifier);
+
+      rig.start(_run);
+      await rig.frames();
+      ids.use('work');
+      await rig.frames();
+      ids.use('home');
+      await rig.frames();
+      rig.start(_run);
+      await rig.frames();
+      check(jobs.runs).length.equals(2);
+
+      jobs.runs.first.complete();
+      await rig.frames();
+      // The second is still on its way: no Run Now to send it twice.
+      check(rig.listActions).not((it) => it.contains(_run));
+
+      jobs.runs.last.complete();
+      await rig.frames();
+      check(rig.listActions).contains(_run);
+      rig.leave();
+    });
+
+    testWidgets('a Run Now is not sent to a connection switched to while '
+        'its row was drawn waiting', (tester) async {
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs);
+      final surface =
+          rig.container.read(settingsSurfaceProvider) as _GatedSurface;
+      final gate = surface.gate = Completer<void>();
+
+      rig.start(_run);
+      await rig.frames();
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+      surface.gate = null;
+      gate.complete();
+      await rig.frames();
+
+      check(jobs.runCalls).equals(0);
+      rig.leave();
+    });
+
+    testWidgets('a run that came and went between two reads of the list '
+        'reads the history again', (tester) async {
+      final reads = <String>[];
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs, runReads: reads);
+      await rig.open(hermesJobPageId('job-1'));
+      final before = reads.length;
+
+      jobs.publish([_job(status: 'completed')]);
+      await rig.frames();
+
+      check(reads.length).isGreaterThan(before);
       rig.leave();
     });
 
