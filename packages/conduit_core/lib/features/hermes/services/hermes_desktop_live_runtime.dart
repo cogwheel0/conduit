@@ -469,13 +469,23 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return stored;
   }
 
-  Future<List<Map<String, dynamic>>> _runtimeListSessions() async {
+  Future<List<Map<String, dynamic>>> _runtimeListSessions({
+    bool excludeScheduledRuns = false,
+  }) async {
     try {
       return _objects(
         await _requestJson(
           'GET',
           '/api/sessions',
-          query: {'limit': 100, 'offset': 0, 'order': 'recent'},
+          query: {
+            'limit': 100,
+            'offset': 0,
+            'order': 'recent',
+            // As Hermes Desktop lists recents: runs left out by the server,
+            // so they cannot fill the page. Older dashboards ignore it.
+            if (excludeScheduledRuns)
+              'exclude_sources': kHermesScheduledSessionSource,
+          },
           readErrorDetail: true,
         ),
         'sessions',

@@ -13,6 +13,7 @@ import 'package:conduit_core/features/hermes/services/hermes_backend_service.dar
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_set_aside_session_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:dio/dio.dart';
@@ -310,6 +311,95 @@ void main() {
   });
 
   group('the sessions controller', () {
+    for (final hidden in [false, true]) {
+      test('asks each server to leave scheduled runs out only once they are '
+          'hidden (hidden: $hidden)', () async {
+        if (hidden) {
+          await PreferencesStore.put(
+            PreferenceKeys.hermesShowScheduledSessions,
+            false,
+          );
+        }
+        final api = _Routes({
+          'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        });
+        await _container(_rest(api)).read(hermesSessionsProvider.future);
+        // The API server cannot leave a source out: it lists its largest
+        // page instead, so runs crowd out fewer chats.
+        check(
+          api.called('GET', '/api/sessions').single.query['limit'],
+        ).equals(hidden ? '$kHermesApiServerMaxSessionPage' : null);
+
+        final dashboard = _Routes({
+          'GET /api/sessions': (_) => (200, {'sessions': <Object>[]}),
+        });
+        await _container(
+          _desktop(dashboard),
+        ).read(hermesSessionsProvider.future);
+        final list = dashboard.called('GET', '/api/sessions').single;
+        check(list.query['exclude_sources']).equals(hidden ? 'cron' : null);
+        check(list.query['limit']).equals('100');
+      });
+    }
+
+    test('an archived run that cannot be read is still filtered as a run',
+        () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'PATCH /api/sessions/run_1': (_) => (200, {'session': {}}),
+        // The server is down when the archived row looks the run up.
+        'GET /api/sessions/run_1': (_) => (
+          503,
+          {
+            'error': {'code': 'unavailable', 'message': 'down'},
+          },
+        ),
+      });
+      final service = _rest(routes);
+      final container = _container(service);
+      const run = HermesSessionSummary(
+        id: 'run_1',
+        title: 'Synthetic digest',
+        source: 'cron',
+      );
+
+      await container
+          .read(hermesSessionsProvider.notifier)
+          .setArchived(run, true);
+      final record = HermesSetAsideSessionStore.find(
+        scope: hermesSetAsideScope(service.config),
+        sessionId: 'run_1',
+      );
+      check(record?.source).equals('cron');
+
+      final archived = await container.read(
+        hermesArchivedSessionsProvider.future,
+      );
+      check(archived.single)
+        ..has((session) => session.id, 'id').equals('run_1')
+        ..has((session) => session.source, 'source').equals('cron');
+      check(hermesListedSessions(archived, showScheduled: false)).isEmpty();
+    });
+
+    test('a kept record reads back its source; an older one has none', () {
+      const record = HermesSetAsideSession(
+        scope: 'conn-rest',
+        sessionId: 'run_1',
+        title: 'Synthetic digest',
+        kind: HermesSetAsideKind.archived,
+        source: 'cron',
+      );
+      final restored = HermesSetAsideSession.fromStorage(record.toStorage());
+      check(restored?.source).equals('cron');
+      check(restored?.toSummary().source).equals('cron');
+
+      final older = HermesSetAsideSession.fromStorage(
+        '{"scope":"conn-rest","session_id":"chat_1","title":"Synthetic",'
+        '"kind":"archived"}',
+      );
+      check(older).isNotNull().has((r) => r.source, 'source').isNull();
+    });
+
     test('leaves archived and hidden rows out of the list', () async {
       final routes = _Routes({
         'GET /api/sessions': (_) => (

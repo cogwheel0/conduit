@@ -31,6 +31,7 @@ import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 
 import 'package:conduit_core/services/secure_credential_storage.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -2638,7 +2639,12 @@ class HermesSessionsController
   Future<List<HermesSessionSummary>> build() async {
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
-    final raw = await service.listSessions();
+    final showScheduled = ref.watch(
+      appSettingsProvider.select((s) => s.hermesShowScheduledSessions),
+    );
+    final raw = await service.listSessions(
+      excludeScheduledRuns: !showScheduled,
+    );
     return [
       for (final session in _hermesSessionSummaries(raw))
         if (!session.archived && !session.hidden) session,
@@ -2707,6 +2713,7 @@ class HermesSessionsController
             archived:
                 setAside == HermesSetAsideKind.hidden &&
                 (archived ?? session.archived),
+            source: session.source,
           );
     if (record != null) await HermesSetAsideSessionStore.remember(record);
     // A failed change keeps the record: Hermes may have applied it before
@@ -3454,6 +3461,7 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
             title: session!.title,
             kind: actual,
             archived: actual == HermesSetAsideKind.hidden && session.archived,
+            source: session.source ?? record.source,
           ),
         );
       }

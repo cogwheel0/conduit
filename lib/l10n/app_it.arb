@@ -4910,5 +4910,17 @@
   "pushHermesCommandLatest": "Questo installa l'ultima versione pubblicata del plugin.",
   "hermesJobCreatedNotifyFailed": "Attività creata, ma non è stato possibile attivarne le notifiche.",
   "hermesJobUpdatedNotifyFailed": "Attività salvata, ma non è stato possibile modificarne le notifiche.",
-  "hermesJobNotifyNeedsScheduled": "Attiva Attività pianificate in Notifiche per usarlo."
+  "hermesJobNotifyNeedsScheduled": "Attiva Attività pianificate in Notifiche per usarlo.",
+  "hermesShowScheduledRuns": "Mostra esecuzioni pianificate",
+  "hermesShowScheduledRunsDescription": "Ogni esecuzione di un agente pianificato avvia una chat a sé. Disattiva questa opzione per escludere quelle chat dall’elenco di Hermes. Quelle fissate restano.",
+  "hermesScheduledRunsHidden": "{count, plural, =1{1 esecuzione pianificata nascosta} other{{count} esecuzioni pianificate nascoste}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Mostra"
 }

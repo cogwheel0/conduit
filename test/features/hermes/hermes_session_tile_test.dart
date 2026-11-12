@@ -1352,7 +1352,9 @@ class _FakeHermesApiService extends HermesApiService {
   int sessionListCalls = 0;
   List<Map<String, dynamic>> sessionList = const [];
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async {
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async {
     sessionListCalls++;
     return sessionList;
   }

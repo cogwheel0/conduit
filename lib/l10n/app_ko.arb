@@ -4682,5 +4682,17 @@
   "pushHermesCommandLatest": "플러그인의 최신 게시 버전을 설치합니다.",
   "hermesJobCreatedNotifyFailed": "작업을 만들었지만 알림을 켜지 못했습니다.",
   "hermesJobUpdatedNotifyFailed": "작업을 저장했지만 알림을 변경하지 못했습니다.",
-  "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요."
+  "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요.",
+  "hermesShowScheduledRuns": "예약 실행 표시",
+  "hermesShowScheduledRunsDescription": "예약된 에이전트는 실행될 때마다 새 채팅을 만듭니다. 이 설정을 끄면 해당 채팅이 Hermes 목록에 표시되지 않습니다. 고정한 채팅은 그대로 표시됩니다.",
+  "hermesScheduledRunsHidden": "{count, plural, other{예약 실행 {count}개 숨김}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "표시"
 }
