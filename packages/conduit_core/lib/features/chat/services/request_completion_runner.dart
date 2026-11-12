@@ -185,7 +185,9 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     );
     requireCurrentConversationOwner();
     if (placeholder == null) {
-      DebugLogger.log(
+      // An admitted turn dropped unsent: its answer would show as running
+      // with nothing behind it. Kept in a warning, which the logs keep.
+      DebugLogger.warning(
         'completion-placeholder-absent',
         scope: 'chat/completion',
         data: {'chatId': chatId, 'assistantMessageId': assistantMessageId},
@@ -358,7 +360,7 @@ extension on ChatRequestCompletionRunner {
       if (row != null) rows[id] = row;
     }
     if (rows.isEmpty) {
-      DebugLogger.log(
+      DebugLogger.warning(
         'completion-placeholder-absent',
         scope: 'chat/completion',
         data: {'chatId': chatId, 'assistantMessageId': slotIds.first},
