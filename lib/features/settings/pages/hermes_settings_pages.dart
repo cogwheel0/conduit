@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/utils/current_localizations.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../hermes/controllers/hermes_connection_controller.dart';
@@ -31,9 +32,6 @@ import '../settings_pages.dart';
 import 'hermes_page_ids.dart';
 
 export 'hermes_page_ids.dart';
-
-/// Heading of the connection mode row, also the name of its choices.
-const _connectionModeTitle = 'Hermes connection mode';
 
 /// Hermes Agent's page of Settings: whether Hermes is on, the saved
 /// connections (the one in use checked; another is switched to on a tap and
@@ -434,7 +432,7 @@ NativeSheetDetailConfig buildHermesConnectionPage(
         items: [
           NativeSheetItemConfig(
             id: row('mode'),
-            title: _connectionModeTitle,
+            title: l10n.hermesConnectionModeTitle,
             sfSymbol: desktop ? 'desktopcomputer' : 'cloud',
             kind: NativeSheetItemKind.segment,
             value: state.mode.name,
@@ -442,11 +440,11 @@ NativeSheetDetailConfig buildHermesConnectionPage(
             options: [
               NativeSheetOptionConfig(
                 id: HermesBackendMode.responsesApi.name,
-                label: 'Responses API',
+                label: l10n.hermesModeResponsesApi,
               ),
               NativeSheetOptionConfig(
                 id: HermesBackendMode.desktopGateway.name,
-                label: 'Desktop Gateway',
+                label: l10n.hermesDesktopGateway,
               ),
             ],
           ),
@@ -1908,11 +1906,11 @@ class HermesSettingsPages extends SettingsPageModule {
   }) async {
     if (editor.profilesLoading && !force) return;
     final controller = editor.controller!;
-    final l10n = _l10n;
+    final l10n = _l10n ?? currentAppLocalizations();
     final saved = _saved(editor);
     final draft = controller.buildDraft(saved);
     Future<void> show() async {
-      if (l10n != null && identical(_editors[key], editor)) {
+      if (identical(_editors[key], editor)) {
         await _applyEditor(l10n, key, editor, withPages: false);
       }
     }
@@ -1920,7 +1918,7 @@ class HermesSettingsPages extends SettingsPageModule {
     if (HermesConfig.connectionOrigin(draft.config.baseUrl) == null) {
       editor
         ..profilesLoading = false
-        ..profilesError = 'Enter the Hermes server URL first.';
+        ..profilesError = l10n.hermesProfilesNeedUrl;
       return show();
     }
     // Listing profiles sends the draft's credentials, which go unencrypted
@@ -1929,7 +1927,7 @@ class HermesSettingsPages extends SettingsPageModule {
       editor
         ..profiles = const []
         ..profilesLoading = false
-        ..profilesError = 'Test the connection, then refresh the profile list.';
+        ..profilesError = l10n.hermesProfilesNeedTest;
       return show();
     }
     final identity = _authIdentity(editor, draft.config);
@@ -1984,15 +1982,13 @@ class HermesSettingsPages extends SettingsPageModule {
       }
       editor
         ..profiles = profiles
-        ..profilesError = profiles.isEmpty
-            ? 'No Hermes profiles were returned.'
-            : null;
+        ..profilesError = profiles.isEmpty ? l10n.hermesProfilesNone : null;
     } catch (_) {
       if (!identical(_editors[key], editor)) return;
       final current = controller.buildDraft(_saved(editor)).config;
       if (epoch == editor.profileEpoch &&
           _authIdentity(editor, current) == identity) {
-        editor.profilesError = 'Sign in, then refresh the profile list.';
+        editor.profilesError = l10n.hermesProfilesNeedSignIn;
       }
     } finally {
       if (identical(_editors[key], editor) && epoch == editor.profileEpoch) {
@@ -2052,10 +2048,7 @@ class HermesSettingsPages extends SettingsPageModule {
         scope: 'settings/hermes',
         data: {'errorType': error.runtimeType.toString()},
       );
-      controller.reportFailure(
-        'Hermes sign-in failed or was cancelled. Check that native PKCE is '
-        'enabled and try again.',
-      );
+      controller.reportFailure(l10n.hermesNativeSignInFailed);
     }
     await _applyEditor(l10n, key, editor, withPages: false);
   }

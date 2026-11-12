@@ -4788,6 +4788,157 @@
   "scheduledTaskAgentNeedsChat": "De resultaten van een agent gaan naar een nieuwe chat.",
   "scheduledTaskAgentsLoading": "Agents van deze terminal laden…",
   "personalizationMemoryGone": "Deze herinnering staat niet meer op de server. Ga terug om je herinneringen te zien.",
+  "hermesConnectionModeTitle": "Verbindingsmodus",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "Voer eerst de URL van de Hermes-server in.",
+  "hermesProfilesNeedTest": "Test de verbinding en vernieuw daarna de profiellijst.",
+  "hermesProfilesNone": "Hermes gaf geen profielen terug.",
+  "hermesProfilesNeedSignIn": "Meld je aan en vernieuw daarna de profiellijst.",
+  "hermesNativeSignInFailed": "Aanmelden bij Hermes is mislukt of geannuleerd. Controleer of native PKCE is ingeschakeld en probeer het opnieuw.",
+  "hermesDashboardSignInTitle": "Aanmelden bij Hermes",
+  "hermesDashboardSignInLoadFailed": "Aanmelden bij Hermes kon niet worden geladen.",
+  "hermesJobLastDeliveryError": "Bezorging: {error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "De uitvoergeschiedenis kon niet worden geladen.",
+  "hermesJobPause": "Pauzeren",
+  "hermesJobResume": "Hervatten",
+  "hermesMcpAddServer": "MCP-server toevoegen",
+  "hermesMcpAddFromCatalog": "Toevoegen uit catalogus",
+  "hermesMcpLoadFailed": "MCP-servers konden niet worden geladen.",
+  "hermesMcpNone": "Geen MCP-servers ingesteld.",
+  "hermesMcpTest": "Testen",
+  "hermesMcpRemove": "Verwijderen",
+  "hermesMcpRemoveMessage": "Hiermee wordt de server uit Hermes verwijderd.",
+  "hermesMcpToolsList": "Tools: {tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "Toolfilter",
+  "hermesMcpToolFilterSummary": "Toolfilter: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "Verifiëren",
+  "hermesMcpSetApiKey": "API-sleutel instellen",
+  "hermesMcpSetApiKeyFor": "API-sleutel voor {name}",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP-URL",
+  "hermesMcpStdioCommand": "Opdracht (stdio)",
+  "hermesMcpArguments": "Argumenten (één per regel)",
+  "hermesMcpApiKeyOptional": "API-sleutel (optioneel)",
+  "hermesMcpAdd": "Toevoegen",
+  "hermesMcpCatalogAsks": "Vraagt om {names}",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "Vereist {names}, wat deze verbinding niet kan versturen. Voeg hem toe vanuit Hermes op je computer.",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "De MCP-actie van Hermes is mislukt.",
+  "hermesMcpKeepsValues": "Hermes bewaart elke waarde voor {name}.",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name} (verplicht)",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name} (optioneel)",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "Vul alle verplichte waarden in.",
+  "hermesMcpStillInstallingSignIn": "Hermes installeert {name} nog. Zodra hij in de lijst staat, meld je je aan met Verifiëren op zijn pagina.",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes installeert {name} nog. Als het klaar is, verschijnt hij in de lijst.",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "{name} is toegevoegd, maar het aanmelden is niet voltooid. Gebruik Verifiëren op zijn pagina om het opnieuw te proberen.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "Bronnen: {resources} · Prompts: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "Verbonden · Tools: {tools} · Bronnen: {resources} · Prompts: {prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "De MCP-test is mislukt.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nieuwe melding",
   "pushReplyTitle": "Nieuw antwoord",

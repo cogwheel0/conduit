@@ -70,24 +70,32 @@ final class HermesMcpState {
       servers?.where((server) => server.name == name).firstOrNull;
 }
 
-String _serverSummary(HermesMcpServer server, HermesMcpTestResult? result) {
+String _serverSummary(
+  AppLocalizations l10n,
+  HermesMcpServer server,
+  HermesMcpTestResult? result,
+) {
   final tools = result?.toolNames ?? server.tools;
   final filter = server.toolFilter?.summary;
   return [
-    server.enabled ? 'Enabled' : 'Disabled',
+    server.enabled ? l10n.enabledLabel : l10n.disabledLabel,
     if (server.auth?.isNotEmpty == true) server.auth!,
     if (server.description.isNotEmpty) server.description,
-    if (tools.isNotEmpty) 'Tools: ${tools.join(', ')}',
-    if (filter != null) 'Tool filter: $filter',
+    if (tools.isNotEmpty) l10n.hermesMcpToolsList(tools.join(', ')),
+    if (filter != null) l10n.hermesMcpToolFilterSummary(filter),
     if (result != null)
-      '${result.resources} resources · ${result.prompts} prompts',
+      l10n.hermesMcpResourcesPrompts(result.resources, result.prompts),
   ].join('\n');
 }
 
-String _testOutcome(HermesMcpTestResult result) => result.ok
-    ? 'Connected · ${result.tools} tools · ${result.resources} resources · '
-          '${result.prompts} prompts'
-    : result.error ?? 'MCP test failed';
+String _testOutcome(AppLocalizations l10n, HermesMcpTestResult result) =>
+    result.ok
+    ? l10n.hermesMcpTestConnected(
+        result.tools,
+        result.resources,
+        result.prompts,
+      )
+    : result.error ?? l10n.hermesMcpTestFailed;
 
 /// The Desktop Gateway's MCP servers: rows adding one by hand or from the
 /// catalog, then each server, opening its page; its menu tests or removes
@@ -119,13 +127,13 @@ NativeSheetDetailConfig buildHermesMcpPage(
         items: [
           NativeSheetItemConfig(
             id: hermesMcpAddPageId,
-            title: 'Add MCP Server',
+            title: l10n.hermesMcpAddServer,
             sfSymbol: 'plus.circle',
             accent: true,
           ),
           NativeSheetItemConfig(
             id: hermesMcpCatalogPageId,
-            title: 'Add from Catalog',
+            title: l10n.hermesMcpAddFromCatalog,
             sfSymbol: 'sparkles',
             accent: true,
           ),
@@ -136,7 +144,7 @@ NativeSheetDetailConfig buildHermesMcpPage(
           items: [
             note(
               'failed',
-              'Could not load MCP servers.',
+              l10n.hermesMcpLoadFailed,
               'exclamationmark.triangle',
             ),
           ],
@@ -150,7 +158,7 @@ NativeSheetDetailConfig buildHermesMcpPage(
           items: [
             note(
               'empty',
-              'No MCP servers configured.',
+              l10n.hermesMcpNone,
               'point.3.connected.trianglepath.dotted',
             ),
           ],
@@ -163,6 +171,7 @@ NativeSheetDetailConfig buildHermesMcpPage(
                 id: hermesMcpServerPageId(server.name),
                 title: server.name,
                 subtitle: _serverSummary(
+                  l10n,
                   server,
                   state.testResults[server.name],
                 ),
@@ -176,15 +185,15 @@ NativeSheetDetailConfig buildHermesMcpPage(
                 rowActions: [
                   NativeSheetRowAction(
                     id: hermesMcpRowId('test', server.name),
-                    label: 'Test',
+                    label: l10n.hermesMcpTest,
                     sfSymbol: 'bolt.horizontal',
                   ),
                   NativeSheetRowAction(
                     id: hermesMcpRowId('remove', server.name),
-                    label: 'Remove',
+                    label: l10n.hermesMcpRemove,
                     sfSymbol: 'trash',
                     destructive: true,
-                    confirmMessage: 'This removes the server from Hermes.',
+                    confirmMessage: l10n.hermesMcpRemoveMessage,
                   ),
                 ],
               ),
@@ -226,7 +235,7 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
         else
           fact(
             'gone',
-            'Could not load MCP servers.',
+            l10n.hermesMcpLoadFailed,
             null,
             'exclamationmark.triangle',
           ),
@@ -250,8 +259,8 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
         items: [
           NativeSheetItemConfig(
             id: hermesMcpRowId('enabled', name),
-            title: 'Tools',
-            subtitle: server.enabled ? 'Enabled' : 'Disabled',
+            title: l10n.tools,
+            subtitle: server.enabled ? l10n.enabledLabel : l10n.disabledLabel,
             sfSymbol: 'wrench.and.screwdriver',
             kind: NativeSheetItemKind.toggle,
             value: server.enabled,
@@ -264,15 +273,30 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
           if (server.description.isNotEmpty)
             fact('description', server.description, null, 'text.alignleft'),
           if (server.auth?.isNotEmpty == true)
-            fact('auth', 'Authentication', server.auth, 'person.badge.key'),
+            fact(
+              'auth',
+              l10n.directAuthentication,
+              server.auth,
+              'person.badge.key',
+            ),
           if (tools.isNotEmpty)
-            fact('tools', 'Tools', tools.join(', '), 'wrench.and.screwdriver'),
+            fact(
+              'tools',
+              l10n.tools,
+              tools.join(', '),
+              'wrench.and.screwdriver',
+            ),
           if (filter != null)
-            fact('filter', 'Tool filter', filter, 'line.3.horizontal.decrease'),
+            fact(
+              'filter',
+              l10n.hermesMcpToolFilter,
+              filter,
+              'line.3.horizontal.decrease',
+            ),
           if (result != null)
             fact(
               'test',
-              _testOutcome(result),
+              _testOutcome(l10n, result),
               null,
               result.ok ? 'checkmark.circle' : 'exclamationmark.triangle',
             ),
@@ -282,7 +306,7 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
         items: [
           NativeSheetItemConfig(
             id: hermesMcpRowId('test', name),
-            title: 'Test',
+            title: l10n.hermesMcpTest,
             sfSymbol: 'bolt.horizontal',
             accent: true,
             showsDisclosure: false,
@@ -291,7 +315,7 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
           ),
           NativeSheetItemConfig(
             id: hermesMcpRowId('oauth', name),
-            title: 'Authenticate',
+            title: l10n.hermesMcpAuthenticate,
             sfSymbol: 'person.badge.key',
             accent: true,
             showsDisclosure: false,
@@ -301,7 +325,7 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
           if (state.supportsCredentialUpdate)
             NativeSheetItemConfig(
               id: '$hermesMcpKeyPagePrefix${Uri.encodeComponent(name)}',
-              title: 'Set API Key',
+              title: l10n.hermesMcpSetApiKey,
               sfSymbol: 'key',
               disabled: busy,
             ),
@@ -311,12 +335,12 @@ NativeSheetDetailConfig buildHermesMcpServerPage(
         items: [
           NativeSheetItemConfig(
             id: hermesMcpRowId('remove', name),
-            title: 'Remove',
+            title: l10n.hermesMcpRemove,
             sfSymbol: 'trash',
             destructive: true,
             showsDisclosure: false,
             disabled: busy,
-            confirmMessage: 'This removes the server from Hermes.',
+            confirmMessage: l10n.hermesMcpRemoveMessage,
           ),
         ],
       ),
@@ -339,9 +363,9 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
   const pageId = hermesMcpAddPageId;
   return NativeSheetDetailConfig(
     id: pageId,
-    title: 'Add MCP Server',
+    title: l10n.hermesMcpAddServer,
     confirmActionId: hermesMcpRowId('add'),
-    confirmActionLabel: 'Add',
+    confirmActionLabel: l10n.hermesMcpAdd,
     discardPrompt: nativeDiscardPrompt(l10n),
     busy: busy,
     announcement: notice,
@@ -361,14 +385,14 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
         items: [
           NativeSheetItemConfig(
             id: hermesMcpRowId('add-name'),
-            title: 'Name',
+            title: l10n.name,
             sfSymbol: 'textformat',
             kind: NativeSheetItemKind.textField,
             value: name,
           ),
           NativeSheetItemConfig(
             id: hermesMcpRowId('add-url'),
-            title: 'HTTP URL',
+            title: l10n.hermesMcpHttpUrl,
             sfSymbol: 'link',
             kind: NativeSheetItemKind.textField,
             value: url,
@@ -376,21 +400,21 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
           ),
           NativeSheetItemConfig(
             id: hermesMcpRowId('add-command'),
-            title: 'stdio command',
+            title: l10n.hermesMcpStdioCommand,
             sfSymbol: 'terminal',
             kind: NativeSheetItemKind.textField,
             value: command,
           ),
           NativeSheetItemConfig(
             id: hermesMcpRowId('add-arguments'),
-            title: 'Arguments (one per line)',
+            title: l10n.hermesMcpArguments,
             sfSymbol: 'list.bullet',
             kind: NativeSheetItemKind.multilineTextField,
             value: arguments,
           ),
           NativeSheetItemConfig(
             id: hermesMcpRowId('add-key'),
-            title: 'API Key (Optional)',
+            title: l10n.hermesMcpApiKeyOptional,
             sfSymbol: 'key',
             kind: NativeSheetItemKind.secureTextField,
           ),
@@ -400,15 +424,16 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
   );
 }
 
-String _catalogSubtitle(HermesMcpCatalogEntry entry) => [
-  if (entry.description.isNotEmpty) entry.description,
-  if (entry.credentials.isNotEmpty)
-    entry.canAdd
-        ? 'Asks for ${entry.credentials.map((it) => it.name).join(', ')}'
-        : 'Needs ${entry.credentials.map((it) => it.name).join(', ')}, '
-              'which this connection cannot send. Add it from Hermes on '
-              'your computer.',
-].join('\n');
+String _catalogSubtitle(AppLocalizations l10n, HermesMcpCatalogEntry entry) {
+  final names = entry.credentials.map((it) => it.name).join(', ');
+  return [
+    if (entry.description.isNotEmpty) entry.description,
+    if (entry.credentials.isNotEmpty)
+      entry.canAdd
+          ? l10n.hermesMcpCatalogAsks(names)
+          : l10n.hermesMcpCatalogNeeds(names),
+  ].join('\n');
+}
 
 /// The catalog of servers Hermes can install, each opening its page; one
 /// that needs what this connection cannot send is shown, dimmed.
@@ -421,14 +446,14 @@ NativeSheetDetailConfig buildHermesMcpCatalogPage(
   const pageId = hermesMcpCatalogPageId;
   return NativeSheetDetailConfig(
     id: pageId,
-    title: 'Add from Catalog',
+    title: l10n.hermesMcpAddFromCatalog,
     sections: [
       if (failed)
         NativeSheetSectionConfig(
           items: [
             NativeSheetItemConfig(
               id: '$pageId-failed',
-              title: 'Hermes MCP action failed.',
+              title: l10n.hermesMcpActionFailed,
               sfSymbol: 'exclamationmark.triangle',
               kind: NativeSheetItemKind.info,
             ),
@@ -447,7 +472,7 @@ NativeSheetDetailConfig buildHermesMcpCatalogPage(
                     '$hermesMcpCatalogEntryPagePrefix'
                     '${Uri.encodeComponent(entry.name)}',
                 title: entry.name,
-                subtitle: _catalogSubtitle(entry),
+                subtitle: _catalogSubtitle(l10n, entry),
                 sfSymbol: 'shippingbox',
                 disabled: !entry.canAdd,
               ),
@@ -472,7 +497,7 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
     id: pageId,
     title: entry.name,
     confirmActionId: hermesMcpRowId('catalog-add', entry.name),
-    confirmActionLabel: 'Add',
+    confirmActionLabel: l10n.hermesMcpAdd,
     discardPrompt: nativeDiscardPrompt(l10n),
     busy: busy,
     announcement: notice,
@@ -497,7 +522,7 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
       ),
       if (entry.credentials.isNotEmpty)
         NativeSheetSectionConfig(
-          footer: 'Hermes keeps each value for ${entry.name}.',
+          footer: l10n.hermesMcpKeepsValues(entry.name),
           items: [
             for (final credential in entry.credentials)
               NativeSheetItemConfig(
@@ -508,8 +533,8 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
                 ),
                 title: credential.prompt ?? credential.name,
                 subtitle: credential.required
-                    ? '${credential.name} (required)'
-                    : '${credential.name} (optional)',
+                    ? l10n.hermesMcpValueRequired(credential.name)
+                    : l10n.hermesMcpValueOptional(credential.name),
                 sfSymbol: 'key',
                 kind: NativeSheetItemKind.secureTextField,
               ),
@@ -530,7 +555,7 @@ NativeSheetDetailConfig buildHermesMcpKeyPage(
   final pageId = '$hermesMcpKeyPagePrefix${Uri.encodeComponent(name)}';
   return NativeSheetDetailConfig(
     id: pageId,
-    title: 'Set API Key for $name',
+    title: l10n.hermesMcpSetApiKeyFor(name),
     confirmActionId: hermesMcpRowId('key-save', name),
     confirmActionLabel: l10n.save,
     discardPrompt: nativeDiscardPrompt(l10n),
@@ -545,7 +570,7 @@ NativeSheetDetailConfig buildHermesMcpKeyPage(
         ),
       NativeSheetItemConfig(
         id: hermesMcpRowId('key', name),
-        title: 'API Key',
+        title: l10n.hermesApiKeyTitle,
         sfSymbol: 'key',
         kind: NativeSheetItemKind.secureTextField,
       ),
@@ -684,7 +709,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         buildNativeLoadingDetail(
           l10n: l10n,
           id: hermesMcpCatalogPageId,
-          title: 'Add from Catalog',
+          title: l10n.hermesMcpAddFromCatalog,
         ),
         for (final server in state.servers ?? const <HermesMcpServer>[])
           buildHermesMcpServerPage(l10n, state, server.name),
@@ -787,7 +812,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         scope: 'settings/hermes-mcp',
         data: {'errorType': error.runtimeType.toString()},
       );
-      _notice = 'Hermes MCP action failed.';
+      _notice = l10n.hermesMcpActionFailed;
     } finally {
       marks.remove(name);
     }
@@ -799,7 +824,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       _run(l10n, name, _testing, (service) async {
         final result = await service.testMcpServer(name);
         _testResults[name] = result;
-        _notice = _testOutcome(result);
+        _notice = _testOutcome(l10n, result);
       });
 
   Future<void> _oauth(AppLocalizations l10n, String name) =>
@@ -830,11 +855,11 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     final name = _add['name']?.trim() ?? '';
     if (_adding) return;
     if (name.isEmpty) {
-      _addNotice = 'Name';
+      _addNotice = l10n.nameRequired;
       return _applyAdd(l10n);
     }
     if (service == null) {
-      _addNotice = 'Hermes MCP action failed.';
+      _addNotice = l10n.hermesMcpActionFailed;
       return _applyAdd(l10n);
     }
     _adding = true;
@@ -864,7 +889,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _adding = false;
-      _addNotice = 'Hermes MCP action failed.';
+      _addNotice = l10n.hermesMcpActionFailed;
       await _applyAdd(l10n);
     }
   }
@@ -895,7 +920,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     );
     final credentials = hermesMcpCatalogCredentialValues(entry, _credentials);
     if (credentials == null) {
-      _catalogNotice = 'Fill in every required value.';
+      _catalogNotice = l10n.hermesMcpFillRequired;
       return applyEntry();
     }
     _catalogAdding = true;
@@ -914,7 +939,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _catalogAdding = false;
-      _catalogNotice = 'Hermes MCP action failed.';
+      _catalogNotice = l10n.hermesMcpActionFailed;
       // Shows what Hermes has even when a step after the install failed,
       // so the entry is not asked for again.
       await _load(l10n);
@@ -930,9 +955,8 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     if (stillInstalling) {
       // Listed, and ready to sign in to, only once Hermes has built it.
       _notice = entry.usesOAuth
-          ? 'Hermes is still installing $name. Once it is listed, sign in '
-                'with Authenticate from its page.'
-          : 'Hermes is still installing $name. It is listed once done.';
+          ? l10n.hermesMcpStillInstallingSignIn(name)
+          : l10n.hermesMcpStillInstalling(name);
       return _applyList(l10n);
     }
     // A server Hermes set up to sign in with OAuth goes straight on to
@@ -946,10 +970,8 @@ class HermesMcpSettingsPages extends SettingsPageModule {
           );
     if (!signsIn) return;
     await _oauth(l10n, name);
-    if (_notice == 'Hermes MCP action failed.') {
-      _notice =
-          "Added $name, but signing in didn't finish. Use Authenticate "
-          'from its page to try again.';
+    if (_notice == l10n.hermesMcpActionFailed) {
+      _notice = l10n.hermesMcpAddedSignInUnfinished(name);
       await _applyList(l10n);
     }
   }
@@ -974,7 +996,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _keySaving = false;
-      _keyNotice = 'Hermes MCP action failed.';
+      _keyNotice = l10n.hermesMcpActionFailed;
       await _surface.applyDetail(
         buildHermesMcpKeyPage(l10n, name, notice: _keyNotice),
       );

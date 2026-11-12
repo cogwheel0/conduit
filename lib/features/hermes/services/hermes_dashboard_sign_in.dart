@@ -53,13 +53,13 @@ class HermesDashboardSignIn {
     var returnedToDashboard = false;
     final l10n = currentAppLocalizations();
     final signedIn = await bridge.presentWebSignIn(
-      title: 'Hermes Sign-In',
+      title: l10n.hermesDashboardSignInTitle,
       cancelLabel: l10n.cancel,
       reloadLabel: l10n.retry,
       url: hermesDashboardLoginUrl(root).toString(),
       checkScript: kHermesDashboardSignInCheckScript,
       checkUrl: hermesDashboardAuthCheckUrl(root).toString(),
-      loadFailedMessage: 'Hermes sign-in could not be loaded.',
+      loadFailedMessage: l10n.hermesDashboardSignInLoadFailed,
       allowsNavigation: (url) {
         final target = Uri.tryParse(url);
         if (target == null) return false;

@@ -10814,6 +10814,261 @@
   "@personalizationMemoryGone": {
     "description": "Shown on a memory's page when that memory is no longer on the server (cleared or deleted meanwhile), so a change to it cannot be saved."
   },
+  "hermesConnectionModeTitle": "Connection Mode",
+  "@hermesConnectionModeTitle": {
+    "description": "Title of the row choosing how a Hermes connection talks to its server."
+  },
+  "hermesModeResponsesApi": "Responses API",
+  "@hermesModeResponsesApi": {
+    "description": "Name of the Hermes connection mode that uses the Responses API."
+  },
+  "hermesProfilesNeedUrl": "Enter the Hermes server URL first.",
+  "@hermesProfilesNeedUrl": {
+    "description": "Shown under the Hermes profile picker when no server URL is entered."
+  },
+  "hermesProfilesNeedTest": "Test the connection, then refresh the profile list.",
+  "@hermesProfilesNeedTest": {
+    "description": "Shown under the Hermes profile picker before an unencrypted connection was agreed to."
+  },
+  "hermesProfilesNone": "No Hermes profiles were returned.",
+  "@hermesProfilesNone": {
+    "description": "Shown under the Hermes profile picker when the server lists no profiles."
+  },
+  "hermesProfilesNeedSignIn": "Sign in, then refresh the profile list.",
+  "@hermesProfilesNeedSignIn": {
+    "description": "Shown under the Hermes profile picker when listing profiles needs a sign-in."
+  },
+  "hermesNativeSignInFailed": "Hermes sign-in failed or was cancelled. Check that native PKCE is enabled and try again.",
+  "@hermesNativeSignInFailed": {
+    "description": "Shown when signing in to a Hermes Desktop Gateway with native PKCE did not finish."
+  },
+  "hermesDashboardSignInTitle": "Hermes Sign-In",
+  "@hermesDashboardSignInTitle": {
+    "description": "Title of the web view in which the user signs in to a Hermes dashboard."
+  },
+  "hermesDashboardSignInLoadFailed": "Hermes sign-in could not be loaded.",
+  "@hermesDashboardSignInLoadFailed": {
+    "description": "Shown in the Hermes sign-in web view when its page cannot be loaded."
+  },
+  "hermesJobLastDeliveryError": "Delivery: {error}",
+  "@hermesJobLastDeliveryError": {
+    "description": "A scheduled agent's last delivery error, as Hermes reported it.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "Could not load run history.",
+  "@hermesJobRunsLoadFailed": {
+    "description": "Shown in a scheduled agent's run history when it cannot be read."
+  },
+  "hermesJobPause": "Pause",
+  "@hermesJobPause": {
+    "description": "Action in a scheduled agent's menu that stops it running on its schedule."
+  },
+  "hermesJobResume": "Resume",
+  "@hermesJobResume": {
+    "description": "Action in a paused scheduled agent's menu that runs it on its schedule again."
+  },
+  "hermesMcpAddServer": "Add MCP Server",
+  "@hermesMcpAddServer": {
+    "description": "Row and page title for adding an MCP server to Hermes by hand."
+  },
+  "hermesMcpAddFromCatalog": "Add from Catalog",
+  "@hermesMcpAddFromCatalog": {
+    "description": "Row and page title for adding an MCP server from Hermes' catalog."
+  },
+  "hermesMcpLoadFailed": "Could not load MCP servers.",
+  "@hermesMcpLoadFailed": {
+    "description": "Shown when Hermes' MCP servers cannot be read."
+  },
+  "hermesMcpNone": "No MCP servers configured.",
+  "@hermesMcpNone": {
+    "description": "Shown when Hermes has no MCP servers."
+  },
+  "hermesMcpTest": "Test",
+  "@hermesMcpTest": {
+    "description": "Action that checks an MCP server can be reached and lists what it offers."
+  },
+  "hermesMcpRemove": "Remove",
+  "@hermesMcpRemove": {
+    "description": "Action that removes an MCP server from Hermes."
+  },
+  "hermesMcpRemoveMessage": "This removes the server from Hermes.",
+  "@hermesMcpRemoveMessage": {
+    "description": "Question asked before removing an MCP server from Hermes."
+  },
+  "hermesMcpToolsList": "Tools: {tools}",
+  "@hermesMcpToolsList": {
+    "description": "An MCP server's tools, listed by name.",
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "Tool Filter",
+  "@hermesMcpToolFilter": {
+    "description": "Title of the row saying which of an MCP server's tools Hermes uses."
+  },
+  "hermesMcpToolFilterSummary": "Tool filter: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "description": "Which of an MCP server's tools Hermes uses, summarised.",
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "Authenticate",
+  "@hermesMcpAuthenticate": {
+    "description": "Action that signs in to an MCP server that uses OAuth."
+  },
+  "hermesMcpSetApiKey": "Set API Key",
+  "@hermesMcpSetApiKey": {
+    "description": "Row opening the page that sets an MCP server's API key."
+  },
+  "hermesMcpSetApiKeyFor": "API Key for {name}",
+  "@hermesMcpSetApiKeyFor": {
+    "description": "Title of the page setting MCP server {name}'s API key.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP URL",
+  "@hermesMcpHttpUrl": {
+    "description": "Field for an MCP server's HTTP address."
+  },
+  "hermesMcpStdioCommand": "Command (stdio)",
+  "@hermesMcpStdioCommand": {
+    "description": "Field for the command Hermes runs to start a local MCP server."
+  },
+  "hermesMcpArguments": "Arguments (one per line)",
+  "@hermesMcpArguments": {
+    "description": "Field for a local MCP server's command arguments."
+  },
+  "hermesMcpApiKeyOptional": "API Key (Optional)",
+  "@hermesMcpApiKeyOptional": {
+    "description": "Field for an MCP server's API key, which may be left empty."
+  },
+  "hermesMcpAdd": "Add",
+  "@hermesMcpAdd": {
+    "description": "Done button adding an MCP server."
+  },
+  "hermesMcpCatalogAsks": "Asks for {names}",
+  "@hermesMcpCatalogAsks": {
+    "description": "A catalog MCP server, saying which values it asks for when added.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "Needs {names}, which this connection cannot send. Add it from Hermes on your computer.",
+  "@hermesMcpCatalogNeeds": {
+    "description": "A catalog MCP server whose values this connection cannot send.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Hermes MCP action failed.",
+  "@hermesMcpActionFailed": {
+    "description": "Shown when an action on Hermes' MCP servers fails."
+  },
+  "hermesMcpKeepsValues": "Hermes keeps each value for {name}.",
+  "@hermesMcpKeepsValues": {
+    "description": "Footer of the values a catalog MCP server {name} asks for.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name} (required)",
+  "@hermesMcpValueRequired": {
+    "description": "A value a catalog MCP server cannot be added without.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name} (optional)",
+  "@hermesMcpValueOptional": {
+    "description": "A value a catalog MCP server can be added without.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "Fill in every required value.",
+  "@hermesMcpFillRequired": {
+    "description": "Shown when a catalog MCP server is added without a value it needs."
+  },
+  "hermesMcpStillInstallingSignIn": "Hermes is still installing {name}. Once it is listed, sign in with Authenticate from its page.",
+  "@hermesMcpStillInstallingSignIn": {
+    "description": "Shown after adding a catalog MCP server that signs in with OAuth and is still being installed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes is still installing {name}. It is listed once done.",
+  "@hermesMcpStillInstalling": {
+    "description": "Shown after adding a catalog MCP server that is still being installed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "Added {name}, but signing in didn't finish. Use Authenticate from its page to try again.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "description": "Shown when a catalog MCP server was added but signing in to it did not finish.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "Resources: {resources} · Prompts: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "description": "How many resources and prompts an MCP server offers, from its last test.",
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "Connected · Tools: {tools} · Resources: {resources} · Prompts: {prompts}",
+  "@hermesMcpTestConnected": {
+    "description": "Result of an MCP server test that reached it.",
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "MCP test failed.",
+  "@hermesMcpTestFailed": {
+    "description": "Result of an MCP server test that failed without saying why."
+  },
   "pushFallbackTitle": "Conduit",
   "@pushFallbackTitle": {
     "description": "Title of a push notification that could not be decrypted on this device, or that has no title. Usually the app name."

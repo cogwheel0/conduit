@@ -4788,6 +4788,157 @@
   "scheduledTaskAgentNeedsChat": "I risultati di un agente vanno in una nuova chat.",
   "scheduledTaskAgentsLoading": "Caricamento degli agenti di questo terminale…",
   "personalizationMemoryGone": "Questo ricordo non è più sul server. Torna indietro per vedere i tuoi ricordi.",
+  "hermesConnectionModeTitle": "Modalità di connessione",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "Inserisci prima l'URL del server Hermes.",
+  "hermesProfilesNeedTest": "Prova la connessione, poi aggiorna l'elenco dei profili.",
+  "hermesProfilesNone": "Hermes non ha restituito alcun profilo.",
+  "hermesProfilesNeedSignIn": "Accedi, poi aggiorna l'elenco dei profili.",
+  "hermesNativeSignInFailed": "L'accesso a Hermes non è riuscito o è stato annullato. Controlla che il PKCE nativo sia attivo e riprova.",
+  "hermesDashboardSignInTitle": "Accesso a Hermes",
+  "hermesDashboardSignInLoadFailed": "Impossibile caricare l'accesso a Hermes.",
+  "hermesJobLastDeliveryError": "Consegna: {error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "Impossibile caricare la cronologia delle esecuzioni.",
+  "hermesJobPause": "Sospendi",
+  "hermesJobResume": "Riprendi",
+  "hermesMcpAddServer": "Aggiungi server MCP",
+  "hermesMcpAddFromCatalog": "Aggiungi dal catalogo",
+  "hermesMcpLoadFailed": "Impossibile caricare i server MCP.",
+  "hermesMcpNone": "Nessun server MCP configurato.",
+  "hermesMcpTest": "Prova",
+  "hermesMcpRemove": "Rimuovi",
+  "hermesMcpRemoveMessage": "In questo modo il server viene rimosso da Hermes.",
+  "hermesMcpToolsList": "Strumenti: {tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "Filtro strumenti",
+  "hermesMcpToolFilterSummary": "Filtro strumenti: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "Autentica",
+  "hermesMcpSetApiKey": "Imposta chiave API",
+  "hermesMcpSetApiKeyFor": "Chiave API per {name}",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "URL HTTP",
+  "hermesMcpStdioCommand": "Comando (stdio)",
+  "hermesMcpArguments": "Argomenti (uno per riga)",
+  "hermesMcpApiKeyOptional": "Chiave API (facoltativa)",
+  "hermesMcpAdd": "Aggiungi",
+  "hermesMcpCatalogAsks": "Richiede {names}",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "Richiede {names}, che questa connessione non può inviare. Aggiungilo da Hermes sul tuo computer.",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "L'azione MCP di Hermes non è riuscita.",
+  "hermesMcpKeepsValues": "Hermes conserva ogni valore per {name}.",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name} (obbligatorio)",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name} (facoltativo)",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "Compila tutti i valori obbligatori.",
+  "hermesMcpStillInstallingSignIn": "Hermes sta ancora installando {name}. Quando compare nell'elenco, accedi con Autentica dalla sua pagina.",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes sta ancora installando {name}. Comparirà nell'elenco al termine.",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "{name} è stato aggiunto, ma l'accesso non è stato completato. Usa Autentica dalla sua pagina per riprovare.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "Risorse: {resources} · Prompt: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "Connesso · Strumenti: {tools} · Risorse: {resources} · Prompt: {prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "Il test MCP non è riuscito.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nuova notifica",
   "pushReplyTitle": "Nuova risposta",

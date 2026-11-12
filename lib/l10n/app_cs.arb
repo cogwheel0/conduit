@@ -6711,6 +6711,157 @@
   "scheduledTaskAgentNeedsChat": "Výsledky agenta se ukládají do nového chatu.",
   "scheduledTaskAgentsLoading": "Načítání agentů tohoto terminálu…",
   "personalizationMemoryGone": "Tato paměť už na serveru není. Vraťte se zpět a zobrazte své paměti.",
+  "hermesConnectionModeTitle": "Režim připojení",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "Nejprve zadejte URL serveru Hermes.",
+  "hermesProfilesNeedTest": "Otestujte připojení a pak obnovte seznam profilů.",
+  "hermesProfilesNone": "Hermes nevrátil žádné profily.",
+  "hermesProfilesNeedSignIn": "Přihlaste se a pak obnovte seznam profilů.",
+  "hermesNativeSignInFailed": "Přihlášení k Hermes selhalo nebo bylo zrušeno. Zkontrolujte, že je zapnuté nativní PKCE, a zkuste to znovu.",
+  "hermesDashboardSignInTitle": "Přihlášení k Hermes",
+  "hermesDashboardSignInLoadFailed": "Přihlášení k Hermes se nepodařilo načíst.",
+  "hermesJobLastDeliveryError": "Doručení: {error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "Historii spuštění se nepodařilo načíst.",
+  "hermesJobPause": "Pozastavit",
+  "hermesJobResume": "Obnovit",
+  "hermesMcpAddServer": "Přidat MCP server",
+  "hermesMcpAddFromCatalog": "Přidat z katalogu",
+  "hermesMcpLoadFailed": "MCP servery se nepodařilo načíst.",
+  "hermesMcpNone": "Nejsou nastaveny žádné MCP servery.",
+  "hermesMcpTest": "Otestovat",
+  "hermesMcpRemove": "Odebrat",
+  "hermesMcpRemoveMessage": "Tím server z Hermes odeberete.",
+  "hermesMcpToolsList": "Nástroje: {tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "Filtr nástrojů",
+  "hermesMcpToolFilterSummary": "Filtr nástrojů: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "Ověřit",
+  "hermesMcpSetApiKey": "Nastavit API klíč",
+  "hermesMcpSetApiKeyFor": "API klíč pro {name}",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP URL",
+  "hermesMcpStdioCommand": "Příkaz (stdio)",
+  "hermesMcpArguments": "Argumenty (jeden na řádek)",
+  "hermesMcpApiKeyOptional": "API klíč (volitelné)",
+  "hermesMcpAdd": "Přidat",
+  "hermesMcpCatalogAsks": "Vyžaduje {names}",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "Vyžaduje {names}, které toto připojení nemůže odeslat. Přidejte jej z Hermes ve svém počítači.",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Akce MCP v Hermes selhala.",
+  "hermesMcpKeepsValues": "Hermes si každou hodnotu uloží pro {name}.",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name} (povinné)",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name} (volitelné)",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "Vyplňte všechny povinné hodnoty.",
+  "hermesMcpStillInstallingSignIn": "Hermes stále instaluje {name}. Jakmile se objeví v seznamu, přihlaste se pomocí Ověřit na jeho stránce.",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes stále instaluje {name}. Po dokončení se objeví v seznamu.",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "{name} byl přidán, ale přihlášení nebylo dokončeno. Zkuste to znovu pomocí Ověřit na jeho stránce.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "Zdroje: {resources} · Prompty: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "Připojeno · Nástroje: {tools} · Zdroje: {resources} · Prompty: {prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "Test MCP selhal.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nové oznámení",
   "pushReplyTitle": "Nová odpověď",

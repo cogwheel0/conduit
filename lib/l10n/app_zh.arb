@@ -4788,6 +4788,157 @@
   "scheduledTaskAgentNeedsChat": "智能体的结果会发送到新聊天。",
   "scheduledTaskAgentsLoading": "正在加载此终端的智能体…",
   "personalizationMemoryGone": "此记忆已不在服务器上。请返回查看您的记忆。",
+  "hermesConnectionModeTitle": "连接模式",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "请先输入 Hermes 服务器 URL。",
+  "hermesProfilesNeedTest": "请先测试连接，然后刷新配置文件列表。",
+  "hermesProfilesNone": "Hermes 未返回任何配置文件。",
+  "hermesProfilesNeedSignIn": "请先登录，然后刷新配置文件列表。",
+  "hermesNativeSignInFailed": "Hermes 登录失败或已取消。请确认已启用原生 PKCE，然后重试。",
+  "hermesDashboardSignInTitle": "Hermes 登录",
+  "hermesDashboardSignInLoadFailed": "无法加载 Hermes 登录页面。",
+  "hermesJobLastDeliveryError": "投递：{error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "无法加载运行记录。",
+  "hermesJobPause": "暂停",
+  "hermesJobResume": "恢复",
+  "hermesMcpAddServer": "添加 MCP 服务器",
+  "hermesMcpAddFromCatalog": "从目录添加",
+  "hermesMcpLoadFailed": "无法加载 MCP 服务器。",
+  "hermesMcpNone": "尚未配置 MCP 服务器。",
+  "hermesMcpTest": "测试",
+  "hermesMcpRemove": "移除",
+  "hermesMcpRemoveMessage": "这会将该服务器从 Hermes 中移除。",
+  "hermesMcpToolsList": "工具：{tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "工具筛选",
+  "hermesMcpToolFilterSummary": "工具筛选：{filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "认证",
+  "hermesMcpSetApiKey": "设置 API 密钥",
+  "hermesMcpSetApiKeyFor": "{name} 的 API 密钥",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP URL",
+  "hermesMcpStdioCommand": "命令 (stdio)",
+  "hermesMcpArguments": "参数（每行一个）",
+  "hermesMcpApiKeyOptional": "API 密钥（可选）",
+  "hermesMcpAdd": "添加",
+  "hermesMcpCatalogAsks": "需要填写 {names}",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "需要 {names}，但此连接无法发送。请在您电脑上的 Hermes 中添加。",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Hermes MCP 操作失败。",
+  "hermesMcpKeepsValues": "Hermes 会为 {name} 保存每个值。",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name}（必填）",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name}（可选）",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "请填写所有必填值。",
+  "hermesMcpStillInstallingSignIn": "Hermes 仍在安装 {name}。列出后，请在其页面上使用“认证”登录。",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes 仍在安装 {name}。完成后会显示在列表中。",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "已添加 {name}，但登录未完成。请在其页面上使用“认证”重试。",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "资源：{resources} · 提示词：{prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "已连接 · 工具：{tools} · 资源：{resources} · 提示词：{prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "MCP 测试失败。",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新通知",
   "pushReplyTitle": "新回复",

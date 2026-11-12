@@ -35,8 +35,8 @@ String hermesConnectionSummary(
   AppLocalizations l10n,
 ) {
   final mode = profile.mode == HermesBackendMode.desktopGateway
-      ? 'Desktop Gateway'
-      : 'Responses API';
+      ? l10n.hermesDesktopGateway
+      : l10n.hermesModeResponsesApi;
   final host = Uri.tryParse(profile.baseUrl)?.host ?? '';
   return [
     mode,

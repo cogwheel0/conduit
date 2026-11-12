@@ -291,8 +291,10 @@ void main() {
       ],
     );
     final rig = await openCatalog(tester, hermes);
-    check(rig.rows(hermesMcpCatalogPageId).single.subtitle)
-        .equals('Tide times for the coast\nAsks for TIDE_API_KEY, TIDE_REGION');
+    check(rig.rows(hermesMcpCatalogPageId).single.subtitle).equals(
+      'Tide times for the coast\n'
+      '${_l10n.hermesMcpCatalogAsks('TIDE_API_KEY, TIDE_REGION')}',
+    );
     await rig.open(_entryPage('tide-tables'));
     check(rig.titles(_entryPage('tide-tables')))
       ..contains('Tide tables API key')
@@ -302,7 +304,7 @@ void main() {
     await add(rig, 'tide-tables', {'TIDE_API_KEY': '  '});
     check(hermes.installs).isEmpty();
     check(rig.titles(_entryPage('tide-tables')))
-        .contains('Fill in every required value.');
+        .contains(_l10n.hermesMcpFillRequired);
 
     // Optional: left out when empty.
     await rig.change(
@@ -368,7 +370,7 @@ void main() {
     final tables = rig
         .rows(hermesMcpCatalogPageId)
         .singleWhere((row) => row.title == 'tide-tables');
-    check(tables.subtitle!).contains('which this connection cannot send');
+    check(tables.subtitle).equals(_l10n.hermesMcpCatalogNeeds('TIDE_API_KEY'));
     check(tables.disabled).isTrue();
 
     await add(rig, 'tide-notes');
@@ -409,10 +411,10 @@ void main() {
     await add(rig, 'tide-notes');
 
     check(rig.titles(_entryPage('tide-notes')))
-        .contains('Hermes MCP action failed.');
+        .contains(_l10n.hermesMcpActionFailed);
     check(rig.titles(hermesMcpPageId))
       ..contains('tide-notes')
-      ..not((it) => it.contains('No MCP servers configured.'));
+      ..not((it) => it.contains(_l10n.hermesMcpNone));
     await hermes.dispose();
   });
 
@@ -458,10 +460,8 @@ void main() {
     final rig = await openCatalog(tester, hermes);
     await add(rig, 'tide-calendar');
 
-    check(rig.page(hermesMcpPageId).announcement!).contains(
-      'Hermes is still installing tide-calendar. Once it is listed, sign in '
-      'with Authenticate',
-    );
+    check(rig.page(hermesMcpPageId).announcement)
+        .equals(_l10n.hermesMcpStillInstallingSignIn('tide-calendar'));
     check(hermes.calls('mcp.servers.oauth.start')).isEmpty();
     await hermes.dispose();
   });
@@ -486,10 +486,8 @@ void main() {
         .deepEquals(['tide-calendar']);
     // The fake starts no sign-in, so it does not finish: the server is still
     // added, and the page says where to sign in again.
-    check(rig.page(hermesMcpPageId).announcement).equals(
-      "Added tide-calendar, but signing in didn't finish. Use Authenticate "
-      'from its page to try again.',
-    );
+    check(rig.page(hermesMcpPageId).announcement)
+        .equals(_l10n.hermesMcpAddedSignInUnfinished('tide-calendar'));
     await hermes.dispose();
   });
 

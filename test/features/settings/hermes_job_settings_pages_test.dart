@@ -66,6 +66,7 @@ final class _Jobs extends HermesJobsController {
   int runCalls = 0;
   Completer<void>? running;
   final created = <String>[];
+  final toggled = <(String, bool)>[];
   Future<HermesJobStopResult> Function() onStop = () async =>
       const HermesJobStopResult(cancelled: true, executionId: 'exec-1');
 
@@ -82,6 +83,22 @@ final class _Jobs extends HermesJobsController {
   Future<void> runNow(String id) {
     runCalls++;
     return (running ??= Completer<void>()).future;
+  }
+
+  @override
+  Future<void> setEnabled(String id, bool enabled) async {
+    toggled.add((id, enabled));
+    jobs = [
+      for (final job in jobs)
+        HermesJob(
+          id: job.id,
+          name: job.name,
+          prompt: job.prompt,
+          schedule: job.schedule,
+          enabled: enabled,
+        ),
+    ];
+    state = AsyncData(jobs);
   }
 
   @override
@@ -438,6 +455,26 @@ void main() {
     jobs.running!.complete();
     await rig.frames();
     check(rig.notice).equals(_l10n.hermesJobStarted);
+    rig.leave();
+  });
+
+  testWidgets("a job's menu pauses it, and a paused job's resumes it", (
+    tester,
+  ) async {
+    final jobs = _Jobs([_job()]);
+    final rig = await _pump(tester, jobs);
+    NativeSheetRowAction? action(String label) => rig.listRow.rowActions
+        .where((action) => action.label == label)
+        .firstOrNull;
+    check(action(_l10n.hermesJobResume)).isNull();
+
+    await rig.change(action(_l10n.hermesJobPause)!.id);
+    check(jobs.toggled).deepEquals([('job-1', false)]);
+    check(rig.notice).equals(_l10n.hermesJobPausedSuccess);
+
+    await rig.change(action(_l10n.hermesJobResume)!.id);
+    check(jobs.toggled).deepEquals([('job-1', false), ('job-1', true)]);
+    check(rig.notice).equals(_l10n.hermesJobResumed);
     rig.leave();
   });
 

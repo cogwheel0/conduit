@@ -218,6 +218,12 @@ NativeSheetItemConfig _jobRow(
         ),
       if (state.writable && !busy)
         NativeSheetRowAction(
+          id: hermesJobRowId('enabled', key, job.enabled ? 'off' : 'on'),
+          label: job.enabled ? l10n.hermesJobPause : l10n.hermesJobResume,
+          sfSymbol: job.enabled ? 'pause.circle' : 'play.circle',
+        ),
+      if (state.writable && !busy)
+        NativeSheetRowAction(
           id: hermesJobRowId('delete', key),
           label: l10n.hermesJobDelete,
           sfSymbol: 'trash',
@@ -323,7 +329,10 @@ NativeSheetDetailConfig buildHermesJobPage(
             fact(
               'state',
               l10n.hermesJobStateLabel,
-              job.state ?? (job.enabled ? 'active' : 'paused'),
+              job.state ??
+                  (job.enabled
+                      ? l10n.scheduledTaskStatusActive
+                      : l10n.hermesJobPaused),
               'circle.dashed',
             ),
             fact(
@@ -356,7 +365,7 @@ NativeSheetDetailConfig buildHermesJobPage(
             if (job.lastDeliveryError?.isNotEmpty == true)
               fact(
                 'delivery-error',
-                'Delivery: ${job.lastDeliveryError}',
+                l10n.hermesJobLastDeliveryError(job.lastDeliveryError!),
                 null,
                 'exclamationmark.triangle',
               ),
@@ -400,14 +409,14 @@ NativeSheetDetailConfig buildHermesJobPage(
             if (runsFailed)
               fact(
                 'runs-failed',
-                'Could not load run history.',
+                l10n.hermesJobRunsLoadFailed,
                 null,
                 'exclamationmark.triangle',
               )
             else if (runs == null)
               buildNativeLoadingItem(l10n, id: '$pageId-runs-loading')
             else if (runs.isEmpty)
-              fact('runs-none', 'No runs yet.', null, 'clock')
+              fact('runs-none', l10n.scheduledTaskHistoryEmpty, null, 'clock')
             else
               for (final run in runs)
                 NativeSheetItemConfig(
@@ -1252,8 +1261,15 @@ class HermesJobSettingsPages extends SettingsPageModule {
       case 'stop':
         await _stop(l10n, jobId);
       case 'enabled':
-        if (value is! bool) return true;
-        final enabled = value;
+        // The page's switch sends where it is; a row's menu says which way.
+        final bool enabled;
+        if (extra != null) {
+          enabled = extra == 'on';
+        } else if (value is bool) {
+          enabled = value;
+        } else {
+          return true;
+        }
         await _mutate(
           jobId,
           () =>
