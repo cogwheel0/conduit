@@ -1509,6 +1509,51 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a new placeholder re-lays out an empty composer', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    // The chat's placeholder names its model, so switching models swaps it
+    // while the field stays empty and its width stays the same.
+    Future<void> show(String placeholder) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiServiceProvider.overrideWithValue(null)],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ModernChatInput(
+                onSendMessage: (_) {},
+                placeholder: placeholder,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    final compact = find.byKey(const ValueKey('compact-composer-shell'));
+    final expanded = find.byKey(const ValueKey('expanded-composer-shell'));
+
+    await show('Ask Fox');
+    expect(compact, findsOneWidget);
+
+    await show('Ask Conduit about a detailed multilingual question');
+    expect(compact, findsNothing);
+    expect(expanded, findsOneWidget);
+
+    await show('Ask Fox');
+    expect(compact, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a visually wrapped second line expands the composer', (
     tester,
   ) async {
