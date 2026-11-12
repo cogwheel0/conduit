@@ -92,7 +92,22 @@ class MarkdownCompileService {
   final StreamingMarkdownPreparationEngine _fallbackPrepareEngine =
       StreamingMarkdownPreparationEngine();
   static const int _settledPreparedMemoMaxEntries = 128;
-  static const int _settledPreparedMemoMaxEntryLength = 65536;
+  // Total raw+prepared character weight across memo entries.
+  //
+  // Settled preparation is deterministic per raw input, so remounting a row
+  // can skip the full-string normalization passes entirely and go straight
+  // to the compiled-document cache — but only if the memo still holds that
+  // row's prepared text. The earlier fixed per-entry length cap excluded
+  // exactly the largest bodies, so every remount of an over-cap row repeated
+  // the async prepare behind the loading skeleton and the row grew late
+  // mid-scroll while the timeline corrected around the moving extent
+  // (issue #854). Evict by weight like the compiled cache instead. The
+  // budget matches the worst-case footprint of the cap it replaces (128
+  // entries of 65,536 raw and prepared characters), so mid-size bodies keep
+  // their previous retention and the compiled document cache evicts before
+  // this one does. Entries larger than the whole budget are still refused.
+  static const int _settledPreparedMemoMaxWeight = 16777216;
+  int _settledPreparedMemoWeight = 0;
   final LinkedHashMap<String, String> _settledPreparedMemo =
       LinkedHashMap<String, String>();
   final Map<String, Future<CompiledMarkdownDocument>> _inFlight =
@@ -147,6 +162,7 @@ class MarkdownCompileService {
 
   void handleMemoryPressure() {
     _settledPreparedMemo.clear();
+    _settledPreparedMemoWeight = 0;
     retireIdleWorkers(clearCompiledCache: true);
   }
 
@@ -166,14 +182,24 @@ class MarkdownCompileService {
   }
 
   void memoizeSettledPrepared(String content, String preparedContent) {
-    if (content.isEmpty ||
-        content.length > _settledPreparedMemoMaxEntryLength) {
+    final entryWeight = content.length + preparedContent.length;
+    if (content.isEmpty || entryWeight > _settledPreparedMemoMaxWeight) {
       return;
     }
-    _settledPreparedMemo.remove(content);
+    final previous = _settledPreparedMemo.remove(content);
+    if (previous != null) {
+      _settledPreparedMemoWeight -= content.length + previous.length;
+    }
     _settledPreparedMemo[content] = preparedContent;
-    while (_settledPreparedMemo.length > _settledPreparedMemoMaxEntries) {
-      _settledPreparedMemo.remove(_settledPreparedMemo.keys.first);
+    _settledPreparedMemoWeight += entryWeight;
+    while (_settledPreparedMemoWeight > _settledPreparedMemoMaxWeight ||
+        _settledPreparedMemo.length > _settledPreparedMemoMaxEntries) {
+      final firstContent = _settledPreparedMemo.keys.first;
+      final evicted = _settledPreparedMemo.remove(firstContent);
+      if (evicted == null) {
+        break;
+      }
+      _settledPreparedMemoWeight -= firstContent.length + evicted.length;
     }
   }
 
