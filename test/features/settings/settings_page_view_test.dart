@@ -190,6 +190,28 @@ void main() {
     check(controller.changes).isEmpty();
   });
 
+  testWidgets('a statement row is said whole, not cut after two lines', (
+    tester,
+  ) async {
+    const statement =
+        'Your own server encrypts each push notification so that only this '
+        'device can read it. The key that decrypts it never leaves this '
+        'device, so nothing in between can read it.';
+    await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'intro',
+          title: statement,
+          kind: NativeSheetItemKind.info,
+        ),
+      ]),
+    );
+
+    final text = tester.widget<Text>(find.text(statement));
+    check(text.maxLines).isNotNull().isGreaterThan(2);
+  });
+
   testWidgets("a row menu item naming a page opens it, as a row leading to "
       'it would, and sends nothing', (tester) async {
     final controller = await _pumpPage(

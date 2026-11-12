@@ -13,6 +13,7 @@ class UtilityRow extends StatefulWidget {
     this.subtitle,
     this.subtitleTrailing,
     this.subtitleMaxLines = 3,
+    this.titleMaxLines = 2,
     this.leading,
     this.trailing,
     this.preserveTrailingSemantics = false,
@@ -40,6 +41,10 @@ class UtilityRow extends StatefulWidget {
   final String? subtitle;
   final Widget? subtitleTrailing;
   final int subtitleMaxLines;
+
+  /// Lines the title may take before it is cut, unless the text is large,
+  /// when it always wraps whole.
+  final int titleMaxLines;
   final Widget? leading;
   final Widget? trailing;
 
@@ -174,7 +179,9 @@ class _UtilityRowState extends State<UtilityRow> {
                             children: [
                               Text(
                                 widget.title,
-                                maxLines: usesLargeText ? null : 2,
+                                maxLines: usesLargeText
+                                    ? null
+                                    : widget.titleMaxLines,
                                 overflow: usesLargeText
                                     ? TextOverflow.visible
                                     : TextOverflow.ellipsis,
