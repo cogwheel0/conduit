@@ -690,9 +690,15 @@ class PlatformNativeSheetMonthCalendar {
     required this.month,
     required this.selectedDay,
     required this.marks,
+    this.locale,
   });
 
   String id;
+
+  /// The language the grid's month and weekday names are in, as a BCP 47
+  /// tag: the app's own, which may not be the device's. Null for the
+  /// device's.
+  String? locale;
 
   /// The first day of the month to show, `yyyy-MM-dd`. The grid keeps the
   /// month the person paged to unless this changes.

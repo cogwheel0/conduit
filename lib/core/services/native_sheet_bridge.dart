@@ -1266,9 +1266,14 @@ class NativeSheetMonthCalendarConfig {
     required this.month,
     required this.selectedDay,
     this.marks = const [],
+    this.locale,
   });
 
   final String id;
+
+  /// The language of the grid's month and weekday names, as a BCP 47 tag:
+  /// the app's own. Null for the device's.
+  final String? locale;
 
   /// The first day of the month to show, `yyyy-MM-dd`.
   final String month;
@@ -1287,6 +1292,7 @@ class NativeSheetMonthCalendarConfig {
     'month': month,
     'selectedDay': selectedDay,
     'marks': [for (final mark in marks) mark.toMap()],
+    if (locale != null) 'locale': locale,
   };
 }
 
@@ -2032,6 +2038,7 @@ extension on NativeSheetDetailConfig {
         null => null,
         final calendar => PlatformNativeSheetMonthCalendar(
           id: calendar.id,
+          locale: calendar.locale,
           month: calendar.month,
           selectedDay: calendar.selectedDay,
           marks: [

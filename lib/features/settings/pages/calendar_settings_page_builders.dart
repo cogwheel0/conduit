@@ -225,6 +225,9 @@ buildCalendarMonthPage(
       trailingActionSfSymbol: writable ? 'plus' : null,
       calendar: NativeSheetMonthCalendarConfig(
         id: calendarGridId,
+        // The app's language, which the grid's names follow; the days stay
+        // Gregorian, as the rows' are.
+        locale: l10n.localeName.replaceAll('_', '-'),
         month: calendarDayKey(state.month),
         selectedDay: calendarDayKey(day),
         marks: data == null

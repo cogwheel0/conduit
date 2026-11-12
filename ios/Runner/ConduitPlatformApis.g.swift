@@ -2213,6 +2213,10 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformNativeSheetMonthCalendar: Hashable, CustomStringConvertible {
   var id: String
+  /// The language the grid's month and weekday names are in, as a BCP 47
+  /// tag: the app's own, which may not be the device's. Null for the
+  /// device's.
+  var locale: String? = nil
   /// The first day of the month to show, `yyyy-MM-dd`. The grid keeps the
   /// month the person paged to unless this changes.
   var month: String
@@ -2225,12 +2229,14 @@ struct PlatformNativeSheetMonthCalendar: Hashable, CustomStringConvertible {
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> PlatformNativeSheetMonthCalendar? {
     let id = pigeonVar_list[0] as! String
-    let month = pigeonVar_list[1] as! String
-    let selectedDay = pigeonVar_list[2] as! String
-    let marks = pigeonVar_list[3] as! [PlatformNativeSheetCalendarMark]
+    let locale: String? = nilOrValue(pigeonVar_list[1])
+    let month = pigeonVar_list[2] as! String
+    let selectedDay = pigeonVar_list[3] as! String
+    let marks = pigeonVar_list[4] as! [PlatformNativeSheetCalendarMark]
 
     return PlatformNativeSheetMonthCalendar(
       id: id,
+      locale: locale,
       month: month,
       selectedDay: selectedDay,
       marks: marks
@@ -2239,6 +2245,7 @@ struct PlatformNativeSheetMonthCalendar: Hashable, CustomStringConvertible {
   func toList() -> [Any?] {
     return [
       id,
+      locale,
       month,
       selectedDay,
       marks,
@@ -2248,19 +2255,20 @@ struct PlatformNativeSheetMonthCalendar: Hashable, CustomStringConvertible {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.month, rhs.month) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selectedDay, rhs.selectedDay) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.marks, rhs.marks)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.locale, rhs.locale) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.month, rhs.month) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selectedDay, rhs.selectedDay) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.marks, rhs.marks)
   }
 
   func hash(into hasher: inout Hasher) {
     hasher.combine("PlatformNativeSheetMonthCalendar")
     ConduitPlatformApisPigeonInternal.deepHash(value: id, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: locale, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: month, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: selectedDay, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: marks, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetMonthCalendar(id: \(String(describing: id)), month: \(String(describing: month)), selectedDay: \(String(describing: selectedDay)), marks: \(String(describing: marks)))"
+    return "PlatformNativeSheetMonthCalendar(id: \(String(describing: id)), locale: \(String(describing: locale)), month: \(String(describing: month)), selectedDay: \(String(describing: selectedDay)), marks: \(String(describing: marks)))"
   }
 }
 

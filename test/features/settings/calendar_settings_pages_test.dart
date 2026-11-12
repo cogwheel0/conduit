@@ -126,6 +126,9 @@ void main() {
 
       final calendar = rig.page(calendarMonthPageId).calendar!;
       expect(calendar.id, calendarGridId);
+      // Its names in the app's language, which may not be the device's.
+      expect(calendar.locale, 'en');
+      expect(calendar.toMap()['locale'], 'en');
       expect(calendar.month, '2026-10-01');
       expect(calendar.selectedDay, '2026-10-06');
       // Planning is today, in Personal's colour.
@@ -549,6 +552,30 @@ void main() {
       await rig.change(last.id, true);
       expect(rig.wire.agendaRequests, hasLength(reads));
       expect(rig.row(calendarCalendarsPageId, last.id).checked, isTrue);
+    });
+
+    testWidgets('a New Calendar change queued on an earlier visit does not '
+        'reach the form opened since', (tester) async {
+      final queue = _Queue();
+      final rig = await _open(tester, controller: queue);
+      await rig.open(calendarCalendarsPageId);
+      await rig.open(calendarNewCalendarPageId);
+      // A name typed there waits its turn behind a slower change.
+      queue.queued = 1;
+
+      // Left, and New Calendar opened again, before that turn came.
+      rig.module.pageLeft(calendarNewCalendarPageId);
+      await rig.open(calendarNewCalendarPageId);
+      queue.handling = 1;
+      await rig.change(calendarNewNameRowId, 'Old name');
+      await rig.change(calendarNewCreateId, true);
+      queue.handling = null;
+
+      expect(
+        rig.wire.calendars.map((c) => c['name']),
+        isNot(contains('Old name')),
+      );
+      expect(rig.closed, isNot(contains(calendarNewCalendarPageId)));
     });
 
     testWidgets('a new calendar is made from its form', (tester) async {

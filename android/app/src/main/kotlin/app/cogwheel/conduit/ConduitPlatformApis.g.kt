@@ -2203,6 +2203,12 @@ data class PlatformNativeSheetDetail (
 data class PlatformNativeSheetMonthCalendar (
   val id: String,
   /**
+   * The language the grid's month and weekday names are in, as a BCP 47
+   * tag: the app's own, which may not be the device's. Null for the
+   * device's.
+   */
+  val locale: String? = null,
+  /**
    * The first day of the month to show, `yyyy-MM-dd`. The grid keeps the
    * month the person paged to unless this changes.
    */
@@ -2216,15 +2222,17 @@ data class PlatformNativeSheetMonthCalendar (
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): PlatformNativeSheetMonthCalendar {
       val id = pigeonVar_list[0] as String
-      val month = pigeonVar_list[1] as String
-      val selectedDay = pigeonVar_list[2] as String
-      val marks = pigeonVar_list[3] as List<PlatformNativeSheetCalendarMark>
-      return PlatformNativeSheetMonthCalendar(id, month, selectedDay, marks)
+      val locale = pigeonVar_list[1] as String?
+      val month = pigeonVar_list[2] as String
+      val selectedDay = pigeonVar_list[3] as String
+      val marks = pigeonVar_list[4] as List<PlatformNativeSheetCalendarMark>
+      return PlatformNativeSheetMonthCalendar(id, locale, month, selectedDay, marks)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       id,
+      locale,
       month,
       selectedDay,
       marks,
@@ -2238,19 +2246,20 @@ data class PlatformNativeSheetMonthCalendar (
       return true
     }
     val other = other as PlatformNativeSheetMonthCalendar
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.month, other.month) && ConduitPlatformApisPigeonUtils.deepEquals(this.selectedDay, other.selectedDay) && ConduitPlatformApisPigeonUtils.deepEquals(this.marks, other.marks)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.locale, other.locale) && ConduitPlatformApisPigeonUtils.deepEquals(this.month, other.month) && ConduitPlatformApisPigeonUtils.deepEquals(this.selectedDay, other.selectedDay) && ConduitPlatformApisPigeonUtils.deepEquals(this.marks, other.marks)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.id)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.locale)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.month)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.selectedDay)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.marks)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetMonthCalendar(id=$id, month=$month, selectedDay=$selectedDay, marks=$marks)"
+    return "PlatformNativeSheetMonthCalendar(id=$id, locale=$locale, month=$month, selectedDay=$selectedDay, marks=$marks)"
   }
 }
 

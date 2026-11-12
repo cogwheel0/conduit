@@ -113,6 +113,9 @@ class CalendarSettingsPages extends SettingsPageModule {
   String? _calendarsError;
   CalendarNewState? _newCalendar;
 
+  /// The controls queued when the New Calendar form opened.
+  int _newCalendarSince = 0;
+
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
   CalendarAgenda get _notifier => _ref.read(calendarAgendaProvider.notifier);
   CalendarZone get _zone => _ref.read(calendarZoneProvider);
@@ -171,7 +174,13 @@ class CalendarSettingsPages extends SettingsPageModule {
       _calendarsError = null;
       await _drawCalendars(l10n);
     } else if (detailId == calendarNewCalendarPageId) {
-      _newCalendar ??= const CalendarNewState();
+      if (_newCalendar == null) {
+        _newCalendar = const CalendarNewState();
+        // Changes queued on an earlier visit's form are not this one's.
+        _newCalendarSince = _ref
+            .read(settingsControllerProvider)
+            .controlsQueued;
+      }
       await _drawNewCalendar(l10n);
     }
   }
@@ -218,6 +227,8 @@ class CalendarSettingsPages extends SettingsPageModule {
     _calendarsBusy = false;
     _calendarsError = null;
     _newCalendar = null;
+    // The next visit reads a month that came back for another range again.
+    _rereadFor = null;
   }
 
   // -- The month page ------------------------------------------------------
@@ -1083,6 +1094,8 @@ class CalendarSettingsPages extends SettingsPageModule {
   ) async {
     final state = _newCalendar;
     if (state == null || state.creating) return;
+    final handled = _ref.read(settingsControllerProvider).controlHandled;
+    if (handled != null && handled <= _newCalendarSince) return;
     switch (id) {
       case calendarNewNameRowId when value is String:
         _newCalendar = CalendarNewState(

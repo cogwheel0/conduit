@@ -2536,12 +2536,18 @@ class PlatformNativeSheetDetail {
 class PlatformNativeSheetMonthCalendar {
   PlatformNativeSheetMonthCalendar({
     required this.id,
+    this.locale,
     required this.month,
     required this.selectedDay,
     required this.marks,
   });
 
   String id;
+
+  /// The language the grid's month and weekday names are in, as a BCP 47
+  /// tag: the app's own, which may not be the device's. Null for the
+  /// device's.
+  String? locale;
 
   /// The first day of the month to show, `yyyy-MM-dd`. The grid keeps the
   /// month the person paged to unless this changes.
@@ -2554,7 +2560,7 @@ class PlatformNativeSheetMonthCalendar {
   List<PlatformNativeSheetCalendarMark> marks;
 
   List<Object?> _toList() {
-    return <Object?>[id, month, selectedDay, marks];
+    return <Object?>[id, locale, month, selectedDay, marks];
   }
 
   Object encode() {
@@ -2565,9 +2571,10 @@ class PlatformNativeSheetMonthCalendar {
     result as List<Object?>;
     return PlatformNativeSheetMonthCalendar(
       id: result[0]! as String,
-      month: result[1]! as String,
-      selectedDay: result[2]! as String,
-      marks: (result[3]! as List<Object?>)
+      locale: result[1] as String?,
+      month: result[2]! as String,
+      selectedDay: result[3]! as String,
+      marks: (result[4]! as List<Object?>)
           .cast<PlatformNativeSheetCalendarMark>(),
     );
   }
@@ -2583,6 +2590,7 @@ class PlatformNativeSheetMonthCalendar {
       return true;
     }
     return _deepEquals(id, other.id) &&
+        _deepEquals(locale, other.locale) &&
         _deepEquals(month, other.month) &&
         _deepEquals(selectedDay, other.selectedDay) &&
         _deepEquals(marks, other.marks);
@@ -2594,7 +2602,7 @@ class PlatformNativeSheetMonthCalendar {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetMonthCalendar(id: $id, month: $month, selectedDay: $selectedDay, marks: $marks)';
+    return 'PlatformNativeSheetMonthCalendar(id: $id, locale: $locale, month: $month, selectedDay: $selectedDay, marks: $marks)';
   }
 }
 

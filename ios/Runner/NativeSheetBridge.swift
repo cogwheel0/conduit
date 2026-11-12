@@ -807,6 +807,9 @@ private struct NativeSheetMonthCalendar: Equatable {
     let selectedDay: DateComponents
     /// The colours each marked day is marked in, by `yyyy-MM-dd`.
     let marks: [String: [Int64]]
+    /// The app's language, which the grid's month and weekday names
+    /// follow; nil for the device's.
+    let locale: Locale?
 
     init?(_ payload: Any?) {
         guard let payload = payload as? [String: Any],
@@ -819,6 +822,8 @@ private struct NativeSheetMonthCalendar: Equatable {
         self.id = id
         self.month = month
         selectedDay = day
+        locale = (payload["locale"] as? String)
+            .flatMap { $0.isEmpty ? nil : Locale(identifier: $0) }
         var marks: [String: [Int64]] = [:]
         for entry in payload["marks"] as? [[String: Any]] ?? [] {
             guard let day = entry["day"] as? String,
@@ -1242,6 +1247,7 @@ private extension PlatformNativeSheetDetail {
                 "marks": calendar.marks.map { mark -> [String: Any] in
                     ["day": mark.day, "colors": mark.colors]
                 },
+                "locale": calendar.locale ?? "",
             ] as [String: Any]
         }
         return payload
@@ -6044,8 +6050,6 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             grid = existing
         } else {
             grid = UICalendarView()
-            grid.calendar = NativeSheetMonthCalendar.gregorian
-            grid.locale = Locale.current
             grid.fontDesign = .default
             grid.backgroundColor = .clear
             grid.delegate = self
@@ -6072,6 +6076,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             calendarHeaderWidth = 0
             tableView.tableHeaderView = header
         }
+        // The app's language for the month and weekday names, which may not
+        // be the device's; the days stay Gregorian, as the rows' are.
+        let gridLocale = calendar.locale ?? Locale.current
+        var gridCalendar = NativeSheetMonthCalendar.gregorian
+        gridCalendar.locale = gridLocale
+        if grid.locale != gridLocale { grid.locale = gridLocale }
+        if grid.calendar != gridCalendar { grid.calendar = gridCalendar }
         let asked = NativeSheetMonthCalendar.key(calendar.month)
         if asked != askedCalendarMonth {
             askedCalendarMonth = asked
