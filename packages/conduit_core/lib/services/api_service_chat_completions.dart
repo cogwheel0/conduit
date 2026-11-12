@@ -140,6 +140,15 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         (sessionIdOverride != null && sessionIdOverride.isNotEmpty)
         ? sessionIdOverride
         : null;
+    // Open WebUI 0.9+ runs a saved chat's reply on the server even without a
+    // socket session, and answers that request only once the reply has
+    // finished. The wait for its headers is then the whole reply, so it gets
+    // the reply's time rather than the client's 30 seconds.
+    final savedChatId = conversationId?.trim() ?? '';
+    final heldUntilReplyEnds =
+        sessionId == null &&
+        savedChatId.isNotEmpty &&
+        !savedChatId.startsWith('local:');
     CancelToken? activeCancelToken;
     Future<void> abort() async {
       final cancelToken = activeCancelToken;
@@ -219,6 +228,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           responseType: ResponseType.stream,
           // Accept all non-5xx so we can inspect error bodies ourselves.
           validateStatus: (status) => status != null && status < 600,
+          receiveTimeout: heldUntilReplyEnds
+              ? ApiService.heldCompletionReceiveTimeout
+              : null,
         ),
         cancelToken: cancelToken,
       );

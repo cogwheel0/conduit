@@ -750,6 +750,42 @@ void main() {
     });
   });
 
+  group('how long a completion request may wait for its answer', () {
+    // Without a socket session, Open WebUI 0.9+ answers a saved chat's
+    // request only once the reply has finished (issue #848).
+    Future<Duration?> receiveTimeoutFor({
+      String? conversationId,
+      String? sessionId,
+    }) async {
+      final adapter = _FakeAdapter.json({'task_id': 'task-1'});
+      final api = _buildApiServiceForTest(adapter);
+      await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: conversationId,
+        sessionIdOverride: sessionId,
+      );
+      return adapter.lastRequest!.receiveTimeout;
+    }
+
+    test('is the whole reply for a saved chat sent without a socket', () async {
+      check(
+        await receiveTimeoutFor(conversationId: 'chat-1'),
+      ).equals(ApiService.heldCompletionReceiveTimeout);
+    });
+
+    test('stays the usual one when the server answers at once', () async {
+      const usual = Duration(seconds: 30);
+      check(
+        await receiveTimeoutFor(conversationId: 'chat-1', sessionId: 'sess-1'),
+      ).equals(usual);
+      check(
+        await receiveTimeoutFor(conversationId: 'local:temporary'),
+      ).equals(usual);
+      check(await receiveTimeoutFor()).equals(usual);
+    });
+  });
+
   group('sendMessageSession classification', () {
     test('taskSocket classification from JSON response with task_id', () async {
       final adapter = _FakeAdapter.json({'task_id': 'task-42', 'status': true});

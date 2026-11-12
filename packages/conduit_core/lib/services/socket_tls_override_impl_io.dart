@@ -7,7 +7,13 @@ import 'package:web_socket/web_socket.dart' as ws;
 import 'package:conduit_core/models/server_config.dart';
 
 import '../network/conduit_user_agent.dart';
+import 'engine_io_polling_socket_io.dart';
 import 'server_tls_http_client_factory.dart';
+
+/// socket_io_client's WebSocket transport cannot pause for an upgrade, and on
+/// native platforms that transport also carries polling (through
+/// [EngineIoPollingSocket]), so a session that starts on polling stays there.
+const bool socketPollingCanUpgrade = false;
 
 // Match dart:io WebSocket's shared-client lifecycle while replacing its
 // generic runtime identity with the public product identity.
@@ -30,10 +36,11 @@ io.Socket createSocketWithOptionalBadCertOverride(
     return io.io(base, builder.build());
   }
 
+  // Both transports go through this connector, so polling keeps the custom
+  // TLS client as well.
   final connector = _CustomTlsWebSocketConnector(serverConfig);
   builder
     ..enableForceNew()
-    ..setTransports(const ['websocket'])
     ..setWebSocketConnector(connector.connect);
   return io.io(base, builder.build());
 }
@@ -61,6 +68,16 @@ class _ScopedWebSocketConnector {
     if (headers != null) {
       forwardedHeaders = Map<String, String>.from(headers)
         ..removeWhere((name, _) => ConduitUserAgent.isHeaderName(name));
+    }
+    // socket_io_client opens its polling transport here too, as a WebSocket
+    // to the polling address, which a polling-only server accepts and then
+    // drops without a handshake. Poll over HTTP instead.
+    if (uri.queryParameters['transport'] == 'polling') {
+      return EngineIoPollingSocket.connect(
+        uri,
+        client: _httpClient,
+        headers: forwardedHeaders,
+      );
     }
     final socket = await WebSocket.connect(
       uri.toString(),

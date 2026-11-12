@@ -136,6 +136,10 @@ class SocketService {
     try {
       final transport = engine.transport;
       if (transport != null) {
+        // On native platforms polling runs inside the library's WebSocket
+        // transport, which is named for that; the address says which it is.
+        final requested = transport.query?['transport'];
+        if (requested is String && requested.isNotEmpty) return requested;
         return transport.name ?? 'unknown';
       }
     } catch (_) {}
@@ -823,18 +827,23 @@ class SocketService {
 
     final usePollingFallback = _forcePollingFallback;
     final effectiveWebsocketOnly = websocketOnly && !usePollingFallback;
-    final usePollingOnly = !effectiveWebsocketOnly && !allowWebsocketUpgrade;
+    // On native platforms a polling session cannot move to a WebSocket (see
+    // socketPollingCanUpgrade), so there polling means polling alone.
+    final upgradeFromPolling =
+        !effectiveWebsocketOnly &&
+        allowWebsocketUpgrade &&
+        socketPollingCanUpgrade;
     final transports = effectiveWebsocketOnly
         ? const ['websocket']
-        : usePollingOnly
-        ? const ['polling']
-        : const ['polling', 'websocket'];
+        : upgradeFromPolling
+        ? const ['polling', 'websocket']
+        : const ['polling'];
 
     final builder = io.OptionBuilder()
         // Transport selection switches between WebSocket-only and polling fallback
         .setTransports(transports)
-        .setRememberUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
-        .setUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
+        .setRememberUpgrade(upgradeFromPolling)
+        .setUpgrade(upgradeFromPolling)
         // Tune reconnect/backoff and timeouts
         // Keep eventual recovery, but let a persistently unavailable Socket.IO
         // endpoint cool down. Foreground and connectivity transitions still
