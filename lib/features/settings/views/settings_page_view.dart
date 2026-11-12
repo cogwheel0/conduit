@@ -68,21 +68,30 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   /// The page column the page is in, on a wide window.
   SettingsColumnController? _column;
 
+  /// The route this page shows as over the list, when it is one.
+  Route<Object?>? _route;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _column = SettingsPageColumn.maybeOf(context);
+    final route = _column == null ? ModalRoute.of(context) : null;
+    if (route != null && !identical(route, _route)) {
+      _route = route;
+      _move.routeOpened(widget.detailId, route);
+    }
   }
 
   @override
   void dispose() {
-    // Moved beside the list as the window widened, the page there follows
-    // what it shows now.
-    final toColumn = _move.movedToColumn(widget.detailId);
-    if (!toColumn) _hydration.stopFollowing(widget.detailId);
+    if (_route case final route?) _move.routeClosed(widget.detailId, route);
     // Moving between one column and two as the window changes, the page
-    // opens again there: it has not been left, and keeps its draft.
-    if (!toColumn && !(_column?.isMoving ?? false)) {
+    // opens again there: it has not been left, keeps its draft, and the
+    // page in its place follows what it shows.
+    final moving =
+        _move.movedToColumn(widget.detailId) || (_column?.isMoving ?? false);
+    if (!moving) {
+      _hydration.stopFollowing(widget.detailId);
       _controller.pageClosed(widget.detailId, modules: _modules);
     }
     super.dispose();
@@ -97,8 +106,11 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     _controller = ref.read(settingsControllerProvider);
     _modules = ref.read(settingsPageModulesProvider);
     _move = ref.read(settingsColumnMoveProvider);
+    // Opened again where a move put it, the page was already showing: it
+    // does not describe itself again.
+    final arrived = _move.arrives(widget.detailId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || arrived) return;
       final route = ModalRoute.of(context);
       if (!widget.reopened || route == null || route.isCurrent) {
         _appeared();
@@ -237,10 +249,13 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView>
   void initState() {
     super.initState();
     _move = ref.read(settingsColumnMoveProvider)..register(this);
-    // Opened again as the window crossed two columns: the text typed into
-    // the page before it moved is still there, not yet done.
-    if (_move.take(widget.detail.id) case final text?) {
-      _pendingText.addAll(text);
+    // Opened again as the window crossed two columns: what the page held
+    // before it moved is still there -- text not done, text done, and that
+    // it was changed.
+    if (_move.take(widget.detail.id) case final draft?) {
+      _pendingText.addAll(draft.pending);
+      _committedText.addAll(draft.committed);
+      _controlEdits = draft.edits;
     }
   }
 
@@ -270,7 +285,14 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView>
   NativeSheetDiscardPrompt? get discardPrompt => widget.detail.discardPrompt;
 
   @override
-  Map<String, String> get pendingText => Map.unmodifiable(_pendingText);
+  SettingsPageDraft get draft => (
+    pending: Map.of(_pendingText),
+    committed: Map.of(_committedText),
+    edits: _controlEdits,
+  );
+
+  @override
+  void commitPendingText() => _commitPendingText();
 
   final Map<String, String> _committedText = {};
   final Map<String, Object?> _chosen = {};

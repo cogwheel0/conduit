@@ -76,10 +76,22 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
     });
   }
 
+  /// Checks again, while a sheet or question is open over pages that would
+  /// move beside the list, whether it has closed.
+  Timer? _waitingToWiden;
+
+  @override
+  void dispose() {
+    _waitingToWiden?.cancel();
+    super.dispose();
+  }
+
   /// The window widened to two columns: the pages open over the list move
   /// beside it, as they were, and their routes go. Returns their ids, first
-  /// to top; none when only the list shows.
-  List<String> _moveToTwoColumns() {
+  /// to top; none when only the list shows; null while a sheet or question
+  /// is open over them, which a resize does not close -- the window keeps
+  /// one column until it has gone.
+  List<String>? _moveToTwoColumns() {
     final router = GoRouter.maybeOf(context);
     if (router == null) return const [];
     final above = <ImperativeRouteMatch>[];
@@ -95,11 +107,27 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
       for (final match in above) ?match.matches.pathParameters['id'],
     ];
     if (ids.isEmpty || ids.length != above.length) return const [];
-    ref.read(settingsColumnMoveProvider)
+    final move = ref.read(settingsColumnMoveProvider);
+    final top = move.routeOf(ids.last);
+    if (top != null && !top.isCurrent) {
+      _waitingToWiden ??= Timer.periodic(const Duration(milliseconds: 250), (
+        timer,
+      ) {
+        if (!top.isActive || top.isCurrent) {
+          timer.cancel();
+          _waitingToWiden = null;
+          if (mounted) setState(() {});
+        }
+      });
+      return null;
+    }
+    move
       ..moveToColumn(ids)
       ..carry(ids);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Those pages' routes are the top ones, nothing open over them: each
+      // goes as it was moved.
       for (var i = 0; i < ids.length && router.canPop(); i++) {
         router.pop();
       }
@@ -205,7 +233,12 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
     // narrower, each page is pushed over the last, as on a phone.
     final wide = _isWide(MediaQuery.sizeOf(context));
     if (_wasWide && !wide) _moveToOneColumn();
-    final opened = !_wasWide && wide ? _moveToTwoColumns() : null;
+    List<String>? opened;
+    if (!_wasWide && wide) {
+      opened = _moveToTwoColumns();
+      // Something is open over the pages: one column, until it closes.
+      if (opened == null) return list(null, null);
+    }
     _wasWide = wide;
     if (!wide) return list(null, null);
     return SettingsColumns(

@@ -40,38 +40,62 @@ abstract interface class SettingsColumnMember {
   /// The question the page asks before its changes go, when it has one.
   NativeSheetDiscardPrompt? get discardPrompt;
 
-  /// Text typed into the page and not yet done, by row.
-  Map<String, String> get pendingText;
+  /// What the page holds that its owner may not show yet: text typed and
+  /// not done, text done, and whether anything was changed.
+  SettingsPageDraft get draft;
+
+  /// Sends text typed and not yet done, as the page does when it is left.
+  void commitPendingText();
 }
+
+/// What a page holds of its own, carried when it moves between columns.
+typedef SettingsPageDraft = ({
+  Map<String, String> pending,
+  Map<String, String> committed,
+  bool edits,
+});
 
 /// Pages moving between the page column and routes of their own as the
 /// window crosses [settingsTwoColumnMinWidth]. A page moved has not been
-/// left: what is typed into it goes with it, not sent -- on Change
-/// Password, sending it would change the password -- and the page left
-/// behind is not told it closed.
+/// left, nor opened anew: what it holds goes with it, unsent -- on Change
+/// Password, sending it would change the password -- the page left behind
+/// is not told it closed, and the one in its place does not describe
+/// itself again, which would start its draft over.
 final class SettingsColumnMove {
   final Set<SettingsColumnMember> _pages = {};
-  final Map<String, Map<String, String>> _text = {};
+  final Map<String, SettingsPageDraft> _drafts = {};
   final Set<String> _toColumn = {};
+  final Set<String> _arriving = {};
+  final Map<String, Route<Object?>> _routes = {};
 
   void register(SettingsColumnMember page) => _pages.add(page);
   void unregister(SettingsColumnMember page) => _pages.remove(page);
 
-  /// Keeps the text typed into pages [ids] for the pages that open again
-  /// in their place.
+  /// Keeps what pages [ids] hold for the pages that open again in their
+  /// place. A page not drawn yet (opened by the last move a frame ago)
+  /// keeps what that move kept for it.
   void carry(Iterable<String> ids) {
     final moving = ids.toSet();
-    _text.clear();
+    _drafts.removeWhere((id, _) => !moving.contains(id));
     for (final page in _pages) {
-      final text = page.pendingText;
-      if (moving.contains(page.pageId) && text.isNotEmpty) {
-        _text[page.pageId] = Map.of(text);
+      if (!moving.contains(page.pageId)) continue;
+      final draft = page.draft;
+      if (draft.pending.isEmpty && draft.committed.isEmpty && !draft.edits) {
+        _drafts.remove(page.pageId);
+      } else {
+        _drafts[page.pageId] = draft;
       }
     }
+    _arriving
+      ..clear()
+      ..addAll(moving);
   }
 
-  /// The text page [pageId] held before it moved, once.
-  Map<String, String>? take(String pageId) => _text.remove(pageId);
+  /// What page [pageId] held before it moved, once.
+  SettingsPageDraft? take(String pageId) => _drafts.remove(pageId);
+
+  /// Whether page [pageId] opens again where a move put it: true once.
+  bool arrives(String pageId) => _arriving.remove(pageId);
 
   /// Pages [ids], open as routes over the list, move beside it.
   void moveToColumn(Iterable<String> ids) => _toColumn
@@ -83,6 +107,17 @@ final class SettingsColumnMove {
 
   /// The route page [pageId] is gone, moved beside the list: true once.
   bool movedToColumn(String pageId) => _toColumn.remove(pageId);
+
+  /// Page [pageId] shows as [route] over the list.
+  void routeOpened(String pageId, Route<Object?> route) =>
+      _routes[pageId] = route;
+
+  void routeClosed(String pageId, Route<Object?> route) {
+    if (identical(_routes[pageId], route)) _routes.remove(pageId);
+  }
+
+  /// The route page [pageId] shows as over the list, if it does.
+  Route<Object?>? routeOf(String pageId) => _routes[pageId];
 }
 
 final settingsColumnMoveProvider = Provider<SettingsColumnMove>(
@@ -239,6 +274,13 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
     };
     if (!await _mayLeave(leaving)) return;
     if (!mounted) return;
+    // Left for another page, a page that asks nothing keeps the text typed
+    // into it, as Back does; one whose changes were discarded sends none.
+    for (final member in List.of(_members)) {
+      if (leaving.contains(member.pageId) && member.discardPrompt == null) {
+        member.commitPendingText();
+      }
+    }
     setState(() {
       if (again) {
         for (final entry in _entries.skip(1)) {

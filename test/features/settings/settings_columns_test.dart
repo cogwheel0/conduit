@@ -77,9 +77,44 @@ const _user = User(
   role: 'user',
 );
 
+/// A page as the column sees it, holding [pending] text.
+final class _Member implements SettingsColumnMember {
+  _Member(this.pageId, this.pending);
+
+  @override
+  final String pageId;
+  final Map<String, String> pending;
+
+  @override
+  bool get holdsUnsavedChanges => pending.isNotEmpty;
+
+  @override
+  NativeSheetDiscardPrompt? get discardPrompt => null;
+
+  @override
+  SettingsPageDraft get draft =>
+      (pending: pending, committed: const {}, edits: false);
+
+  @override
+  void commitPendingText() {}
+}
+
 /// Synthetic pages: a list whose row leads to a form that asks before
-/// dropping what is typed into it, and a form leading to that form.
+/// dropping what is typed into it, a form leading to that form, and a note
+/// that asks nothing.
 final _pages = [
+  NativeSheetDetailConfig(
+    id: 'test-note',
+    title: 'Test Note',
+    items: [
+      NativeSheetItemConfig(
+        id: 'test-note-text',
+        title: 'Note',
+        kind: NativeSheetItemKind.textField,
+        value: '',
+      ),
+    ],
+  ),
   NativeSheetDetailConfig(
     id: 'test-outer',
     title: 'Test Outer',
@@ -418,12 +453,91 @@ void main() {
     // Moved, not left: neither page was closed.
     check(rig.controller.closed).not((closed) => closed.contains('test-list'));
     check(rig.controller.closed).not((closed) => closed.contains('test-form'));
-    // The page on top describes itself again; the one under it waits until
-    // it shows, so it can't put a loading page over the one above.
-    check(rig.controller.appeared).deepEquals(['test-form']);
+    // Already showing, neither describes itself again, which would start
+    // a form's draft over.
+    check(rig.controller.appeared).isEmpty();
 
     rig.router.pop();
     await tester.pumpAndSettle();
-    check(rig.controller.appeared).deepEquals(['test-form', 'test-list']);
+    check(rig.controller.appeared).isEmpty();
+    check(rig.controller.closed).contains('test-form');
+  });
+
+  testWidgets('text done in a page moves with it, still unsaved', (
+    tester,
+  ) async {
+    await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-form');
+    await tester.enterText(find.byType(EditableText), 'Draft');
+    await tester.pump();
+    (tester.state(find.byType(SettingsPageView).last) as SettingsColumnMember)
+        .commitPendingText();
+    await tester.pump();
+
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+
+    check(find.text('Draft').evaluate()).isNotEmpty();
+    final moved = tester.state(
+      find.byType(SettingsPageView).last,
+    ) as SettingsColumnMember;
+    check(moved.holdsUnsavedChanges).isTrue();
+  });
+
+  testWidgets('another root row keeps the text typed into a page that asks '
+      'nothing, as Back does', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-note');
+    await tester.enterText(find.byType(EditableText), 'Remember the map');
+    await tester.pump();
+
+    await tester.ensureVisible(_row(NativeSheetRoutes.appearance));
+    await tester.tap(_row(NativeSheetRoutes.appearance));
+    await tester.pumpAndSettle();
+
+    check(rig.controller.changed).contains('test-note-text');
+  });
+
+  testWidgets('widening leaves a question asked over the pages, and moves '
+      'them once it is answered', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-form');
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+    final asking = showDialog<void>(
+      context: tester.element(find.byType(SettingsDetailPage).last),
+      builder: (_) => const Text('A question'),
+    );
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = _tablet;
+    await tester.pumpAndSettle();
+    check(find.text('A question').evaluate()).isNotEmpty();
+    check(rig.router.state.uri.toString()).equals('/profile/page/test-form');
+
+    Navigator.of(tester.element(find.text('A question'))).pop();
+    await asking;
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    check(rig.router.state.uri.toString()).equals('/');
+    check(_column(tester)).deepEquals(['test-form']);
+  });
+
+  test('a draft kept by one move outlasts the next, before its page is '
+      'drawn', () {
+    final move = SettingsColumnMove();
+    final page = _Member('test-form', {'test-name': 'Draft'});
+    move
+      ..register(page)
+      ..carry(['test-form'])
+      ..unregister(page);
+
+    // Moved back before the page opened again.
+    move.carry(['test-form']);
+
+    check(move.take('test-form')?.pending)
+        .isNotNull()
+        .deepEquals({'test-name': 'Draft'});
   });
 }

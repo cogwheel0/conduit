@@ -3206,6 +3206,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     fileprivate func markDetailVisible(_ controller: NativeDetailTableViewController) {
         activeDetailTableController = controller
         guard activeSheetMode == .profileMenu else { return }
+        // Carried between Settings's columns, the page was already showing:
+        // this is no new visit, which would start its drafts over.
+        if activeSettingsColumns?.takeMoved(controller) == true { return }
         flutterApi?.onDetailAppeared(
             event: PlatformNativeSheetDetailAppearedEvent(
                 detailId: controller.detailId
@@ -4240,6 +4243,21 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
     /// The root row whose page the second column shows, or showed last.
     private(set) var selectedRootId: String?
 
+    /// Pages carried over by the last move between the columns, until each
+    /// appears where it was moved: that appearance is not a new visit. A
+    /// page the move made anew is not among them.
+    private var movedPages: [ObjectIdentifier] = []
+
+    /// Whether [controller] appears because the last move carried it over;
+    /// true once.
+    func takeMoved(_ controller: UIViewController) -> Bool {
+        guard let index = movedPages.firstIndex(of: ObjectIdentifier(controller)) else {
+            return false
+        }
+        movedPages.remove(at: index)
+        return true
+    }
+
     /// Builds the page a root row opens.
     var makePage: ((String) -> UIViewController?)?
     /// The root row whose page shows first, when nothing was opened yet.
@@ -4378,6 +4396,8 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
             selectedRootId = id
             opened = [page]
         }
+        movedPages = stack.dropFirst().filter { opened.contains($0) }
+            .map(ObjectIdentifier.init)
         sidebar.setViewControllers([root], animated: false)
         pages.setViewControllers(opened, animated: false)
         addChild(pages)
@@ -4397,6 +4417,7 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
         view.endEditing(true)
         isRelocating = true
         let opened = pages.viewControllers
+        movedPages = opened.map(ObjectIdentifier.init)
         pages.willMove(toParent: nil)
         pages.view.removeFromSuperview()
         pages.removeFromParent()
