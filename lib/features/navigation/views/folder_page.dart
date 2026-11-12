@@ -1283,6 +1283,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     label: l10n.defaultLabel,
                     sfSymbol: 'folder',
                   ),
+                  // An icon chosen on the web stays the folder's choice.
+                  if (customFolderIconAlias(currentIconAlias)
+                      case final custom?)
+                    NativeSheetOptionConfig(
+                      id: custom,
+                      label: customFolderIconLabel(custom),
+                    ),
                   for (final option in folderIconOptions)
                     NativeSheetOptionConfig(
                       id: option.alias,
@@ -2241,6 +2248,14 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                 selected: _selectedIconAlias == null,
                 onSelected: _isSaving ? null : (_) => _selectIcon(null),
               ),
+              // An icon chosen on the web stays the folder's choice.
+              if (customFolderIconAlias(_folder.meta?['icon']?.toString())
+                  case final custom?)
+                AdaptiveChip.choice(
+                  label: Text(customFolderIconLabel(custom)),
+                  selected: _selectedIconAlias == custom,
+                  onSelected: _isSaving ? null : (_) => _selectIcon(custom),
+                ),
               for (final option in folderIconOptions)
                 AdaptiveChip.choice(
                   label: Row(
