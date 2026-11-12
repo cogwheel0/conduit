@@ -840,6 +840,13 @@ class HermesJobSettingsPages extends SettingsPageModule {
       _runs.clear();
       _runsFailed.clear();
       _lastRunSeen.clear();
+      // A job page still open shows this connection's history, read now.
+      final l10n = _l10n;
+      if (l10n != null) {
+        for (final jobId in _shownJobs.toList()) {
+          unawaited(_readRuns(l10n, jobId));
+        }
+      }
     });
   }
 
@@ -1347,6 +1354,12 @@ class HermesJobSettingsPages extends SettingsPageModule {
         );
         jobId = job?.id;
       }
+      // A switch since the request: its pages say nothing of this save, and
+      // its rows are not this one's to mark.
+      if (visit != _connectionVisit) {
+        if (!editing) _creating = false;
+        return;
+      }
       _notice = changesNotify
           ? null
           : editing
@@ -1480,6 +1493,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
     _notice = null;
     _syncPolling();
     await _applyShown();
+    // Checked with nothing awaited before the request: a switch while the
+    // rows were drawn would stop the other connection's run.
+    if (switched()) return;
     try {
       final result = await notifier.stopRun(jobId);
       if (switched()) return;

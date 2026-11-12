@@ -71,6 +71,11 @@ final class _Jobs extends HermesJobsController {
   final stops = <String>[];
   int runCalls = 0;
 
+  int refreshes = 0;
+
+  /// Holds a create until completed.
+  Completer<void>? createGate;
+
   /// One per Run Now, in the order they were asked for.
   final runs = <Completer<void>>[];
   Completer<void>? get running => runs.firstOrNull;
@@ -125,6 +130,7 @@ final class _Jobs extends HermesJobsController {
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     created.add('$name|$prompt|$schedule|$deliver|${catchUp.name}');
+    await createGate?.future;
     return answersJob
         ? HermesJob(
             id: 'job-new',
@@ -150,6 +156,7 @@ final class _Jobs extends HermesJobsController {
   /// A fresh list each time, as a real read is.
   @override
   Future<List<HermesJob>?> refreshQuietly() async {
+    refreshes++;
     final fresh = [...jobs];
     state = AsyncData(fresh);
     return fresh;
@@ -416,11 +423,13 @@ void main() {
       final jobs = _Jobs([_job(status: 'completed')]);
       final rig = await _pump(tester, jobs);
       rig.module.pageLeft(hermesJobsPageId);
+      final reads = jobs.refreshes;
 
       jobs.jobs = [_job(status: 'running')];
       await tester.pump(const Duration(seconds: 16));
       await rig.frames();
 
+      check(jobs.refreshes).equals(reads);
       check(rig.listActions).not((it) => it.contains(_stop));
     });
 
@@ -519,8 +528,10 @@ void main() {
 
       jobs.runs.first.complete();
       await rig.frames();
-      // The second is still on its way: no Run Now to send it twice.
+      // The second is still on its way: no Run Now to send it twice, and
+      // Stop still offered for it.
       check(rig.listActions).not((it) => it.contains(_run));
+      check(rig.listActions).contains(_stop);
 
       jobs.runs.last.complete();
       await rig.frames();
@@ -545,6 +556,41 @@ void main() {
       await rig.frames();
 
       check(jobs.runCalls).equals(0);
+      rig.leave();
+    });
+
+    testWidgets('a Stop is not sent to a connection switched to while its '
+        'row was drawn waiting', (tester) async {
+      final jobs = _Jobs([_job(status: 'running')]);
+      final rig = await _pump(tester, jobs);
+      final surface =
+          rig.container.read(settingsSurfaceProvider) as _GatedSurface;
+      final gate = surface.gate = Completer<void>();
+
+      rig.start(_stop);
+      await rig.frames();
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+      surface.gate = null;
+      gate.complete();
+      await rig.frames();
+
+      check(jobs.stops).isEmpty();
+      rig.leave();
+    });
+
+    testWidgets("a job page shows the new connection's history after a "
+        'switch', (tester) async {
+      final reads = <String>[];
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs, runReads: reads);
+      await rig.open(hermesJobPageId('job-1'));
+      final before = reads.length;
+
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+
+      check(reads.length).isGreaterThan(before);
       rig.leave();
     });
 
@@ -906,6 +952,25 @@ void main() {
 
       check(jobs.edits)
           .deepEquals(['job-1|Morning digest|local,telegram,conduit']);
+      rig.leave();
+    });
+
+    testWidgets('a save answered after a switch says nothing on the new '
+        'connection', (tester) async {
+      final jobs = _Jobs([])..createGate = Completer<void>();
+      final rig = await _pump(tester, jobs);
+      await rig.open(editor);
+      await fill(rig);
+
+      rig.start(field('save'));
+      await rig.frames();
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+      jobs.createGate!.complete();
+      await rig.frames();
+
+      check(jobs.created).length.equals(1);
+      check(rig.notice).not((it) => it.equals(_l10n.hermesJobCreated));
       rig.leave();
     });
 

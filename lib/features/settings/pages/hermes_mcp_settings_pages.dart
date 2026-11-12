@@ -357,6 +357,7 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
   String url = '',
   String command = '',
   String arguments = '',
+  String key = '',
   String? notice,
   bool busy = false,
 }) {
@@ -417,6 +418,8 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
             title: l10n.hermesMcpApiKeyOptional,
             sfSymbol: 'key',
             kind: NativeSheetItemKind.secureTextField,
+            // What a retry sends, so the field shows it is still there.
+            value: key,
           ),
         ],
       ),
@@ -496,6 +499,7 @@ NativeSheetDetailConfig buildHermesMcpCatalogPage(
 NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
   AppLocalizations l10n,
   HermesMcpCatalogEntry entry, {
+  Map<String, String> credentials = const {},
   String? notice,
   bool busy = false,
 }) {
@@ -545,6 +549,7 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
                     : l10n.hermesMcpValueOptional(credential.name),
                 sfSymbol: 'key',
                 kind: NativeSheetItemKind.secureTextField,
+                value: credentials[credential.name] ?? '',
               ),
           ],
         ),
@@ -557,6 +562,7 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
 NativeSheetDetailConfig buildHermesMcpKeyPage(
   AppLocalizations l10n,
   String name, {
+  String key = '',
   String? notice,
   bool busy = false,
 }) {
@@ -581,6 +587,7 @@ NativeSheetDetailConfig buildHermesMcpKeyPage(
         title: l10n.hermesApiKeyTitle,
         sfSymbol: 'key',
         kind: NativeSheetItemKind.secureTextField,
+        value: key,
       ),
     ],
   );
@@ -898,8 +905,12 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       });
 
   Future<void> _remove(AppLocalizations l10n, String name) async {
+    final connection = _readFor;
     final removed = await _run(l10n, name, _busy, (service) async {
       await service.removeMcpServer(name);
+      // Another connection's list is shown now: this removal says nothing
+      // of it, and its page by the same name is not this one's to close.
+      if (_ref.read(hermesActiveConnectionIdProvider) != connection) return;
       // Removed, whatever the read after it says: it leaves the list now.
       _servers = [
         for (final server in _servers ?? const <HermesMcpServer>[])
@@ -908,7 +919,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       _testResults.remove(name);
       await _readAfter(l10n, service);
     });
-    if (removed) await _surface.closeDetail(hermesMcpServerPageId(name));
+    if (removed && _ref.read(hermesActiveConnectionIdProvider) == connection) {
+      await _surface.closeDetail(hermesMcpServerPageId(name));
+    }
   }
 
   /// Reads the list after a change that went through. Not read, the change
@@ -987,6 +1000,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       url: _add['url'] ?? '',
       command: _add['command'] ?? '',
       arguments: _add['arguments'] ?? '',
+      key: _add['key'] ?? '',
       notice: _addNotice,
       busy: _adding,
     ),
@@ -1000,6 +1014,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       buildHermesMcpCatalogEntryPage(
         l10n,
         entry,
+        credentials: _credentials,
         notice: _catalogNotice,
         busy: _catalogAdding,
       ),
@@ -1098,7 +1113,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       if (visit != _formVisit) return;
       _keyNotice = l10n.hermesMcpActionFailed;
       await _surface.applyDetail(
-        buildHermesMcpKeyPage(l10n, name, notice: _keyNotice),
+        buildHermesMcpKeyPage(l10n, name, key: _key, notice: _keyNotice),
       );
     }
   }

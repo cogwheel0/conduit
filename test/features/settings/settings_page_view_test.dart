@@ -357,10 +357,9 @@ void main() {
 
   testWidgets('text typed and not yet done stays when the page is described '
       'again without changing that field', (tester) async {
+    final controller = _RecordingController();
     final container = ProviderContainer(
-      overrides: [
-        settingsControllerProvider.overrideWithValue(_RecordingController()),
-      ],
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
     );
     addTearDown(container.dispose);
     NativeSheetDetailConfig form({required String profile}) => _detail([
@@ -404,6 +403,8 @@ void main() {
 
     check(tester.widget<EditableText>(field('url')).controller.text)
         .equals('https://home.example');
+    // Not done yet, so not sent either.
+    check(controller.changes).isEmpty();
   });
 
   testWidgets('a page described again drops the values set on the last one', (
@@ -688,5 +689,78 @@ void main() {
     await tester.pumpAndSettle();
     check(find.text('Discard changes?').evaluate()).isEmpty();
     check(find.text('settings root').evaluate()).isNotEmpty();
+  });
+
+  testWidgets('a form its owner says is edited asks before Back, with nothing '
+      'changed here', (tester) async {
+    NativeSheetDetailConfig form({required bool edited}) =>
+        NativeSheetDetailConfig(
+          id: 'hermes-connection:new',
+          title: 'New Connection',
+          confirmActionId: 'hermes-connection.save:new',
+          edited: edited,
+          discardPrompt: const NativeSheetDiscardPrompt(
+            title: 'Discard changes?',
+            message: 'Your changes will be lost.',
+            discardLabel: 'Discard',
+            keepLabel: 'Keep Editing',
+          ),
+          sections: [
+            const NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: 'hermes-connection.self-signed:new',
+                  title: 'Allow Self-Signed',
+                  kind: NativeSheetItemKind.toggle,
+                  value: false,
+                ),
+              ],
+            ),
+          ],
+        );
+    final detail = ValueNotifier(form(edited: false));
+    addTearDown(detail.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        settingsControllerProvider.overrideWithValue(_RecordingController()),
+      ],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('settings root'),
+          routes: [
+            GoRoute(
+              path: 'form',
+              builder: (_, _) => ValueListenableBuilder(
+                valueListenable: detail,
+                builder: (_, page, _) => SettingsPageView(detail: page),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    router.push('/form');
+    await tester.pumpAndSettle();
+    // Edited on a page of its own, with no change on this one.
+    detail.value = form(edited: true);
+    await tester.pumpAndSettle();
+
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    check(find.text('Discard changes?').evaluate()).isNotEmpty();
   });
 }
