@@ -5630,6 +5630,7 @@
   "directImagesPerRequestSaveFailed": "Nastavenie Obrázky na požiadavku sa nepodarilo uložiť. Skúste to znova.",
   "directModelTooManyImages": "Tento model prijíma v jednej požiadavke menej obrázkov, než tento chat odoslal. Znížte Obrázky na požiadavku v nastaveniach Priame pripojenia a skúste to znova. Ak samotná táto správa obsahuje viac obrázkov, než model prijíma, odošlite ju znova s menším počtom obrázkov.",
   "directToolLoopNoAnswer": "Model stále používal nástroje bez toho, aby odpovedal. Skúste to znova alebo vypnite vyhľadávanie na webe a nástroje.",
+  "heldReplyStillRunning": "Server na tejto odpovedi stále pracuje. Otvorte tento chat neskôr znova, aby ste ju videli.",
   "directContextLimitOllamaNote": "Pri modeloch Ollama na vašom vlastnom serveri je tu zvolený limit zároveň veľkosťou kontextového okna, s ktorou Ollama model načíta. Väčšie okno spotrebuje viac pamäte.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelov}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},

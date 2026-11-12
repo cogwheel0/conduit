@@ -4491,6 +4491,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           if (localResourcesDisposed) {
             return;
           }
+          if (error is HeldReplyUnresolved) {
+            // The server may still be writing this reply: say so, rather than
+            // closing the turn as an empty answer. Nothing is sent again.
+            applyAssistantServerPatch(
+              targetId: assistantMessageId,
+              buildPatch: (_) => const _AssistantServerPatch(
+                error: ChatMessageError(content: kHeldReplyUnresolvedMessage),
+              ),
+            );
+            wrappedFinishStreaming();
+            return;
+          }
           DebugLogger.error(
             'httpStream parse error',
             scope: 'streaming/helper',

@@ -130,6 +130,47 @@ class _HookedAdapter implements HttpClientAdapter {
   void close({bool force = false}) => inner.close(force: force);
 }
 
+/// Times out every request while waiting for the response, as Dio does when
+/// a server holds the answer longer than the request may wait.
+class _TimingOutAdapter implements HttpClientAdapter {
+  int requests = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    requests += 1;
+    throw DioException.receiveTimeout(
+      timeout: options.receiveTimeout ?? Duration.zero,
+      requestOptions: options,
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// A queued response that times out waiting for the server, as Dio does when
+/// a server holds the answer longer than the request may wait.
+class _TimeoutResponse extends _FakeAdapter {
+  _TimeoutResponse()
+    : super(statusCode: 0, headers: const {}, bodyBytes: const []);
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    throw DioException.receiveTimeout(
+      timeout: options.receiveTimeout ?? Duration.zero,
+      requestOptions: options,
+    );
+  }
+}
+
 /// Builds an [ApiService] for testing whose Dio adapter is [adapter].
 ApiService _buildApiServiceForTest(HttpClientAdapter adapter) {
   final service = ApiService(
@@ -747,6 +788,177 @@ void main() {
       ).throws<MoaCompletionFailed>(
         (it) => it.has((e) => e.statusCode, 'status').equals(500),
       );
+    });
+  });
+
+  group('how long a completion request may wait for its answer', () {
+    // Without a socket session, Open WebUI 0.9+ answers a saved chat's
+    // request only once the reply has finished (issue #848).
+    Future<Duration?> receiveTimeoutFor({
+      String? conversationId,
+      String? sessionId,
+    }) async {
+      final adapter = _FakeAdapter.json({'task_id': 'task-1'});
+      final api = _buildApiServiceForTest(adapter);
+      await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: conversationId,
+        sessionIdOverride: sessionId,
+      );
+      return adapter.lastRequest!.receiveTimeout;
+    }
+
+    test('is the whole reply for a saved chat sent without a socket', () async {
+      check(
+        await receiveTimeoutFor(conversationId: 'chat-1'),
+      ).equals(ApiService.heldCompletionReceiveTimeout);
+    });
+
+    test('stays the usual one when the server answers at once', () async {
+      const usual = Duration(seconds: 30);
+      check(
+        await receiveTimeoutFor(conversationId: 'chat-1', sessionId: 'sess-1'),
+      ).equals(usual);
+      check(
+        await receiveTimeoutFor(conversationId: 'local:temporary'),
+      ).equals(usual);
+      check(await receiveTimeoutFor()).equals(usual);
+    });
+
+    group('a held answer that outlives its wait', () {
+      Map<String, dynamic> savedChat(Map<String, dynamic>? reply) => {
+        'id': 'chat-1',
+        'chat': {
+          'history': {
+            'messages': {
+              'user-1': {'id': 'user-1', 'role': 'user', 'content': 'hi'},
+              'reply-1': ?reply,
+            },
+          },
+        },
+      };
+      Map<String, dynamic> reply(String content, {required bool done}) => {
+        'id': 'reply-1',
+        'role': 'assistant',
+        'content': content,
+        'done': done,
+      };
+
+      Future<ChatCompletionSession> send(_QueuedFakeAdapter adapter) =>
+          _buildApiServiceForTest(adapter).sendMessageSession(
+            messages: _minimalMessages,
+            model: _model,
+            conversationId: 'chat-1',
+            responseMessageId: 'reply-1',
+          );
+
+      List<String> requested(_QueuedFakeAdapter adapter) => [
+        for (final request in adapter.requests)
+          '${request.method} ${request.path}',
+      ];
+
+      test('keeps the turn running until the saved reply finishes, and is '
+          'never sent again', () async {
+        final adapter = _QueuedFakeAdapter([
+          _TimeoutResponse(),
+          _FakeAdapter.json(savedChat(reply('Hel', done: false))),
+          _FakeAdapter.json(savedChat(reply('Hello there', done: true))),
+        ]);
+
+        final session = await send(adapter);
+        check(session.transport).equals(ChatCompletionTransport.httpStream);
+        check(session.messageId).equals('reply-1');
+
+        var ended = false;
+        final body = session.byteStream!.toList().whenComplete(
+          () => ended = true,
+        );
+        // Still running at the first read, so the turn stays open.
+        while (adapter.requests.length < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        check(ended).isFalse();
+
+        // Finished at the next read: the stream ends, for the saved reply to
+        // be read as after a JSON null answer.
+        check(await body.timeout(const Duration(seconds: 5))).isEmpty();
+        check(requested(adapter)).deepEquals([
+          'POST /api/chat/completions',
+          'GET /api/v1/chats/chat-1',
+          'GET /api/v1/chats/chat-1',
+        ]);
+      });
+
+      test('stops waiting when the user stops the reply', () async {
+        final adapter = _QueuedFakeAdapter([
+          _TimeoutResponse(),
+          for (var i = 0; i < 5; i++)
+            _FakeAdapter.json(savedChat(reply('Hel', done: false))),
+        ]);
+        final session = await send(adapter);
+
+        final subscription = session.byteStream!.listen((_) {});
+        while (adapter.requests.length < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await subscription.cancel();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        check(adapter.requests).length.equals(2);
+      });
+
+      test('ends unresolved when the saved chat does not hold the reply',
+          () async {
+        final adapter = _QueuedFakeAdapter([
+          _TimeoutResponse(),
+          for (var i = 0; i < 3; i++) _FakeAdapter.json(savedChat(null)),
+        ]);
+        final session = await send(adapter);
+
+        // Not a clean end, which would close the turn as an empty answer.
+        await check(
+          session.byteStream!.toList().timeout(const Duration(seconds: 10)),
+        ).throws<HeldReplyUnresolved>();
+        check(adapter.requests).length.equals(4);
+      });
+
+      test('stops waiting when the session is aborted while its stream is '
+          'still drained', () async {
+        // A headless caller that gives up aborts the session, but its drain
+        // keeps listening.
+        final adapter = _QueuedFakeAdapter([
+          _TimeoutResponse(),
+          for (var i = 0; i < 5; i++)
+            _FakeAdapter.json(savedChat(reply('Hel', done: false))),
+        ]);
+        final session = await send(adapter);
+
+        final drained = session.byteStream!.drain<void>();
+        while (adapter.requests.length < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await session.abort!();
+        await drained.timeout(const Duration(seconds: 5));
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        check(adapter.requests).length.equals(2);
+      });
+    });
+
+    test('a request the server answers at once still fails when it times '
+        'out', () async {
+      final api = _buildApiServiceForTest(_TimingOutAdapter());
+
+      await check(
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          sessionIdOverride: 'sess-1',
+        ),
+      ).throws<DioException>();
     });
   });
 

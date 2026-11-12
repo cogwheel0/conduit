@@ -178,3 +178,24 @@ final class ChatCompletionSession {
   /// Abort handle to cancel the active HTTP request.
   final Future<void> Function()? abort;
 }
+
+/// Ends the byte stream of a held completion whose saved reply was still not
+/// finished when Conduit stopped waiting for it: the server may still be
+/// writing it. The turn shows [kHeldReplyUnresolvedMessage] instead of closing
+/// as an empty answer, and is not sent again.
+final class HeldReplyUnresolved implements Exception {
+  const HeldReplyUnresolved();
+
+  @override
+  String toString() => kHeldReplyUnresolvedMessage;
+}
+
+/// Stored as the reply's error for [HeldReplyUnresolved]; the app shows it in
+/// the user's language.
+const String kHeldReplyUnresolvedMessage =
+    'The server is still working on this reply. Open this chat again later '
+    'to see it.';
+
+/// Whether a stored reply error is [kHeldReplyUnresolvedMessage].
+bool isHeldReplyUnresolvedError(String? message) =>
+    message?.trim() == kHeldReplyUnresolvedMessage;

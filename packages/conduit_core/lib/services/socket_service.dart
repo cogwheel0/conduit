@@ -136,6 +136,10 @@ class SocketService {
     try {
       final transport = engine.transport;
       if (transport != null) {
+        // On native platforms polling runs inside the library's WebSocket
+        // transport, which is named for that; the address says which it is.
+        final requested = transport.query?['transport'];
+        if (requested is String && requested.isNotEmpty) return requested;
         return transport.name ?? 'unknown';
       }
     } catch (_) {}
@@ -573,6 +577,14 @@ class SocketService {
 
   String? get sessionId => _socket?.id;
 
+  /// Whether a connection starts on a WebSocket, falling back to polling when
+  /// that fails. In WebSocket mode it does; in polling mode, a session that
+  /// cannot upgrade (native platforms, see [socketPollingCanUpgrade]) does too
+  /// when the server allows WebSockets, which keeps that mode's promise of a
+  /// WebSocket when possible and polling when it is blocked.
+  bool get _triesWebsocketFirst =>
+      websocketOnly || (allowWebsocketUpgrade && !socketPollingCanUpgrade);
+
   /// How long the server's `execute:tool` call may wait for this client.
   static const Duration toolExecutionTimeout = Duration(seconds: 120);
 
@@ -822,19 +834,29 @@ class SocketService {
     final path = '/ws/socket.io';
 
     final usePollingFallback = _forcePollingFallback;
-    final effectiveWebsocketOnly = websocketOnly && !usePollingFallback;
-    final usePollingOnly = !effectiveWebsocketOnly && !allowWebsocketUpgrade;
+    final effectiveWebsocketOnly = _triesWebsocketFirst && !usePollingFallback;
+    // On native platforms a polling session cannot move to a WebSocket (see
+    // socketPollingCanUpgrade), so there polling means polling alone.
+    final upgradeFromPolling =
+        !effectiveWebsocketOnly &&
+        allowWebsocketUpgrade &&
+        socketPollingCanUpgrade;
     final transports = effectiveWebsocketOnly
         ? const ['websocket']
-        : usePollingOnly
-        ? const ['polling']
-        : const ['polling', 'websocket'];
+        : upgradeFromPolling
+        ? const ['polling', 'websocket']
+        : const ['polling'];
 
     final builder = io.OptionBuilder()
+        // socket_io_client keeps one Manager per host and hands it to the next
+        // socket for that host with the options it was first made with. Each
+        // connection here gets its own, or a change of transports (the polling
+        // fallback, or the server's policy arriving) would reuse the old ones.
+        .enableForceNew()
         // Transport selection switches between WebSocket-only and polling fallback
         .setTransports(transports)
-        .setRememberUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
-        .setUpgrade(!effectiveWebsocketOnly && allowWebsocketUpgrade)
+        .setRememberUpgrade(upgradeFromPolling)
+        .setUpgrade(upgradeFromPolling)
         // Tune reconnect/backoff and timeouts
         // Keep eventual recovery, but let a persistently unavailable Socket.IO
         // endpoint cool down. Foreground and connectivity transitions still
@@ -1417,7 +1439,7 @@ class SocketService {
 
     // If WebSocket-only handshake fails, retry once with polling+websocket
     // transports to avoid endless spinners (issue #172).
-    if (websocketOnly && !_forcePollingFallback) {
+    if (_triesWebsocketFirst && !_forcePollingFallback) {
       _forcePollingFallback = true;
       DebugLogger.warning(
         'WebSocket connect failed; retrying with polling fallback',

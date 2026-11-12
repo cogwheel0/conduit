@@ -61,6 +61,8 @@ import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
+import '../../../services/fake_engine_io_server.dart';
+
 class _SeededActive extends ActiveConversationNotifier {
   _SeededActive(this.initial);
 
@@ -1600,6 +1602,88 @@ void main() {
           const ChatCompletionHttpException(404, '  '),
         ),
       ).contains('model');
+    });
+  });
+
+  group('a saved chat names only a socket session that is live', () {
+    // Issue #848: Open WebUI streams a saved chat's reply to the socket
+    // session its request names, and to nobody when it names none.
+
+    // The account's own server, at the fake socket server's address.
+    ServerConfig serverAt(FakeEngineIoServer server) => ServerConfig(
+      id: 'transport-ownership',
+      name: 'Transport ownership',
+      url: server.url,
+    );
+
+    Future<_GatedCompletionApi> runCompletion(SocketService socket) async {
+      const chatId = 'socket-session-chat';
+      const assistantId = 'socket-session-assistant';
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>()..complete());
+      final messages = <ChatMessage>[
+        _user('socket-session-user', 'hello'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        socket: socket,
+      );
+      addTearDown(container.dispose);
+      final runnerProvider = Provider<RequestCompletionRunner>(
+        (ref) => ChatRequestCompletionRunner(ref),
+      );
+      await container
+          .read(runnerProvider)
+          .run(
+            chatId: chatId,
+            payload: const RequestCompletionPayload(
+              assistantMessageId: assistantId,
+              model: 'model-1',
+            ).toJson(),
+          );
+      return api;
+    }
+
+    test('on a server that allows only polling, the polling session', () async {
+      final server = await FakeEngineIoServer.start();
+      addTearDown(server.close);
+      final socket = SocketService(
+        serverConfig: serverAt(server),
+        allowWebsocketUpgrade: false,
+      );
+      addTearDown(socket.dispose);
+      check(
+        await socket.ensureConnected(timeout: const Duration(seconds: 5)),
+      ).isTrue();
+
+      final api = await runCompletion(socket);
+
+      check(api.submittedSessionId).equals(server.socketIoSid);
+      check(server.upgradeRequests).isEmpty();
+    });
+
+    test('none for a socket the server accepted without a handshake', () async {
+      final server = await FakeEngineIoServer.start(
+        webSocketUpgrade: FakeWebSocketUpgrade.acceptThenDrop,
+        allowPolling: false,
+      );
+      addTearDown(server.close);
+      final socket = SocketService(
+        serverConfig: serverAt(server),
+        websocketOnly: true,
+      );
+      addTearDown(socket.dispose);
+
+      final api = await runCompletion(socket);
+
+      check(server.upgradeRequests).isNotEmpty();
+      check(api.completionCalls).equals(1);
+      check(api.submittedSessionId).isNull();
     });
   });
 
