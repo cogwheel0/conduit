@@ -51,7 +51,15 @@ enum SettingsEventSource {
   nativeSheet,
 
   /// The Flutter Settings pages, which stay under any page opened from them.
-  flutter,
+  flutter;
+
+  /// How a page push's rows open arrives: from the native sheet as it slides
+  /// away, without a second transition; from a Flutter Settings page as any
+  /// page does.
+  NativeSheetNavigationOrigin? get navigationOrigin => switch (this) {
+    nativeSheet => const NativeSheetNavigationOrigin(),
+    flutter => null,
+  };
 }
 
 final settingsControllerProvider = Provider<SettingsController>(
@@ -439,7 +447,7 @@ class SettingsController {
       }
 
       if (event.id == nativePushTargetActionId && value is String) {
-        _openPushTarget(value, origin);
+        _openPushTarget(value, source.navigationOrigin);
         return;
       }
 
@@ -447,7 +455,7 @@ class SettingsController {
         unawaited(
           NavigationService.router.pushNamed<void>(
             RouteNames.pushPrivacy,
-            extra: origin,
+            extra: source.navigationOrigin,
           ),
         );
         return;
