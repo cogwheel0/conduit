@@ -826,6 +826,30 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       identical(_editors[editor.key], editor) &&
       (editor.session?.isCurrent(_ref) ?? false);
 
+  /// The editor open under [key] for the account signed in now. One kept
+  /// from another account is dropped unseen, with its access draft and the
+  /// files it followed, and none is returned.
+  WorkspaceKnowledgeEditor? _openEditor(String? key) {
+    final editor = key == null ? null : _editors[key];
+    if (key == null || editor == null || _current(editor)) return editor;
+    _editors.remove(key);
+    _access.forget(key);
+    _stopFollowing(key);
+    return null;
+  }
+
+  /// The editor [detailId] belongs to, as [_openEditor] finds it. A page
+  /// left from another account's editor is closed rather than drawn.
+  Future<WorkspaceKnowledgeEditor?> _ownerOf(
+    String key,
+    String detailId,
+  ) async {
+    final kept = _editors[key];
+    final editor = _openEditor(key);
+    if (editor == null && kept != null) await _surface.closeDetail(detailId);
+    return editor;
+  }
+
   /// Whether the base's own file limits may be set: Open WebUI 0.13 and
   /// later, never for a connected base, and only by its owner or an admin.
   bool _limitsAvailable(WorkspaceKnowledgeEditor editor) {
@@ -858,8 +882,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
     _l10n = l10n;
     if (_access.ownsPage(detailId)) {
-      final key = _access.editorKeyOf(detailId);
-      final editor = key == null ? null : _editors[key];
+      final editor = _openEditor(_access.editorKeyOf(detailId));
       if (editor != null && editor.ready) {
         _access.open(
           editorKey: editor.key,
@@ -874,27 +897,25 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     }
     final folder = workspaceKnowledgeFolderOf(detailId);
     if (folder != null) {
-      final editor = _editors[folder.key];
+      final editor = await _ownerOf(folder.key, detailId);
       if (editor == null || editor.knowledgeId == null) return;
       await _openFolder(l10n, editor, folder.directoryId);
       return;
     }
     final form = workspaceKnowledgeFormOf(detailId);
     if (form != null) {
-      final editor = _editors[form.key];
+      final editor = await _ownerOf(form.key, detailId);
       if (editor == null) return;
       await _openForm(l10n, editor, form.kind, form.target, detailId);
       return;
     }
     final key = detailId.substring(workspaceKnowledgePagePrefix.length);
-    final open = _editors[key];
-    if (open != null && _current(open)) {
+    final open = _openEditor(key);
+    if (open != null) {
       await _applyEditor(l10n, open);
       return;
     }
-    // Another account's editor, kept from before it signed out: dropped
-    // unseen, and this account's base read afresh.
-    if (open != null) _editors.remove(key);
+    // This account's base, read afresh.
     final editor = _editors[key] = WorkspaceKnowledgeEditor(key, _session());
     await _applyEditor(l10n, editor);
     if (key != workspaceNewKey) await _load(editor);
@@ -1963,6 +1984,9 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     final editor = _editors[draft.editorKey];
     final summary = editor?.summary;
     if (l10n == null || editor == null || summary == null) return null;
+    // Another account signed in while the page was drawn: nothing is sent,
+    // and the page says it was not saved.
+    if (!_current(editor)) return l10n.workspaceKnowledgeSaveFailed;
     try {
       await _notifier.updateAccess(summary.id, grants);
     } catch (error, stackTrace) {

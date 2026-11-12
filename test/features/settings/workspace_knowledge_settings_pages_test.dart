@@ -12,6 +12,7 @@ import 'package:conduit/features/workspace/widgets/workspace_export_controller.d
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_knowledge_files.dart';
@@ -92,7 +93,17 @@ final class _Knowledge extends WorkspaceKnowledge {
   final deleted = <String>[];
   final views = <String>[];
   final sources = <String>[];
+  final accessSaves = <List<WorkspaceAccessGrantInput>>[];
   Completer<void>? saveGate;
+
+  @override
+  Future<WorkspaceKnowledgeDetail> updateAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    accessSaves.add(grants);
+    return WorkspaceKnowledgeDetail(summary: _summary());
+  }
 
   @override
   Future<WorkspaceCollectionState<WorkspaceKnowledgeSummary>> build() async =>
@@ -732,6 +743,71 @@ void main() {
           .not((it) => it.equals('Private Trail'));
     });
 
+    group('its access', () {
+      final access = workspaceAccessPageId(WorkspaceSection.knowledge, _key);
+      final everyone = workspaceRowId(
+        'access-general',
+        '${WorkspaceSection.knowledge.name}|$_key',
+      );
+      final done = workspaceRowId(
+        'access-done',
+        '${WorkspaceSection.knowledge.name}|$_key',
+      );
+      const grace = User(
+        id: 'user-2',
+        username: 'grace',
+        email: 'grace@example.com',
+        role: 'user',
+      );
+
+      testWidgets('is not saved once another account signed in', (
+        tester,
+      ) async {
+        final knowledge = _Knowledge();
+        final rig = await pump(tester, knowledge: knowledge);
+        await rig.open(_base1);
+        await rig.open(access);
+        await rig.change(everyone, 'server');
+
+        rig.container.read(_signedInProvider.notifier).use(grace);
+        await rig.change(done);
+
+        check(knowledge.accessSaves).isEmpty();
+        check(rig.page(access).announcement)
+            .equals(_l10n.workspaceKnowledgeSaveFailed);
+      });
+
+      testWidgets("is not drawn again with another account's grants", (
+        tester,
+      ) async {
+        final rig = await pump(tester);
+        await rig.open(_base1);
+        await rig.open(access);
+        await rig.change(everyone, 'server');
+
+        rig.container.read(_signedInProvider.notifier).use(grace);
+        await rig.open(access);
+
+        check(rig.closed).deepEquals([access]);
+      });
+
+      testWidgets("opens for the next account without the last one's draft", (
+        tester,
+      ) async {
+        final rig = await pump(tester);
+        await rig.open(_base1);
+        await rig.open(access);
+        await rig.change(everyone, 'server');
+        check(rig.page(access).edited).isTrue();
+
+        rig.container.read(_signedInProvider.notifier).use(grace);
+        await rig.open(_base1);
+        await rig.open(access);
+
+        check(rig.page(access).edited).isFalse();
+      });
+    });
+
     testWidgets('a connected base reads without fields or file changes', (
       tester,
     ) async {
@@ -1061,7 +1137,28 @@ void main() {
           );
       await rig.open(attach);
 
-      check(rig.titles(attach)).not((it) => it.contains('gear.md'));
+      // Its editor was the last account's: the form closes, undrawn.
+      check(rig.closed).deepEquals([attach]);
+    });
+
+    testWidgets("a folder kept from another account's editor closes", (
+      tester,
+    ) async {
+      final rig = await files(tester);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await rig.open(_root);
+
+      check(rig.closed).deepEquals([_root]);
     });
 
     testWidgets('a form left keeps nothing typed into it', (tester) async {
