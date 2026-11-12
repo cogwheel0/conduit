@@ -693,7 +693,11 @@ class AccountProfile extends _$AccountProfile {
       return null;
     }
     final profile = await api.getAccountMetadata();
-    if (ref.mounted) _serverId = api.serverConfig.id;
+    // A build another server's replaced meanwhile: its result is dropped,
+    // and it says nothing about the profile held.
+    if (identical(ref.read(apiServiceProvider), api)) {
+      _serverId = api.serverConfig.id;
+    }
     return profile;
   }
 
@@ -707,8 +711,14 @@ class AccountProfile extends _$AccountProfile {
   }
 
   Future<void> refresh() async {
+    final api = ref.read(apiServiceProvider);
     state = const AsyncLoading();
-    state = await AsyncValue.guard(_loadProfile);
+    final next = await AsyncValue.guard(() => _loadProfile(api));
+    // Another server, or session, took over while it was read: the profile
+    // read is the last one's, and the provider has the new one's already.
+    if (!ref.mounted || !identical(ref.read(apiServiceProvider), api)) return;
+    if (next.hasValue && api != null) _serverId = api.serverConfig.id;
+    state = next;
   }
 
   Future<AccountMetadata> save({
@@ -769,14 +779,11 @@ class AccountProfile extends _$AccountProfile {
     await ref.read(authStateManagerProvider.notifier).logout();
   }
 
-  Future<AccountMetadata?> _loadProfile() async {
-    final api = ref.read(apiServiceProvider);
+  Future<AccountMetadata?> _loadProfile(ApiService? api) async {
     if (api == null) {
       return null;
     }
-    final profile = await api.getAccountMetadata();
-    if (ref.mounted) _serverId = api.serverConfig.id;
-    return profile;
+    return api.getAccountMetadata();
   }
 }
 
