@@ -1500,6 +1500,9 @@ String _nativeVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
   return formatTtsVoiceDisplayName(voice);
 }
 
+/// Change Password's Done: the one control that sends the change.
+const nativePasswordSaveActionId = 'password-save';
+
 NativeSheetDetailConfig buildNativePasswordDetail(
   AppLocalizations l10n, {
   required bool passwordChangeEnabled,
@@ -1545,6 +1548,8 @@ NativeSheetDetailConfig buildNativePasswordDetail(
     id: 'password',
     title: l10n.changePasswordTitle,
     subtitle: passwordChangeEnabled ? subtitle : null,
+    // Typing fills a draft; only Done sends it.
+    confirmActionId: passwordChangeEnabled ? nativePasswordSaveActionId : null,
     items: items,
   );
 }

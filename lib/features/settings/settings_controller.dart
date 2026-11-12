@@ -145,7 +145,10 @@ class SettingsController {
       case NativeSheetDismissed():
         _nativeSheetDraftValues.clear();
         _passwordVisit++;
-        break;
+        // The sheet forgets every page it was handed as it closes; so does
+        // Settings, so the next time it opens, a page hands the sheet again
+        // the pages its rows lead to rather than taking them as drawn.
+        ref.read(settingsPagesProvider.notifier).clear();
       case NativeSheetControlChanged(
         id: 'sign-out',
         value: final bool keepServerDetails,
@@ -997,7 +1000,10 @@ class SettingsController {
         case 'current-password':
         case 'new-password':
         case 'confirm-password':
-          await _saveNativePasswordDraft(event.id, value);
+          // Typed into the draft only: nothing is sent before Done.
+          if (value is String) _nativeSheetDraftValues[event.id] = value;
+        case nativePasswordSaveActionId:
+          await _changeNativePassword();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -1056,28 +1062,25 @@ class SettingsController {
         .hydrateDetail(detailId);
   }
 
-  Future<void> _saveNativePasswordDraft(String id, Object? value) async {
-    if (value is! String) return;
-    _nativeSheetDraftValues[id] = value;
-
+  /// Done on Change Password: the draft's three fields, sent once.
+  Future<void> _changeNativePassword() async {
     final current = _nativeSheetDraftValues['current-password'];
     final next = _nativeSheetDraftValues['new-password'];
     final confirm = _nativeSheetDraftValues['confirm-password'];
-    if (current == null ||
-        current.isEmpty ||
-        next == null ||
-        next.isEmpty ||
-        confirm == null ||
-        confirm.isEmpty) {
-      return;
-    }
     final l10n = currentAppLocalizations();
     // Whatever the outcome, the page starts over with it said on the page,
     // and nothing typed stays behind.
     _forgetPasswordDraft();
     final visit = _passwordVisit;
     String outcome;
-    if (confirm != next) {
+    if (current == null ||
+        current.isEmpty ||
+        next == null ||
+        next.isEmpty ||
+        confirm == null ||
+        confirm.isEmpty) {
+      outcome = l10n.passwordFieldsRequired;
+    } else if (confirm != next) {
       outcome = l10n.passwordsDoNotMatch;
     } else {
       try {

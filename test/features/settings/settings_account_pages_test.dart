@@ -323,6 +323,51 @@ void main() {
   });
 
   group('Change Password', () {
+    testWidgets('nothing is sent until Done, and Done sends it once', (
+      tester,
+    ) async {
+      final rig = await _pump(tester);
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+      check(rig.page('password')!.confirmActionId)
+          .equals(nativePasswordSaveActionId);
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      check(rig.profile.passwordChanges).isEmpty();
+
+      // Left with all three filled, as Back leaves it: nothing goes.
+      rig.container.read(settingsControllerProvider).pageClosed('password');
+      await tester.pumpAndSettle();
+      check(rig.profile.passwordChanges).isEmpty();
+
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
+      await rig.change(nativePasswordSaveActionId, true);
+
+      check(rig.profile.passwordChanges)
+          .deepEquals([(password: 'old', newPassword: 'next')]);
+      check(rig.page('password')!.subtitle)
+          .equals(_l10n.passwordFieldsRequired);
+    });
+
+    testWidgets('Settings forgets the pages it drew once the sheet closes, '
+        'as the sheet does', (tester) async {
+      final rig = await _pump(tester);
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+
+      rig.container
+          .read(settingsControllerProvider)
+          .handle(const NativeSheetDismissed());
+
+      check(rig.page('password')).isNull();
+    });
+
     testWidgets('new passwords that differ say so, and nothing is sent', (
       tester,
     ) async {
@@ -334,6 +379,7 @@ void main() {
       await rig.change('current-password', 'old');
       await rig.change('new-password', 'first');
       await rig.change('confirm-password', 'second');
+      await rig.change(nativePasswordSaveActionId, true);
 
       check(rig.profile.passwordChanges).isEmpty();
       check(rig.page('password')!.subtitle).equals(_l10n.passwordsDoNotMatch);
@@ -357,9 +403,13 @@ void main() {
           );
       await rig.change('new-password', 'next');
       await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
       check(rig.profile.passwordChanges).isEmpty();
 
       await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
       check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
@@ -375,6 +425,7 @@ void main() {
       await rig.change('current-password', 'old');
       await rig.change('new-password', 'next');
       await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
       check(rig.profile.passwordChanges).length.equals(1);
 
       // Left and opened again while the change is still on its way.
@@ -434,13 +485,15 @@ void main() {
       await rig.change('current-password', 'old');
       await rig.change('new-password', 'next');
       await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
 
-      // Typed again while the first change is on its way, then another
-      // account signs in before those wait their turn.
+      // Typed again and Done while the first change is on its way, then
+      // another account signs in before those wait their turn.
       for (final (id, value) in [
         ('current-password', 'next'),
         ('new-password', 'later'),
         ('confirm-password', 'later'),
+        (nativePasswordSaveActionId, true),
       ]) {
         rig.container
             .read(settingsControllerProvider)
