@@ -152,6 +152,20 @@ void main() {
     expect(rig.memories.saves, isEmpty);
   });
 
+  testWidgets('a row drawn before Open WebUI took charge opens on no '
+      'LibreChat memories', (tester) async {
+    final rig = await _open(tester, {'work': 'Engineer'});
+    final reads = rig.memories.reads;
+
+    rig.primary.use(PrimaryAccountKind.openWebUi);
+    await rig.openPage(libreChatMemoriesPageId);
+
+    expect(rig.memories.reads, reads);
+    final titles = rig.rows(libreChatMemoriesPageId).map((row) => row.title);
+    expect(titles.first, _l10n.personalizationMemoryAccountChanged);
+    expect(titles, isNot(contains('work')));
+  });
+
   testWidgets('delete asks first, then deletes and goes back', (tester) async {
     final rig = await _open(tester, {'work': 'Engineer'});
     await rig.openPage(_work);

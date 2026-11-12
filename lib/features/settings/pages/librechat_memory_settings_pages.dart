@@ -298,6 +298,21 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
   Future<void> _hydrateList(AppLocalizations l10n) async {
     _drafts.clear();
     _notices.clear();
+    // Open WebUI in charge since the row was drawn: LibreChat's memories
+    // are not read, nor shown, for it.
+    if (_ref.read(primaryAccountKindProvider) != PrimaryAccountKind.libreChat) {
+      _accountId = null;
+      _capabilities = null;
+      await _surface.applyDetail(
+        buildLibreChatMemoriesPage(
+          l10n,
+          state: null,
+          capabilities: null,
+          notice: l10n.personalizationMemoryAccountChanged,
+        ),
+      );
+      return;
+    }
     _accountId = _ref.read(activeLibreChatAccountProvider)?.id;
     await _applyList(l10n);
     LibreChatMemoryState? state;
