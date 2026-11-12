@@ -140,8 +140,14 @@ final class _Rig {
 
   Future<void> open(String id) => _settle(module.hydrate(id, _l10n));
 
-  Future<void> change(String id, Object? value) =>
-      _settle(module.handleChange(id, value, _l10n));
+  Future<void> change(String id, Object? value) async {
+    final pages = module as ServerAddressSettingsPages;
+    final before = pages.work;
+    await _settle(module.handleChange(id, value, _l10n));
+    // A save runs on its own; the change waits for the one it started.
+    final work = pages.work;
+    if (work != null && !identical(work, before)) await _settle(work);
+  }
 
   Future<void> _settle(Future<Object?> work) async {
     var done = false;
@@ -377,6 +383,27 @@ void main() {
     expect(_Routes.reasons, ['routes-edited']);
   });
 
+  testWidgets('an address editor opened while a reorder lands keeps its '
+      'draft', (tester) async {
+    final rig = await pump(tester);
+    final editor = serverAddressPageId('home', 'lan');
+    String row(String field, String endpointId) =>
+        serverAddressRowId(field, serverAddressEditorKey('home', endpointId));
+    await rig.open(editor);
+    await rig.change(row('url', 'lan'), 'http://10.0.0.3:3000');
+
+    await rig.change(serverAddressesRowId('order', 'home'), [
+      serverAddressPageId('home', 'public'),
+      serverAddressPageId('home', 'lan'),
+    ]);
+    await rig.open(editor);
+
+    expect(
+      rig.rows(editor).singleWhere((r) => r.id == row('url', 'lan')).value,
+      'http://10.0.0.3:3000',
+    );
+  });
+
   testWidgets('removing an address saves the server without it', (
     tester,
   ) async {
@@ -566,7 +593,11 @@ void main() {
       await rig.open(editor);
       await rig.change(row('url', null), origin);
 
-      final saving = rig.module.handleChange(row('save', null), true, _l10n);
+      final tapped = rig.module.handleChange(row('save', null), true, _l10n);
+      // The tap is answered at once; the check and save run on their own,
+      // so Settings's other changes do not wait behind a slow server.
+      await tapped;
+      final saving = (rig.module as ServerAddressSettingsPages).work!;
       var done = false;
       unawaited(saving.whenComplete(() => done = true));
       for (var i = 0; i < 200 && !done; i++) {

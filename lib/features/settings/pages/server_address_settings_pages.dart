@@ -519,6 +519,12 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   final Ref _ref;
   int _queued() => _ref.read(settingsControllerProvider).controlsQueued;
 
+  /// The save running now, if one is.
+  Future<void>? _work;
+
+  @visibleForTesting
+  Future<void>? get work => _work;
+
   final Map<String, _Editor> _editors = {};
 
   /// Times each editor page was left, and Settings closed: a read of an
@@ -620,10 +626,16 @@ class ServerAddressSettingsPages extends SettingsPageModule {
 
   /// The server's page as stored now. Any editor opened from an earlier
   /// look at it starts over.
-  Future<void> _hydrateServer(AppLocalizations l10n, String serverId) async {
-    _editors.removeWhere(
-      (key, _) => _parseEditorKey(key)?.serverId == serverId,
-    );
+  Future<void> _hydrateServer(
+    AppLocalizations l10n,
+    String serverId, {
+    bool keepEditors = false,
+  }) async {
+    if (!keepEditors) {
+      _editors.removeWhere(
+        (key, _) => _parseEditorKey(key)?.serverId == serverId,
+      );
+    }
     OpenWebUiServer? server;
     List<OpenWebUiAccountEntry> accounts = const [];
     var read = false;
@@ -879,7 +891,26 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       case 'header-add':
         await _addHeader(l10n, key, editor);
       case 'save':
-        await _save(l10n, key, parsed.serverId, parsed.endpointId, editor);
+        // Checked and saved on its own: Settings's other changes do not wait
+        // behind a slow address check. The editor is busy before this
+        // returns, so a second Done does nothing.
+        final saving = _work =
+            _save(
+              l10n,
+              key,
+              parsed.serverId,
+              parsed.endpointId,
+              editor,
+            ).catchError((Object error, StackTrace stack) {
+              DebugLogger.error(
+                'server-address-save-failed',
+                scope: 'settings/addresses',
+                error: error,
+                stackTrace: stack,
+              );
+            });
+        unawaited(saving);
+        return true;
     }
     // Changed on the Advanced page or one it opened.
     if (const {
@@ -1215,7 +1246,9 @@ class ServerAddressSettingsPages extends SettingsPageModule {
           if (!order.contains(endpoint.id)) endpoint,
       ],
     );
-    await _hydrateServer(l10n, serverId);
+    // Only the order changed: an address editor opened meanwhile keeps its
+    // draft.
+    await _hydrateServer(l10n, serverId, keepEditors: true);
   }
 
   /// Applies [edit] to the addresses as stored, not as the page last showed

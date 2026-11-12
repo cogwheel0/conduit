@@ -196,8 +196,13 @@ final class _Files implements ChatBackupFiles {
   @override
   Future<PickedChatFile?> pickImportFile() async {
     picks++;
+    final gate = pickGate;
+    if (gate != null) return gate.future;
     return nextPick;
   }
+
+  /// Holds the picker's answer until completed.
+  Completer<PickedChatFile?>? pickGate;
 }
 
 final class _Engine extends SyncEngine {
@@ -1111,6 +1116,22 @@ void main() {
         () => session.db.chatsDao.getChat('new-1'),
       );
       expect(stored?.bodySynced, isTrue);
+    });
+
+    testWidgets('a picker that never answers holds no later visit', (
+      tester,
+    ) async {
+      final session = await open(tester);
+      session.files.pickGate = Completer<PickedChatFile?>();
+      final module = session.module as ChatDataSettingsPages;
+      await module.handleChange(chatDataRowId('import'), true, _l10n);
+
+      // Its screen torn down, the page left and opened again.
+      module.pageLeft(chatDataControlsPageId);
+      await session.appear();
+      await session.tap('import');
+
+      expect(session.files.picks, 2);
     });
 
     testWidgets('a page opened again while an import is with the server '

@@ -441,6 +441,9 @@ class ChatDataSettingsPages extends SettingsPageModule {
     _picked = null;
     _importError = null;
     _chatsRead = 0;
+    // A picker whose answer never came (its screen torn down) holds the
+    // next visit no longer.
+    _picking = false;
     // [_importing] stays: an upload still with the server is shown with its
     // count on the next visit, and the next import sets it anew.
   }
