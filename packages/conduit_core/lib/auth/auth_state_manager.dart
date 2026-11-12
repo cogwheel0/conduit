@@ -17,6 +17,7 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/auth/token_validator.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
+import 'package:conduit_core/auth/sign_in_failure.dart';
 
 import 'package:conduit_core/auth/auth_cache_manager.dart';
 
@@ -2569,7 +2570,7 @@ class AuthStateManager extends _$AuthStateManager {
             error.type == DioExceptionType.sendTimeout ||
             error.type == DioExceptionType.receiveTimeout);
     if (timedOut || text.contains('timeout')) {
-      return 'Sign-in request timed out';
+      return signInTimedOutMessage;
     }
 
     final connectionFailed =
@@ -2579,7 +2580,7 @@ class AuthStateManager extends _$AuthStateManager {
     if (connectionFailed ||
         text.contains('socketexception') ||
         text.contains('connection')) {
-      return 'Unable to connect to server';
+      return signInUnreachableMessage;
     }
     return 'Sign-in failed. Please try again.';
   }
