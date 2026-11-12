@@ -355,6 +355,57 @@ void main() {
     ]);
   });
 
+  testWidgets('text typed and not yet done stays when the page is described '
+      'again without changing that field', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        settingsControllerProvider.overrideWithValue(_RecordingController()),
+      ],
+    );
+    addTearDown(container.dispose);
+    NativeSheetDetailConfig form({required String profile}) => _detail([
+      const NativeSheetItemConfig(
+        id: 'name',
+        title: 'Name',
+        kind: NativeSheetItemKind.textField,
+        value: 'Home',
+      ),
+      const NativeSheetItemConfig(
+        id: 'url',
+        title: 'URL',
+        kind: NativeSheetItemKind.textField,
+        value: '',
+      ),
+      NativeSheetItemConfig(id: 'profile', title: 'Profile', subtitle: profile),
+    ]);
+    final page = ValueNotifier(form(profile: 'Loading'));
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ValueListenableBuilder(
+            valueListenable: page,
+            builder: (_, detail, _) => SettingsPageView(detail: detail),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    Finder field(String id) =>
+        find.descendant(of: _row(id), matching: find.byType(EditableText));
+    await tester.enterText(field('url'), 'https://home.example');
+    await tester.pumpAndSettle();
+
+    // Read in the meantime, the profile fills in; the URL is as it was.
+    page.value = form(profile: 'Default');
+    await tester.pumpAndSettle();
+
+    check(tester.widget<EditableText>(field('url')).controller.text)
+        .equals('https://home.example');
+  });
+
   testWidgets('a page described again drops the values set on the last one', (
     tester,
   ) async {

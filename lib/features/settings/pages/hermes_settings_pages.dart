@@ -1036,6 +1036,10 @@ final class _Editor {
   bool saving = false;
   bool edited = false;
   bool shownEdited = false;
+
+  /// Whether the user chose how to sign in to the Desktop Gateway; the
+  /// server's recommendation never replaces their choice.
+  bool authChosen = false;
   String? notice;
 
   /// Work that can rotate an inactive connection's stored tokens; a switch
@@ -1092,6 +1096,18 @@ class HermesSettingsPages extends SettingsPageModule {
           unawaited(_refreshAndShow(entry.key, entry.value));
         }
       }
+    });
+    // Capabilities read after the page was drawn (a cold Desktop Gateway
+    // answers later) can add rows to it, Scheduled Agents say; any page
+    // already known, an open editor included, is left as it is.
+    _ref.listen(hermesCapabilitiesProvider, (previous, next) {
+      if (previous?.value == next.value) return;
+      final l10n = _l10n;
+      if (l10n == null ||
+          !_ref.read(settingsPagesProvider).contains(hermesSettingsPageId)) {
+        return;
+      }
+      unawaited(_applyRoot(l10n, keepKnownPages: true));
     });
     // An editor whose connection stops being the one in use reads its stored
     // settings before it can save again.
@@ -1172,6 +1188,10 @@ class HermesSettingsPages extends SettingsPageModule {
 
   @override
   void pageLeft(String detailId) {
+    // What a list page said goes with it: coming back, it is not still
+    // there.
+    if (detailId == hermesSettingsPageId) _rootNotice = null;
+    if (detailId == hermesHiddenChatsPageId) _hiddenNotice = null;
     // An editor left -- Back, or Settings closing -- is abandoned with its
     // draft, credentials included. (Covered by its Advanced page, it is
     // not left.)
@@ -1219,34 +1239,49 @@ class HermesSettingsPages extends SettingsPageModule {
     );
   }
 
-  Future<void> _applyRoot(AppLocalizations l10n) {
+  Future<void> _applyRoot(
+    AppLocalizations l10n, {
+    bool keepKnownPages = false,
+  }) {
     final state = _rootState();
+    final known = _ref.read(settingsPagesProvider);
     return _surface.applyDetail(
       buildHermesSettingsPage(l10n, state),
       detailSheets: [
-        for (final connection in state.connections)
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: hermesConnectionPageId(connection.id),
-            title: connection.name,
-          ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: hermesConnectionPageId(null),
-          title: l10n.hermesNewConnectionTitle,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: hermesJobsPageId,
-          title: l10n.hermesScheduledAgentsTitle,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: hermesHiddenChatsPageId,
-          title: l10n.hermesHiddenChatsTitle,
-        ),
+        for (final page in _rootPages(l10n, state))
+          if (!keepKnownPages || !known.contains(page.id)) page,
       ],
     );
+  }
+
+  /// The pages the Hermes page leads to, drawn loading until they appear.
+  List<NativeSheetDetailConfig> _rootPages(
+    AppLocalizations l10n,
+    HermesSettingsPageState state,
+  ) {
+    return [
+      for (final connection in state.connections)
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: hermesConnectionPageId(connection.id),
+          title: connection.name,
+        ),
+      buildNativeLoadingDetail(
+        l10n: l10n,
+        id: hermesConnectionPageId(null),
+        title: l10n.hermesNewConnectionTitle,
+      ),
+      buildNativeLoadingDetail(
+        l10n: l10n,
+        id: hermesJobsPageId,
+        title: l10n.hermesScheduledAgentsTitle,
+      ),
+      buildNativeLoadingDetail(
+        l10n: l10n,
+        id: hermesHiddenChatsPageId,
+        title: l10n.hermesHiddenChatsTitle,
+      ),
+    ];
   }
 
   Future<void> _setEnabled(AppLocalizations l10n, bool value) async {
@@ -1752,6 +1787,9 @@ class HermesSettingsPages extends SettingsPageModule {
       messages: _messages(l10n),
     );
     if (!reachable || !await _save(l10n, key, editor)) return false;
+    // Left while it saved (Add Account discarded, say): the connection is
+    // saved, but not put in use nor Hermes turned on.
+    if (!identical(_editors[key], editor)) return false;
     if (!_editsActive(editor) && !await _useConnection(l10n, key, editor)) {
       return false;
     }
@@ -1870,6 +1908,7 @@ class HermesSettingsPages extends SettingsPageModule {
     bool force = false,
   }) async {
     final controller = editor.controller!;
+    if (editor.authChosen) return;
     final saved = _saved(editor);
     if (!force && saved.mode == HermesBackendMode.desktopGateway) return;
     final draft = controller.buildDraft(saved).config.copyWith(enabled: true);
@@ -1888,7 +1927,9 @@ class HermesSettingsPages extends SettingsPageModule {
           .buildDraft(_saved(editor))
           .config
           .copyWith(enabled: true);
-      if (_authIdentity(editor, current) != identity) return;
+      if (_authIdentity(editor, current) != identity || editor.authChosen) {
+        return;
+      }
       if (controller.desktopAuthKind != recommended) {
         controller.setDesktopAuthKind(recommended);
         final l10n = _l10n;
@@ -2014,6 +2055,11 @@ class HermesSettingsPages extends SettingsPageModule {
     String key,
     _Editor editor,
   ) async {
+    // Shown edited first, so the save that follows reads as one on both
+    // renderers and Back after it asks nothing.
+    if (editor.edited && !editor.shownEdited) {
+      await _applyEditor(l10n, key, editor, withPages: false);
+    }
     if (!await _save(l10n, key, editor)) return false;
     return _editsActive(editor) || await _useConnection(l10n, key, editor);
   }
@@ -2217,6 +2263,9 @@ class HermesSettingsPages extends SettingsPageModule {
   // -- Hidden chats --------------------------------------------------------------
 
   Future<void> _hydrateHidden(AppLocalizations l10n) async {
+    // Opened afresh: the last list read may be another connection's, and
+    // its rows would unhide that connection's chats on this one.
+    _hidden = null;
     _hiddenFailed = false;
     await _surface.applyDetail(
       buildHermesHiddenChatsPage(
@@ -2385,6 +2434,7 @@ class HermesSettingsPages extends SettingsPageModule {
       case 'auth' when value is String:
         final kind = HermesDesktopAuthKind.values.asNameMap()[value];
         if (kind == null) return true;
+        editor.authChosen = true;
         controller.setDesktopAuthKind(kind);
         await _draftChanged(key, editor);
         await _applyEditor(l10n, key, editor, withPages: false);
@@ -2471,7 +2521,7 @@ class HermesSettingsPages extends SettingsPageModule {
           l10n,
           key: key,
           name: editor.headerName,
-          notice: l10n.headerName,
+          notice: l10n.nameRequired,
         ),
       );
       return;

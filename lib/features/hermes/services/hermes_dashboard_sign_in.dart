@@ -24,10 +24,12 @@ class HermesDashboardSignIn {
   /// Flutter page. Answers whether the dashboard says the user is signed in.
   Future<bool> signIn(HermesConfig config) async {
     final bridge = NativeSheetBridge.instance;
-    // A dashboard behind access headers is never reached on iOS (its web
-    // view cannot add them), which the Flutter page says.
-    if (bridge.settingsSheetOpen && config.accessHeaders.isEmpty) {
-      return _signInOverSheet(bridge, config);
+    if (bridge.settingsSheetOpen) {
+      if (config.accessHeaders.isEmpty) return _signInOverSheet(bridge, config);
+      // The sheet's web view cannot add access headers; the Flutter page
+      // can. Settings closes first, as for any Flutter page, so the page is
+      // not opened under it.
+      await bridge.dismiss();
     }
     final context = NavigationService.context;
     if (context == null || !context.mounted) return false;

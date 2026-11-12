@@ -5683,12 +5683,25 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         if detail.edited && !newDetail.edited {
             controlEdits = false
         }
+        // Text typed and not yet done stays in a field the update leaves as
+        // it was (another row filled in meanwhile, say); every other field
+        // starts from the page.
+        var previousValues: [String: String] = [:]
+        for item in detail.allItems {
+            previousValues[item.id] = item.value as? String ?? ""
+        }
+        let keptText = pendingTextValues.filter { id, _ in
+            guard let item = newDetail.allItems.first(where: { $0.id == id }),
+                  let previous = previousValues[id]
+            else { return false }
+            return previous == (item.value as? String ?? "")
+        }
         detail = newDetail
         if let announcement = newDetail.announcement, !announcement.isEmpty,
            announcement != previousAnnouncement {
             UIAccessibility.post(notification: .announcement, argument: announcement)
         }
-        pendingTextValues.removeAll()
+        pendingTextValues = keptText
         committedTextValues.removeAll()
         chosenOptionValues.removeAll()
         title = newDetail.title
@@ -9123,6 +9136,18 @@ final class NativeWebSignInViewController: UIViewController,
         finish(false)
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Gone with whatever closed it -- Settings closed from Dart under
+        // it, say, which UIKit reports to no delegate: the sign-in ends,
+        // not signed in, so Dart stops waiting.
+        let navigation = navigationController
+        if navigation?.isBeingDismissed == true
+            || navigation?.presentingViewController == nil {
+            finish(false)
+        }
+    }
+
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -9160,12 +9185,17 @@ final class NativeWebSignInViewController: UIViewController,
         guard let loaded = webView.url?.absoluteString, !checking else { return }
         checksPage(loaded) { [weak self] check in
             guard check else { return }
-            self?.checkSignedIn()
+            self?.checkSignedIn(approved: loaded)
         }
     }
 
-    private func checkSignedIn() {
-        guard let webView, !checking, onFinish != nil else { return }
+    /// Runs the signed-in check on [approved], the page Dart said to check,
+    /// and only while it is still the page shown: another may have loaded
+    /// while Dart answered.
+    private func checkSignedIn(approved: String) {
+        guard let webView, !checking, onFinish != nil,
+              webView.url?.absoluteString == approved
+        else { return }
         checking = true
         webView.callAsyncJavaScript(
             request.checkScript,

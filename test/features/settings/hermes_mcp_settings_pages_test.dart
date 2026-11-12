@@ -491,6 +491,39 @@ void main() {
     await hermes.dispose();
   });
 
+  testWidgets("another connection's page shows none of the last one's "
+      'servers', (tester) async {
+    final hermes = _Hermes();
+    hermes.servers.add({
+      'name': 'tide-notes',
+      'transport': 'http',
+      'url': 'https://tides.example/mcp',
+      'enabled': true,
+    });
+    final active = NotifierProvider<_Active, String?>(_Active.new);
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(hermes.service),
+        hermesActiveConnectionIdProvider.overrideWith(
+          (ref) => ref.watch(active),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    check(rig.titles(hermesMcpPageId)).contains('tide-notes');
+
+    // Another connection in use, whose list cannot be read.
+    container.read(active.notifier).use('work');
+    hermes.failListOnceAdded = true;
+    await rig.open(hermesMcpPageId);
+
+    check(rig.titles(hermesMcpPageId)).not((it) => it.contains('tide-notes'));
+    await hermes.dispose();
+  });
+
   testWidgets('a server added by hand is sent with what was typed, and the '
       'key is not kept', (tester) async {
     final hermes = _Hermes();
@@ -510,14 +543,27 @@ void main() {
 
     final sent = hermes.calls('mcp.servers.add').single;
     check(sent['name']).equals('tide-notes');
+    check(sent.toString())
+      ..contains('https://tides.example/mcp')
+      ..contains('synthetic-mcp-key');
     check(rig.titles(hermesMcpPageId)).contains('tide-notes');
 
     // Opened again, the form starts empty.
     await rig.open(hermesMcpAddPageId);
     await rig.change(hermesMcpRowId('add-name'), 'tide-more');
     await rig.change(hermesMcpRowId('add'));
-    check(hermes.calls('mcp.servers.add').last.toString())
-        .not((it) => it.contains('synthetic-mcp-key'));
+    final calls = hermes.calls('mcp.servers.add');
+    check(calls).length.equals(2);
+    check(calls.last['name']).equals('tide-more');
+    check(calls.last.toString()).not((it) => it.contains('synthetic-mcp-key'));
     await hermes.dispose();
   });
+}
+
+/// The Hermes connection in use, switched by a test.
+final class _Active extends Notifier<String?> {
+  @override
+  String? build() => 'home';
+
+  void use(String id) => state = id;
 }

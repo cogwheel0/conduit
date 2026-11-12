@@ -595,6 +595,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   List<HermesMcpCatalogEntry>? _catalog;
   bool _catalogFailed = false;
 
+  /// The Hermes connection the lists above were read from.
+  String? _readFor;
+
   // The forms, as typed.
   final Map<String, String> _add = {};
   String? _addNotice;
@@ -633,8 +636,23 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     notice: _notice,
   );
 
+  /// Another connection in use since the lists were read: they are its
+  /// last one's, and their rows would act on this one with that one's
+  /// names. They are read again.
+  void _forgetOtherConnection() {
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
+    if (connection == _readFor) return;
+    _readFor = connection;
+    _servers = null;
+    _failed = false;
+    _testResults.clear();
+    _catalog = null;
+    _catalogFailed = false;
+  }
+
   @override
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
+    _forgetOtherConnection();
     if (detailId == hermesMcpPageId) {
       await _applyList(l10n);
       await _load(l10n);

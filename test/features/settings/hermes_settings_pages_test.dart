@@ -259,6 +259,19 @@ void main() {
     check(rig.page(editor)!.edited).isTrue();
   });
 
+  testWidgets('a header with no name says a name is needed', (tester) async {
+    final rig = await _pump(tester, secrets: secrets);
+    final header = '$hermesConnectionHeaderPagePrefix${_key(_work)}';
+    await rig.open(hermesConnectionPageId(_work));
+    await rig.open('$hermesConnectionAdvancedPagePrefix${_key(_work)}');
+    await rig.open(header);
+
+    await rig.change(_row('header-add', _work), true);
+
+    check(rig.rows(header).map((row) => row.title))
+        .contains(_l10n.nameRequired);
+  });
+
   testWidgets('an editor left keeps none of what was typed', (tester) async {
     final rig = await _pump(tester, secrets: secrets);
     final editor = hermesConnectionPageId(_work);
@@ -642,6 +655,52 @@ void main() {
       ).isNull();
     });
 
+    testWidgets("opened again, show no chats from the last list while they "
+        'are read', (tester) async {
+      final later = Completer<List<HermesSessionSummary>>();
+      Future<List<HermesSessionSummary>> Function() read = () async => [hidden];
+      final rig = await _pump(
+        tester,
+        secrets: secrets,
+        overrides: [hermesHiddenSessionsProvider.overrideWith((ref) => read())],
+      );
+      await rig.open(hermesHiddenChatsPageId);
+      final open = hermesHiddenChatRowId('open', hidden.id);
+      check(rig.row(hermesHiddenChatsPageId, open)).isNotNull();
+
+      // Another connection in use, say: its chats are being read.
+      read = () => later.future;
+      final opening = rig.module.hydrate(hermesHiddenChatsPageId, _l10n);
+      await tester.pump();
+      check(rig.row(hermesHiddenChatsPageId, open)).isNull();
+      later.complete(const []);
+      await rig.settle(opening);
+    });
+
+    testWidgets('a refusal said on the page is gone once it is left', (
+      tester,
+    ) async {
+      final sessions = _HiddenSessions()..refuses = true;
+      final rig = await _pump(
+        tester,
+        secrets: secrets,
+        overrides: [
+          hermesHiddenSessionsProvider.overrideWith((ref) async => [hidden]),
+          hermesSessionsProvider.overrideWith(() => sessions),
+        ],
+      );
+      await rig.open(hermesHiddenChatsPageId);
+      await rig.change(hermesHiddenChatRowId('unhide', hidden.id), true);
+      check(rig.rows(hermesHiddenChatsPageId).map((row) => row.title))
+          .contains(_l10n.hermesSessionUpdateFailed);
+
+      rig.module.pageLeft(hermesHiddenChatsPageId);
+      await rig.open(hermesHiddenChatsPageId);
+
+      check(rig.rows(hermesHiddenChatsPageId).map((row) => row.title))
+          .not((it) => it.contains(_l10n.hermesSessionUpdateFailed));
+    });
+
     testWidgets('that cannot be read say so', (tester) async {
       final rig = await _pump(
         tester,
@@ -753,11 +812,15 @@ class _SignOutFails extends HermesConfigController {
 final class _HiddenSessions extends HermesSessionsController {
   final List<String> unhidden = [];
 
+  /// Whether the server refuses the next change.
+  bool refuses = false;
+
   @override
   Future<List<HermesSessionSummary>> build() async => const [];
 
   @override
   Future<void> setHidden(HermesSessionSummary session, bool hidden) async {
+    if (refuses) throw StateError('offline');
     if (!hidden) unhidden.add(session.id);
   }
 }

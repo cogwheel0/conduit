@@ -966,7 +966,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
     }
     final l10n = _l10n;
     if (l10n == null) return;
-    for (final entry in _drafts.entries) {
+    // A copy: a draft can go (saved, left) while one is drawn.
+    for (final entry in _drafts.entries.toList()) {
+      if (!identical(_drafts[entry.key], entry.value)) continue;
       await _applyEditor(l10n, entry.key, entry.value);
     }
   }
