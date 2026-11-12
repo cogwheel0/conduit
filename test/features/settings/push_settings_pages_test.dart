@@ -55,6 +55,18 @@ final class _Surface extends SettingsSurface {
   final asked = <String>[];
   String? answer;
 
+  /// The pages drawn, in order.
+  final drawn = <String>[];
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) {
+    drawn.add(detail.id);
+    return super.applyDetail(detail, detailSheets: detailSheets);
+  }
+
   @override
   Future<String?> ask({
     required String title,
@@ -419,6 +431,23 @@ void main() {
       check(rig.fake.calls.last).equals('setTargetOptedOut $_owuiScope true');
       check(rig.rows(pageId).first.subtitle)
           .equals('Push is turned off for this account on this device.');
+    });
+
+    testWidgets('an opt-out that did not go through leaves the switch on', (
+      tester,
+    ) async {
+      final rig = await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
+      rig.fake.optOutError = StateError('storage');
+      final pageId = pushTargetPageId(_owuiScope);
+      final scope = Uri.encodeComponent(_owuiScope);
+      await rig.open(pageId);
+      final drawn = rig.surface.drawn.length;
+
+      await rig.change('$pushTargetUsePrefix$scope', false);
+
+      // Drawn again, so the switch shows push still on.
+      check(rig.surface.drawn.skip(drawn)).contains(pageId);
+      check(rig.row(pageId, '$pushTargetUsePrefix$scope').value).equals(true);
     });
 
     testWidgets('a test that did not arrive says so in its group', (

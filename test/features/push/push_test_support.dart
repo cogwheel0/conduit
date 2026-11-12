@@ -52,6 +52,9 @@ final class FakePushCoordinator extends PushCoordinator {
   /// Thrown by [setAndroidTransport].
   Object? transportError;
 
+  /// Thrown by [setTargetOptedOut].
+  Object? optOutError;
+
   final PushState initial;
   List<String> distributorList;
   final calls = <String>[];
@@ -119,6 +122,8 @@ final class FakePushCoordinator extends PushCoordinator {
   @override
   Future<void> setTargetOptedOut(String scope, bool optedOut) async {
     calls.add('setTargetOptedOut $scope $optedOut');
+    final error = optOutError;
+    if (error != null) throw error;
     final target = state.targets[scope]!;
     state = state.copyWith(
       targets: {

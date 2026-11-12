@@ -207,7 +207,7 @@ NativeSheetSectionConfig? _diagnosticsSection(
       line(
         'verified',
         l10n.pushDiagnosticsVerified,
-        DateFormat.yMMMd().add_jm().format(at.toLocal()),
+        DateFormat.yMMMd(l10n.localeName).add_jm().format(at.toLocal()),
         'clock',
       ),
     if (target.diagnostics case final report?)
@@ -514,7 +514,7 @@ class PushSettingsPages extends SettingsPageModule {
             push,
             titleOf: (target) => pushTargetTitle(l10n, target, accounts),
           ),
-          detailSheets: pushTargetChildPages(l10n, push),
+          detailSheets: _unknown(pushTargetChildPages(l10n, push)),
         );
         return;
       }
@@ -535,14 +535,14 @@ class PushSettingsPages extends SettingsPageModule {
           pushEnabled: push.enabled,
           page: _pages[scope] ?? const PushTargetPageState(),
         ),
-        detailSheets: [
+        detailSheets: _unknown([
           if (target.target case HermesPushTarget(:final connectionId))
             buildNativeLoadingDetail(
               l10n: l10n,
               id: hermesConnectionPageId(connectionId),
               title: l10n.hermesAgentSettingsTitle,
             ),
-        ],
+        ]),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -552,6 +552,16 @@ class PushSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  /// [pages] not drawn yet: a page open over this one (a target's page, the
+  /// Hermes connection's editor) keeps what it shows through live redraws.
+  List<NativeSheetDetailConfig> _unknown(List<NativeSheetDetailConfig> pages) {
+    final known = _ref.read(settingsPagesProvider);
+    return [
+      for (final page in pages)
+        if (!known.contains(page.id)) page,
+    ];
   }
 
   Future<void> _redraw(String scope) async {
@@ -578,7 +588,9 @@ class PushSettingsPages extends SettingsPageModule {
       final scope = Uri.decodeComponent(
         id.substring(pushTargetTestPrefix.length),
       );
-      await _sendTest(scope);
+      // Not waited for: other row changes, an opt-out among them, are not
+      // held behind a test on its way.
+      unawaited(_sendTest(scope));
       return true;
     }
     if (id.startsWith(pushTargetUsePrefix)) {
@@ -592,6 +604,8 @@ class PushSettingsPages extends SettingsPageModule {
               .read(pushCoordinatorProvider.notifier)
               .setTargetOptedOut(scope, !value),
         );
+        // A change that did not go through leaves the switch as it is.
+        await _redraw(scope);
       }
       return true;
     }
@@ -607,6 +621,7 @@ class PushSettingsPages extends SettingsPageModule {
           'push-origin-failed',
           _ref.read(pushCoordinatorProvider.notifier).setOrigin(scope, origin),
         );
+        await _redraw(scope);
       }
       return true;
     }

@@ -971,8 +971,10 @@ class NativeSheetHydrationService {
             readNativeAccountSignOutDetail(_ref.read, l10n),
             readNativeAddAccountDetail(_ref.read, l10n),
             ...buildHermesAccountsDetails(l10n),
-            // The push pages the rows' menus open while push needs the user.
-            ...readNativePushAttentionPages(_ref.read, l10n),
+            // The push pages the rows' menus open while push needs the user,
+            // those not drawn yet.
+            for (final page in readNativePushAttentionPages(_ref.read, l10n))
+              if (!_ref.read(settingsPagesProvider).contains(page.id)) page,
             // Each server's page, filled in as it appears.
             for (final serverId in {
               for (final entry
@@ -1721,11 +1723,14 @@ class NativeSheetHydrationService {
     AppLocalizations l10n,
   ) {
     final push = _ref.read(pushStateIfUsedProvider);
+    final known = _ref.read(settingsPagesProvider);
     return [
       buildPushPrivacyPage(l10n),
       if (push != null && push.enabled) ...[
         _nativePushTargetsDetail(l10n, push),
-        ...pushTargetChildPages(l10n, push),
+        // A target's page already drawn keeps what it shows.
+        for (final page in pushTargetChildPages(l10n, push))
+          if (!known.contains(page.id)) page,
       ],
     ];
   }
