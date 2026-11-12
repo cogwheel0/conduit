@@ -1134,7 +1134,7 @@ void main() {
       tester,
     ) async {
       final skills = _Skills();
-      final rig = await pump(tester, skills: skills, serverVersion: '0.12.4');
+      final rig = await pump(tester, skills: skills, serverVersion: '0.11.4');
       await rig.open(_skill1);
 
       await rig.change(_skillRow('clone', _skillKey));
@@ -1144,6 +1144,17 @@ void main() {
       // Its SKILL.md alone: the content makes it, as it always did.
       check(skills.created.single.files).isNull();
       check(skills.created.single.accessGrants).isNotNull().isEmpty();
+    });
+
+    testWidgets('Open WebUI 0.12 duplicates a skill itself', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills, serverVersion: '0.12.4');
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
+      check(skills.created).isEmpty();
     });
 
     testWidgets('a server of unknown version without its own duplicate gets '

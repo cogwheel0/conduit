@@ -742,12 +742,12 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       meta: editor.meta,
       isActive: editor.summary?.isActive ?? true,
     );
-    // Open WebUI 0.13 duplicates a skill itself, every file of its package
-    // included (the skill as read here has none); an older one is sent a
-    // copy made from what was read.
+    // Open WebUI 0.12 and later duplicate a skill themselves, every file of
+    // its package included (the skill as read here has none); an older one
+    // is sent a copy made from what was read.
     final serverClones = ServerVersionCompat.knownAtLeast(
       _ref.read(workspaceServerVersionProvider),
-      '0.13.0',
+      '0.12.0',
     );
     final ok = await _operate(l10n, editor, () async {
       if (serverClones == false) {
