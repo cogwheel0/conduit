@@ -1088,6 +1088,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       ..commandError = false
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the write.
+    if (!_current(editor)) return;
     String? problem;
     try {
       if (editor.isCreate) {
@@ -1133,6 +1136,7 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    if (!_current(editor)) return false;
     Object? failed;
     try {
       await operation();
@@ -1191,8 +1195,12 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     if (saved != null) {
       editor.summary = saved;
     }
-    // The content and the version still wait for Save when they changed.
-    editor.dirty = contentChanged || editor.commit.trim().isNotEmpty;
+    // The content and the version still wait for Save when they changed, as
+    // does a version not to be made the live one.
+    editor.dirty =
+        contentChanged ||
+        editor.commit.trim().isNotEmpty ||
+        !editor.isProduction;
     _say(editor, l10n.workspacePromptDetailsSaved, error: false);
     await _applyEditor(l10n, editor, withPages: false);
   }
@@ -1307,6 +1315,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       ..busy = true
       ..versionFailure = null;
     await _applyVersion(l10n, editor, entry);
+    // Checked with no await before the request: another account may have
+    // signed in while the page was drawn busy.
+    if (!_current(editor)) return;
     WorkspacePromptSummary? updated;
     Object? failed;
     try {
@@ -1361,6 +1372,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       ..busy = true
       ..versionFailure = null;
     await _applyVersion(l10n, editor, entry);
+    // Checked with no await before the request: another account may have
+    // signed in while the page was drawn busy.
+    if (!_current(editor)) return;
     Object? failed;
     try {
       await _notifier.deleteHistoryEntry(summary.id, versionId);

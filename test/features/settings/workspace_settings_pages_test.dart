@@ -210,6 +210,14 @@ final class _Prompts extends WorkspacePrompts {
   }
 
   @override
+  Future<WorkspacePromptDetail> updateMetadata(
+    String id, {
+    required String name,
+    required String command,
+    List<String> tags = const [],
+  }) async => _prompt();
+
+  @override
   Future<void> delete(String id) async => deleted.add(id);
 
   @override
@@ -318,6 +326,19 @@ final class _Surface extends SettingsSurface {
 
   final asked = <String>[];
   String? answer;
+
+  /// Holds each page update, when a test sets it.
+  Completer<void>? gate;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final applied = await super.applyDetail(detail, detailSheets: detailSheets);
+    await gate?.future;
+    return applied;
+  }
 
   @override
   Future<String?> ask({
@@ -553,10 +574,29 @@ void main() {
     testWidgets('shows the models, a search and what the account may do', (
       tester,
     ) async {
-      final models = _Models([_writableModel(), _readOnlyModel]);
+      const readOnly = WorkspaceModelSummary(
+        id: 'model-2',
+        name: 'Tide Model',
+        userId: 'someone-else',
+        writeAccess: false,
+      );
+      final models = _Models([_writableModel(), readOnly]);
       final rig = await pump(tester, models: models);
       await rig.open(modelsPage);
 
+      // Only the account's own model may be switched off or deleted.
+      Iterable<String> actions(String id) => rig
+          .rows(modelsPage)
+          .singleWhere((r) => r.id == workspaceModelPageId(id))
+          .rowActions
+          .map((action) => action.id);
+      check(actions('model-1'))
+          .contains(workspaceRowId('list-delete', 'models', 'model-1'));
+      check(
+        actions('model-2').where(
+          (id) => id.contains('list-delete') || id.contains('list-active'),
+        ),
+      ).isEmpty();
       final row = rig.rows(modelsPage).firstWhere((r) => r.id == _model1);
       check(row.title).equals('Orbit Model');
       check(row.subtitle!).contains(_l10n.activeStatus);
@@ -702,10 +742,11 @@ void main() {
       final rig = await pump(tester, models: _Models([_writableModel()]));
       await rig.open(modelsPage);
 
-      // The fake notifier exports nothing; the share still runs once.
       await rig.change(workspaceRowId('list-export', 'models'));
 
-      check(rig.export.shared).length.equals(1);
+      final shared = rig.export.shared.single! as List;
+      check((shared.single as Map)['id']).equals('model-1');
+      check((shared.single as Map)['name']).equals('Orbit Model');
     });
   });
 
@@ -1227,6 +1268,56 @@ void main() {
           .not((it) => it.contains(_l10n.workspacePromptHistoryRestore));
       check(rig.titles(version))
           .not((it) => it.contains(_l10n.workspacePromptHistorySetProduction));
+    });
+
+    testWidgets('a save is not sent once another account signed in while '
+        'the editor was drawn busy', (tester) async {
+      final prompts = _Prompts();
+      final rig = await pump(
+        tester,
+        prompts: prompts,
+        promptDetails: {'prompt-1': _prompt()},
+      );
+      await rig.open(_prompt1);
+      await rig.change(_promptRow('content', _prompt1Key), 'Pack a scarf.');
+      final gate = rig.surface.gate = Completer<void>();
+
+      final saving = rig.module<WorkspacePromptSettingsPages>().handleChange(
+        _promptRow('save', _prompt1Key),
+        true,
+        _l10n,
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.surface.gate = null;
+      gate.complete();
+      await rig.settle(saving);
+
+      check(prompts.updated).isEmpty();
+    });
+
+    testWidgets('a version left not to be made live keeps the editor edited '
+        'after Update Details', (tester) async {
+      final rig = await pump(tester, promptDetails: {'prompt-1': _prompt()});
+      await rig.open(_prompt1);
+
+      await rig.change(_promptRow('production', _prompt1Key), false);
+      await rig.change(_promptRow('name', _prompt1Key), 'Trip Packing');
+      await rig.change(_promptRow('details', _prompt1Key));
+
+      check(rig.page(_prompt1).announcement)
+          .equals(_l10n.workspacePromptDetailsSaved);
+      check(rig.page(_prompt1).edited).isTrue();
     });
 
     testWidgets('a duplicate keeps none of the access list', (tester) async {

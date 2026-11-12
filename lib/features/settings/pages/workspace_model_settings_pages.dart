@@ -6,6 +6,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/workspace/editor/workspace_model_editor_state.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart'
+    show WorkspaceKnowledgeSummary;
 import 'package:conduit_core/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -950,8 +952,10 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
         // Every page, not only the first the list read: any of them may be
         // chosen.
         final listening = _ref.listen(workspaceKnowledgeProvider, (_, _) {});
-        var state = await _ref.read(workspaceKnowledgeProvider.future);
+        // The first read too: one that fails leaves no subscription open.
+        late WorkspaceCollectionState<WorkspaceKnowledgeSummary> state;
         try {
+          state = await _ref.read(workspaceKnowledgeProvider.future);
           while (state.hasMore) {
             await _ref.read(workspaceKnowledgeProvider.notifier).loadMore();
             final next = _ref.read(workspaceKnowledgeProvider).value;
@@ -984,8 +988,10 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
         ];
       case WorkspaceModelRelationshipKind.skills:
         final listening = _ref.listen(workspaceSkillsProvider, (_, _) {});
-        var state = await _ref.read(workspaceSkillsProvider.future);
+        // The first read too: one that fails leaves no subscription open.
+        late WorkspaceCollectionState<WorkspaceSkillSummary> state;
         try {
+          state = await _ref.read(workspaceSkillsProvider.future);
           while (state.hasMore) {
             await _ref.read(workspaceSkillsProvider.notifier).loadMore();
             final next = _ref.read(workspaceSkillsProvider).value;
@@ -1306,6 +1312,9 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    // Another account signed in while the editor was drawn busy: nothing is
+    // sent, with no await between this and the write.
+    if (!_current(editor)) return;
     final form = draft.toForm();
     String? problem;
     try {
@@ -1356,6 +1365,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       ..busy = true
       ..notice = null;
     await _applyEditor(l10n, editor, withPages: false);
+    if (!_current(editor)) return;
     Object? failed;
     try {
       await operation();
