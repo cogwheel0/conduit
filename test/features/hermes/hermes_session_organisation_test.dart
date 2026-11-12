@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/views/hermes_hidden_sessions_page.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
+import 'package:conduit/features/settings/pages/hermes_settings_pages.dart';
+import 'package:conduit/features/settings/settings_page_module.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
@@ -383,7 +388,7 @@ void main() {
     expect(find.text(_l10n.hermesScheduledRunsHidden(3)), findsOneWidget);
   });
 
-  testWidgets('hidden chats are listed in settings and can be unhidden', (
+  testWidgets('hidden chats are listed in Settings and can be unhidden', (
     tester,
   ) async {
     final service = _FlagsService(
@@ -404,18 +409,42 @@ void main() {
       ),
     );
     final container = _container(service);
-    await tester.pumpWidget(_host(container, const HermesHiddenSessionsPage()));
-    await tester.pumpAndSettle();
+    final pages = container
+        .read(settingsPageModulesProvider)
+        .whereType<HermesSettingsPages>()
+        .single;
+    container.read(settingsPagesProvider.notifier).register([
+      NativeSheetDetailConfig(id: hermesHiddenChatsPageId, title: ''),
+    ]);
+    Future<void> settle(Future<Object?> work) async {
+      var done = false;
+      unawaited(work.whenComplete(() => done = true));
+      while (!done) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+    }
 
-    expect(find.text('Synthetic hidden'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('hermes-unhide-session-secret')),
+    List<String> titles() => [
+      for (final section
+          in container
+              .read(settingsPagesProvider)[hermesHiddenChatsPageId]!
+              .sections)
+        for (final row in section.items) row.title,
+    ];
+
+    await settle(pages.hydrate(hermesHiddenChatsPageId, _l10n));
+    check(titles()).contains('Synthetic hidden');
+
+    await settle(
+      pages.handleChange(
+        hermesHiddenChatRowId('unhide', 'secret'),
+        true,
+        _l10n,
+      ),
     );
-    await tester.pumpAndSettle();
 
     check(service.edits).deepEquals(['secret hidden=false']);
-    expect(find.text('Synthetic hidden'), findsNothing);
-    expect(find.text(_l10n.hermesHiddenChatsEmpty), findsOneWidget);
+    check(titles()).not((it) => it.contains('Synthetic hidden'));
     check(HermesSetAsideSessionStore.forScope(_scope)).isEmpty();
   });
 

@@ -32,12 +32,9 @@ import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/settings/pages/server_address_settings_pages.dart'
     show serverAddressPageId, serverAddressesPageId;
-import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/librechat/views/librechat_sign_in_page.dart';
-import '../../features/hermes/views/hermes_jobs_page.dart';
-import '../../features/hermes/views/hermes_mcp_page.dart';
-import '../../features/hermes/views/hermes_hidden_sessions_page.dart';
+import '../../features/settings/pages/hermes_page_ids.dart';
 import '../../features/hermes/views/hermes_room_page.dart';
 import '../../features/push/views/push_privacy_page.dart';
 import '../../features/settings/views/settings_page_view.dart';
@@ -616,10 +613,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
         // Onboarding sets up the first connection directly; afterwards this
-        // is the list of saved connections.
+        // is Hermes Agent's page of Settings.
         child: state.extra == true
             ? const HermesSettingsPage(isOnboarding: true)
-            : const HermesConnectionsPage(),
+            : const SettingsDetailPage(detailId: hermesSettingsPageId),
       ),
     ),
     GoRoute(
@@ -629,9 +626,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         final id = state.pathParameters['id']!;
         return _buildPlatformPage(
           state: state,
-          child: HermesSettingsPage(
+          child: SettingsDetailPage(
             key: ValueKey<String>('hermes-connection-editor-$id'),
-            connectionId: id == Routes.hermesNewConnectionId ? null : id,
+            detailId: hermesConnectionPageId(
+              id == Routes.hermesNewConnectionId ? null : id,
+            ),
           ),
         );
       },
@@ -639,21 +638,25 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.hermesJobs,
       name: RouteNames.hermesJobs,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const HermesJobsPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: hermesJobsPageId),
+      ),
     ),
     GoRoute(
       path: Routes.hermesMcp,
       name: RouteNames.hermesMcp,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const HermesMcpPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: hermesMcpPageId),
+      ),
     ),
     GoRoute(
       path: Routes.hermesHiddenSessions,
       name: RouteNames.hermesHiddenSessions,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const HermesHiddenSessionsPage(),
+        child: const SettingsDetailPage(detailId: hermesHiddenChatsPageId),
       ),
     ),
     GoRoute(

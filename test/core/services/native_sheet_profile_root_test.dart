@@ -4,6 +4,7 @@ import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart'
     show nativeProfileSheetFieldsDiffer;
 import 'package:conduit/features/settings/pages/direct_connection_page_ids.dart';
+import 'package:conduit/features/settings/pages/hermes_page_ids.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
@@ -534,11 +535,10 @@ void main() {
       expect(laptop.sfSymbol, 'desktopcomputer');
       expect(laptop.actionId, nativeHermesUseActionId);
       expect(laptop.actionValue, 'hermes-laptop');
-      // Its own row opens the Hermes page.
-      expect(
-        _item(page.sections, 'accounts-hermes').actionId,
-        NativeSheetRoutes.hermes,
-      );
+      // Its own row opens Hermes Agent's page of Settings.
+      final hermes = _item(page.sections, hermesSettingsPageId);
+      expect(hermes.dismissOnSelect, isFalse);
+      expect(hermes.actionId, isNull);
     });
 
     test('an account or connection whose push needs the user says so', () {
@@ -644,25 +644,29 @@ void main() {
 
       expect(kinds(libreChat: false).map((row) => row.actionValue), [
         'openWebUi',
-        'hermes',
+        null,
         null,
       ]);
       final rows = kinds(libreChat: true);
       expect(rows.map((row) => row.actionValue), [
         'openWebUi',
         'libreChat',
-        'hermes',
+        null,
         null,
       ]);
       // A sign-in is a flow of its own, opened as the sheet closes.
       expect(
-        rows.take(3).every(
+        rows.take(2).every(
           (row) =>
               row.dismissOnSelect && row.actionId == nativeAccountAddActionId,
         ),
         isTrue,
       );
-      // A provider is a form in Settings, the sheet staying open.
+      // A Hermes connection and a provider are forms of Settings's own, the
+      // sheet staying open.
+      final hermes = rows[2];
+      expect(hermes.id, hermesConnectConnectionPageId);
+      expect(hermes.dismissOnSelect, isFalse);
       final direct = rows.last;
       expect(direct.id, directConnectionAddAccountPageId);
       expect(direct.dismissOnSelect, isFalse);
@@ -673,7 +677,6 @@ void main() {
 
       for (final (id, kind) in [
         ('accounts-openwebui-add', 'openWebUi'),
-        ('accounts-hermes-add', 'hermes'),
       ]) {
         final add = _item(page.sections, id);
         expect(add.accent, isTrue, reason: id);
@@ -685,6 +688,10 @@ void main() {
       expect(direct.accent, isTrue);
       expect(direct.dismissOnSelect, isFalse);
       expect(direct.actionId, isNull);
+      // Hermes adds its first connection in a page of Settings's own.
+      final hermes = _item(page.sections, hermesConnectConnectionPageId);
+      expect(hermes.accent, isTrue);
+      expect(hermes.dismissOnSelect, isFalse);
     });
 
     test('unread accounts say so, and unread providers offer no add', () {

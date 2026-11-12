@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/hermes/views/hermes_mcp_page.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/features/settings/pages/hermes_mcp_settings_pages.dart';
+import 'package:conduit/features/settings/pages/hermes_page_ids.dart';
+import 'package:conduit/features/settings/settings_page_module.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -12,12 +16,14 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.d
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 
@@ -177,6 +183,53 @@ final class _Hermes implements HttpClientAdapter {
   }
 }
 
+/// The MCP pages as Settings drives them.
+final class _Rig {
+  _Rig(this.tester, this.container);
+
+  final WidgetTester tester;
+  final ProviderContainer container;
+
+  HermesMcpSettingsPages get module => container
+      .read(settingsPageModulesProvider)
+      .whereType<HermesMcpSettingsPages>()
+      .single;
+
+  NativeSheetDetailConfig page(String id) =>
+      container.read(settingsPagesProvider)[id]!;
+
+  List<NativeSheetItemConfig> rows(String id) => [
+    ...page(id).items,
+    for (final section in page(id).sections) ...section.items,
+  ];
+
+  Iterable<String> titles(String id) => rows(id).map((row) => row.title);
+
+  Future<void> open(String id) async {
+    if (container.read(settingsPagesProvider)[id] == null) {
+      container.read(settingsPagesProvider.notifier).register([
+        NativeSheetDetailConfig(id: id, title: ''),
+      ]);
+    }
+    await settle(module.hydrate(id, _l10n));
+  }
+
+  Future<void> change(String id, [Object? value = true]) =>
+      settle(module.handleChange(id, value, _l10n));
+
+  Future<void> settle(Future<Object?> work) async {
+    var done = false;
+    unawaited(work.whenComplete(() => done = true));
+    for (var i = 0; i < 500 && !done; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    await work;
+  }
+}
+
+String _entryPage(String name) =>
+    '$hermesMcpCatalogEntryPagePrefix${Uri.encodeComponent(name)}';
+
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -184,26 +237,30 @@ void main() {
   });
   tearDown(PreferencesStore.debugReset);
 
-  Future<void> openCatalog(WidgetTester tester, _Hermes hermes) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: const HermesMcpPage(),
-        ),
-      ),
+  /// Opens the MCP page, then the catalog.
+  Future<_Rig> openCatalog(WidgetTester tester, _Hermes hermes) async {
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.auto_awesome_outlined));
-    await tester.pumpAndSettle();
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    await rig.open(hermesMcpCatalogPageId);
+    return rig;
   }
 
-  Future<void> answer(WidgetTester tester, String value, String button) async {
-    await tester.enterText(find.byType(TextField), value);
-    await tester.tap(find.widgetWithText(TextButton, button));
-    await tester.pumpAndSettle();
+  /// Opens [name]'s catalog page and adds it with [values].
+  Future<void> add(
+    _Rig rig,
+    String name, [
+    Map<String, String> values = const {},
+  ]) async {
+    await rig.open(_entryPage(name));
+    for (final MapEntry(:key, :value) in values.entries) {
+      await rig.change(hermesMcpRowId('catalog-credential', name, key), value);
+    }
+    await rig.change(hermesMcpRowId('catalog-add', name));
   }
 
   // A catalog server was added with its name only, so one that needs keys
@@ -233,25 +290,26 @@ void main() {
         },
       ],
     );
-    await openCatalog(tester, hermes);
-    expect(
-      find.text(
-        'Tide times for the coast\nAsks for TIDE_API_KEY, '
-        'TIDE_REGION',
-      ),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('tide-tables'));
-    await tester.pumpAndSettle();
+    final rig = await openCatalog(tester, hermes);
+    check(rig.rows(hermesMcpCatalogPageId).single.subtitle)
+        .equals('Tide times for the coast\nAsks for TIDE_API_KEY, TIDE_REGION');
+    await rig.open(_entryPage('tide-tables'));
+    check(rig.titles(_entryPage('tide-tables')))
+      ..contains('Tide tables API key')
+      ..contains('Coast region');
 
-    expect(find.text('Tide tables API key'), findsOneWidget);
-    // Required: asked again until it is given.
-    await answer(tester, '  ', 'Next');
-    expect(find.text('Tide tables API key'), findsOneWidget);
-    await answer(tester, 'synthetic-tide-key', 'Next');
-    expect(find.text('Coast region'), findsOneWidget);
+    // Required: refused until it is given.
+    await add(rig, 'tide-tables', {'TIDE_API_KEY': '  '});
+    check(hermes.installs).isEmpty();
+    check(rig.titles(_entryPage('tide-tables')))
+        .contains('Fill in every required value.');
+
     // Optional: left out when empty.
-    await answer(tester, '', 'Add');
+    await rig.change(
+      hermesMcpRowId('catalog-credential', 'tide-tables', 'TIDE_API_KEY'),
+      'synthetic-tide-key',
+    );
+    await rig.change(hermesMcpRowId('catalog-add', 'tide-tables'));
 
     check(hermes.installs).deepEquals([
       {
@@ -264,7 +322,9 @@ void main() {
     await hermes.dispose();
   });
 
-  testWidgets('a value cancelled adds nothing', (tester) async {
+  testWidgets('a page left before Add adds nothing, and forgets its values', (
+    tester,
+  ) async {
     final hermes = _Hermes(
       dashboardCatalog: [
         {
@@ -276,10 +336,14 @@ void main() {
         },
       ],
     );
-    await openCatalog(tester, hermes);
-    await tester.tap(find.text('tide-tables'));
-    await tester.pumpAndSettle();
-    await answer(tester, 'synthetic-tide-key', 'Cancel');
+    final rig = await openCatalog(tester, hermes);
+    await rig.open(_entryPage('tide-tables'));
+    await rig.change(
+      hermesMcpRowId('catalog-credential', 'tide-tables', 'TIDE_API_KEY'),
+      'synthetic-tide-key',
+    );
+    rig.module.pageLeft(_entryPage('tide-tables'));
+    await rig.change(hermesMcpRowId('catalog-add', 'tide-tables'));
 
     check(hermes.installs).isEmpty();
     check(hermes.calls('mcp.servers.add')).isEmpty();
@@ -300,17 +364,14 @@ void main() {
         {'name': 'tide-notes', 'installed': false, 'requires': <String>[]},
       ],
     );
-    await openCatalog(tester, hermes);
-    expect(
-      find.textContaining('which this connection cannot send'),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('tide-tables'));
-    await tester.pumpAndSettle();
-    check(hermes.calls('mcp.servers.add')).isEmpty();
+    final rig = await openCatalog(tester, hermes);
+    final tables = rig
+        .rows(hermesMcpCatalogPageId)
+        .singleWhere((row) => row.title == 'tide-tables');
+    check(tables.subtitle!).contains('which this connection cannot send');
+    check(tables.disabled).isTrue();
 
-    await tester.tap(find.text('tide-notes'));
-    await tester.pumpAndSettle();
+    await add(rig, 'tide-notes');
     check(
       hermes.calls('mcp.servers.add').map((it) => (it['name'], it['preset'])),
     ).deepEquals([('tide-notes', 'tide-notes')]);
@@ -326,9 +387,8 @@ void main() {
         {'name': 'tide-notes', 'installed': false, 'required_env': <Object?>[]},
       ],
     );
-    await openCatalog(tester, hermes);
-    await tester.tap(find.text('tide-notes'));
-    await tester.pumpAndSettle();
+    final rig = await openCatalog(tester, hermes);
+    await add(rig, 'tide-notes');
 
     check(hermes.installs).deepEquals([
       {'name': 'tide-notes', 'enable': true, 'env': <String, String>{}},
@@ -345,13 +405,14 @@ void main() {
         {'name': 'tide-notes', 'installed': false, 'required_env': <Object?>[]},
       ],
     )..failAfterInstall.add('tide-notes');
-    await openCatalog(tester, hermes);
-    await tester.tap(find.text('tide-notes'));
-    await tester.pumpAndSettle();
+    final rig = await openCatalog(tester, hermes);
+    await add(rig, 'tide-notes');
 
-    expect(find.text('Hermes MCP action failed.'), findsOneWidget);
-    expect(find.text('tide-notes'), findsOneWidget);
-    expect(find.text('No MCP servers configured.'), findsNothing);
+    check(rig.titles(_entryPage('tide-notes')))
+        .contains('Hermes MCP action failed.');
+    check(rig.titles(hermesMcpPageId))
+      ..contains('tide-notes')
+      ..not((it) => it.contains('No MCP servers configured.'));
     await hermes.dispose();
   });
 
@@ -370,9 +431,8 @@ void main() {
         },
       ],
     )..failListOnceAdded = true;
-    await openCatalog(tester, hermes);
-    await tester.tap(find.text('tide-calendar'));
-    await tester.pumpAndSettle();
+    final rig = await openCatalog(tester, hermes);
+    await add(rig, 'tide-calendar');
 
     check(hermes.calls('mcp.servers.oauth.start').map((it) => it['name']))
         .deepEquals(['tide-calendar']);
@@ -395,16 +455,12 @@ void main() {
           )
           ..oauth.add('tide-calendar')
           ..background.add('tide-calendar');
-    await openCatalog(tester, hermes);
-    await tester.tap(find.text('tide-calendar'));
-    await tester.pumpAndSettle();
+    final rig = await openCatalog(tester, hermes);
+    await add(rig, 'tide-calendar');
 
-    expect(
-      find.textContaining(
-        'Hermes is still installing tide-calendar. Once it '
-        'is listed, sign in with Authenticate',
-      ),
-      findsOneWidget,
+    check(rig.page(hermesMcpPageId).announcement!).contains(
+      'Hermes is still installing tide-calendar. Once it is listed, sign in '
+      'with Authenticate',
     );
     check(hermes.calls('mcp.servers.oauth.start')).isEmpty();
     await hermes.dispose();
@@ -423,21 +479,47 @@ void main() {
         },
       ],
     )..oauth.add('tide-calendar');
-    await openCatalog(tester, hermes);
-    await tester.tap(find.text('tide-calendar'));
-    await tester.pumpAndSettle();
+    final rig = await openCatalog(tester, hermes);
+    await add(rig, 'tide-calendar');
 
     check(hermes.calls('mcp.servers.oauth.start').map((it) => it['name']))
         .deepEquals(['tide-calendar']);
     // The fake starts no sign-in, so it does not finish: the server is still
     // added, and the page says where to sign in again.
-    expect(
-      find.text(
-        "Added tide-calendar, but signing in didn't finish. Use "
-        'Authenticate from its menu to try again.',
-      ),
-      findsOneWidget,
+    check(rig.page(hermesMcpPageId).announcement).equals(
+      "Added tide-calendar, but signing in didn't finish. Use Authenticate "
+      'from its page to try again.',
     );
+    await hermes.dispose();
+  });
+
+  testWidgets('a server added by hand is sent with what was typed, and the '
+      'key is not kept', (tester) async {
+    final hermes = _Hermes();
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    await rig.open(hermesMcpAddPageId);
+
+    await rig.change(hermesMcpRowId('add-name'), 'tide-notes');
+    await rig.change(hermesMcpRowId('add-url'), 'https://tides.example/mcp');
+    await rig.change(hermesMcpRowId('add-key'), 'synthetic-mcp-key');
+    await rig.change(hermesMcpRowId('add'));
+
+    final sent = hermes.calls('mcp.servers.add').single;
+    check(sent['name']).equals('tide-notes');
+    check(rig.titles(hermesMcpPageId)).contains('tide-notes');
+
+    // Opened again, the form starts empty.
+    await rig.open(hermesMcpAddPageId);
+    await rig.change(hermesMcpRowId('add-name'), 'tide-more');
+    await rig.change(hermesMcpRowId('add'));
+    check(hermes.calls('mcp.servers.add').last.toString())
+        .not((it) => it.contains('synthetic-mcp-key'));
     await hermes.dispose();
   });
 }

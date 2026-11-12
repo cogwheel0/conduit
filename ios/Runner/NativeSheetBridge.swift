@@ -5678,6 +5678,11 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         let previousSectionCount = tableSections.count
         let previousAnnouncement = detail.announcement
+        // Its owner had it edited and says it no longer is: what was
+        // changed on it has been saved.
+        if detail.edited && !newDetail.edited {
+            controlEdits = false
+        }
         detail = newDetail
         if let announcement = newDetail.announcement, !announcement.isEmpty,
            announcement != previousAnnouncement {

@@ -208,6 +208,11 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
         ),
       );
     }
+    // Its owner had it edited and says it no longer is: what was changed on
+    // it has been saved, as the native sheet takes it.
+    if (oldWidget.detail.edited && !widget.detail.edited) {
+      _controlEdits = false;
+    }
     if (!identical(oldWidget.detail, widget.detail)) {
       _pendingText.clear();
       _committedText.clear();

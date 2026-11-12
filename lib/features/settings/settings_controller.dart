@@ -675,13 +675,6 @@ class SettingsController {
       }
 
       switch (event.id) {
-        case NativeSheetRoutes.hermes:
-          unawaited(
-            NavigationService.router.pushNamed<void>(
-              RouteNames.hermesSettings,
-              extra: origin,
-            ),
-          );
         case NativeSheetRoutes.workspace:
           final capabilities = ref.read(workspaceCapabilitiesProvider).value;
           final permitted = capabilities == null

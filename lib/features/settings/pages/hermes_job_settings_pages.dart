@@ -1,0 +1,1323 @@
+import 'dart:async';
+
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import '../../../core/services/native_sheet_bridge.dart';
+import '../../../core/utils/native_sheet_utils.dart';
+import '../../../shared/services/navigation_service.dart';
+import '../../hermes/widgets/hermes_job_delivery_field.dart'
+    show describeHermesJobDelivery, hermesDeliveryOptionLabel;
+import '../../hermes/widgets/hermes_job_editor.dart' show hermesJobCatchUpLabel;
+import '../../hermes/widgets/hermes_session_tile.dart'
+    show openHermesSessionReading;
+import '../settings_page_module.dart';
+import '../settings_pages.dart';
+import 'hermes_page_ids.dart';
+
+/// Prefix of a scheduled agent's page; its URI-encoded id follows.
+const hermesJobPagePrefix = 'hermes-job:';
+
+/// Prefix of a scheduled agent's editor; the URI-encoded job id, or
+/// [hermesNewJobKey] for a new one, follows.
+const hermesJobEditorPagePrefix = 'hermes-job-edit:';
+
+/// Prefix of an editor's Deliver To page; the editor's key follows.
+const hermesJobDeliveryPagePrefix = 'hermes-job-deliver:';
+
+/// The key of the editor of a new scheduled agent.
+const hermesNewJobKey = 'new';
+
+/// Prefix of the rows of the scheduled agents' pages.
+const hermesJobRowPrefix = 'hermes-job.';
+
+String hermesJobPageId(String jobId) =>
+    '$hermesJobPagePrefix${Uri.encodeComponent(jobId)}';
+
+/// The editor of job [jobId], or of a new one when it is null.
+String hermesJobEditorPageId(String? jobId) =>
+    '$hermesJobEditorPagePrefix'
+    '${jobId == null ? hermesNewJobKey : Uri.encodeComponent(jobId)}';
+
+/// A row of the scheduled agents' pages: `hermes-job.<field>:<key>`, with
+/// [extra] after another colon.
+String hermesJobRowId(String field, String key, [String? extra]) =>
+    '$hermesJobRowPrefix$field:$key'
+    '${extra == null ? '' : ':${Uri.encodeComponent(extra)}'}';
+
+/// How often a shown list is read again while a run is in flight or being
+/// stopped: a cancel lands at the run's next cancel check, about a second
+/// after it is asked for.
+const Duration _liveRunPollInterval = Duration(seconds: 2);
+
+/// How often an idle list is read again, so a run the scheduler or another
+/// client starts shows up with its Stop.
+const Duration _idlePollInterval = Duration(seconds: 15);
+
+/// What the scheduled agents' pages show.
+@immutable
+@visibleForTesting
+final class HermesJobsState {
+  const HermesJobsState({
+    required this.jobs,
+    this.failed = false,
+    this.writable = true,
+    this.desktop = false,
+    this.stopUnsupported = false,
+    this.stopping = const {},
+    this.runPending = const {},
+    this.busy = const {},
+    this.creating = false,
+    this.notice,
+    this.deliveryOptions,
+  });
+
+  /// Null while the list is read.
+  final List<HermesJob>? jobs;
+  final bool failed;
+  final bool writable;
+  final bool desktop;
+  final bool stopUnsupported;
+
+  /// Jobs whose run is being stopped.
+  final Set<String> stopping;
+
+  /// Jobs whose Run Now is still waiting on its run.
+  final Set<String> runPending;
+
+  /// Jobs with a change of their own under way.
+  final Set<String> busy;
+  final bool creating;
+  final String? notice;
+  final HermesDeliveryOptions? deliveryOptions;
+
+  bool canStop(HermesJob job) => desktop && writable && !stopUnsupported;
+
+  bool runLive(HermesJob job) => job.runInFlight || runPending.contains(job.id);
+}
+
+String _jobKey(String jobId) => Uri.encodeComponent(jobId);
+
+/// The scheduled agents of the Hermes connection in use: a row adding one,
+/// then each agent, opening its page; its menu runs, pauses or deletes it.
+@visibleForTesting
+NativeSheetDetailConfig buildHermesJobsPage(
+  AppLocalizations l10n,
+  HermesJobsState state,
+) {
+  const pageId = hermesJobsPageId;
+  NativeSheetItemConfig note(String id, String title, String symbol) =>
+      NativeSheetItemConfig(
+        id: '$pageId-$id',
+        title: title,
+        sfSymbol: symbol,
+        kind: NativeSheetItemKind.info,
+      );
+  final jobs = state.jobs;
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: l10n.hermesScheduledAgentsTitle,
+    announcement: state.notice,
+    sections: [
+      if (state.notice != null)
+        NativeSheetSectionConfig(
+          items: [note('notice', state.notice!, 'info.circle')],
+        ),
+      NativeSheetSectionConfig(
+        footer: state.writable ? null : l10n.hermesJobAdminDisabled,
+        items: [
+          NativeSheetItemConfig(
+            id: hermesJobEditorPageId(null),
+            title: l10n.hermesJobNew,
+            sfSymbol: 'plus.circle',
+            accent: true,
+            disabled: !state.writable || state.creating,
+            pending: state.creating ? true : null,
+          ),
+        ],
+      ),
+      if (state.failed)
+        NativeSheetSectionConfig(
+          items: [
+            note(
+              'failed',
+              l10n.hermesJobLoadFailed,
+              'exclamationmark.triangle',
+            ),
+          ],
+        )
+      else if (jobs == null)
+        NativeSheetSectionConfig(
+          items: [buildNativeLoadingItem(l10n, id: '$pageId-loading')],
+        )
+      else if (jobs.isEmpty)
+        NativeSheetSectionConfig(
+          items: [
+            note(
+              'empty',
+              '${l10n.hermesNoSchedulesYet}\n${l10n.hermesJobEmptyMessage}',
+              'clock',
+            ),
+          ],
+        )
+      else
+        NativeSheetSectionConfig(
+          items: [for (final job in jobs) _jobRow(l10n, state, job)],
+        ),
+    ],
+  );
+}
+
+NativeSheetItemConfig _jobRow(
+  AppLocalizations l10n,
+  HermesJobsState state,
+  HermesJob job,
+) {
+  final key = _jobKey(job.id);
+  // Only the Desktop Gateway says how a run is going.
+  final live = state.desktop && state.runLive(job);
+  final stopping = state.stopping.contains(job.id);
+  final busy = state.busy.contains(job.id);
+  return NativeSheetItemConfig(
+    id: hermesJobPageId(job.id),
+    title: job.displayName,
+    subtitle: [
+      describeHermesCronSchedule(job.schedule),
+      if (stopping)
+        l10n.hermesJobStopping
+      else if (live)
+        l10n.hermesJobRunning
+      else if (!job.enabled)
+        l10n.hermesJobPaused,
+    ].join(' · '),
+    sfSymbol: job.enabled ? 'clock' : 'pause.circle',
+    pending: busy || live ? true : null,
+    rowActions: [
+      if (state.writable && !busy && !job.runInFlight)
+        NativeSheetRowAction(
+          id: hermesJobRowId('run', key),
+          label: l10n.hermesJobRunNow,
+          sfSymbol: 'play',
+        ),
+      if (state.canStop(job) && live && !stopping)
+        NativeSheetRowAction(
+          id: hermesJobRowId('stop', key),
+          label: l10n.hermesJobStop,
+          sfSymbol: 'stop',
+          destructive: true,
+        ),
+      if (state.writable && !busy)
+        NativeSheetRowAction(
+          id: hermesJobRowId('delete', key),
+          label: l10n.hermesJobDelete,
+          sfSymbol: 'trash',
+          destructive: true,
+          confirmMessage: l10n.hermesJobDeleteMessage,
+        ),
+    ],
+  );
+}
+
+String _formatTime(AppLocalizations l10n, DateTime value) =>
+    DateFormat.yMMMd(l10n.localeName).add_jm().format(value.toLocal());
+
+/// A scheduled agent's page: whether it runs, when, where its results go,
+/// how its last run went, Run Now and Stop, its editor, its recent runs
+/// (each opening its chat), and Delete.
+@visibleForTesting
+NativeSheetDetailConfig buildHermesJobPage(
+  AppLocalizations l10n,
+  HermesJobsState state,
+  String jobId, {
+  List<HermesSessionSummary>? runs,
+  bool runsFailed = false,
+}) {
+  final pageId = hermesJobPageId(jobId);
+  final key = _jobKey(jobId);
+  final job = state.jobs?.where((job) => job.id == jobId).firstOrNull;
+  NativeSheetItemConfig fact(
+    String id,
+    String title,
+    String? value, [
+    String symbol = 'info.circle',
+  ]) => NativeSheetItemConfig(
+    id: '$pageId-$id',
+    title: title,
+    subtitle: value,
+    sfSymbol: symbol,
+    kind: NativeSheetItemKind.info,
+  );
+  if (job == null) {
+    return NativeSheetDetailConfig(
+      id: pageId,
+      title: l10n.hermesScheduledAgentsTitle,
+      items: [
+        if (state.jobs == null && !state.failed)
+          buildNativeLoadingItem(l10n, id: '$pageId-loading')
+        else
+          fact(
+            'gone',
+            l10n.hermesJobLoadFailed,
+            null,
+            'exclamationmark.triangle',
+          ),
+      ],
+    );
+  }
+  final live = state.runLive(job);
+  final stopping = state.stopping.contains(job.id);
+  final busy = state.busy.contains(job.id);
+  final cancelReason = live ? null : job.lastCancelReason;
+  final outcome = stopping
+      ? l10n.hermesJobStopping
+      : live
+      ? l10n.hermesJobRunning
+      : cancelReason != null
+      ? (cancelReason.isEmpty
+            ? l10n.hermesJobLastCancelledNoReason
+            : l10n.hermesJobLastCancelled(cancelReason))
+      : job.lastStatus?.isNotEmpty == true
+      ? l10n.hermesLastStatus(job.lastStatus!)
+      : null;
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: job.displayName,
+    announcement: state.notice,
+    sections: [
+      if (state.notice != null)
+        NativeSheetSectionConfig(items: [fact('notice', state.notice!, null)]),
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: hermesJobRowId('enabled', key),
+            title: l10n.enabled,
+            subtitle: job.enabled ? null : l10n.hermesJobPaused,
+            sfSymbol: 'power',
+            kind: NativeSheetItemKind.toggle,
+            value: job.enabled,
+            disabled: !state.writable || busy,
+          ),
+        ],
+      ),
+      NativeSheetSectionConfig(
+        items: [
+          fact(
+            'schedule',
+            l10n.hermesJobScheduleLabel,
+            hermesScheduleNeedsRawDisplay(job.schedule)
+                ? '${describeHermesCronSchedule(job.schedule)}\n${job.schedule}'
+                : describeHermesCronSchedule(job.schedule),
+            'clock',
+          ),
+          if (state.desktop) ...[
+            fact(
+              'state',
+              l10n.hermesJobStateLabel,
+              job.state ?? (job.enabled ? 'active' : 'paused'),
+              'circle.dashed',
+            ),
+            fact(
+              'delivery',
+              l10n.hermesJobDeliveryLabel,
+              describeHermesJobDelivery(
+                l10n,
+                job.deliveryTarget,
+                options: state.deliveryOptions,
+              ),
+              'paperplane',
+            ),
+            if (job.lastRun != null)
+              fact(
+                'last',
+                l10n.hermesJobLastLabel,
+                _formatTime(l10n, job.lastRun!),
+                'clock.arrow.circlepath',
+              ),
+            if (job.nextRun != null)
+              fact(
+                'next',
+                l10n.hermesJobNextLabel,
+                _formatTime(l10n, job.nextRun!),
+                'calendar',
+              ),
+            if (outcome != null) fact('outcome', outcome, null),
+            if (job.lastError?.isNotEmpty == true)
+              fact('error', job.lastError!, null, 'exclamationmark.triangle'),
+            if (job.lastDeliveryError?.isNotEmpty == true)
+              fact(
+                'delivery-error',
+                'Delivery: ${job.lastDeliveryError}',
+                null,
+                'exclamationmark.triangle',
+              ),
+          ],
+        ],
+      ),
+      if (state.writable)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: hermesJobRowId('run', key),
+              title: l10n.hermesJobRunNow,
+              sfSymbol: 'play',
+              accent: true,
+              showsDisclosure: false,
+              pending: live ? true : null,
+              disabled: busy || job.runInFlight,
+            ),
+            if (state.canStop(job) && (live || stopping))
+              NativeSheetItemConfig(
+                id: hermesJobRowId('stop', key),
+                title: stopping ? l10n.hermesJobStopping : l10n.hermesJobStop,
+                sfSymbol: 'stop',
+                destructive: true,
+                showsDisclosure: false,
+                pending: stopping ? true : null,
+                disabled: stopping,
+              ),
+            NativeSheetItemConfig(
+              id: hermesJobEditorPageId(job.id),
+              title: l10n.hermesJobEdit,
+              sfSymbol: 'pencil',
+              disabled: busy,
+            ),
+          ],
+        ),
+      if (state.desktop)
+        NativeSheetSectionConfig(
+          title: l10n.hermesJobRunHistory,
+          items: [
+            if (runsFailed)
+              fact(
+                'runs-failed',
+                'Could not load run history.',
+                null,
+                'exclamationmark.triangle',
+              )
+            else if (runs == null)
+              buildNativeLoadingItem(l10n, id: '$pageId-runs-loading')
+            else if (runs.isEmpty)
+              fact('runs-none', 'No runs yet.', null, 'clock')
+            else
+              for (final run in runs)
+                NativeSheetItemConfig(
+                  id: hermesJobRowId('open-run', key, run.id),
+                  title: run.title,
+                  subtitle: run.updatedAt == null
+                      ? null
+                      : _formatTime(l10n, run.updatedAt!),
+                  sfSymbol: 'bubble.left',
+                  showsDisclosure: false,
+                ),
+          ],
+        ),
+      if (state.writable)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: hermesJobRowId('delete', key),
+              title: l10n.hermesJobDelete,
+              sfSymbol: 'trash',
+              destructive: true,
+              showsDisclosure: false,
+              disabled: busy,
+              confirmMessage: l10n.hermesJobDeleteMessage,
+            ),
+          ],
+        ),
+    ],
+  );
+}
+
+/// A scheduled agent's editor, as typed so far.
+final class HermesJobDraft {
+  HermesJobDraft({
+    this.jobId,
+    this.name = '',
+    this.prompt = '',
+    this.schedule = '',
+    String? deliver,
+    this.catchUp = HermesJobCatchUp.hermesDefault,
+  }) : initialDeliver = deliver,
+       initialCatchUp = catchUp,
+       deliver = parseHermesDeliveryTargets(deliver).join(',');
+
+  factory HermesJobDraft.of(HermesJob job) => HermesJobDraft(
+    jobId: job.id,
+    name: job.name ?? job.displayName,
+    prompt: job.prompt,
+    schedule: job.schedule,
+    deliver: job.deliveryTarget,
+    catchUp: job.catchUpChoice,
+  );
+
+  final String? jobId;
+  String name;
+  String prompt;
+  String schedule;
+  String deliver;
+  HermesJobCatchUp catchUp;
+  final String? initialDeliver;
+  final HermesJobCatchUp initialCatchUp;
+  bool edited = false;
+  bool shownEdited = false;
+  bool showErrors = false;
+  bool saving = false;
+  String? notice;
+}
+
+/// A scheduled agent's editor: its name, prompt and schedule; on the
+/// Desktop Gateway also what to do with missed runs and where results go.
+@visibleForTesting
+NativeSheetDetailConfig buildHermesJobEditorPage(
+  AppLocalizations l10n,
+  String key,
+  HermesJobDraft draft, {
+  required bool scheduling,
+  HermesDeliveryOptions? deliveryOptions,
+}) {
+  final pageId = '$hermesJobEditorPagePrefix$key';
+  final errors = validateHermesJobDraft(
+    name: draft.name,
+    prompt: draft.prompt,
+    schedule: draft.schedule,
+  );
+  String? errorText(HermesJobFieldError? error, int maximum) =>
+      switch (draft.showErrors ? error : null) {
+        null => null,
+        HermesJobFieldError.required => l10n.requiredFieldHelper,
+        HermesJobFieldError.tooLong => l10n.hermesJobTooLong(maximum),
+        HermesJobFieldError.invalidSchedule => l10n.hermesJobScheduleInvalid,
+      };
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: draft.jobId == null
+        ? l10n.hermesJobNew
+        : l10n.hermesJobEditorEditTitle,
+    confirmActionId: hermesJobRowId('save', key),
+    confirmActionLabel: l10n.save,
+    discardPrompt: nativeDiscardPrompt(l10n),
+    busy: draft.saving,
+    edited: draft.edited,
+    announcement: draft.notice,
+    sections: [
+      if (draft.notice != null)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: '$pageId-notice',
+              title: draft.notice!,
+              sfSymbol: 'exclamationmark.triangle',
+              kind: NativeSheetItemKind.info,
+            ),
+          ],
+        ),
+      NativeSheetSectionConfig(
+        footer: l10n.hermesJobScheduleHelp,
+        items: [
+          NativeSheetItemConfig(
+            id: hermesJobRowId('name', key),
+            title: l10n.name,
+            subtitle: errorText(errors.name, kMaxHermesJobNameCharacters),
+            sfSymbol: 'textformat',
+            kind: NativeSheetItemKind.textField,
+            value: draft.name,
+            placeholder: l10n.hermesJobNameHint,
+          ),
+          NativeSheetItemConfig(
+            id: hermesJobRowId('prompt', key),
+            title: l10n.hermesJobPromptLabel,
+            subtitle: errorText(errors.prompt, kMaxHermesJobPromptCharacters),
+            sfSymbol: 'text.bubble',
+            kind: NativeSheetItemKind.multilineTextField,
+            value: draft.prompt,
+            placeholder: l10n.hermesJobPromptHint,
+          ),
+          NativeSheetItemConfig(
+            id: hermesJobRowId('schedule', key),
+            title: l10n.hermesJobScheduleLabel,
+            subtitle: errorText(
+              errors.schedule,
+              kMaxHermesJobScheduleCharacters,
+            ),
+            sfSymbol: 'clock',
+            kind: NativeSheetItemKind.textField,
+            value: draft.schedule,
+            placeholder: l10n.hermesJobScheduleHint,
+          ),
+        ],
+      ),
+      if (scheduling)
+        NativeSheetSectionConfig(
+          footer: l10n.hermesJobCatchUpHint,
+          items: [
+            NativeSheetItemConfig(
+              id: hermesJobRowId('catch-up', key),
+              title: l10n.hermesJobCatchUpLabel,
+              sfSymbol: 'arrow.uturn.forward',
+              kind: NativeSheetItemKind.segment,
+              value: draft.catchUp.name,
+              options: [
+                for (final choice in HermesJobCatchUp.values)
+                  NativeSheetOptionConfig(
+                    id: choice.name,
+                    label: hermesJobCatchUpLabel(l10n, choice),
+                  ),
+              ],
+            ),
+            NativeSheetItemConfig(
+              id: '$hermesJobDeliveryPagePrefix$key',
+              title: l10n.hermesJobDeliverLabel,
+              subtitle: describeHermesJobDelivery(
+                l10n,
+                draft.deliver,
+                options: deliveryOptions,
+              ),
+              sfSymbol: 'paperplane',
+            ),
+          ],
+        ),
+    ],
+  );
+}
+
+/// Where a scheduled agent's results go: each target Hermes offers, as a
+/// switch. Hermes takes several at once; the last cannot be turned off.
+@visibleForTesting
+NativeSheetDetailConfig buildHermesJobDeliveryPage(
+  AppLocalizations l10n,
+  String key,
+  HermesJobDraft draft, {
+  HermesDeliveryOptions? options,
+  bool loading = false,
+}) {
+  final selected = parseHermesDeliveryTargets(draft.deliver);
+  final all = (options ?? HermesDeliveryOptions.localOnly).withSelected(
+    selected,
+  );
+  List<HermesDeliveryOption> ofKind(Set<HermesDeliveryKind> kinds) =>
+      all.where((option) => kinds.contains(option.kind)).toList();
+  NativeSheetItemConfig row(HermesDeliveryOption option) {
+    final checked = selected.contains(option.target);
+    final locked = checked
+        ? selected.length <= 1
+        : !option.available ||
+              toggleHermesDeliveryTarget(
+                    draft.deliver,
+                    option.target,
+                    selected: true,
+                  ).length >
+                  kMaxHermesJobDeliverCharacters;
+    return NativeSheetItemConfig(
+      id: hermesJobRowId('deliver', key, option.target),
+      title: hermesDeliveryOptionLabel(l10n, option),
+      subtitle: option.available ? null : l10n.hermesJobDeliverNeedsHomeChannel,
+      sfSymbol: switch (option.kind) {
+        HermesDeliveryKind.local => 'tray',
+        HermesDeliveryKind.platform => 'paperplane',
+        HermesDeliveryKind.botChat => 'person.crop.circle',
+        HermesDeliveryKind.room => 'person.3',
+        HermesDeliveryKind.other => 'questionmark.circle',
+      },
+      kind: NativeSheetItemKind.toggle,
+      value: checked,
+      disabled: locked,
+    );
+  }
+
+  final general = ofKind({HermesDeliveryKind.local, HermesDeliveryKind.other});
+  final platforms = ofKind({HermesDeliveryKind.platform});
+  final botChats = ofKind({HermesDeliveryKind.botChat});
+  final rooms = ofKind({HermesDeliveryKind.room});
+  return NativeSheetDetailConfig(
+    id: '$hermesJobDeliveryPagePrefix$key',
+    title: l10n.hermesJobDeliverLabel,
+    sections: [
+      NativeSheetSectionConfig(
+        items: [
+          for (final option in general) row(option),
+          if (loading)
+            buildNativeLoadingItem(
+              l10n,
+              id: '$hermesJobDeliveryPagePrefix$key-loading',
+            ),
+        ],
+      ),
+      if (platforms.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.hermesJobDeliverMessaging,
+          items: [for (final option in platforms) row(option)],
+        ),
+      if (botChats.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.hermesJobDeliverBotChats,
+          items: [for (final option in botChats) row(option)],
+        ),
+      if (rooms.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.hermesJobDeliverGroupChats,
+          footer: l10n.hermesJobDeliverRoomHint,
+          items: [for (final option in rooms) row(option)],
+        ),
+    ],
+  );
+}
+
+/// Hermes' scheduled agents, in pages of Settings: the list, each agent's
+/// page with its recent runs, and the editor with its Deliver To page.
+/// While one of them is shown the list is read again now and then, so a
+/// run started or stopped elsewhere shows.
+class HermesJobSettingsPages extends SettingsPageModule {
+  HermesJobSettingsPages(this._ref);
+
+  final Ref _ref;
+  bool _listening = false;
+  bool _listShown = false;
+  final Set<String> _shownJobs = {};
+  final Map<String, HermesJobDraft> _drafts = {};
+  final Map<String, List<HermesSessionSummary>?> _runs = {};
+  final Set<String> _runsFailed = {};
+  final Map<String, String?> _stopping = {};
+  final Set<String> _runPending = {};
+  final Set<String> _busy = {};
+  bool _stopUnsupported = false;
+  bool _creating = false;
+  String? _notice;
+  HermesDeliveryOptions? _deliveryOptions;
+  bool _deliveryLoading = false;
+  Set<String> _liveJobIds = const {};
+  Timer? _pollTimer;
+  Duration? _pollInterval;
+  AppLocalizations? _l10n;
+
+  SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
+
+  bool get _desktop =>
+      _ref.read(hermesConfigProvider).mode == HermesBackendMode.desktopGateway;
+
+  @override
+  bool ownsPage(String detailId) =>
+      detailId == hermesJobsPageId ||
+      detailId.startsWith(hermesJobPagePrefix) ||
+      detailId.startsWith(hermesJobEditorPagePrefix) ||
+      detailId.startsWith(hermesJobDeliveryPagePrefix);
+
+  void _listen() {
+    if (_listening) return;
+    _listening = true;
+    _ref.listen<AsyncValue<List<HermesJob>>>(hermesJobsProvider, (_, next) {
+      final jobs = next.value;
+      if (jobs != null) _onJobs(jobs);
+      if (_listShown || _shownJobs.isNotEmpty) unawaited(_applyShown());
+    });
+    // A Stop left behind by a connection switch can no longer be settled.
+    _ref.listen(hermesApiServiceProvider, (previous, next) {
+      if (identical(previous, next)) return;
+      _stopping.clear();
+      _runPending.clear();
+      _stopUnsupported = false;
+    });
+  }
+
+  @override
+  Future<void> hydrate(String detailId, AppLocalizations l10n) async {
+    _l10n = l10n;
+    _listen();
+    if (detailId == hermesJobsPageId) {
+      _listShown = true;
+      await _apply(l10n, hermesJobsPageId);
+      unawaited(_readDeliveryOptions());
+    } else if (detailId.startsWith(hermesJobPagePrefix)) {
+      final jobId = Uri.decodeComponent(
+        detailId.substring(hermesJobPagePrefix.length),
+      );
+      _shownJobs.add(jobId);
+      await _apply(l10n, detailId);
+      unawaited(_readRuns(l10n, jobId));
+    } else if (detailId.startsWith(hermesJobEditorPagePrefix)) {
+      final key = detailId.substring(hermesJobEditorPagePrefix.length);
+      final draft = _draft(key);
+      if (draft == null) return;
+      await _applyEditor(l10n, key, draft);
+      if (_desktop) unawaited(_readDeliveryOptions());
+    } else if (detailId.startsWith(hermesJobDeliveryPagePrefix)) {
+      final key = detailId.substring(hermesJobDeliveryPagePrefix.length);
+      final draft = _drafts[key];
+      if (draft == null) return;
+      await _applyDelivery(l10n, key, draft);
+    }
+    _syncPolling();
+  }
+
+  @override
+  void pageLeft(String detailId) {
+    if (detailId == hermesJobsPageId) {
+      _listShown = false;
+      _notice = null;
+    } else if (detailId.startsWith(hermesJobPagePrefix)) {
+      _shownJobs.remove(
+        Uri.decodeComponent(detailId.substring(hermesJobPagePrefix.length)),
+      );
+    } else if (detailId.startsWith(hermesJobEditorPagePrefix)) {
+      // Left, the edit is abandoned.
+      _drafts.remove(detailId.substring(hermesJobEditorPagePrefix.length));
+    }
+    _syncPolling();
+  }
+
+  @override
+  void settingsClosed() {
+    _listShown = false;
+    _shownJobs.clear();
+    _drafts.clear();
+    _notice = null;
+    _syncPolling();
+  }
+
+  HermesJobsState _state() {
+    final jobs = _ref.read(hermesJobsProvider);
+    final capabilities = _ref.read(hermesCapabilitiesProvider).value;
+    return HermesJobsState(
+      jobs: jobs.value,
+      failed: jobs.hasError && jobs.value == null,
+      writable: capabilities?.jobsAdmin ?? true,
+      desktop: _desktop,
+      stopUnsupported: _stopUnsupported,
+      stopping: _stopping.keys.toSet(),
+      runPending: Set.of(_runPending),
+      busy: Set.of(_busy),
+      creating: _creating,
+      notice: _notice,
+      deliveryOptions: _deliveryOptions,
+    );
+  }
+
+  Future<void> _apply(AppLocalizations l10n, String pageId) async {
+    // Read once as the pages open, then followed.
+    if (_ref.read(hermesJobsProvider).value == null) {
+      final listening = _ref.listen(hermesJobsProvider, (_, _) {});
+      try {
+        await _ref
+            .read(hermesJobsProvider.future)
+            .timeout(const Duration(seconds: 15));
+      } catch (_) {
+        // The page says the list could not be read.
+      } finally {
+        listening.close();
+      }
+    }
+    final state = _state();
+    if (pageId == hermesJobsPageId) {
+      await _surface.applyDetail(
+        buildHermesJobsPage(l10n, state),
+        detailSheets: [
+          for (final job in state.jobs ?? const <HermesJob>[]) ...[
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: hermesJobPageId(job.id),
+              title: job.displayName,
+            ),
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: hermesJobEditorPageId(job.id),
+              title: l10n.hermesJobEditorEditTitle,
+            ),
+          ],
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: hermesJobEditorPageId(null),
+            title: l10n.hermesJobNew,
+          ),
+        ],
+      );
+      return;
+    }
+    final jobId = Uri.decodeComponent(
+      pageId.substring(hermesJobPagePrefix.length),
+    );
+    await _surface.applyDetail(
+      buildHermesJobPage(
+        l10n,
+        state,
+        jobId,
+        runs: _runs[jobId],
+        runsFailed: _runsFailed.contains(jobId),
+      ),
+      detailSheets: [
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: hermesJobEditorPageId(jobId),
+          title: l10n.hermesJobEditorEditTitle,
+        ),
+      ],
+    );
+  }
+
+  /// Draws the list and each agent's page that is shown again.
+  Future<void> _applyShown() async {
+    final l10n = _l10n;
+    if (l10n == null) return;
+    if (_listShown) await _apply(l10n, hermesJobsPageId);
+    for (final jobId in _shownJobs.toList()) {
+      await _apply(l10n, hermesJobPageId(jobId));
+    }
+  }
+
+  void _onJobs(List<HermesJob> jobs) {
+    final live = {
+      for (final job in jobs)
+        if (job.runInFlight) job.id,
+    };
+    // A run that ended (or was stopped) now has its final title, such as the
+    // reason it was cancelled, in the run history.
+    for (final jobId in _liveJobIds.difference(live)) {
+      _ref.invalidate(hermesJobRunsProvider(jobId));
+      final l10n = _l10n;
+      if (l10n != null && _shownJobs.contains(jobId)) {
+        unawaited(_readRuns(l10n, jobId));
+      }
+    }
+    _liveJobIds = live;
+    _settleStops(jobs);
+    _syncPolling(jobs);
+  }
+
+  void _settleStops(List<HermesJob> jobs) {
+    final l10n = _l10n;
+    if (_stopping.isEmpty || l10n == null) return;
+    final settled = <String, HermesJobStopOutcome>{};
+    for (final MapEntry(key: jobId, value: executionId) in _stopping.entries) {
+      if (executionId == null) continue;
+      final job = jobs.where((candidate) => candidate.id == jobId).firstOrNull;
+      final outcome = hermesJobStopOutcome(job, executionId);
+      if (outcome != HermesJobStopOutcome.pending) settled[jobId] = outcome;
+    }
+    if (settled.isEmpty) return;
+    settled.keys.forEach(_stopping.remove);
+    _notice = settled.values.last == HermesJobStopOutcome.cancelled
+        ? l10n.hermesJobStopped
+        : l10n.hermesJobFinishedBeforeStop;
+  }
+
+  /// Reads the Desktop Gateway's list again while one of these pages is
+  /// shown: quickly while there is a run to watch, slowly otherwise.
+  void _syncPolling([List<HermesJob>? jobs]) {
+    final shown = _listShown || _shownJobs.isNotEmpty;
+    final current = jobs ?? _ref.read(hermesJobsProvider).value;
+    if (!shown || !_desktop || current == null) {
+      _stopPolling();
+      return;
+    }
+    final watching =
+        _stopping.isNotEmpty ||
+        _runPending.isNotEmpty ||
+        current.any((job) => job.runInFlight);
+    final interval = watching ? _liveRunPollInterval : _idlePollInterval;
+    if (_pollTimer != null && _pollInterval == interval) return;
+    _pollTimer?.cancel();
+    _pollInterval = interval;
+    _pollTimer = Timer.periodic(interval, (_) => _poll());
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollInterval = null;
+  }
+
+  void _poll() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    unawaited(_ref.read(hermesJobsProvider.notifier).refreshQuietly());
+  }
+
+  Future<void> _readDeliveryOptions() async {
+    if (!_desktop || _deliveryLoading) return;
+    _deliveryLoading = true;
+    final listening = _ref.listen(hermesJobDeliveryOptionsProvider, (_, _) {});
+    try {
+      _deliveryOptions = await _ref
+          .read(hermesJobDeliveryOptionsProvider.future)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      // Only local delivery and the job's own targets are offered.
+    } finally {
+      listening.close();
+      _deliveryLoading = false;
+    }
+    final l10n = _l10n;
+    if (l10n == null) return;
+    for (final entry in _drafts.entries) {
+      await _applyEditor(l10n, entry.key, entry.value);
+    }
+  }
+
+  Future<void> _readRuns(AppLocalizations l10n, String jobId) async {
+    if (!_desktop) return;
+    final provider = hermesJobRunsProvider(jobId);
+    final listening = _ref.listen(provider, (_, _) {});
+    try {
+      _runs[jobId] = await _ref
+          .read(provider.future)
+          .timeout(const Duration(seconds: 15));
+      _runsFailed.remove(jobId);
+    } catch (_) {
+      _runsFailed.add(jobId);
+    } finally {
+      listening.close();
+    }
+    if (_shownJobs.contains(jobId)) {
+      await _apply(l10n, hermesJobPageId(jobId));
+    }
+  }
+
+  HermesJobDraft? _draft(String key) {
+    final open = _drafts[key];
+    if (open != null) return open;
+    if (key == hermesNewJobKey) return _drafts[key] = HermesJobDraft();
+    final jobId = Uri.decodeComponent(key);
+    final job = _ref
+        .read(hermesJobsProvider)
+        .value
+        ?.where((job) => job.id == jobId)
+        .firstOrNull;
+    if (job == null) return null;
+    return _drafts[key] = HermesJobDraft.of(job);
+  }
+
+  Future<void> _applyEditor(
+    AppLocalizations l10n,
+    String key,
+    HermesJobDraft draft, {
+    bool withPages = true,
+  }) async {
+    if (!identical(_drafts[key], draft)) return;
+    draft.shownEdited = draft.edited;
+    final scheduling = _desktop;
+    await _surface.applyDetail(
+      buildHermesJobEditorPage(
+        l10n,
+        key,
+        draft,
+        scheduling: scheduling,
+        deliveryOptions: _deliveryOptions,
+      ),
+      detailSheets: [
+        if (withPages && scheduling)
+          buildHermesJobDeliveryPage(
+            l10n,
+            key,
+            draft,
+            options: _deliveryOptions,
+            loading: _deliveryLoading,
+          ),
+      ],
+    );
+  }
+
+  Future<void> _applyDelivery(
+    AppLocalizations l10n,
+    String key,
+    HermesJobDraft draft,
+  ) => _surface.applyDetail(
+    buildHermesJobDeliveryPage(
+      l10n,
+      key,
+      draft,
+      options: _deliveryOptions,
+      loading: _deliveryLoading,
+    ),
+  );
+
+  Future<void> _save(
+    AppLocalizations l10n,
+    String key,
+    HermesJobDraft draft,
+  ) async {
+    if (draft.saving) return;
+    final name = draft.name.trim();
+    final prompt = draft.prompt.trim();
+    final schedule = draft.schedule.trim();
+    if (!hermesJobDraftIsValid(
+      validateHermesJobDraft(name: name, prompt: prompt, schedule: schedule),
+    )) {
+      draft.showErrors = true;
+      await _applyEditor(l10n, key, draft, withPages: false);
+      return;
+    }
+    final editing = draft.jobId != null;
+    final scheduling = _desktop;
+    final deliverChanged =
+        !editing ||
+        !hermesDeliveryTargetsMatch(draft.deliver, draft.initialDeliver);
+    final catchUpChanged = !editing || draft.catchUp != draft.initialCatchUp;
+    if (_ref.read(hermesApiServiceProvider) == null) {
+      draft.notice = editing
+          ? l10n.hermesJobUpdateFailed
+          : l10n.hermesJobCreateFailed;
+      await _applyEditor(l10n, key, draft, withPages: false);
+      return;
+    }
+    draft
+      ..saving = true
+      ..notice = null;
+    if (!editing) _creating = true;
+    await _applyEditor(l10n, key, draft, withPages: false);
+    final jobs = _ref.read(hermesJobsProvider.notifier);
+    try {
+      if (editing) {
+        await jobs.edit(
+          draft.jobId!,
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliver: scheduling && deliverChanged ? draft.deliver : null,
+          catchUp: scheduling && catchUpChanged ? draft.catchUp : null,
+        );
+      } else {
+        await jobs.create(
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliver: scheduling ? draft.deliver : null,
+          catchUp: scheduling ? draft.catchUp : HermesJobCatchUp.hermesDefault,
+        );
+      }
+      _notice = editing ? l10n.hermesJobUpdated : l10n.hermesJobCreated;
+      _drafts.remove(key);
+      await _surface.closeDetail('$hermesJobEditorPagePrefix$key');
+      await _applyShown();
+    } catch (_) {
+      draft
+        ..saving = false
+        ..notice = editing
+            ? l10n.hermesJobUpdateFailed
+            : l10n.hermesJobCreateFailed;
+      await _applyEditor(l10n, key, draft, withPages: false);
+    } finally {
+      draft.saving = false;
+      if (!editing) _creating = false;
+    }
+  }
+
+  /// Runs [action] for job [jobId], saying how it went; the job's rows
+  /// wait meanwhile. Returns whether it went through.
+  Future<bool> _mutate(
+    String jobId,
+    Future<void> Function() action, {
+    required String failureMessage,
+    String? successMessage,
+  }) async {
+    if (_busy.contains(jobId)) return false;
+    if (_ref.read(hermesApiServiceProvider) == null) {
+      _notice = failureMessage;
+      await _applyShown();
+      return false;
+    }
+    _busy.add(jobId);
+    _notice = null;
+    await _applyShown();
+    var succeeded = false;
+    try {
+      await action();
+      succeeded = true;
+      if (successMessage != null) _notice = successMessage;
+    } catch (_) {
+      _notice = failureMessage;
+    } finally {
+      _busy.remove(jobId);
+    }
+    await _applyShown();
+    return succeeded;
+  }
+
+  Future<void> _runNow(AppLocalizations l10n, String jobId) async {
+    if (_busy.contains(jobId)) return;
+    _runPending.add(jobId);
+    _syncPolling();
+    var stopRequested = false;
+    void onStop() => stopRequested = true;
+    _stopRequests[jobId] = onStop;
+    try {
+      final started = await _mutate(
+        jobId,
+        () => _ref.read(hermesJobsProvider.notifier).runNow(jobId),
+        failureMessage: l10n.hermesJobRunFailed,
+      );
+      // A Stop asked for meanwhile announces itself, not a started run.
+      if (started && !stopRequested) {
+        _notice = l10n.hermesJobStarted;
+        await _applyShown();
+      }
+    } finally {
+      _stopRequests.remove(jobId);
+      _runPending.remove(jobId);
+      _syncPolling();
+      await _applyShown();
+    }
+  }
+
+  /// Runs waiting on Run Now, told when Stop is asked for.
+  final Map<String, void Function()> _stopRequests = {};
+
+  Future<void> _stop(AppLocalizations l10n, String jobId) async {
+    if (_stopping.containsKey(jobId)) return;
+    _stopRequests[jobId]?.call();
+    final notifier = _ref.read(hermesJobsProvider.notifier);
+    final service = _ref.read(hermesApiServiceProvider);
+    // A reply from a connection since left says nothing about this one.
+    bool switched() => !identical(_ref.read(hermesApiServiceProvider), service);
+    _stopping[jobId] = null;
+    _notice = null;
+    _syncPolling();
+    await _applyShown();
+    try {
+      final result = await notifier.stopRun(jobId);
+      if (switched()) return;
+      if (result.beforeStart) {
+        // Its Run Now was withdrawn unsent: nothing ran to wait for.
+        _stopping.remove(jobId);
+        _notice = l10n.hermesJobStopped;
+        return;
+      }
+      if (!result.cancelled) {
+        _stopping.remove(jobId);
+        _notice = l10n.hermesJobNothingToStop;
+        return;
+      }
+      if (_stopping.containsKey(jobId)) {
+        _stopping[jobId] = result.executionId ?? '';
+      }
+      await notifier.refreshQuietly();
+    } on HermesJobStopUnsupportedException {
+      if (switched()) return;
+      _stopping.remove(jobId);
+      _stopUnsupported = true;
+      _notice = l10n.hermesJobStopUnsupported;
+    } catch (_) {
+      if (switched()) return;
+      _stopping.remove(jobId);
+      _notice = l10n.hermesJobStopFailed;
+    } finally {
+      _syncPolling();
+      await _applyShown();
+    }
+  }
+
+  Future<void> _openRun(String jobId, String runId) async {
+    final run = _runs[jobId]
+        ?.where((candidate) => candidate.id == runId)
+        .firstOrNull;
+    if (run == null) return;
+    // The chat opens over the app, so Settings closes first.
+    final bridge = NativeSheetBridge.instance;
+    if (bridge.settingsSheetOpen) await bridge.dismiss();
+    final context = NavigationService.context;
+    if (context == null || !context.mounted) return;
+    await openHermesSessionReading(
+      context,
+      _ref.read,
+      run,
+      invalidate: _ref.invalidate,
+    );
+  }
+
+  @override
+  Future<bool> handleChange(
+    String id,
+    Object? value,
+    AppLocalizations l10n,
+  ) async {
+    if (!id.startsWith(hermesJobRowPrefix)) return false;
+    _l10n = l10n;
+    final parts = id.substring(hermesJobRowPrefix.length).split(':');
+    if (parts.length < 2) return true;
+    final field = parts[0];
+    final key = parts[1];
+    final extra = parts.length > 2 ? Uri.decodeComponent(parts[2]) : null;
+    final jobId = Uri.decodeComponent(key);
+    switch (field) {
+      case 'run':
+        await _runNow(l10n, jobId);
+      case 'stop':
+        await _stop(l10n, jobId);
+      case 'enabled':
+        if (value is! bool) return true;
+        final enabled = value;
+        await _mutate(
+          jobId,
+          () =>
+              _ref.read(hermesJobsProvider.notifier).setEnabled(jobId, enabled),
+          failureMessage: enabled
+              ? l10n.hermesJobResumeFailed
+              : l10n.hermesJobPauseFailed,
+          successMessage: enabled
+              ? l10n.hermesJobResumed
+              : l10n.hermesJobPausedSuccess,
+        );
+      case 'delete':
+        final deleted = await _mutate(
+          jobId,
+          () => _ref.read(hermesJobsProvider.notifier).delete(jobId),
+          failureMessage: l10n.hermesJobDeleteFailed,
+          successMessage: l10n.hermesJobDeleted,
+        );
+        if (deleted) await _surface.closeDetail(hermesJobPageId(jobId));
+      case 'open-run' when extra != null:
+        await _openRun(jobId, extra);
+      case 'name' || 'prompt' || 'schedule' when value is String:
+        final draft = _drafts[key];
+        if (draft == null) return true;
+        switch (field) {
+          case 'name':
+            if (draft.name == value) return true;
+            draft.name = value;
+          case 'prompt':
+            if (draft.prompt == value) return true;
+            draft.prompt = value;
+          default:
+            if (draft.schedule == value) return true;
+            draft.schedule = value;
+        }
+        draft.edited = true;
+        // Errors already shown follow the text as it is fixed.
+        if (draft.showErrors) {
+          await _applyEditor(l10n, key, draft, withPages: false);
+        }
+      case 'catch-up' when value is String:
+        final draft = _drafts[key];
+        final choice = HermesJobCatchUp.values.asNameMap()[value];
+        if (draft == null || choice == null) return true;
+        draft
+          ..catchUp = choice
+          ..edited = true;
+      case 'deliver' when extra != null && value is bool:
+        final draft = _drafts[key];
+        if (draft == null) return true;
+        draft
+          ..deliver = toggleHermesDeliveryTarget(
+            draft.deliver,
+            extra,
+            selected: value,
+          )
+          ..edited = true;
+        await _applyDelivery(l10n, key, draft);
+        // The editor, under the Deliver To page, now asks before leaving.
+        await _applyEditor(l10n, key, draft, withPages: false);
+      case 'save':
+        final draft = _drafts[key];
+        if (draft != null) await _save(l10n, key, draft);
+    }
+    return true;
+  }
+}
