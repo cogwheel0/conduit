@@ -114,6 +114,11 @@ final class _McpEditor {
   bool saving = false;
   bool testing = false;
 
+  /// The header being added, and what is wrong with it.
+  String headerName = '';
+  String headerValue = '';
+  String? headerNotice;
+
   /// The fields as they were when the server was read in.
   String? baseline;
 
@@ -182,7 +187,8 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
       detailId.startsWith(directConnectionPagePrefix) ||
       detailId.startsWith(directConnectionAdvancedPagePrefix) ||
       detailId.startsWith(directConnectionHeaderPagePrefix) ||
-      detailId.startsWith(directMcpPagePrefix);
+      detailId.startsWith(directMcpPagePrefix) ||
+      detailId.startsWith(directMcpHeaderPagePrefix);
 
   @override
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
@@ -219,7 +225,14 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
       await _applyHeader(l10n, key, editor);
     } else if (detailId.startsWith(directMcpPagePrefix)) {
       final key = detailId.substring(directMcpPagePrefix.length);
-      await _applyMcp(l10n, key, _mcpEditor(key));
+      await _applyMcp(l10n, key, _mcpEditor(key), registerChildren: true);
+    } else if (detailId.startsWith(directMcpHeaderPagePrefix)) {
+      final key = detailId.substring(directMcpHeaderPagePrefix.length);
+      final entry = _mcpEditor(key)
+        ..headerName = ''
+        ..headerValue = ''
+        ..headerNotice = null;
+      await _applyMcpHeader(l10n, key, entry);
     }
   }
 
@@ -530,18 +543,65 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
     return entry;
   }
 
-  Future<void> _applyMcp(AppLocalizations l10n, String key, _McpEditor entry) =>
-      _surface.applyDetail(
-        buildDirectMcpServerPage(
-          l10n,
-          serverKey: key,
-          editor: entry.editor,
-          loadFailed: _ref.read(directMcpServersProvider).hasError,
-          edited: entry.edited,
-          saving: entry.saving,
-          testing: entry.testing,
-        ),
-      );
+  Future<void> _applyMcp(
+    AppLocalizations l10n,
+    String key,
+    _McpEditor entry, {
+    bool registerChildren = false,
+  }) {
+    final header = buildDirectMcpHeaderPage(l10n, serverKey: key);
+    return _surface.applyDetail(
+      buildDirectMcpServerPage(
+        l10n,
+        serverKey: key,
+        editor: entry.editor,
+        loadFailed: _ref.read(directMcpServersProvider).hasError,
+        edited: entry.edited,
+        saving: entry.saving,
+        testing: entry.testing,
+      ),
+      detailSheets: [
+        if (registerChildren ||
+            !_ref.read(settingsPagesProvider).contains(header.id))
+          header,
+      ],
+    );
+  }
+
+  Future<void> _applyMcpHeader(
+    AppLocalizations l10n,
+    String key,
+    _McpEditor entry,
+  ) => _surface.applyDetail(
+    buildDirectMcpHeaderPage(
+      l10n,
+      serverKey: key,
+      name: entry.headerName,
+      value: entry.headerValue,
+      notice: entry.headerNotice,
+    ),
+  );
+
+  /// Adds the header typed on the Add Header page and goes back to the
+  /// server, now edited; or says there what is wrong with it.
+  Future<void> _addMcpHeader(
+    AppLocalizations l10n,
+    String key,
+    _McpEditor entry,
+  ) async {
+    final problem = entry.editor.addHeader(entry.headerName, entry.headerValue);
+    if (problem != null) {
+      entry.headerNotice = directHeaderValidationMessage(l10n, problem);
+      await _applyMcpHeader(l10n, key, entry);
+      return;
+    }
+    entry
+      ..headerName = ''
+      ..headerValue = ''
+      ..headerNotice = null;
+    await _surface.closeDetail('$directMcpHeaderPagePrefix$key');
+    await _applyMcp(l10n, key, entry);
+  }
 
   // -- Rows ----------------------------------------------------------------
 
@@ -952,8 +1012,16 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
         editor.endpoint.text = value;
       case 'token' when value is String:
         editor.token.text = value;
-      case 'headers' when value is String:
-        editor.headers.text = value;
+      case 'header-name' when value is String:
+        entry.headerName = value;
+      case 'header-value' when value is String:
+        entry.headerValue = value;
+      case 'header-add':
+        await _addMcpHeader(l10n, key, entry);
+      case 'header-remove' when row.extra != null:
+        editor.removeHeader(row.extra!);
+        // Drawn again, the server's page shows it edited.
+        await _applyMcp(l10n, key, entry);
       case 'enabled' when value is bool:
         editor.setEnabled(value);
       case 'auth' when value is String:

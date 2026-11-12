@@ -36,6 +36,10 @@ const directConnectionHeaderPagePrefix = 'direct-connection-header:';
 /// or `new` for one being added.
 const directMcpPagePrefix = 'direct-mcp:';
 
+/// Prefix of the page adding a header to an MCP server; its editor's key
+/// follows.
+const directMcpHeaderPagePrefix = 'direct-mcp-header:';
+
 /// An editor key's source for the provider Add Account adds: one on this
 /// device, whose editor goes back to Accounts once it is saved.
 const _addAccountSource = 'account';

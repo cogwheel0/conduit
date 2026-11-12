@@ -1391,15 +1391,31 @@ NativeSheetDetailConfig buildDirectMcpServerPage(
         ],
       ),
       NativeSheetSectionConfig(
-        footer: l10n.directMcpCustomHeadersHint,
+        title: l10n.directMcpCustomHeaders,
+        footer: l10n.customHeadersDescription,
         items: [
+          for (final header in editor.headerEntries)
+            NativeSheetItemConfig(
+              id: directMcpRowId('header', serverKey, header.key),
+              title: header.key,
+              subtitle: header.value,
+              sfSymbol: 'list.bullet.rectangle',
+              kind: NativeSheetItemKind.info,
+              rowActions: [
+                if (!busy)
+                  NativeSheetRowAction(
+                    id: directMcpRowId('header-remove', serverKey, header.key),
+                    label: l10n.removeHeader,
+                    sfSymbol: 'trash',
+                    destructive: true,
+                  ),
+              ],
+            ),
           NativeSheetItemConfig(
-            id: directMcpRowId('headers', serverKey),
-            title: l10n.directMcpCustomHeaders,
-            sfSymbol: 'list.bullet.rectangle',
-            kind: NativeSheetItemKind.multilineTextField,
-            value: editor.headers.text,
-            placeholder: 'X-Tenant: example',
+            id: '$directMcpHeaderPagePrefix$serverKey',
+            title: l10n.addHeader,
+            sfSymbol: 'plus.circle',
+            accent: true,
             disabled: busy,
           ),
         ],
@@ -1475,6 +1491,51 @@ NativeSheetDetailConfig buildDirectMcpServerPage(
             ),
           ],
         ),
+    ],
+  );
+}
+
+/// The page adding a header to an MCP server: its name and value, checked
+/// as a provider's are; Done adds it.
+NativeSheetDetailConfig buildDirectMcpHeaderPage(
+  AppLocalizations l10n, {
+  required String serverKey,
+  String name = '',
+  String value = '',
+  String? notice,
+}) {
+  final pageId = '$directMcpHeaderPagePrefix$serverKey';
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: l10n.addHeader,
+    confirmActionId: directMcpRowId('header-add', serverKey),
+    confirmActionLabel: l10n.addHeader,
+    discardPrompt: nativeDiscardPrompt(l10n),
+    announcement: notice,
+    sections: [
+      if (notice != null)
+        NativeSheetSectionConfig(items: [_notice(pageId, notice)]),
+      NativeSheetSectionConfig(
+        footer: l10n.customHeadersDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: directMcpRowId('header-name', serverKey),
+            title: l10n.headerName,
+            sfSymbol: 'textformat',
+            kind: NativeSheetItemKind.textField,
+            value: name,
+            placeholder: 'X-Custom-Header',
+          ),
+          NativeSheetItemConfig(
+            id: directMcpRowId('header-value', serverKey),
+            title: l10n.headerValue,
+            sfSymbol: 'text.alignleft',
+            kind: NativeSheetItemKind.textField,
+            value: value,
+            placeholder: l10n.headerValueHint,
+          ),
+        ],
+      ),
     ],
   );
 }

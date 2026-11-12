@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../l10n/app_localizations.dart';
+import 'direct_custom_headers_controller.dart';
 
 /// The server id an editor adding an MCP server is opened with.
 const directMcpNewServerId = 'new';
@@ -129,6 +130,51 @@ final class DirectMcpServerEditor extends ChangeNotifier {
   void setEnabled(bool value) {
     if (_enabled == value) return;
     _enabled = value;
+    _changed();
+  }
+
+  /// The headers [headers] holds, one `Name: Value` line each, as rows.
+  /// Lines that are not one are left out.
+  List<MapEntry<String, String>> get headerEntries {
+    final entries = <MapEntry<String, String>>[];
+    for (final raw in headers.text.split('\n')) {
+      final line = raw.trim();
+      final separator = line.indexOf(':');
+      if (separator <= 0) continue;
+      entries.add(
+        MapEntry(
+          line.substring(0, separator).trim(),
+          line.substring(separator + 1).trim(),
+        ),
+      );
+    }
+    return entries;
+  }
+
+  /// Adds header [name] with [value], checked as a provider's are; returns
+  /// what is wrong with it instead when it cannot be added.
+  DirectHeaderValidationError? addHeader(String name, String value) {
+    final entries = headerEntries;
+    final trimmedName = name.trim();
+    final trimmedValue = value.trim();
+    final problem = validateDirectCustomHeader(
+      entries.map((entry) => entry.key),
+      name: trimmedName,
+      value: trimmedValue,
+    );
+    if (problem != null) return problem;
+    _setHeaders([...entries, MapEntry(trimmedName, trimmedValue)]);
+    return null;
+  }
+
+  /// Removes header [name].
+  void removeHeader(String name) =>
+      _setHeaders(headerEntries.where((entry) => entry.key != name));
+
+  void _setHeaders(Iterable<MapEntry<String, String>> entries) {
+    headers.text = entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join('\n');
     _changed();
   }
 

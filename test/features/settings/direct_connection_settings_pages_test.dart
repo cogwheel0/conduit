@@ -1718,46 +1718,82 @@ void main() {
     testWidgets('a new server saves and goes back', (tester) async {
       final rig = await pumpMcp(tester);
       const key = 'new';
-      await rig.open(directMcpPageId(null));
-      await rig.until(() => rig.rows(directMcpPageId(null)).length > 1);
-      expect(rig.page(directMcpPageId(null)).title, 'Add MCP Server');
+      final page = directMcpPageId(null);
+      final header = '$directMcpHeaderPagePrefix$key';
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
+      expect(rig.page(page).title, 'Add MCP Server');
 
       await rig.change(directMcpRowId('name', key), 'Tools');
       await rig.change(
         directMcpRowId('endpoint', key),
         'https://mcp.example/mcp',
       );
-      await rig.change(directMcpRowId('headers', key), 'X-Tenant: acme');
+      await rig.open(header);
+      await rig.change(directMcpRowId('header-name', key), 'X-Tenant');
+      await rig.change(directMcpRowId('header-value', key), 'acme');
+      await rig.change(directMcpRowId('header-add', key));
+      expect(rig.closed, [header]);
       await rig.change(directMcpRowId('save', key));
 
       final saved = (await store.load()).single;
       expect(saved.name, 'Tools');
       expect(saved.customHeaders, {'X-Tenant': 'acme'});
-      expect(rig.closed, [directMcpPageId(null)]);
+      expect(rig.closed, [header, page]);
     });
 
-    testWidgets('a header line without a name says so and stays', (
+    testWidgets('headers are checked on their own page, one row each', (
       tester,
     ) async {
       final rig = await pumpMcp(tester);
-      const key = 'new';
-      await rig.open(directMcpPageId(null));
-      await rig.until(() => rig.rows(directMcpPageId(null)).length > 1);
-
-      await rig.change(directMcpRowId('name', key), 'Tools');
-      await rig.change(
-        directMcpRowId('endpoint', key),
-        'https://mcp.example/mcp',
+      final server = DirectMcpServer(
+        id: 'headers-ui',
+        name: 'Headers UI',
+        endpoint: 'https://resource.example/mcp',
+        customHeaders: const {'X-Tenant': 'acme'},
       );
-      await rig.change(directMcpRowId('headers', key), 'no separator');
-      await rig.change(directMcpRowId('save', key));
+      await store.upsert(server);
+      final key = Uri.encodeComponent(server.id);
+      final page = directMcpPageId(server.id);
+      final header = '$directMcpHeaderPagePrefix$key';
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
 
-      expect(await store.load(), isEmpty);
-      expect(
-        rig.page(directMcpPageId(null)).announcement,
-        _l10n.directMcpCustomHeadersHint,
-      );
+      final tenant = rig.row(page, directMcpRowId('header', key, 'X-Tenant'));
+      expect(tenant.subtitle, 'acme');
+      expect(rig.page(page).edited, isFalse);
+
+      // Checked as a provider's are: a taken name, then a reserved one.
+      await rig.open(header);
+      await rig.change(directMcpRowId('header-name', key), 'x-tenant');
+      await rig.change(directMcpRowId('header-add', key));
+      expect(rig.page(header).announcement, contains('x-tenant'));
+      await rig.change(directMcpRowId('header-name', key), 'Authorization');
+      await rig.change(directMcpRowId('header-add', key));
+      expect(rig.page(header).announcement, contains('Authorization'));
       expect(rig.closed, isEmpty);
+
+      await rig.change(directMcpRowId('header-name', key), 'X-Region');
+      await rig.change(directMcpRowId('header-value', key), 'eu');
+      await rig.change(directMcpRowId('header-add', key));
+      expect(rig.closed, [header]);
+      expect(
+        rig
+            .rows(page)
+            .where((row) => row.id.startsWith('direct-mcp.header:'))
+            .map((row) => row.title),
+        ['X-Tenant', 'X-Region'],
+      );
+      // Changed on the page it opened: leaving the server asks first.
+      expect(rig.page(page).edited, isTrue);
+
+      await rig.change(tenant.rowActions.single.id);
+      expect(
+        rig.rows(page).map((row) => row.id),
+        isNot(contains(directMcpRowId('header', key, 'X-Tenant'))),
+      );
+      await rig.change(directMcpRowId('save', key));
+      expect((await store.load()).single.customHeaders, {'X-Region': 'eu'});
     });
 
     testWidgets('OAuth shows no secrets, and disconnects', (tester) async {
