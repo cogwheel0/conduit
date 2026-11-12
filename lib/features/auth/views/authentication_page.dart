@@ -21,6 +21,7 @@ import '../../profile/widgets/account_actions.dart'
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
+import 'package:conduit_core/auth/sign_in_failure.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -538,28 +539,19 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   String _formatLoginError(String error) {
     final l10n = AppLocalizations.of(context)!;
-    if (error.contains('twoStepVerificationRequired')) {
-      return l10n.signInTwoStepVerificationRequired;
-    } else if (error.contains('twoStepSessionRejected')) {
-      return l10n.twoStepExpired;
-    } else if (error.contains('accountPendingApproval')) {
-      return l10n.signInAccountPendingApproval;
-    } else if (error.contains('apiKeyNotSupported')) {
-      return l10n.apiKeyNotSupported;
-    } else if (error.contains('apiKeyNoLongerSupported')) {
-      return l10n.apiKeyNoLongerSupported;
-    } else if (error.contains('LDAP authentication is not enabled')) {
-      return l10n.ldapNotEnabled;
-    } else if (error.contains('401') || error.contains('Unauthorized')) {
-      return l10n.invalidCredentials;
-    } else if (error.contains('redirect')) {
-      return l10n.serverRedirectingHttps;
-    } else if (error.contains('SocketException')) {
-      return l10n.unableToConnectServer;
-    } else if (error.contains('timeout')) {
-      return l10n.requestTimedOut;
-    }
-    return l10n.genericSignInFailed;
+    return switch (classifySignInFailure(error)) {
+      SignInFailure.twoStepRequired => l10n.signInTwoStepVerificationRequired,
+      SignInFailure.twoStepSessionRejected => l10n.twoStepExpired,
+      SignInFailure.accountPendingApproval => l10n.signInAccountPendingApproval,
+      SignInFailure.apiKeyNotSupported => l10n.apiKeyNotSupported,
+      SignInFailure.apiKeyNoLongerSupported => l10n.apiKeyNoLongerSupported,
+      SignInFailure.ldapNotEnabled => l10n.ldapNotEnabled,
+      SignInFailure.invalidCredentials => l10n.invalidCredentials,
+      SignInFailure.serverRedirect => l10n.serverRedirectingHttps,
+      SignInFailure.unreachable => l10n.unableToConnectServer,
+      SignInFailure.timedOut => l10n.requestTimedOut,
+      SignInFailure.failed => l10n.genericSignInFailed,
+    };
   }
 
   @override

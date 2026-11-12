@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
+import 'package:conduit_core/auth/sign_in_failure.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -350,6 +351,48 @@ void main() {
 
     await harness.unmount(tester);
   });
+
+  // The sign-in reads the auth manager's own words for a server out of
+  // reach or too slow, and shows the page's specific message for each
+  // rather than the general "couldn't sign you in".
+  for (final (failure, shown) in [
+    (signInUnreachableMessage, 'Unable to connect to server'),
+    (signInTimedOutMessage, 'The request timed out'),
+  ]) {
+    testWidgets('a sign-in that fails with "$failure" says so', (tester) async {
+      debugIsWebViewSupportedOverride = false;
+      addTearDown(() => debugIsWebViewSupportedOverride = null);
+      final harness = AdaptiveAuthHarness(
+        server: server,
+        backendConfig: const BackendConfig(enableLdap: true),
+        authActions: _FailingAuthActions(failure),
+      );
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.authentication),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('LDAP'));
+      await tester.pumpAndSettle();
+      final fields = find.descendant(
+        of: find.byKey(const ValueKey('ldap_form')),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(fields.at(0), 'ldapuser');
+      await tester.enterText(fields.at(1), 'password');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sign In with LDAP'));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+
+      expect(find.textContaining(shown), findsOneWidget);
+      expect(find.textContaining("couldn't sign you in"), findsNothing);
+
+      await harness.unmount(tester);
+    });
+  }
 
   group('a sign-in that needs two-step verification', () {
     const verify = OpenWebUiTwoStepChallenge(
@@ -988,6 +1031,21 @@ class _RejectingAuthActions extends Fake implements AuthActions {
     ldapAttempts.add((username, password));
     return false;
   }
+}
+
+/// Fails every LDAP sign-in with [message], as the auth manager words a
+/// failure (the sign-in page reads a refused attempt's error the same way).
+class _FailingAuthActions extends Fake implements AuthActions {
+  _FailingAuthActions(this.message);
+
+  final String message;
+
+  @override
+  Future<bool> ldapLogin(
+    String username,
+    String password, {
+    bool rememberCredentials = false,
+  }) async => throw Exception(message);
 }
 
 /// Records each request to drop an added account that never signed in.
