@@ -74,12 +74,14 @@ SignInFailure classifySignInFailure(String error) {
     return SignInFailure.invalidCredentials;
   }
   if (error.contains('redirect')) return SignInFailure.serverRedirect;
-  if (error.contains('SocketException') ||
+  // In the manager's order and case: a timeout before a lost connection.
+  final lower = error.toLowerCase();
+  if (lower.contains('timeout') || error.contains(signInTimedOutMessage)) {
+    return SignInFailure.timedOut;
+  }
+  if (lower.contains('socketexception') ||
       error.contains(signInUnreachableMessage)) {
     return SignInFailure.unreachable;
-  }
-  if (error.contains('timeout') || error.contains(signInTimedOutMessage)) {
-    return SignInFailure.timedOut;
   }
   return SignInFailure.failed;
 }

@@ -16,6 +16,21 @@ void main() {
         .equals(SignInFailure.timedOut);
   });
 
+  test('a raw exception reads as the manager words it, in its order', () {
+    // The manager matches case-blind and puts a timeout before a lost
+    // connection; the page must agree for the same text.
+    check(
+      classifySignInFailure(
+        'TimeoutException after 0:00:30.000000: Future not completed',
+      ),
+    ).equals(SignInFailure.timedOut);
+    check(classifySignInFailure('SocketException: read timeout'))
+        .equals(SignInFailure.timedOut);
+    // "timed out" is not "timeout": the manager reads it as unreachable.
+    check(classifySignInFailure('SocketException: Connection timed out'))
+        .equals(SignInFailure.unreachable);
+  });
+
   test('a refusal or a code wins over a word about the connection', () {
     check(classifySignInFailure('401 Unauthorized: sign-in rejected by server'))
         .equals(SignInFailure.invalidCredentials);
