@@ -16,6 +16,10 @@
          language (notificationChannelMessages* in lib/l10n). -->
     <string name="push_channel_messages_name">Messages</string>
     <string name="push_channel_messages_description">Replies, channel messages, and finished responses</string>
+
+    <!-- Quick Settings tiles -->
+    <string name="tile_ask">Ask Conduit</string>
+    <string name="tile_voice">Voice</string>
 </resources>
 
 

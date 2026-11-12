@@ -159,6 +159,30 @@
             </intent-filter>
         </service>
 
+        <!-- Quick Settings tiles: a new chat, and a voice call. Each one opens
+             the app with the extras the assistant launch already uses. -->
+        <service
+            android:name=".AskTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_ask"
+            android:label="@string/tile_ask"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".VoiceTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_voice"
+            android:label="@string/tile_voice"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- Background streaming service -->
         <service
             android:name=".BackgroundStreamingService"
