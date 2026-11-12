@@ -109,6 +109,45 @@ void main() {
     expect(summary.totalTokens, 1620);
   });
 
+  test('the context window holds the last call\'s prompt and answer', () {
+    int? context(Map<String, dynamic> usage) =>
+        UsageSummary.fromUsage(usage).contextTokens;
+
+    // Over tool rounds, the last call's counts, not the reply's sums.
+    expect(
+      context(<String, dynamic>{
+        'prompt_tokens': 900,
+        'completion_tokens': 40,
+        'input_tokens': 1500,
+        'output_tokens': 120,
+      }),
+      940,
+    );
+    expect(
+      context(<String, dynamic>{'prompt_eval_count': 50, 'eval_count': 100}),
+      150,
+    );
+    // llama.cpp counts the prompt it reused from its cache apart.
+    expect(
+      context(<String, dynamic>{
+        'prompt_n': 10,
+        'cache_n': 500,
+        'predicted_n': 85,
+      }),
+      595,
+    );
+    expect(
+      context(<String, dynamic>{'input_tokens': 1500, 'output_tokens': 120}),
+      1620,
+    );
+    // One side alone says nothing about what the window held.
+    expect(context(<String, dynamic>{'completion_tokens': 40}), isNull);
+    expect(
+      context(<String, dynamic>{'prompt_tokens': 900, 'output_tokens': 120}),
+      isNull,
+    );
+  });
+
   test('usage holding only the incomplete mark reports nothing', () {
     expect(usageHasReport(<String, dynamic>{'incomplete': true}), isFalse);
     expect(usageHasReport(null), isFalse);

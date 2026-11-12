@@ -245,7 +245,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "JWT",
+  "jwt": "Token",
   "usernameOrEmail": "Uživatelské jméno nebo e-mail",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -880,6 +880,7 @@
     "description": "Action to start a new chat."
   },
   "more": "Více",
+  "done": "Hotovo",
   "@more": {
     "description": "Opens additional actions or content."
   },
@@ -1213,6 +1214,28 @@
   "@usageTotalTokens": {
     "description": "Label for total token count"
   },
+  "usageContextWindow": "Kontextové okno",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} z {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "edit": "Upravit",
   "@edit": {
     "description": "Action to edit an item/message."
@@ -1237,11 +1260,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Token JWT získáte v nastavení Open WebUI. Klíče API (sk-...) nejsou pro streamování podporovány.",
+  "tokenHint": "Zkopírujte token relace JWT z webového Open WebUI a vložte ho sem. Správci ho najdou v Nastavení › Účet › API klíče. Klíče API (sk-…) fungovat nebudou.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "Klíče API (sk-...) nejsou podporovány. Použijte místo toho token JWT.",
+  "apiKeyNotSupported": "Klíče API (sk-…) nelze k přihlášení použít. Vložte místo toho token JWT.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -1389,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Paleta akcentů",
+  "themePalette": "Barevná paleta",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochromatická",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Čistý neutrální motiv navržený pro Conduit.",
+  "themePaletteConduitDescription": "Černá a bílá, bez barvy akcentu.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1425,7 +1448,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Mandarinková",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -1495,8 +1518,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButton": "Ukládat koncepty jako poznámky",
+  "showComposerNotesButtonDescription": "Při psaní nabídne nabídka + volbu Uložit jako poznámku, která zprávu místo odeslání ponechá jako poznámku.",
   "appCustomization": "Přizpůsobení",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1614,7 +1637,7 @@
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Použijte Automaticky pro jazyk tohoto zařízení, nebo zadejte kód, například en.",
+  "sttTranscriptionLanguageDescription": "Použijte Automaticky, aby server rozpoznal mluvený jazyk, nebo zadejte kód, například en.",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },
@@ -1706,9 +1729,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Rychlost řeči",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Rychlost přehrávání",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Výška hlasu",
   "@ttsPitch": {
@@ -2214,7 +2248,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Ověřování...",
+  "ssoAuthenticating": "Přihlašování…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2222,7 +2256,7 @@
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "Načítání přihlašovací stránky...",
+  "ssoLoadingLogin": "Načítání přihlašovací stránky…",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -2266,7 +2300,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Načítání ověřovací stránky...",
+  "proxyAuthLoading": "Načítání přihlašovací stránky…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2278,7 +2312,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Přihlaste se přes proxy. Po ověření pokračujte klepnutím na Pokračovat.",
+  "proxyAuthHelpTextSimple": "Na této stránce se přihlaste ke své proxy a pak se klepnutím na Pokračovat přihlaste k Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -3965,184 +3999,184 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Data a připojení",
-  "slidingSidebar": "Vysouvací postranní panel",
-  "slidingSidebarDescription": "Otevírat Poznámky, Terminál a Kanály vedle historie chatů.",
+  "slidingSidebar": "Sloučit karty postranního panelu",
+  "slidingSidebarDescription": "Zobrazuje Poznámky, Terminál a Kanály nad vašimi chaty místo karet a na telefonu nechává část chatu viditelnou.",
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",
   "workspaceTitle": "Pracovní prostor",
-  "workspaceSubtitle": "Manage server resources and access.",
-  "workspaceModels": "Models",
-  "workspaceKnowledge": "Knowledge",
-  "workspacePrompts": "Prompts",
-  "workspaceTools": "Tools",
-  "workspaceSkills": "Skills",
-  "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
-  "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
-  "workspaceLoadFailed": "Workspace could not be loaded.",
-  "workspaceRetry": "Retry",
-  "workspaceSelectItem": "Select an item to view its details.",
-  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
-  "workspaceSearchHint": "Search workspace resources",
-  "workspaceLoadMore": "Load more",
-  "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
-  "workspaceAccessPeopleHeading": "People & groups",
-  "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
-  "workspaceAccessEmpty": "Not shared with anyone yet.",
-  "workspaceAccessAddPeople": "Add people or groups",
-  "workspaceAccessAddGroups": "Add groups",
+  "workspaceSubtitle": "Správa prostředků serveru a přístupu",
+  "workspaceModels": "Modely",
+  "workspaceKnowledge": "Znalosti",
+  "workspacePrompts": "Prompty",
+  "workspaceTools": "Nástroje",
+  "workspaceSkills": "Dovednosti",
+  "workspaceCreate": "Vytvořit",
+  "workspaceEmpty": "Zatím žádné položky.",
+  "workspaceDenied": "Nemáte oprávnění spravovat tuto část pracovního prostoru.",
+  "workspaceUnsupported": "Tento server nepodporuje správu pracovního prostoru.",
+  "workspaceLoadFailed": "Pracovní prostor se nepodařilo načíst.",
+  "workspaceRetry": "Zkusit znovu",
+  "workspaceSelectItem": "Vyberte položku a zobrazte její podrobnosti.",
+  "workspaceEditorComingSoon": "Tento editor bude k dispozici v další etapě pracovního prostoru.",
+  "workspaceSearchHint": "Hledat v prostředcích pracovního prostoru",
+  "workspaceLoadMore": "Načíst další",
+  "workspaceAccessPublicDisabled": "Nemáte oprávnění tuto položku sdílet veřejně.",
+  "workspaceAccessPeopleHeading": "Lidé a skupiny",
+  "workspaceAccessUsersDisabled": "Sdílení s jednotlivými lidmi je vypnuté; sdílet můžete jen se skupinami.",
+  "workspaceAccessEmpty": "Zatím s nikým nesdíleno.",
+  "workspaceAccessAddPeople": "Přidat lidi nebo skupiny",
+  "workspaceAccessAddGroups": "Přidat skupiny",
   "workspaceAccessAddUsers": "Přidat lidi",
   "workspaceAccessGroupsDisabled": "Sdílení se skupinami je vypnuté, můžete sdílet jen s jednotlivými lidmi.",
   "workspaceAccessGrantsDisabled": "Nemáte oprávnění sdílet s lidmi ani se skupinami. Stávající přístup zůstává zachován.",
-  "workspaceAccessGroupBadge": "Group",
-  "workspaceAccessUserBadge": "Person",
-  "workspaceAccessCanEdit": "Can edit",
-  "workspaceAccessRemoveGrant": "Remove access",
-  "workspacePrincipalTitle": "Add people or groups",
-  "workspacePrincipalUsersTab": "People",
-  "workspacePrincipalGroupsTab": "Groups",
-  "workspacePrincipalSearchHint": "Search people by name or email",
-  "workspacePrincipalLoadFailed": "Could not load results.",
-  "workspacePrincipalSearchPrompt": "Search to find people to share with.",
-  "workspacePrincipalNoResults": "No matches found.",
-  "workspaceReadOnlyBadge": "Read only",
-  "workspaceReadOnlyExplanation": "You have view-only access to this resource.",
-  "workspaceEditorDiscardTitle": "Discard changes?",
-  "workspaceEditorDiscardMessage": "Your unsaved changes will be lost.",
-  "workspaceEditorDiscardConfirm": "Discard",
-  "workspaceEditorKeepEditing": "Keep editing",
-  "workspaceEditorSaveTooltip": "Save changes",
-  "workspaceEditorSaving": "Saving…",
-  "workspaceEditorMoreActions": "More actions",
-  "workspaceImportChooseFile": "Choose JSON file",
-  "workspaceImportPasteLabel": "Or paste JSON",
-  "workspaceImportPasteHint": "Paste exported JSON here",
-  "workspaceImportRun": "Import",
-  "workspaceImportInvalidJson": "That doesn't look like valid JSON.",
-  "workspaceImportEmpty": "No items were found to import.",
-  "workspaceImportReadFailed": "Could not read the selected file.",
-  "workspaceImportBatchFailed": "The import could not be completed.",
-  "workspaceImportSummary": "Imported {success} of {total} items",
-  "workspaceImportItemImported": "Imported",
-  "workspaceImportItemFailed": "Import failed",
-  "workspaceImportDone": "Done",
-  "workspaceModelNewTitle": "New model",
+  "workspaceAccessGroupBadge": "Skupina",
+  "workspaceAccessUserBadge": "Osoba",
+  "workspaceAccessCanEdit": "Může upravovat",
+  "workspaceAccessRemoveGrant": "Odebrat přístup",
+  "workspacePrincipalTitle": "Přidat lidi nebo skupiny",
+  "workspacePrincipalUsersTab": "Lidé",
+  "workspacePrincipalGroupsTab": "Skupiny",
+  "workspacePrincipalSearchHint": "Hledat lidi podle jména nebo e-mailu",
+  "workspacePrincipalLoadFailed": "Výsledky se nepodařilo načíst.",
+  "workspacePrincipalSearchPrompt": "Vyhledejte lidi, se kterými chcete sdílet.",
+  "workspacePrincipalNoResults": "Nebyly nalezeny žádné shody.",
+  "workspaceReadOnlyBadge": "Jen pro čtení",
+  "workspaceReadOnlyExplanation": "K tomuto prostředku máte přístup jen pro čtení.",
+  "workspaceEditorDiscardTitle": "Zahodit změny?",
+  "workspaceEditorDiscardMessage": "Neuložené změny budou ztraceny.",
+  "workspaceEditorDiscardConfirm": "Zahodit",
+  "workspaceEditorKeepEditing": "Pokračovat v úpravách",
+  "workspaceEditorSaveTooltip": "Uložit změny",
+  "workspaceEditorSaving": "Ukládání…",
+  "workspaceEditorMoreActions": "Další akce",
+  "workspaceImportChooseFile": "Vybrat soubor JSON",
+  "workspaceImportPasteLabel": "Nebo vložte JSON",
+  "workspaceImportPasteHint": "Sem vložte exportovaný JSON",
+  "workspaceImportRun": "Importovat",
+  "workspaceImportInvalidJson": "Nevypadá to jako platný JSON.",
+  "workspaceImportEmpty": "Nebyly nalezeny žádné položky k importu.",
+  "workspaceImportReadFailed": "Vybraný soubor se nepodařilo přečíst.",
+  "workspaceImportBatchFailed": "Import se nepodařilo dokončit.",
+  "workspaceImportSummary": "Importováno {success} z {total} položek",
+  "workspaceImportItemImported": "Importováno",
+  "workspaceImportItemFailed": "Import se nezdařil",
+  "workspaceImportDone": "Hotovo",
+  "workspaceModelNewTitle": "Nový model",
   "@workspaceModelNewTitle": {
     "description": "Title shown when creating a new workspace model."
   },
-  "workspaceModelIdLabel": "Model ID",
+  "workspaceModelIdLabel": "ID modelu",
   "@workspaceModelIdLabel": {
     "description": "Label for the unique model identifier field."
   },
-  "workspaceModelBaseModel": "Base model",
+  "workspaceModelBaseModel": "Základní model",
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelNone": "Žádný (vlastní)",
   "workspaceModelBaseModelRequired": "Vyberte základní model.",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
-  "workspaceModelName": "Name",
+  "workspaceModelName": "Název",
   "@workspaceModelName": {
     "description": "Label for the model display-name field."
   },
-  "workspaceModelDescription": "Description",
+  "workspaceModelDescription": "Popis",
   "@workspaceModelDescription": {
     "description": "Label for the model description field."
   },
-  "workspaceModelTags": "Tags",
+  "workspaceModelTags": "Štítky",
   "@workspaceModelTags": {
     "description": "Label for the model tags editor."
   },
-  "workspaceModelTagsHint": "Add tag",
+  "workspaceModelTagsHint": "Přidat štítek",
   "@workspaceModelTagsHint": {
     "description": "Action chip label to add a new tag."
   },
-  "workspaceModelSystemPrompt": "System prompt",
+  "workspaceModelSystemPrompt": "Systémový prompt",
   "@workspaceModelSystemPrompt": {
     "description": "Label for the model system prompt field."
   },
-  "workspaceModelSuggestionPrompts": "Suggested prompts",
+  "workspaceModelSuggestionPrompts": "Navrhované prompty",
   "@workspaceModelSuggestionPrompts": {
     "description": "Label for the suggested prompts editor."
   },
-  "workspaceModelAddSuggestion": "Add suggestion",
+  "workspaceModelAddSuggestion": "Přidat návrh",
   "@workspaceModelAddSuggestion": {
     "description": "Button to add a suggested prompt."
   },
-  "workspaceModelRemoveSuggestion": "Remove suggestion",
+  "workspaceModelRemoveSuggestion": "Odebrat návrh",
   "@workspaceModelRemoveSuggestion": {
     "description": "Tooltip to remove a suggested prompt."
   },
-  "workspaceModelStopSequences": "Stop sequences",
+  "workspaceModelStopSequences": "Ukončovací sekvence",
   "@workspaceModelStopSequences": {
     "description": "Label for the stop-sequences field."
   },
-  "workspaceModelStopHint": "Comma-separated stop sequences",
+  "workspaceModelStopHint": "Ukončovací sekvence oddělené čárkami",
   "@workspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field."
   },
-  "workspaceModelAdvancedParams": "Advanced parameters (JSON)",
+  "workspaceModelAdvancedParams": "Pokročilé parametry (JSON)",
   "@workspaceModelAdvancedParams": {
     "description": "Label for the advanced inference parameters JSON field."
   },
-  "workspaceModelParamsHint": "JSON object of additional parameters",
+  "workspaceModelParamsHint": "Objekt JSON s dalšími parametry",
   "@workspaceModelParamsHint": {
     "description": "Helper text for a JSON parameters field."
   },
-  "workspaceModelInvalidJson": "Enter a valid JSON object.",
+  "workspaceModelInvalidJson": "Zadejte platný objekt JSON.",
   "@workspaceModelInvalidJson": {
     "description": "Validation error for a malformed JSON field."
   },
-  "workspaceModelCapabilities": "Capabilities",
+  "workspaceModelCapabilities": "Schopnosti",
   "@workspaceModelCapabilities": {
     "description": "Label for the model capability toggles."
   },
-  "workspaceModelTerminal": "Terminal ID",
+  "workspaceModelTerminal": "ID terminálu",
   "@workspaceModelTerminal": {
     "description": "Label for the terminal identifier field."
   },
-  "workspaceModelTtsVoice": "Text-to-speech voice",
+  "workspaceModelTtsVoice": "Hlas pro převod textu na řeč",
   "@workspaceModelTtsVoice": {
     "description": "Label for the TTS voice field."
   },
-  "workspaceModelDefaultFeatures": "Default features",
+  "workspaceModelDefaultFeatures": "Výchozí funkce",
   "@workspaceModelDefaultFeatures": {
     "description": "Label for the default feature IDs field."
   },
-  "workspaceModelBuiltinTools": "Built-in tools (JSON)",
+  "workspaceModelBuiltinTools": "Vestavěné nástroje (JSON)",
   "@workspaceModelBuiltinTools": {
     "description": "Label for the built-in tools JSON field."
   },
-  "workspaceModelKnowledge": "Knowledge",
+  "workspaceModelKnowledge": "Znalosti",
   "@workspaceModelKnowledge": {
     "description": "Label for the knowledge relationship selector."
   },
-  "workspaceModelTools": "Tools",
+  "workspaceModelTools": "Nástroje",
   "@workspaceModelTools": {
     "description": "Label for the tools relationship selector."
   },
-  "workspaceModelSkills": "Skills",
+  "workspaceModelSkills": "Dovednosti",
   "@workspaceModelSkills": {
     "description": "Label for the skills relationship selector."
   },
-  "workspaceModelFilters": "Filters",
+  "workspaceModelFilters": "Filtry",
   "@workspaceModelFilters": {
     "description": "Label for the filter functions selector."
   },
-  "workspaceModelDefaultFilters": "Default filters",
+  "workspaceModelDefaultFilters": "Výchozí filtry",
   "@workspaceModelDefaultFilters": {
     "description": "Label for the default filter functions selector."
   },
-  "workspaceModelActions": "Actions",
+  "workspaceModelActions": "Akce",
   "@workspaceModelActions": {
     "description": "Label for the action functions selector."
   },
-  "workspaceModelSectionBasics": "Basics",
+  "workspaceModelSectionBasics": "Základní údaje",
   "@workspaceModelSectionBasics": {
     "description": "Section header for basic model fields."
   },
@@ -4150,39 +4184,39 @@
   "@workspaceModelSectionPrompt": {
     "description": "Section header for prompt-related model fields."
   },
-  "workspaceModelSectionAdvanced": "Advanced",
+  "workspaceModelSectionAdvanced": "Pokročilé",
   "@workspaceModelSectionAdvanced": {
     "description": "Section header for advanced model fields."
   },
-  "workspaceModelSectionRelationships": "Relationships",
+  "workspaceModelSectionRelationships": "Vazby",
   "@workspaceModelSectionRelationships": {
     "description": "Section header for model relationship selectors."
   },
-  "workspaceModelSectionAccess": "Access",
+  "workspaceModelSectionAccess": "Přístup",
   "@workspaceModelSectionAccess": {
     "description": "Section header for model access controls."
   },
-  "workspaceModelProfileImage": "Profile image",
+  "workspaceModelProfileImage": "Profilový obrázek",
   "@workspaceModelProfileImage": {
     "description": "Label for the model profile image."
   },
-  "workspaceModelChangeImage": "Change image",
+  "workspaceModelChangeImage": "Změnit obrázek",
   "@workspaceModelChangeImage": {
     "description": "Button to pick a new profile image."
   },
-  "workspaceModelRemoveImage": "Remove image",
+  "workspaceModelRemoveImage": "Odebrat obrázek",
   "@workspaceModelRemoveImage": {
     "description": "Button to clear the profile image."
   },
-  "workspaceModelImageFailed": "Could not load the selected image.",
+  "workspaceModelImageFailed": "Vybraný obrázek se nepodařilo načíst.",
   "@workspaceModelImageFailed": {
     "description": "Error when picking a profile image fails."
   },
-  "workspaceModelSelectNone": "None selected",
+  "workspaceModelSelectNone": "Nic nevybráno",
   "@workspaceModelSelectNone": {
     "description": "Subtitle when no relationship items are selected."
   },
-  "workspaceModelSelectCount": "{count} selected",
+  "workspaceModelSelectCount": "Vybráno: {count}",
   "@workspaceModelSelectCount": {
     "description": "Subtitle showing how many relationship items are selected.",
     "placeholders": {
@@ -4191,47 +4225,47 @@
       }
     }
   },
-  "workspaceModelRelationshipEmpty": "Nothing available to select.",
+  "workspaceModelRelationshipEmpty": "Není z čeho vybírat.",
   "@workspaceModelRelationshipEmpty": {
     "description": "Empty state for a relationship picker."
   },
-  "workspaceModelManageAccess": "Manage access",
+  "workspaceModelManageAccess": "Spravovat přístup",
   "@workspaceModelManageAccess": {
     "description": "Action to open the access-grants sheet for a model."
   },
-  "workspaceModelClone": "Duplicate",
+  "workspaceModelClone": "Duplikovat",
   "@workspaceModelClone": {
     "description": "Action that duplicates the model."
   },
-  "workspaceModelCloneSuffix": "(copy)",
+  "workspaceModelCloneSuffix": "(kopie)",
   "@workspaceModelCloneSuffix": {
     "description": "Suffix appended to a duplicated model name."
   },
-  "workspaceModelActivate": "Activate",
+  "workspaceModelActivate": "Aktivovat",
   "@workspaceModelActivate": {
     "description": "Action that marks the model active."
   },
-  "workspaceModelDeactivate": "Deactivate",
+  "workspaceModelDeactivate": "Deaktivovat",
   "@workspaceModelDeactivate": {
     "description": "Action that marks the model inactive."
   },
-  "workspaceModelHide": "Hide from selector",
+  "workspaceModelHide": "Skrýt ve výběru",
   "@workspaceModelHide": {
     "description": "Action that hides the model from model selectors."
   },
-  "workspaceModelUnhide": "Show in selector",
+  "workspaceModelUnhide": "Zobrazit ve výběru",
   "@workspaceModelUnhide": {
     "description": "Action that unhides the model in model selectors."
   },
-  "workspaceModelDelete": "Delete model",
+  "workspaceModelDelete": "Smazat model",
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
+  "workspaceModelDeleteConfirmTitle": "Smazat model?",
   "@workspaceModelDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a model."
   },
-  "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "workspaceModelDeleteConfirmMessage": "Model {name} bude trvale odstraněn.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
     "placeholders": {
@@ -4240,83 +4274,83 @@
       }
     }
   },
-  "workspaceModelExport": "Export model",
+  "workspaceModelExport": "Exportovat model",
   "@workspaceModelExport": {
     "description": "Action that exports a single model as JSON."
   },
-  "workspaceModelExportAll": "Export all models",
+  "workspaceModelExportAll": "Exportovat všechny modely",
   "@workspaceModelExportAll": {
     "description": "Action that exports every readable model as JSON."
   },
-  "workspaceModelExportFailed": "The export could not be completed.",
+  "workspaceModelExportFailed": "Export se nepodařilo dokončit.",
   "@workspaceModelExportFailed": {
     "description": "Error when exporting models fails."
   },
-  "workspaceModelImport": "Import models",
+  "workspaceModelImport": "Importovat modely",
   "@workspaceModelImport": {
     "description": "Action that imports models from JSON."
   },
-  "workspaceModelIdRequired": "A model ID is required.",
+  "workspaceModelIdRequired": "ID modelu je povinné.",
   "@workspaceModelIdRequired": {
     "description": "Validation error when the model ID is empty."
   },
-  "workspaceModelNameRequired": "A name is required.",
+  "workspaceModelNameRequired": "Název je povinný.",
   "@workspaceModelNameRequired": {
     "description": "Validation error when the model name is empty."
   },
-  "workspaceModelSaved": "Model saved.",
+  "workspaceModelSaved": "Model byl uložen.",
   "@workspaceModelSaved": {
     "description": "Confirmation that the model was saved."
   },
-  "workspaceModelSaveFailed": "The model could not be saved.",
+  "workspaceModelSaveFailed": "Model se nepodařilo uložit.",
   "@workspaceModelSaveFailed": {
     "description": "Error when saving the model fails."
   },
-  "workspaceModelDeleted": "Model deleted.",
+  "workspaceModelDeleted": "Model byl smazán.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
   },
-  "workspaceModelAddAction": "Add",
+  "workspaceModelAddAction": "Přidat",
   "@workspaceModelAddAction": {
     "description": "Confirm button in a small add-text dialog."
   },
-  "workspaceKnowledgeCreateTitle": "New knowledge base",
+  "workspaceKnowledgeCreateTitle": "Nová znalostní báze",
   "@workspaceKnowledgeCreateTitle": {
     "description": "Title of the create form for a new knowledge base."
   },
-  "workspaceKnowledgeName": "Name",
+  "workspaceKnowledgeName": "Název",
   "@workspaceKnowledgeName": {
     "description": "Label for the knowledge base name field."
   },
-  "workspaceKnowledgeDescription": "Description",
+  "workspaceKnowledgeDescription": "Popis",
   "@workspaceKnowledgeDescription": {
     "description": "Label for the knowledge base description field."
   },
-  "workspaceKnowledgeNameRequired": "A name is required.",
+  "workspaceKnowledgeNameRequired": "Název je povinný.",
   "@workspaceKnowledgeNameRequired": {
     "description": "Validation error when the knowledge base name is empty."
   },
-  "workspaceKnowledgeSaved": "Knowledge base saved.",
+  "workspaceKnowledgeSaved": "Znalostní báze byla uložena.",
   "@workspaceKnowledgeSaved": {
     "description": "Confirmation that the knowledge base was saved."
   },
-  "workspaceKnowledgeSaveFailed": "The knowledge base could not be saved.",
+  "workspaceKnowledgeSaveFailed": "Znalostní bázi se nepodařilo uložit.",
   "@workspaceKnowledgeSaveFailed": {
     "description": "Error when saving a knowledge base fails."
   },
-  "workspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "workspaceKnowledgeDeleted": "Znalostní báze byla smazána.",
   "@workspaceKnowledgeDeleted": {
     "description": "Confirmation that the knowledge base was deleted."
   },
-  "workspaceKnowledgeDelete": "Delete knowledge base",
+  "workspaceKnowledgeDelete": "Smazat znalostní bázi",
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "workspaceKnowledgeDeleteConfirmTitle": "Smazat znalostní bázi?",
   "@workspaceKnowledgeDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "workspaceKnowledgeDeleteConfirmMessage": "Znalostní báze {name} bude trvale odstraněna a její soubory budou odpojeny.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
     "placeholders": {
@@ -4325,15 +4359,15 @@
       }
     }
   },
-  "workspaceKnowledgeReset": "Reset",
+  "workspaceKnowledgeReset": "Resetovat",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "workspaceKnowledgeResetConfirmTitle": "Resetovat znalostní bázi?",
   "@workspaceKnowledgeResetConfirmTitle": {
     "description": "Confirmation dialog title for resetting a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "workspaceKnowledgeResetConfirmMessage": "Ze znalostní báze {name} se odstraní všechny soubory, ale báze zůstane zachována.",
   "@workspaceKnowledgeResetConfirmMessage": {
     "description": "Confirmation dialog body for resetting a knowledge base.",
     "placeholders": {
@@ -4342,83 +4376,83 @@
       }
     }
   },
-  "workspaceKnowledgeResetDone": "Knowledge base reset.",
+  "workspaceKnowledgeResetDone": "Znalostní báze byla resetována.",
   "@workspaceKnowledgeResetDone": {
     "description": "Confirmation that the knowledge base files were reset."
   },
-  "workspaceKnowledgeExport": "Export knowledge base",
+  "workspaceKnowledgeExport": "Exportovat znalostní bázi",
   "@workspaceKnowledgeExport": {
     "description": "Overflow action that exports a knowledge base archive."
   },
-  "workspaceKnowledgeExportFailed": "The export could not be completed.",
+  "workspaceKnowledgeExportFailed": "Export se nepodařilo dokončit.",
   "@workspaceKnowledgeExportFailed": {
     "description": "Error when exporting a knowledge base fails."
   },
-  "workspaceKnowledgeManageAccess": "Manage access",
+  "workspaceKnowledgeManageAccess": "Spravovat přístup",
   "@workspaceKnowledgeManageAccess": {
     "description": "Action that opens the sharing and access sheet for a knowledge base."
   },
-  "workspaceKnowledgeViewAll": "All",
+  "workspaceKnowledgeViewAll": "Vše",
   "@workspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases."
   },
-  "workspaceKnowledgeViewCreated": "Created by you",
+  "workspaceKnowledgeViewCreated": "Vytvořené vámi",
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Shared with you",
+  "workspaceKnowledgeViewShared": "Sdílené s vámi",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },
-  "workspaceKnowledgeSourceAll": "All sources",
+  "workspaceKnowledgeSourceAll": "Všechny zdroje",
   "@workspaceKnowledgeSourceAll": {
     "description": "Knowledge collection filter showing both local and connected sources."
   },
-  "workspaceKnowledgeSourceLocal": "Local",
+  "workspaceKnowledgeSourceLocal": "Místní",
   "@workspaceKnowledgeSourceLocal": {
     "description": "Knowledge collection filter showing only local knowledge bases."
   },
-  "workspaceKnowledgeSourceExternal": "Connected",
+  "workspaceKnowledgeSourceExternal": "Připojené",
   "@workspaceKnowledgeSourceExternal": {
     "description": "Knowledge collection filter showing only external/connected knowledge bases."
   },
-  "workspaceKnowledgeExternalBadge": "Connected",
+  "workspaceKnowledgeExternalBadge": "Připojená",
   "@workspaceKnowledgeExternalBadge": {
     "description": "Badge marking a knowledge base as external/connected (read-only)."
   },
-  "workspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "workspaceKnowledgeExternalReadOnly": "Připojené znalostní báze jsou v této aplikaci jen pro čtení.",
   "@workspaceKnowledgeExternalReadOnly": {
     "description": "Notice shown when viewing an external/connected knowledge base."
   },
-  "workspaceKnowledgeFilesTitle": "Files",
+  "workspaceKnowledgeFilesTitle": "Soubory",
   "@workspaceKnowledgeFilesTitle": {
     "description": "Heading of the knowledge base file browser."
   },
-  "workspaceKnowledgeFilesEmpty": "No files yet.",
+  "workspaceKnowledgeFilesEmpty": "Zatím žádné soubory.",
   "@workspaceKnowledgeFilesEmpty": {
     "description": "Empty state when a knowledge base directory contains no files."
   },
-  "workspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "workspaceKnowledgeFilesLoadFailed": "Soubory se nepodařilo načíst.",
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Refresh",
+  "workspaceKnowledgeRefreshFiles": "Obnovit",
   "@workspaceKnowledgeRefreshFiles": {
     "description": "Tooltip for the button that refreshes the knowledge file list."
   },
-  "workspaceKnowledgeRoot": "Root",
+  "workspaceKnowledgeRoot": "Kořen",
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Add files",
+  "workspaceKnowledgeAddMenu": "Přidat soubory",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
-  "workspaceKnowledgeUpload": "Upload file",
+  "workspaceKnowledgeUpload": "Nahrát soubor",
   "@workspaceKnowledgeUpload": {
     "description": "Menu item to upload a single local file into a knowledge base."
   },
-  "workspaceKnowledgeUploading": "Uploading {name}…",
+  "workspaceKnowledgeUploading": "Nahrávání {name}…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
     "placeholders": {
@@ -4427,63 +4461,63 @@
       }
     }
   },
-  "workspaceKnowledgeUploadFailed": "The file could not be uploaded.",
+  "workspaceKnowledgeUploadFailed": "Soubor se nepodařilo nahrát.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
   },
-  "workspaceKnowledgeBatchAttach": "Upload multiple files",
+  "workspaceKnowledgeBatchAttach": "Nahrát více souborů",
   "@workspaceKnowledgeBatchAttach": {
     "description": "Menu item to upload several local files into a knowledge base at once."
   },
-  "workspaceKnowledgeAttachExisting": "Attach server file",
+  "workspaceKnowledgeAttachExisting": "Připojit soubor ze serveru",
   "@workspaceKnowledgeAttachExisting": {
     "description": "Menu item to attach an existing server file to a knowledge base."
   },
-  "workspaceKnowledgeAttachFailed": "The file could not be attached.",
+  "workspaceKnowledgeAttachFailed": "Soubor se nepodařilo připojit.",
   "@workspaceKnowledgeAttachFailed": {
     "description": "Error when attaching an existing file to a knowledge base fails."
   },
-  "workspaceKnowledgeAddText": "Add text file",
+  "workspaceKnowledgeAddText": "Přidat textový soubor",
   "@workspaceKnowledgeAddText": {
     "description": "Menu item to create a text file and attach it to a knowledge base."
   },
-  "workspaceKnowledgeAddTextName": "File name",
+  "workspaceKnowledgeAddTextName": "Název souboru",
   "@workspaceKnowledgeAddTextName": {
     "description": "Label for the file name field when adding a text file."
   },
-  "workspaceKnowledgeAddTextContent": "Content",
+  "workspaceKnowledgeAddTextContent": "Obsah",
   "@workspaceKnowledgeAddTextContent": {
     "description": "Label for the content field when adding a text file."
   },
-  "workspaceKnowledgeAddTextFailed": "The text file could not be added.",
+  "workspaceKnowledgeAddTextFailed": "Textový soubor se nepodařilo přidat.",
   "@workspaceKnowledgeAddTextFailed": {
     "description": "Error when adding a text file to a knowledge base fails."
   },
-  "workspaceKnowledgeNewFolder": "New folder",
+  "workspaceKnowledgeNewFolder": "Nová složka",
   "@workspaceKnowledgeNewFolder": {
     "description": "Menu item and dialog title to create a new directory in a knowledge base."
   },
-  "workspaceKnowledgeFolderName": "Folder name",
+  "workspaceKnowledgeFolderName": "Název složky",
   "@workspaceKnowledgeFolderName": {
     "description": "Label for the folder name field."
   },
-  "workspaceKnowledgeFolderCreateFailed": "The folder could not be created.",
+  "workspaceKnowledgeFolderCreateFailed": "Složku se nepodařilo vytvořit.",
   "@workspaceKnowledgeFolderCreateFailed": {
     "description": "Error when creating or renaming a knowledge base folder fails."
   },
-  "workspaceKnowledgeRenameFolder": "Rename folder",
+  "workspaceKnowledgeRenameFolder": "Přejmenovat složku",
   "@workspaceKnowledgeRenameFolder": {
     "description": "Action to rename a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolder": "Delete folder",
+  "workspaceKnowledgeDeleteFolder": "Smazat složku",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "workspaceKnowledgeDeleteFolderConfirmTitle": "Smazat složku?",
   "@workspaceKnowledgeDeleteFolderConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "workspaceKnowledgeDeleteFolderConfirmMessage": "Soubory ze složky {name} se přesunou do nadřazené složky.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base directory.",
     "placeholders": {
@@ -4492,43 +4526,43 @@
       }
     }
   },
-  "workspaceKnowledgeFolderDeleteFailed": "The folder could not be deleted.",
+  "workspaceKnowledgeFolderDeleteFailed": "Složku se nepodařilo smazat.",
   "@workspaceKnowledgeFolderDeleteFailed": {
     "description": "Error when deleting a knowledge base folder fails."
   },
-  "workspaceKnowledgeFileRename": "Rename",
+  "workspaceKnowledgeFileRename": "Přejmenovat",
   "@workspaceKnowledgeFileRename": {
     "description": "Per-file action to rename a knowledge base file."
   },
-  "workspaceKnowledgeFileRefresh": "Re-index",
+  "workspaceKnowledgeFileRefresh": "Znovu indexovat",
   "@workspaceKnowledgeFileRefresh": {
     "description": "Per-file action to re-index a knowledge base file."
   },
-  "workspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "workspaceKnowledgeFileReindexed": "Opětovné indexování bylo spuštěno.",
   "@workspaceKnowledgeFileReindexed": {
     "description": "Confirmation that re-indexing a knowledge base file began."
   },
-  "workspaceKnowledgeFileMove": "Move",
+  "workspaceKnowledgeFileMove": "Přesunout",
   "@workspaceKnowledgeFileMove": {
     "description": "Per-file action to move a knowledge base file to another folder."
   },
-  "workspaceKnowledgeFileRenameFailed": "The file could not be renamed.",
+  "workspaceKnowledgeFileRenameFailed": "Soubor se nepodařilo přejmenovat.",
   "@workspaceKnowledgeFileRenameFailed": {
     "description": "Error when renaming a knowledge base file fails."
   },
-  "workspaceKnowledgeFileMoveFailed": "The file could not be moved.",
+  "workspaceKnowledgeFileMoveFailed": "Soubor se nepodařilo přesunout.",
   "@workspaceKnowledgeFileMoveFailed": {
     "description": "Error when moving a knowledge base file fails."
   },
-  "workspaceKnowledgeFileDetach": "Remove from knowledge",
+  "workspaceKnowledgeFileDetach": "Odebrat ze znalostní báze",
   "@workspaceKnowledgeFileDetach": {
     "description": "Per-file action to detach a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachTitle": "Remove file?",
+  "workspaceKnowledgeFileDetachTitle": "Odebrat soubor?",
   "@workspaceKnowledgeFileDetachTitle": {
     "description": "Confirmation dialog title for detaching a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "workspaceKnowledgeFileDetachMessage": "Odebrat {name} z této znalostní báze?",
   "@workspaceKnowledgeFileDetachMessage": {
     "description": "Confirmation dialog body for detaching a file from a knowledge base.",
     "placeholders": {
@@ -4537,151 +4571,151 @@
       }
     }
   },
-  "workspaceKnowledgeFileDeleteUnderlying": "Also delete the underlying file",
+  "workspaceKnowledgeFileDeleteUnderlying": "Smazat i původní soubor",
   "@workspaceKnowledgeFileDeleteUnderlying": {
     "description": "Checkbox to delete the stored file when detaching, shown to owners/admins."
   },
-  "workspaceKnowledgeFileDetachFailed": "The file could not be removed.",
+  "workspaceKnowledgeFileDetachFailed": "Soubor se nepodařilo odebrat.",
   "@workspaceKnowledgeFileDetachFailed": {
     "description": "Error when detaching a file from a knowledge base fails."
   },
-  "workspaceKnowledgeMoveTitle": "Move to folder",
+  "workspaceKnowledgeMoveTitle": "Přesunout do složky",
   "@workspaceKnowledgeMoveTitle": {
     "description": "Title of the sheet for choosing a destination folder."
   },
-  "workspaceKnowledgeMoveRoot": "Root (no folder)",
+  "workspaceKnowledgeMoveRoot": "Kořen (bez složky)",
   "@workspaceKnowledgeMoveRoot": {
     "description": "Move destination representing the knowledge base root."
   },
-  "workspaceKnowledgeStatusPending": "Processing…",
+  "workspaceKnowledgeStatusPending": "Zpracování…",
   "@workspaceKnowledgeStatusPending": {
     "description": "Status shown for a knowledge base file still being ingested."
   },
-  "workspaceKnowledgeStatusFailed": "Failed",
+  "workspaceKnowledgeStatusFailed": "Selhalo",
   "@workspaceKnowledgeStatusFailed": {
     "description": "Status shown for a knowledge base file whose ingestion failed."
   },
-  "workspacePromptCreateTitle": "New prompt",
+  "workspacePromptCreateTitle": "Nový prompt",
   "@workspacePromptCreateTitle": {
     "description": "Title shown while creating a new workspace prompt."
   },
-  "workspacePromptName": "Name",
+  "workspacePromptName": "Název",
   "@workspacePromptName": {
     "description": "Label for the prompt name field."
   },
-  "workspacePromptNameRequired": "Name is required.",
+  "workspacePromptNameRequired": "Název je povinný.",
   "@workspacePromptNameRequired": {
     "description": "Validation error when the prompt name is empty."
   },
-  "workspacePromptCommand": "Command",
+  "workspacePromptCommand": "Příkaz",
   "@workspacePromptCommand": {
     "description": "Label for the prompt slash-command field."
   },
-  "workspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "workspacePromptCommandHint": "Jen písmena, číslice, pomlčky a podtržítka. V chatu ho zadáte jako příkaz s lomítkem.",
   "@workspacePromptCommandHint": {
     "description": "Helper text explaining the allowed prompt command characters."
   },
-  "workspacePromptCommandRequired": "Command is required.",
+  "workspacePromptCommandRequired": "Příkaz je povinný.",
   "@workspacePromptCommandRequired": {
     "description": "Validation error when the prompt command is empty."
   },
-  "workspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspacePromptCommandInvalid": "Povolena jsou jen písmena, číslice, pomlčky a podtržítka.",
   "@workspacePromptCommandInvalid": {
     "description": "Validation error when the prompt command contains illegal characters."
   },
-  "workspacePromptCommandTaken": "That command is already in use.",
+  "workspacePromptCommandTaken": "Tento příkaz se už používá.",
   "@workspacePromptCommandTaken": {
     "description": "Error shown when saving a prompt whose command collides with another prompt."
   },
-  "workspacePromptContent": "Prompt content",
+  "workspacePromptContent": "Obsah promptu",
   "@workspacePromptContent": {
     "description": "Label for the prompt template body field."
   },
-  "workspacePromptContentHint": "Write the prompt template…",
+  "workspacePromptContentHint": "Napište šablonu promptu…",
   "@workspacePromptContentHint": {
     "description": "Placeholder text for the empty prompt content field."
   },
-  "workspacePromptContentRequired": "Prompt content is required.",
+  "workspacePromptContentRequired": "Obsah promptu je povinný.",
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Write",
+  "workspacePromptWriteTab": "Psát",
   "@workspacePromptWriteTab": {
     "description": "Toggle label for the editable prompt content view."
   },
-  "workspacePromptPreviewTab": "Preview",
+  "workspacePromptPreviewTab": "Náhled",
   "@workspacePromptPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the prompt content."
   },
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "workspacePromptPreviewEmpty": "Zatím není co zobrazit.",
   "@workspacePromptPreviewEmpty": {
     "description": "Empty-state text shown in the prompt preview when there is no content."
   },
-  "workspacePromptTags": "Tags",
+  "workspacePromptTags": "Štítky",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
   },
-  "workspacePromptTagAdd": "Add tag",
+  "workspacePromptTagAdd": "Přidat štítek",
   "@workspacePromptTagAdd": {
     "description": "Action to add a tag to a prompt."
   },
-  "workspacePromptVersionSection": "Version",
+  "workspacePromptVersionSection": "Verze",
   "@workspacePromptVersionSection": {
     "description": "Section header for prompt versioning controls."
   },
-  "workspacePromptCommitMessage": "Commit message",
+  "workspacePromptCommitMessage": "Zpráva commitu",
   "@workspacePromptCommitMessage": {
     "description": "Label for the optional commit message recorded with a prompt version."
   },
-  "workspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "workspacePromptCommitMessageHint": "Popište, co se změnilo (volitelné)",
   "@workspacePromptCommitMessageHint": {
     "description": "Placeholder for the prompt commit message field."
   },
-  "workspacePromptSetProduction": "Set as production version",
+  "workspacePromptSetProduction": "Nastavit jako produkční verzi",
   "@workspacePromptSetProduction": {
     "description": "Toggle that marks the saved prompt version as the live production version."
   },
-  "workspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "workspacePromptSetProductionSubtitle": "Tato verze se bude používat v chatu.",
   "@workspacePromptSetProductionSubtitle": {
     "description": "Explanation for the production-version toggle."
   },
-  "workspacePromptManageAccess": "Manage access",
+  "workspacePromptManageAccess": "Spravovat přístup",
   "@workspacePromptManageAccess": {
     "description": "Action to open the sharing/access editor for a prompt."
   },
-  "workspacePromptClone": "Duplicate",
+  "workspacePromptClone": "Duplikovat",
   "@workspacePromptClone": {
     "description": "Overflow action that clones a prompt."
   },
-  "workspacePromptCloneSuffix": "(copy)",
+  "workspacePromptCloneSuffix": "(kopie)",
   "@workspacePromptCloneSuffix": {
     "description": "Suffix appended to the name and command of a cloned prompt."
   },
-  "workspacePromptUpdateDetails": "Save name & command only",
+  "workspacePromptUpdateDetails": "Uložit jen název a příkaz",
   "@workspacePromptUpdateDetails": {
     "description": "Overflow action that updates prompt metadata without creating a new version."
   },
-  "workspacePromptDetailsSaved": "Details saved",
+  "workspacePromptDetailsSaved": "Podrobnosti byly uloženy",
   "@workspacePromptDetailsSaved": {
     "description": "Confirmation that prompt name and command were updated."
   },
-  "workspacePromptActivate": "Activate",
+  "workspacePromptActivate": "Aktivovat",
   "@workspacePromptActivate": {
     "description": "Overflow action that enables a prompt."
   },
-  "workspacePromptDeactivate": "Deactivate",
+  "workspacePromptDeactivate": "Deaktivovat",
   "@workspacePromptDeactivate": {
     "description": "Overflow action that disables a prompt."
   },
-  "workspacePromptDelete": "Delete prompt",
+  "workspacePromptDelete": "Smazat prompt",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
   },
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "workspacePromptDeleteConfirmTitle": "Smazat prompt?",
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspacePromptDeleteConfirmMessage": "„{name}“ bude trvale smazán.",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -4690,211 +4724,211 @@
       }
     }
   },
-  "workspacePromptDeleted": "Prompt deleted",
+  "workspacePromptDeleted": "Prompt byl smazán",
   "@workspacePromptDeleted": {
     "description": "Confirmation that a prompt was deleted."
   },
-  "workspacePromptSaved": "Prompt saved",
+  "workspacePromptSaved": "Prompt byl uložen",
   "@workspacePromptSaved": {
     "description": "Confirmation that a prompt was saved."
   },
-  "workspacePromptSaveFailed": "Couldn't save the prompt. Please try again.",
+  "workspacePromptSaveFailed": "Prompt se nepodařilo uložit. Zkuste to znovu.",
   "@workspacePromptSaveFailed": {
     "description": "Error shown when saving a prompt fails."
   },
-  "workspacePromptImport": "Import prompts",
+  "workspacePromptImport": "Importovat prompty",
   "@workspacePromptImport": {
     "description": "Overflow action that imports prompt definitions from JSON."
   },
-  "workspacePromptExport": "Export prompts",
+  "workspacePromptExport": "Exportovat prompty",
   "@workspacePromptExport": {
     "description": "Overflow action that exports readable prompts as JSON."
   },
-  "workspacePromptExportFailed": "Couldn't export prompts.",
+  "workspacePromptExportFailed": "Prompty se nepodařilo exportovat.",
   "@workspacePromptExportFailed": {
     "description": "Error shown when exporting prompts fails."
   },
-  "workspacePromptHistory": "Version history",
+  "workspacePromptHistory": "Historie verzí",
   "@workspacePromptHistory": {
     "description": "Header of the prompt version-history panel."
   },
-  "workspacePromptHistoryEmpty": "No versions yet.",
+  "workspacePromptHistoryEmpty": "Zatím žádné verze.",
   "@workspacePromptHistoryEmpty": {
     "description": "Empty-state text when a prompt has no version history."
   },
-  "workspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "workspacePromptHistoryLoadFailed": "Historii verzí se nepodařilo načíst.",
   "@workspacePromptHistoryLoadFailed": {
     "description": "Error shown when loading prompt history fails."
   },
-  "workspacePromptHistoryCommitFallback": "No commit message",
+  "workspacePromptHistoryCommitFallback": "Bez zprávy commitu",
   "@workspacePromptHistoryCommitFallback": {
     "description": "Placeholder shown for a history entry without a commit message."
   },
-  "workspacePromptHistoryLive": "Live",
+  "workspacePromptHistoryLive": "Aktivní",
   "@workspacePromptHistoryLive": {
     "description": "Badge marking the active production version of a prompt."
   },
-  "workspacePromptHistoryDiff": "Compare with production",
+  "workspacePromptHistoryDiff": "Porovnat s produkční verzí",
   "@workspacePromptHistoryDiff": {
     "description": "Action to diff a prompt version against the production version."
   },
-  "workspacePromptHistoryDiffTitle": "Version comparison",
+  "workspacePromptHistoryDiffTitle": "Porovnání verzí",
   "@workspacePromptHistoryDiffTitle": {
     "description": "Title of the prompt version diff sheet."
   },
-  "workspacePromptHistoryDiffEmpty": "No content differences.",
+  "workspacePromptHistoryDiffEmpty": "Obsah se neliší.",
   "@workspacePromptHistoryDiffEmpty": {
     "description": "Shown when two prompt versions have identical content."
   },
-  "workspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "workspacePromptHistoryDiffNameChanged": "Název se mezi těmito verzemi změnil.",
   "@workspacePromptHistoryDiffNameChanged": {
     "description": "Note shown in the diff sheet when the prompt name changed."
   },
-  "workspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "workspacePromptHistoryDiffFailed": "Rozdíly se nepodařilo vypočítat.",
   "@workspacePromptHistoryDiffFailed": {
     "description": "Error shown when computing a prompt version diff fails."
   },
-  "workspacePromptHistoryRestore": "Restore this version",
+  "workspacePromptHistoryRestore": "Obnovit tuto verzi",
   "@workspacePromptHistoryRestore": {
     "description": "Action that loads a version snapshot back into the editor."
   },
-  "workspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "workspacePromptHistoryRestored": "Obsah verze byl obnoven. Uložením ho zachováte.",
   "@workspacePromptHistoryRestored": {
     "description": "Confirmation that a version snapshot was loaded into the editor."
   },
-  "workspacePromptHistorySetProduction": "Set as production",
+  "workspacePromptHistorySetProduction": "Nastavit jako produkční",
   "@workspacePromptHistorySetProduction": {
     "description": "Action that pins a version as the production version."
   },
-  "workspacePromptHistoryProductionSet": "Production version updated.",
+  "workspacePromptHistoryProductionSet": "Produkční verze byla aktualizována.",
   "@workspacePromptHistoryProductionSet": {
     "description": "Confirmation that the production version was changed."
   },
-  "workspacePromptHistoryDelete": "Delete version",
+  "workspacePromptHistoryDelete": "Smazat verzi",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
   },
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "workspacePromptHistoryDeleteConfirmTitle": "Smazat verzi?",
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "workspacePromptHistoryDeleteConfirmMessage": "Tento snímek verze bude odstraněn. Tuto akci nelze vrátit zpět.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleted": "Version deleted",
+  "workspacePromptHistoryDeleted": "Verze byla smazána",
   "@workspacePromptHistoryDeleted": {
     "description": "Confirmation that a prompt version was deleted."
   },
-  "workspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "workspacePromptHistoryDeleteProduction": "Aktivní produkční verzi nelze smazat.",
   "@workspacePromptHistoryDeleteProduction": {
     "description": "Error shown when trying to delete the active production version."
   },
-  "workspaceSkillCreateTitle": "New skill",
+  "workspaceSkillCreateTitle": "Nová dovednost",
   "@workspaceSkillCreateTitle": {
     "description": "Title shown while creating a new workspace skill."
   },
-  "workspaceSkillName": "Name",
+  "workspaceSkillName": "Název",
   "@workspaceSkillName": {
     "description": "Label for the skill name field."
   },
-  "workspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "workspaceSkillNameHint": "např. Zásady revize kódu",
   "@workspaceSkillNameHint": {
     "description": "Placeholder example for the skill name field."
   },
-  "workspaceSkillNameRequired": "Name is required.",
+  "workspaceSkillNameRequired": "Název je povinný.",
   "@workspaceSkillNameRequired": {
     "description": "Validation error when the skill name is empty."
   },
-  "workspaceSkillId": "Skill ID",
+  "workspaceSkillId": "ID dovednosti",
   "@workspaceSkillId": {
     "description": "Label for the skill identifier field."
   },
-  "workspaceSkillIdHint": "e.g. code-review-guidelines",
+  "workspaceSkillIdHint": "např. zasady-revize-kodu",
   "@workspaceSkillIdHint": {
     "description": "Placeholder example for the skill identifier field."
   },
-  "workspaceSkillIdRequired": "Skill ID is required.",
+  "workspaceSkillIdRequired": "ID dovednosti je povinné.",
   "@workspaceSkillIdRequired": {
     "description": "Validation error when the skill identifier is empty."
   },
-  "workspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspaceSkillIdInvalid": "Povolena jsou jen písmena, číslice, pomlčky a podtržítka.",
   "@workspaceSkillIdInvalid": {
     "description": "Validation error when the skill identifier contains illegal characters."
   },
-  "workspaceSkillIdTaken": "That skill ID or name is already in use.",
+  "workspaceSkillIdTaken": "Toto ID nebo název dovednosti se už používá.",
   "@workspaceSkillIdTaken": {
     "description": "Error shown when saving a skill whose id or name collides with another skill."
   },
-  "workspaceSkillDescription": "Description",
+  "workspaceSkillDescription": "Popis",
   "@workspaceSkillDescription": {
     "description": "Label for the optional skill description field."
   },
-  "workspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "workspaceSkillDescriptionHint": "např. Podrobný postup pro revize kódu",
   "@workspaceSkillDescriptionHint": {
     "description": "Placeholder example for the skill description field."
   },
-  "workspaceSkillContent": "Instructions",
+  "workspaceSkillContent": "Pokyny",
   "@workspaceSkillContent": {
     "description": "Label for the skill Markdown instructions body field."
   },
-  "workspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "workspaceSkillContentHint": "Zadejte pokyny dovednosti v Markdownu…",
   "@workspaceSkillContentHint": {
     "description": "Placeholder text for the empty skill instructions field."
   },
-  "workspaceSkillContentRequired": "Instructions are required.",
+  "workspaceSkillContentRequired": "Pokyny jsou povinné.",
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Write",
+  "workspaceSkillWriteTab": "Psát",
   "@workspaceSkillWriteTab": {
     "description": "Toggle label for the editable skill instructions view."
   },
-  "workspaceSkillPreviewTab": "Preview",
+  "workspaceSkillPreviewTab": "Náhled",
   "@workspaceSkillPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the skill instructions."
   },
-  "workspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "workspaceSkillPreviewEmpty": "Zatím není co zobrazit.",
   "@workspaceSkillPreviewEmpty": {
     "description": "Empty-state text shown in the skill preview when there is no content."
   },
-  "workspaceSkillManageAccess": "Manage access",
+  "workspaceSkillManageAccess": "Spravovat přístup",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
   },
-  "workspaceSkillSaved": "Skill saved",
+  "workspaceSkillSaved": "Dovednost byla uložena",
   "@workspaceSkillSaved": {
     "description": "Confirmation that a skill was saved."
   },
-  "workspaceSkillSaveFailed": "Couldn't save the skill. Please try again.",
+  "workspaceSkillSaveFailed": "Dovednost se nepodařilo uložit. Zkuste to znovu.",
   "@workspaceSkillSaveFailed": {
     "description": "Error shown when saving a skill fails."
   },
-  "workspaceSkillClone": "Duplicate",
+  "workspaceSkillClone": "Duplikovat",
   "@workspaceSkillClone": {
     "description": "Overflow action that clones a skill."
   },
-  "workspaceSkillCloneSuffix": "(Clone)",
+  "workspaceSkillCloneSuffix": "(kopie)",
   "@workspaceSkillCloneSuffix": {
     "description": "Suffix appended to the name of a cloned skill."
   },
-  "workspaceSkillActivate": "Activate",
+  "workspaceSkillActivate": "Aktivovat",
   "@workspaceSkillActivate": {
     "description": "Overflow action that enables a skill."
   },
-  "workspaceSkillDeactivate": "Deactivate",
+  "workspaceSkillDeactivate": "Deaktivovat",
   "@workspaceSkillDeactivate": {
     "description": "Overflow action that disables a skill."
   },
-  "workspaceSkillDelete": "Delete skill",
+  "workspaceSkillDelete": "Smazat dovednost",
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "workspaceSkillDeleteConfirmTitle": "Smazat dovednost?",
   "@workspaceSkillDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a skill."
   },
-  "workspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspaceSkillDeleteConfirmMessage": "„{name}“ bude trvale smazána.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
     "placeholders": {
@@ -4903,97 +4937,97 @@
       }
     }
   },
-  "workspaceSkillDeleted": "Skill deleted",
+  "workspaceSkillDeleted": "Dovednost byla smazána",
   "@workspaceSkillDeleted": {
     "description": "Confirmation that a skill was deleted."
   },
-  "workspaceSkillImport": "Import skills",
+  "workspaceSkillImport": "Importovat dovednosti",
   "@workspaceSkillImport": {
     "description": "Title of the JSON skill import sheet."
   },
-  "workspaceSkillImportMarkdown": "Import Markdown",
+  "workspaceSkillImportMarkdown": "Importovat Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
   },
-  "workspaceSkillImportJson": "Import JSON",
+  "workspaceSkillImportJson": "Importovat JSON",
   "@workspaceSkillImportJson": {
     "description": "Overflow action that imports one or more skills from a JSON file."
   },
-  "workspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "workspaceSkillImportMarkdownLoaded": "Markdown byl načten. Zkontrolujte ho a uložením vytvořte dovednost.",
   "@workspaceSkillImportMarkdownLoaded": {
     "description": "Confirmation that a Markdown file was loaded into the unsaved skill editor."
   },
-  "workspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "workspaceSkillImportMarkdownFailed": "Soubor Markdown se nepodařilo přečíst.",
   "@workspaceSkillImportMarkdownFailed": {
     "description": "Error shown when reading a Markdown skill file fails."
   },
-  "workspaceSkillExport": "Export skills",
+  "workspaceSkillExport": "Exportovat dovednosti",
   "@workspaceSkillExport": {
     "description": "Overflow action that exports readable skills as JSON."
   },
-  "workspaceSkillExportFailed": "Couldn't export skills.",
+  "workspaceSkillExportFailed": "Dovednosti se nepodařilo exportovat.",
   "@workspaceSkillExportFailed": {
     "description": "Error shown when exporting skills fails."
   },
-  "workspaceToolCreateTitle": "Create tool",
-  "workspaceToolName": "Name",
-  "workspaceToolNameHint": "e.g. My Tools",
-  "workspaceToolNameRequired": "Enter a tool name.",
-  "workspaceToolId": "Tool ID",
-  "workspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
-  "workspaceToolIdRequired": "Enter a tool ID.",
-  "workspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
-  "workspaceToolIdTaken": "That tool ID is already in use.",
-  "workspaceToolDescription": "Description",
-  "workspaceToolDescriptionHint": "e.g. Tools for performing various operations",
-  "workspaceToolContent": "Python source",
-  "workspaceToolContentHint": "Write your tool as a Python class named Tools…",
-  "workspaceToolContentRequired": "Add Python source before saving.",
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
-  "workspaceToolSaved": "Tool saved",
-  "workspaceToolDeleted": "Tool deleted",
-  "workspaceToolSaveFailed": "Couldn't save the tool.",
-  "workspaceToolManageAccess": "Manage access",
-  "workspaceToolClone": "Duplicate",
-  "workspaceToolCloneSuffix": "(Clone)",
-  "workspaceToolDelete": "Delete",
-  "workspaceToolDeleteConfirmTitle": "Delete tool?",
-  "workspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
-  "workspaceToolImport": "Import tools",
-  "workspaceToolImportJson": "Import JSON",
-  "workspaceToolImportUrl": "Import from URL",
-  "workspaceToolImportUrlTitle": "Import tool from URL",
-  "workspaceToolImportUrlHint": "Enter a raw or GitHub URL to a tool's Python file",
+  "workspaceToolCreateTitle": "Vytvořit nástroj",
+  "workspaceToolName": "Název",
+  "workspaceToolNameHint": "např. Moje nástroje",
+  "workspaceToolNameRequired": "Zadejte název nástroje.",
+  "workspaceToolId": "ID nástroje",
+  "workspaceToolIdHint": "Písmena, číslice a podtržítka; nesmí začínat číslicí.",
+  "workspaceToolIdRequired": "Zadejte ID nástroje.",
+  "workspaceToolIdInvalid": "ID nástroje smí obsahovat písmena, číslice a podtržítka a nesmí začínat číslicí.",
+  "workspaceToolIdTaken": "Toto ID nástroje se už používá.",
+  "workspaceToolDescription": "Popis",
+  "workspaceToolDescriptionHint": "např. Nástroje pro různé operace",
+  "workspaceToolContent": "Zdrojový kód Python",
+  "workspaceToolContentHint": "Napište nástroj jako třídu Pythonu s názvem Tools…",
+  "workspaceToolContentRequired": "Před uložením přidejte zdrojový kód Python.",
+  "workspaceToolWarning": "Nástroje na serveru spouštějí libovolný kód Python. Přidávejte jen kód z důvěryhodných zdrojů.",
+  "workspaceToolSaved": "Nástroj byl uložen",
+  "workspaceToolDeleted": "Nástroj byl smazán",
+  "workspaceToolSaveFailed": "Nástroj se nepodařilo uložit.",
+  "workspaceToolManageAccess": "Spravovat přístup",
+  "workspaceToolClone": "Duplikovat",
+  "workspaceToolCloneSuffix": "(kopie)",
+  "workspaceToolDelete": "Smazat",
+  "workspaceToolDeleteConfirmTitle": "Smazat nástroj?",
+  "workspaceToolDeleteConfirmMessage": "„{name}“ bude trvale smazán.",
+  "workspaceToolImport": "Importovat nástroje",
+  "workspaceToolImportJson": "Importovat JSON",
+  "workspaceToolImportUrl": "Importovat z URL",
+  "workspaceToolImportUrlTitle": "Importovat nástroj z URL",
+  "workspaceToolImportUrlHint": "Zadejte URL na GitHubu k souboru Python nástroje",
   "workspaceToolImportUrlLabel": "URL",
-  "workspaceToolImportUrlInvalid": "Enter a valid URL.",
-  "workspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
-  "workspaceToolExport": "Export tools",
-  "workspaceToolExportFailed": "Couldn't export tools.",
+  "workspaceToolImportUrlInvalid": "Zadejte platnou URL.",
+  "workspaceToolImportUrlFailed": "Nástroj se z této URL nepodařilo importovat.",
+  "workspaceToolImportUrlLoaded": "Nástroj byl načten. Zkontrolujte ho a uložte.",
+  "workspaceToolExport": "Exportovat nástroje",
+  "workspaceToolExportFailed": "Nástroje se nepodařilo exportovat.",
   "workspaceToolManifest": "Manifest",
-  "workspaceToolManifestVersion": "Version {version}",
-  "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
-  "workspaceToolManifestFunding": "Funding: {url}",
-  "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolManifestVersion": "Verze {version}",
+  "workspaceToolManifestRequiredVersion": "Vyžaduje Open WebUI {version}",
+  "workspaceToolManifestFunding": "Financování: {url}",
+  "workspaceToolSpecs": "Vygenerované specifikace",
   "workspaceToolDetails": "Podrobnosti nástroje",
   "workspaceToolFunctionCount": "Počet funkcí: {count}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
-  "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
-  "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
-  "workspaceToolValves": "Valves",
-  "workspaceToolValvesTitle": "Valves",
-  "workspaceToolValvesServer": "Server valves",
-  "workspaceToolValvesUser": "User valves",
-  "workspaceToolValvesEmpty": "No valves",
-  "workspaceToolValvesSaved": "Valves updated",
-  "workspaceToolValvesSaveFailed": "Couldn't update valves.",
-  "workspaceToolValvesLoadFailed": "Couldn't load valves.",
-  "workspaceValveRequired": "required",
-  "workspaceValveDefault": "Default",
-  "workspaceValveCustom": "Custom",
-  "workspaceValveNone": "None",
-  "workspaceValveEnabled": "Enabled",
-  "workspaceValveDisabled": "Disabled",
+  "workspaceToolSpecsEmpty": "Pro tento nástroj nebyly vygenerovány žádné specifikace.",
+  "workspaceToolIncompatible": "Tento nástroj vyžaduje Open WebUI v{required}, ale server má v{current}. Pro uložení server aktualizujte.",
+  "workspaceToolValves": "Ventily",
+  "workspaceToolValvesTitle": "Ventily",
+  "workspaceToolValvesServer": "Ventily serveru",
+  "workspaceToolValvesUser": "Ventily uživatele",
+  "workspaceToolValvesEmpty": "Žádné ventily",
+  "workspaceToolValvesSaved": "Ventily byly aktualizovány",
+  "workspaceToolValvesSaveFailed": "Ventily se nepodařilo aktualizovat.",
+  "workspaceToolValvesLoadFailed": "Ventily se nepodařilo načíst.",
+  "workspaceValveRequired": "povinné",
+  "workspaceValveDefault": "Výchozí",
+  "workspaceValveCustom": "Vlastní",
+  "workspaceValveNone": "Žádné",
+  "workspaceValveEnabled": "Zapnuto",
+  "workspaceValveDisabled": "Vypnuto",
   "noteConflictCopyBadge": "Konfliktní kopie",
   "noteConflictCopySuffix": " (konfliktní kopie)",
   "notificationChannelDescription": "Upozornit, když někdo pošle zprávu v kanálu nebo přímou zprávu.",
@@ -5012,73 +5046,73 @@
   "notificationSystemDescription": "Zobrazit oznámení mimo aplikaci, když běží na pozadí.",
   "notificationSystemTitle": "Systémová oznámení",
   "notificationViewAction": "Zobrazit",
+  "notificationReplyFailedBody": "Odpověď se nepodařilo dokončit.",
+  "notificationTargetUnavailable": "Účet nebo připojení tohoto oznámení už v tomto zařízení není.",
   "notificationsEnabledDescription": "Dostávat upozornění, když je aplikace na pozadí i v aplikaci.",
   "notificationsEnabledTitle": "Zapnout oznámení",
   "notificationsPermissionDenied": "Oznámení jsou vypnutá v nastavení systému.",
   "notificationsSubtitle": "Upozornění na odpovědi, zprávy a dokončené odpovědi",
   "notificationsTitle": "Oznámení",
-  "hermesSecretsUnavailable": "Could not access saved Hermes credentials. Unlock secure storage and retry.",
+  "hermesSecretsUnavailable": "K uloženým přihlašovacím údajům Hermes se nepodařilo získat přístup. Odemkněte bezpečné úložiště a zkuste to znovu.",
   "hermesAgentSettingsTitle": "Hermes Agent",
-  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
-  "connectOpenWebUITitle": "Connect to Open WebUI",
-  "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
-  "hermesApprovalRequired": "Approval required",
-  "hermesApprovalFallback": "The agent is requesting permission to continue.",
+  "hermesAgentSettingsSubtitle": "Agent na vlastním serveru",
+  "connectOpenWebUITitle": "Připojit k Open WebUI",
+  "connectOpenWebUISubtitle": "Přidat vlastní server Open WebUI",
+  "backendChooserOpenWebUISubtitle": "Přihlaste se ke svému serveru a mějte synchronizované chaty, poznámky a další.",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "Chatujte s vlastním agentem, který používá nástroje a pamatuje si dřívější relace.",
+  "hermesApprovalRequired": "Vyžaduje se schválení",
+  "hermesApprovalFallback": "Agent žádá o povolení pokračovat.",
   "openWebUiPromptOther": "Jiné",
   "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
   "openWebUiPromptAnswerHint": "Napište svou odpověď",
   "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
   "openWebUiPromptSubmit": "Odeslat",
   "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
-  "hermesApprovalApproved": "Approved ✓",
-  "hermesApprovalDenied": "Denied",
-  "hermesApprovalApproveAction": "Approve",
-  "hermesApprovalDenyAction": "Deny",
-  "hermesEnableTitle": "Enable Hermes Agent",
-  "hermesEnableSubtitle": "Use your self-hosted Hermes agent as a model in the picker.",
-  "hermesServerUrlTitle": "Server URL",
-  "hermesApiKeyTitle": "API key",
-  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API key",
-  "hermesMemoryKeyTitle": "Memory key (optional)",
-  "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
-  "hermesCapabilitiesTitle": "Capabilities",
-  "hermesCapabilityApproval": "Approval",
-  "hermesCapabilitySkills": "Skills",
-  "hermesCapabilityToolsets": "Toolsets",
-  "hermesCapabilityJobs": "Jobs",
-  "hermesCapabilitySessions": "Sessions",
-  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
-  "hermesTabInfoSubtitle": "Available in the Hermes tab once enabled.",
-  "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
-  "hermesSelfHostedAgentLabel": "Self-hosted agent",
-  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
-  "hermesConversationsTitle": "Conversations",
+  "hermesApprovalApproved": "Schváleno ✓",
+  "hermesApprovalDenied": "Zamítnuto",
+  "hermesApprovalApproveAction": "Schválit",
+  "hermesApprovalDenyAction": "Zamítnout",
+  "hermesEnableTitle": "Zapnout Hermes Agent",
+  "hermesEnableSubtitle": "Používat vlastního agenta Hermes jako model ve výběru modelů.",
+  "hermesServerUrlTitle": "URL serveru",
+  "hermesApiKeyTitle": "Klíč API",
+  "hermesConfiguredReplacePlaceholder": "Nastaveno; zadáním hodnotu nahradíte",
+  "hermesApiKeyPlaceholder": "Zadejte klíč API",
+  "hermesMemoryKeyTitle": "Klíč paměti (volitelné)",
+  "hermesMemoryKeyPlaceholder": "Když pole necháte prázdné, vygeneruje se automaticky",
+  "hermesCapabilitiesTitle": "Funkce",
+  "hermesCapabilityApproval": "Schvalování",
+  "hermesCapabilitySkills": "Dovednosti",
+  "hermesCapabilityToolsets": "Sady nástrojů",
+  "hermesCapabilityJobs": "Úlohy",
+  "hermesCapabilitySessions": "Relace",
+  "hermesTabInfoTitle": "Konverzace a plány",
+  "hermesTabInfoSubtitle": "Po zapnutí je k dispozici na kartě Hermes.",
+  "hermesNativeSettingsSubtitle": "Připojte se přímo k vlastnímu agentovi Hermes.",
+  "hermesSelfHostedAgentLabel": "Agent na vlastním serveru",
+  "hermesNoConversationsMessage": "Zatím žádné konverzace",
+  "hermesConversationsTitle": "Konverzace",
   "hermesBotsTitle": "Boti",
-  "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
-  "hermesSchedulesLoading": "Loading schedules…",
-  "hermesSchedulesUnavailable": "Schedules unavailable",
-  "hermesNoSchedulesYet": "No schedules yet",
-  "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
-  "hermesReviewSchedules": "Review schedules",
-  "hermesScheduledAgentsTitle": "Scheduled agents",
-  "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "hermesConversationsLoadError": "Konverzace Hermes se nepodařilo načíst.\nZkontrolujte připojení v části Nastavení → Hermes Agent.",
+  "hermesSchedulesLoading": "Načítání plánů…",
+  "hermesSchedulesUnavailable": "Plány nejsou k dispozici",
+  "hermesNoSchedulesYet": "Žádné plány",
+  "hermesSchedulesSummary": "Aktivní: {active} · {total, plural, one{1 plán} few{{total} plány} other{{total} plánů}}",
+  "hermesReviewSchedules": "Zkontrolovat plány",
+  "hermesScheduledAgentsTitle": "Naplánovaní agenti",
+  "workspaceToolImportUrlHost": "Importovat lze jen URL nástrojů z GitHubu.",
+  "signInServerDescription": "Přihlaste se k níže uvedenému serveru pomocí účtu Open WebUI.",
+  "openWebUIServer": "Server Open WebUI",
+  "serverAddressUnavailable": "Adresa serveru není k dispozici",
+  "showPassword": "Zobrazit heslo",
+  "hidePassword": "Skrýt heslo",
+  "reviewerModeEnabled": "Režim recenzenta je zapnutý. Demo můžete otevřít bez serveru.",
+  "reviewerModeDisabled": "Režim recenzenta je vypnutý.",
+  "openSourceLicenses": "Licence open source",
   "directConnectionsTitle": "Přímá připojení",
-  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
-  "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
+  "directConnectionsSubtitle": "API kompatibilní s OpenAI a Ollama",
+  "directConnectionsDescription": "Připojte se k poskytovatelům modelů bez Open WebUI. Přihlašovací údaje jsou bezpečně uloženy v tomto zařízení a odesílají se poskytovateli spolu s požadavky.",
   "directConnectionsCombinedDescription": "Připojte se přímo k poskytovatelům modelů pomocí připojení synchronizovaných z Open WebUI nebo uložených pouze v tomto zařízení.",
   "openWebUiDirectConnectionsSectionTitle": "Server Open WebUI",
   "openWebUiDirectConnectionsSectionDescription": "Uloženo ve vašem účtu Open WebUI a dostupné i v ostatních přihlášených klientech.",
@@ -5098,130 +5132,130 @@
   "directConnectionNoLongerExists": "Toto připojení už neexistuje.",
   "openWebUiDirectConnectionDeleteMessage": "Připojení {name} bude odebráno z vašeho účtu Open WebUI i z ostatních přihlášených klientů.",
   "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
-  "addDirectConnection": "Add connection",
-  "editDirectConnection": "Edit connection",
-  "directConnectionName": "Connection name",
+  "addDirectConnection": "Přidat připojení",
+  "editDirectConnection": "Upravit připojení",
+  "directConnectionName": "Název připojení",
   "directDefaultConnectionName": "Můj poskytovatel",
   "sidebarButtonLabel": "Postranní panel",
-  "directConnectionNameRequired": "Enter a connection name.",
-  "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
-  "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
-  "directConnectionApiKeyRequired": "Enter an API key or choose no authentication.",
-  "directConnectionHeaderNameRequired": "Enter a header name, then add the header.",
-  "directConnectionCredentialTransferTitle": "Use credentials with new server?",
-  "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
-  "directConnectionCredentialTransferConfirm": "Use credentials",
-  "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionNameRequired": "Zadejte název připojení.",
+  "directConnectionUrlInvalid": "Použijte platnou adresu URL http:// nebo https://.",
+  "directConnectionCredentialsReentryRequired": "Při změně serveru zadejte přihlašovací údaje znovu.",
+  "directConnectionApiKeyRequired": "Zadejte klíč API nebo zvolte Bez ověření.",
+  "directConnectionHeaderNameRequired": "Zadejte název hlavičky a pak hlavičku přidejte.",
+  "directConnectionCredentialTransferTitle": "Použít přihlašovací údaje s novým serverem?",
+  "directConnectionCredentialTransferMessage": "Klíč API a všechny vlastní hlavičky budou odeslány na nový server. Pokračujte, jen pokud mu důvěřujete.",
+  "directConnectionCredentialTransferConfirm": "Použít přihlašovací údaje",
+  "directConnectionSaveFailed": "Toto připojení se nepodařilo uložit.",
   "directConnectionSaveConflict": "Toto připojení bylo změněno jinde. Před uložením ho znovu otevřete.",
-  "directConnectionReachFailed": "Could not reach the provider.",
-  "directConnectionDeleteTitle": "Delete connection?",
-  "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",
-  "directConnectionDeleteFailed": "Could not delete this connection.",
-  "directConnectionProbeConnected": "Connected",
-  "directConnectionProbeConnectedModels": "{count, plural, =1{Connected · 1 model} other{Connected · {count} models}}",
-  "directProvider": "Provider type",
-  "openAICompatible": "OpenAI-compatible",
+  "directConnectionReachFailed": "Poskytovatel není dostupný.",
+  "directConnectionDeleteTitle": "Smazat připojení?",
+  "directConnectionDeleteMessage": "Tím z tohoto zařízení odstraníte {name} a jeho přihlašovací údaje.",
+  "directConnectionDeleteFailed": "Toto připojení se nepodařilo smazat.",
+  "directConnectionProbeConnected": "Připojeno",
+  "directConnectionProbeConnectedModels": "{count, plural, one{Připojeno · 1 model} few{Připojeno · {count} modely} other{Připojeno · {count} modelů}}",
+  "directProvider": "Typ poskytovatele",
+  "openAICompatible": "Kompatibilní s OpenAI",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
-  "directApiBaseUrl": "Base URL",
-  "directOpenRouterUrlInvalid": "Use OpenRouter’s HTTPS /api/v1 root (global or EU).",
+  "directApiBaseUrl": "Základní URL",
+  "directOpenRouterUrlInvalid": "Použijte kořenovou adresu HTTPS /api/v1 služby OpenRouter (globální nebo EU).",
   "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
-  "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
-  "directCompletionApi": "Completion API",
+  "directOpenRouterChatCompletionsDescription": "Chat Completions se používá pro nativní vyhledávání na webu, generování obrázků, analýzu PDF a opakovaně použitelné anotace PDF.",
+  "directCompletionApi": "Typ API",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
   "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
-  "directResponsesDescription": "Use the typed Responses event stream. Choose this only when the provider exposes /responses.",
-  "directApiVersion": "API version",
-  "directApiVersionDescription": "Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.",
-  "directAuthentication": "Authentication",
-  "noAuthentication": "No authentication",
-  "bearerToken": "Bearer token",
-  "directApiKeyHeader": "API-key header",
-  "directApiKeyHeaderDescription": "Sends the credential in the api-key header used by Azure OpenAI.",
-  "directApiKey": "API key",
-  "directCustomHeaders": "Custom headers",
-  "directManualModelIds": "Manual model IDs",
+  "directResponsesDescription": "Používá typovaný proud událostí Responses. Zvolte, jen pokud poskytovatel nabízí /responses.",
+  "directApiVersion": "Verze API",
+  "directApiVersionDescription": "Volitelné. Přidá parametr dotazu api-version, který vyžadují koncové body Azure OpenAI.",
+  "directAuthentication": "Ověření",
+  "noAuthentication": "Bez ověření",
+  "bearerToken": "Token Bearer",
+  "directApiKeyHeader": "Hlavička api-key",
+  "directApiKeyHeaderDescription": "Odešle přihlašovací údaj v hlavičce api-key, kterou používá Azure OpenAI.",
+  "directApiKey": "Klíč API",
+  "directCustomHeaders": "Vlastní hlavičky",
+  "directManualModelIds": "Ručně zadaná ID modelů",
   "directManualModelIdsDescription": "Volitelné. Pokud server nedokáže vypsat modely, zadejte jedno ID na řádek.",
   "@directManualModelIdsDescription": {"placeholders":{}},
-  "directModelIdPrefix": "Model ID prefix",
-  "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
-  "directModelTags": "Model tags",
-  "directModelTagsDescription": "Optional. Separate tags with commas or new lines.",
-  "syncDirectHistory": "Open WebUI history",
-  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
-  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
-  "testDirectConnection": "Test connection",
-  "directConnectionTestUnavailable": "Connection testing is not available yet.",
-  "finishDirectSetup": "Start chatting",
-  "directProfilesEmptyTitle": "No direct connections yet",
-  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
-  "directConnectionsSectionTitle": "Connections",
-  "directSavedDataUnreadable": "The saved connection data could not be read.",
-  "directSecureStorageUnavailable": "Check secure storage access and try again.",
-  "onDevice": "On device",
-  "directConnectionError": "Direct connection error",
-  "directAttachmentUnsupported": "This direct model does not support this attachment.",
+  "directModelIdPrefix": "Předpona ID modelu",
+  "directModelIdPrefixDescription": "Volitelné. Přidá viditelný jmenný prostor, například studio.model-name, aniž by se změnilo ID modelu odesílané poskytovateli.",
+  "directModelTags": "Štítky modelu",
+  "directModelTagsDescription": "Volitelné. Štítky oddělte čárkami nebo novými řádky.",
+  "syncDirectHistory": "Historie Open WebUI",
+  "syncDirectHistorySubtitle": "Ukládat nové přímé chaty do vašeho účtu Open WebUI.",
+  "directHistoryLocalOnlySubtitle": "Ponechat nové přímé chaty jen v tomto zařízení.",
+  "backendChooserDirectTitle": "Poskytovatel modelů",
+  "backendChooserDirectSubtitle": "Chatujte přes OpenAI, OpenRouter nebo Ollama. Váš klíč zůstane v tomto zařízení.",
+  "testDirectConnection": "Otestovat připojení",
+  "directConnectionTestUnavailable": "Testování připojení zatím není k dispozici.",
+  "finishDirectSetup": "Začít chatovat",
+  "directProfilesEmptyTitle": "Zatím žádná přímá připojení",
+  "directProfilesEmptySubtitle": "Přidejte poskytovatele API a začněte chatovat.",
+  "directConnectionsSectionTitle": "Připojení",
+  "directSavedDataUnreadable": "Uložená data připojení se nepodařilo přečíst.",
+  "directSecureStorageUnavailable": "Zkontrolujte přístup k bezpečnému úložišti a zkuste to znovu.",
+  "onDevice": "V zařízení",
+  "directConnectionError": "Chyba přímého připojení",
+  "directAttachmentUnsupported": "Tento přímý model tuto přílohu nepodporuje.",
   "backendChooserOpenWebUITitle": "Open WebUI",
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
-  "moreModels": "More models",
-  "reasoningEffort": "Effort",
-  "reasoningEffortLow": "Low",
-  "reasoningEffortMedium": "Medium",
-  "reasoningEffortHigh": "High",
+  "hermesMemoryKeyDescription": "Udržuje dlouhodobou paměť oddělenou pro toto zařízení. Pokud pole necháte prázdné, Conduit klíč vytvoří.",
+  "moreModels": "Další modely",
+  "reasoningEffort": "Úroveň uvažování",
+  "reasoningEffortLow": "Nízká",
+  "reasoningEffortMedium": "Střední",
+  "reasoningEffortHigh": "Vysoká",
   "reasoningEffortMinimal": "Minimální",
   "reasoningEffortExtraHigh": "Velmi vysoká",
-  "reasoningEffortMaximum": "Maximum",
+  "reasoningEffortMaximum": "Maximální",
   "reasoningEffortNone": "Žádná",
-  "customReasoningEffort": "Custom effort",
-  "retryWithoutReasoningEffort": "Zkusit znovu bez Effortu",
-  "reasoningEffortClearIncomplete": "Nastavení Effortu se nepodařilo úplně vymazat – tento pokus pokračuje bez něj.",
-  "customReasoningEffortHint": "Enter a provider-supported effort",
-  "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
-  "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",
-  "sidebarSyncingChats": "Syncing chats",
-  "sidebarSyncingNotes": "Syncing notes",
-  "sidebarFinishingSync": "Finishing sync",
-  "loadMermaidPreview": "Load Mermaid preview",
-  "loadChartPreview": "Load chart preview",
-  "loadPdfPreview": "Load PDF preview: {title}",
+  "customReasoningEffort": "Vlastní úroveň",
+  "retryWithoutReasoningEffort": "Zkusit znovu bez úrovně uvažování",
+  "reasoningEffortClearIncomplete": "Nastavení úrovně uvažování se nepodařilo úplně vymazat – tento pokus pokračuje bez něj.",
+  "customReasoningEffortHint": "Zadejte úroveň, kterou poskytovatel podporuje",
+  "proxyServerVerificationFailed": "Server Open WebUI se nepodařilo ověřit. Relace proxy mohla vypršet nebo je neplatná. Zkuste to znovu.",
+  "proxyManualSignInRequired": "Ověření se nezdařilo. Zkuste se přihlásit ručně.",
+  "sidebarSyncingChats": "Synchronizují se chaty",
+  "sidebarSyncingNotes": "Synchronizují se poznámky",
+  "sidebarFinishingSync": "Dokončuje se synchronizace",
+  "loadMermaidPreview": "Načíst náhled Mermaid",
+  "loadChartPreview": "Načíst náhled grafu",
+  "loadPdfPreview": "Načíst náhled PDF: {title}",
   "ollamaCloudDefaultName": "Ollama Cloud",
   "ollamaCloudBaseUrlHint": "https://ollama.com",
-  "ollamaCloudBaseUrlDescription": "Use https://ollama.com with an API key for Ollama Cloud.",
-  "ollamaModelLoaded": "Loaded",
-  "ollamaModelActions": "Model memory",
-  "ollamaModelActionsDescription": "Manage this model in Ollama's RAM or VRAM.",
-  "ollamaLoadModel": "Load model",
-  "ollamaLoadModelDescription": "Warm it now to make the first response faster.",
-  "ollamaUnloadModel": "Unload model",
-  "ollamaUnloadModelDescription": "Free its RAM or VRAM. It loads automatically on the next message.",
-  "ollamaUnloadModelConfirmTitle": "Unload {name}?",
-  "ollamaUnloadModelConfirmMessage": "This frees the model's RAM or VRAM. Ollama will load it again automatically when you send a message.",
-  "ollamaKeepAlive": "Keep alive",
-  "ollamaKeepAliveDescription": "Applied to this model after each chat request.",
-  "ollamaKeepAliveServerDefault": "Server default",
-  "ollamaKeepAliveFiveMinutes": "5 minutes",
-  "ollamaKeepAliveThirtyMinutes": "30 minutes",
-  "ollamaKeepAliveOneHour": "1 hour",
-  "ollamaKeepAliveAlways": "Always loaded",
-  "ollamaKeepAliveImmediate": "Unload after every response",
-  "ollamaKeepAliveCustom": "Custom",
-  "ollamaKeepAliveCustomHint": "Examples: 10m, 24h, 3600, -1, or 0",
-  "ollamaKeepAliveInvalid": "Use seconds or a duration such as 10m or 24h.",
-  "ollamaModelLoadedMessage": "{name} is loaded.",
-  "ollamaModelUnloadedMessage": "{name} was unloaded.",
-  "ollamaModelActionFailed": "Could not update this model's memory state.",
-  "ollamaThinking": "Thinking",
-  "ollamaCloudModelActionsDescription": "Configure how this Ollama Cloud model responds.",
-  "ollamaThinkingDescription": "Choose how much reasoning the model should use. Available levels depend on the model.",
-  "ollamaThinkingAutomatic": "Automatic",
-  "ollamaThinkingDisabled": "Off",
-  "ollamaThinkingLow": "Low",
-  "ollamaThinkingMedium": "Medium",
-  "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum",
+  "ollamaCloudBaseUrlDescription": "Připojte se k Ollama Cloud pomocí klíče API.",
+  "ollamaModelLoaded": "Načteno",
+  "ollamaModelActions": "Paměť modelu",
+  "ollamaModelActionsDescription": "Spravujte tento model v paměti RAM nebo VRAM serveru Ollama.",
+  "ollamaLoadModel": "Načíst model",
+  "ollamaLoadModelDescription": "Načtěte ho hned, aby byla první odpověď rychlejší.",
+  "ollamaUnloadModel": "Uvolnit model",
+  "ollamaUnloadModelDescription": "Uvolní jeho RAM nebo VRAM. S další zprávou se načte automaticky.",
+  "ollamaUnloadModelConfirmTitle": "Uvolnit {name}?",
+  "ollamaUnloadModelConfirmMessage": "Tím se uvolní RAM nebo VRAM modelu. Ollama ho po odeslání zprávy automaticky načte znovu.",
+  "ollamaKeepAlive": "Ponechat v paměti",
+  "ollamaKeepAliveDescription": "Použije se na tento model po každém požadavku chatu.",
+  "ollamaKeepAliveServerDefault": "Výchozí nastavení serveru",
+  "ollamaKeepAliveFiveMinutes": "5 minut",
+  "ollamaKeepAliveThirtyMinutes": "30 minut",
+  "ollamaKeepAliveOneHour": "1 hodina",
+  "ollamaKeepAliveAlways": "Vždy načtený",
+  "ollamaKeepAliveImmediate": "Uvolnit po každé odpovědi",
+  "ollamaKeepAliveCustom": "Vlastní",
+  "ollamaKeepAliveCustomHint": "Příklady: 10m, 24h, 3600, -1 nebo 0",
+  "ollamaKeepAliveInvalid": "Zadejte počet sekund nebo dobu, například 10m nebo 24h.",
+  "ollamaModelLoadedMessage": "Model {name} je načtený.",
+  "ollamaModelUnloadedMessage": "Model {name} byl uvolněn.",
+  "ollamaModelActionFailed": "Stav paměti tohoto modelu se nepodařilo změnit.",
+  "ollamaThinking": "Uvažování",
+  "ollamaCloudModelActionsDescription": "Nastavte, jak tento model Ollama Cloud odpovídá.",
+  "ollamaThinkingDescription": "Zvolte, kolik uvažování má model použít. Dostupné úrovně závisí na modelu.",
+  "ollamaThinkingAutomatic": "Automaticky",
+  "ollamaThinkingDisabled": "Vypnuto",
+  "ollamaThinkingLow": "Nízké",
+  "ollamaThinkingMedium": "Střední",
+  "ollamaThinkingHigh": "Vysoké",
+  "ollamaThinkingMaximum": "Maximální",
   "releaseNotesSupportPromptHeading": "Líbí se vám Conduit?",
   "releaseNotesSupportPromptMessage": "Krátká recenze pomůže více lidem objevit Conduit. Malé dýško mi pomáhá pokračovat ve vývoji. Obojí pro mě hodně znamená.",
   "directConnectProvider": "Připojit poskytovatele",
@@ -5262,12 +5296,110 @@
   "hermesMcpServers": "Servery MCP",
   "hermesSignOut": "Odhlásit se z Hermes",
   "hermesActionFailed": "Akce Hermes selhala.",
+  "hermesSignOutFailed": "Z nástěnky Hermes se nepodařilo odhlásit. Zkontrolujte připojení a zkuste to znovu.",
   "hermesToolsetUpdateFailed": "Aktualizace sady nástrojů Hermes selhala.",
   "hermesJobStateLabel": "Stav",
   "hermesJobDeliveryLabel": "Doručení",
   "hermesJobLastLabel": "Poslední",
   "hermesJobNextLabel": "Další",
   "hermesJobRunHistory": "Historie spuštění",
+  "hermesJobStop": "Zastavit",
+  "hermesJobStopping": "Zastavování…",
+  "hermesJobStopped": "Spuštění bylo zastaveno.",
+  "hermesJobFinishedBeforeStop": "Spuštění skončilo dřív, než ho šlo zastavit.",
+  "hermesJobNothingToStop": "Žádné spuštění neprobíhá.",
+  "hermesJobStopFailed": "Spuštění se nepodařilo zastavit.",
+  "hermesJobStopUnsupported": "Aktualizujte Hermes, abyste mohli zastavovat běžící úlohy.",
+  "hermesJobRunning": "Právě běží",
+  "hermesJobLastCancelled": "Poslední spuštění zastaveno: {reason}",
+  "@hermesJobLastCancelled": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesJobLastCancelledNoReason": "Poslední spuštění zastaveno",
+  "hermesJobCatchUpLabel": "Zmeškaná spuštění",
+  "hermesJobCatchUpHint": "Co dělat se spuštěními zmeškanými, když Hermes neběžel.",
+  "hermesJobCatchUpDefault": "Výchozí nastavení Hermes",
+  "hermesJobCatchUpRunOnce": "Po zmeškání spustit jednou",
+  "hermesJobCatchUpSkip": "Zmeškaná spuštění přeskočit",
+  "hermesJobDeliverLabel": "Doručit do",
+  "hermesJobDeliverLocal": "Uložit v Hermes",
+  "hermesJobDeliverMessaging": "Aplikace pro zprávy",
+  "hermesJobDeliverBotChats": "Chaty s boty",
+  "hermesJobDeliverGroupChats": "Skupinové chaty",
+  "hermesJobDeliverBotChat": "Chat s botem: {name}",
+  "@hermesJobDeliverBotChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverGroupChat": "Skupinový chat: {name}",
+  "@hermesJobDeliverGroupChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverNeedsHomeChannel": "Nejdřív v Hermes nastavte domovský kanál.",
+  "hermesJobDeliverRoomHint": "Skupinové chaty probudí jen boty, které úloha zmíní přes @.",
+  "hermesRoomsTitle": "Místnosti",
+  "hermesRoomNew": "Nová místnost",
+  "hermesRoomCreateHint": "Vyberte 2 až 6 botů. Každý v místnosti odpovídá sám za sebe.",
+  "hermesRoomNameHint": "Název místnosti",
+  "hermesRoomCreateFailed": "Místnost se nepodařilo vytvořit.",
+  "hermesRoomNeedsBots": "Místnost potřebuje v tomto připojení alespoň dva boty.",
+  "hermesRoomMessageHint": "Zpráva do místnosti, @ zmíní bota",
+  "hermesRoomScheduled": "Naplánováno",
+  "hermesRoomEveryone": "Všichni",
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} few{{count} boti} many{{count} botu} other{{count} botů}}",
+  "@hermesRoomBotCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomWorking": "pracuje",
+  "hermesRoomWaiting": "čeká",
+  "hermesRoomQuiet": "ticho {elapsed}",
+  "@hermesRoomQuiet": {"placeholders": {"elapsed": {"type": "String"}}},
+  "hermesRoomNeedsYou": "Čeká na vaši odpověď",
+  "hermesRoomTurnFailed": "Odpověď selhala",
+  "hermesRoomTurnCancelled": "Odpověď zrušena",
+  "hermesRoomTurnDeferred": "Odpověď odložena",
+  "hermesRoomMemberUnavailable": "Bot není dostupný",
+  "hermesRoomStopped": "Místnost zastavena",
+  "hermesRoomDisbanded": "Místnost rozpuštěna",
+  "hermesRoomAuthorityLost": "Tuto místnost převzala jiná brána",
+  "hermesRoomWorkLimit": "Dosažen limit odpovědí",
+  "hermesRoomRoutedTo": "Přiděleno: {names}",
+  "@hermesRoomRoutedTo": {"placeholders": {"names": {"type": "String"}}},
+  "hermesRoomRoutedEveryone": "Přiděleno všem",
+  "hermesRoomRoutedFallback": "Nepodařilo se vybrat, kdo odpoví, proto odpoví všichni",
+  "hermesRoomAssigned": "{lead} předává: {names}",
+  "@hermesRoomAssigned": {"placeholders": {"lead": {"type": "String"}, "names": {"type": "String"}}},
+  "hermesRoomLeadTaking": "{lead} to přebírá",
+  "@hermesRoomLeadTaking": {"placeholders": {"lead": {"type": "String"}}},
+  "hermesRoomContinued": "Pokračováno",
+  "hermesRoomHandoff": "{from} oslovuje {to}",
+  "@hermesRoomHandoff": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+  "hermesRoomPaused": "{count, plural, =1{Pozastaveno po 1 zprávě} few{Pozastaveno po {count} zprávách} many{Pozastaveno po {count} zprávy} other{Pozastaveno po {count} zprávách}}",
+  "@hermesRoomPaused": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRetryPrompt": "Odpověď bota {name} skončila bez jasného výsledku.",
+  "@hermesRoomRetryPrompt": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomLoadFailed": "Tuto místnost se nepodařilo načíst.",
+  "hermesRoomRefreshFailed": "Místnost se nepodařilo obnovit.",
+  "hermesRoomGone": "Tato místnost už není dostupná.",
+  "hermesRoomNotRunning": "Hermes tuto místnost teď nespouští, takže nemůže přijímat zprávy.",
+  "hermesRoomSendUnclear": "Hermes zprávu nepotvrdil. Pošlete ji znovu; nebude zveřejněna dvakrát.",
+  "hermesRoomStoppedCount": "{count, plural, =0{Nic neběželo} =1{Zastavena 1 úloha} few{Zastaveny {count} úlohy} many{Zastaveno {count} úlohy} other{Zastaveno {count} úloh}}",
+  "@hermesRoomStoppedCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRefused": "Hermes odmítl: {reason}",
+  "@hermesRoomRefused": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesRoomActionFailed": "To nefungovalo. Zkuste to znovu.",
+  "hermesRoomInfoTitle": "Informace o místnosti",
+  "hermesRoomPurpose": "Účel",
+  "hermesRoomPurposeHint": "K čemu místnost slouží, jedním řádkem",
+  "hermesRoomNotes": "Sdílené poznámky",
+  "hermesRoomNotesHint": "Fakta, na která má každý bot pamatovat",
+  "hermesRoomNotesTooLong": "Sdílené poznámky jsou příliš dlouhé.",
+  "hermesRoomWhoAnswers": "Kdo odpoví na zprávu, která nikoho nejmenuje",
+  "hermesRoomRoutingEveryoneHint": "Každý bot dostane slovo.",
+  "hermesRoomRoutingLead": "Hlavní bot",
+  "hermesRoomRoutingLeadHint": "Hlavní bot vybere, kdo se toho ujme. @zmínky pořád jdou přímo botům, které jmenujete.",
+  "hermesRoomRoutingAuto": "Automaticky",
+  "hermesRoomRoutingAutoHint": "Rychlé volání modelu vybere, komu je zpráva určena. @zmínky pořád jdou přímo botům, které jmenujete.",
+  "hermesRoomLead": "Hlavní",
+  "hermesRoomMembers": "Boti",
+  "hermesRoomMembersFixed": "Jakmile místnost existuje, boty nelze přidat ani odebrat.",
+  "hermesRoomStopWork": "Zastavit veškerou práci",
+  "hermesRoomDisband": "Rozpustit místnost",
+  "hermesRoomDisbandTitle": "Rozpustit „{name}“?",
+  "@hermesRoomDisbandTitle": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomDisbandMessage": "Její práce se zastaví a místnost navždy zmizí.",
+  "hermesRoomRenameTitle": "Přejmenovat místnost",
   "hermesApprovalAllowOnce": "Povolit jednou",
   "hermesApprovalAllowSession": "Povolit pro relaci",
   "hermesApprovalAlwaysAllow": "Vždy povolit",
@@ -5286,6 +5418,7 @@
   "hermesFastTierOff": "Vypnuto",
   "hermesTurnSteer": "Nasměrovat",
   "hermesTurnSendNext": "Odeslat další",
+  "hermesSteerUncertain": "Hermes nepotvrdil vaše nasměrování. Než nasměrování odešlete znovu, zkontrolujte odpověď.",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "{count, plural, one{Zobrazit další řádek} few{Zobrazit další {count} řádky} other{Zobrazit dalších {count} řádků}}",
@@ -5298,7 +5431,7 @@
   "colorScheme": "Barevné schéma",
   "channelEmptyHint": "Vytvořte kanál a zahajte skupinovou konverzaci.",
   "passwordChangeDescription": "Aktualizovat heslo k účtu",
-  "profileDetailsSummary": "Profil, pohlaví a datum narození",
+  "profileDetailsSummary": "Pohlaví a datum narození",
   "notificationRequiresMaster": "Chcete-li změnit toto nastavení, zapněte oznámení.",
   "notificationRequiresSound": "Chcete-li změnit toto nastavení, zapněte zvuk.",
   "enabled": "Zapnuto",
@@ -5350,34 +5483,34 @@
   "hermesSessionDeleteFailed": "Konverzaci se nepodařilo smazat.",
   "hermesSessionLoadFailed": "Tuto konverzaci se nepodařilo načíst. Zkontrolujte připojení a zkuste to znovu.",
   "hermesMemoryKeyFieldLabel": "Klíč paměti",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Zamítnout", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "Servery MCP", "directMcpEmptyTitle": "Zatím žádné servery MCP", "directMcpReachabilityHelp": "Přidejte koncový bod Streamable HTTP, který je z tohoto zařízení dostupný.", "directMcpEditorTitle": "Upravit server MCP", "directMcpAddTitle": "Přidat server MCP", "directMcpName": "Název serveru", "directMcpEndpoint": "Koncový bod Streamable HTTP", "directMcpBearerToken": "Token Bearer (volitelné)", "directMcpCustomHeaders": "Vlastní hlavičky (volitelné)", "directMcpCustomHeadersHint": "Jedna na řádek: Název: Hodnota", "directMcpTestConnection": "Otestovat připojení", "directMcpTesting": "Testování připojení…", "directMcpTestSucceeded": "{count, plural, one{Připojeno – nalezen 1 nástroj.} few{Připojeno – nalezeny {count} nástroje.} other{Připojeno – nalezeno {count} nástrojů.}}", "directMcpTestFailed": "Nástroje z tohoto serveru MCP se nepodařilo načíst.", "directMcpSaveFailed": "Tento server MCP se nepodařilo uložit.", "directMcpLoadFailed": "Servery MCP se nepodařilo načíst z bezpečného úložiště.", "directMcpMissing": "Tento server MCP už neexistuje.", "directMcpCredentialTransferTitle": "Použít přihlašovací údaje s novým serverem?", "directMcpCredentialTransferMessage": "Token Bearer a vlastní hlavičky budou odeslány na nový server. Pokračujte, jen pokud mu důvěřujete. Volba Zrušit uloží server bez přihlašovacích údajů.", "directMcpCredentialTransferConfirm": "Použít přihlašovací údaje", "directMcpDeleteTitle": "Smazat server MCP?", "directMcpDeleteMessage": "Tím z tohoto zařízení odstraníte {name} a jeho přihlašovací údaje.", "directMcpDeleteFailed": "Tento server MCP se nepodařilo smazat.", "directMcpAuthMode": "Ověření", "directMcpAuthNone": "Žádné", "directMcpAuthBearer": "Token Bearer", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Připojit v prohlížeči", "directMcpOAuthReconnect": "Znovu připojit v prohlížeči", "directMcpOAuthDisconnect": "Odpojit OAuth", "directMcpOAuthPending": "Čeká se na autorizaci v prohlížeči…", "directMcpOAuthConnected": "OAuth je připojeno.", "directMcpOAuthConnectionDetails": "Připojeno k {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "Nebyly uvedeny žádné rozsahy", "directMcpOAuthConnectFailed": "Tento server MCP se nepodařilo připojit přes OAuth.", "directMcpOAuthDisconnectFailed": "OAuth se od tohoto serveru MCP nepodařilo odpojit.", "directMcpApprovalTitle": "Schválení nástroje", "directMcpApprovalAllowOnce": "Povolit jednou", "directMcpApprovalAllowSession": "Povolit pro tuto relaci", "directMcpApprovalAllowAlways": "Vždy povolit", "directMcpApprovalAlwaysTitle": "Vždy povolit tento nástroj?", "directMcpApprovalAlwaysMessage": "{serverName} bude moci spouštět {toolName} bez dalšího dotazu. Pokud se změní schéma nástroje, schválení se automaticky zruší.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Toto schválení se nepodařilo uložit. Můžete to zkusit znovu nebo zvolit jinou možnost.", "directMcpApprovalDeny": "Zamítnout", "directMcpApprovalAllowed": "Povoleno jednou", "directMcpApprovalAllowedSession": "Povoleno pro tuto relaci", "directMcpApprovalAllowedAlways": "Vždy povoleno", "directMcpApprovalDenied": "Zamítnuto", "directMcpApprovalExpired": "Platnost schválení vypršela", "directMcpRememberedApprovalsTitle": "Vždy povolené nástroje", "directMcpRememberedApprovalsSubtitle": "Právě tyto nástroje se mohou spouštět bez dotazu, dokud se jejich server a vstupní schéma nezmění.", "directMcpRememberedApprovalRevoke": "Odvolat", "directMcpRememberedApprovalsRevokeAll": "Odvolat vše", "directMcpRememberedApprovalRevokeFailed": "Uložené schválení se nepodařilo odvolat."
+  ,"directMcpContentAction": "Obsah MCP"
+  ,"directMcpContentTitle": "Obsah MCP"
+  ,"directMcpContentServer": "Server MCP"
+  ,"directMcpContentSearch": "Hledat prompty a zdroje"
+  ,"directMcpContentPrompts": "Prompty"
+  ,"directMcpContentResources": "Zdroje"
+  ,"directMcpContentEmpty": "Tento server nemá žádné prompty ani zdroje."
+  ,"directMcpContentNoMatches": "Žádné odpovídající prompty ani zdroje."
+  ,"directMcpContentLoadFailed": "Obsah z tohoto serveru MCP se nepodařilo načíst."
+  ,"directMcpContentRefresh": "Obnovit obsah MCP"
+  ,"directMcpContentPreviewTitle": "Náhled"
+  ,"directMcpContentInsert": "Vložit"
+  ,"directMcpContentPromptHeading": "Prompt MCP ze serveru {serverName}: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "Zdroj MCP ze serveru {serverName}: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpContentRoleUser": "Uživatel"
+  ,"directMcpContentRoleAssistant": "Asistent"
+  ,"directMcpContentRequestFailed": "Tento obsah MCP se nepodařilo načíst. Zkuste to znovu."
+  ,"directMcpContentUnsupported": "Tato položka je binární nebo nepodporovaná. Vyberte textový prompt nebo textový zdroj."
+  ,"directMcpContentChanged": "Tato položka se na serveru změnila. Obnovte obsah a vyberte ji znovu."
+  ,"directMcpContentTooLarge": "Tento obsah je příliš velký na vložení."
+  ,"directMcpContentComposerTooLarge": "Koncept a tento obsah dohromady překračují limit zprávy 256 KiB. Zkraťte koncept nebo obsah a zkuste to znovu."
+  ,"directMcpContentLoading": "Načítání obsahu MCP…"
+  ,"directMcpInsecureCredentialsTitle": "Odeslat přihlašovací údaje bez šifrování?"
+  ,"directMcpInsecureCredentialsMessage": "Tento server používá nešifrované HTTP. Váš bearer token, token OAuth a vlastní hlavičky by mohly být v síti přečteny nebo změněny."
+  ,"directMcpInsecureCredentialsConfirm": "Odeslat bez šifrování"
   ,"hermesSessionTooLarge": "Tato konverzace je příliš velká na načtení v tomto zařízení."
   ,"hermesSessionNotFound": "Tato konverzace už není na serveru Hermes dostupná."
   ,"hermesSessionLoadFailedDetail": "Tuto konverzaci se nepodařilo načíst: {detail}"
@@ -5410,8 +5543,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelů",
   "backendChooserSelfHostedSectionTitle": "Vlastní hostované služby",
-  "citationBackground": "Pozadí citací",
-  "citationBackgroundDescription": "Vypněte pro průhledné citace v textu",
+  "citationBackground": "Zvýraznit citace",
+  "citationBackgroundDescription": "Citace v odpovědích dostanou stínované pozadí, aby vynikly z textu.",
   "citationShowTitles": "Zobrazovat názvy stránek u citací",
   "citationShowTitlesDescription": "V odznacích citací používat názvy stránek místo domén webů",
   "directContextCompactionDescription": "Tyto modely neuvádějí velikost kontextového okna. Conduit použije zvolený limit ke zhuštění starších zpráv dříve, než budou požadavky příliš velké.",
@@ -5492,6 +5625,12 @@
   "webSearchRegionAuto": "Podle zařízení",
   "webSearchRegionWorldwide": "Celosvětově",
   "directModelToolsUnsupported": "Tento model neumí používat nástroje, a proto nemůže vyhledávat na webu. Vypněte vyhledávání na webu a všechny nástroje a zkuste to znovu.",
+  "directImagesPerRequest": "Obrázky na požadavek",
+  "directImagesPerRequestFooter": "Každá zpráva odešle nejnovější obrázky z tohoto chatu, nejvýše tento počet. Starší obrázky se vynechají. Snižte počet, pokud model odmítá požadavky s příliš mnoha obrázky.",
+  "directImagesPerRequestSaveFailed": "Nastavení Obrázky na požadavek se nepodařilo uložit. Zkuste to znovu.",
+  "directModelTooManyImages": "Tento model přijímá v jednom požadavku méně obrázků, než tento chat odeslal. Snižte Obrázky na požadavek v nastavení Přímá připojení a zkuste to znovu. Pokud samotná tato zpráva obsahuje více obrázků, než model přijímá, odešlete ji znovu s menším počtem obrázků.",
+  "directToolLoopNoAnswer": "Model stále používal nástroje, aniž by odpověděl. Zkuste to znovu, nebo vypněte vyhledávání na webu a nástroje.",
+  "directContextLimitOllamaNote": "U modelů Ollama na vašem vlastním serveru je zde zvolený limit zároveň velikostí kontextového okna, se kterou Ollama model načte. Větší okno spotřebuje více paměti.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelů}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} z {total}",
@@ -6060,7 +6199,7 @@
   "chatMergeChooseDescription": "Zvolte odpovědi ke sloučení. Vyberte alespoň dvě; původní odpovědi zůstanou beze změny.",
   "folderProjectComparisonFallbackNotice": "Uložené modely tohoto projektu nelze použít všechny, proto chat začíná s menším počtem. Porovnání používá právě dva.",
   "advancedFeaturesFooter": "Přidá porovnání modelů, nastavení jednotlivých chatů, nastavení nástrojů, naplánované úlohy, osobní připojení, webhooky a správu dat. Vypnutím je pouze skryjete; vše, co už je nastavené, dál funguje.",
-  "profileAdvancedFooter": "Zobrazeno, protože je v Nastavení > Chat zapnuto Pokročilé.",
+  "profileAdvancedFooter": "Zobrazeno, protože je v sekci Chaty zapnuto Pokročilé.",
   "advancedRequiredTitle": "Součást Pokročilého",
   "advancedRequiredMessage": "{feature} je funkce režimu Pokročilé. Zapněte Pokročilé, chcete-li ji použít. Vše, co už je nastavené, dál funguje.",
   "advancedTurnOn": "Zapnout Pokročilé",
@@ -6109,7 +6248,7 @@
   "calendarRemoveEnd": "Odebrat čas konce",
   "calendarEventReadOnlyNotInvited": "Tuto událost nemůžete měnit.",
   "calendarFieldOrganizer": "Organizátor",
-  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantarová} red{Červená} purple{Fialová} teal{Tyrkysová} other{Barva}}",
+  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantarová} red{Červená} purple{Fialová} teal{Tyrkysová} custom{Vlastní barva} other{Barva}}",
   "calendarVisibilityFooter": "Zobrazují se události ze zaškrtnutých kalendářů. Klepnutím na kalendář jeho události zobrazíte nebo skryjete.",
   "personalizationMemoryTypeUserDescription": "Preference, fakt nebo pokyn týkající se vás.",
   "personalizationMemoryTypeContextDescription": "Souvislosti, na které se má pamatovat v dalších chatech.",
@@ -6169,12 +6308,25 @@
   "hermesDeleteConnectionTitle": "Smazat připojení?",
   "hermesDeleteConnectionMessage": "Tímto z tohoto zařízení odstraníte {name} a jeho přihlašovací údaje.",
   "hermesDeleteConnectionFailed": "Toto připojení nelze smazat.",
+  "hermesInsecureCredentialsMessage": "Tento server používá nešifrované HTTP. Váš klíč API, přihlašovací tokeny a hlavičky přístupu by mohly být v síti přečteny nebo změněny.",
+  "hermesNotEncrypted": "Nešifrováno",
   "hermesSwitchConnectionFailed": "Na toto připojení nelze přepnout.",
   "hermesSwitchConnectionTitle": "Přepnout připojení",
   "hermesSwitchConnectionPromptTitle": "Přepnout na {name}?",
   "hermesSwitchConnectionPromptMessage": "Relace Hermes tohoto chatu patří k připojení {name}. Přepněte, abyste v ní mohli pokračovat, nebo ponechte současné připojení a začněte novou relaci.",
   "hermesSwitchConnectionConfirm": "Přepnout",
   "hermesKeepCurrentConnection": "Ponechat současné",
+  "hermesModelSwitchConfirmTitle": "Přepnout na {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes před přepnutím tohoto chatu na tento model žádá o potvrzení.",
+  "hermesModelSwitchConfirmAction": "Přepnout a odeslat",
+  "hermesModelSwitchKeepCurrent": "Ponechat současný model",
   "accountsTitle": "Účty",
   "accountsAddAccount": "Přidat účet",
   "accountsManage": "Spravovat účty",
@@ -6240,5 +6392,446 @@
   "mcpAppOpenLinkConfirm": "Otevřít",
   "terminalPortPreviewForward": "Vpřed",
   "terminalPortPreviewReload": "Načíst znovu",
-  "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst."
+  "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst.",
+  "modelMenuAllModels": "Všechny modely…",
+  "citationPreviewOpen": "Otevřít",
+  "chatUnreadState": "Nepřečtené",
+  "codeCopied": "Zkopírováno",
+  "onboardingWelcomeTitle": "Vítejte v aplikaci Conduit",
+  "onboardingWelcomeSubtitle": "Chatujte s AI na vlastním serveru, v tomto zařízení nebo přes API.",
+  "backendChooserFooter": "Další připojení můžete přidat později v Nastavení.",
+  "serverAddressFooter": "Použijte adresu, kterou otevíráte ve webovém prohlížeči.",
+  "signInChangeServer": "Změnit",
+  "signInContinueWithSso": "Pokračovat přes SSO",
+  "mutualTlsChooseFile": "Vybrat…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Zkopírováno",
+  "composerAddAttachment": "Přidat přílohu",
+  "composerShowKeyboard": "Zobrazit klávesnici",
+  "composerAttachUploads": "Nahrané",
+  "supportConduitFooter": "Conduit je zdarma a open source. Vaše podpora pomáhá, aby to tak zůstalo.",
+  "aiMemoryFooter": "Váš systémový prompt řídí každý chat. Paměť umožňuje asistentovi pamatovat si, co jste mu sdělili.",
+  "composerAttachServerFiles": "Soubory na serveru",
+  "codeBlockPlainText": "Prostý text",
+  "codeBlockWrapLines": "Zalamovat řádky",
+  "workspacePromptHistoryDiffTooLarge": "Tyto verze jsou příliš dlouhé na porovnání.",
+  "composerSaveDraftAsNote": "Uložit jako poznámku",
+  "composerSaveDraftAsNoteDescription": "Ponechat tuto zprávu jako novou poznámku místo odeslání.",
+  "authFieldServer": "Server",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Název",
+  "authFieldRequired": "Povinné",
+  "authFieldOptional": "Volitelné",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Fotky",
+  "modelPickerAppleOnDeviceSubtitle": "Na tomto zařízení, funguje offline",
+  "modelPickerApplePccSubtitle": "Na soukromých serverech Apple",
+  "accountsSavedServers": "Uložené servery",
+  "computerEnabledDescription": "Sledujte a ovládejte plochu a prohlížeč v chatech.",
+  "computerTrackpadHint": "Posunutím pohybujte kurzorem. Klepnutím klikněte, podržením táhněte; dvěma prsty posouvejte.",
+  "computerShortcut": "Klávesová zkratka",
+  "computerInputFailed": "Nepodařilo se to odeslat do počítače. Zkuste to znovu.",
+  "computerQualityLow": "Nižší spotřeba dat",
+  "computerDesktopSite": "Web pro počítače",
+  "computerAudioUnavailable": "Zvuk plochy není v tomto připojení nebo zařízení dostupný.",
+  "computerSound": "Zvuk",
+  "computerTabs": "Karty prohlížeče",
+  "computerNewTab": "Nová karta",
+  "computerCloseTab": "Zavřít kartu",
+  "computerRefreshTabs": "Obnovit karty",
+  "computerNoTabs": "Žádné karty prohlížeče",
+  "computerTabsWatchHint": "Pro změnu karet převezměte ovládání. Odpověď se zastaví; pokračujte novou zprávou.",
+  "computerTabsUnavailable": "Karty se nepodařilo načíst. Zkuste je obnovit.",
+  "computerTitle": "Počítač",
+  "computerConnecting": "Připojování k počítači…",
+  "computerReconnecting": "Obnovování připojení…",
+  "computerDisconnected": "Počítač odpojen",
+  "computerBrowserStartHint": "Převezměte ovládání a spusťte živý náhled této karty.",
+  "computerBrowserUnavailable": "Tento terminál potřebuje Chrome nebo Chromium pro živý prohlížeč.",
+  "computerStopFailed": "Aktuální odpověď se nepodařilo zastavit. Můžete dále sledovat a zkusit to znovu.",
+  "computerStopping": "Zastavování odpovědi…",
+  "computerTakeControl": "Převzít ovládání",
+  "computerTrackpadMode": "Režim trackpadu",
+  "computerRecenterPointer": "Vystředit ukazatel",
+  "computerClick": "Kliknout",
+  "computerRightClick": "Pravé kliknutí",
+  "computerDoubleClick": "Dvojité kliknutí",
+  "computerStartDrag": "Začít tažení",
+  "computerEndDrag": "Ukončit tažení",
+  "computerShowKeyboard": "Zobrazit klávesnici",
+  "computerHideKeyboard": "Skrýt klávesnici",
+  "computerAgentWorking": "Agent pracuje",
+  "computerDesktop": "Plocha",
+  "computerBrowser": "Prohlížeč",
+  "computerForward": "Vpřed",
+  "computerReload": "Obnovit stránku",
+  "computerAddress": "Přejít na adresu",
+  "computerTypeText": "Psát na počítači",
+  "computerSend": "Odeslat",
+  "computerZoom": "Přiblížit",
+  "libreChatTemporaryChatOff": "LibreChat ukládá každý chat. Pro odeslání vypněte dočasný chat.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Přihlaste se ke svému serveru LibreChat a synchronizujte chaty, agenty a další.",
+  "libreChatAddAccount": "Přidat účet LibreChat",
+  "libreChatFileSearch": "Hledání v souborech",
+  "libreChatFileSearchDescription": "Hledá odpovědi v nahraných souborech.",
+  "libreChatMcpConnect": "Připojit v LibreChatu",
+  "libreChatApprovalRun": "Povolit spuštění {tool}?",
+  "libreChatQuestionProgress": "Otázka {current} z {total}",
+  "libreChatAnswerFailed": "Odpověď se nepodařilo odeslat. Zkuste to znovu.",
+  "libreChatApprovalRespond": "Odpovědět",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
+  "libreChatAddAccountMessage": "Zadejte adresu svého serveru LibreChat.",
+  "libreChatInvalidAddress": "Zadejte adresu serveru, například chat.example.com.",
+  "libreChatUnreachable": "Server se nepodařilo kontaktovat. Zkontrolujte adresu a připojení.",
+  "libreChatNotLibreChat": "Tento server není LibreChat. Zkontrolujte adresu.",
+  "libreChatIsOpenWebUi": "Toto je server Open WebUI. Přidejte ho na kartě Open WebUI.",
+  "libreChatPasswordSignInOff": "Tento server povoluje pouze jednotné přihlášení (SSO).",
+  "libreChatGoogleUnsupported": "Google nepovoluje přihlášení uvnitř aplikací. Přihlaste se jiným způsobem.",
+  "libreChatSsoUnfinished": "Přihlášení nebylo dokončeno. Zkuste to znovu.",
+  "libreChatChangeServer": "Použít jiný server",
+  "libreChatSessionEnded": "Vaše relace na {server} skončila. Přihlaste se znovu.",
+  "libreChatDuplicateChat": "Duplikovat chat",
+  "libreChatCopyFailed": "Chat se nepodařilo zkopírovat. Zkontrolujte připojení a zkuste to znovu.",
+  "libreChatMemoryKeyLabel": "Klíč",
+  "libreChatMemoryKeyHint": "např. preference",
+  "libreChatMemoryKeyRequired": "Zadejte klíč vzpomínky.",
+  "libreChatMemoryUsage": "Využito {used} z {limit} tokenů",
+  "hermesReadOnlySessionNotice": "Tento chat začal v jiné aplikaci Hermes. Můžete si ho tu přečíst, ale Hermes dovoluje Conduitu odpovídat jen v chatech, které Conduit začal.",
+  "hermesReadOnlySessionNoticeFrom": "Tento chat začal v aplikaci: {source}. Můžete si ho tu přečíst, ale Hermes dovoluje Conduitu odpovídat jen v chatech, které Conduit začal.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Pokračovat v kopii",
+  "hermesContinueInCopyFailed": "Tento chat se nepodařilo zkopírovat. Zkuste to znovu.",
+  "hermesContinueHere": "Pokračovat zde",
+  "hermesContinueHereFailed": "V tomto chatu se nepodařilo pokračovat zde. Zkuste to znovu.",
+  "hermesContinueChoiceExplanation": "Pokračováním zde se tento chat v druhé aplikaci ukončí a ta při další zprávě začne nový. Kopie ten chat ponechá beze změny, ale dřívější zprávy uloží jen v tomto zařízení. Uchová nejvýše 1 000 nejnovějších zpráv (1 MB), a to u 32 naposledy otevřených kopií.",
+  "hermesSessionHide": "Skrýt",
+  "hermesSessionUnhide": "Zobrazit",
+  "hermesSessionUpdateFailed": "Tento chat se nepodařilo upravit. Zkuste to znovu.",
+  "hermesSessionHiddenNotice": "Chat je skrytý. Najdete ho v nastavení Hermes v části Skryté chaty.",
+  "hermesHiddenChatsTitle": "Skryté chaty",
+  "hermesHiddenChatsDescription": "Chaty skryté v seznamu Hermes na tomto zařízení. Klepnutím chat otevřete, nebo ho zobrazte, aby se v seznamu znovu objevil.",
+  "hermesHiddenChatsEmpty": "V tomto zařízení nejsou žádné skryté chaty.",
+  "hermesHiddenChatsLoadError": "Skryté chaty se nepodařilo načíst.",
+  "hermesBranchFromHere": "Větvit odsud",
+  "hermesBranchFailed": "Z tohoto chatu se nepodařilo vytvořit větev. Zkuste to znovu.",
+  "hermesUndoLastTurn": "Vrátit poslední výměnu zpráv",
+  "hermesUndoLastTurnDone": "Poslední výměna zpráv byla vrácena.",
+  "hermesUndoLastTurnFailed": "Poslední výměnu zpráv se nepodařilo vrátit. Zkuste to znovu.",
+  "hermesArchivedLoadError": "Archivované chaty se nepodařilo načíst.",
+  "hermesClarifyProgress": "Vyřízeno {answered} z {total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Odpovědi se nepodařilo odeslat. Zkuste to znovu.",
+  "hermesClarifyAlreadySettled": "Na tuto otázku už bylo odpovězeno jinde nebo vypršela, takže vaše odpověď nebyla odeslána.",
+  "hermesClarifyAnswerOrSkip": "Odpovězte na každou otázku, nebo ji přeskočte.",
+  "hermesClarifyOtherAnswer": "Nebo napište vlastní odpověď",
+  "hermesClarifySkip": "Přeskočit",
+  "hermesClarifySkipped": "Přeskočeno",
+  "hermesClarifyRecommended": "Doporučeno",
+  "hermesChangedFiles": "{count, plural, =1{Změněn 1 soubor} few{Změněny {count} soubory} other{Změněno {count} souborů}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, =1{Ještě 1 soubor} few{Ještě {count} soubory} other{Ještě {count} souborů}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "Změněný soubor",
+  "hermesDiffLineCounts": "Přidané řádky: {added}, odebrané: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Využito asi {spent} z {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Využito asi {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Limit {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Toto volání překročí limit útraty tohoto chatu. Můžete ho povolit jen jednou.",
+  "hermesApprovalCost": "Odhadovaná cena: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "Plán",
+  "hermesPlanProgress": "Hotovo {done} z {total}",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Zobrazit plán",
+  "hermesPlanHide": "Skrýt plán",
+  "hermesContextUsage": "Kontext a využití",
+  "hermesContextWindow": "Kontextové okno",
+  "hermesContextUsed": "{used} z {max} tokenů",
+  "@hermesContextUsed": {"placeholders": {"used": {"type": "String", "example": "32,768"}, "max": {"type": "String", "example": "131,072"}}},
+  "hermesContextPercentFull": "zaplněno {percent} %",
+  "@hermesContextPercentFull": {"placeholders": {"percent": {"type": "int", "example": "25"}}},
+  "hermesContextEstimatedNote": "Odhad",
+  "hermesContextRequestEstimate": "Asi {tokens} tokenů na požadavek",
+  "@hermesContextRequestEstimate": {"placeholders": {"tokens": {"type": "String", "example": "13,036"}}},
+  "hermesContextNoWindow": "Toto připojení nehlásí kontextové okno.",
+  "hermesContextBreakdown": "Co ho zaplňuje",
+  "hermesContextSystemPrompt": "Systémový prompt",
+  "hermesContextToolDefinitions": "Definice nástrojů",
+  "hermesContextSubagentDefinitions": "Definice podagentů",
+  "hermesContextConversation": "Konverzace",
+  "hermesContextTotals": "Tento chat zatím",
+  "hermesContextInput": "Vstupní tokeny",
+  "hermesContextOutput": "Výstupní tokeny",
+  "hermesContextReasoning": "Tokeny uvažování",
+  "hermesContextCacheRead": "Načteno z mezipaměti",
+  "hermesContextCacheWrite": "Zapsáno do mezipaměti",
+  "hermesContextCacheHits": "Zásahy mezipaměti",
+  "hermesContextCalls": "Volání modelu",
+  "hermesContextCompactions": "Zhuštění",
+  "hermesContextCost": "Cena",
+  "hermesContextCostEstimated": "Cena (odhad)",
+  "hermesContextPlan": "Využití plánu",
+  "hermesContextGaugeDay": "Dnes",
+  "hermesContextGaugeWeek": "Tento týden",
+  "hermesContextGaugeMonth": "Tento měsíc",
+  "hermesContextGaugeTopTier": "Nejvyšší modely",
+  "hermesContextUsedPercent": "využito {percent} %",
+  "@hermesContextUsedPercent": {"placeholders": {"percent": {"type": "int", "example": "63"}}},
+  "hermesContextResets": "Obnovení: {time}",
+  "@hermesContextResets": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextLeftOf": "Zbývá {remaining} z {total}",
+  "@hermesContextLeftOf": {"placeholders": {"remaining": {"type": "String", "example": "$12.00"}, "total": {"type": "String", "example": "$20.00"}}},
+  "hermesContextRenews": "Prodloužení: {date}",
+  "@hermesContextRenews": {"placeholders": {"date": {"type": "String", "example": "Dec 1"}}},
+  "hermesContextTopUp": "Dobité kredity",
+  "hermesContextRateLimited": "Omezení počtu požadavků",
+  "hermesContextRateLimitedUntil": "Omezení počtu požadavků do {time}",
+  "@hermesContextRateLimitedUntil": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextUsageLevel": "Náročnost tohoto modelu: {level}",
+  "@hermesContextUsageLevel": {"placeholders": {"level": {"type": "String", "example": "medium"}}},
+  "hermesContextLevelFree": "zdarma",
+  "hermesContextLevelLow": "nízká",
+  "hermesContextLevelMedium": "střední",
+  "hermesContextLevelTopTier": "nejvyšší",
+  "hermesContextCompactSection": "Zhuštění",
+  "hermesContextCompactHint": "Hermes shrne starší zprávy, aby uvolnil kontext. Nedávné zprávy zůstanou beze změny.",
+  "hermesContextCompactFocus": "Zaměřit se na (volitelné)",
+  "hermesContextCompactNow": "Zhustit nyní",
+  "hermesContextCompacted": "Chat byl zhuštěn.",
+  "hermesContextCompactedTokens": "Tokeny: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {"placeholders": {"before": {"type": "String", "example": "12,351"}, "after": {"type": "String", "example": "4,020"}}},
+  "hermesContextCompactedMessages": "Zprávy: {before} → {after}",
+  "@hermesContextCompactedMessages": {"placeholders": {"before": {"type": "int", "example": "24"}, "after": {"type": "int", "example": "8"}}},
+  "hermesContextCompactUnchanged": "Zatím není co zhustit.",
+  "hermesContextCompactRefused": "Ponecháno beze změny: shrnutí by bylo delší než zprávy, které nahrazuje.",
+  "hermesContextCompactAborted": "Zhuštění se nezdařilo. Žádné zprávy nebyly odebrány.",
+  "hermesContextCompactPending": "Zhušťování stále probíhá. Chat se po dokončení obnoví.",
+  "hermesContextCompactBusy": "Probíhá jiné zhuštění. Zkuste to za chvíli znovu.",
+  "hermesContextCompactWait": "Počkejte, až odpověď skončí, a pak chat zhustěte.",
+  "hermesContextCompactFailed": "Tento chat nelze zhustit. Zkuste to znovu.",
+  "hermesContextLoadFailed": "Kontext a využití se nepodařilo načíst.",
+  "hermesErrorProvider": "Poskytovatel modelu nemohl odpovědět",
+  "hermesErrorEndpoint": "Nelze se spojit se serverem modelu",
+  "hermesErrorConnection": "Přenos odpovědi se přerušil",
+  "hermesErrorAuth": "Poskytovatel odmítl přihlašovací údaje Hermesu",
+  "hermesErrorBilling": "Došly kredity",
+  "hermesErrorUsageLimit": "Dosažen limit plánu",
+  "hermesErrorFreeTier": "Bezplatná úroveň tohle nezvládne",
+  "hermesErrorRateLimit": "Dosažen limit počtu požadavků",
+  "hermesErrorContextOverflow": "Tento chat je pro model příliš dlouhý",
+  "hermesErrorModel": "Model není dostupný",
+  "hermesErrorPolicy": "Zablokováno pravidly",
+  "hermesErrorTruncated": "Odpověď byla useknuta",
+  "hermesErrorBadReply": "Model poslal nepoužitelnou odpověď",
+  "hermesErrorWorkspace": "Pracovní složka chatu chybí",
+  "hermesErrorSession": "Tento chat zde nemůže pokračovat",
+  "hermesErrorBusy": "Hermes je s tímto chatem zaneprázdněn",
+  "hermesErrorGateway": "Hermes narazil na problém",
+  "hermesErrorDisk": "Hermesu došlo místo na disku",
+  "hermesErrorUnknown": "Hermes nemohl dokončit tuto odpověď",
+  "hermesErrorBlocking": "Zablokováno, dokud se to nevyřeší",
+  "hermesErrorDegraded": "Můžete pokračovat v chatu",
+  "hermesErrorResetsAt": "Obnoví se v {time}",
+  "@hermesErrorResetsAt": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesErrorPartialKept": "Dosavadní odpověď zůstala výše.",
+  "hermesErrorContinue": "Pokračovat",
+  "hermesErrorCompact": "Zhustit chat",
+  "hermesErrorSwitchModel": "Přepnout na {model}",
+  "@hermesErrorSwitchModel": {"placeholders": {"model": {"type": "String", "example": "Hermes 4 70B"}}},
+  "hermesErrorOpenProviderSettings": "Otevřít nastavení {provider}",
+  "@hermesErrorOpenProviderSettings": {"placeholders": {"provider": {"type": "String", "example": "OpenRouter"}}},
+  "hermesErrorOpenBilling": "Otevřít fakturaci",
+  "hermesErrorUseCredits": "Použít kredity",
+  "hermesErrorActionFailed": "To se nepodařilo. Zkuste to znovu.",
+  "hermesBackgroundAgentCount": "{count, plural, =1{1 agent} few{{count} agenti} many{{count} agenta} other{{count} agentů}}",
+  "@hermesBackgroundAgentCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundProcessCount": "{count, plural, =1{1 proces} few{{count} procesy} many{{count} procesu} other{{count} procesů}}",
+  "@hermesBackgroundProcessCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundWorkShow": "Zobrazit práci na pozadí",
+  "hermesBackgroundWorkTitle": "Práce na pozadí",
+  "hermesBackgroundWorkEmpty": "Na pozadí nic neběží.",
+  "hermesBackgroundAgents": "Agenti",
+  "hermesBackgroundProcesses": "Procesy",
+  "hermesSubagentQueued": "ve frontě",
+  "hermesSubagentLastTool": "poslední nástroj: {tool}",
+  "@hermesSubagentLastTool": {"placeholders": {"tool": {"type": "String"}}},
+  "hermesSubagentFinished": "Tento agent skončil.",
+  "hermesSubagentOutput": "Živý výstup",
+  "hermesSubagentNoOutput": "Zatím žádný výstup.",
+  "hermesSubagentOutputTruncated": "Zobrazuje se nejnovější část výstupu.",
+  "hermesSubagentOutputFailed": "Výstup se nepodařilo načíst.",
+  "hermesSubagentSteerHint": "Napište něco tomuto agentovi",
+  "hermesSubagentSteer": "Nasměrovat",
+  "hermesSubagentSteerQueued": "Zařazeno do fronty. Agent si to přečte, jen pokud udělá další krok.",
+  "hermesSubagentSteerRejected": "Tento agent už nepřijímá pokyny.",
+  "hermesSubagentStop": "Zastavit agenta",
+  "hermesSubagentStopped": "Agent byl požádán o zastavení.",
+  "hermesBackgroundActionFailed": "Nepovedlo se. Zkuste to znovu.",
+  "hermesProcessKill": "Ukončit",
+  "hermesProcessKillLabel": "Ukončit proces",
+  "hermesProcessKillTitle": "Ukončit tento proces?",
+  "hermesProcessKillMessage": "Hermes se pokusí zastavit tento příkaz a vše, co spustil:\n{command}\nNěkteré procesy mohou běžet dál.",
+  "@hermesProcessKillMessage": {"placeholders": {"command": {"type": "String"}}},
+  "hermesProcessKilled": "Proces byl ukončen.",
+  "hermesProcessAlreadyStopped": "Už byl zastavený.",
+  "hermesProcessKillFailed": "Nepodařilo se ho ukončit: {error}",
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Programovací agenti",
+  "modelControlServiceTier": "Úroveň služby",
+  "scheduledTaskTerminalSearchHint": "Hledat terminály",
+  "scheduledTaskWorkingFolderLabel": "Pracovní složka",
+  "scheduledTaskWorkingFolderHint": "Výchozí složka terminálu",
+  "scheduledTaskTerminalRequired": "Vyberte terminál, na kterém tento agent poběží.",
+  "scheduledTaskAgentNeedsChat": "Výsledky agenta se ukládají do nového chatu.",
+  "scheduledTaskAgentsLoading": "Načítání agentů tohoto terminálu…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nové oznámení",
+  "pushReplyTitle": "Nová odpověď",
+  "pushReplyFailedTitle": "Odpověď selhala",
+  "pushReplyFailedBody": "Odpověď se nepodařilo dokončit.",
+  "pushChannelTitle": "Nová zpráva",
+  "pushCronTitle": "Naplánovaná úloha",
+  "pushTestTitle": "Push oznámení fungují",
+  "pushTestBody": "Toto testovací oznámení přišlo z vašeho serveru.",
+  "pushSectionTitle": "Push oznámení",
+  "pushEnabledTitle": "Push oznámení",
+  "pushEnabledDescription": "Upozorní vás, i když je Conduit zavřený. Koncově šifrováno.",
+  "pushUnavailableBuild": "V tomto sestavení není k dispozici",
+  "pushUnavailableAndroid": "V tomto sestavení není k dispozici bez distributoru UnifiedPush",
+  "pushGetDistributor": "Získat distributor UnifiedPush",
+  "pushPrivacyTitle": "Jak push zůstává soukromý",
+  "pushStatusOff": "Vypnuto",
+  "pushStatusOptedOut": "Na tomto zařízení vypnuto",
+  "pushStatusSettingUp": "Nastavování…",
+  "pushStatusVerifying": "Odesílání zkušebního oznámení…",
+  "pushStatusOn": "Zapnuto",
+  "pushStatusNeedsAdminSetup": "Musí nastavit váš správce",
+  "pushStatusCanInstall": "Na tomto serveru není nastaveno",
+  "pushStatusUpdateAvailable": "Zapnuto · K dispozici je aktualizace",
+  "pushStatusPluginsDisabled": "Funkce jsou na tomto serveru vypnuté",
+  "pushStatusServerTooOldOpenWebUi": "Vyžaduje Open WebUI 0.11 nebo novější",
+  "pushStatusServerTooOldHermes": "Vyžaduje novější verzi Hermes",
+  "pushStatusNeedsHermesPlugin": "Vyžaduje plugin Conduit v Hermes",
+  "pushStatusRestartHermes": "Dokončete restartem Hermes",
+  "pushStatusSignInNeeded": "Pro push se přihlaste",
+  "pushStatusPermissionDenied": "Oznámení jsou blokována",
+  "pushStatusNotificationsOff": "Zapnuto · Oznámení jsou pro tento účet vypnutá",
+  "pushActionSetUp": "Nastavit",
+  "pushActionAskAdmin": "Požádat správce",
+  "pushActionUpdate": "Aktualizovat",
+  "pushActionInstall": "Instalovat",
+  "pushActionCopyCommand": "Kopírovat příkaz",
+  "pushExplainOn": "Oznámení tohoto účtu dorazí na toto zařízení, i když je Conduit zavřený.",
+  "pushExplainOptedOut": "Push je pro tento účet na tomto zařízení vypnutý.",
+  "pushExplainSettingUp": "Conduit registruje toto zařízení na serveru.",
+  "pushExplainVerifying": "Server posílá na toto zařízení zkušební oznámení.",
+  "pushExplainNotificationsOff": "Push je nastavený, ale oznámení jsou pro tento účet vypnutá, takže se nezobrazují.",
+  "pushExplainNeedsAdminSetup": "Push potřebuje na tomto serveru open source funkci Conduit Push a nainstalovat ji může jen správce. Pošlete správci odkaz na nastavení.",
+  "pushExplainCanInstall": "Push potřebuje na tomto serveru open source funkci Conduit Push. Jste správce, takže ji můžete nainstalovat hned.",
+  "pushExplainUpdateAvailable": "Push funguje. Tato aplikace obsahuje novější verzi funkce Conduit Push.",
+  "pushExplainPluginsDisabled": "Tento server Open WebUI běží s vypnutými funkcemi, takže na něm Conduit Push nemůže běžet. Správce je může zapnout.",
+  "pushExplainServerTooOld": "Tento server je pro push oznámení příliš starý. Aktualizujte ho, abyste je mohli používat.",
+  "pushExplainNeedsHermesPlugin": "Push potřebuje v Hermes open source plugin Conduit. Conduit ho může nainstalovat přes nástěnku Hermes.",
+  "pushExplainHermesCommand": "Push potřebuje v Hermes open source plugin Conduit. Spusťte tento příkaz na počítači, na kterém běží Hermes:",
+  "pushExplainRestartHermes": "Plugin je nainstalovaný. Dokončete restartem Hermes; Conduit pak zkontroluje stav sám.",
+  "pushExplainSignInNeeded": "Pro používání push se k tomuto účtu znovu přihlaste.",
+  "pushExplainRelayUnavailable": "Toto sestavení Conduitu neumí doručovat push oznámení.",
+  "pushExplainPermissionDenied": "Povolte oznámení pro Conduit v nastavení systému.",
+  "pushFailureNoTransport": "Toto zařízení nemůže přijímat push oznámení.",
+  "pushFailureNoToken": "Toto zařízení nedostalo push token. Zkontrolujte připojení a zkuste to znovu.",
+  "pushFailureDistributor": "Distributor UnifiedPush neodpověděl.",
+  "pushFailureRelay": "Push relay není dostupné.",
+  "pushFailureRelayBusy": "Push relay je přetížené. Zkuste to později.",
+  "pushFailureServerUnreachable": "Server není dostupný.",
+  "pushFailureServerRejected": "Server požadavek odmítl.",
+  "pushFailureHermesAuth": "Hermes nepřijal klíč API.",
+  "pushFailureSubscriptionLost": "Server si odběr tohoto zařízení neponechal.",
+  "pushFailureInstall": "Instalace se nezdařila.",
+  "pushFailureTestTimeout": "Zkušební oznámení nedorazilo.",
+  "pushFailureDelivery": "Server nedokázal doručit zkušební oznámení.",
+  "pushFailurePlatform": "Toto zařízení nedokázalo uložit své push klíče.",
+  "pushFailureUnknown": "Něco se pokazilo.",
+  "pushInstallOpenWebUiTitle": "Nainstalovat Conduit Push?",
+  "pushInstallOpenWebUiMessage": "Tím se na tento server nainstaluje a zapne open source funkce Conduit Push, aby všichni zde mohli dostávat push oznámení v Conduitu. Každé oznámení zašifruje na serveru dřív, než ho opustí.",
+  "pushUpdateOpenWebUiTitle": "Aktualizovat Conduit Push?",
+  "pushUpdateOpenWebUiMessage": "Tím se funkce Conduit Push na tomto serveru nahradí verzí, která je součástí této aplikace. Stávající odběry zůstanou zachovány.",
+  "pushInstallHermesTitle": "Nainstalovat plugin Conduit?",
+  "pushInstallHermesMessage": "Tím se do Hermes z GitHubu nainstaluje a zapne open source plugin Conduit. Hermes pluginy před instalací kontroluje. Na závěr Hermes jednou restartujte.",
+  "pushViewSource": "Zobrazit zdrojový kód",
+  "pushHermesCommandLabel": "Příkaz",
+  "pushDetailSendTest": "Poslat zkušební oznámení",
+  "pushTestArrived": "Zkušební oznámení dorazilo.",
+  "pushTestMissing": "Zkušební oznámení nedorazilo.",
+  "pushDetailUseForAccount": "Používat push pro tento účet",
+  "pushDetailUseForConnection": "Používat push pro toto připojení",
+  "pushDetailOriginTitle": "Odpovědi z",
+  "pushDetailOriginDescription": "Které dokončené odpovědi pošlou push oznámení.",
+  "pushOriginConduit": "Chaty zahájené v Conduitu",
+  "pushOriginAny": "Všechny mé chaty",
+  "pushDiagnosticsTitle": "Diagnostika",
+  "pushDiagnosticsTransport": "Doručování",
+  "pushDiagnosticsServer": "Verze serveru",
+  "pushDiagnosticsPlugin": "Verze pluginu",
+  "pushDiagnosticsVerified": "Naposledy ověřeno",
+  "pushDiagnosticsServerReport": "Hlášení serveru",
+  "pushDiagnosticsError": "Poslední chyba",
+  "pushDeliveryTitle": "Doručování push",
+  "pushDeliveryAutomatic": "Automaticky",
+  "pushDeliveryFcm": "Google (FCM)",
+  "pushDeliveryUnifiedPush": "UnifiedPush",
+  "pushDistributorTitle": "Distributor UnifiedPush",
+  "pushNoDistributor": "Není nainstalovaný žádný distributor UnifiedPush.",
+  "pushResetKeys": "Obnovit push klíče",
+  "pushResetKeysDescription": "Odebrat toto zařízení ze všech serverů a nastavit push znovu s novými klíči.",
+  "pushResetKeysConfirmTitle": "Obnovit push klíče?",
+  "pushResetKeysConfirmMessage": "Conduit odebere toto zařízení ze všech serverů, smaže jeho push klíče a nastaví push znovu s novými klíči.",
+  "pushResetKeysConfirm": "Obnovit",
+  "pushPrivacyIntro": "Každé push oznámení šifruje váš vlastní server tak, aby ho mohlo přečíst jen toto zařízení. Klíč k jeho dešifrování nikdy neopustí toto zařízení, takže nic mezi tím ho nedokáže přečíst.",
+  "pushPrivacyServerTitle": "Váš server",
+  "pushPrivacyServerBody": "Vaše chaty už má. Kvůli push si navíc ukládá push adresu tohoto zařízení, jeho veřejný klíč, náhodné ID zařízení a označení jako „iOS“. Rozhoduje, co oznámení obsahuje: nadpis a krátký náhled.",
+  "pushPrivacyRelayTitle": "Relay Conduitu",
+  "pushPrivacyRelayBody": "Předává šifrovaná oznámení společnosti Apple nebo Google. Vidí IP adresu vašeho serveru, kdy odesílá, a zaokrouhlenou velikost, nikdy ne nadpisy, text, účty ani název či URL vašeho serveru. Je open source a nevede žádné záznamy ani databázi.",
+  "pushPrivacyProvidersTitle": "Apple a Google",
+  "pushPrivacyProvidersBody": "Doručí šifrované oznámení, ale nedokážou ho přečíst. Pokud ho nelze dešifrovat, telefon zobrazí jen „Nové oznámení“.",
+  "pushPrivacyUnifiedPushTitle": "UnifiedPush",
+  "pushPrivacyUnifiedPushBody": "Na Androidu můžete místo toho použít distributor UnifiedPush. Váš server pak posílá přímo jemu, bez relay Conduitu a bez Googlu.",
+  "pushPrivacyOffTitle": "Vypnutí push",
+  "pushPrivacyOffBody": "Vypnutí push smaže všechny push klíče tohoto zařízení; vypnutí push pro jeden účet, odhlášení z něj nebo jeho odebrání smaže klíče daného účtu. Nic, co se jim později pošle, nelze přečíst. Conduit také požádá servery dotčených účtů, aby toto zařízení zapomněly.",
+  "pushPrivacyReadMore": "Přečíst všechny podrobnosti",
+  "pushAttentionChip": "Push vyžaduje pozornost",
+  "notificationScheduledTitle": "Naplánované úlohy",
+  "notificationScheduledDescription": "Upozornit, když naplánovaná úloha Hermes doručí výsledek.",
+  "hermesJobNotifyTitle": "Upozornit mě",
+  "hermesJobNotifyDescription": "Poslat push oznámení, když tato úloha doručí výsledek.",
+  "pushAskAdminMessage": "Mohl bys na našem serveru Open WebUI nastavit Conduit Push? Conduit pak může posílat koncově šifrovaná push oznámení. V Panelu správce → Funkce importuj {url} a nastav ID funkce na {functionId}. Návod: {guide}",
+  "pushExplainFailed": "Conduit to zkusí znovu sám, až ho příště otevřete, nebo to můžete zkusit znovu hned.",
+  "pushHermesCommandLatest": "Tím se nainstaluje nejnovější zveřejněná verze pluginu.",
+  "hermesJobCreatedNotifyFailed": "Úloha byla vytvořena, ale oznámení pro ni se nepodařilo zapnout.",
+  "hermesJobUpdatedNotifyFailed": "Úloha byla uložena, ale její oznámení se nepodařilo změnit.",
+  "hermesJobNotifyNeedsScheduled": "Chcete-li to použít, zapněte v Oznámeních Naplánované úlohy."
 }

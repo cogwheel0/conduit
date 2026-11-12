@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 
@@ -38,23 +39,32 @@ import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
+    show HermesDesktopRpcException;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_set_aside_session_store.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 
 final class _HermesCredentialRollbackFailure implements Exception {
   const _HermesCredentialRollbackFailure({
@@ -238,6 +248,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     desktopAuthKind: profile.desktopAuthKind,
     desktopProfile: profile.desktopProfile,
     allowSelfSignedCertificates: profile.allowSelfSignedCertificates,
+    plainHttpConsentOrigin: profile.plainHttpConsentOrigin,
     apiKey: secrets.apiKey,
     sessionKey: secrets.sessionKey,
     desktopCredentials: secrets.desktop,
@@ -589,6 +600,63 @@ class HermesConfigController extends Notifier<HermesConfig> {
     });
   }
 
+  /// How long clearing an origin's dashboard cookies waits for Hermes to
+  /// sign its session out.
+  static const _dashboardSignOutTimeout = Duration(seconds: 20);
+
+  /// Clears [baseUrl]'s dashboard cookies ([CookieJarPort.clearForOrigin]),
+  /// first asking Hermes to sign out a session the origin's record cannot
+  /// account for ([hermesDashboardHasUnrecordedSession]). Cookies ignore
+  /// ports, so only the gateway tells its own session from another
+  /// gateway's on the host, and its sign-out deletes exactly its own
+  /// cookies. [accessHeaders] is read only when Hermes is asked.
+  ///
+  /// The record's deletion runs either way. With [requireSignOut] (an
+  /// explicit Sign Out), a session Hermes was not seen to sign out makes the
+  /// clear fail, as the session may still open the dashboard. Without it
+  /// (a deleted connection, a changed address) the sign-out is best effort,
+  /// so a gateway that cannot be reached blocks neither.
+  Future<bool> _clearDashboardCookies(
+    String baseUrl,
+    Future<Map<String, String>> Function() accessHeaders, {
+    bool requireSignOut = false,
+  }) async {
+    final cookieJar = ref.read(cookieJarProvider);
+    final signOut = ref.read(hostHermesDashboardSignOutProvider);
+    var signedOut = true;
+    if (signOut != null && cookieJar.isSupported) {
+      try {
+        // Unknown until the WebView's cookies are read.
+        signedOut = false;
+        final root = hermesDashboardRoot(baseUrl);
+        final unrecorded = hermesDashboardHasUnrecordedSession(
+          current: await cookieJar.identitiesFor(root.toString()),
+          recorded: HermesDashboardCookieRegistry.identitiesFor(baseUrl),
+        );
+        signedOut =
+            !unrecorded ||
+            await signOut(
+              root: root,
+              accessHeaders: await accessHeaders(),
+            ).timeout(_dashboardSignOutTimeout);
+        if (!signedOut) {
+          DebugLogger.warning(
+            'dashboard-sign-out-refused',
+            scope: 'hermes/config',
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'dashboard-sign-out-failed',
+          scope: 'hermes/config',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
+    final cleared = await cookieJar.clearForOrigin(baseUrl);
+    return cleared && (signedOut || !requireSignOut);
+  }
+
   Future<void> signOutDesktop() => _serializeMutation(() async {
     await _secretsHydration;
     _throwIfSecretsUnavailable();
@@ -599,9 +667,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
       // An explicit sign-out clears the origin's dashboard cookies even when
       // another saved connection shares the origin: the WebView cookie store
       // is process-global, so that connection was using the same session.
-      final cleared = await ref
-          .read(cookieJarProvider)
-          .clearForOrigin(state.baseUrl);
+      final accessHeaders = state.accessHeaders;
+      final cleared = await _clearDashboardCookies(
+        state.baseUrl,
+        () async => accessHeaders,
+        requireSignOut: true,
+      );
       if (!cleared) {
         throw StateError('Hermes dashboard cookies could not be cleared.');
       }
@@ -639,6 +710,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
     bool? allowSelfSignedCertificates,
+    String? plainHttpConsentOrigin,
     bool apiKeyChanged = false,
     String? apiKey,
     bool sessionKeyChanged = false,
@@ -688,6 +760,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         desktopAuthKind: desktopAuthKind,
         desktopProfile: desktopProfile,
         allowSelfSignedCertificates: allowSelfSignedCertificates,
+        plainHttpConsentOrigin: plainHttpConsentOrigin,
         apiKeyChanged: apiKeyChanged,
         apiKey: apiKey,
         sessionKeyChanged: sessionKeyChanged,
@@ -708,6 +781,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
     bool? allowSelfSignedCertificates,
+    String? plainHttpConsentOrigin,
     String? apiKey,
     String? sessionKey,
     HermesDesktopCredentials? desktopCredentials,
@@ -734,6 +808,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         desktopAuthKind: desktopAuthKind,
         desktopProfile: desktopProfile,
         allowSelfSignedCertificates: allowSelfSignedCertificates,
+        plainHttpConsentOrigin: plainHttpConsentOrigin,
         apiKeyChanged: true,
         apiKey: apiKey,
         sessionKeyChanged: true,
@@ -755,6 +830,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     required HermesDesktopAuthKind? desktopAuthKind,
     required String? desktopProfile,
     required bool? allowSelfSignedCertificates,
+    required String? plainHttpConsentOrigin,
     required bool apiKeyChanged,
     required String? apiKey,
     required bool sessionKeyChanged,
@@ -804,6 +880,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
     }
     final nextAllowSelfSigned =
         allowSelfSignedCertificates ?? previous.allowSelfSignedCertificates;
+    // Credentials go over plain HTTP only with the user's consent for this
+    // origin: the one given with this save, or one given before for it. A
+    // new host or port needs a new one.
+    final plainHttp = HermesConfig.plainHttpOrigin(trimmedUrl);
+    final nextPlainHttpConsent =
+        plainHttp != null &&
+            (plainHttpConsentOrigin == plainHttp ||
+                previous.plainHttpConsentOrigin == plainHttp)
+        ? plainHttp
+        : null;
+    if (plainHttp != null && nextPlainHttpConsent == null) {
+      throw const HermesPlainHttpConsentRequired();
+    }
     final modeChanged = nextMode != previous.mode;
     final authKindChanged = nextDesktopAuthKind != previous.desktopAuthKind;
     final profileChanged = nextDesktopProfile != previous.desktopProfile;
@@ -857,7 +946,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     );
 
     // Endpoint and identity changes rotate this connection's trust principal
-    // so earlier session bindings and document trust stop matching.
+    // so earlier session bindings and document trust stop matching. A new
+    // principal is minted every time, never an earlier one: the copied
+    // history store refuses saves for identities it has forgotten.
     final nextPrincipal =
         previousProfile == null || endpointChanged || identityChanged
         ? const Uuid().v4()
@@ -891,6 +982,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       desktopAuthKind: nextDesktopAuthKind,
       desktopProfile: nextDesktopProfile,
       allowSelfSignedCertificates: nextAllowSelfSigned,
+      plainHttpConsentOrigin: nextPlainHttpConsent,
       documentTrustPrincipalId: nextPrincipal,
       lastUsedAt: target.runtime
           ? DateTime.now().toUtc()
@@ -1027,9 +1119,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
       if (originChanged &&
           previousBaseUrl.trim().isNotEmpty &&
           !_originSharedByAnotherConnection(previousBaseUrl, connectionId)) {
-        final cleared = await ref
-            .read(cookieJarProvider)
-            .clearForOrigin(previousBaseUrl);
+        final cleared = await _clearDashboardCookies(
+          previousBaseUrl,
+          () async => previous.accessHeaders,
+        );
         if (!cleared) {
           try {
             // As on the way in, the endpoint goes before the credentials
@@ -1099,6 +1192,26 @@ class HermesConfigController extends Notifier<HermesConfig> {
           }
         }
       }
+      // The edit has gone through. Copies' earlier messages saved under the
+      // old endpoint or principal can no longer be opened, so they go, and
+      // an open still in flight for them keeps nothing.
+      final previousIdentity = previousProfile == null
+          ? null
+          : connectionIdentityFor(previousProfile);
+      if (previousIdentity != null &&
+          previousIdentity != connectionIdentityFor(nextProfile)) {
+        try {
+          await ref
+              .read(hermesCopiedHistoryStoreProvider)
+              .forgetConnection(previousIdentity);
+        } catch (error) {
+          DebugLogger.warning(
+            'copied-history-cleanup-failed',
+            scope: 'hermes/config',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+        }
+      }
     }
 
     if (serviceWillRotate) {
@@ -1154,7 +1267,31 @@ class HermesConfigController extends Notifier<HermesConfig> {
   ///
   /// Deleting the active connection activates the most recently used
   /// remaining one, or leaves Hermes without a connection.
-  Future<void> deleteConnection(String connectionId) =>
+  Future<void> deleteConnection(String connectionId) async {
+    if (_profile(connectionId) != null) {
+      await _beforeConnectionRemoved(connectionId);
+    }
+    return _deleteConnection(connectionId);
+  }
+
+  /// Gives the host a bounded moment, while the connection's address and
+  /// secrets still work, to remove what belongs to it elsewhere: its push
+  /// subscription on the server, its posted notifications.
+  Future<void> _beforeConnectionRemoved(String connectionId) async {
+    try {
+      await ref
+          .read(hostHermesConnectionRemovingProvider)(connectionId)
+          .timeout(const Duration(seconds: 6));
+    } catch (error) {
+      DebugLogger.warning(
+        'connection-removal-hook-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
+
+  Future<void> _deleteConnection(String connectionId) =>
       _serializeMutation(() async {
         await _secretsHydration;
         _throwIfSecretsUnavailable();
@@ -1227,9 +1364,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
             StackTrace? clearStackTrace;
             var cleared = false;
             try {
-              cleared = await ref
-                  .read(cookieJarProvider)
-                  .clearForOrigin(target.baseUrl);
+              cleared = await _clearDashboardCookies(
+                target.baseUrl,
+                () async =>
+                    (await _readSecrets(target.id)).desktop?.accessHeaders ??
+                    const {},
+              );
             } catch (error, stackTrace) {
               clearError = error;
               clearStackTrace = stackTrace;
@@ -1308,7 +1448,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
               identity,
             ),
       );
+      await attempt(
+        'deleted-connection-copied-history-cleanup-failed',
+        () => ref
+            .read(hermesCopiedHistoryStoreProvider)
+            .forgetConnection(identity),
+      );
     }
+    await attempt(
+      'deleted-connection-set-aside-cleanup-failed',
+      () => HermesSetAsideSessionStore.clearScopes(
+        (scope) => hermesSetAsideScopeOfConnection(scope, profile.id),
+      ),
+    );
     // Records from before saved connections carry no id and match by origin
     // alone, so a connection still on that origin keeps answering them.
     await attempt(
@@ -1678,6 +1830,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       desktopAuthKind: state.desktopAuthKind,
       desktopProfile: state.desktopProfile,
       allowSelfSignedCertificates: state.allowSelfSignedCertificates,
+      plainHttpConsentOrigin: state.plainHttpConsentOrigin,
     );
     _releaseRuntimeSession();
   }
@@ -1890,6 +2043,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       desktopAuthKind: desktopAuthKind ?? state.desktopAuthKind,
       desktopProfile: desktopProfile ?? state.desktopProfile,
       allowSelfSignedCertificates: state.allowSelfSignedCertificates,
+      plainHttpConsentOrigin: state.plainHttpConsentOrigin,
       apiKey: identical(apiKey, _keep) ? state.apiKey : apiKey,
       sessionKey: identical(sessionKey, _keep) ? state.sessionKey : sessionKey,
       desktopCredentials: identical(desktopCredentials, _keepObject)
@@ -1961,6 +2115,12 @@ final hermesSecretsErrorProvider =
 final hostHermesDashboardBridgeFactoryProvider =
     Provider<HermesDashboardBridgeFactory?>((ref) => null);
 
+/// The host's WebView-backed dashboard sign-out, if it has one. It signs a
+/// session out from the gateway's own page, so Hermes deletes exactly its
+/// own cookies; [CookieJarPort] can delete only the cookies on record.
+final hostHermesDashboardSignOutProvider =
+    Provider<HermesDashboardSignOut?>((ref) => null);
+
 /// Asks the user whether to switch to the saved Hermes connection named
 /// [connectionName]. Resolves false when declined or when nobody can be asked.
 typedef HermesConnectionSwitchPrompt =
@@ -1972,6 +2132,23 @@ typedef HermesConnectionSwitchPrompt =
 /// keeps starting a new session on the active connection.
 final hermesConnectionSwitchPromptProvider =
     Provider<HermesConnectionSwitchPrompt>((ref) => (_) async => false);
+
+/// Called before a saved Hermes connection is deleted, while its address
+/// and secrets still work. The host removes what the core cannot name, such
+/// as the notifications posted for it. Bounded by the caller, which goes on
+/// with the deletion whatever this does.
+final hostHermesConnectionRemovingProvider =
+    Provider<Future<void> Function(String connectionId)>(
+      (ref) => (_) async {},
+    );
+
+/// Asked when Hermes holds a model switch for the user's confirmation (a
+/// pricier, data-sharing or smaller-context model). The core cannot
+/// localize the question, so the host binds it; without one, the held
+/// switch is refused and nothing is sent, as before.
+final hermesModelSwitchPromptProvider = Provider<HermesModelSwitchPrompt?>(
+  (ref) => null,
+);
 
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
@@ -2087,12 +2264,16 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         config.desktopAuthKind,
         config.desktopProfile,
         config.allowSelfSignedCertificates,
+        config.plainHttpConsentOrigin,
         config.isUsable,
       ),
     ),
   );
   final config = ref.read(hermesConfigProvider);
-  if (!config.isUsable) return null;
+  // Saves never store a plain HTTP connection without consent; one that
+  // reached storage another way still sends nothing (its status, access
+  // headers and all) until its consent is given.
+  if (!config.isUsable || !config.mayUsePlainHttp) return null;
   final HermesBackendService service;
   if (config.mode == HermesBackendMode.desktopGateway) {
     // Rotations land even after this client is replaced, as by a switch
@@ -2107,6 +2288,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
       dashboardBridgeFactory: ref.read(
         hostHermesDashboardBridgeFactoryProvider,
       ),
+      confirmModelSwitch: ref.read(hermesModelSwitchPromptProvider),
       onCredentialsChanged: (credentials) async {
         try {
           await writeCredentials(credentials);
@@ -2150,12 +2332,23 @@ final hermesDesktopTurnStateProvider =
       yield* service.turnStatesFor(storedId);
     });
 
-final hermesDesktopTranscriptChangesProvider = StreamProvider<String>((ref) {
-  final service = ref.watch(hermesApiServiceProvider);
-  return service is HermesDesktopApiService
-      ? service.transcriptChanges
-      : const Stream<String>.empty();
-});
+/// One change to a Desktop chat's stored transcript, by its stored id.
+/// Each change is its own event (no value equality): a provider drops a
+/// value equal to the last one, and a second change to the same chat must
+/// still reach its listeners.
+final class HermesTranscriptChange {
+  HermesTranscriptChange(this.storedId);
+
+  final String storedId;
+}
+
+final hermesDesktopTranscriptChangesProvider =
+    StreamProvider<HermesTranscriptChange>((ref) {
+      final service = ref.watch(hermesApiServiceProvider);
+      return service is HermesDesktopApiService
+          ? service.transcriptChanges.map(HermesTranscriptChange.new)
+          : const Stream<HermesTranscriptChange>.empty();
+    });
 
 final hermesDesktopModelsProvider = FutureProvider<List<Model>>((ref) async {
   final service = ref.watch(hermesApiServiceProvider);
@@ -2233,6 +2426,104 @@ class HermesActiveSession extends Notifier<String?> {
 final hermesActiveSessionProvider =
     NotifierProvider<HermesActiveSession, String?>(HermesActiveSession.new);
 
+/// Hermes sessions Conduit may read but not continue over REST, mapped to the
+/// surface that owns them (empty when unknown).
+///
+/// Hermes v0.22.1+ refuses API turns into a session started elsewhere
+/// (`409 permission_denied`). Opening such a session, or a send refused that
+/// way, records it here; the chat then offers to continue in a copy.
+class HermesReadOnlySessions extends Notifier<Map<String, String>> {
+  @override
+  Map<String, String> build() {
+    // Session ids belong to one connection.
+    ref.watch(hermesApiServiceProvider);
+    return const <String, String>{};
+  }
+
+  /// Records [sessionId] as read-only, owned by [source]. A mark without a
+  /// source (a refused send) keeps the owner an earlier one named.
+  void mark(String sessionId, {String? source}) {
+    final existing = state[sessionId];
+    var label = source?.trim() ?? '';
+    if (label.isEmpty && existing != null) label = existing;
+    if (existing == label) return;
+    state = <String, String>{...state, sessionId: label};
+  }
+
+  void clear(String sessionId) {
+    if (!state.containsKey(sessionId)) return;
+    state = <String, String>{...state}..remove(sessionId);
+  }
+}
+
+/// Sessions a branch is being made from
+/// ([HermesSessions.branchFromMessage]).
+final Set<String> _hermesBranching = <String>{};
+
+final hermesReadOnlySessionsProvider =
+    NotifierProvider<HermesReadOnlySessions, Map<String, String>>(
+      HermesReadOnlySessions.new,
+    );
+
+/// Whether the open chat is a Hermes session Conduit may only read
+/// ([hermesReadOnlySessionsProvider]). Its messages can then be neither
+/// edited, regenerated nor deleted here, as none can be sent.
+final activeHermesSessionReadOnlyProvider = Provider<bool>((ref) {
+  final sessionId = ref.watch(
+    activeConversationProvider.select(
+      (conversation) => isNativeHermesConversation(conversation)
+          ? conversation!.metadata['hermesSessionId']
+          : null,
+    ),
+  );
+  if (sessionId is! String || sessionId.isEmpty) return false;
+  return ref.watch(
+    hermesReadOnlySessionsProvider.select(
+      (sessions) => sessions.containsKey(sessionId),
+    ),
+  );
+});
+
+/// The last `/v1/runs` turn that ended in an error, per Hermes session.
+///
+/// A crash can leave such a run `unknown`, and Hermes then holds every later
+/// turn in its session until a client acknowledges it. A chat reopened from
+/// Hermes has no run ids (session messages never carry them), so the next
+/// send looks the run up here.
+class HermesUnsettledRuns extends Notifier<Map<String, String>> {
+  /// Sessions remembered at once; the oldest go first.
+  static const int maxSessions = 64;
+
+  @override
+  Map<String, String> build() {
+    // Run and session ids belong to one connection.
+    ref.watch(hermesApiServiceProvider);
+    return const <String, String>{};
+  }
+
+  void remember(String sessionId, String runId) {
+    if (state[sessionId] == runId) return;
+    final next = <String, String>{...state}..remove(sessionId);
+    next[sessionId] = runId;
+    while (next.length > maxSessions) {
+      next.remove(next.keys.first);
+    }
+    state = next;
+  }
+
+  /// Forgets [sessionId]'s run, or only [runId] when given.
+  void forget(String sessionId, {String? runId}) {
+    final current = state[sessionId];
+    if (current == null || (runId != null && current != runId)) return;
+    state = <String, String>{...state}..remove(sessionId);
+  }
+}
+
+final hermesUnsettledRunsProvider =
+    NotifierProvider<HermesUnsettledRuns, Map<String, String>>(
+      HermesUnsettledRuns.new,
+    );
+
 /// Invalidates asynchronous Hermes-session opens whenever navigation changes.
 class HermesSessionNavigationEpoch extends Notifier<int> {
   @override
@@ -2243,6 +2534,11 @@ class HermesSessionNavigationEpoch extends Notifier<int> {
     return state;
   }
 }
+
+/// Earlier messages of REST copies of other apps' chats, saved on this device.
+final hermesCopiedHistoryStoreProvider = Provider<HermesCopiedHistoryStore>(
+  (ref) => HermesCopiedHistoryStore(ref.watch(directLocalDatabaseProvider)),
+);
 
 final hermesSessionNavigationEpochProvider =
     NotifierProvider<HermesSessionNavigationEpoch, int>(
@@ -2297,7 +2593,45 @@ Map<String, String>? alignHermesForkedMessageIds(
   return mapping;
 }
 
+/// Where [config]'s set-aside chats are kept: its saved connection (none
+/// for one saved before connections had ids), its endpoint, and on the
+/// Desktop Gateway its profile. Session ids belong to one server and
+/// profile, so an endpoint edited or a profile switched looks up none of the
+/// other's chats, and finds them again when switched back.
+String hermesSetAsideScope(HermesConfig config) => jsonEncode([
+  config.connectionId ?? '',
+  HermesConfigController.connectionEndpoint(config.baseUrl) ?? config.baseUrl,
+  if (config.mode == HermesBackendMode.desktopGateway) config.desktopProfile,
+]);
+
+/// Whether set-aside [scope] belongs to saved connection [connectionId].
+bool hermesSetAsideScopeOfConnection(String scope, String connectionId) {
+  try {
+    final parts = jsonDecode(scope);
+    return parts is List && parts.isNotEmpty && parts.first == connectionId;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// [raw] session rows as summaries, newest first. Rows without an id go.
+List<HermesSessionSummary> _hermesSessionSummaries(
+  Iterable<Map<String, dynamic>> raw,
+) => _newestFirst([
+  for (final item in raw) ?HermesSessionSummary.fromJson(item),
+]);
+
+List<HermesSessionSummary> _newestFirst(List<HermesSessionSummary> sessions) {
+  final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+  return sessions..sort(
+    (a, b) => (b.updatedAt ?? epoch).compareTo(a.updatedAt ?? epoch),
+  );
+}
+
 /// The user's Hermes sessions (server-side transcripts), newest first.
+///
+/// Archived and hidden sessions are left out: Hermes lists a pinned one
+/// however it is flagged, and archived ones have their own row.
 class HermesSessionsController
     extends AsyncNotifier<List<HermesSessionSummary>> {
   @override
@@ -2305,19 +2639,140 @@ class HermesSessionsController
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
     final raw = await service.listSessions();
-    final sessions = <HermesSessionSummary>[];
-    for (final item in raw) {
-      final summary = HermesSessionSummary.fromJson(item);
-      if (summary != null) sessions.add(summary);
-    }
-    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
-    sessions.sort(
-      (a, b) => (b.updatedAt ?? epoch).compareTo(a.updatedAt ?? epoch),
-    );
-    return sessions;
+    return [
+      for (final session in _hermesSessionSummaries(raw))
+        if (!session.archived && !session.hidden) session,
+    ];
   }
 
   HermesBackendService? get _service => ref.read(hermesApiServiceProvider);
+
+  /// Pins or unpins [session].
+  Future<void> setPinned(HermesSessionSummary session, bool pinned) =>
+      _setFlags(session, pinned: pinned);
+
+  /// Archives [session] (unpinned, or Hermes would keep listing it) or
+  /// brings it back.
+  Future<void> setArchived(HermesSessionSummary session, bool archived) =>
+      _setFlags(
+        session,
+        archived: archived,
+        pinned: archived && session.pinned ? false : null,
+      );
+
+  /// Hides [session] from every list (it stays reachable from Hermes
+  /// settings) or shows it again.
+  Future<void> setHidden(HermesSessionSummary session, bool hidden) =>
+      _setFlags(
+        session,
+        hidden: hidden,
+        pinned: hidden && session.pinned ? false : null,
+      );
+
+  Future<void> _setFlags(
+    HermesSessionSummary session, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final configController = ref.read(hermesConfigProvider.notifier);
+    final admission = configController.captureSessionActionAdmission();
+    if (admission == null) {
+      throw StateError('Hermes connection is changing. Try again.');
+    }
+    final service = _service;
+    if (service == null) return;
+    final scope = hermesSetAsideScope(service.config);
+    // No Hermes list shows a hidden chat, and the API server lists no
+    // archived ones: this device keeps the way back to them. The record
+    // follows the flags the chat ends with (an archived chat brought out of
+    // hiding is archived again), and is saved before the server changes, so
+    // a chat is never set aside without one.
+    final setAside = (hidden ?? session.hidden)
+        ? HermesSetAsideKind.hidden
+        : (archived ?? session.archived) && service is HermesApiService
+        ? HermesSetAsideKind.archived
+        : null;
+    final previous = HermesSetAsideSessionStore.find(
+      scope: scope,
+      sessionId: session.id,
+    );
+    final record = setAside == null
+        ? null
+        : HermesSetAsideSession(
+            scope: scope,
+            sessionId: session.id,
+            title: session.title,
+            kind: setAside,
+            archived:
+                setAside == HermesSetAsideKind.hidden &&
+                (archived ?? session.archived),
+          );
+    if (record != null) await HermesSetAsideSessionStore.remember(record);
+    // A failed change keeps the record: Hermes may have applied it before
+    // its answer was lost. Its lookup reads the chat's flags and keeps,
+    // moves or drops the record to match, once no change is under way.
+    await HermesSetAsideSessionStore.whileChanging(
+      scope: scope,
+      sessionId: session.id,
+      change: () => service.setSessionFlags(
+        session.id,
+        pinned: pinned,
+        archived: archived,
+        hidden: hidden,
+      ),
+    );
+    // Saved again: a lookup that ran before the change was marked may have
+    // dropped it.
+    if (record != null) {
+      try {
+        await HermesSetAsideSessionStore.remember(record);
+      } catch (error) {
+        DebugLogger.warning(
+          'set-aside-record-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
+    if (setAside == null && previous != null) {
+      try {
+        await HermesSetAsideSessionStore.forget(
+          scope: scope,
+          sessionId: session.id,
+        );
+      } catch (error) {
+        // Dropped once its lookup finds the chat listed again.
+        DebugLogger.warning(
+          'set-aside-record-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
+    if (!configController.sessionActionAdmissionIsCurrent(admission) ||
+        !identical(ref.read(hermesApiServiceProvider), service)) {
+      return;
+    }
+    final current = state.asData?.value;
+    if (current != null) {
+      final updated = session.copyWith(
+        pinned: pinned,
+        archived: archived,
+        hidden: hidden,
+      );
+      state = AsyncData(
+        _newestFirst([
+          for (final candidate in current)
+            if (candidate.id != session.id) candidate,
+          if (!updated.archived && !updated.hidden) updated,
+        ]),
+      );
+    }
+    ref.invalidate(hermesArchivedSessionsProvider);
+    ref.invalidate(hermesHiddenSessionsProvider);
+    ref.invalidateSelf();
+  }
 
   /// Forks a session and returns the new session id (null if Hermes is off).
   Future<String?> fork(String id) async {
@@ -2378,6 +2833,23 @@ class HermesSessionsController
             scope: 'hermes/sessions',
           );
         }
+        // Earlier messages saved for the fork go with it, and free their
+        // slot.
+        if (service is HermesApiService) {
+          try {
+            await ref
+                .read(hermesCopiedHistoryStoreProvider)
+                .forgetSession(
+                  connectionIdentity: connectionIdentity,
+                  sessionId: newId,
+                );
+          } catch (_) {
+            DebugLogger.warning(
+              'copied-history-stale-fork-purge-failed',
+              scope: 'hermes/sessions',
+            );
+          }
+        }
       }
       try {
         await service.deleteSession(newId);
@@ -2435,12 +2907,372 @@ class HermesSessionsController
         }
       }
     }
+    if (connectionIdentity != null && service is HermesApiService) {
+      // A REST copy's earlier messages live only on this device, and Hermes
+      // forks only the copy's own turns: the fork keeps them too.
+      final copiedHistory = ref.read(hermesCopiedHistoryStoreProvider);
+      try {
+        final saved = await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: sourceSessionId,
+        );
+        if (saved != null) {
+          await copiedHistory.save(
+            connectionIdentity: connectionIdentity,
+            sessionId: newId,
+            messages: saved,
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'copied-history-fork-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        // Without them the fork would open as a stranger to its own chat.
+        await discardStaleFork();
+        rethrow;
+      }
+    }
     if (!forkContextIsCurrent()) {
       await discardStaleFork();
       return null;
     }
     ref.invalidateSelf();
     return newId;
+  }
+
+  /// Branches session [sessionId] into a new session that keeps the chat up
+  /// to the end of the turn [messages]`[index]` belongs to.
+  ///
+  /// The Desktop Gateway branches on the server. The API server gets a new
+  /// untitled session instead (Hermes' fork ends the original as
+  /// "branched", and copies all of it), whose earlier messages are saved on
+  /// this device here, so a branch left before it opens keeps them; its REST
+  /// turns replay them. [transcript] is returned only when they could not be
+  /// saved for lack of a connection identity. Null when the connection
+  /// changed meanwhile, or a branch of [sessionId] is already being made:
+  /// a second one would make a second copy on the server.
+  Future<
+    ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
+  >
+  branchFromMessage({
+    required String sessionId,
+    required String title,
+    required List<ChatMessage> messages,
+    required int index,
+  }) async {
+    if (!_hermesBranching.add(sessionId)) return null;
+    try {
+      return await _branchFromMessage(
+        sessionId: sessionId,
+        title: title,
+        messages: messages,
+        index: index,
+      );
+    } finally {
+      _hermesBranching.remove(sessionId);
+    }
+  }
+
+  Future<
+    ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
+  >
+  _branchFromMessage({
+    required String sessionId,
+    required String title,
+    required List<ChatMessage> messages,
+    required int index,
+  }) async {
+    final configController = ref.read(hermesConfigProvider.notifier);
+    final admission = configController.captureSessionActionAdmission();
+    if (admission == null) {
+      throw StateError('Hermes connection is changing. Try again.');
+    }
+    final service = _service;
+    if (service == null) return null;
+    final principalId = configController.documentTrustPrincipalId();
+    bool current() =>
+        configController.sessionActionAdmissionIsCurrent(admission) &&
+        identical(ref.read(hermesApiServiceProvider), service) &&
+        configController.documentTrustPrincipalId() == principalId;
+    final endpointIdentity = HermesConfigController.connectionEndpoint(
+      service.config.baseUrl,
+    );
+    final connectionIdentity = endpointIdentity == null
+        ? null
+        : HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpointIdentity,
+            principalId: principalId,
+          );
+
+    final List<Map<String, dynamic>> transcript;
+    if (service is HermesDesktopTurnService) {
+      // What the session holds now: the branch is cut from that.
+      transcript = await service.getCurrentSessionMessages(sessionId);
+    } else {
+      // A REST copy's earlier messages are kept on this device, before the
+      // server's own, as when it opens.
+      transcript = await _withSavedEarlierMessages(
+        connectionIdentity,
+        sessionId,
+        await service.getSessionMessages(sessionId),
+      );
+    }
+    final cut = hermesBranchCut(
+      transcript: transcript,
+      messages: messages,
+      index: index,
+    );
+    if (cut == null) {
+      throw StateError('This reply could not be found in the Hermes chat.');
+    }
+    if (!current()) return null;
+    if (service is HermesDesktopApiService) {
+      final branchId = await service.branchSession(
+        sessionId,
+        count: cut.visibleCount,
+        throughRowId: cut.throughRowId,
+      );
+      // Made under a connection the user has left: the branch, and what
+      // this device kept for it, go, as a stale copy's do. Opened through
+      // the other connection, its id would name nothing, or another chat.
+      Future<void> discardStaleBranch() async {
+        if (connectionIdentity != null) {
+          try {
+            await HermesLocalDocumentTrustStore.forgetSession(
+              connectionIdentity: connectionIdentity,
+              sessionId: branchId,
+            );
+          } catch (_) {
+            DebugLogger.warning(
+              'local-document-trust-stale-branch-purge-failed',
+              scope: 'hermes/sessions',
+            );
+          }
+        }
+        try {
+          await service.deleteSession(branchId);
+        } catch (_) {
+          // Best effort: the branch stays on the server it was made on.
+        }
+      }
+
+      if (!current()) {
+        await discardStaleBranch();
+        return null;
+      }
+      if (connectionIdentity != null) {
+        await _carryBranchDocumentTrust(
+          service,
+          connectionIdentity: connectionIdentity,
+          sourceSessionId: sessionId,
+          branchId: branchId,
+          kept: transcript.sublist(0, cut.end),
+        );
+        if (!current()) {
+          await discardStaleBranch();
+          return null;
+        }
+      }
+      Map<String, dynamic>? row;
+      try {
+        row = await service.getSession(branchId);
+      } catch (_) {
+        // The branch is made; Hermes names it after its parent.
+      }
+      if (!current()) {
+        await discardStaleBranch();
+        return null;
+      }
+      ref.invalidateSelf();
+      return (
+        session:
+            (row == null ? null : HermesSessionSummary.fromJson(row)) ??
+            HermesSessionSummary(id: branchId, title: title),
+        transcript: null,
+      );
+    }
+    final copyId = await service.createSession();
+    // Made under a connection the user has left: the copy, and what this
+    // device kept for it, go, as a stale fork's do.
+    Future<void> discardStaleCopy() async {
+      if (connectionIdentity != null) {
+        try {
+          await HermesLocalDocumentTrustStore.forgetSession(
+            connectionIdentity: connectionIdentity,
+            sessionId: copyId,
+          );
+        } catch (_) {
+          DebugLogger.warning(
+            'local-document-trust-stale-branch-purge-failed',
+            scope: 'hermes/sessions',
+          );
+        }
+        try {
+          await ref
+              .read(hermesCopiedHistoryStoreProvider)
+              .forgetSession(
+                connectionIdentity: connectionIdentity,
+                sessionId: copyId,
+              );
+        } catch (_) {
+          DebugLogger.warning(
+            'copied-history-stale-branch-purge-failed',
+            scope: 'hermes/sessions',
+          );
+        }
+      }
+      try {
+        await service.deleteSession(copyId);
+      } catch (_) {
+        // Best effort: the copy stays as an empty session.
+      }
+    }
+
+    if (!current()) {
+      await discardStaleCopy();
+      return null;
+    }
+    final kept = transcript.sublist(0, cut.end);
+    if (connectionIdentity != null) {
+      try {
+        final saved = await ref
+            .read(hermesCopiedHistoryStoreProvider)
+            .save(
+              connectionIdentity: connectionIdentity,
+              sessionId: copyId,
+              messages: kept,
+            );
+        // Kept within the device's bound for a copy (its newest messages);
+        // none kept is a branch without its history.
+        if (saved.isEmpty && kept.isNotEmpty) {
+          throw StateError('The branch history could not be kept.');
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'branch-history-save-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        // Without them the branch would open empty: it is removed instead.
+        try {
+          await service.deleteSession(copyId);
+        } catch (_) {
+          // Best effort: the copy stays as an empty session.
+        }
+        rethrow;
+      }
+      // The kept rows keep their ids in the branch, and so the cards of
+      // their local documents.
+      try {
+        await HermesLocalDocumentTrustStore.rebindForkedSession(
+          connectionIdentity: connectionIdentity,
+          sourceSessionId: sessionId,
+          targetSessionId: copyId,
+          messageIdMap: {
+            for (final row in kept)
+              if (row['id'] case final Object id) '$id': '$id',
+          },
+        );
+      } catch (_) {
+        DebugLogger.warning(
+          'local-document-trust-branch-rebind-failed',
+          scope: 'hermes/sessions',
+        );
+      }
+    }
+    if (!current()) {
+      await discardStaleCopy();
+      return null;
+    }
+    ref.invalidateSelf();
+    return (
+      session: HermesSessionSummary(
+        id: copyId,
+        title: title,
+        source: kHermesApiOwnedSessionSources.first,
+      ),
+      transcript: connectionIdentity == null ? kept : null,
+    );
+  }
+
+  /// [server] after the earlier messages this device keeps for REST copy
+  /// [sessionId], as the chat shows it.
+  Future<List<Map<String, dynamic>>> _withSavedEarlierMessages(
+    String? connectionIdentity,
+    String sessionId,
+    List<Map<String, dynamic>> server,
+  ) async {
+    if (connectionIdentity == null) return server;
+    try {
+      final saved = await ref
+          .read(hermesCopiedHistoryStoreProvider)
+          .load(connectionIdentity: connectionIdentity, sessionId: sessionId);
+      return saved == null ? server : mergeHermesCopiedHistory(saved, server);
+    } catch (error) {
+      DebugLogger.warning(
+        'copied-history-load-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return server;
+    }
+  }
+
+  /// Gives branch [branchId] the local document records of the [kept] rows
+  /// it copied, as [fork] does, so their attachments keep their cards. A
+  /// branch whose rows cannot be matched to [kept] one for one starts with
+  /// none rather than a guess.
+  Future<void> _carryBranchDocumentTrust(
+    HermesBackendService service, {
+    required String connectionIdentity,
+    required String sourceSessionId,
+    required String branchId,
+    required List<Map<String, dynamic>> kept,
+  }) async {
+    Map<String, String>? messageIdMap;
+    if (HermesLocalDocumentTrustStore.trustedDocumentKeys(
+      connectionIdentity: connectionIdentity,
+      sessionId: sourceSessionId,
+    ).isNotEmpty) {
+      try {
+        final branch = await service.getSessionMessages(branchId);
+        // A session authority copies every row; the legacy wire only those
+        // a legacy branch keeps.
+        messageIdMap =
+            alignHermesForkedMessageIds(kept, branch) ??
+            alignHermesForkedMessageIds([
+              for (final row in kept)
+                if (hermesLegacyBranchKeepsRow(row)) row,
+            ], branch);
+        if (messageIdMap != null) {
+          await HermesLocalDocumentTrustStore.rebindForkedSession(
+            connectionIdentity: connectionIdentity,
+            sourceSessionId: sourceSessionId,
+            targetSessionId: branchId,
+            messageIdMap: messageIdMap,
+          );
+          return;
+        }
+      } catch (_) {
+        DebugLogger.warning(
+          'local-document-trust-branch-rebind-failed',
+          scope: 'hermes/sessions',
+        );
+      }
+    }
+    try {
+      await HermesLocalDocumentTrustStore.prepareNewSession(
+        connectionIdentity: connectionIdentity,
+        sessionId: branchId,
+      );
+    } catch (_) {
+      DebugLogger.warning(
+        'local-document-trust-branch-purge-failed',
+        scope: 'hermes/sessions',
+      );
+    }
   }
 
   Future<void> rename(String id, String title) async {
@@ -2484,6 +3316,9 @@ class HermesSessionsController
     final draftDatabase = connectionIdentity == null
         ? null
         : ref.read(directLocalDatabaseProvider);
+    final copiedHistory = connectionIdentity == null
+        ? null
+        : ref.read(hermesCopiedHistoryStoreProvider);
     if (connectionIdentity != null) {
       // Revoke durable provenance before the destructive request. A process
       // kill or lost response after the server commits deletion must not let a
@@ -2500,6 +3335,14 @@ class HermesSessionsController
       return false;
     }
     await service.deleteSession(id);
+    try {
+      await HermesSetAsideSessionStore.forget(
+        scope: hermesSetAsideScope(service.config),
+        sessionId: id,
+      );
+    } catch (_) {
+      // A leftover record is dropped once its lookup finds no session.
+    }
     if (connectionIdentity != null) {
       try {
         await draftDatabase!.composerDraftsDao.deleteDraft(
@@ -2513,9 +3356,26 @@ class HermesSessionsController
           data: {'errorType': error.runtimeType.toString()},
         );
       }
+      // Kept until the server has deleted the copy, so a failed delete leaves
+      // it whole.
+      try {
+        await copiedHistory!.forgetSession(
+          connectionIdentity: connectionIdentity,
+          sessionId: id,
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'hermes-copied-history-cleanup-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
     }
     if (configController.sessionActionAdmissionIsCurrent(admission) &&
         identical(ref.read(hermesApiServiceProvider), service)) {
+      // The chat may have been set aside: neither list may keep it.
+      ref.invalidate(hermesArchivedSessionsProvider);
+      ref.invalidate(hermesHiddenSessionsProvider);
       ref.invalidateSelf();
     }
     return true;
@@ -2526,6 +3386,130 @@ final hermesSessionsProvider =
     AsyncNotifierProvider<HermesSessionsController, List<HermesSessionSummary>>(
       HermesSessionsController.new,
     );
+
+/// How many set-aside chats are looked up at once on a server that cannot
+/// list them.
+const int _kHermesSetAsideLookupConcurrency = 6;
+
+/// Set-aside chats of [kind] still flagged so on the server, newest first:
+/// every record kept for the connection. Each is looked up by id: one gone
+/// from the server, or brought back from another app, is forgotten.
+Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
+  HermesBackendService service,
+  HermesSetAsideKind kind,
+) async {
+  final scope = hermesSetAsideScope(service.config);
+  final records = HermesSetAsideSessionStore.forScope(scope, kind: kind);
+  Future<HermesSessionSummary?> lookUp(HermesSetAsideSession record) async {
+    final mark = HermesSetAsideSessionStore.changeMark(
+      scope: record.scope,
+      sessionId: record.sessionId,
+    );
+    final Map<String, dynamic>? row;
+    try {
+      row = await service.getSession(record.sessionId);
+    } catch (_) {
+      // Unreachable now; keep it as last seen.
+      return record.toSummary();
+    }
+    final session = row == null ? null : HermesSessionSummary.fromJson(row);
+    // Where the chat's flags put it now: a change whose answer was lost, or
+    // one made from another app, may have moved it.
+    final actual = session == null
+        ? null
+        : session.hidden
+        ? HermesSetAsideKind.hidden
+        : session.archived && service is HermesApiService
+        ? HermesSetAsideKind.archived
+        : null;
+    if (actual == kind) return session;
+    // A change under way, or one made while the flags were read, may not
+    // show in them: its record stays as it is.
+    if (HermesSetAsideSessionStore.isChanging(
+          scope: record.scope,
+          sessionId: record.sessionId,
+        ) ||
+        HermesSetAsideSessionStore.changeMark(
+              scope: record.scope,
+              sessionId: record.sessionId,
+            ) !=
+            mark) {
+      return session?.copyWith(
+        hidden: kind == HermesSetAsideKind.hidden,
+        archived: kind == HermesSetAsideKind.archived || session.archived,
+      );
+    }
+    // Changed only while still the record read here: a newer one (the chat
+    // hidden while this lookup ran) stays. Best effort: a write that fails
+    // leaves the record for a later lookup, and the list still loads.
+    try {
+      if (actual == null) {
+        await HermesSetAsideSessionStore.forgetRecord(record);
+      } else {
+        await HermesSetAsideSessionStore.replaceRecord(
+          record,
+          HermesSetAsideSession(
+            scope: record.scope,
+            sessionId: record.sessionId,
+            title: session!.title,
+            kind: actual,
+            archived: actual == HermesSetAsideKind.hidden && session.archived,
+          ),
+        );
+      }
+    } catch (error) {
+      DebugLogger.warning(
+        'set-aside-record-update-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    return null;
+  }
+
+  final sessions = <HermesSessionSummary>[];
+  for (
+    var start = 0;
+    start < records.length;
+    start += _kHermesSetAsideLookupConcurrency
+  ) {
+    final batch = await Future.wait([
+      for (final record in records.skip(start).take(
+        _kHermesSetAsideLookupConcurrency,
+      ))
+        lookUp(record),
+    ]);
+    sessions.addAll(batch.nonNulls);
+  }
+  return _newestFirst(sessions);
+}
+
+/// Archived Hermes sessions, newest first. Hermes lists them on the
+/// dashboard and a gateway's Webapp listener; on the API server, which
+/// cannot, they are the ones archived from this device.
+final hermesArchivedSessionsProvider =
+    FutureProvider<List<HermesSessionSummary>>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service == null) return const [];
+      final raw = await service.listArchivedSessions();
+      if (raw == null) {
+        return _hermesSetAsideSessions(service, HermesSetAsideKind.archived);
+      }
+      return [
+        for (final session in _hermesSessionSummaries(raw))
+          if (session.archived && !session.hidden) session,
+      ];
+    });
+
+/// Hermes sessions hidden from this device that are still hidden, newest
+/// first. Hermes lists no hidden sessions (Bot Mode keeps its own chats
+/// hidden), so only those hidden here are offered back.
+final hermesHiddenSessionsProvider =
+    FutureProvider.autoDispose<List<HermesSessionSummary>>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service == null) return const [];
+      return _hermesSetAsideSessions(service, HermesSetAsideKind.hidden);
+    });
 
 /// Bot Mode roster, newest activity first. Empty on gateways without Bot Mode
 /// and on the Responses backend, which hides the sidebar section entirely.
@@ -2624,11 +3608,38 @@ final hermesServerStatusProvider = FutureProvider<Map<String, dynamic>>((
 
 /// The user's scheduled Hermes jobs (`/api/jobs`).
 class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
+  /// Bumped by every rebuild and by each change made here (as it starts and
+  /// once it is answered): a quiet refresh read before a change must not
+  /// put the list from before it back.
+  int _generation = 0;
+
   @override
   Future<List<HermesJob>> build() async {
+    _generation++;
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
-    final raw = await service.listJobs();
+    return _load(service);
+  }
+
+  /// Runs [change], marking the list read before it and while it runs as
+  /// stale.
+  Future<T> _changing<T>(Future<T> Function() change) async {
+    _generation++;
+    try {
+      return await change();
+    } finally {
+      _generation++;
+    }
+  }
+
+  /// A [live] read is the quiet poll of a page watching runs.
+  static Future<List<HermesJob>> _load(
+    HermesBackendService service, {
+    bool live = false,
+  }) async {
+    final raw = service is HermesDesktopApiService
+        ? await service.listJobs(live: live)
+        : await service.listJobs();
     final jobs = <HermesJob>[];
     for (final item in raw) {
       final job = HermesJob.fromJson(item);
@@ -2641,45 +3652,149 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
       ref.read(hermesApiServiceProvider) ??
       (throw StateError('Hermes is not configured'));
 
-  Future<void> create({
+  /// The quiet refresh in flight and the connection it reads. A rebuild
+  /// for another connection keeps this notifier, so a request still pending
+  /// for the previous one must not be shared with the new one.
+  ({
+    HermesBackendService service,
+    int generation,
+    Future<List<HermesJob>> jobs,
+  })?
+  _refreshing;
+
+  /// Reloads the list in place, without a loading state, for watching a run
+  /// that is in flight. Overlapping calls for the same connection share one
+  /// request; a failure keeps the current list.
+  Future<List<HermesJob>?> refreshQuietly() async {
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null) return null;
+    final shared = _refreshing;
+    final refresh =
+        shared != null &&
+            identical(shared.service, service) &&
+            shared.generation == _generation
+        ? shared
+        : _refreshing = (
+            service: service,
+            generation: _generation,
+            jobs: _load(service, live: true),
+          );
+    final pending = refresh.jobs;
+    try {
+      final jobs = await pending;
+      if (!ref.mounted ||
+          !identical(ref.read(hermesApiServiceProvider), service) ||
+          refresh.generation != _generation) {
+        return null;
+      }
+      state = AsyncData(jobs);
+      return jobs;
+    } catch (_) {
+      return null;
+    } finally {
+      if (identical(_refreshing?.jobs, pending)) _refreshing = null;
+    }
+  }
+
+  /// Creates a job and answers it as the server returned it, or null when
+  /// the answer named no job. [deliver] and [catchUp] apply on the Desktop
+  /// Gateway; the API server keeps its default (`local`, Hermes' catch-up
+  /// policy).
+  Future<HermesJob?> create({
     required String name,
     required String prompt,
     required String schedule,
+    String? deliver,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     final service = _service;
-    await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    final created = await _changing(() async {
+      if (service is HermesDesktopApiService) {
+        return service.createJob(
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliver: deliver ?? kHermesLocalDeliveryTarget,
+          catchUp: catchUp,
+        );
+      }
+      return service.createJob(name: name, prompt: prompt, schedule: schedule);
+    });
     ref.invalidateSelf();
+    // The API server wraps the job as {"job": …}; the dashboard does not.
+    final job = created['job'];
+    return HermesJob.fromJson(
+      job is Map ? Map<String, dynamic>.from(job) : created,
+    );
   }
 
+  /// A null [deliver] or [catchUp] leaves the job's value as stored.
   Future<void> edit(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
   }) async {
     final service = _service;
-    await service.updateJob(id, name: name, prompt: prompt, schedule: schedule);
+    await _changing(() async {
+      if (service is HermesDesktopApiService) {
+        await service.updateJob(
+          id,
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliver: deliver,
+          catchUp: catchUp,
+        );
+      } else {
+        await service.updateJob(
+          id,
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+        );
+      }
+    });
     ref.invalidateSelf();
+  }
+
+  /// Stops the job's running run. Only the Desktop Gateway can; the API
+  /// server has no cancel route.
+  Future<HermesJobStopResult> stopRun(String id) async {
+    final service = _service;
+    if (service is! HermesDesktopApiService) {
+      throw const HermesJobStopUnsupportedException();
+    }
+    // A poll read before the cancel must not settle the Stop with a list
+    // from before it.
+    final result = await _changing(() => service.stopJobRun(id));
+    ref.invalidate(hermesJobRunsProvider(id));
+    return result;
   }
 
   Future<void> setEnabled(String id, bool enabled) async {
     final service = _service;
-    if (enabled) {
-      await service.resumeJob(id);
-    } else {
-      await service.pauseJob(id);
-    }
+    await _changing(
+      () => enabled ? service.resumeJob(id) : service.pauseJob(id),
+    );
     ref.invalidateSelf();
   }
 
   Future<void> runNow(String id) async {
-    await _service.runJob(id);
+    try {
+      await _service.runJob(id);
+    } on HermesDashboardRequestWithdrawn {
+      // A Stop withdrew it before it was sent: the job did not run.
+      return;
+    }
     ref.invalidate(hermesJobRunsProvider(id));
   }
 
   Future<void> delete(String id) async {
     final service = _service;
-    await service.deleteJob(id);
+    await _changing(() => service.deleteJob(id));
     ref.invalidateSelf();
   }
 }
@@ -2688,6 +3803,64 @@ final hermesJobsProvider =
     AsyncNotifierProvider<HermesJobsController, List<HermesJob>>(
       HermesJobsController.new,
     );
+
+/// How long the delivery picker waits for each of its lists. Rooms come over
+/// the gateway socket, whose connect has no deadline of its own.
+const Duration _kHermesDeliveryLookupTimeout = Duration(seconds: 10);
+
+/// How soon a picker that had to do without a list asks again, while the
+/// page that shows it keeps it alive.
+@visibleForTesting
+const Duration kHermesDeliveryRetryDelay = Duration(seconds: 30);
+
+/// Where the connection's jobs can deliver: local, messaging platforms, Bot
+/// Chats, and Group Chats. Null on the API server, which lists no targets.
+final hermesJobDeliveryOptionsProvider =
+    FutureProvider.autoDispose<HermesDeliveryOptions?>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service is! HermesDesktopApiService) return null;
+      var partial = false;
+      Future<T> orElse<T>(Future<T> future, T fallback) async {
+        try {
+          return await future.timeout(_kHermesDeliveryLookupTimeout);
+        } catch (_) {
+          partial = true;
+          return fallback;
+        }
+      }
+
+      // Read here rather than through hermesBotsProvider, which answers a
+      // failed lookup with an empty roster: a failure must count as partial
+      // and be asked again.
+      Future<List<HermesBot>> listBots() async {
+        try {
+          return await service.listBots();
+        } on HermesDesktopRpcException catch (error) {
+          // A gateway without Bot Mode has no profiles.list: no Bot Chats.
+          if (error.code == -32601) return const [];
+          rethrow;
+        }
+      }
+
+      final (targets, bots, rooms) = await (
+        orElse(service.listJobDeliveryTargets(), <Map<String, dynamic>>[]),
+        orElse(listBots(), <HermesBot>[]),
+        orElse(service.listRooms(), <HermesRoom>[]),
+      ).wait;
+      // A provider closed during the lookup has nothing left to retry.
+      if (partial && ref.mounted) {
+        // A list that failed or stalled is asked for again rather than kept
+        // missing for as long as the job cards hold this provider.
+        final retry = Timer(kHermesDeliveryRetryDelay, ref.invalidateSelf);
+        ref.onDispose(retry.cancel);
+      }
+      return HermesDeliveryOptions.build(
+        targets: targets,
+        bots: bots,
+        rooms: rooms,
+        roomProfile: service.config.desktopProfile,
+      );
+    });
 
 /// Desktop cron runs are ordinary Hermes sessions, newest first.
 final hermesJobRunsProvider = FutureProvider.autoDispose
@@ -2762,9 +3935,67 @@ HermesRunKey legacyHermesRunKey(String assistantMessageId) => (
 /// Tracks the live event subscription + run id for each streaming Hermes
 /// assistant message so a stop request can cancel the right run.
 ///
+/// A Hermes turn this app ran that ended, successfully or not, and was not
+/// stopped.
+///
+/// Announced through [HermesRunRegistry.completions] so the app can notify
+/// about a reply that finished while it was in the background.
+final class HermesTurnCompletion {
+  const HermesTurnCompletion({
+    required this.connectionId,
+    required this.sessionId,
+    required this.message,
+    required this.runId,
+    this.title,
+  });
+
+  /// The saved connection that ran it.
+  final String connectionId;
+
+  /// The server session it belongs to.
+  final String sessionId;
+
+  /// The reply: its content, or its error.
+  final ChatMessage message;
+
+  /// The chat's title, when known.
+  final String? title;
+
+  /// A random id of the run that wrote [message]. A regeneration writes into
+  /// the same assistant message, so this tells its reply from the one it
+  /// replaced.
+  final String runId;
+
+  /// This app's own key for the turn. The server's turn id is unknown here.
+  String get turnKey => '${message.id}:$runId';
+
+  bool get failed => message.error != null;
+}
+
 class HermesRunRegistry {
   final Map<HermesRunKey, _ActiveRun> _runs = {};
   final List<void Function()> _whenIdle = [];
+  final StreamController<HermesTurnCompletion> _completions =
+      StreamController<HermesTurnCompletion>.broadcast();
+
+  /// Hermes turns this app ran, as they end without being stopped.
+  Stream<HermesTurnCompletion> get completions => _completions.stream;
+
+  /// The runs stopped through [cancel], [cancelOwned] or [cancelAll], by
+  /// their cancel token.
+  final Expando<bool> _stopped = Expando<bool>('stopped-hermes-runs');
+
+  /// Whether the run of [cancelToken] was stopped -- by the user, a
+  /// connection change or sign-out -- rather than ending on its own.
+  bool wasStopped(CancelToken cancelToken) => _stopped[cancelToken] ?? false;
+
+  /// Announces on [completions] that a turn ended.
+  void announceCompletion(HermesTurnCompletion completion) {
+    if (_completions.isClosed) return;
+    _completions.add(completion);
+  }
+
+  void dispose() => _completions.close();
 
   /// Calls [callback] once no run is active: now, or when the last one ends.
   void whenIdle(void Function() callback) {
@@ -3069,6 +4300,7 @@ class HermesRunRegistry {
 
   Future<void> _cancelDetached(_ActiveRun run) async {
     run.cancelled = true;
+    _stopped[run.cancelToken] = true;
     run.cancelToken.cancel('stopped');
     for (final callback in run.onCancelled) {
       try {
@@ -3175,6 +4407,8 @@ class _ActiveRun {
   bool cleanupReported = false;
 }
 
-final hermesRunRegistryProvider = Provider<HermesRunRegistry>(
-  (ref) => HermesRunRegistry(),
-);
+final hermesRunRegistryProvider = Provider<HermesRunRegistry>((ref) {
+  final registry = HermesRunRegistry();
+  ref.onDispose(registry.dispose);
+  return registry;
+});

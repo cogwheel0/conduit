@@ -54,14 +54,15 @@ void main() {
       check(updated.pinnedModelIds).deepEquals(['new-model']);
     });
 
-    test('parses top-level notification preferences', () {
+    test('reads notification preferences where the web keeps them, under '
+        'ui, else the top-level copy earlier builds wrote', () {
       final settings = ServerUserSettings.fromJson({
+        'ui': {'notificationEnabled': false, 'notificationSoundAlways': true},
         'notificationEnabled': true,
         'notificationSound': false,
-        'notificationSoundAlways': true,
       });
 
-      check(settings.notificationEnabled).equals(true);
+      check(settings.notificationEnabled).equals(false);
       check(settings.notificationSound).equals(false);
       check(settings.notificationSoundAlways).equals(true);
     });

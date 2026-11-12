@@ -11,6 +11,9 @@ import 'package:conduit/platform/flutter_log_sink.dart';
 import 'package:conduit/platform/geolocator_location_port.dart';
 import 'package:conduit/platform/wakelock_plus_port.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show PlatformVersion, PlatformViewGuard;
+import 'package:fake_async/fake_async.dart';
 
 /// Runs before every `flutter test` file.
 ///
@@ -47,5 +50,20 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // ports; installing the app's adapters keeps tests on those paths.
   LocationPort.hostDefault = const GeolocatorLocationPort();
   WakelockPort.hostDefault = const WakelockPlusPort();
+  // cupertino_native_better picks its native views or its Flutter
+  // fallbacks from the real host, so a Mac running the suite would build
+  // native views where Linux CI builds the fallbacks. Every host takes the
+  // fallbacks, and a local run fails where CI would.
+  PlatformVersion.debugForceFallbacks = true;
+  // In debug builds the package holds its native views back for half a
+  // second after the first one is built. Its timer would otherwise start
+  // inside whichever test builds that one first, and fail the test for a
+  // pending timer if it ends sooner; that test changes with the files run
+  // before it. Let it run out once, before any test, on a fake clock.
+  fakeAsync((async) {
+    PlatformViewGuard.ensureScheduled();
+    async.elapse(const Duration(seconds: 1));
+  });
+  assert(PlatformViewGuard.isReady, 'The platform-view guard did not open.');
   await testMain();
 }

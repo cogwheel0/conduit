@@ -177,7 +177,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return encoded == null ? null : jsonDecode(encoded) as List<dynamic>;
   }
 
-  /// Called under the chat lock after a successful pull merge.
+  /// Called under the chat lock after a pull merge that stored the server's
+  /// copy, and with it these events or a newer task list.
   void clearPendingServerTasks(String chatId) =>
       _pendingTaskEvents.remove(chatId);
 
@@ -207,6 +208,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
   void _noteModelListWrite(String chatId) {
     _modelListVersions[chatId] = modelListVersion(chatId) + 1;
+  }
+
+  final _pushVersions = <String, int>{};
+
+  /// Counts the pushes of chat [chatId] that have landed on the server here.
+  /// A fetch takes it before it reads the chat, so a copy read before a push
+  /// landed is known for one: Open WebUI's `updated_at` is whole seconds, and
+  /// a copy read just before a push in the same second carries the very
+  /// stamp the push left as the merge base.
+  int pushVersion(String chatId) => _pushVersions[chatId] ?? 0;
+
+  /// A push of chat [chatId] has landed: the server holds the rows it sent.
+  void notePushLanded(String chatId) {
+    _pushVersions[chatId] = pushVersion(chatId) + 1;
   }
 
   /// The model list stored with chat [chatId], or null when it has none.
@@ -425,6 +440,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///  * existing dirty tombstone (deleted && dirty) → SKIP entirely (the
   ///    pending `deleteChat` wins; the drainer purges on confirm) so the
   ///    fast-forward never resurrects a locally-deleted chat;
+  ///  * a copy older than the base (or read before a push, [readBeforePush])
+  ///    → SKIP entirely, reported as [ChatMergeWriteResult.staleRead];
   ///  * otherwise → pure [mergeChat] then write per [MergeOutcome]:
   ///    - noRemoteChange: rows untouched (only `mustPush` is reported);
   ///    - fastForward: delete+reinsert messages `dirty=false`,
@@ -460,6 +477,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     /// never arrived. Background cycles leave this off: comparing
     /// timestamps is what keeps them cheap.
     bool refreshWhenClean = false,
+
+    /// The copy was read before a push of this chat landed
+    /// ([pushVersion]): older than the base the push left, whatever its
+    /// `updated_at` says.
+    bool readBeforePush = false,
   }) {
     final serverChat = server.chat;
     return transaction(() async {
@@ -562,6 +584,28 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         for (final m in localMessages)
           if (m.dirty) m.id,
       };
+
+      // A copy older than the base: read before a push of this chat landed,
+      // which moved the base on. Its rows are not news, and taking them (a
+      // pull asked for by name refreshes a clean chat) would put the chat
+      // back to before the push -- a message just sent, and its answer's
+      // placeholder, gone until the next pull, and a queued answer's request
+      // dropped for want of its placeholder. A copy read before a push that
+      // landed in the same second carries the base itself, so the push is
+      // counted too ([readBeforePush]). Nothing beside the rows is taken
+      // either: the copy's model list is the one the push replaced, and its
+      // tags and share link are no safer. The caller reads the chat again
+      // for them ([ChatMergeWriteResult.staleRead]).
+      if (serverChat.updatedAt < base || readBeforePush) {
+        return _mergeResultWithUpdateOpIfMissing(
+          serverChat.id,
+          ChatMergeWriteResult(
+            outcome: MergeOutcome.noRemoteChange,
+            mustPush: existing.dirty || dirtyMessageIds.isNotEmpty,
+            staleRead: true,
+          ),
+        );
+      }
 
       final result = mergeChat(
         server: server,

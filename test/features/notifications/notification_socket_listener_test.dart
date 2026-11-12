@@ -13,23 +13,21 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/providers/notification_socket_listener.dart';
+import 'package:conduit/features/notifications/providers/notification_tap_listener.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart'
+    show HermesBackendMode;
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
-import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
+import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
-import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
-    show ChatStorageKind;
-import 'package:conduit_core/database/local_conversation_loader.dart';
-import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+    show ChatStorageKind, kChatStorageKindMetadataKey;
 import 'package:conduit_core/models/conversation.dart';
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit_core/sync/chat_locks.dart';
-import 'package:conduit_core/sync/pull_sync.dart';
-import 'package:conduit_core/testing.dart';
-import 'package:drift/native.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart' show SizedBox;
 import 'package:flutter_test/flutter_test.dart';
@@ -89,6 +87,16 @@ class _MockSocketService implements SocketService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// The active account, settled as [accountId].
+class _SettledAccount extends SettledActiveAccountId {
+  _SettledAccount(this.accountId);
+
+  final String? accountId;
+
+  @override
+  String? build() => accountId;
 }
 
 /// Channels list whose `refresh` is counted (reconnect reconciliation).
@@ -181,6 +189,7 @@ Map<String, dynamic> _chatCompletion({
   String type = 'chat:completion',
 }) => {
   'chat_id': chatId,
+  'message_id': 'msg-1',
   'data': {
     'type': type,
     'data': {'done': done, 'content': 'hello', 'title': 'Greeting'},
@@ -223,6 +232,7 @@ void main() {
   ProviderContainer makeContainer(
     _MockSocketService socket, {
     ApiService? api,
+    String? accountId = 'acct-1',
     List<Channel> channels = const [Channel(id: 'chan-1', name: 'general')],
   }) {
     routed = <AppNotification>[];
@@ -242,6 +252,9 @@ void main() {
         notificationRouterProvider.overrideWithValue(captureRouter),
         channelsListProvider.overrideWith(() => _FakeChannelsList(channels)),
         if (api != null) apiServiceProvider.overrideWithValue(api),
+        settledActiveAccountIdProvider.overrideWith(
+          () => _SettledAccount(accountId),
+        ),
         currentUserProvider.overrideWith(
           (ref) async => const User(
             id: 'me',
@@ -256,154 +269,52 @@ void main() {
     return container;
   }
 
-  group('a tapped chat notification (#852)', () {
-    late ProviderContainer container;
-    late _TapSource taps;
-
-    setUp(() async {
-      final db = AppDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
-      final server = FakeOpenWebUiServer()
-        ..seedChat(
-          id: 'chat-1',
-          blob: {
-            'title': 'Greeting',
-            'history': {
-              'messages': {
-                'm1': {
-                  'id': 'm1',
-                  'parentId': null,
-                  'childrenIds': <String>[],
-                  'role': 'user',
-                  'content': 'hello',
-                  'timestamp': 100,
-                },
-              },
-              'currentId': 'm1',
-            },
-          },
-          createdAt: 100,
-          updatedAt: 100,
-        );
-      final pull = PullSync(
-        client: FakeSyncApiClient(server),
-        db: db,
-        locks: ConversationLocks(),
-      );
-      check((await pull.run()).success).isTrue();
-
-      taps = _TapSource();
-      container = ProviderContainer(
-        overrides: [
-          ...openWebUiStorageOpenOverrides(database: db),
-          isAuthenticatedProvider2.overrideWithValue(true),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          localNotificationServiceProvider.overrideWithValue(taps),
-        ],
-      );
-      addTearDown(container.dispose);
-      container.read(notificationSocketListenerProvider);
-    });
-
-    void attachRouterAt(String location) {
-      final router = GoRouter(
-        initialLocation: location,
-        routes: [
-          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
-          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
-        ],
-      );
-      addTearDown(router.dispose);
-      NavigationService.attachRouter(router);
-    }
-
-    Future<void> tapChat(bool Function() done) async {
-      taps.tap(
-        const NotificationTap(
-          kind: NotificationKind.chatCompletion,
-          sourceId: 'chat-1',
+  // The chat-back and filter rules of opening a chat belong to the chat
+  // list's selection flow, which a tapped notification goes through; they
+  // are tested with it.
+  testWidgets('a tapped chat notification opens the chat through the chat '
+      "list's selection flow", (tester) async {
+    final taps = _TapSource();
+    final selected = <Conversation>[];
+    final container = ProviderContainer(
+      overrides: [
+        socketServiceProvider.overrideWithValue(null),
+        apiServiceProvider.overrideWithValue(null),
+        localNotificationServiceProvider.overrideWithValue(taps),
+        conversationSelectionProvider.overrideWith(
+          () => _RecordingSelection(selected),
         ),
-      );
-      for (var i = 0; i < 200 && !done(); i++) {
+      ],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/channel/general',
+      routes: [
+        GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
+        GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    container.read(notificationTapListenerProvider);
+
+    taps.tap(
+      const NotificationTap(
+        kind: NotificationKind.chatCompletion,
+        sourceId: 'chat-1',
+      ),
+    );
+    await tester.runAsync(() async {
+      for (var i = 0; i < 200 && NavigationService.currentRoute != '/chat'; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
-    }
-
-    test('makes back open the chat list', () async {
-      attachRouterAt('/channel/general');
-      check(container.read(chatBackOpensListProvider)).isFalse();
-
-      await tapChat(() => container.read(activeConversationProvider) != null);
-
-      check(NavigationService.currentRoute).equals('/chat');
-      check(container.read(activeConversationProvider)?.id).equals('chat-1');
-      check(container.read(chatBackOpensListProvider)).isTrue();
     });
 
-    test('for the active chat, tapped on a channel, does too', () async {
-      attachRouterAt('/channel/general');
-      final active = await loadLocalConversation(container, 'chat-1');
-      container.read(activeConversationProvider.notifier).set(active);
-
-      // The tap goes to the chat page before it opens the chat, so whether
-      // the chat was on screen is read first.
-      await tapChat(() => container.read(chatBackOpensListProvider));
-
-      check(NavigationService.currentRoute).equals('/chat');
-      check(container.read(chatBackOpensListProvider)).isTrue();
-    });
-
-    test('a tap whose chat is not stored leaves the open chat its picks',
-        () async {
-      attachRouterAt('/chat');
-      final active = await loadLocalConversation(container, 'chat-1');
-      container.read(activeConversationProvider.notifier).set(active);
-      container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
-
-      taps.tap(
-        const NotificationTap(
-          kind: NotificationKind.chatCompletion,
-          sourceId: 'chat-elsewhere',
-        ),
-      );
-      for (var i = 0; i < 40; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
-
-      check(container.read(activeConversationProvider)?.id).equals('chat-1');
-      check(container.read(selectedFilterIdsProvider)).deepEquals(['filter-a']);
-    });
-
-    test('an on-device chat with the same id is another chat, whose picks '
-        'stay behind', () async {
-      attachRouterAt('/chat');
-      // An on-device chat that happens to share the server chat's raw id is
-      // open, with a filter turned on.
-      container
-          .read(activeConversationProvider.notifier)
-          .set(
-            withChatStorageProvenance(
-              Conversation(
-                id: 'chat-1',
-                title: 'On device',
-                createdAt: DateTime.utc(2026),
-                updatedAt: DateTime.utc(2026),
-              ),
-              ChatStorageKind.directLocal,
-            ),
-          );
-      container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
-
-      await tapChat(
-        () =>
-            container.read(activeConversationProvider)?.title == 'Greeting',
-      );
-
-      check(container.read(activeConversationProvider)?.title).equals('Greeting');
-      check(container.read(selectedFilterIdsProvider)).isEmpty();
-    });
+    check(selected.single.id).equals('chat-1');
+    check(
+      selected.single.metadata[kChatStorageKindMetadataKey],
+    ).equals(ChatStorageKind.openWebUi.name);
+    check(NavigationService.currentRoute).equals('/chat');
   });
 
   test('registers one wildcard chat + channel handler, requireFocus:false', () {
@@ -430,6 +341,22 @@ void main() {
 
     check(routed).length.equals(1);
     check(routed.single.kind).equals(NotificationKind.chatCompletion);
+    check(routed.single.scope).equals('owui:acct-1');
+    check(routed.single.dedupKey).equals('owui:acct-1|chat:chat-1:msg-1');
+  });
+
+  test('routes nothing before an account settles', () async {
+    final socket = _MockSocketService();
+    addTearDown(socket.disposeController);
+    final container = makeContainer(socket, accountId: null);
+    container.read(notificationSocketListenerProvider);
+    await container.read(currentUserProvider.future);
+
+    socket.chat.single.handler(_chatCompletion(), null);
+    socket.channel.single.handler(_channelMessage(), null);
+    await Future<void>.delayed(Duration.zero);
+
+    check(routed).isEmpty();
   });
 
   test('ignores a non-terminal completion frame', () async {
@@ -469,6 +396,7 @@ void main() {
 
     check(routed).length.equals(1);
     check(routed.single.kind).equals(NotificationKind.channelMessage);
+    check(routed.single.dedupKey).equals('owui:acct-1|channel:chan-1:m1');
   });
 
   // Open WebUI 0.12.1 +layout.svelte with shouldNotifyChannelMessage.
@@ -630,6 +558,9 @@ void main() {
         container.read(notificationRouterProvider),
       ),
       channelsListProvider.overrideWith(_FakeChannelsList.new),
+      settledActiveAccountIdProvider.overrideWith(
+        () => _SettledAccount('acct-1'),
+      ),
       currentUserProvider.overrideWith(
         (ref) async => const User(
           id: 'me',
@@ -646,4 +577,154 @@ void main() {
     check(socket2.chat).length.equals(1);
     check(socket2.channel).length.equals(1);
   });
+
+  group('pushCoversNotification', () {
+    late DateTime now;
+    late HermesPushWatches watches;
+
+    setUp(() {
+      now = DateTime(2026, 10, 10, 12);
+      watches = HermesPushWatches(now: () => now);
+    });
+
+    PushState pushWith(
+      PushTarget target, {
+      PushStatus status = PushStatus.on,
+      bool optedOut = false,
+      bool enabled = true,
+      PushOrigin origin = PushOrigin.conduit,
+    }) => PushState(
+      enabled: enabled,
+      targets: {
+        target.scope: PushTargetState(
+          target: target,
+          status: status,
+          optedOut: optedOut,
+          origin: origin,
+        ),
+      },
+    );
+
+    HermesPushTarget hermes(HermesBackendMode mode) => HermesPushTarget(
+      connectionId: 'conn-1',
+      label: 'Home',
+      baseUrl: 'https://hermes.example',
+      mode: mode,
+    );
+
+    final turn = AppNotification(
+      kind: NotificationKind.chatCompletion,
+      scope: 'hermes:conn-1',
+      title: 'Plan',
+      body: 'Done.',
+      sourceId: 's-1',
+      dedupKey: 'hermes:conn-1|hermes:s-1:local',
+      group: 'hermes:s-1',
+      sharesPushDedupKey: false,
+    );
+
+    test('an API server session pushes only while its watch lasts', () {
+      final push = pushWith(hermes(HermesBackendMode.responsesApi));
+      check(pushCoversNotification(push, turn, watches: watches)).isFalse();
+
+      watches.record('conn-1', 's-1', ttl: const Duration(hours: 6));
+      check(pushCoversNotification(push, turn, watches: watches)).isTrue();
+      // Another session of the connection was never watched.
+      check(
+        pushCoversNotification(
+          push,
+          turn.copyWith(sourceId: 's-2'),
+          watches: watches,
+        ),
+      ).isFalse();
+
+      now = now.add(const Duration(hours: 6));
+      check(pushCoversNotification(push, turn, watches: watches)).isFalse();
+    });
+
+    test('a desktop session pushes without a watch', () {
+      check(
+        pushCoversNotification(
+          pushWith(hermes(HermesBackendMode.desktopGateway)),
+          turn,
+          watches: watches,
+        ),
+      ).isTrue();
+    });
+
+    test('nothing pushes unless push is on for the scope', () {
+      watches.record('conn-1', 's-1', ttl: const Duration(hours: 6));
+      final target = hermes(HermesBackendMode.desktopGateway);
+      for (final push in [
+        null,
+        pushWith(target, enabled: false),
+        pushWith(target, status: PushStatus.verifying),
+        pushWith(target, optedOut: true),
+      ]) {
+        check(pushCoversNotification(push, turn, watches: watches)).isFalse();
+      }
+      check(
+        pushCoversNotification(
+          pushWith(target, status: PushStatus.updateAvailable),
+          turn,
+          watches: watches,
+        ),
+      ).isTrue();
+    });
+
+    test('an Open WebUI account pushes replies for all chats', () {
+      final push = pushWith(
+        const OpenWebUiPushTarget(accountId: 'acct-1', label: 'Ada'),
+        origin: PushOrigin.any,
+      );
+      final frame = turn.copyWith(
+        scope: 'owui:acct-1',
+        sourceId: 'c1',
+        dedupKey: 'owui:acct-1|chat:c1:x',
+      );
+      check(pushCoversNotification(push, frame, watches: watches)).isTrue();
+    });
+
+    test('a reply may not push for an account notifying Conduit chats', () {
+      // Its server pushes only replies to Conduit's own requests, and the
+      // event does not say whose request this answered.
+      final push = pushWith(
+        const OpenWebUiPushTarget(accountId: 'acct-1', label: 'Ada'),
+      );
+      final frame = turn.copyWith(
+        scope: 'owui:acct-1',
+        sourceId: 'c1',
+        dedupKey: 'owui:acct-1|chat:c1:x',
+      );
+      check(pushCoversNotification(push, frame, watches: watches)).isFalse();
+      check(
+        pushCoversNotification(
+          push,
+          frame.copyWith(kind: NotificationKind.replyFailed),
+          watches: watches,
+        ),
+      ).isFalse();
+      // Channel messages push whatever the origin.
+      final message = frame.copyWith(
+        kind: NotificationKind.channelMessage,
+        sourceId: 'chan-1',
+        dedupKey: 'owui:acct-1|channel:chan-1:x',
+        group: 'channel:chan-1',
+      );
+      check(pushCoversNotification(push, message, watches: watches)).isTrue();
+    });
+  });
+}
+
+/// Records what a tap asks the chat list to open, and opens it.
+final class _RecordingSelection extends ConversationSelection {
+  _RecordingSelection(this.selected);
+
+  final List<Conversation> selected;
+
+  @override
+  Future<ConversationSelectionResult> select(Conversation summary) async {
+    selected.add(summary);
+    return const ConversationSelectionResult.committed();
+  }
 }

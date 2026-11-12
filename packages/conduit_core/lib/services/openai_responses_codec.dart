@@ -1,5 +1,7 @@
 import 'package:openai_dart/openai_dart.dart' as openai;
 
+import 'package:conduit_core/utils/json_normalization.dart';
+
 /// The standard OpenAI Responses protocol boundary shared by direct-provider
 /// and backend-specific adapters.
 ///
@@ -28,12 +30,14 @@ final class OpenAiResponsesCodec {
     ).toJson();
   }
 
+  // Compatible servers send unset optional fields as nulls, which
+  // openai_dart rejects; drop them first.
   static openai.ResponseStreamEvent decodeStreamEvent(
     Map<String, dynamic> json,
-  ) => openai.ResponseStreamEvent.fromJson(json);
+  ) => openai.ResponseStreamEvent.fromJson(withoutNullJsonEntries(json));
 
   static openai.Response decodeResponse(Map<String, dynamic> json) =>
-      openai.Response.fromJson(json);
+      openai.Response.fromJson(withoutNullJsonEntries(json));
 
   static OpenAiResponseContent content(openai.Response response) {
     final reasoning = StringBuffer();

@@ -14,7 +14,10 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart'
+    show AdaptiveAppBarAction;
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
@@ -153,6 +156,49 @@ class _SidebarDestinationPageState
     final tab = sidebarTabDescriptor(widget.destination);
     final l10n = AppLocalizations.of(context)!;
     final color = context.conduitTheme.textPrimary;
+    final contextualActions = _searchExpanded
+        ? const <AdaptiveAppBarAction>[]
+        : tab.behavior.contextualActions(context, color);
+    final glyphActionsOnly =
+        conduitSupportsNativeGlass() &&
+        contextualActions.every(
+          (action) => action.iosSymbol != null && action.title == null,
+        );
+    final nativeActions = <ConduitNativeToolbarAction>[
+      if (widget.destination != SidebarTabId.hermes)
+        ConduitNativeToolbarAction(
+          iosSymbol: _searchExpanded ? 'xmark' : 'magnifyingglass',
+          accessibilityLabel: _searchExpanded
+              ? l10n.close
+              : tab.searchHint(l10n),
+          tintColor: color,
+          onPressed: _toggleSearch,
+        ),
+      if (glyphActionsOnly && !_searchExpanded) ...[
+        for (final action in contextualActions)
+          ConduitNativeToolbarAction(
+            iosSymbol: action.iosSymbol!,
+            accessibilityLabel: action.semanticLabel ?? action.iosSymbol!,
+            tintColor: color,
+            onPressed: action.onPressed,
+            enabled: action.onPressed != null,
+          ),
+        if (tab.createAction case final action?)
+          ConduitNativeToolbarAction(
+            iosSymbol: action.sfSymbol,
+            accessibilityLabel: action.label(l10n),
+            tintColor: color,
+            onPressed: () => unawaited(action.run(context, ref)),
+          ),
+      ],
+    ];
+    // On iOS 26 two or three glyph actions share one glass capsule, as an
+    // iOS bar groups them; a titled action, or more than three, keep the
+    // separate buttons.
+    final groupsActions =
+        glyphActionsOnly &&
+        nativeActions.length > 1 &&
+        nativeActions.length <= 3;
     final page = AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
       appBar: buildConduitCenteredAdaptiveAppBar(
@@ -184,7 +230,7 @@ class _SidebarDestinationPageState
               onPressed: _toggleSearch,
             ),
           if (!_searchExpanded) ...[
-            for (final action in tab.behavior.contextualActions(context, color))
+            for (final action in contextualActions)
               ConduitAdaptiveAppBarIconButton(
                 icon: action.icon ?? Icons.more_horiz,
                 iosSymbol: action.iosSymbol,
@@ -201,6 +247,12 @@ class _SidebarDestinationPageState
               ),
           ],
         ]),
+        cupertinoTrailing: groupsActions
+            ? ConduitNativeToolbarActionGroup(
+                key: const ValueKey<String>('destination-toolbar-actions'),
+                actions: nativeActions,
+              )
+            : null,
       ),
       bodySafeArea: true,
       body: SidebarTabLayoutScope(

@@ -20,9 +20,10 @@ class ServerUserSettings {
   final List<String> pinnedModelIds;
   final String? reasoningEffort;
 
-  /// Open WebUI notification preferences. Stored at the top level of the user
-  /// settings object (not nested under `ui`). Null means the server has no
-  /// stored value yet, so the client default applies.
+  /// Open WebUI notification preferences, kept under `ui` as the web client
+  /// keeps them. Earlier Conduit builds wrote them at the top level, where
+  /// nothing else reads them; that copy counts only when `ui` has none. Null
+  /// means the server has no stored value yet, so the client default applies.
   final bool? notificationEnabled;
   final bool? notificationSound;
   final bool? notificationSoundAlways;
@@ -43,9 +44,15 @@ class ServerUserSettings {
       defaultModelIds: _coerceStringList(ui?['models']),
       pinnedModelIds: _coerceUniqueStringList(ui?['pinnedModels']),
       reasoningEffort: _normalizeString(params?['reasoning_effort']),
-      notificationEnabled: _coerceBool(json['notificationEnabled']),
-      notificationSound: _coerceBool(json['notificationSound']),
-      notificationSoundAlways: _coerceBool(json['notificationSoundAlways']),
+      notificationEnabled:
+          _coerceBool(ui?['notificationEnabled']) ??
+          _coerceBool(json['notificationEnabled']),
+      notificationSound:
+          _coerceBool(ui?['notificationSound']) ??
+          _coerceBool(json['notificationSound']),
+      notificationSoundAlways:
+          _coerceBool(ui?['notificationSoundAlways']) ??
+          _coerceBool(json['notificationSoundAlways']),
     );
   }
 

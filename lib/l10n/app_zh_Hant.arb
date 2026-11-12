@@ -64,9 +64,9 @@
   "signIn": "登錄",
   "enterCredentials": "輸入您的憑據以訪問您的 AI 對話",
   "credentials": "憑據",
-  "apiKey": "API 密鑰",
+  "apiKey": "API 金鑰",
   "token": "令牌",
-  "jwt": "JWT",
+  "jwt": "令牌",
   "usernameOrEmail": "用戶名或電子郵件",
   "password": "密碼",
   "signInWithToken": "使用令牌登錄",
@@ -204,6 +204,7 @@
   "folderName": "文件夾名稱",
   "newChat": "新對話",
   "more": "更多",
+  "done": "完成",
   "clear": "清除",
   "searchConversations": "搜索對話...",
   "create": "創建",
@@ -288,14 +289,14 @@
   "usernameOrEmailHint": "輸入您的用戶名或電子郵件",
   "passwordHint": "輸入您的密碼",
   "enterToken": "輸入您的 JWT 令牌",
-  "tokenHint": "從 Open WebUI 設定取得 JWT 令牌。API 密鑰 (sk-...) 不支援串流。",
-  "apiKeyNotSupported": "不支援 API 密鑰 (sk-...)。請改用 JWT 令牌。",
-  "apiKeyNoLongerSupported": "由於不再支援 API 密鑰，您已被登出。請使用 Open WebUI 設定中的 JWT 令牌登入。",
+  "tokenHint": "從網頁版 Open WebUI 複製 JWT 工作階段令牌並貼到此處。管理員可在「設定 › 帳號 › API 金鑰」中找到。無法使用 API 金鑰 (sk-…)。",
+  "apiKeyNotSupported": "API 金鑰 (sk-…) 無法用於登入。請改為貼上 JWT 令牌。",
+  "apiKeyNoLongerSupported": "由於不再支援 API 金鑰，您已被登出。請使用 Open WebUI 設定中的 JWT 令牌登入。",
   "tokenTooShort": "令牌太短",
   "signingIn": "正在登錄...",
   "advancedSettings": "高級設置",
   "customHeaders": "自定義標頭",
-  "customHeadersDescription": "爲身份驗證、API 密鑰或特殊服務器要求添加自定義 HTTP 標頭。",
+  "customHeadersDescription": "爲身份驗證、API 金鑰或特殊伺服器要求添加自定義 HTTP 標頭。",
   "allowSelfSignedCertificates": "信任自簽名證書",
   "@allowSelfSignedCertificates": {
     "description": "允许信任配置服务器的自签名 TLS 证书的切换标签。"
@@ -350,7 +351,7 @@
     }
   },
   "themeDark": "深色",
-  "themePalette": "強調色調色板",
+  "themePalette": "調色盤",
   "@themePalette": {
     "description": "选择应用颜色调色板的标题。"
   },
@@ -385,8 +386,8 @@
   },
   "analyzing": "分析中…",
   "analyzed": "已分析",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButton": "將草稿儲存為筆記",
+  "showComposerNotesButtonDescription": "輸入時，「+」選單會提供「儲存為筆記」，可將您的訊息存為筆記而不傳送。",
   "appCustomization": "自定義",
   "appCustomizationSubtitle": "主題、語言、語音和 quick actions",
   "quickActionsDescription": "聊天快捷方式",
@@ -418,7 +419,7 @@
   "sttSilenceDuration": "靜音持續時間",
   "sttSilenceDurationDescription": "檢測到靜音後等待多久自動停止錄音",
   "sttTranscriptionLanguage": "轉寫語言",
-  "sttTranscriptionLanguageDescription": "使用「自動」跟隨此裝置的語言，或輸入 en 等代碼。",
+  "sttTranscriptionLanguageDescription": "使用「自動」讓伺服器推斷所說的語言，或輸入 en 等代碼。",
   "sttTranscriptionLanguageAuto": "自動",
   "sttTranscriptionLanguageCustom": "自訂語言代碼",
   "sttTranscriptionLanguagePlaceholder": "ISO-639-1 代碼，例如 en",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "語音",
-  "ttsSpeechRate": "語速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音調",
   "ttsVolume": "音量",
   "ttsPreview": "預覽語音",
@@ -782,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "單色",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "爲 Conduit 設計的簡潔中性色主題。",
+  "themePaletteConduitDescription": "黑白配色，沒有強調色。",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -814,7 +825,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "橘色",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -969,9 +980,9 @@
   "sso": "SSO",
   "ssoDescription": "使用組織的身份提供商登入",
   "signInWithSso": "使用 SSO 登入",
-  "ssoAuthenticating": "正在驗證...",
+  "ssoAuthenticating": "正在登入…",
   "ssoAuthFailed": "SSO 驗證失敗",
-  "ssoLoadingLogin": "正在載入登入頁面...",
+  "ssoLoadingLogin": "正在載入登入頁面…",
   "ldap": "LDAP",
   "ldapDescription": "使用 LDAP 目錄憑據登入",
   "signInWithLdap": "使用 LDAP 登入",
@@ -1019,12 +1030,30 @@
   "usageQueueTime": "排隊時間",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "總 token",
+  "usageContextWindow": "上下文視窗",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理認證",
   "proxyAuthPlatformNotSupported": "代理認證需要行動裝置。請先透過瀏覽器進行認證。",
-  "proxyAuthLoading": "正在載入認證頁面...",
+  "proxyAuthLoading": "正在載入登入頁面…",
   "proxyAuthFailed": "代理認證失敗",
   "proxyAuthHelpText": "透過您組織的代理完成登入，然後登入 Open WebUI。您將被自動重新導向。",
-  "proxyAuthHelpTextSimple": "透過您的代理登入。認證後，點擊繼續以進行登入。",
+  "proxyAuthHelpTextSimple": "請在此頁面登入您的代理，然後點擊「繼續」登入 Open WebUI。",
   "continueButton": "繼續",
   "proxyAuthRequired": "此伺服器需要代理認證",
   "proxyAuthRequiredDescription": "您的伺服器似乎位於認證代理（如 oauth2-proxy）後面。您需要先透過代理登入。",
@@ -2047,224 +2076,224 @@
   "settingsCategoryServer": "伺服器",
   "settingsCategorySupport": "支援",
   "settingsDataAndConnection": "資料與連線",
-  "slidingSidebar": "滑動側邊欄",
-  "slidingSidebarDescription": "在聊天記錄旁開啟筆記、終端機和頻道。",
+  "slidingSidebar": "合併側邊欄分頁",
+  "slidingSidebarDescription": "將筆記、終端機和頻道顯示在您的聊天列表上方，而不是作為分頁；在手機上還會讓部分聊天保持可見。",
   "settingsAppearance": "外觀",
   "settingsAppearanceSubtitle": "主題、調色盤和語言",
   "settingsChatSubtitle": "聊天行為、快速操作和進階提示詞",
   "workspaceTitle": "工作區",
-  "workspaceSubtitle": "Manage server resources and access.",
-  "workspaceModels": "Models",
-  "workspaceKnowledge": "Knowledge",
-  "workspacePrompts": "Prompts",
-  "workspaceTools": "Tools",
-  "workspaceSkills": "Skills",
-  "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
-  "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
-  "workspaceLoadFailed": "Workspace could not be loaded.",
-  "workspaceRetry": "Retry",
-  "workspaceSelectItem": "Select an item to view its details.",
-  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
-  "workspaceSearchHint": "Search workspace resources",
-  "workspaceLoadMore": "Load more",
-  "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
-  "workspaceAccessPeopleHeading": "People & groups",
-  "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
-  "workspaceAccessEmpty": "Not shared with anyone yet.",
-  "workspaceAccessAddPeople": "Add people or groups",
-  "workspaceAccessAddGroups": "Add groups",
+  "workspaceSubtitle": "管理伺服器資源與存取權",
+  "workspaceModels": "模型",
+  "workspaceKnowledge": "知識庫",
+  "workspacePrompts": "提示詞",
+  "workspaceTools": "工具",
+  "workspaceSkills": "技能",
+  "workspaceCreate": "建立",
+  "workspaceEmpty": "尚無項目。",
+  "workspaceDenied": "您沒有權限管理工作區的這個部分。",
+  "workspaceUnsupported": "此伺服器不支援工作區管理。",
+  "workspaceLoadFailed": "無法載入工作區。",
+  "workspaceRetry": "重試",
+  "workspaceSelectItem": "選擇項目以檢視詳細資料。",
+  "workspaceEditorComingSoon": "此編輯器將在工作區的下一個階段推出。",
+  "workspaceSearchHint": "搜尋工作區資源",
+  "workspaceLoadMore": "載入更多",
+  "workspaceAccessPublicDisabled": "您沒有權限公開分享此項目。",
+  "workspaceAccessPeopleHeading": "使用者與群組",
+  "workspaceAccessUsersDisabled": "已停用與個人分享，只能與群組分享。",
+  "workspaceAccessEmpty": "尚未與任何人分享。",
+  "workspaceAccessAddPeople": "新增使用者或群組",
+  "workspaceAccessAddGroups": "新增群組",
   "workspaceAccessAddUsers": "新增使用者",
   "workspaceAccessGroupsDisabled": "已停用與群組共用；您只能與個別使用者共用。",
   "workspaceAccessGrantsDisabled": "您沒有與使用者或群組共用的權限。現有的存取權限會保留。",
-  "workspaceAccessGroupBadge": "Group",
-  "workspaceAccessUserBadge": "Person",
-  "workspaceAccessCanEdit": "Can edit",
-  "workspaceAccessRemoveGrant": "Remove access",
-  "workspacePrincipalTitle": "Add people or groups",
-  "workspacePrincipalUsersTab": "People",
-  "workspacePrincipalGroupsTab": "Groups",
-  "workspacePrincipalSearchHint": "Search people by name or email",
-  "workspacePrincipalLoadFailed": "Could not load results.",
-  "workspacePrincipalSearchPrompt": "Search to find people to share with.",
-  "workspacePrincipalNoResults": "No matches found.",
-  "workspaceReadOnlyBadge": "Read only",
-  "workspaceReadOnlyExplanation": "You have view-only access to this resource.",
-  "workspaceEditorDiscardTitle": "Discard changes?",
-  "workspaceEditorDiscardMessage": "Your unsaved changes will be lost.",
-  "workspaceEditorDiscardConfirm": "Discard",
-  "workspaceEditorKeepEditing": "Keep editing",
-  "workspaceEditorSaveTooltip": "Save changes",
-  "workspaceEditorSaving": "Saving…",
-  "workspaceEditorMoreActions": "More actions",
-  "workspaceImportChooseFile": "Choose JSON file",
-  "workspaceImportPasteLabel": "Or paste JSON",
-  "workspaceImportPasteHint": "Paste exported JSON here",
-  "workspaceImportRun": "Import",
-  "workspaceImportInvalidJson": "That doesn't look like valid JSON.",
-  "workspaceImportEmpty": "No items were found to import.",
-  "workspaceImportReadFailed": "Could not read the selected file.",
-  "workspaceImportBatchFailed": "The import could not be completed.",
-  "workspaceImportSummary": "Imported {success} of {total} items",
-  "workspaceImportItemImported": "Imported",
-  "workspaceImportItemFailed": "Import failed",
-  "workspaceImportDone": "Done",
-  "workspaceModelNewTitle": "New model",
+  "workspaceAccessGroupBadge": "群組",
+  "workspaceAccessUserBadge": "使用者",
+  "workspaceAccessCanEdit": "可編輯",
+  "workspaceAccessRemoveGrant": "移除存取權",
+  "workspacePrincipalTitle": "新增使用者或群組",
+  "workspacePrincipalUsersTab": "使用者",
+  "workspacePrincipalGroupsTab": "群組",
+  "workspacePrincipalSearchHint": "依名稱或電子郵件搜尋使用者",
+  "workspacePrincipalLoadFailed": "無法載入結果。",
+  "workspacePrincipalSearchPrompt": "搜尋要分享的使用者。",
+  "workspacePrincipalNoResults": "找不到相符的結果。",
+  "workspaceReadOnlyBadge": "唯讀",
+  "workspaceReadOnlyExplanation": "您對此資源只有檢視權限。",
+  "workspaceEditorDiscardTitle": "要捨棄變更嗎？",
+  "workspaceEditorDiscardMessage": "未儲存的變更將會遺失。",
+  "workspaceEditorDiscardConfirm": "捨棄",
+  "workspaceEditorKeepEditing": "繼續編輯",
+  "workspaceEditorSaveTooltip": "儲存變更",
+  "workspaceEditorSaving": "正在儲存…",
+  "workspaceEditorMoreActions": "更多動作",
+  "workspaceImportChooseFile": "選擇 JSON 檔案",
+  "workspaceImportPasteLabel": "或貼上 JSON",
+  "workspaceImportPasteHint": "在此貼上匯出的 JSON",
+  "workspaceImportRun": "匯入",
+  "workspaceImportInvalidJson": "這似乎不是有效的 JSON。",
+  "workspaceImportEmpty": "找不到可匯入的項目。",
+  "workspaceImportReadFailed": "無法讀取所選檔案。",
+  "workspaceImportBatchFailed": "無法完成匯入。",
+  "workspaceImportSummary": "已匯入 {success}/{total} 個項目",
+  "workspaceImportItemImported": "已匯入",
+  "workspaceImportItemFailed": "匯入失敗",
+  "workspaceImportDone": "完成",
+  "workspaceModelNewTitle": "新增模型",
   "@workspaceModelNewTitle": {
     "description": "Title shown when creating a new workspace model."
   },
-  "workspaceModelIdLabel": "Model ID",
+  "workspaceModelIdLabel": "模型 ID",
   "@workspaceModelIdLabel": {
     "description": "Label for the unique model identifier field."
   },
-  "workspaceModelBaseModel": "Base model",
+  "workspaceModelBaseModel": "基礎模型",
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelNone": "無（自訂）",
   "workspaceModelBaseModelRequired": "請選擇基礎模型。",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
-  "workspaceModelName": "Name",
+  "workspaceModelName": "名稱",
   "@workspaceModelName": {
     "description": "Label for the model display-name field."
   },
-  "workspaceModelDescription": "Description",
+  "workspaceModelDescription": "說明",
   "@workspaceModelDescription": {
     "description": "Label for the model description field."
   },
-  "workspaceModelTags": "Tags",
+  "workspaceModelTags": "標籤",
   "@workspaceModelTags": {
     "description": "Label for the model tags editor."
   },
-  "workspaceModelTagsHint": "Add tag",
+  "workspaceModelTagsHint": "新增標籤",
   "@workspaceModelTagsHint": {
     "description": "Action chip label to add a new tag."
   },
-  "workspaceModelSystemPrompt": "System prompt",
+  "workspaceModelSystemPrompt": "系統提示詞",
   "@workspaceModelSystemPrompt": {
     "description": "Label for the model system prompt field."
   },
-  "workspaceModelSuggestionPrompts": "Suggested prompts",
+  "workspaceModelSuggestionPrompts": "建議提示詞",
   "@workspaceModelSuggestionPrompts": {
     "description": "Label for the suggested prompts editor."
   },
-  "workspaceModelAddSuggestion": "Add suggestion",
+  "workspaceModelAddSuggestion": "新增建議",
   "@workspaceModelAddSuggestion": {
     "description": "Button to add a suggested prompt."
   },
-  "workspaceModelRemoveSuggestion": "Remove suggestion",
+  "workspaceModelRemoveSuggestion": "移除建議",
   "@workspaceModelRemoveSuggestion": {
     "description": "Tooltip to remove a suggested prompt."
   },
-  "workspaceModelStopSequences": "Stop sequences",
+  "workspaceModelStopSequences": "停止序列",
   "@workspaceModelStopSequences": {
     "description": "Label for the stop-sequences field."
   },
-  "workspaceModelStopHint": "Comma-separated stop sequences",
+  "workspaceModelStopHint": "以逗號分隔的停止序列",
   "@workspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field."
   },
-  "workspaceModelAdvancedParams": "Advanced parameters (JSON)",
+  "workspaceModelAdvancedParams": "進階參數（JSON）",
   "@workspaceModelAdvancedParams": {
     "description": "Label for the advanced inference parameters JSON field."
   },
-  "workspaceModelParamsHint": "JSON object of additional parameters",
+  "workspaceModelParamsHint": "額外參數的 JSON 物件",
   "@workspaceModelParamsHint": {
     "description": "Helper text for a JSON parameters field."
   },
-  "workspaceModelInvalidJson": "Enter a valid JSON object.",
+  "workspaceModelInvalidJson": "請輸入有效的 JSON 物件。",
   "@workspaceModelInvalidJson": {
     "description": "Validation error for a malformed JSON field."
   },
-  "workspaceModelCapabilities": "Capabilities",
+  "workspaceModelCapabilities": "能力",
   "@workspaceModelCapabilities": {
     "description": "Label for the model capability toggles."
   },
-  "workspaceModelTerminal": "Terminal ID",
+  "workspaceModelTerminal": "終端機 ID",
   "@workspaceModelTerminal": {
     "description": "Label for the terminal identifier field."
   },
-  "workspaceModelTtsVoice": "Text-to-speech voice",
+  "workspaceModelTtsVoice": "文字轉語音的聲音",
   "@workspaceModelTtsVoice": {
     "description": "Label for the TTS voice field."
   },
-  "workspaceModelDefaultFeatures": "Default features",
+  "workspaceModelDefaultFeatures": "預設功能",
   "@workspaceModelDefaultFeatures": {
     "description": "Label for the default feature IDs field."
   },
-  "workspaceModelBuiltinTools": "Built-in tools (JSON)",
+  "workspaceModelBuiltinTools": "內建工具（JSON）",
   "@workspaceModelBuiltinTools": {
     "description": "Label for the built-in tools JSON field."
   },
-  "workspaceModelKnowledge": "Knowledge",
+  "workspaceModelKnowledge": "知識庫",
   "@workspaceModelKnowledge": {
     "description": "Label for the knowledge relationship selector."
   },
-  "workspaceModelTools": "Tools",
+  "workspaceModelTools": "工具",
   "@workspaceModelTools": {
     "description": "Label for the tools relationship selector."
   },
-  "workspaceModelSkills": "Skills",
+  "workspaceModelSkills": "技能",
   "@workspaceModelSkills": {
     "description": "Label for the skills relationship selector."
   },
-  "workspaceModelFilters": "Filters",
+  "workspaceModelFilters": "篩選器",
   "@workspaceModelFilters": {
     "description": "Label for the filter functions selector."
   },
-  "workspaceModelDefaultFilters": "Default filters",
+  "workspaceModelDefaultFilters": "預設篩選器",
   "@workspaceModelDefaultFilters": {
     "description": "Label for the default filter functions selector."
   },
-  "workspaceModelActions": "Actions",
+  "workspaceModelActions": "動作",
   "@workspaceModelActions": {
     "description": "Label for the action functions selector."
   },
-  "workspaceModelSectionBasics": "Basics",
+  "workspaceModelSectionBasics": "基本資訊",
   "@workspaceModelSectionBasics": {
     "description": "Section header for basic model fields."
   },
-  "workspaceModelSectionPrompt": "Prompt",
+  "workspaceModelSectionPrompt": "提示詞",
   "@workspaceModelSectionPrompt": {
     "description": "Section header for prompt-related model fields."
   },
-  "workspaceModelSectionAdvanced": "Advanced",
+  "workspaceModelSectionAdvanced": "進階",
   "@workspaceModelSectionAdvanced": {
     "description": "Section header for advanced model fields."
   },
-  "workspaceModelSectionRelationships": "Relationships",
+  "workspaceModelSectionRelationships": "關聯",
   "@workspaceModelSectionRelationships": {
     "description": "Section header for model relationship selectors."
   },
-  "workspaceModelSectionAccess": "Access",
+  "workspaceModelSectionAccess": "存取權",
   "@workspaceModelSectionAccess": {
     "description": "Section header for model access controls."
   },
-  "workspaceModelProfileImage": "Profile image",
+  "workspaceModelProfileImage": "個人資料圖片",
   "@workspaceModelProfileImage": {
     "description": "Label for the model profile image."
   },
-  "workspaceModelChangeImage": "Change image",
+  "workspaceModelChangeImage": "更換圖片",
   "@workspaceModelChangeImage": {
     "description": "Button to pick a new profile image."
   },
-  "workspaceModelRemoveImage": "Remove image",
+  "workspaceModelRemoveImage": "移除圖片",
   "@workspaceModelRemoveImage": {
     "description": "Button to clear the profile image."
   },
-  "workspaceModelImageFailed": "Could not load the selected image.",
+  "workspaceModelImageFailed": "無法載入所選圖片。",
   "@workspaceModelImageFailed": {
     "description": "Error when picking a profile image fails."
   },
-  "workspaceModelSelectNone": "None selected",
+  "workspaceModelSelectNone": "未選取",
   "@workspaceModelSelectNone": {
     "description": "Subtitle when no relationship items are selected."
   },
-  "workspaceModelSelectCount": "{count} selected",
+  "workspaceModelSelectCount": "已選取 {count} 項",
   "@workspaceModelSelectCount": {
     "description": "Subtitle showing how many relationship items are selected.",
     "placeholders": {
@@ -2273,47 +2302,47 @@
       }
     }
   },
-  "workspaceModelRelationshipEmpty": "Nothing available to select.",
+  "workspaceModelRelationshipEmpty": "沒有可選取的項目。",
   "@workspaceModelRelationshipEmpty": {
     "description": "Empty state for a relationship picker."
   },
-  "workspaceModelManageAccess": "Manage access",
+  "workspaceModelManageAccess": "管理存取權",
   "@workspaceModelManageAccess": {
     "description": "Action to open the access-grants sheet for a model."
   },
-  "workspaceModelClone": "Duplicate",
+  "workspaceModelClone": "複製",
   "@workspaceModelClone": {
     "description": "Action that duplicates the model."
   },
-  "workspaceModelCloneSuffix": "(copy)",
+  "workspaceModelCloneSuffix": "（副本）",
   "@workspaceModelCloneSuffix": {
     "description": "Suffix appended to a duplicated model name."
   },
-  "workspaceModelActivate": "Activate",
+  "workspaceModelActivate": "啟用",
   "@workspaceModelActivate": {
     "description": "Action that marks the model active."
   },
-  "workspaceModelDeactivate": "Deactivate",
+  "workspaceModelDeactivate": "停用",
   "@workspaceModelDeactivate": {
     "description": "Action that marks the model inactive."
   },
-  "workspaceModelHide": "Hide from selector",
+  "workspaceModelHide": "在選擇器中隱藏",
   "@workspaceModelHide": {
     "description": "Action that hides the model from model selectors."
   },
-  "workspaceModelUnhide": "Show in selector",
+  "workspaceModelUnhide": "在選擇器中顯示",
   "@workspaceModelUnhide": {
     "description": "Action that unhides the model in model selectors."
   },
-  "workspaceModelDelete": "Delete model",
+  "workspaceModelDelete": "刪除模型",
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
+  "workspaceModelDeleteConfirmTitle": "要刪除模型嗎？",
   "@workspaceModelDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a model."
   },
-  "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "workspaceModelDeleteConfirmMessage": "這會永久移除 {name}。",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
     "placeholders": {
@@ -2322,83 +2351,83 @@
       }
     }
   },
-  "workspaceModelExport": "Export model",
+  "workspaceModelExport": "匯出模型",
   "@workspaceModelExport": {
     "description": "Action that exports a single model as JSON."
   },
-  "workspaceModelExportAll": "Export all models",
+  "workspaceModelExportAll": "匯出所有模型",
   "@workspaceModelExportAll": {
     "description": "Action that exports every readable model as JSON."
   },
-  "workspaceModelExportFailed": "The export could not be completed.",
+  "workspaceModelExportFailed": "無法完成匯出。",
   "@workspaceModelExportFailed": {
     "description": "Error when exporting models fails."
   },
-  "workspaceModelImport": "Import models",
+  "workspaceModelImport": "匯入模型",
   "@workspaceModelImport": {
     "description": "Action that imports models from JSON."
   },
-  "workspaceModelIdRequired": "A model ID is required.",
+  "workspaceModelIdRequired": "必須填寫模型 ID。",
   "@workspaceModelIdRequired": {
     "description": "Validation error when the model ID is empty."
   },
-  "workspaceModelNameRequired": "A name is required.",
+  "workspaceModelNameRequired": "必須填寫名稱。",
   "@workspaceModelNameRequired": {
     "description": "Validation error when the model name is empty."
   },
-  "workspaceModelSaved": "Model saved.",
+  "workspaceModelSaved": "模型已儲存。",
   "@workspaceModelSaved": {
     "description": "Confirmation that the model was saved."
   },
-  "workspaceModelSaveFailed": "The model could not be saved.",
+  "workspaceModelSaveFailed": "無法儲存模型。",
   "@workspaceModelSaveFailed": {
     "description": "Error when saving the model fails."
   },
-  "workspaceModelDeleted": "Model deleted.",
+  "workspaceModelDeleted": "模型已刪除。",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
   },
-  "workspaceModelAddAction": "Add",
+  "workspaceModelAddAction": "新增",
   "@workspaceModelAddAction": {
     "description": "Confirm button in a small add-text dialog."
   },
-  "workspaceKnowledgeCreateTitle": "New knowledge base",
+  "workspaceKnowledgeCreateTitle": "新增知識庫",
   "@workspaceKnowledgeCreateTitle": {
     "description": "Title of the create form for a new knowledge base."
   },
-  "workspaceKnowledgeName": "Name",
+  "workspaceKnowledgeName": "名稱",
   "@workspaceKnowledgeName": {
     "description": "Label for the knowledge base name field."
   },
-  "workspaceKnowledgeDescription": "Description",
+  "workspaceKnowledgeDescription": "說明",
   "@workspaceKnowledgeDescription": {
     "description": "Label for the knowledge base description field."
   },
-  "workspaceKnowledgeNameRequired": "A name is required.",
+  "workspaceKnowledgeNameRequired": "必須填寫名稱。",
   "@workspaceKnowledgeNameRequired": {
     "description": "Validation error when the knowledge base name is empty."
   },
-  "workspaceKnowledgeSaved": "Knowledge base saved.",
+  "workspaceKnowledgeSaved": "知識庫已儲存。",
   "@workspaceKnowledgeSaved": {
     "description": "Confirmation that the knowledge base was saved."
   },
-  "workspaceKnowledgeSaveFailed": "The knowledge base could not be saved.",
+  "workspaceKnowledgeSaveFailed": "無法儲存知識庫。",
   "@workspaceKnowledgeSaveFailed": {
     "description": "Error when saving a knowledge base fails."
   },
-  "workspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "workspaceKnowledgeDeleted": "知識庫已刪除。",
   "@workspaceKnowledgeDeleted": {
     "description": "Confirmation that the knowledge base was deleted."
   },
-  "workspaceKnowledgeDelete": "Delete knowledge base",
+  "workspaceKnowledgeDelete": "刪除知識庫",
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "workspaceKnowledgeDeleteConfirmTitle": "要刪除知識庫嗎？",
   "@workspaceKnowledgeDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "workspaceKnowledgeDeleteConfirmMessage": "這會永久移除 {name}，並解除其檔案的連結。",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
     "placeholders": {
@@ -2407,15 +2436,15 @@
       }
     }
   },
-  "workspaceKnowledgeReset": "Reset",
+  "workspaceKnowledgeReset": "重設",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "workspaceKnowledgeResetConfirmTitle": "要重設知識庫嗎？",
   "@workspaceKnowledgeResetConfirmTitle": {
     "description": "Confirmation dialog title for resetting a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "workspaceKnowledgeResetConfirmMessage": "這會移除 {name} 中的所有檔案，但保留知識庫本身。",
   "@workspaceKnowledgeResetConfirmMessage": {
     "description": "Confirmation dialog body for resetting a knowledge base.",
     "placeholders": {
@@ -2424,83 +2453,83 @@
       }
     }
   },
-  "workspaceKnowledgeResetDone": "Knowledge base reset.",
+  "workspaceKnowledgeResetDone": "知識庫已重設。",
   "@workspaceKnowledgeResetDone": {
     "description": "Confirmation that the knowledge base files were reset."
   },
-  "workspaceKnowledgeExport": "Export knowledge base",
+  "workspaceKnowledgeExport": "匯出知識庫",
   "@workspaceKnowledgeExport": {
     "description": "Overflow action that exports a knowledge base archive."
   },
-  "workspaceKnowledgeExportFailed": "The export could not be completed.",
+  "workspaceKnowledgeExportFailed": "無法完成匯出。",
   "@workspaceKnowledgeExportFailed": {
     "description": "Error when exporting a knowledge base fails."
   },
-  "workspaceKnowledgeManageAccess": "Manage access",
+  "workspaceKnowledgeManageAccess": "管理存取權",
   "@workspaceKnowledgeManageAccess": {
     "description": "Action that opens the sharing and access sheet for a knowledge base."
   },
-  "workspaceKnowledgeViewAll": "All",
+  "workspaceKnowledgeViewAll": "全部",
   "@workspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases."
   },
-  "workspaceKnowledgeViewCreated": "Created by you",
+  "workspaceKnowledgeViewCreated": "我建立的",
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Shared with you",
+  "workspaceKnowledgeViewShared": "與我分享的",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },
-  "workspaceKnowledgeSourceAll": "All sources",
+  "workspaceKnowledgeSourceAll": "所有來源",
   "@workspaceKnowledgeSourceAll": {
     "description": "Knowledge collection filter showing both local and connected sources."
   },
-  "workspaceKnowledgeSourceLocal": "Local",
+  "workspaceKnowledgeSourceLocal": "本機",
   "@workspaceKnowledgeSourceLocal": {
     "description": "Knowledge collection filter showing only local knowledge bases."
   },
-  "workspaceKnowledgeSourceExternal": "Connected",
+  "workspaceKnowledgeSourceExternal": "已連結",
   "@workspaceKnowledgeSourceExternal": {
     "description": "Knowledge collection filter showing only external/connected knowledge bases."
   },
-  "workspaceKnowledgeExternalBadge": "Connected",
+  "workspaceKnowledgeExternalBadge": "已連結",
   "@workspaceKnowledgeExternalBadge": {
     "description": "Badge marking a knowledge base as external/connected (read-only)."
   },
-  "workspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "workspaceKnowledgeExternalReadOnly": "已連結的知識庫在此應用程式中為唯讀。",
   "@workspaceKnowledgeExternalReadOnly": {
     "description": "Notice shown when viewing an external/connected knowledge base."
   },
-  "workspaceKnowledgeFilesTitle": "Files",
+  "workspaceKnowledgeFilesTitle": "檔案",
   "@workspaceKnowledgeFilesTitle": {
     "description": "Heading of the knowledge base file browser."
   },
-  "workspaceKnowledgeFilesEmpty": "No files yet.",
+  "workspaceKnowledgeFilesEmpty": "尚無檔案。",
   "@workspaceKnowledgeFilesEmpty": {
     "description": "Empty state when a knowledge base directory contains no files."
   },
-  "workspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "workspaceKnowledgeFilesLoadFailed": "無法載入檔案。",
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Refresh",
+  "workspaceKnowledgeRefreshFiles": "重新整理",
   "@workspaceKnowledgeRefreshFiles": {
     "description": "Tooltip for the button that refreshes the knowledge file list."
   },
-  "workspaceKnowledgeRoot": "Root",
+  "workspaceKnowledgeRoot": "根目錄",
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Add files",
+  "workspaceKnowledgeAddMenu": "新增檔案",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
-  "workspaceKnowledgeUpload": "Upload file",
+  "workspaceKnowledgeUpload": "上傳檔案",
   "@workspaceKnowledgeUpload": {
     "description": "Menu item to upload a single local file into a knowledge base."
   },
-  "workspaceKnowledgeUploading": "Uploading {name}…",
+  "workspaceKnowledgeUploading": "正在上傳 {name}…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
     "placeholders": {
@@ -2509,63 +2538,63 @@
       }
     }
   },
-  "workspaceKnowledgeUploadFailed": "The file could not be uploaded.",
+  "workspaceKnowledgeUploadFailed": "無法上傳檔案。",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
   },
-  "workspaceKnowledgeBatchAttach": "Upload multiple files",
+  "workspaceKnowledgeBatchAttach": "上傳多個檔案",
   "@workspaceKnowledgeBatchAttach": {
     "description": "Menu item to upload several local files into a knowledge base at once."
   },
-  "workspaceKnowledgeAttachExisting": "Attach server file",
+  "workspaceKnowledgeAttachExisting": "附加伺服器檔案",
   "@workspaceKnowledgeAttachExisting": {
     "description": "Menu item to attach an existing server file to a knowledge base."
   },
-  "workspaceKnowledgeAttachFailed": "The file could not be attached.",
+  "workspaceKnowledgeAttachFailed": "無法附加檔案。",
   "@workspaceKnowledgeAttachFailed": {
     "description": "Error when attaching an existing file to a knowledge base fails."
   },
-  "workspaceKnowledgeAddText": "Add text file",
+  "workspaceKnowledgeAddText": "新增文字檔",
   "@workspaceKnowledgeAddText": {
     "description": "Menu item to create a text file and attach it to a knowledge base."
   },
-  "workspaceKnowledgeAddTextName": "File name",
+  "workspaceKnowledgeAddTextName": "檔案名稱",
   "@workspaceKnowledgeAddTextName": {
     "description": "Label for the file name field when adding a text file."
   },
-  "workspaceKnowledgeAddTextContent": "Content",
+  "workspaceKnowledgeAddTextContent": "內容",
   "@workspaceKnowledgeAddTextContent": {
     "description": "Label for the content field when adding a text file."
   },
-  "workspaceKnowledgeAddTextFailed": "The text file could not be added.",
+  "workspaceKnowledgeAddTextFailed": "無法新增文字檔。",
   "@workspaceKnowledgeAddTextFailed": {
     "description": "Error when adding a text file to a knowledge base fails."
   },
-  "workspaceKnowledgeNewFolder": "New folder",
+  "workspaceKnowledgeNewFolder": "新增資料夾",
   "@workspaceKnowledgeNewFolder": {
     "description": "Menu item and dialog title to create a new directory in a knowledge base."
   },
-  "workspaceKnowledgeFolderName": "Folder name",
+  "workspaceKnowledgeFolderName": "資料夾名稱",
   "@workspaceKnowledgeFolderName": {
     "description": "Label for the folder name field."
   },
-  "workspaceKnowledgeFolderCreateFailed": "The folder could not be created.",
+  "workspaceKnowledgeFolderCreateFailed": "無法建立資料夾。",
   "@workspaceKnowledgeFolderCreateFailed": {
     "description": "Error when creating or renaming a knowledge base folder fails."
   },
-  "workspaceKnowledgeRenameFolder": "Rename folder",
+  "workspaceKnowledgeRenameFolder": "重新命名資料夾",
   "@workspaceKnowledgeRenameFolder": {
     "description": "Action to rename a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolder": "Delete folder",
+  "workspaceKnowledgeDeleteFolder": "刪除資料夾",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "workspaceKnowledgeDeleteFolderConfirmTitle": "要刪除資料夾嗎？",
   "@workspaceKnowledgeDeleteFolderConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "workspaceKnowledgeDeleteFolderConfirmMessage": "{name} 中的檔案將移至上層資料夾。",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base directory.",
     "placeholders": {
@@ -2574,43 +2603,43 @@
       }
     }
   },
-  "workspaceKnowledgeFolderDeleteFailed": "The folder could not be deleted.",
+  "workspaceKnowledgeFolderDeleteFailed": "無法刪除資料夾。",
   "@workspaceKnowledgeFolderDeleteFailed": {
     "description": "Error when deleting a knowledge base folder fails."
   },
-  "workspaceKnowledgeFileRename": "Rename",
+  "workspaceKnowledgeFileRename": "重新命名",
   "@workspaceKnowledgeFileRename": {
     "description": "Per-file action to rename a knowledge base file."
   },
-  "workspaceKnowledgeFileRefresh": "Re-index",
+  "workspaceKnowledgeFileRefresh": "重新索引",
   "@workspaceKnowledgeFileRefresh": {
     "description": "Per-file action to re-index a knowledge base file."
   },
-  "workspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "workspaceKnowledgeFileReindexed": "已開始重新索引。",
   "@workspaceKnowledgeFileReindexed": {
     "description": "Confirmation that re-indexing a knowledge base file began."
   },
-  "workspaceKnowledgeFileMove": "Move",
+  "workspaceKnowledgeFileMove": "移動",
   "@workspaceKnowledgeFileMove": {
     "description": "Per-file action to move a knowledge base file to another folder."
   },
-  "workspaceKnowledgeFileRenameFailed": "The file could not be renamed.",
+  "workspaceKnowledgeFileRenameFailed": "無法重新命名檔案。",
   "@workspaceKnowledgeFileRenameFailed": {
     "description": "Error when renaming a knowledge base file fails."
   },
-  "workspaceKnowledgeFileMoveFailed": "The file could not be moved.",
+  "workspaceKnowledgeFileMoveFailed": "無法移動檔案。",
   "@workspaceKnowledgeFileMoveFailed": {
     "description": "Error when moving a knowledge base file fails."
   },
-  "workspaceKnowledgeFileDetach": "Remove from knowledge",
+  "workspaceKnowledgeFileDetach": "從知識庫移除",
   "@workspaceKnowledgeFileDetach": {
     "description": "Per-file action to detach a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachTitle": "Remove file?",
+  "workspaceKnowledgeFileDetachTitle": "要移除檔案嗎？",
   "@workspaceKnowledgeFileDetachTitle": {
     "description": "Confirmation dialog title for detaching a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "workspaceKnowledgeFileDetachMessage": "要從此知識庫移除 {name} 嗎？",
   "@workspaceKnowledgeFileDetachMessage": {
     "description": "Confirmation dialog body for detaching a file from a knowledge base.",
     "placeholders": {
@@ -2619,151 +2648,151 @@
       }
     }
   },
-  "workspaceKnowledgeFileDeleteUnderlying": "Also delete the underlying file",
+  "workspaceKnowledgeFileDeleteUnderlying": "同時刪除原始檔案",
   "@workspaceKnowledgeFileDeleteUnderlying": {
     "description": "Checkbox to delete the stored file when detaching, shown to owners/admins."
   },
-  "workspaceKnowledgeFileDetachFailed": "The file could not be removed.",
+  "workspaceKnowledgeFileDetachFailed": "無法移除檔案。",
   "@workspaceKnowledgeFileDetachFailed": {
     "description": "Error when detaching a file from a knowledge base fails."
   },
-  "workspaceKnowledgeMoveTitle": "Move to folder",
+  "workspaceKnowledgeMoveTitle": "移至資料夾",
   "@workspaceKnowledgeMoveTitle": {
     "description": "Title of the sheet for choosing a destination folder."
   },
-  "workspaceKnowledgeMoveRoot": "Root (no folder)",
+  "workspaceKnowledgeMoveRoot": "根目錄（無資料夾）",
   "@workspaceKnowledgeMoveRoot": {
     "description": "Move destination representing the knowledge base root."
   },
-  "workspaceKnowledgeStatusPending": "Processing…",
+  "workspaceKnowledgeStatusPending": "處理中…",
   "@workspaceKnowledgeStatusPending": {
     "description": "Status shown for a knowledge base file still being ingested."
   },
-  "workspaceKnowledgeStatusFailed": "Failed",
+  "workspaceKnowledgeStatusFailed": "失敗",
   "@workspaceKnowledgeStatusFailed": {
     "description": "Status shown for a knowledge base file whose ingestion failed."
   },
-  "workspacePromptCreateTitle": "New prompt",
+  "workspacePromptCreateTitle": "新增提示詞",
   "@workspacePromptCreateTitle": {
     "description": "Title shown while creating a new workspace prompt."
   },
-  "workspacePromptName": "Name",
+  "workspacePromptName": "名稱",
   "@workspacePromptName": {
     "description": "Label for the prompt name field."
   },
-  "workspacePromptNameRequired": "Name is required.",
+  "workspacePromptNameRequired": "必須填寫名稱。",
   "@workspacePromptNameRequired": {
     "description": "Validation error when the prompt name is empty."
   },
-  "workspacePromptCommand": "Command",
+  "workspacePromptCommand": "指令",
   "@workspacePromptCommand": {
     "description": "Label for the prompt slash-command field."
   },
-  "workspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "workspacePromptCommandHint": "只能使用字母、數字、連字號和底線。在聊天中以斜線指令的形式輸入。",
   "@workspacePromptCommandHint": {
     "description": "Helper text explaining the allowed prompt command characters."
   },
-  "workspacePromptCommandRequired": "Command is required.",
+  "workspacePromptCommandRequired": "必須填寫指令。",
   "@workspacePromptCommandRequired": {
     "description": "Validation error when the prompt command is empty."
   },
-  "workspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspacePromptCommandInvalid": "只能使用字母、數字、連字號和底線。",
   "@workspacePromptCommandInvalid": {
     "description": "Validation error when the prompt command contains illegal characters."
   },
-  "workspacePromptCommandTaken": "That command is already in use.",
+  "workspacePromptCommandTaken": "此指令已被使用。",
   "@workspacePromptCommandTaken": {
     "description": "Error shown when saving a prompt whose command collides with another prompt."
   },
-  "workspacePromptContent": "Prompt content",
+  "workspacePromptContent": "提示詞內容",
   "@workspacePromptContent": {
     "description": "Label for the prompt template body field."
   },
-  "workspacePromptContentHint": "Write the prompt template…",
+  "workspacePromptContentHint": "撰寫提示詞範本…",
   "@workspacePromptContentHint": {
     "description": "Placeholder text for the empty prompt content field."
   },
-  "workspacePromptContentRequired": "Prompt content is required.",
+  "workspacePromptContentRequired": "必須填寫提示詞內容。",
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Write",
+  "workspacePromptWriteTab": "編輯",
   "@workspacePromptWriteTab": {
     "description": "Toggle label for the editable prompt content view."
   },
-  "workspacePromptPreviewTab": "Preview",
+  "workspacePromptPreviewTab": "預覽",
   "@workspacePromptPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the prompt content."
   },
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "workspacePromptPreviewEmpty": "尚無可預覽的內容。",
   "@workspacePromptPreviewEmpty": {
     "description": "Empty-state text shown in the prompt preview when there is no content."
   },
-  "workspacePromptTags": "Tags",
+  "workspacePromptTags": "標籤",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
   },
-  "workspacePromptTagAdd": "Add tag",
+  "workspacePromptTagAdd": "新增標籤",
   "@workspacePromptTagAdd": {
     "description": "Action to add a tag to a prompt."
   },
-  "workspacePromptVersionSection": "Version",
+  "workspacePromptVersionSection": "版本",
   "@workspacePromptVersionSection": {
     "description": "Section header for prompt versioning controls."
   },
-  "workspacePromptCommitMessage": "Commit message",
+  "workspacePromptCommitMessage": "提交訊息",
   "@workspacePromptCommitMessage": {
     "description": "Label for the optional commit message recorded with a prompt version."
   },
-  "workspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "workspacePromptCommitMessageHint": "說明變更內容（選填）",
   "@workspacePromptCommitMessageHint": {
     "description": "Placeholder for the prompt commit message field."
   },
-  "workspacePromptSetProduction": "Set as production version",
+  "workspacePromptSetProduction": "設為正式版本",
   "@workspacePromptSetProduction": {
     "description": "Toggle that marks the saved prompt version as the live production version."
   },
-  "workspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "workspacePromptSetProductionSubtitle": "將此版本設為聊天中使用的上線版本。",
   "@workspacePromptSetProductionSubtitle": {
     "description": "Explanation for the production-version toggle."
   },
-  "workspacePromptManageAccess": "Manage access",
+  "workspacePromptManageAccess": "管理存取權",
   "@workspacePromptManageAccess": {
     "description": "Action to open the sharing/access editor for a prompt."
   },
-  "workspacePromptClone": "Duplicate",
+  "workspacePromptClone": "複製",
   "@workspacePromptClone": {
     "description": "Overflow action that clones a prompt."
   },
-  "workspacePromptCloneSuffix": "(copy)",
+  "workspacePromptCloneSuffix": "（副本）",
   "@workspacePromptCloneSuffix": {
     "description": "Suffix appended to the name and command of a cloned prompt."
   },
-  "workspacePromptUpdateDetails": "Save name & command only",
+  "workspacePromptUpdateDetails": "僅儲存名稱與指令",
   "@workspacePromptUpdateDetails": {
     "description": "Overflow action that updates prompt metadata without creating a new version."
   },
-  "workspacePromptDetailsSaved": "Details saved",
+  "workspacePromptDetailsSaved": "詳細資料已儲存",
   "@workspacePromptDetailsSaved": {
     "description": "Confirmation that prompt name and command were updated."
   },
-  "workspacePromptActivate": "Activate",
+  "workspacePromptActivate": "啟用",
   "@workspacePromptActivate": {
     "description": "Overflow action that enables a prompt."
   },
-  "workspacePromptDeactivate": "Deactivate",
+  "workspacePromptDeactivate": "停用",
   "@workspacePromptDeactivate": {
     "description": "Overflow action that disables a prompt."
   },
-  "workspacePromptDelete": "Delete prompt",
+  "workspacePromptDelete": "刪除提示詞",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
   },
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "workspacePromptDeleteConfirmTitle": "要刪除提示詞嗎？",
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspacePromptDeleteConfirmMessage": "「{name}」將被永久刪除。",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -2772,211 +2801,211 @@
       }
     }
   },
-  "workspacePromptDeleted": "Prompt deleted",
+  "workspacePromptDeleted": "提示詞已刪除",
   "@workspacePromptDeleted": {
     "description": "Confirmation that a prompt was deleted."
   },
-  "workspacePromptSaved": "Prompt saved",
+  "workspacePromptSaved": "提示詞已儲存",
   "@workspacePromptSaved": {
     "description": "Confirmation that a prompt was saved."
   },
-  "workspacePromptSaveFailed": "Couldn't save the prompt. Please try again.",
+  "workspacePromptSaveFailed": "無法儲存提示詞。請再試一次。",
   "@workspacePromptSaveFailed": {
     "description": "Error shown when saving a prompt fails."
   },
-  "workspacePromptImport": "Import prompts",
+  "workspacePromptImport": "匯入提示詞",
   "@workspacePromptImport": {
     "description": "Overflow action that imports prompt definitions from JSON."
   },
-  "workspacePromptExport": "Export prompts",
+  "workspacePromptExport": "匯出提示詞",
   "@workspacePromptExport": {
     "description": "Overflow action that exports readable prompts as JSON."
   },
-  "workspacePromptExportFailed": "Couldn't export prompts.",
+  "workspacePromptExportFailed": "無法匯出提示詞。",
   "@workspacePromptExportFailed": {
     "description": "Error shown when exporting prompts fails."
   },
-  "workspacePromptHistory": "Version history",
+  "workspacePromptHistory": "版本紀錄",
   "@workspacePromptHistory": {
     "description": "Header of the prompt version-history panel."
   },
-  "workspacePromptHistoryEmpty": "No versions yet.",
+  "workspacePromptHistoryEmpty": "尚無版本。",
   "@workspacePromptHistoryEmpty": {
     "description": "Empty-state text when a prompt has no version history."
   },
-  "workspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "workspacePromptHistoryLoadFailed": "無法載入版本紀錄。",
   "@workspacePromptHistoryLoadFailed": {
     "description": "Error shown when loading prompt history fails."
   },
-  "workspacePromptHistoryCommitFallback": "No commit message",
+  "workspacePromptHistoryCommitFallback": "無提交訊息",
   "@workspacePromptHistoryCommitFallback": {
     "description": "Placeholder shown for a history entry without a commit message."
   },
-  "workspacePromptHistoryLive": "Live",
+  "workspacePromptHistoryLive": "上線中",
   "@workspacePromptHistoryLive": {
     "description": "Badge marking the active production version of a prompt."
   },
-  "workspacePromptHistoryDiff": "Compare with production",
+  "workspacePromptHistoryDiff": "與正式版本比較",
   "@workspacePromptHistoryDiff": {
     "description": "Action to diff a prompt version against the production version."
   },
-  "workspacePromptHistoryDiffTitle": "Version comparison",
+  "workspacePromptHistoryDiffTitle": "版本比較",
   "@workspacePromptHistoryDiffTitle": {
     "description": "Title of the prompt version diff sheet."
   },
-  "workspacePromptHistoryDiffEmpty": "No content differences.",
+  "workspacePromptHistoryDiffEmpty": "內容沒有差異。",
   "@workspacePromptHistoryDiffEmpty": {
     "description": "Shown when two prompt versions have identical content."
   },
-  "workspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "workspacePromptHistoryDiffNameChanged": "這兩個版本的名稱不同。",
   "@workspacePromptHistoryDiffNameChanged": {
     "description": "Note shown in the diff sheet when the prompt name changed."
   },
-  "workspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "workspacePromptHistoryDiffFailed": "無法計算差異。",
   "@workspacePromptHistoryDiffFailed": {
     "description": "Error shown when computing a prompt version diff fails."
   },
-  "workspacePromptHistoryRestore": "Restore this version",
+  "workspacePromptHistoryRestore": "還原此版本",
   "@workspacePromptHistoryRestore": {
     "description": "Action that loads a version snapshot back into the editor."
   },
-  "workspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "workspacePromptHistoryRestored": "已還原此版本的內容。儲存後才會保留。",
   "@workspacePromptHistoryRestored": {
     "description": "Confirmation that a version snapshot was loaded into the editor."
   },
-  "workspacePromptHistorySetProduction": "Set as production",
+  "workspacePromptHistorySetProduction": "設為正式版本",
   "@workspacePromptHistorySetProduction": {
     "description": "Action that pins a version as the production version."
   },
-  "workspacePromptHistoryProductionSet": "Production version updated.",
+  "workspacePromptHistoryProductionSet": "正式版本已更新。",
   "@workspacePromptHistoryProductionSet": {
     "description": "Confirmation that the production version was changed."
   },
-  "workspacePromptHistoryDelete": "Delete version",
+  "workspacePromptHistoryDelete": "刪除版本",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
   },
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "workspacePromptHistoryDeleteConfirmTitle": "要刪除版本嗎？",
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "workspacePromptHistoryDeleteConfirmMessage": "此版本快照將被移除。此動作無法復原。",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleted": "Version deleted",
+  "workspacePromptHistoryDeleted": "版本已刪除",
   "@workspacePromptHistoryDeleted": {
     "description": "Confirmation that a prompt version was deleted."
   },
-  "workspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "workspacePromptHistoryDeleteProduction": "無法刪除目前上線的正式版本。",
   "@workspacePromptHistoryDeleteProduction": {
     "description": "Error shown when trying to delete the active production version."
   },
-  "workspaceSkillCreateTitle": "New skill",
+  "workspaceSkillCreateTitle": "新增技能",
   "@workspaceSkillCreateTitle": {
     "description": "Title shown while creating a new workspace skill."
   },
-  "workspaceSkillName": "Name",
+  "workspaceSkillName": "名稱",
   "@workspaceSkillName": {
     "description": "Label for the skill name field."
   },
-  "workspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "workspaceSkillNameHint": "例如：程式碼審查指南",
   "@workspaceSkillNameHint": {
     "description": "Placeholder example for the skill name field."
   },
-  "workspaceSkillNameRequired": "Name is required.",
+  "workspaceSkillNameRequired": "必須填寫名稱。",
   "@workspaceSkillNameRequired": {
     "description": "Validation error when the skill name is empty."
   },
-  "workspaceSkillId": "Skill ID",
+  "workspaceSkillId": "技能 ID",
   "@workspaceSkillId": {
     "description": "Label for the skill identifier field."
   },
-  "workspaceSkillIdHint": "e.g. code-review-guidelines",
+  "workspaceSkillIdHint": "例如：code-review-guidelines",
   "@workspaceSkillIdHint": {
     "description": "Placeholder example for the skill identifier field."
   },
-  "workspaceSkillIdRequired": "Skill ID is required.",
+  "workspaceSkillIdRequired": "必須填寫技能 ID。",
   "@workspaceSkillIdRequired": {
     "description": "Validation error when the skill identifier is empty."
   },
-  "workspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspaceSkillIdInvalid": "只能使用字母、數字、連字號和底線。",
   "@workspaceSkillIdInvalid": {
     "description": "Validation error when the skill identifier contains illegal characters."
   },
-  "workspaceSkillIdTaken": "That skill ID or name is already in use.",
+  "workspaceSkillIdTaken": "此技能 ID 或名稱已被使用。",
   "@workspaceSkillIdTaken": {
     "description": "Error shown when saving a skill whose id or name collides with another skill."
   },
-  "workspaceSkillDescription": "Description",
+  "workspaceSkillDescription": "說明",
   "@workspaceSkillDescription": {
     "description": "Label for the optional skill description field."
   },
-  "workspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "workspaceSkillDescriptionHint": "例如：程式碼審查的逐步說明",
   "@workspaceSkillDescriptionHint": {
     "description": "Placeholder example for the skill description field."
   },
-  "workspaceSkillContent": "Instructions",
+  "workspaceSkillContent": "指示",
   "@workspaceSkillContent": {
     "description": "Label for the skill Markdown instructions body field."
   },
-  "workspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "workspaceSkillContentHint": "以 Markdown 輸入技能指示…",
   "@workspaceSkillContentHint": {
     "description": "Placeholder text for the empty skill instructions field."
   },
-  "workspaceSkillContentRequired": "Instructions are required.",
+  "workspaceSkillContentRequired": "必須填寫指示。",
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Write",
+  "workspaceSkillWriteTab": "編輯",
   "@workspaceSkillWriteTab": {
     "description": "Toggle label for the editable skill instructions view."
   },
-  "workspaceSkillPreviewTab": "Preview",
+  "workspaceSkillPreviewTab": "預覽",
   "@workspaceSkillPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the skill instructions."
   },
-  "workspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "workspaceSkillPreviewEmpty": "尚無可預覽的內容。",
   "@workspaceSkillPreviewEmpty": {
     "description": "Empty-state text shown in the skill preview when there is no content."
   },
-  "workspaceSkillManageAccess": "Manage access",
+  "workspaceSkillManageAccess": "管理存取權",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
   },
-  "workspaceSkillSaved": "Skill saved",
+  "workspaceSkillSaved": "技能已儲存",
   "@workspaceSkillSaved": {
     "description": "Confirmation that a skill was saved."
   },
-  "workspaceSkillSaveFailed": "Couldn't save the skill. Please try again.",
+  "workspaceSkillSaveFailed": "無法儲存技能。請再試一次。",
   "@workspaceSkillSaveFailed": {
     "description": "Error shown when saving a skill fails."
   },
-  "workspaceSkillClone": "Duplicate",
+  "workspaceSkillClone": "複製",
   "@workspaceSkillClone": {
     "description": "Overflow action that clones a skill."
   },
-  "workspaceSkillCloneSuffix": "(Clone)",
+  "workspaceSkillCloneSuffix": "（副本）",
   "@workspaceSkillCloneSuffix": {
     "description": "Suffix appended to the name of a cloned skill."
   },
-  "workspaceSkillActivate": "Activate",
+  "workspaceSkillActivate": "啟用",
   "@workspaceSkillActivate": {
     "description": "Overflow action that enables a skill."
   },
-  "workspaceSkillDeactivate": "Deactivate",
+  "workspaceSkillDeactivate": "停用",
   "@workspaceSkillDeactivate": {
     "description": "Overflow action that disables a skill."
   },
-  "workspaceSkillDelete": "Delete skill",
+  "workspaceSkillDelete": "刪除技能",
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "workspaceSkillDeleteConfirmTitle": "要刪除技能嗎？",
   "@workspaceSkillDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a skill."
   },
-  "workspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspaceSkillDeleteConfirmMessage": "「{name}」將被永久刪除。",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
     "placeholders": {
@@ -2985,97 +3014,97 @@
       }
     }
   },
-  "workspaceSkillDeleted": "Skill deleted",
+  "workspaceSkillDeleted": "技能已刪除",
   "@workspaceSkillDeleted": {
     "description": "Confirmation that a skill was deleted."
   },
-  "workspaceSkillImport": "Import skills",
+  "workspaceSkillImport": "匯入技能",
   "@workspaceSkillImport": {
     "description": "Title of the JSON skill import sheet."
   },
-  "workspaceSkillImportMarkdown": "Import Markdown",
+  "workspaceSkillImportMarkdown": "匯入 Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
   },
-  "workspaceSkillImportJson": "Import JSON",
+  "workspaceSkillImportJson": "匯入 JSON",
   "@workspaceSkillImportJson": {
     "description": "Overflow action that imports one or more skills from a JSON file."
   },
-  "workspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "workspaceSkillImportMarkdownLoaded": "已載入 Markdown。請檢查後儲存以建立技能。",
   "@workspaceSkillImportMarkdownLoaded": {
     "description": "Confirmation that a Markdown file was loaded into the unsaved skill editor."
   },
-  "workspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "workspaceSkillImportMarkdownFailed": "無法讀取 Markdown 檔案。",
   "@workspaceSkillImportMarkdownFailed": {
     "description": "Error shown when reading a Markdown skill file fails."
   },
-  "workspaceSkillExport": "Export skills",
+  "workspaceSkillExport": "匯出技能",
   "@workspaceSkillExport": {
     "description": "Overflow action that exports readable skills as JSON."
   },
-  "workspaceSkillExportFailed": "Couldn't export skills.",
+  "workspaceSkillExportFailed": "無法匯出技能。",
   "@workspaceSkillExportFailed": {
     "description": "Error shown when exporting skills fails."
   },
-  "workspaceToolCreateTitle": "Create tool",
-  "workspaceToolName": "Name",
-  "workspaceToolNameHint": "e.g. My Tools",
-  "workspaceToolNameRequired": "Enter a tool name.",
-  "workspaceToolId": "Tool ID",
-  "workspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
-  "workspaceToolIdRequired": "Enter a tool ID.",
-  "workspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
-  "workspaceToolIdTaken": "That tool ID is already in use.",
-  "workspaceToolDescription": "Description",
-  "workspaceToolDescriptionHint": "e.g. Tools for performing various operations",
-  "workspaceToolContent": "Python source",
-  "workspaceToolContentHint": "Write your tool as a Python class named Tools…",
-  "workspaceToolContentRequired": "Add Python source before saving.",
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
-  "workspaceToolSaved": "Tool saved",
-  "workspaceToolDeleted": "Tool deleted",
-  "workspaceToolSaveFailed": "Couldn't save the tool.",
-  "workspaceToolManageAccess": "Manage access",
-  "workspaceToolClone": "Duplicate",
-  "workspaceToolCloneSuffix": "(Clone)",
-  "workspaceToolDelete": "Delete",
-  "workspaceToolDeleteConfirmTitle": "Delete tool?",
-  "workspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
-  "workspaceToolImport": "Import tools",
-  "workspaceToolImportJson": "Import JSON",
-  "workspaceToolImportUrl": "Import from URL",
-  "workspaceToolImportUrlTitle": "Import tool from URL",
-  "workspaceToolImportUrlHint": "Enter a raw or GitHub URL to a tool's Python file",
+  "workspaceToolCreateTitle": "建立工具",
+  "workspaceToolName": "名稱",
+  "workspaceToolNameHint": "例如：我的工具",
+  "workspaceToolNameRequired": "請輸入工具名稱。",
+  "workspaceToolId": "工具 ID",
+  "workspaceToolIdHint": "字母、數字和底線；不能以數字開頭。",
+  "workspaceToolIdRequired": "請輸入工具 ID。",
+  "workspaceToolIdInvalid": "工具 ID 只能包含字母、數字和底線，且不能以數字開頭。",
+  "workspaceToolIdTaken": "此工具 ID 已被使用。",
+  "workspaceToolDescription": "說明",
+  "workspaceToolDescriptionHint": "例如：用於執行各種操作的工具",
+  "workspaceToolContent": "Python 原始碼",
+  "workspaceToolContentHint": "將工具寫成名為 Tools 的 Python 類別…",
+  "workspaceToolContentRequired": "儲存前請新增 Python 原始碼。",
+  "workspaceToolWarning": "工具會在伺服器上執行任意 Python 程式碼。請只新增來自可信來源的程式碼。",
+  "workspaceToolSaved": "工具已儲存",
+  "workspaceToolDeleted": "工具已刪除",
+  "workspaceToolSaveFailed": "無法儲存工具。",
+  "workspaceToolManageAccess": "管理存取權",
+  "workspaceToolClone": "複製",
+  "workspaceToolCloneSuffix": "（副本）",
+  "workspaceToolDelete": "刪除",
+  "workspaceToolDeleteConfirmTitle": "要刪除工具嗎？",
+  "workspaceToolDeleteConfirmMessage": "「{name}」將被永久刪除。",
+  "workspaceToolImport": "匯入工具",
+  "workspaceToolImportJson": "匯入 JSON",
+  "workspaceToolImportUrl": "從網址匯入",
+  "workspaceToolImportUrlTitle": "從網址匯入工具",
+  "workspaceToolImportUrlHint": "輸入工具 Python 檔案的 GitHub 網址",
   "workspaceToolImportUrlLabel": "URL",
-  "workspaceToolImportUrlInvalid": "Enter a valid URL.",
-  "workspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
-  "workspaceToolExport": "Export tools",
-  "workspaceToolExportFailed": "Couldn't export tools.",
-  "workspaceToolManifest": "Manifest",
-  "workspaceToolManifestVersion": "Version {version}",
-  "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
-  "workspaceToolManifestFunding": "Funding: {url}",
-  "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolImportUrlInvalid": "請輸入有效的網址。",
+  "workspaceToolImportUrlFailed": "無法從該網址匯入工具。",
+  "workspaceToolImportUrlLoaded": "工具已載入。請檢查後儲存。",
+  "workspaceToolExport": "匯出工具",
+  "workspaceToolExportFailed": "無法匯出工具。",
+  "workspaceToolManifest": "資訊清單",
+  "workspaceToolManifestVersion": "版本 {version}",
+  "workspaceToolManifestRequiredVersion": "需要 Open WebUI {version}",
+  "workspaceToolManifestFunding": "贊助：{url}",
+  "workspaceToolSpecs": "產生的規格",
   "workspaceToolDetails": "工具詳細資料",
   "workspaceToolFunctionCount": "{count} 個函式",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
-  "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
-  "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
-  "workspaceToolValves": "Valves",
-  "workspaceToolValvesTitle": "Valves",
-  "workspaceToolValvesServer": "Server valves",
-  "workspaceToolValvesUser": "User valves",
-  "workspaceToolValvesEmpty": "No valves",
-  "workspaceToolValvesSaved": "Valves updated",
-  "workspaceToolValvesSaveFailed": "Couldn't update valves.",
-  "workspaceToolValvesLoadFailed": "Couldn't load valves.",
-  "workspaceValveRequired": "required",
-  "workspaceValveDefault": "Default",
-  "workspaceValveCustom": "Custom",
-  "workspaceValveNone": "None",
-  "workspaceValveEnabled": "Enabled",
-  "workspaceValveDisabled": "Disabled",
+  "workspaceToolSpecsEmpty": "未為此工具產生任何規格。",
+  "workspaceToolIncompatible": "此工具需要 Open WebUI v{required}，但伺服器為 v{current}。請更新伺服器後再儲存。",
+  "workspaceToolValves": "設定項目",
+  "workspaceToolValvesTitle": "設定項目",
+  "workspaceToolValvesServer": "伺服器設定項目",
+  "workspaceToolValvesUser": "使用者設定項目",
+  "workspaceToolValvesEmpty": "沒有設定項目",
+  "workspaceToolValvesSaved": "設定項目已更新",
+  "workspaceToolValvesSaveFailed": "無法更新設定項目。",
+  "workspaceToolValvesLoadFailed": "無法載入設定項目。",
+  "workspaceValveRequired": "必填",
+  "workspaceValveDefault": "預設",
+  "workspaceValveCustom": "自訂",
+  "workspaceValveNone": "無",
+  "workspaceValveEnabled": "已啟用",
+  "workspaceValveDisabled": "已停用",
   "noteConflictCopyBadge": "衝突副本",
   "noteConflictCopySuffix": "（衝突副本）",
   "notificationChannelDescription": "當有人在頻道或私訊中傳送訊息時通知。",
@@ -3094,73 +3123,73 @@
   "notificationSystemDescription": "當應用程式在背景時於應用程式外顯示通知。",
   "notificationSystemTitle": "系統通知",
   "notificationViewAction": "檢視",
+  "notificationReplyFailedBody": "回覆未能完成。",
+  "notificationTargetUnavailable": "此通知所屬的帳號或連線已不在此裝置上。",
   "notificationsEnabledDescription": "當應用程式在背景時以及在應用程式內接收提醒。",
   "notificationsEnabledTitle": "啟用通知",
   "notificationsPermissionDenied": "通知已在系統設定中關閉。",
   "notificationsSubtitle": "回覆、訊息和已完成回應的提醒",
   "notificationsTitle": "通知",
-  "hermesSecretsUnavailable": "Could not access saved Hermes credentials. Unlock secure storage and retry.",
+  "hermesSecretsUnavailable": "無法存取已儲存的 Hermes 憑證。請解鎖安全儲存空間後再試一次。",
   "hermesAgentSettingsTitle": "Hermes Agent",
-  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
-  "connectOpenWebUITitle": "Connect to Open WebUI",
-  "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
-  "hermesApprovalRequired": "Approval required",
-  "hermesApprovalFallback": "The agent is requesting permission to continue.",
+  "hermesAgentSettingsSubtitle": "自行託管的代理程式",
+  "connectOpenWebUITitle": "連線至 Open WebUI",
+  "connectOpenWebUISubtitle": "新增自行託管的 Open WebUI 伺服器",
+  "backendChooserOpenWebUISubtitle": "登入您的伺服器，同步聊天、筆記等內容。",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "與您自己的代理程式聊天，它會使用工具並記住過往的工作階段。",
+  "hermesApprovalRequired": "需要核准",
+  "hermesApprovalFallback": "代理程式正在請求繼續執行的權限。",
   "openWebUiPromptOther": "其他",
   "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
   "openWebUiPromptAnswerHint": "輸入你的回答",
   "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
   "openWebUiPromptSubmit": "提交",
   "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
-  "hermesApprovalApproved": "Approved ✓",
-  "hermesApprovalDenied": "Denied",
-  "hermesApprovalApproveAction": "Approve",
-  "hermesApprovalDenyAction": "Deny",
-  "hermesEnableTitle": "Enable Hermes Agent",
-  "hermesEnableSubtitle": "Use your self-hosted Hermes agent as a model in the picker.",
-  "hermesServerUrlTitle": "Server URL",
-  "hermesApiKeyTitle": "API key",
-  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API key",
-  "hermesMemoryKeyTitle": "Memory key (optional)",
-  "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
-  "hermesCapabilitiesTitle": "Capabilities",
-  "hermesCapabilityApproval": "Approval",
-  "hermesCapabilitySkills": "Skills",
-  "hermesCapabilityToolsets": "Toolsets",
-  "hermesCapabilityJobs": "Jobs",
-  "hermesCapabilitySessions": "Sessions",
-  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
-  "hermesTabInfoSubtitle": "Available in the Hermes tab once enabled.",
-  "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
-  "hermesSelfHostedAgentLabel": "Self-hosted agent",
-  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
-  "hermesConversationsTitle": "Conversations",
+  "hermesApprovalApproved": "已核准 ✓",
+  "hermesApprovalDenied": "已拒絕",
+  "hermesApprovalApproveAction": "核准",
+  "hermesApprovalDenyAction": "拒絕",
+  "hermesEnableTitle": "啟用 Hermes Agent",
+  "hermesEnableSubtitle": "在模型選擇器中將您自行託管的 Hermes 代理程式當作模型使用。",
+  "hermesServerUrlTitle": "伺服器網址",
+  "hermesApiKeyTitle": "API 金鑰",
+  "hermesConfiguredReplacePlaceholder": "已設定；輸入新值即可取代",
+  "hermesApiKeyPlaceholder": "輸入 API 金鑰",
+  "hermesMemoryKeyTitle": "記憶金鑰（選填）",
+  "hermesMemoryKeyPlaceholder": "留空時會自動產生",
+  "hermesCapabilitiesTitle": "功能",
+  "hermesCapabilityApproval": "核准",
+  "hermesCapabilitySkills": "技能",
+  "hermesCapabilityToolsets": "工具集",
+  "hermesCapabilityJobs": "工作",
+  "hermesCapabilitySessions": "工作階段",
+  "hermesTabInfoTitle": "對話和排程",
+  "hermesTabInfoSubtitle": "啟用後即可在 Hermes 分頁中使用。",
+  "hermesNativeSettingsSubtitle": "直接連線至自行託管的 Hermes 代理程式。",
+  "hermesSelfHostedAgentLabel": "自行託管的代理程式",
+  "hermesNoConversationsMessage": "尚無對話",
+  "hermesConversationsTitle": "對話",
   "hermesBotsTitle": "機器人",
-  "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
-  "hermesSchedulesLoading": "Loading schedules…",
-  "hermesSchedulesUnavailable": "Schedules unavailable",
-  "hermesNoSchedulesYet": "No schedules yet",
-  "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
-  "hermesReviewSchedules": "Review schedules",
-  "hermesScheduledAgentsTitle": "Scheduled agents",
-  "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "hermesConversationsLoadError": "無法載入 Hermes 對話。\n請在「設定 → Hermes Agent」中檢查連線。",
+  "hermesSchedulesLoading": "正在載入排程…",
+  "hermesSchedulesUnavailable": "無法使用排程",
+  "hermesNoSchedulesYet": "沒有排程",
+  "hermesSchedulesSummary": "{active} 個已啟用 · {total, plural, other{共 {total} 個排程}}",
+  "hermesReviewSchedules": "查看排程",
+  "hermesScheduledAgentsTitle": "排程代理程式",
+  "workspaceToolImportUrlHost": "只能匯入 GitHub 上的工具網址。",
+  "signInServerDescription": "使用您的 Open WebUI 帳戶登入下方的伺服器。",
+  "openWebUIServer": "Open WebUI 伺服器",
+  "serverAddressUnavailable": "無法取得伺服器位址",
+  "showPassword": "顯示密碼",
+  "hidePassword": "隱藏密碼",
+  "reviewerModeEnabled": "已啟用審核者模式。無需伺服器即可開啟演示。",
+  "reviewerModeDisabled": "已停用審核者模式。",
+  "openSourceLicenses": "開放原始碼授權",
   "directConnectionsTitle": "直接連線",
-  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
-  "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
+  "directConnectionsSubtitle": "OpenAI 相容 API 和 Ollama",
+  "directConnectionsDescription": "不需 Open WebUI 即可連線至模型供應商。憑證會安全地儲存在此裝置上，並隨請求傳送給供應商。",
   "directConnectionsCombinedDescription": "使用從 Open WebUI 同步或僅儲存在本機的連線，直接連線至模型供應商。",
   "openWebUiDirectConnectionsSectionTitle": "Open WebUI 伺服器",
   "openWebUiDirectConnectionsSectionDescription": "儲存在 Open WebUI 帳號中，其他已登入的用戶端也能使用。",
@@ -3180,130 +3209,130 @@
   "directConnectionNoLongerExists": "此連線已不存在。",
   "openWebUiDirectConnectionDeleteMessage": "這會從 Open WebUI 帳號與其他已登入的用戶端移除 {name}。",
   "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
-  "addDirectConnection": "Add connection",
-  "editDirectConnection": "Edit connection",
-  "directConnectionName": "Connection name",
+  "addDirectConnection": "新增連線",
+  "editDirectConnection": "編輯連線",
+  "directConnectionName": "連線名稱",
   "directDefaultConnectionName": "我的供應商",
   "sidebarButtonLabel": "側邊欄",
-  "directConnectionNameRequired": "Enter a connection name.",
-  "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
-  "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
-  "directConnectionApiKeyRequired": "Enter an API key or choose no authentication.",
-  "directConnectionHeaderNameRequired": "Enter a header name, then add the header.",
-  "directConnectionCredentialTransferTitle": "Use credentials with new server?",
-  "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
-  "directConnectionCredentialTransferConfirm": "Use credentials",
-  "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionNameRequired": "請輸入連線名稱。",
+  "directConnectionUrlInvalid": "請使用有效的 http:// 或 https:// 網址。",
+  "directConnectionCredentialsReentryRequired": "變更伺服器時，請重新輸入憑證。",
+  "directConnectionApiKeyRequired": "請輸入 API 金鑰，或選擇「無驗證」。",
+  "directConnectionHeaderNameRequired": "請輸入標頭名稱，然後新增該標頭。",
+  "directConnectionCredentialTransferTitle": "要在新伺服器上使用憑證嗎？",
+  "directConnectionCredentialTransferMessage": "這會將 API 金鑰和所有自訂標頭傳送到新伺服器。請僅在您信任該伺服器時繼續。",
+  "directConnectionCredentialTransferConfirm": "使用憑證",
+  "directConnectionSaveFailed": "無法儲存此連線。",
   "directConnectionSaveConflict": "此連線已在其他位置變更。請重新開啟後再儲存。",
-  "directConnectionReachFailed": "Could not reach the provider.",
-  "directConnectionDeleteTitle": "Delete connection?",
-  "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",
-  "directConnectionDeleteFailed": "Could not delete this connection.",
-  "directConnectionProbeConnected": "Connected",
-  "directConnectionProbeConnectedModels": "{count, plural, =1{Connected · 1 model} other{Connected · {count} models}}",
-  "directProvider": "Provider type",
-  "openAICompatible": "OpenAI-compatible",
+  "directConnectionReachFailed": "無法連線至供應商。",
+  "directConnectionDeleteTitle": "刪除連線？",
+  "directConnectionDeleteMessage": "這會從此裝置移除 {name} 及其憑證。",
+  "directConnectionDeleteFailed": "無法刪除此連線。",
+  "directConnectionProbeConnected": "已連線",
+  "directConnectionProbeConnectedModels": "{count, plural, other{已連線 · {count} 個模型}}",
+  "directProvider": "供應商類型",
+  "openAICompatible": "相容 OpenAI",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
-  "directApiBaseUrl": "Base URL",
-  "directOpenRouterUrlInvalid": "Use OpenRouter’s HTTPS /api/v1 root (global or EU).",
-  "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
-  "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
-  "directCompletionApi": "Completion API",
+  "directApiBaseUrl": "基礎網址",
+  "directOpenRouterUrlInvalid": "請使用 OpenRouter 的 HTTPS /api/v1 根網址（全球或歐盟）。",
+  "directOpenRouterBaseUrlDescription": "使用 OpenRouter API 金鑰連線。",
+  "directOpenRouterChatCompletionsDescription": "Chat Completions 用於原生網頁搜尋、圖片生成、PDF 剖析和可重複使用的 PDF 註解。",
+  "directCompletionApi": "API 類型",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
-  "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
-  "directResponsesDescription": "Use the typed Responses event stream. Choose this only when the provider exposes /responses.",
-  "directApiVersion": "API version",
-  "directApiVersionDescription": "Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.",
-  "directAuthentication": "Authentication",
-  "noAuthentication": "No authentication",
-  "bearerToken": "Bearer token",
-  "directApiKeyHeader": "API-key header",
-  "directApiKeyHeaderDescription": "Sends the credential in the api-key header used by Azure OpenAI.",
-  "directApiKey": "API key",
-  "directCustomHeaders": "Custom headers",
-  "directManualModelIds": "Manual model IDs",
+  "directChatCompletionsDescription": "適用於相容 OpenAI 的 API。",
+  "directResponsesDescription": "使用具型別的 Responses 事件串流。僅在供應商提供 /responses 時選擇此項。",
+  "directApiVersion": "API 版本",
+  "directApiVersionDescription": "選填。新增 Azure OpenAI 端點所需的 api-version 查詢參數。",
+  "directAuthentication": "驗證",
+  "noAuthentication": "無驗證",
+  "bearerToken": "Bearer 令牌",
+  "directApiKeyHeader": "api-key 標頭",
+  "directApiKeyHeaderDescription": "在 Azure OpenAI 使用的 api-key 標頭中傳送憑證。",
+  "directApiKey": "API 金鑰",
+  "directCustomHeaders": "自訂標頭",
+  "directManualModelIds": "手動指定的模型 ID",
   "directManualModelIdsDescription": "選填。如果伺服器無法列出模型，請每行輸入一個 ID。",
   "@directManualModelIdsDescription": {"placeholders":{}},
-  "directModelIdPrefix": "Model ID prefix",
-  "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
-  "directModelTags": "Model tags",
-  "directModelTagsDescription": "Optional. Separate tags with commas or new lines.",
-  "syncDirectHistory": "Open WebUI history",
-  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
-  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
-  "testDirectConnection": "Test connection",
-  "directConnectionTestUnavailable": "Connection testing is not available yet.",
-  "finishDirectSetup": "Start chatting",
-  "directProfilesEmptyTitle": "No direct connections yet",
-  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
-  "directConnectionsSectionTitle": "Connections",
-  "directSavedDataUnreadable": "The saved connection data could not be read.",
-  "directSecureStorageUnavailable": "Check secure storage access and try again.",
-  "onDevice": "On device",
-  "directConnectionError": "Direct connection error",
-  "directAttachmentUnsupported": "This direct model does not support this attachment.",
+  "directModelIdPrefix": "模型 ID 前綴",
+  "directModelIdPrefixDescription": "選填。新增可見的命名空間（例如 studio.model-name），不會變更傳送給供應商的模型 ID。",
+  "directModelTags": "模型標籤",
+  "directModelTagsDescription": "選填。請以逗號或換行分隔標籤。",
+  "syncDirectHistory": "Open WebUI 歷史記錄",
+  "syncDirectHistorySubtitle": "將新的直接聊天儲存至您的 Open WebUI 帳戶。",
+  "directHistoryLocalOnlySubtitle": "新的直接聊天僅保留在此裝置上。",
+  "backendChooserDirectTitle": "模型供應商",
+  "backendChooserDirectSubtitle": "透過 OpenAI、OpenRouter 或 Ollama 聊天。您的金鑰只會儲存在此裝置上。",
+  "testDirectConnection": "測試連線",
+  "directConnectionTestUnavailable": "目前尚無法測試連線。",
+  "finishDirectSetup": "開始聊天",
+  "directProfilesEmptyTitle": "尚無直接連線",
+  "directProfilesEmptySubtitle": "新增 API 供應商即可開始聊天。",
+  "directConnectionsSectionTitle": "連線",
+  "directSavedDataUnreadable": "無法讀取已儲存的連線資料。",
+  "directSecureStorageUnavailable": "請檢查安全儲存空間的存取權，然後再試一次。",
+  "onDevice": "裝置端",
+  "directConnectionError": "直接連線錯誤",
+  "directAttachmentUnsupported": "此直接模型不支援這個附件。",
   "backendChooserOpenWebUITitle": "Open WebUI",
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
-  "moreModels": "More models",
-  "reasoningEffort": "Effort",
-  "reasoningEffortLow": "Low",
-  "reasoningEffortMedium": "Medium",
-  "reasoningEffortHigh": "High",
+  "hermesMemoryKeyDescription": "為此裝置分開保存長期記憶。如果留空，Conduit 會自動建立金鑰。",
+  "moreModels": "更多模型",
+  "reasoningEffort": "推理強度",
+  "reasoningEffortLow": "低",
+  "reasoningEffortMedium": "中",
+  "reasoningEffortHigh": "高",
   "reasoningEffortMinimal": "最低",
   "reasoningEffortExtraHigh": "極高",
   "reasoningEffortMaximum": "最高",
   "reasoningEffortNone": "無",
-  "customReasoningEffort": "Custom effort",
-  "retryWithoutReasoningEffort": "不使用 Effort 重試",
-  "reasoningEffortClearIncomplete": "無法完全清除 Effort 設定——這次重試將在不使用它的情況下繼續。",
-  "customReasoningEffortHint": "Enter a provider-supported effort",
-  "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
-  "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",
-  "sidebarSyncingChats": "Syncing chats",
-  "sidebarSyncingNotes": "Syncing notes",
-  "sidebarFinishingSync": "Finishing sync",
-  "loadMermaidPreview": "Load Mermaid preview",
-  "loadChartPreview": "Load chart preview",
-  "loadPdfPreview": "Load PDF preview: {title}",
+  "customReasoningEffort": "自訂強度",
+  "retryWithoutReasoningEffort": "不使用推理強度重試",
+  "reasoningEffortClearIncomplete": "無法完全清除推理強度設定——這次重試將在不使用它的情況下繼續。",
+  "customReasoningEffortHint": "輸入供應商支援的推理強度",
+  "proxyServerVerificationFailed": "無法驗證 Open WebUI 伺服器。代理工作階段可能已過期或無效。請再試一次。",
+  "proxyManualSignInRequired": "驗證失敗。請嘗試手動登入。",
+  "sidebarSyncingChats": "正在同步聊天",
+  "sidebarSyncingNotes": "正在同步筆記",
+  "sidebarFinishingSync": "正在完成同步",
+  "loadMermaidPreview": "載入 Mermaid 預覽",
+  "loadChartPreview": "載入圖表預覽",
+  "loadPdfPreview": "載入 PDF 預覽：{title}",
   "ollamaCloudDefaultName": "Ollama Cloud",
   "ollamaCloudBaseUrlHint": "https://ollama.com",
-  "ollamaCloudBaseUrlDescription": "Use https://ollama.com with an API key for Ollama Cloud.",
-  "ollamaModelLoaded": "Loaded",
-  "ollamaModelActions": "Model memory",
-  "ollamaModelActionsDescription": "Manage this model in Ollama's RAM or VRAM.",
-  "ollamaLoadModel": "Load model",
-  "ollamaLoadModelDescription": "Warm it now to make the first response faster.",
-  "ollamaUnloadModel": "Unload model",
-  "ollamaUnloadModelDescription": "Free its RAM or VRAM. It loads automatically on the next message.",
-  "ollamaUnloadModelConfirmTitle": "Unload {name}?",
-  "ollamaUnloadModelConfirmMessage": "This frees the model's RAM or VRAM. Ollama will load it again automatically when you send a message.",
-  "ollamaKeepAlive": "Keep alive",
-  "ollamaKeepAliveDescription": "Applied to this model after each chat request.",
-  "ollamaKeepAliveServerDefault": "Server default",
-  "ollamaKeepAliveFiveMinutes": "5 minutes",
-  "ollamaKeepAliveThirtyMinutes": "30 minutes",
-  "ollamaKeepAliveOneHour": "1 hour",
-  "ollamaKeepAliveAlways": "Always loaded",
-  "ollamaKeepAliveImmediate": "Unload after every response",
-  "ollamaKeepAliveCustom": "Custom",
-  "ollamaKeepAliveCustomHint": "Examples: 10m, 24h, 3600, -1, or 0",
-  "ollamaKeepAliveInvalid": "Use seconds or a duration such as 10m or 24h.",
-  "ollamaModelLoadedMessage": "{name} is loaded.",
-  "ollamaModelUnloadedMessage": "{name} was unloaded.",
-  "ollamaModelActionFailed": "Could not update this model's memory state.",
-  "ollamaThinking": "Thinking",
-  "ollamaCloudModelActionsDescription": "Configure how this Ollama Cloud model responds.",
-  "ollamaThinkingDescription": "Choose how much reasoning the model should use. Available levels depend on the model.",
-  "ollamaThinkingAutomatic": "Automatic",
-  "ollamaThinkingDisabled": "Off",
-  "ollamaThinkingLow": "Low",
-  "ollamaThinkingMedium": "Medium",
-  "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum",
+  "ollamaCloudBaseUrlDescription": "使用 API 金鑰連線至 Ollama Cloud。",
+  "ollamaModelLoaded": "已載入",
+  "ollamaModelActions": "模型記憶體",
+  "ollamaModelActionsDescription": "管理此模型在 Ollama 的 RAM 或 VRAM 中的佔用。",
+  "ollamaLoadModel": "載入模型",
+  "ollamaLoadModelDescription": "現在預先載入，可加快第一次回應。",
+  "ollamaUnloadModel": "卸載模型",
+  "ollamaUnloadModelDescription": "釋放其佔用的 RAM 或 VRAM。傳送下一則訊息時會自動載入。",
+  "ollamaUnloadModelConfirmTitle": "卸載 {name}？",
+  "ollamaUnloadModelConfirmMessage": "這會釋放模型佔用的 RAM 或 VRAM。您傳送訊息時，Ollama 會自動重新載入。",
+  "ollamaKeepAlive": "保持載入",
+  "ollamaKeepAliveDescription": "在每次聊天請求後套用至此模型。",
+  "ollamaKeepAliveServerDefault": "伺服器預設值",
+  "ollamaKeepAliveFiveMinutes": "5 分鐘",
+  "ollamaKeepAliveThirtyMinutes": "30 分鐘",
+  "ollamaKeepAliveOneHour": "1 小時",
+  "ollamaKeepAliveAlways": "一律保持載入",
+  "ollamaKeepAliveImmediate": "每次回應後卸載",
+  "ollamaKeepAliveCustom": "自訂",
+  "ollamaKeepAliveCustomHint": "範例：10m、24h、3600、-1 或 0",
+  "ollamaKeepAliveInvalid": "請使用秒數或時間長度，例如 10m 或 24h。",
+  "ollamaModelLoadedMessage": "{name} 已載入。",
+  "ollamaModelUnloadedMessage": "{name} 已卸載。",
+  "ollamaModelActionFailed": "無法更新此模型的記憶體狀態。",
+  "ollamaThinking": "思考",
+  "ollamaCloudModelActionsDescription": "設定此 Ollama Cloud 模型的回應方式。",
+  "ollamaThinkingDescription": "選擇模型應使用多少推理。可用的等級取決於模型。",
+  "ollamaThinkingAutomatic": "自動",
+  "ollamaThinkingDisabled": "關閉",
+  "ollamaThinkingLow": "低",
+  "ollamaThinkingMedium": "中",
+  "ollamaThinkingHigh": "高",
+  "ollamaThinkingMaximum": "最高",
   "releaseNotesSupportPromptHeading": "喜歡 Conduit 嗎？",
   "releaseNotesSupportPromptMessage": "一則簡短的評價能幫助更多人發現 Conduit。一點小小的打賞能支持我繼續開發。無論哪一種，對我都意義重大。",
   "directConnectProvider": "連接供應商",
@@ -3344,12 +3373,110 @@
   "hermesMcpServers": "MCP 伺服器",
   "hermesSignOut": "登出 Hermes",
   "hermesActionFailed": "Hermes 操作失敗。",
+  "hermesSignOutFailed": "無法登出 Hermes 儀表板。請檢查網路連線後再試一次。",
   "hermesToolsetUpdateFailed": "Hermes 工具組更新失敗。",
   "hermesJobStateLabel": "狀態",
   "hermesJobDeliveryLabel": "傳遞",
   "hermesJobLastLabel": "上次",
   "hermesJobNextLabel": "下次",
   "hermesJobRunHistory": "執行紀錄",
+  "hermesJobStop": "停止",
+  "hermesJobStopping": "正在停止…",
+  "hermesJobStopped": "已停止執行。",
+  "hermesJobFinishedBeforeStop": "執行在停止前已結束。",
+  "hermesJobNothingToStop": "目前沒有進行中的執行。",
+  "hermesJobStopFailed": "無法停止執行。",
+  "hermesJobStopUnsupported": "請更新 Hermes 以停止執行中的工作。",
+  "hermesJobRunning": "正在執行",
+  "hermesJobLastCancelled": "上次執行已停止：{reason}",
+  "@hermesJobLastCancelled": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesJobLastCancelledNoReason": "上次執行已停止",
+  "hermesJobCatchUpLabel": "錯過的執行",
+  "hermesJobCatchUpHint": "Hermes 未執行期間錯過的執行要如何處理。",
+  "hermesJobCatchUpDefault": "Hermes 預設",
+  "hermesJobCatchUpRunOnce": "補執行一次",
+  "hermesJobCatchUpSkip": "略過錯過的執行",
+  "hermesJobDeliverLabel": "傳遞到",
+  "hermesJobDeliverLocal": "儲存在 Hermes",
+  "hermesJobDeliverMessaging": "訊息應用程式",
+  "hermesJobDeliverBotChats": "機器人聊天",
+  "hermesJobDeliverGroupChats": "群組聊天",
+  "hermesJobDeliverBotChat": "機器人聊天：{name}",
+  "@hermesJobDeliverBotChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverGroupChat": "群組聊天：{name}",
+  "@hermesJobDeliverGroupChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverNeedsHomeChannel": "請先在 Hermes 設定主頻道。",
+  "hermesJobDeliverRoomHint": "群組聊天只會喚醒工作中以 @ 提及的機器人。",
+  "hermesRoomsTitle": "房間",
+  "hermesRoomNew": "新增房間",
+  "hermesRoomCreateHint": "選擇 2 到 6 個機器人。每個機器人都以自己的身分在房間裡回答。",
+  "hermesRoomNameHint": "房間名稱",
+  "hermesRoomCreateFailed": "無法建立房間。",
+  "hermesRoomNeedsBots": "房間至少需要此連線上的兩個機器人。",
+  "hermesRoomMessageHint": "傳訊息到房間，用 @ 提及機器人",
+  "hermesRoomScheduled": "排程",
+  "hermesRoomEveryone": "所有人",
+  "hermesRoomBotCount": "{count, plural, other{{count} 個機器人}}",
+  "@hermesRoomBotCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomWorking": "工作中",
+  "hermesRoomWaiting": "等待中",
+  "hermesRoomQuiet": "已沉默 {elapsed}",
+  "@hermesRoomQuiet": {"placeholders": {"elapsed": {"type": "String"}}},
+  "hermesRoomNeedsYou": "等待你的回覆",
+  "hermesRoomTurnFailed": "輪次失敗",
+  "hermesRoomTurnCancelled": "輪次已取消",
+  "hermesRoomTurnDeferred": "輪次已延後",
+  "hermesRoomMemberUnavailable": "機器人無法使用",
+  "hermesRoomStopped": "房間已停止",
+  "hermesRoomDisbanded": "房間已解散",
+  "hermesRoomAuthorityLost": "另一個閘道接管了此房間",
+  "hermesRoomWorkLimit": "已達輪次上限",
+  "hermesRoomRoutedTo": "已指派給 {names}",
+  "@hermesRoomRoutedTo": {"placeholders": {"names": {"type": "String"}}},
+  "hermesRoomRoutedEveryone": "已指派給所有人",
+  "hermesRoomRoutedFallback": "無法決定由誰回答，因此所有人都會回答",
+  "hermesRoomAssigned": "{lead} 把這交給了 {names}",
+  "@hermesRoomAssigned": {"placeholders": {"lead": {"type": "String"}, "names": {"type": "String"}}},
+  "hermesRoomLeadTaking": "{lead} 來處理",
+  "@hermesRoomLeadTaking": {"placeholders": {"lead": {"type": "String"}}},
+  "hermesRoomContinued": "已繼續",
+  "hermesRoomHandoff": "{from} 詢問了 {to}",
+  "@hermesRoomHandoff": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+  "hermesRoomPaused": "{count, plural, other{{count} 則訊息後已暫停}}",
+  "@hermesRoomPaused": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRetryPrompt": "{name} 的輪次結束了，但沒有明確結果。",
+  "@hermesRoomRetryPrompt": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomLoadFailed": "無法載入此房間。",
+  "hermesRoomRefreshFailed": "無法重新整理房間。",
+  "hermesRoomGone": "此房間已無法使用。",
+  "hermesRoomNotRunning": "Hermes 目前沒有執行此房間，因此無法接收訊息。",
+  "hermesRoomSendUnclear": "Hermes 未確認這則訊息。請再次傳送；它不會重複發佈。",
+  "hermesRoomStoppedCount": "{count, plural, =0{沒有正在執行的工作} other{已停止 {count} 項工作}}",
+  "@hermesRoomStoppedCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRefused": "Hermes 拒絕了：{reason}",
+  "@hermesRoomRefused": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesRoomActionFailed": "操作未成功。請再試一次。",
+  "hermesRoomInfoTitle": "房間資訊",
+  "hermesRoomPurpose": "用途",
+  "hermesRoomPurposeHint": "用一句話說明這個房間的用途",
+  "hermesRoomNotes": "共享筆記",
+  "hermesRoomNotesHint": "每個機器人都應記住的事項",
+  "hermesRoomNotesTooLong": "共享筆記太長。",
+  "hermesRoomWhoAnswers": "沒有點名任何人的訊息由誰回答",
+  "hermesRoomRoutingEveryoneHint": "每個機器人輪流回答。",
+  "hermesRoomRoutingLead": "主導機器人",
+  "hermesRoomRoutingLeadHint": "由主導機器人決定由誰處理。@提及仍會直接傳給你點名的機器人。",
+  "hermesRoomRoutingAuto": "自動",
+  "hermesRoomRoutingAutoHint": "由一次快速的模型呼叫決定訊息要給誰。@提及仍會直接傳給你點名的機器人。",
+  "hermesRoomLead": "主導",
+  "hermesRoomMembers": "機器人",
+  "hermesRoomMembersFixed": "房間建立後無法新增或移除機器人。",
+  "hermesRoomStopWork": "停止所有工作",
+  "hermesRoomDisband": "解散房間",
+  "hermesRoomDisbandTitle": "解散「{name}」？",
+  "@hermesRoomDisbandTitle": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomDisbandMessage": "其工作會停止，房間將永久消失。",
+  "hermesRoomRenameTitle": "重新命名房間",
   "hermesApprovalAllowOnce": "允許一次",
   "hermesApprovalAllowSession": "本次工作階段允許",
   "hermesApprovalAlwaysAllow": "永遠允許",
@@ -3368,6 +3495,7 @@
   "hermesFastTierOff": "關閉",
   "hermesTurnSteer": "引導",
   "hermesTurnSendNext": "傳送下一則",
+  "hermesSteerUncertain": "Hermes 未確認你的引導。再次傳送引導前請先查看回覆。",
   "hermesTurnControlsUnsupported": "請升級 Hermes 以啟用安全的回合控制。",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "再顯示 {count} 行",
@@ -3380,7 +3508,7 @@
   "colorScheme": "配色方案",
   "channelEmptyHint": "建立頻道以開始群組對話。",
   "passwordChangeDescription": "更新帳號密碼",
-  "profileDetailsSummary": "個人簡介、性別和生日",
+  "profileDetailsSummary": "性別和生日",
   "notificationRequiresMaster": "請開啟通知以變更此設定。",
   "notificationRequiresSound": "請開啟聲音以變更此設定。",
   "enabled": "開啟",
@@ -3432,34 +3560,34 @@
   "hermesSessionDeleteFailed": "無法刪除對話。",
   "hermesSessionLoadFailed": "無法載入此對話。請檢查連線後再試一次。",
   "hermesMemoryKeyFieldLabel": "記憶體索引鍵",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "拒絕", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "MCP 伺服器", "directMcpEmptyTitle": "尚無 MCP 伺服器", "directMcpReachabilityHelp": "請新增此裝置可以連線的 Streamable HTTP 端點。", "directMcpEditorTitle": "編輯 MCP 伺服器", "directMcpAddTitle": "新增 MCP 伺服器", "directMcpName": "伺服器名稱", "directMcpEndpoint": "Streamable HTTP 端點", "directMcpBearerToken": "Bearer 令牌（選填）", "directMcpCustomHeaders": "自訂標頭（選填）", "directMcpCustomHeadersHint": "每行一個：名稱: 值", "directMcpTestConnection": "測試連線", "directMcpTesting": "正在測試連線…", "directMcpTestSucceeded": "{count, plural, other{已連線 — 找到 {count} 個工具。}}", "directMcpTestFailed": "無法列出此 MCP 伺服器的工具。", "directMcpSaveFailed": "無法儲存此 MCP 伺服器。", "directMcpLoadFailed": "無法從安全儲存空間載入 MCP 伺服器。", "directMcpMissing": "此 MCP 伺服器已不存在。", "directMcpCredentialTransferTitle": "要在新伺服器上使用憑證嗎？", "directMcpCredentialTransferMessage": "這會將 Bearer 令牌和自訂標頭傳送到新伺服器。請僅在您信任該伺服器時繼續。選擇「取消」會儲存伺服器，但不含憑證。", "directMcpCredentialTransferConfirm": "使用憑證", "directMcpDeleteTitle": "刪除 MCP 伺服器？", "directMcpDeleteMessage": "這會從此裝置移除 {name} 及其憑證。", "directMcpDeleteFailed": "無法刪除此 MCP 伺服器。", "directMcpAuthMode": "驗證", "directMcpAuthNone": "無", "directMcpAuthBearer": "Bearer 令牌", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "在瀏覽器中連線", "directMcpOAuthReconnect": "在瀏覽器中重新連線", "directMcpOAuthDisconnect": "中斷 OAuth 連線", "directMcpOAuthPending": "正在等待瀏覽器中的授權…", "directMcpOAuthConnected": "OAuth 已連線。", "directMcpOAuthConnectionDetails": "已連線至 {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "未回報任何範圍", "directMcpOAuthConnectFailed": "無法透過 OAuth 連線此 MCP 伺服器。", "directMcpOAuthDisconnectFailed": "無法中斷此 MCP 伺服器的 OAuth 連線。", "directMcpApprovalTitle": "工具核准", "directMcpApprovalAllowOnce": "允許一次", "directMcpApprovalAllowSession": "在此工作階段內允許", "directMcpApprovalAllowAlways": "一律允許", "directMcpApprovalAlwaysTitle": "一律允許此工具？", "directMcpApprovalAlwaysMessage": "{serverName} 將可執行 {toolName}，不會再次詢問。如果工具結構描述變更，此核准會自動撤銷。", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "無法記住此核准。您可以重試或選擇其他選項。", "directMcpApprovalDeny": "拒絕", "directMcpApprovalAllowed": "已允許一次", "directMcpApprovalAllowedSession": "已在此工作階段內允許", "directMcpApprovalAllowedAlways": "已一律允許", "directMcpApprovalDenied": "已拒絕", "directMcpApprovalExpired": "核准已過期", "directMcpRememberedApprovalsTitle": "一律允許的工具", "directMcpRememberedApprovalsSubtitle": "只要伺服器和輸入結構描述維持不變，這些工具即可直接執行，不會詢問。", "directMcpRememberedApprovalRevoke": "撤銷", "directMcpRememberedApprovalsRevokeAll": "全部撤銷", "directMcpRememberedApprovalRevokeFailed": "無法撤銷已記住的核准。"
+  ,"directMcpContentAction": "MCP 內容"
+  ,"directMcpContentTitle": "MCP 內容"
+  ,"directMcpContentServer": "MCP 伺服器"
+  ,"directMcpContentSearch": "搜尋提示詞和資源"
+  ,"directMcpContentPrompts": "提示詞"
+  ,"directMcpContentResources": "資源"
+  ,"directMcpContentEmpty": "此伺服器沒有提示詞或資源。"
+  ,"directMcpContentNoMatches": "沒有相符的提示詞或資源。"
+  ,"directMcpContentLoadFailed": "無法從此 MCP 伺服器載入內容。"
+  ,"directMcpContentRefresh": "重新整理 MCP 內容"
+  ,"directMcpContentPreviewTitle": "預覽"
+  ,"directMcpContentInsert": "插入"
+  ,"directMcpContentPromptHeading": "來自 {serverName} 的 MCP 提示詞：{promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "來自 {serverName} 的 MCP 資源：{resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpContentRoleUser": "使用者"
+  ,"directMcpContentRoleAssistant": "助理"
+  ,"directMcpContentRequestFailed": "無法載入此 MCP 內容。請再試一次。"
+  ,"directMcpContentUnsupported": "此項目為二進位內容或不受支援。請選擇文字提示詞或文字資源。"
+  ,"directMcpContentChanged": "此項目已在伺服器上變更。請重新整理後再選擇一次。"
+  ,"directMcpContentTooLarge": "此內容太大，無法插入。"
+  ,"directMcpContentComposerTooLarge": "草稿和此內容超過 256 KiB 的訊息上限。請縮短草稿或內容後再試一次。"
+  ,"directMcpContentLoading": "正在載入 MCP 內容…"
+  ,"directMcpInsecureCredentialsTitle": "要在不加密的情況下傳送憑證嗎？"
+  ,"directMcpInsecureCredentialsMessage": "此伺服器使用未加密的 HTTP。你的 Bearer 權杖、OAuth 權杖和自訂標頭可能會在網路上被讀取或竄改。"
+  ,"directMcpInsecureCredentialsConfirm": "不加密傳送"
   ,"hermesSessionTooLarge": "此對話過大，無法在此裝置上載入。"
   ,"hermesSessionNotFound": "此對話在 Hermes 伺服器上已不可用。"
   ,"hermesSessionLoadFailedDetail": "無法載入此對話：{detail}"
@@ -3492,8 +3620,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "模型 API",
   "backendChooserSelfHostedSectionTitle": "自行架設的服務",
-  "citationBackground": "引用背景",
-  "citationBackgroundDescription": "關閉後，文內引用的背景將透明",
+  "citationBackground": "醒目提示引用",
+  "citationBackgroundDescription": "為回覆中的引用加上陰影背景，使其在內文中更醒目。",
   "citationShowTitles": "顯示引用頁面標題",
   "citationShowTitlesDescription": "在引用標記中使用頁面標題，而非網站網域",
   "directContextCompactionDescription": "這些模型不會回報上下文視窗。Conduit 會在請求過大之前，使用所選上限壓縮較早的訊息。",
@@ -3515,7 +3643,7 @@
   "notificationTargetEditTitle": "編輯目的地",
   "notificationTargetNameLabel": "名稱（選填）",
   "notificationTargetNameHint": "例如：team-chat",
-  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlLabel": "Webhook 網址",
   "notificationTargetUrlHint": "https://example.com/webhook",
   "notificationTargetUrlKeepHint": "留空即可保留目前的 URL",
   "notificationTargetUrlRequired": "請輸入 Webhook URL。",
@@ -3574,6 +3702,12 @@
   "webSearchRegionAuto": "與裝置一致",
   "webSearchRegionWorldwide": "全球",
   "directModelToolsUnsupported": "此模型無法使用工具，因此無法搜索網頁。請關閉網頁搜索和所有工具後重試。",
+  "directImagesPerRequest": "每次請求的圖片數",
+  "directImagesPerRequestFooter": "每則訊息會傳送此聊天中最新的圖片，最多為此數量。較早的圖片不會傳送。如果模型因圖片過多而拒絕請求，請調低此值。",
+  "directImagesPerRequestSaveFailed": "無法儲存「每次請求的圖片數」。請再試一次。",
+  "directModelTooManyImages": "此模型每次請求接受的圖片少於此聊天傳送的數量。請在「直接連線」設定中調低「每次請求的圖片數」，然後再試一次。如果這則訊息本身包含的圖片就超過模型可接受的數量，請減少圖片後重新傳送。",
+  "directToolLoopNoAnswer": "模型一直在使用工具，沒有給出回答。請再試一次，或關閉網頁搜尋和工具。",
+  "directContextLimitOllamaNote": "對於你自己伺服器上的 Ollama 模型，在此選擇的上限也是 Ollama 載入模型時使用的上下文視窗。視窗越大，佔用的記憶體越多。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 個模型}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} / {total}",
@@ -4142,7 +4276,7 @@
   "chatMergeChooseDescription": "選擇要合併的回覆。至少選擇兩則；原始回覆會維持不變。",
   "folderProjectComparisonFallbackNotice": "此專案中儲存的模型無法全部使用，因此聊天將以較少的模型開始。比較恰好使用兩個模型。",
   "advancedFeaturesFooter": "加入模型比較、個別聊天設定、工具設定、排程任務、個人連線、Webhook 與資料管理。關閉後只會隱藏它們，已設定的內容會繼續運作。",
-  "profileAdvancedFooter": "因「設定 > 聊天」中已開啟進階功能而顯示。",
+  "profileAdvancedFooter": "因「聊天」中已開啟進階功能而顯示。",
   "advancedRequiredTitle": "屬於進階功能",
   "advancedRequiredMessage": "{feature}屬於進階功能。開啟進階功能即可使用。已設定的內容會繼續運作。",
   "advancedTurnOn": "開啟進階功能",
@@ -4191,7 +4325,7 @@
   "calendarRemoveEnd": "移除結束時間",
   "calendarEventReadOnlyNotInvited": "您無法變更此活動。",
   "calendarFieldOrganizer": "主辦人",
-  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} other{顏色}}",
+  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} custom{自訂顏色} other{顏色}}",
   "calendarVisibilityFooter": "會顯示已勾選行事曆中的活動。輕點行事曆可顯示或隱藏其活動。",
   "personalizationMemoryTypeUserDescription": "關於你的偏好、事實或指示。",
   "personalizationMemoryTypeContextDescription": "在之後的聊天中需要記住的背景資訊。",
@@ -4251,12 +4385,25 @@
   "hermesDeleteConnectionTitle": "刪除連線？",
   "hermesDeleteConnectionMessage": "這會從此裝置移除 {name} 及其憑證。",
   "hermesDeleteConnectionFailed": "無法刪除此連線。",
+  "hermesInsecureCredentialsMessage": "此伺服器使用未加密的 HTTP。你的 API 金鑰、登入權杖和存取標頭可能會在網路上被讀取或竄改。",
+  "hermesNotEncrypted": "未加密",
   "hermesSwitchConnectionFailed": "無法切換到此連線。",
   "hermesSwitchConnectionTitle": "切換連線",
   "hermesSwitchConnectionPromptTitle": "切換到 {name}？",
   "hermesSwitchConnectionPromptMessage": "此聊天的 Hermes 工作階段屬於 {name}。切換即可繼續該工作階段，或保留目前連線以開始新的工作階段。",
   "hermesSwitchConnectionConfirm": "切換",
   "hermesKeepCurrentConnection": "保留目前連線",
+  "hermesModelSwitchConfirmTitle": "切換到 {model}？",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes 要求你在將此聊天切換到該模型前進行確認。",
+  "hermesModelSwitchConfirmAction": "切換並傳送",
+  "hermesModelSwitchKeepCurrent": "保留目前模型",
   "accountsTitle": "帳戶",
   "accountsAddAccount": "新增帳戶",
   "accountsManage": "管理帳戶",
@@ -4322,5 +4469,446 @@
   "mcpAppOpenLinkConfirm": "開啟",
   "terminalPortPreviewForward": "前進",
   "terminalPortPreviewReload": "重新載入",
-  "terminalPortPreviewLoadFailed": "無法載入此頁面。"
+  "terminalPortPreviewLoadFailed": "無法載入此頁面。",
+  "modelMenuAllModels": "所有模型…",
+  "citationPreviewOpen": "開啟",
+  "chatUnreadState": "未讀",
+  "codeCopied": "已複製",
+  "onboardingWelcomeTitle": "歡迎使用 Conduit",
+  "onboardingWelcomeSubtitle": "在您自己的伺服器、本裝置上或透過 API 與 AI 聊天。",
+  "backendChooserFooter": "您稍後可以在設定中新增更多連線。",
+  "serverAddressFooter": "請使用您在網頁瀏覽器中開啟的位址。",
+  "signInChangeServer": "更改",
+  "signInContinueWithSso": "使用 SSO 繼續",
+  "mutualTlsChooseFile": "選擇…",
+  "thinkingElapsedSeconds": "{seconds} 秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} 分 {seconds} 秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "已複製",
+  "composerAddAttachment": "加入附件",
+  "composerShowKeyboard": "顯示鍵盤",
+  "composerAttachUploads": "已上傳",
+  "supportConduitFooter": "Conduit 免費且開源。您的支持讓它得以延續。",
+  "aiMemoryFooter": "您的系統提示詞會作用於每個聊天。記憶讓助手記住您告訴過它的內容。",
+  "composerAttachServerFiles": "伺服器檔案",
+  "codeBlockPlainText": "純文字",
+  "codeBlockWrapLines": "自動換行",
+  "workspacePromptHistoryDiffTooLarge": "這些版本過長，無法比較。",
+  "composerSaveDraftAsNote": "儲存為筆記",
+  "composerSaveDraftAsNoteDescription": "將此訊息儲存為新筆記，而不傳送。",
+  "authFieldServer": "伺服器",
+  "authFieldEmail": "電子郵件",
+  "authFieldName": "名稱",
+  "authFieldRequired": "必填",
+  "authFieldOptional": "選填",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "權杖",
+  "composerAttachPhotos": "照片",
+  "modelPickerAppleOnDeviceSubtitle": "在此裝置上執行，可離線使用",
+  "modelPickerApplePccSubtitle": "在 Apple 的私有伺服器上執行",
+  "accountsSavedServers": "已儲存的伺服器",
+  "computerEnabledDescription": "在聊天中檢視及控制桌面與瀏覽器工作階段。",
+  "computerTrackpadHint": "滑動以移動游標。輕點以點擊，按住以拖曳，雙指捲動。",
+  "computerShortcut": "鍵盤快捷鍵",
+  "computerInputFailed": "無法傳送到電腦。請重試。",
+  "computerQualityLow": "減少數據用量",
+  "computerDesktopSite": "電腦版網站",
+  "computerAudioUnavailable": "此連線或裝置無法播放桌面音訊。",
+  "computerSound": "聲音",
+  "computerTabs": "瀏覽器分頁",
+  "computerNewTab": "新增分頁",
+  "computerCloseTab": "關閉分頁",
+  "computerRefreshTabs": "重新整理分頁",
+  "computerNoTabs": "沒有瀏覽器分頁",
+  "computerTabsWatchHint": "接管控制以變更分頁。這會停止回覆；傳送新訊息以繼續。",
+  "computerTabsUnavailable": "無法載入分頁。請嘗試重新整理。",
+  "computerTitle": "電腦",
+  "computerConnecting": "正在連接電腦…",
+  "computerReconnecting": "正在重新連線…",
+  "computerDisconnected": "電腦已中斷連線",
+  "computerBrowserStartHint": "接管控制以啟動此分頁的即時畫面。",
+  "computerBrowserUnavailable": "此終端需要 Chrome 或 Chromium 才能使用即時瀏覽器。",
+  "computerStopFailed": "無法停止目前的回覆。你可以繼續觀看並重試。",
+  "computerStopping": "正在停止回覆…",
+  "computerTakeControl": "接管控制",
+  "computerTrackpadMode": "觸控板模式",
+  "computerRecenterPointer": "指標置中",
+  "computerClick": "點擊",
+  "computerRightClick": "按右鍵",
+  "computerDoubleClick": "連按兩下",
+  "computerStartDrag": "開始拖曳",
+  "computerEndDrag": "結束拖曳",
+  "computerShowKeyboard": "顯示鍵盤",
+  "computerHideKeyboard": "隱藏鍵盤",
+  "computerAgentWorking": "代理正在工作",
+  "computerDesktop": "桌面",
+  "computerBrowser": "瀏覽器",
+  "computerForward": "前進",
+  "computerReload": "重新載入頁面",
+  "computerAddress": "前往位址",
+  "computerTypeText": "在電腦上輸入",
+  "computerSend": "傳送",
+  "computerZoom": "放大",
+  "libreChatTemporaryChatOff": "LibreChat 會儲存所有聊天。請關閉暫時聊天後再傳送。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "測試版",
+  "libreChatChooserSubtitle": "登入你的 LibreChat 伺服器，同步聊天、代理程式等。",
+  "libreChatAddAccount": "新增 LibreChat 帳號",
+  "libreChatFileSearch": "檔案搜尋",
+  "libreChatFileSearchDescription": "在已上傳的檔案中尋找答案。",
+  "libreChatMcpConnect": "在 LibreChat 中連線",
+  "libreChatApprovalRun": "允許執行 {tool} 嗎？",
+  "libreChatQuestionProgress": "第 {current} 個問題，共 {total} 個",
+  "libreChatAnswerFailed": "無法傳送你的回答，請再試一次。",
+  "libreChatApprovalRespond": "回應",
+  "libreChatApprovalArguments": "引數（JSON）",
+  "libreChatAddAccountMessage": "輸入你的 LibreChat 伺服器位址。",
+  "libreChatInvalidAddress": "輸入伺服器位址，例如 chat.example.com。",
+  "libreChatUnreachable": "無法連線到伺服器。請檢查位址和網路連線。",
+  "libreChatNotLibreChat": "此伺服器不是 LibreChat。請檢查位址。",
+  "libreChatIsOpenWebUi": "這是 Open WebUI 伺服器。請在 Open WebUI 分頁中新增。",
+  "libreChatPasswordSignInOff": "此伺服器僅允許單一登入。",
+  "libreChatGoogleUnsupported": "Google 不允許在 App 內登入。請使用其他方式登入。",
+  "libreChatSsoUnfinished": "登入未完成。請再試一次。",
+  "libreChatChangeServer": "使用其他伺服器",
+  "libreChatSessionEnded": "你在 {server} 上的工作階段已結束。請重新登入。",
+  "libreChatDuplicateChat": "複製對話",
+  "libreChatCopyFailed": "無法複製對話。請檢查網路連線後再試一次。",
+  "libreChatMemoryKeyLabel": "鍵",
+  "libreChatMemoryKeyHint": "例如 preferences",
+  "libreChatMemoryKeyRequired": "請為記憶指定一個鍵。",
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token",
+  "hermesReadOnlySessionNotice": "此聊天始於另一個 Hermes 應用程式。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
+  "hermesReadOnlySessionNoticeFrom": "此聊天始於 {source}。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "在副本中繼續",
+  "hermesContinueInCopyFailed": "無法複製此聊天。請再試一次。",
+  "hermesContinueHere": "在此繼續",
+  "hermesContinueHereFailed": "無法在此繼續此聊天。請再試一次。",
+  "hermesContinueChoiceExplanation": "在此繼續會結束另一個應用程式中的這個聊天，該應用程式會在下一則訊息時開始新聊天。副本會保持那個聊天不變，但先前的訊息只儲存在此裝置上。最多保留最新的 1,000 則訊息（1 MB），且僅限最近開啟的 32 個副本。",
+  "hermesSessionHide": "隱藏",
+  "hermesSessionUnhide": "取消隱藏",
+  "hermesSessionUpdateFailed": "無法更新此聊天。請再試一次。",
+  "hermesSessionHiddenNotice": "聊天已隱藏。可在 Hermes 設定的「已隱藏的聊天」中找到。",
+  "hermesHiddenChatsTitle": "已隱藏的聊天",
+  "hermesHiddenChatsDescription": "在此裝置上從 Hermes 列表中隱藏的聊天。輕點即可開啟，取消隱藏即可讓它重新出現在列表中。",
+  "hermesHiddenChatsEmpty": "此裝置上沒有已隱藏的聊天。",
+  "hermesHiddenChatsLoadError": "無法載入已隱藏的聊天。",
+  "hermesBranchFromHere": "從此處分支",
+  "hermesBranchFailed": "無法為此聊天建立分支。請再試一次。",
+  "hermesUndoLastTurn": "復原上一輪對話",
+  "hermesUndoLastTurnDone": "已復原上一輪對話。",
+  "hermesUndoLastTurnFailed": "無法復原上一輪對話。請再試一次。",
+  "hermesArchivedLoadError": "無法載入已存檔的聊天。",
+  "hermesClarifyProgress": "已完成 {answered}/{total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "無法傳送你的回答。請再試一次。",
+  "hermesClarifyAlreadySettled": "此問題已在別處回答或已過期，因此你的回答未傳送。",
+  "hermesClarifyAnswerOrSkip": "請回答或略過每個問題。",
+  "hermesClarifyOtherAnswer": "或輸入你自己的回答",
+  "hermesClarifySkip": "略過",
+  "hermesClarifySkipped": "已略過",
+  "hermesClarifyRecommended": "推薦",
+  "hermesChangedFiles": "{count, plural, other{已變更 {count} 個檔案}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, other{另外 {count} 個檔案}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "已變更的檔案",
+  "hermesDiffLineCounts": "新增行：{added}，刪除行：{removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "已用約 {spent}，上限 {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "已用約 {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "上限 {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "此呼叫會超出本聊天的花費上限，只能允許這一次。",
+  "hermesApprovalCost": "預估費用：{cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "計畫",
+  "hermesPlanProgress": "已完成 {done}/{total}",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "顯示計畫",
+  "hermesPlanHide": "隱藏計畫",
+  "hermesContextUsage": "上下文與用量",
+  "hermesContextWindow": "上下文視窗",
+  "hermesContextUsed": "{used} / {max} 個 token",
+  "@hermesContextUsed": {"placeholders": {"used": {"type": "String", "example": "32,768"}, "max": {"type": "String", "example": "131,072"}}},
+  "hermesContextPercentFull": "已用 {percent}%",
+  "@hermesContextPercentFull": {"placeholders": {"percent": {"type": "int", "example": "25"}}},
+  "hermesContextEstimatedNote": "估算值",
+  "hermesContextRequestEstimate": "每次請求約 {tokens} 個 token",
+  "@hermesContextRequestEstimate": {"placeholders": {"tokens": {"type": "String", "example": "13,036"}}},
+  "hermesContextNoWindow": "此連線不會回報上下文視窗。",
+  "hermesContextBreakdown": "佔用構成",
+  "hermesContextSystemPrompt": "系統提示詞",
+  "hermesContextToolDefinitions": "工具定義",
+  "hermesContextSubagentDefinitions": "子代理定義",
+  "hermesContextConversation": "對話",
+  "hermesContextTotals": "此聊天累計",
+  "hermesContextInput": "輸入 token",
+  "hermesContextOutput": "輸出 token",
+  "hermesContextReasoning": "推理 token",
+  "hermesContextCacheRead": "從快取讀取",
+  "hermesContextCacheWrite": "寫入快取",
+  "hermesContextCacheHits": "快取命中",
+  "hermesContextCalls": "模型呼叫",
+  "hermesContextCompactions": "壓縮次數",
+  "hermesContextCost": "費用",
+  "hermesContextCostEstimated": "費用（估算）",
+  "hermesContextPlan": "方案用量",
+  "hermesContextGaugeDay": "今天",
+  "hermesContextGaugeWeek": "本週",
+  "hermesContextGaugeMonth": "本月",
+  "hermesContextGaugeTopTier": "頂級模型",
+  "hermesContextUsedPercent": "已用 {percent}%",
+  "@hermesContextUsedPercent": {"placeholders": {"percent": {"type": "int", "example": "63"}}},
+  "hermesContextResets": "重設時間：{time}",
+  "@hermesContextResets": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextLeftOf": "剩餘 {remaining} / {total}",
+  "@hermesContextLeftOf": {"placeholders": {"remaining": {"type": "String", "example": "$12.00"}, "total": {"type": "String", "example": "$20.00"}}},
+  "hermesContextRenews": "續訂日期：{date}",
+  "@hermesContextRenews": {"placeholders": {"date": {"type": "String", "example": "Dec 1"}}},
+  "hermesContextTopUp": "儲值額度",
+  "hermesContextRateLimited": "已達速率限制",
+  "hermesContextRateLimitedUntil": "速率限制至 {time}",
+  "@hermesContextRateLimitedUntil": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextUsageLevel": "此模型的消耗：{level}",
+  "@hermesContextUsageLevel": {"placeholders": {"level": {"type": "String", "example": "medium"}}},
+  "hermesContextLevelFree": "免費",
+  "hermesContextLevelLow": "低",
+  "hermesContextLevelMedium": "中",
+  "hermesContextLevelTopTier": "頂級",
+  "hermesContextCompactSection": "壓縮",
+  "hermesContextCompactHint": "Hermes 會摘要較早的訊息以釋放上下文。最近的訊息保持不變。",
+  "hermesContextCompactFocus": "重點保留（選填）",
+  "hermesContextCompactNow": "立即壓縮",
+  "hermesContextCompacted": "聊天已壓縮。",
+  "hermesContextCompactedTokens": "Token：約 {before} → 約 {after}",
+  "@hermesContextCompactedTokens": {"placeholders": {"before": {"type": "String", "example": "12,351"}, "after": {"type": "String", "example": "4,020"}}},
+  "hermesContextCompactedMessages": "訊息：{before} → {after}",
+  "@hermesContextCompactedMessages": {"placeholders": {"before": {"type": "int", "example": "24"}, "after": {"type": "int", "example": "8"}}},
+  "hermesContextCompactUnchanged": "暫時沒有可壓縮的內容。",
+  "hermesContextCompactRefused": "保持不變：摘要會比它取代的訊息更長。",
+  "hermesContextCompactAborted": "壓縮失敗，未移除任何訊息。",
+  "hermesContextCompactPending": "仍在壓縮，完成後聊天會重新整理。",
+  "hermesContextCompactBusy": "另一個壓縮正在進行，請稍後再試。",
+  "hermesContextCompactWait": "請等待回覆完成後再壓縮。",
+  "hermesContextCompactFailed": "無法壓縮此聊天，請再試一次。",
+  "hermesContextLoadFailed": "無法載入上下文與用量。",
+  "hermesErrorProvider": "模型供應商無法回答",
+  "hermesErrorEndpoint": "無法連線到模型伺服器",
+  "hermesErrorConnection": "回覆串流已中斷",
+  "hermesErrorAuth": "供應商拒絕了 Hermes 的憑證",
+  "hermesErrorBilling": "額度已用完",
+  "hermesErrorUsageLimit": "已達方案上限",
+  "hermesErrorFreeTier": "免費方案無法執行此請求",
+  "hermesErrorRateLimit": "已達速率限制",
+  "hermesErrorContextOverflow": "此聊天對模型來說太長了",
+  "hermesErrorModel": "模型無法使用",
+  "hermesErrorPolicy": "遭政策封鎖",
+  "hermesErrorTruncated": "回覆被截斷了",
+  "hermesErrorBadReply": "模型傳回了無法使用的回覆",
+  "hermesErrorWorkspace": "聊天的工作資料夾不見了",
+  "hermesErrorSession": "此聊天無法在這裡繼續",
+  "hermesErrorBusy": "Hermes 正在處理此聊天",
+  "hermesErrorGateway": "Hermes 遇到了問題",
+  "hermesErrorDisk": "Hermes 磁碟空間不足",
+  "hermesErrorUnknown": "Hermes 無法完成此回覆",
+  "hermesErrorBlocking": "解決前無法繼續",
+  "hermesErrorDegraded": "可以繼續聊天",
+  "hermesErrorResetsAt": "將於 {time} 重設",
+  "@hermesErrorResetsAt": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesErrorPartialKept": "目前為止的回覆保留在上方。",
+  "hermesErrorContinue": "繼續",
+  "hermesErrorCompact": "壓縮聊天",
+  "hermesErrorSwitchModel": "切換到 {model}",
+  "@hermesErrorSwitchModel": {"placeholders": {"model": {"type": "String", "example": "Hermes 4 70B"}}},
+  "hermesErrorOpenProviderSettings": "開啟 {provider} 設定",
+  "@hermesErrorOpenProviderSettings": {"placeholders": {"provider": {"type": "String", "example": "OpenRouter"}}},
+  "hermesErrorOpenBilling": "開啟帳單",
+  "hermesErrorUseCredits": "使用額度",
+  "hermesErrorActionFailed": "操作失敗，請再試一次。",
+  "hermesBackgroundAgentCount": "{count, plural, other{{count} 個代理程式}}",
+  "@hermesBackgroundAgentCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundProcessCount": "{count, plural, other{{count} 個程序}}",
+  "@hermesBackgroundProcessCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundWorkShow": "顯示背景工作",
+  "hermesBackgroundWorkTitle": "背景工作",
+  "hermesBackgroundWorkEmpty": "背景中沒有正在執行的項目。",
+  "hermesBackgroundAgents": "代理程式",
+  "hermesBackgroundProcesses": "程序",
+  "hermesSubagentQueued": "排隊中",
+  "hermesSubagentLastTool": "最近的工具：{tool}",
+  "@hermesSubagentLastTool": {"placeholders": {"tool": {"type": "String"}}},
+  "hermesSubagentFinished": "此代理程式已完成。",
+  "hermesSubagentOutput": "即時輸出",
+  "hermesSubagentNoOutput": "尚無輸出。",
+  "hermesSubagentOutputTruncated": "正在顯示其輸出的最新部分。",
+  "hermesSubagentOutputFailed": "無法載入其輸出。",
+  "hermesSubagentSteerHint": "告訴此代理程式一些事",
+  "hermesSubagentSteer": "引導",
+  "hermesSubagentSteerQueued": "已加入佇列。只有代理程式再執行一個步驟時才會讀取。",
+  "hermesSubagentSteerRejected": "此代理程式不再接受指示。",
+  "hermesSubagentStop": "停止代理程式",
+  "hermesSubagentStopped": "已要求代理程式停止。",
+  "hermesBackgroundActionFailed": "操作失敗，請再試一次。",
+  "hermesProcessKill": "終止",
+  "hermesProcessKillLabel": "終止程序",
+  "hermesProcessKillTitle": "要終止此程序嗎？",
+  "hermesProcessKillMessage": "Hermes 會嘗試停止此指令及其啟動的所有項目：\n{command}\n部分程序可能仍會繼續執行。",
+  "@hermesProcessKillMessage": {"placeholders": {"command": {"type": "String"}}},
+  "hermesProcessKilled": "程序已終止。",
+  "hermesProcessAlreadyStopped": "它已經停止了。",
+  "hermesProcessKillFailed": "無法終止：{error}",
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "程式設計代理",
+  "modelControlServiceTier": "服務等級",
+  "scheduledTaskTerminalSearchHint": "搜尋終端機",
+  "scheduledTaskWorkingFolderLabel": "工作資料夾",
+  "scheduledTaskWorkingFolderHint": "終端機的預設資料夾",
+  "scheduledTaskTerminalRequired": "請選擇執行此代理的終端機。",
+  "scheduledTaskAgentNeedsChat": "代理的結果會傳送到新聊天。",
+  "scheduledTaskAgentsLoading": "正在載入此終端機的代理…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新通知",
+  "pushReplyTitle": "新回覆",
+  "pushReplyFailedTitle": "回覆失敗",
+  "pushReplyFailedBody": "回覆未能完成。",
+  "pushChannelTitle": "新訊息",
+  "pushCronTitle": "排程工作",
+  "pushTestTitle": "推播通知已可使用",
+  "pushTestBody": "這則測試通知來自你的伺服器。",
+  "pushSectionTitle": "推播通知",
+  "pushEnabledTitle": "推播通知",
+  "pushEnabledDescription": "即使 Conduit 已關閉也能收到通知。端對端加密。",
+  "pushUnavailableBuild": "此版本無法使用",
+  "pushUnavailableAndroid": "此版本需要 UnifiedPush 分發器才能使用",
+  "pushGetDistributor": "取得 UnifiedPush 分發器",
+  "pushPrivacyTitle": "推播如何保持私密",
+  "pushStatusOff": "已關閉",
+  "pushStatusOptedOut": "已在此裝置上關閉",
+  "pushStatusSettingUp": "正在設定…",
+  "pushStatusVerifying": "正在傳送測試通知…",
+  "pushStatusOn": "已開啟",
+  "pushStatusNeedsAdminSetup": "需要管理員設定",
+  "pushStatusCanInstall": "此伺服器尚未設定",
+  "pushStatusUpdateAvailable": "已開啟 · 有可用更新",
+  "pushStatusPluginsDisabled": "此伺服器已關閉函式功能",
+  "pushStatusServerTooOldOpenWebUi": "需要 Open WebUI 0.11 或更新版本",
+  "pushStatusServerTooOldHermes": "需要較新版本的 Hermes",
+  "pushStatusNeedsHermesPlugin": "需要在 Hermes 中安裝 Conduit 外掛",
+  "pushStatusRestartHermes": "重新啟動 Hermes 以完成",
+  "pushStatusSignInNeeded": "登入後才能使用推播",
+  "pushStatusPermissionDenied": "通知已被封鎖",
+  "pushStatusNotificationsOff": "已開啟 · 此帳戶的通知已關閉",
+  "pushActionSetUp": "設定",
+  "pushActionAskAdmin": "詢問管理員",
+  "pushActionUpdate": "更新",
+  "pushActionInstall": "安裝",
+  "pushActionCopyCommand": "複製指令",
+  "pushExplainOn": "即使 Conduit 已關閉，此帳戶的通知也會送達此裝置。",
+  "pushExplainOptedOut": "此裝置上已為此帳戶關閉推播。",
+  "pushExplainSettingUp": "Conduit 正在向伺服器註冊此裝置。",
+  "pushExplainVerifying": "伺服器正在向此裝置傳送測試通知。",
+  "pushExplainNotificationsOff": "推播已設定好，但此帳戶的通知已關閉，因此不會顯示。",
+  "pushExplainNeedsAdminSetup": "推播需要此伺服器安裝開放原始碼的 Conduit Push 函式，而只有管理員可以安裝。請把設定連結傳給你的管理員。",
+  "pushExplainCanInstall": "推播需要此伺服器安裝開放原始碼的 Conduit Push 函式。你是管理員，現在就可以安裝。",
+  "pushExplainUpdateAvailable": "推播可以使用。此 App 附帶了較新版本的 Conduit Push 函式。",
+  "pushExplainPluginsDisabled": "此 Open WebUI 伺服器關閉了函式功能，因此 Conduit Push 無法執行。管理員可以開啟它。",
+  "pushExplainServerTooOld": "此伺服器版本太舊，無法使用推播通知。請更新後再使用。",
+  "pushExplainNeedsHermesPlugin": "推播需要 Hermes 中的開放原始碼 Conduit 外掛。Conduit 可以透過 Hermes 儀表板安裝它。",
+  "pushExplainHermesCommand": "推播需要 Hermes 中的開放原始碼 Conduit 外掛。請在執行 Hermes 的電腦上執行此指令：",
+  "pushExplainRestartHermes": "外掛已安裝。重新啟動 Hermes 以完成；Conduit 會自動再次檢查。",
+  "pushExplainSignInNeeded": "請重新登入此帳戶以使用推播。",
+  "pushExplainRelayUnavailable": "此版本的 Conduit 無法傳遞推播通知。",
+  "pushExplainPermissionDenied": "請在系統設定中允許 Conduit 傳送通知。",
+  "pushFailureNoTransport": "此裝置無法接收推播通知。",
+  "pushFailureNoToken": "此裝置沒有取得推播權杖。請檢查網路連線後再試一次。",
+  "pushFailureDistributor": "UnifiedPush 分發器沒有回應。",
+  "pushFailureRelay": "無法連線到推播中繼。",
+  "pushFailureRelayBusy": "推播中繼忙碌中。請稍後再試。",
+  "pushFailureServerUnreachable": "無法連線到伺服器。",
+  "pushFailureServerRejected": "伺服器拒絕了要求。",
+  "pushFailureHermesAuth": "Hermes 不接受此 API 金鑰。",
+  "pushFailureSubscriptionLost": "伺服器沒有保留此裝置的訂閱。",
+  "pushFailureInstall": "安裝失敗。",
+  "pushFailureTestTimeout": "測試通知沒有送達。",
+  "pushFailureDelivery": "伺服器無法傳遞測試通知。",
+  "pushFailurePlatform": "此裝置無法儲存推播金鑰。",
+  "pushFailureUnknown": "發生了一些問題。",
+  "pushInstallOpenWebUiTitle": "安裝 Conduit Push？",
+  "pushInstallOpenWebUiMessage": "這會在此伺服器上安裝並開啟開放原始碼的 Conduit Push 函式，讓這裡的每個人都能在 Conduit 中收到推播通知。每則通知在離開伺服器之前都會在伺服器上加密。",
+  "pushUpdateOpenWebUiTitle": "更新 Conduit Push？",
+  "pushUpdateOpenWebUiMessage": "這會用此 App 附帶的版本取代此伺服器上的 Conduit Push 函式。現有訂閱會保留。",
+  "pushInstallHermesTitle": "安裝 Conduit 外掛？",
+  "pushInstallHermesMessage": "這會從 GitHub 把開放原始碼的 Conduit 外掛安裝到 Hermes 並開啟。Hermes 會在安裝前檢查外掛。之後請重新啟動 Hermes 一次以完成。",
+  "pushViewSource": "檢視原始碼",
+  "pushHermesCommandLabel": "指令",
+  "pushDetailSendTest": "傳送測試通知",
+  "pushTestArrived": "測試通知已送達。",
+  "pushTestMissing": "測試通知沒有送達。",
+  "pushDetailUseForAccount": "為此帳戶使用推播",
+  "pushDetailUseForConnection": "為此連線使用推播",
+  "pushDetailOriginTitle": "回覆來源",
+  "pushDetailOriginDescription": "哪些已完成的回覆會傳送推播通知。",
+  "pushOriginConduit": "在 Conduit 中開始的對話",
+  "pushOriginAny": "我的所有對話",
+  "pushDiagnosticsTitle": "診斷",
+  "pushDiagnosticsTransport": "傳遞方式",
+  "pushDiagnosticsServer": "伺服器版本",
+  "pushDiagnosticsPlugin": "外掛版本",
+  "pushDiagnosticsVerified": "上次驗證",
+  "pushDiagnosticsServerReport": "伺服器報告",
+  "pushDiagnosticsError": "上次錯誤",
+  "pushDeliveryTitle": "推播傳遞",
+  "pushDeliveryAutomatic": "自動",
+  "pushDeliveryFcm": "Google (FCM)",
+  "pushDeliveryUnifiedPush": "UnifiedPush",
+  "pushDistributorTitle": "UnifiedPush 分發器",
+  "pushNoDistributor": "未安裝 UnifiedPush 分發器。",
+  "pushResetKeys": "重設推播金鑰",
+  "pushResetKeysDescription": "從所有伺服器移除此裝置，並用新金鑰重新設定推播。",
+  "pushResetKeysConfirmTitle": "要重設推播金鑰嗎？",
+  "pushResetKeysConfirmMessage": "Conduit 會從所有伺服器移除此裝置，刪除其推播金鑰，並用新金鑰重新設定推播。",
+  "pushResetKeysConfirm": "重設",
+  "pushPrivacyIntro": "每則推播通知都由你自己的伺服器加密，只有此裝置能夠讀取。用於解密的金鑰從不離開此裝置，因此中間的任何環節都無法讀取。",
+  "pushPrivacyServerTitle": "你的伺服器",
+  "pushPrivacyServerBody": "它本來就有你的對話。為了推播，它還會保存此裝置的推播位址、公開金鑰、一個隨機裝置 ID，以及像「iOS」這樣的標籤。通知內容由它決定：一個標題和一段簡短預覽。",
+  "pushPrivacyRelayTitle": "Conduit 中繼",
+  "pushPrivacyRelayBody": "它把加密的通知轉交給 Apple 或 Google。它看得到你的伺服器的 IP 位址、傳送時間以及大略大小，但看不到標題、內文、帳戶，也看不到伺服器的名稱或 URL。它是開放原始碼，不保留記錄，也沒有資料庫。",
+  "pushPrivacyProvidersTitle": "Apple 與 Google",
+  "pushPrivacyProvidersBody": "它們傳遞加密的通知，但無法讀取。如果通知無法解密，手機只會顯示「新通知」。",
+  "pushPrivacyUnifiedPushTitle": "UnifiedPush",
+  "pushPrivacyUnifiedPushBody": "在 Android 上，你也可以改用 UnifiedPush 分發器。這樣你的伺服器會直接傳送給它，不經過 Conduit 中繼和 Google。",
+  "pushPrivacyOffTitle": "關閉推播",
+  "pushPrivacyOffBody": "關閉推播會刪除此裝置的所有推播金鑰；為某個帳戶關閉推播、登出或移除該帳戶會刪除該帳戶的金鑰。之後傳送給這些金鑰的內容都無法讀取。Conduit 也會請求相關帳戶的伺服器忘記此裝置。",
+  "pushPrivacyReadMore": "閱讀完整說明",
+  "pushAttentionChip": "推播需要處理",
+  "notificationScheduledTitle": "排程工作",
+  "notificationScheduledDescription": "Hermes 排程工作交付結果時通知。",
+  "hermesJobNotifyTitle": "通知我",
+  "hermesJobNotifyDescription": "此工作交付結果時傳送推播通知。",
+  "pushAskAdminMessage": "可以在我們的 Open WebUI 伺服器上設定 Conduit Push 嗎？這樣 Conduit 就能傳送端對端加密的推播通知。請在「管理員面板 → 函式」中匯入 {url}，並把函式 ID 設為 {functionId}。設定指南：{guide}",
+  "pushExplainFailed": "Conduit 會在你下次開啟時自動重試，你也可以現在重試。",
+  "pushHermesCommandLatest": "這會安裝外掛最新發佈的版本。",
+  "hermesJobCreatedNotifyFailed": "排程工作已建立，但無法為其開啟通知。",
+  "hermesJobUpdatedNotifyFailed": "排程工作已儲存，但無法變更其通知。",
+  "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。"
 }

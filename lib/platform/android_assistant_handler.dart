@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 
@@ -96,8 +97,38 @@ class AndroidAssistantHandler {
     _ref.read(sidebarOverlayDismissRequestProvider.notifier).request();
   }
 
-  Future<void> _processScreenshot(String screenshotPath) async {
+  /// Name prefix of the screenshots the Android assistant session caches.
+  static const _screenshotPrefix = 'assistant_screenshot_';
+
+  /// [screenshotPath] with links resolved, when it is a screenshot the
+  /// assistant session wrote: a file directly inside the app's cache whose
+  /// name starts with [_screenshotPrefix]. Null for any other path. Android
+  /// checks this before sending the path; this checks it again.
+  Future<String?> _screenshotInCache(String screenshotPath) async {
     try {
+      final cache = await (await getTemporaryDirectory())
+          .resolveSymbolicLinks();
+      final resolved = await File(screenshotPath).resolveSymbolicLinks();
+      final inCache =
+          path.equals(path.dirname(resolved), cache) &&
+          path.basename(resolved).startsWith(_screenshotPrefix) &&
+          await FileSystemEntity.isFile(resolved);
+      return inCache ? resolved : null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<void> _processScreenshot(String requestedPath) async {
+    try {
+      final screenshotPath = await _screenshotInCache(requestedPath);
+      if (screenshotPath == null) {
+        DebugLogger.log(
+          'Dropped a screenshot that is not in the app cache',
+          scope: 'assistant',
+        );
+        return;
+      }
       DebugLogger.log(
         'Processing screenshot: $screenshotPath',
         scope: 'assistant',

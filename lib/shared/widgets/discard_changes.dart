@@ -8,8 +8,13 @@ import 'package:conduit/shared/widgets/themed_dialogs.dart';
 ///
 /// Forms and sheets with edits call this from their Cancel or close action and
 /// from `PopScope.onPopInvokedWithResult`, so swiping a sheet away or going
-/// back asks the same question as tapping Cancel.
-Future<bool> confirmDiscardChanges(BuildContext context) {
+/// back asks the same question as tapping Cancel. A Cancel or close button
+/// passes its own context as [anchorContext], so on iOS 26 the question
+/// appears over it.
+Future<bool> confirmDiscardChanges(
+  BuildContext context, {
+  BuildContext? anchorContext,
+}) {
   final l10n = AppLocalizations.of(context)!;
   return ThemedDialogs.confirm(
     context,
@@ -18,6 +23,7 @@ Future<bool> confirmDiscardChanges(BuildContext context) {
     confirmText: l10n.workspaceEditorDiscardConfirm,
     cancelText: l10n.workspaceEditorKeepEditing,
     isDestructive: true,
+    anchorContext: anchorContext,
   );
 }
 

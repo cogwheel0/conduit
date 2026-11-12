@@ -1,3 +1,5 @@
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatPromptsProvider;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,6 +25,7 @@ class PromptSuggestionOverlay extends ConsumerWidget {
     required this.selectionIndex,
     required this.onPromptSelected,
     this.useHermesSkills = false,
+    this.useLibreChatPrompts = false,
     super.key,
   });
 
@@ -34,6 +37,10 @@ class PromptSuggestionOverlay extends ConsumerWidget {
   /// When true, the base list is the Hermes agent's skills instead of the
   /// OpenWebUI prompts (the active model routes `/` commands to Hermes).
   final bool useHermesSkills;
+
+  /// When true, the base list is the LibreChat prompt library (a LibreChat
+  /// model is selected).
+  final bool useLibreChatPrompts;
 
   /// Index of the currently highlighted prompt in the filtered list.
   final int selectionIndex;
@@ -51,6 +58,8 @@ class PromptSuggestionOverlay extends ConsumerWidget {
 
     final AsyncValue<List<Prompt>> promptsAsync = useHermesSkills
         ? ref.watch(hermesSkillPromptsProvider)
+        : useLibreChatPrompts
+        ? ref.watch(libreChatPromptsProvider)
         : ref.watch(promptsListProvider);
 
     return Container(

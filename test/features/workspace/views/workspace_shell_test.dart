@@ -61,7 +61,7 @@ void main() {
       shell.appBar!.cupertinoNavigationBar,
       isA<ConduitAdaptiveCupertinoNavigationBar>(),
     );
-    expect(find.byType(ConduitChromeGradientFade), findsOneWidget);
+    expect(find.byType(ConduitChromeGradientFade), findsNothing);
     expect(find.text('Tool'), findsOneWidget);
   });
 
@@ -176,7 +176,7 @@ void main() {
     expect(find.byKey(const Key('workspace-create-models')), findsOneWidget);
     expect(find.byKey(const Key('workspace-search-models')), findsOneWidget);
     expect(find.text('Active'), findsOneWidget);
-    expect(find.text('Read only'), findsOneWidget);
+    expect(find.text('Read-only'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-section-tabs')));
     await tester.pumpAndSettle();

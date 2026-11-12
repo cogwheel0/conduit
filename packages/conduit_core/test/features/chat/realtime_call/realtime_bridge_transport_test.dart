@@ -73,19 +73,24 @@ Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
   group('Open WebUI bridge', () {
-    OpenWebUiRealtimeBridge bridge(_Socket socket, {String? chatId}) =>
-        OpenWebUiRealtimeBridge(
-          server: const ServerConfig(
-            id: 'server',
-            name: 'Home',
-            url: 'https://owui.example/sub/',
-            customHeaders: {'CF-Access-Client-Id': 'id', 'Host': 'evil'},
-          ),
-          token: 'jwt',
-          modelId: 'llama3',
-          chatId: chatId,
-          connect: socket.connect,
-        );
+    OpenWebUiRealtimeBridge bridge(
+      _Socket socket, {
+      String? chatId,
+      String modelId = 'llama3',
+      String? terminalId,
+    }) => OpenWebUiRealtimeBridge(
+      server: const ServerConfig(
+        id: 'server',
+        name: 'Home',
+        url: 'https://owui.example/sub/',
+        customHeaders: {'CF-Access-Client-Id': 'id', 'Host': 'evil'},
+      ),
+      token: 'jwt',
+      modelId: modelId,
+      chatId: chatId,
+      terminalId: terminalId,
+      connect: socket.connect,
+    );
 
     test('signs in with the session token in its first frame', () async {
       final socket = _Socket();
@@ -107,6 +112,31 @@ void main() {
         'sample_rate': 24000,
       });
       check(await ready).equals((model: 'gpt-realtime', voice: 'marin'));
+    });
+
+    test('a coding agent is called on its terminal (0.13.1)', () async {
+      final socket = _Socket();
+      final ready = bridge(
+        socket,
+        chatId: 'chat-1',
+        modelId: 'agent:t1:codex:gpt-5.1',
+        terminalId: 't1',
+      ).open();
+      await _settle();
+      check(socket.sent.single).deepEquals({
+        'type': 'auth',
+        'token': 'jwt',
+        'model_id': 'agent:t1:codex:gpt-5.1',
+        'chat_id': 'chat-1',
+        'terminal_id': 't1',
+      });
+      socket.receive({
+        'type': 'bridge.ready',
+        'model': 'm',
+        'voice': 'v',
+        'sample_rate': 24000,
+      });
+      await ready;
     });
 
     test('a bridge closed before it opens connects nothing', () async {

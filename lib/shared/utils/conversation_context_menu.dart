@@ -5,6 +5,8 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart' show isOnlineProvider;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -16,6 +18,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
@@ -24,7 +27,10 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
+import 'package:conduit/features/navigation/widgets/create_folder_dialog.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
+import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 
 /// Defines an action for use in Conduit context menus.
 class ConduitContextMenuAction {
@@ -272,21 +278,39 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   final bool isPinned = conversation.pinned == true;
   final bool isArchived = conversation.archived == true;
   final bool isOnDevice = isDirectLocalConversation(conversation);
+  // LibreChat has no folders. It shares through its own server when the
+  // server allows links, and copies chats there too. A link the chat already
+  // has can be deleted without that, so its sheet stays reachable.
+  final bool isLibreChat = isLibreChatConversation(conversation);
+  final String? shareId = conversation.shareId as String?;
+  // Watched: the actions are built with the menu, and capabilities that load
+  // (or a connection that comes back) afterwards must show in it.
+  final bool canShare =
+      !isOnDevice &&
+      (!isLibreChat ||
+          (shareId != null && shareId.isNotEmpty) ||
+          ref.watch(
+            libreChatCapabilitiesProvider.select(
+              (capabilities) => capabilities.asData?.value.sharedLinks ?? false,
+            ),
+          ));
+  final bool canDuplicate = isLibreChat && ref.watch(isOnlineProvider);
   final selectionId = conversationScopedId(conversation);
   final currentFolderId = _conversationFolderId(conversation);
-  final canMove =
-      !isOnDevice &&
-      foldersEnabled &&
-      (folders.any((folder) => folder.id != currentFolderId) ||
-          currentFolderId != null);
+  // Move is offered even with no folder to move to: its sheet starts with
+  // New Folder, which is also how the first folder gets made once the
+  // sidebar hides an empty Folders group. LibreChat chats have no folders.
+  final canMove = !isOnDevice && !isLibreChat && foldersEnabled;
   final showMarkUnread =
       canMarkUnread &&
       !isOnDevice &&
+      !isLibreChat &&
       ref.watch(chatMarkUnreadSupportedProvider);
   // The server titles a chat it holds; on-device and temporary chats have
   // nothing there to read.
   final canGenerateTitle =
       !isOnDevice &&
+      !isLibreChat &&
       !isTemporaryChat(conversation.id as String?) &&
       !isNativeHermesConversation(conversation as Conversation?) &&
       ref.watch(apiServiceProvider) != null;
@@ -332,6 +356,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       selectionId,
       conversation.title ?? '',
       isOnDevice: isOnDevice,
+      isLibreChat: isLibreChat,
     );
   }
 
@@ -341,12 +366,48 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       ref,
       conversation,
       isOnDevice: isOnDevice,
+      isLibreChat: isLibreChat,
     );
   }
 
   Future<void> shareConversation() async {
     if (!context.mounted) return;
     await showChatShareSheet(context: context, conversation: conversation);
+  }
+
+  Future<void> duplicateConversation() async {
+    final failed = l10n.libreChatCopyFailed;
+    // The copy opens unless the user has moved on (another chat, another
+    // account, or a chat still opening) while it was made: it is then only
+    // listed.
+    final startedSelection = ref.read(conversationSelectionProvider).generation;
+    final startedFor = ref.read(primaryAccountProvider);
+    try {
+      final copy = await chat.copyLibreChatConversation(ref, selectionId);
+      if (!context.mounted) return;
+      if (ref.read(conversationSelectionProvider).generation !=
+              startedSelection ||
+          ref.read(primaryAccountProvider) != startedFor) {
+        return;
+      }
+      final result = await ref
+          .read(conversationSelectionProvider.notifier)
+          .select(copy);
+      switch (result.disposition) {
+        case ConversationSelectionDisposition.committed:
+          NavigationService.router.go(Routes.chat);
+        case ConversationSelectionDisposition.failed:
+          // The copy was made but could not be opened.
+          if (!context.mounted) return;
+          await _showConversationError(context, failed);
+        case ConversationSelectionDisposition.canceled:
+          // Another chat was chosen meanwhile: nothing to report.
+          break;
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      await _showConversationError(context, failed);
+    }
   }
 
   Future<void> moveConversation() async {
@@ -382,7 +443,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: toggleArchive,
     ),
-    if (!isOnDevice)
+    if (canShare)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.share,
         sfSymbol: 'square.and.arrow.up',
@@ -417,6 +478,15 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
         onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: markUnread,
       ),
+    if (canDuplicate)
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.plus_square_on_square,
+        sfSymbol: 'plus.square.on.square',
+        materialIcon: Icons.copy_all_rounded,
+        label: l10n.libreChatDuplicateChat,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: duplicateConversation,
+      ),
     if (canMove)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.folder,
@@ -449,9 +519,16 @@ String? _conversationFolderId(dynamic conversation) {
 }
 
 class _ConversationMoveTarget {
-  const _ConversationMoveTarget({required this.folderId});
+  const _ConversationMoveTarget({required this.folderId})
+    : createsFolder = false;
+
+  /// Into a folder the user names next.
+  const _ConversationMoveTarget.newFolder()
+    : folderId = null,
+      createsFolder = true;
 
   final String? folderId;
+  final bool createsFolder;
 }
 
 Future<void> _moveConversation(
@@ -468,13 +545,24 @@ Future<void> _moveConversation(
     currentFolderId: currentFolderId,
   );
   if (!context.mounted || target == null) return;
-  if (target.folderId == currentFolderId) return;
+  var folderId = target.folderId;
+  if (target.createsFolder) {
+    final created = await CreateFolderDialog.show(
+      context,
+      ref,
+      onError: (message) => _showConversationError(context, message),
+    );
+    if (!context.mounted || created == null) return;
+    folderId = created.id;
+  }
+  if (folderId == currentFolderId) return;
+  final destination = folderId;
 
   final l10n = AppLocalizations.of(context)!;
   try {
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
-    await api.moveConversationToFolder(rawConversationId, target.folderId);
+    await api.moveConversationToFolder(rawConversationId, destination);
     if (!context.mounted) return;
 
     ConduitHaptics.selectionClick();
@@ -485,9 +573,9 @@ Future<void> _moveConversation(
           // The move keeps the chat's last activity: Open WebUI 0.12.5 leaves
           // its date alone, and the refresh below brings the date of an older
           // server, which still moves it.
-          (conversation) => conversation.copyWith(folderId: target.folderId),
+          (conversation) => conversation.copyWith(folderId: destination),
           trustFolderConversation:
-              target.folderId != null && target.folderId!.isNotEmpty,
+              destination != null && destination.isNotEmpty,
         );
 
     final activeConversation = ref.read(activeConversationProvider);
@@ -495,9 +583,7 @@ Future<void> _moveConversation(
         conversationMatchesScopedId(activeConversation, conversationId)) {
       ref
           .read(activeConversationProvider.notifier)
-          .set(
-            activeConversation.copyWith(folderId: target.folderId),
-          );
+          .set(activeConversation.copyWith(folderId: destination));
     }
     refreshConversationsCache(ref, includeFolders: true);
   } catch (_) {
@@ -520,11 +606,17 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
 
   if (Theme.of(context).platform == TargetPlatform.iOS) {
     const noFolderId = '__no_folder__';
+    const newFolderId = '__new_folder__';
     try {
       final selectedId = await NativeSheetBridge.instance
           .presentOptionsSelector(
             title: l10n.moveToFolder,
             options: [
+              NativeSheetOptionConfig(
+                id: newFolderId,
+                label: l10n.newFolder,
+                sfSymbol: 'folder.badge.plus',
+              ),
               if (currentFolderId != null)
                 NativeSheetOptionConfig(
                   id: noFolderId,
@@ -548,6 +640,11 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
       }
       if (selectedId == noFolderId) {
         return const _ConversationMoveTarget(folderId: null);
+      }
+      if (selectedId == newFolderId) {
+        // The name editor can be asked for at once: the native side waits
+        // for this sheet to finish closing before presenting it.
+        return const _ConversationMoveTarget.newFolder();
       }
       return _ConversationMoveTarget(folderId: selectedId);
     } catch (_) {
@@ -587,6 +684,15 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
               physics: const ClampingScrollPhysics(),
               padding: EdgeInsets.zero,
               children: [
+                _MoveTargetTile(
+                  icon: PlatformInfo.isIOS
+                      ? CupertinoIcons.folder_badge_plus
+                      : Icons.create_new_folder_outlined,
+                  label: l10n.newFolder,
+                  onTap: () =>
+                      Navigator.of(sheetContext)
+                          .pop(const _ConversationMoveTarget.newFolder()),
+                ),
                 if (currentFolderId != null)
                   _MoveTargetTile(
                     icon: PlatformInfo.isIOS
@@ -675,8 +781,12 @@ Future<void> _renameConversation(
   String conversationId,
   String currentTitle, {
   required bool isOnDevice,
+  bool isLibreChat = false,
 }) async {
   final l10n = AppLocalizations.of(context)!;
+  // The answer is for the LibreChat account the dialog opened under; another
+  // one can hold a chat with the same id.
+  final openedFor = ref.read(activeLibreChatAccountProvider)?.id;
   final newName = await ThemedDialogs.promptTextInput(
     context,
     title: l10n.renameChat,
@@ -689,11 +799,20 @@ Future<void> _renameConversation(
   if (!context.mounted) return;
   if (newName == null) return;
   if (newName.isEmpty || newName == currentTitle) return;
+  if (isLibreChat &&
+      ref.read(activeLibreChatAccountProvider)?.id != openedFor) {
+    return;
+  }
 
   final renameError = l10n.failedToRenameChat;
   try {
     if (isOnDevice) {
       await chat.renameDirectLocalConversation(ref, conversationId, newName);
+      ConduitHaptics.selectionClick();
+      return;
+    }
+    if (isLibreChat) {
+      await chat.renameLibreChatConversation(ref, conversationId, newName);
       ConduitHaptics.selectionClick();
       return;
     }
@@ -894,10 +1013,14 @@ Future<void> _confirmAndDeleteConversation(
   WidgetRef ref,
   Conversation conversation, {
   required bool isOnDevice,
+  bool isLibreChat = false,
 }) async {
   final conversationId = conversationScopedId(conversation);
   final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final l10n = AppLocalizations.of(context)!;
+  // The answer is for the LibreChat account the dialog opened under; another
+  // one can hold a chat with the same id.
+  final openedFor = ref.read(activeLibreChatAccountProvider)?.id;
   final confirmed = await ThemedDialogs.confirm(
     context,
     title: l10n.deleteChatTitle,
@@ -908,11 +1031,23 @@ Future<void> _confirmAndDeleteConversation(
 
   if (!context.mounted) return;
   if (!confirmed) return;
+  if (isLibreChat &&
+      ref.read(activeLibreChatAccountProvider)?.id != openedFor) {
+    return;
+  }
 
   final deleteError = l10n.failedToDeleteChat;
+  // Read before deleting: the LibreChat delete closes the chat itself, which
+  // would hide that it was the open one.
+  final initiallyActive = ref.read(activeConversationProvider);
+  final wasActive =
+      initiallyActive != null &&
+      conversationMatchesScopedId(initiallyActive, conversationId);
   try {
     if (isOnDevice) {
       await chat.deleteDirectLocalConversation(ref, conversationId);
+    } else if (isLibreChat) {
+      await chat.deleteLibreChatConversation(ref, conversationId);
     } else {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
@@ -932,9 +1067,19 @@ Future<void> _confirmAndDeleteConversation(
           .read(conversationsProvider.notifier)
           .removeConversation(conversationId);
     }
+    // The account may have changed while the delete ran: another account's
+    // chat with the same id is not the one deleted.
+    if (isLibreChat &&
+        ref.read(activeLibreChatAccountProvider)?.id != openedFor) {
+      return;
+    }
     ConduitHaptics.mediumImpact();
+    // Reset only while the deleted chat is still the one shown, or nothing
+    // is after the delete closed it: another chat opened while the delete
+    // ran keeps its messages and model.
     final active = ref.read(activeConversationProvider);
-    if (active != null && conversationMatchesScopedId(active, conversationId)) {
+    if ((wasActive && active == null) ||
+        (active != null && conversationMatchesScopedId(active, conversationId))) {
       chat.clearSelectedFiltersForConversationBoundary(ref);
       ref.read(activeConversationProvider.notifier).clear();
       ref.read(chat.chatMessagesProvider.notifier).clearMessages();

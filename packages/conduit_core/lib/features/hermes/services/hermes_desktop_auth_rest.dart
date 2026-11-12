@@ -1,5 +1,64 @@
 part of 'hermes_desktop_api_service.dart';
 
+/// A dashboard REST request Hermes answered with a non-2xx [status]: always
+/// from the signed-in web view, and from direct requests that asked for the
+/// error's [detail].
+final class HermesDesktopHttpException implements Exception {
+  const HermesDesktopHttpException(this.status, {this.detail});
+
+  final int status;
+
+  /// The bounded `detail` (or error message) Hermes gave, when it gave one.
+  final String? detail;
+
+  @override
+  String toString() => 'Hermes dashboard request failed ($status).';
+}
+
+/// Whether [error] says Hermes' gateway is not ready yet: a gateway's own
+/// listener answers every request with 503 (`gateway_not_ready`) and closes
+/// sockets with 1013 while it starts or drains.
+bool hermesDesktopGatewayNotReady(Object error) =>
+    _hermesDesktopHttpStatus(error) == 503 ||
+    (error is HermesDesktopRpcException && error.notReady);
+
+/// Whether a gated dashboard takes the deployment session token as a bearer
+/// credential (Hermes 0.22.6+ registers its `session-token` auth provider).
+bool hermesDesktopAcceptsSessionToken(Map<String, dynamic> status) {
+  final providers = status['auth_providers'];
+  return providers is List && providers.contains('session-token');
+}
+
+/// The HTTP status a dashboard REST failure carries, from either transport.
+int? _hermesDesktopHttpStatus(Object error) => switch (error) {
+  DioException(:final response) => response?.statusCode,
+  HermesDesktopHttpException(:final status) => status,
+  _ => null,
+};
+
+/// The `detail` of a FastAPI error body (or its `error.message`), bounded.
+String? _hermesDesktopErrorDetail(Object? body) {
+  String? source;
+  if (body is List<int>) {
+    if (body.length > 4096) return null;
+    source = utf8.decode(body, allowMalformed: true);
+  } else if (body is String) {
+    if (body.length > 4096) return null;
+    source = body;
+  }
+  if (source == null || source.isEmpty) return null;
+  try {
+    final decoded = jsonDecode(source);
+    final detail = decoded is Map
+        ? decoded['detail'] ??
+              (decoded['error'] is Map ? decoded['error']['message'] : null)
+        : null;
+    return validateHermesBoundedString(detail, maxCharacters: 512);
+  } on FormatException {
+    return null;
+  }
+}
+
 extension _HermesDesktopAuthRest on HermesDesktopApiService {
   Future<bool> _authHealth() async {
     try {
@@ -25,6 +84,25 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     final data = await _requestJson('GET', '/api/status', authenticated: false);
     if (data is! Map) throw const FormatException('Invalid Hermes status.');
     return _status = Map<String, dynamic>.from(data);
+  }
+
+  /// The server status the status screen lists. A gated Webapp listener
+  /// answers a signed-out caller with only its version, health and sign-in
+  /// options, so it is read signed in when that works.
+  Future<Map<String, dynamic>> _authDetailedStatus() async {
+    final public = await statusProbe(refresh: true);
+    if (public['auth_required'] != true) return public;
+    try {
+      final data = await _requestJson('GET', '/api/status');
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } catch (error) {
+      DebugLogger.warning(
+        'signed-in-status-unavailable',
+        scope: 'hermes/desktop',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    return public;
   }
 
   Future<List<String>> _authListProfiles() async {
@@ -217,9 +295,15 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       case HermesDesktopAuthKind.dashboardCookie:
         throw StateError('Dashboard requests require the WebView bridge.');
       case HermesDesktopAuthKind.legacyToken:
-        throw StateError(
-          'Choose native or dashboard sign-in for this gateway.',
-        );
+        final token = config.desktopCredentials?.legacyToken;
+        if (!hermesDesktopAcceptsSessionToken(status) ||
+            token == null ||
+            token.isEmpty) {
+          throw StateError(
+            'Choose native or dashboard sign-in for this gateway.',
+          );
+        }
+        headers['Authorization'] = 'Bearer $token';
     }
     return headers;
   }
@@ -234,6 +318,9 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     Duration? sendTimeout,
     int nativeRetry = 0,
     int dashboardRetry = 0,
+    bool readErrorDetail = false,
+    bool dashboardUrgent = false,
+    bool Function()? dashboardBeforeSend,
   }) async {
     final requestQuery = <String, dynamic>{...?query};
     if (authenticated && _isProfileScopedRestPath(path)) {
@@ -248,6 +335,8 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         query: requestQuery,
         cancelToken: cancelToken,
         retry: dashboardRetry,
+        urgent: dashboardUrgent,
+        beforeSend: dashboardBeforeSend,
       );
     }
     try {
@@ -260,6 +349,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
           headers: await _headers(authenticated: authenticated),
           responseType: ResponseType.bytes,
           sendTimeout: sendTimeout,
+          receiveDataWhenStatusError: readErrorDetail,
         ),
       );
       final bytes = response.data ?? const <int>[];
@@ -297,11 +387,18 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
               cancelToken: cancelToken,
               sendTimeout: sendTimeout,
               nativeRetry: 1,
+              readErrorDetail: readErrorDetail,
             );
           }
           if (nativeRetry == 0 && identical(previous, refreshed)) rethrow;
           await _saveTokens(null);
         }
+      }
+      if (readErrorDetail && status != null && status != 401) {
+        throw HermesDesktopHttpException(
+          status,
+          detail: _hermesDesktopErrorDetail(error.response?.data),
+        );
       }
       rethrow;
     }
@@ -314,12 +411,14 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     Map<String, dynamic>? query,
     CancelToken? cancelToken,
     int retry = 0,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     if (!hermesDashboardHeadersSupported(
       isIOS: Platform.isIOS,
       accessHeaders: config.accessHeaders,
     )) {
-      throw StateError(
+      throw HermesDashboardUnavailable(
         'Dashboard cookie requests with gateway headers are unavailable on iOS.',
       );
     }
@@ -338,6 +437,8 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       method,
       _uri(path, query),
       body: body == null ? null : jsonEncode(body),
+      urgent: urgent,
+      beforeSend: beforeSend,
     );
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
     if (response.status == 401 || response.status == 403) {
@@ -350,12 +451,17 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
           query: query,
           cancelToken: cancelToken,
           retry: retry + 1,
+          urgent: urgent,
+          beforeSend: beforeSend,
         );
       }
       throw StateError('Hermes dashboard sign-in expired.');
     }
     if (response.status < 200 || response.status >= 300) {
-      throw StateError('Hermes dashboard request failed (${response.status}).');
+      throw HermesDesktopHttpException(
+        response.status,
+        detail: _hermesDesktopErrorDetail(response.body),
+      );
     }
     if (response.body.isEmpty) return null;
     validateHermesJsonSource(response.body);

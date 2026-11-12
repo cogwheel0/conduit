@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:conduit_core/features/librechat/services/librechat_provenance.dart';
 import 'package:conduit_core/models/conversation.dart';
 
 import 'app_database.dart';
@@ -16,7 +17,12 @@ import 'package:meta/meta.dart';
 ///
 /// Keeping provenance beside list/search results is important because a
 /// direct-local chat id can legally collide with an Open WebUI chat id.
-enum ChatStorageKind { openWebUi, directLocal }
+///
+/// [openWebUi] and [libreChat] are account databases. At most one of them is
+/// open at a time -- the one of the account that owns the Chats tab -- and
+/// each is kept in step with its own server. [directLocal] belongs to the
+/// device.
+enum ChatStorageKind { openWebUi, directLocal, libreChat }
 
 /// A conversation selection that retains both its externally meaningful raw
 /// id and, when known, the database that owns it.
@@ -133,6 +139,18 @@ Conversation annotateConversationStorage(
       kChatStorageKindMetadataKey: storage.name,
     },
   );
+}
+
+/// A full load from [storage], annotated with where it lives and, for a
+/// LibreChat account's database, its trusted LibreChat provenance.
+Conversation _withProvenance(
+  Conversation conversation,
+  ChatStorageKind storage,
+) {
+  final annotated = annotateConversationStorage(conversation, storage);
+  return storage == ChatStorageKind.libreChat
+      ? stampLibreChatProvenance(annotated)
+      : annotated;
 }
 
 /// Reads storage provenance previously written by
@@ -264,7 +282,7 @@ class LocatedSearchHit {
       annotateConversationStorage(conversationFromSearchHit(hit), storage);
 }
 
-/// Raised when an unscoped chat id exists in both databases.
+/// Raised when an unscoped chat id exists in more than one database.
 ///
 /// Callers navigating from [LocatedChatListEntry] should always pass its
 /// [LocatedChatListEntry.storage], which makes resolution deterministic.
@@ -275,27 +293,33 @@ class AmbiguousChatStorageException implements Exception {
 
   @override
   String toString() =>
-      'AmbiguousChatStorageException: "$chatId" exists in both chat stores';
+      'AmbiguousChatStorageException: "$chatId" exists in more than one chat '
+      'store';
 }
 
-/// Resolves, loads, searches, and writes chats across the active Open WebUI
-/// database and the permanent direct-local database.
+/// Resolves, loads, searches, and writes chats across the active account
+/// database (Open WebUI or LibreChat) and the permanent direct-local database.
 ///
-/// This repository deliberately does not own either database lifecycle. The
+/// This repository deliberately does not own any database lifecycle. The
 /// Riverpod providers in `database_provider.dart` supply the currently active
-/// Open WebUI database (which may be absent) and the independently-lived local
+/// account database (which may be absent) and the independently-lived local
 /// direct database.
 class ChatDatabaseRepository {
   ChatDatabaseRepository({
     required AppDatabase? openWebUiDatabase,
     required AppDatabase directLocalDatabase,
+    AppDatabase? libreChatDatabase,
   }) : _openWebUiDatabase = openWebUiDatabase,
-       _directLocalDatabase = directLocalDatabase;
+       _directLocalDatabase = directLocalDatabase,
+       _libreChatDatabase = libreChatDatabase;
 
   final AppDatabase? _openWebUiDatabase;
   final AppDatabase _directLocalDatabase;
+  final AppDatabase? _libreChatDatabase;
 
   bool get hasOpenWebUiDatabase => _openWebUiDatabase != null;
+
+  bool get hasLibreChatDatabase => _libreChatDatabase != null;
 
   ChatDatabaseLocation get directLocalLocation => ChatDatabaseLocation(
     storage: ChatStorageKind.directLocal,
@@ -311,8 +335,30 @@ class ChatDatabaseRepository {
     );
   }
 
-  /// Returns the requested store, throwing only when Open WebUI storage was
-  /// explicitly requested while no Open WebUI server is active.
+  ChatDatabaseLocation? get libreChatLocation {
+    final database = _libreChatDatabase;
+    if (database == null) return null;
+    return ChatDatabaseLocation(
+      storage: ChatStorageKind.libreChat,
+      database: database,
+    );
+  }
+
+  /// The open account database: Open WebUI's or LibreChat's. Only one
+  /// account owns the Chats tab at a time; Open WebUI wins in the moment a
+  /// switch could leave both open.
+  ChatDatabaseLocation? get _accountLocation =>
+      openWebUiLocation ?? libreChatLocation;
+
+  /// Every open store, account databases first.
+  List<ChatDatabaseLocation> get _openLocations => [
+    ?openWebUiLocation,
+    ?libreChatLocation,
+    directLocalLocation,
+  ];
+
+  /// Returns the requested store, throwing only when an account store was
+  /// explicitly requested while that account's database is not open.
   ChatDatabaseLocation locationFor(ChatStorageKind storage) {
     switch (storage) {
       case ChatStorageKind.directLocal:
@@ -320,6 +366,9 @@ class ChatDatabaseRepository {
       case ChatStorageKind.openWebUi:
         return openWebUiLocation ??
             (throw StateError('No active Open WebUI chat database'));
+      case ChatStorageKind.libreChat:
+        return libreChatLocation ??
+            (throw StateError('No active LibreChat chat database'));
     }
   }
 
@@ -349,25 +398,19 @@ class ChatDatabaseRepository {
       return row == null || row.deleted ? null : location;
     }
 
-    final server = _openWebUiDatabase;
-    final localFuture = _directLocalDatabase.chatsDao.getChat(chatId);
-    if (server == null) {
-      final local = await localFuture;
-      return local == null || local.deleted ? null : directLocalLocation;
-    }
-
+    final locations = _openLocations;
     final rows = await Future.wait([
-      server.chatsDao.getChat(chatId),
-      localFuture,
+      for (final location in locations)
+        location.database.chatsDao.getChat(chatId),
     ]);
-    final hasServer = rows[0] != null && !rows[0]!.deleted;
-    final hasLocal = rows[1] != null && !rows[1]!.deleted;
-    if (hasServer && hasLocal) {
-      throw AmbiguousChatStorageException(chatId);
+    ChatDatabaseLocation? owner;
+    for (var index = 0; index < locations.length; index++) {
+      final row = rows[index];
+      if (row == null || row.deleted) continue;
+      if (owner != null) throw AmbiguousChatStorageException(chatId);
+      owner = locations[index];
     }
-    if (hasServer) return openWebUiLocation;
-    if (hasLocal) return directLocalLocation;
-    return null;
+    return owner;
   }
 
   /// Loads and assembles a full local conversation from the correct store.
@@ -397,7 +440,7 @@ class ChatDatabaseRepository {
     if (locationIsCurrent?.call(location) == false) return null;
     return LocatedConversation(
       location: location,
-      conversation: annotateConversationStorage(conversation, location.storage),
+      conversation: _withProvenance(conversation, location.storage),
     );
   }
 
@@ -433,19 +476,20 @@ class ChatDatabaseRepository {
     if (locationIsCurrent?.call(location) == false) return null;
     return LocatedConversationWindow(
       location: location,
-      conversation: annotateConversationStorage(conversation, location.storage),
+      conversation: _withProvenance(conversation, location.storage),
       rowWindow: rowWindow,
     );
   }
 
-  /// Watches both narrow chat-list projections and emits one globally sorted
-  /// list. No message body is selected by this path.
+  /// Watches the account database's and the direct-local narrow chat-list
+  /// projections and emits one globally sorted list. No message body is
+  /// selected by this path.
   Stream<List<LocatedChatListEntry>> watchMergedChatList({
     int? regularLimit,
     int? archivedLimit,
   }) {
-    final server = _openWebUiDatabase;
-    if (server == null) {
+    final account = _accountLocation;
+    if (account == null) {
       return watchDirectLocalChatList(
         regularLimit: regularLimit,
         archivedLimit: archivedLimit,
@@ -457,11 +501,12 @@ class ChatDatabaseRepository {
     );
 
     return _combineChatLists(
-      server.chatsDao.watchChatList(
+      account.database.chatsDao.watchChatList(
         regularLimit: regularLimit,
         archivedLimit: archivedLimit,
       ),
       local,
+      serverStorage: account.storage,
     ).map(
       (entries) => _applyMergedChatListLimits(
         entries,
@@ -471,14 +516,15 @@ class ChatDatabaseRepository {
     );
   }
 
-  /// Watches the exact archived-row total across both storage domains.
+  /// Watches the exact archived-row total across the account and
+  /// direct-local stores.
   Stream<int> watchMergedArchivedChatCount() {
-    final server = _openWebUiDatabase;
-    if (server == null) {
+    final account = _accountLocation;
+    if (account == null) {
       return watchDirectLocalArchivedChatCount();
     }
     return _combineIntSums(
-      server.chatsDao.watchArchivedChatCount(),
+      account.database.chatsDao.watchArchivedChatCount(),
       _directLocalDatabase.chatsDao.watchArchivedChatCount(),
     );
   }
@@ -518,20 +564,19 @@ class ChatDatabaseRepository {
     final sourceLimit = normalizedOffset + limit;
 
     await _directLocalDatabase.buildFtsIfNeeded();
-    final server = _openWebUiDatabase;
+    final account = _accountLocation;
     final searches = <Future<List<SearchHit>>>[
-      if (server != null)
-        server.searchDao.search(raw, limit: sourceLimit, offset: 0),
+      if (account != null)
+        account.database.searchDao.search(raw, limit: sourceLimit, offset: 0),
       _directLocalDatabase.searchDao.search(raw, limit: sourceLimit, offset: 0),
     ];
     final results = await Future.wait(searches);
     final merged = <LocatedSearchHit>[];
     var resultIndex = 0;
-    if (server != null) {
+    if (account != null) {
       merged.addAll(
         results[resultIndex++].map(
-          (hit) =>
-              LocatedSearchHit(storage: ChatStorageKind.openWebUi, hit: hit),
+          (hit) => LocatedSearchHit(storage: account.storage, hit: hit),
         ),
       );
     }
@@ -599,6 +644,8 @@ class ChatDatabaseRepository {
           blobRows: rows,
           contentHash: openWebUiContentHash,
         );
+      case ChatStorageKind.libreChat:
+        throw StateError(_noDirectChatsInLibreChat);
     }
   }
 
@@ -629,8 +676,15 @@ class ChatDatabaseRepository {
           enqueueUpdate: true,
           enqueueCompletion: false,
         );
+      case ChatStorageKind.libreChat:
+        throw StateError(_noDirectChatsInLibreChat);
     }
   }
+
+  /// A LibreChat chat only ever talks to LibreChat; Direct turns never write
+  /// into its store.
+  static const String _noDirectChatsInLibreChat =
+      'Direct chats are never stored in a LibreChat database.';
 
   /// Resolves the current owner of a direct assistant placeholder after a
   /// possible Open WebUI `local:` -> server-id remap. This durable lookup closes
@@ -693,6 +747,7 @@ class ChatDatabaseRepository {
     return switch (storage) {
       ChatStorageKind.openWebUi => openWebUiLocation,
       ChatStorageKind.directLocal => directLocalLocation,
+      ChatStorageKind.libreChat => libreChatLocation,
     };
   }
 }
@@ -710,13 +765,19 @@ List<LocatedChatListEntry> _locatedList(
 @visibleForTesting
 Stream<List<LocatedChatListEntry>> debugCombineChatLists(
   Stream<List<ChatListEntry>> serverStream,
-  Stream<List<ChatListEntry>> localStream,
-) => _combineChatLists(serverStream, localStream);
+  Stream<List<ChatListEntry>> localStream, {
+  ChatStorageKind serverStorage = ChatStorageKind.openWebUi,
+}) => _combineChatLists(
+  serverStream,
+  localStream,
+  serverStorage: serverStorage,
+);
 
 Stream<List<LocatedChatListEntry>> _combineChatLists(
   Stream<List<ChatListEntry>> serverStream,
-  Stream<List<ChatListEntry>> localStream,
-) {
+  Stream<List<ChatListEntry>> localStream, {
+  required ChatStorageKind serverStorage,
+}) {
   late StreamController<List<LocatedChatListEntry>> controller;
   StreamSubscription<List<ChatListEntry>>? serverSubscription;
   StreamSubscription<List<ChatListEntry>>? localSubscription;
@@ -731,7 +792,7 @@ Stream<List<LocatedChatListEntry>> _combineChatLists(
     final latestLocal = localEntries;
     if (latestServer == null || latestLocal == null) return;
     final merged = <LocatedChatListEntry>[
-      ..._locatedList(ChatStorageKind.openWebUi, latestServer),
+      ..._locatedList(serverStorage, latestServer),
       ..._locatedList(ChatStorageKind.directLocal, latestLocal),
     ]..sort(_compareListEntries);
     hasEmitted = true;

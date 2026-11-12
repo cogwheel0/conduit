@@ -19,6 +19,9 @@ const String kApplePccProfileId = 'apple-pcc';
 const String kApplePccBaseUrl = 'pcc://apple';
 const String kApplePccRemoteModelId = 'private-cloud-compute';
 
+/// Images Apple's Foundation Models bridge accepts in one request.
+const int kApplePccMaxImages = 4;
+
 /// Reasoning levels Apple's Private Cloud Compute model accepts, in the
 /// order the picker lists them.
 const List<String> kApplePccReasoningEfforts = <String>[
@@ -186,6 +189,12 @@ final class DirectConnectionProfile {
   bool get isOpenRouter =>
       adapterKey == kOpenAiCompatibleAdapterKey &&
       isOpenRouterApiBaseUrl(baseUrl);
+
+  /// The OpenAI platform itself (`api.openai.com` or a regional
+  /// `*.api.openai.com` host), as opposed to a compatible server.
+  bool get isOpenAiPlatform =>
+      adapterKey == kOpenAiCompatibleAdapterKey &&
+      isOpenAiPlatformBaseUrl(baseUrl);
 
   bool get supportsOpenRouterWebSearch =>
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
@@ -569,6 +578,20 @@ bool isOpenRouterApiBaseUrl(String value) {
     return false;
   }
   return uri.path == '/api/v1' || uri.path == '/api/v1/';
+}
+
+bool isOpenAiPlatformBaseUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      (uri.hasPort && uri.port != 443) ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    return false;
+  }
+  final host = uri.host.toLowerCase();
+  return host == 'api.openai.com' || host.endsWith('.api.openai.com');
 }
 
 /// Versioned envelope used for the single secure-storage profile document.

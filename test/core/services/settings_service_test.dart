@@ -159,8 +159,8 @@ void main() {
         check(settings.ttsVoiceName).isNull();
       });
 
-      test('ttsSpeechRate defaults to 0.5', () {
-        check(settings.ttsSpeechRate).equals(0.5);
+      test('ttsSpeed defaults to the voice\'s own pace', () {
+        check(settings.ttsSpeed).equals(1.0);
       });
 
       test('ttsPitch defaults to 1.0', () {
@@ -219,7 +219,7 @@ void main() {
           pinnedModels: ['gpt-4o', 'claude-sonnet'],
           sendOnEnter: true,
           sttPreference: SttPreference.serverOnly,
-          ttsSpeechRate: 0.8,
+          ttsSpeed: 1.25,
           ttsPitch: 1.2,
           ttsVolume: 0.9,
           ttsEngine: TtsEngine.server,
@@ -240,7 +240,7 @@ void main() {
         check(modified.pinnedModels).deepEquals(['gpt-4o', 'claude-sonnet']);
         check(modified.sendOnEnter).equals(true);
         check(modified.sttPreference).equals(SttPreference.serverOnly);
-        check(modified.ttsSpeechRate).equals(0.8);
+        check(modified.ttsSpeed).equals(1.25);
         check(modified.ttsPitch).equals(1.2);
         check(modified.ttsVolume).equals(0.9);
         check(modified.ttsEngine).equals(TtsEngine.server);
@@ -480,6 +480,38 @@ void main() {
     );
   });
 
+  group('SettingsService speech speed persistence', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    // An older install saved the device engine's rate, where 0.5 was the
+    // voice's own pace; it carries over as the nearest speed offered.
+    for (final (rate, speed) in [
+      (null, 1.0),
+      (0.5, 1.0),
+      (0.6, 1.25),
+      (0.25, 0.75),
+      (2.0, 2.0),
+    ]) {
+      test('a saved rate of $rate loads as ${speed}x', () async {
+        if (rate != null) {
+          await PreferencesStore.put(PreferenceKeys.ttsSpeechRate, rate);
+        }
+        check((await SettingsService.loadSettings()).ttsSpeed).equals(speed);
+      });
+    }
+
+    test('a saved speed wins over an older rate and round-trips', () async {
+      await PreferencesStore.put(PreferenceKeys.ttsSpeechRate, 0.9);
+      await SettingsService.saveSettings(const AppSettings(ttsSpeed: 0.75));
+      check((await SettingsService.loadSettings()).ttsSpeed).equals(0.75);
+    });
+  });
+
   group('SettingsService OpenRouter image model persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -599,6 +631,45 @@ void main() {
     });
   });
 
+  group('Computer preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test(
+      'disable survives restart and bulk save; reset restores default',
+      () async {
+        const defaults = AppSettings();
+        check(defaults.computerEnabled).isTrue();
+        check(defaults.copyWith(computerEnabled: false))
+            .not((it) => it.equals(defaults));
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        await container
+            .read(appSettingsProvider.notifier)
+            .setComputerEnabled(false);
+        check(container.read(appSettingsProvider).computerEnabled).isFalse();
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.reload();
+        final saved = <String, Object>{
+          for (final key in preferences.getKeys()) key: preferences.get(key)!,
+        };
+        SharedPreferences.setMockInitialValues(saved);
+        PreferencesStore.debugReset();
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        final restarted = ProviderContainer();
+        addTearDown(restarted.dispose);
+        check(restarted.read(appSettingsProvider).computerEnabled).isFalse();
+        await SettingsService.saveSettings(const AppSettings());
+        check((await SettingsService.loadSettings()).computerEnabled).isFalse();
+        await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+        check((await SettingsService.loadSettings()).computerEnabled).isTrue();
+      },
+    );
+  });
+
   group('Citation background preference', () {
     setUp(() {
       PreferencesStore.debugReset();
@@ -616,37 +687,40 @@ void main() {
       check(transparent.copyWith()).equals(transparent);
     });
 
-    test('transparent survives restart and bulk save; reset restores filled',
-        () async {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      await container
-          .read(appSettingsProvider.notifier)
-          .setCitationBackground(false);
-      check(container.read(appSettingsProvider).citationBackground).isFalse();
+    test(
+      'transparent survives restart and bulk save; reset restores filled',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        await container
+            .read(appSettingsProvider.notifier)
+            .setCitationBackground(false);
+        check(container.read(appSettingsProvider).citationBackground).isFalse();
 
-      // Reload the persisted mock values into a fresh host store.
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.reload();
-      final saved = <String, Object>{
-        for (final key in preferences.getKeys()) key: preferences.get(key)!,
-      };
-      SharedPreferences.setMockInitialValues(saved);
-      PreferencesStore.debugReset();
-      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        // Reload the persisted mock values into a fresh host store.
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.reload();
+        final saved = <String, Object>{
+          for (final key in preferences.getKeys()) key: preferences.get(key)!,
+        };
+        SharedPreferences.setMockInitialValues(saved);
+        PreferencesStore.debugReset();
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
-      final restarted = ProviderContainer();
-      addTearDown(restarted.dispose);
-      check(restarted.read(appSettingsProvider).citationBackground).isFalse();
-      // A stale unrelated settings save must not reset the local appearance.
-      await SettingsService.saveSettings(const AppSettings());
-      check((await SettingsService.loadSettings()).citationBackground).isFalse();
+        final restarted = ProviderContainer();
+        addTearDown(restarted.dispose);
+        check(restarted.read(appSettingsProvider).citationBackground).isFalse();
+        // A stale unrelated settings save must not reset the local appearance.
+        await SettingsService.saveSettings(const AppSettings());
+        check((await SettingsService.loadSettings()).citationBackground)
+            .isFalse();
 
-      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
-      final afterReset = ProviderContainer();
-      addTearDown(afterReset.dispose);
-      check(afterReset.read(appSettingsProvider).citationBackground).isTrue();
-    });
+        await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+        final afterReset = ProviderContainer();
+        addTearDown(afterReset.dispose);
+        check(afterReset.read(appSettingsProvider).citationBackground).isTrue();
+      },
+    );
   });
 
   group('AppSettingsNotifier Voice provider', () {
@@ -783,7 +857,7 @@ void main() {
       final notifier = container.read(appSettingsProvider.notifier);
       final stale = container.read(appSettingsProvider);
       await notifier.setInlineMessageActions(['share']);
-      await SettingsService.saveSettings(stale.copyWith(ttsSpeechRate: 1.2));
+      await SettingsService.saveSettings(stale.copyWith(ttsSpeed: 1.5));
       expect((await SettingsService.loadSettings()).inlineMessageActions, [
         'share',
       ]);

@@ -284,9 +284,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _syncStreamingProfileWithState();
           final restoredHermesCheckpoint =
               nextMessages.isNotEmpty &&
-                  nextMessages.last.role == 'assistant' &&
-                  nextMessages.last.isStreaming &&
-                  nextMessages.last.metadata?['transport'] == kHermesTransport
+                  _isColdHermesCheckpoint(nextMessages.last)
               ? nextMessages.last
               : null;
           if (restoredHermesCheckpoint != null) {
@@ -301,6 +299,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           // Update selected model if conversation has a different model
           _updateModelForConversation(next, generation: modelRebindGeneration);
+          if (isLibreChatConversation(next)) {
+            unawaited(_followLibreChatGenerationOnOpen(ref, next));
+          }
 
           if (_hasOpenWebUiTaskRecoverableTail(next, requireStreaming: false)) {
             if (_shouldProtectLocalStreamingState) {
@@ -362,9 +363,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     final initialHermesCheckpoint =
         initialMessages.isNotEmpty &&
-            initialMessages.last.role == 'assistant' &&
-            initialMessages.last.isStreaming &&
-            initialMessages.last.metadata?['transport'] == kHermesTransport
+            _isColdHermesCheckpoint(initialMessages.last)
         ? initialMessages.last
         : null;
     if (activeConversation != null && initialHermesCheckpoint != null) {
@@ -396,6 +395,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           return;
         }
         unawaited(_detectActiveOnOpen(activeConversation));
+      });
+    }
+    // A LibreChat chat already open when the messages are first read
+    // follows a reply its server is still writing, as opening it does.
+    if (activeConversation != null &&
+        isLibreChatConversation(activeConversation)) {
+      Future.microtask(() {
+        if (_disposed ||
+            !isSameStoredConversation(
+              ref.read(activeConversationProvider),
+              activeConversation,
+            )) {
+          return;
+        }
+        unawaited(_followLibreChatGenerationOnOpen(ref, activeConversation));
       });
     }
     return initialMessages;
@@ -644,7 +658,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       )) {
         return;
       }
-      _adoptServerMessages(conversation.messages, source: 'database watch');
+      // Rows read from the LibreChat database carry its provenance, stamped
+      // here as on every LibreChat load: stored metadata is never trusted
+      // for it.
+      final adopted =
+          chatStorageKindOf(watchedConversation) == ChatStorageKind.libreChat
+          ? stampLibreChatProvenance(conversation)
+          : conversation;
+      _adoptServerMessages(adopted.messages, source: 'database watch');
     } catch (error, stackTrace) {
       DebugLogger.error(
         'db-adopt-failed',
@@ -664,16 +685,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         return null;
       }
     }
+    if (storage == ChatStorageKind.libreChat) {
+      try {
+        return ref
+            .read(chatDatabaseRepositoryProvider)
+            .libreChatLocation
+            ?.database;
+      } catch (_) {
+        return null;
+      }
+    }
     // Database dependencies unavailable (e.g. teardown or test harness
     // without an active server) resolve to null.
     return _readAppDatabaseOrNull(ref);
   }
 
+  /// The database local turn echoes and pause checkpoints go to. Never
+  /// LibreChat's: its server keeps every turn, and its rows arrive by pull.
   AppDatabase? _maybeDatabase() {
     final active = ref.read(activeConversationProvider);
-    return _databaseForStorage(
-      chatStorageKindOf(active) ?? ChatStorageKind.openWebUi,
-    );
+    final storage = chatStorageKindOf(active) ?? ChatStorageKind.openWebUi;
+    if (storage == ChatStorageKind.libreChat) return null;
+    return _databaseForStorage(storage);
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -1455,11 +1488,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> messages,
     Conversation? conversation, {
     bool settleOrphanedDirect = false,
-  }) => _restoreLiveHermesRunState(
-    _restoreLiveDirectRunState(
-      messages,
+  }) => _restoreLiveLibreChatRunState(
+    ref,
+    _restoreLiveHermesRunState(
+      _restoreLiveDirectRunState(
+        messages,
+        conversation,
+        settleOrphaned: settleOrphanedDirect,
+      ),
       conversation,
-      settleOrphaned: settleOrphanedDirect,
     ),
     conversation,
   );
@@ -1618,18 +1655,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  /// Whether [message] is a Hermes reply cold recovery asks after: one still
+  /// streaming, or one whose run was saved during a restart and had not run
+  /// when its stream ended.
+  static bool _isColdHermesCheckpoint(ChatMessage message) =>
+      message.role == 'assistant' &&
+      (message.isStreaming ||
+          message.metadata?[kHermesRunAwaitingAnswerKey] == true) &&
+      message.metadata?['transport'] == kHermesTransport;
+
+  /// What a recovered checkpoint with [status] ends with, as the live
+  /// recovery shows it: an error, or a note beside a wrap-up or a
+  /// stopped-short answer, which is still the answer.
   ChatMessageError? _coldHermesTerminalError(String status) {
-    return switch (status) {
-      'completed' => null,
-      'cancelled' || 'canceled' => const ChatMessageError(
-        content: 'Hermes run was cancelled.',
-      ),
-      'stopped' => const ChatMessageError(content: 'Hermes run was stopped.'),
-      'incomplete' => const ChatMessageError(
-        content: 'Hermes stopped this response before it completed.',
-      ),
-      _ => const ChatMessageError(content: 'Hermes run failed.'),
-    };
+    final message = hermesRecoveredRunError(status);
+    return message == null ? null : ChatMessageError(content: message);
   }
 
   void _settleColdHermesCheckpoint(
@@ -1637,21 +1677,61 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ChatMessage checkpoint, {
     String? authoritativeContent,
     ChatMessageError? error,
+    String? notice,
   }) {
     if (!owner.isActive(ref)) return;
+    final streaming = state.any(
+      (message) => message.id == checkpoint.id && message.isStreaming,
+    );
     updateMessageById(checkpoint.id, (current) {
       if (current.metadata?['transport'] != kHermesTransport) return current;
+      // Settled: no longer waiting for its answer.
+      final metadata = Map<String, dynamic>.from(current.metadata!)
+        ..remove(kHermesRunAwaitingAnswerKey);
+      final history = [
+        for (final status in current.statusHistory)
+          if (status.action != kHermesRunAwaitingAction) status,
+      ];
+      final noted =
+          notice == null ||
+              history.any(
+                (status) =>
+                    status.action == kHermesRunNoticeAction &&
+                    status.description == notice,
+              )
+          ? history
+          : [
+              ...history,
+              ChatStatusUpdate(
+                action: kHermesRunNoticeAction,
+                description: notice,
+                done: true,
+                occurredAt: DateTime.now(),
+              ),
+            ];
       return current.copyWith(
         content: authoritativeContent != null && authoritativeContent.isNotEmpty
             ? authoritativeContent
             : current.content,
         error: error,
+        statusHistory: noted,
+        metadata: metadata,
       );
     });
-    finishStreamingMessage(
-      checkpoint.id,
-      ownerConversationId: owner.scopedConversationId,
-      requireConversationOwner: true,
+    if (streaming) {
+      finishStreamingMessage(
+        checkpoint.id,
+        ownerConversationId: owner.scopedConversationId,
+        requireConversationOwner: true,
+      );
+      return;
+    }
+    // A reply waiting for its saved run had stopped streaming, so finishing
+    // it does nothing: its answer is put in the chat and saved here, or a
+    // reload would bring back the empty reply and ask again.
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(
+      state.indexWhere((message) => message.id == checkpoint.id),
     );
   }
 
@@ -1662,9 +1742,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }) async {
     if (_disposed || state.isEmpty) return;
     final checkpoint = state.last;
+    // A reply whose run was saved during a restart and had not run yet is
+    // asked after again, though its stream ended.
+    final awaiting = checkpoint.metadata?[kHermesRunAwaitingAnswerKey] == true;
     if (checkpoint.role != 'assistant' ||
         (expectedMessageId != null && checkpoint.id != expectedMessageId) ||
-        !checkpoint.isStreaming ||
+        !(checkpoint.isStreaming || awaiting) ||
         isRestoredHermesDesktopRunningMessage(checkpoint) ||
         checkpoint.metadata?['transport'] != kHermesTransport ||
         _hasLiveHermesProjection(conversation, checkpoint) ||
@@ -1675,7 +1758,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final owner = _HermesConversationOwner.capture(ref, conversation);
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) {
-      if (settleUnrecoverable) {
+      // No service yet (its credentials may still be loading): a reply
+      // waiting for its saved run keeps waiting, so a later one can ask.
+      if (settleUnrecoverable && !awaiting) {
         _settleColdHermesCheckpoint(
           owner,
           checkpoint,
@@ -1799,9 +1884,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         checkpoint,
         authoritativeContent: recovered.text,
         error: _coldHermesTerminalError(recovered.status),
+        notice: hermesRecoveredRunNotice(recovered.status),
       );
     } catch (_) {
-      if (!cancelToken.isCancelled &&
+      // A reply still waiting for its answer keeps waiting: the next open
+      // asks again.
+      if (!awaiting &&
+          !cancelToken.isCancelled &&
           !_disposed &&
           generation == _coldHermesRecoveryGeneration &&
           identical(ref.read(hermesApiServiceProvider), service) &&
@@ -2781,7 +2870,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // authoritative until dispatch finalizes them; a Drift echo emitted during
     // preflight must not roll an optimistic turn back to the previous tip.
     final transport = state.last.metadata?['transport'];
-    if (transport == kDirectTransport || transport == kHermesTransport) {
+    if (transport == kDirectTransport ||
+        transport == kHermesTransport ||
+        transport == kLibreChatTransport) {
       return true;
     }
     if (_activeStreamingTransportMessageId != lastMessageId) {
@@ -4177,6 +4268,30 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
+    // A chat started with a coding agent reopens with it once its terminal
+    // offers it again; until then the current model stays, as before.
+    if (isTerminalAgentModelId(conversationModelId)) {
+      try {
+        final agent = await resolveTerminalAgentModel(
+          ref,
+          conversationModelId,
+          chatId: conversation.id,
+        );
+        if (agent == null || !stillOwnsSelection()) return;
+        ref
+            .read(selectedTerminalIdProvider.notifier)
+            .set(terminalAgentTerminalId(agent));
+        ref.read(selectedModelProvider.notifier).set(agent, allowHidden: true);
+      } catch (error) {
+        DebugLogger.warning(
+          'agent-model-restore-failed',
+          scope: 'chat/agents',
+          data: {'error': error.runtimeType.toString()},
+        );
+      }
+      return;
+    }
+
     // Open WebUI persists the provider-facing id for direct models. Prefer the
     // current trusted synthetic model that owns that wire id before considering
     // a same-id server model, matching Open WebUI's direct-model last-wins rule.
@@ -4781,6 +4896,69 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     state = next;
   }
 
+  /// Ids [renameMessage] replaced, old to new.
+  final Map<String, String> _renamedMessageIds = <String, String>{};
+
+  /// The id message [id] goes by now: the server's, once it renamed one
+  /// minted here, so a page holding the first id can still find it.
+  String currentMessageId(String id) {
+    var current = id;
+    for (var hops = 0; hops < 4; hops++) {
+      final next = _renamedMessageIds[current];
+      if (next == null) break;
+      current = next;
+    }
+    return current;
+  }
+
+  /// Gives message [fromId] the id [toId] its server assigned, and points
+  /// every parent and child reference at it. Does nothing when [fromId] is
+  /// not shown or [toId] already is.
+  void renameMessage(String fromId, String toId) {
+    if (fromId == toId ||
+        !state.any((message) => message.id == fromId) ||
+        state.any((message) => message.id == toId)) {
+      return;
+    }
+    _renamedMessageIds[fromId] = toId;
+    String swap(String id) => id == fromId ? toId : id;
+    state = [
+      for (final message in state)
+        _withRenamedReferences(
+          message.id == fromId ? message.copyWith(id: toId) : message,
+          swap,
+        ),
+    ];
+  }
+
+  static ChatMessage _withRenamedReferences(
+    ChatMessage message,
+    String Function(String id) swap,
+  ) {
+    final metadata = message.metadata;
+    if (metadata == null) return message;
+    final parent = metadata['parentId'];
+    final children = metadata['childrenIds'];
+    final nextParent = parent is String ? swap(parent) : parent;
+    final nextChildren = children is List
+        ? [
+            for (final child in children)
+              if (child is String) swap(child) else child,
+          ]
+        : children;
+    if (nextParent == parent &&
+        (children is! List || listEquals(children, nextChildren as List))) {
+      return message;
+    }
+    return message.copyWith(
+      metadata: <String, dynamic>{
+        ...metadata,
+        'parentId': ?nextParent,
+        'childrenIds': ?nextChildren,
+      },
+    );
+  }
+
   Future<void> resumeAfterOpenWebUiToolCall({
     required String messageId,
     required String callId,
@@ -4795,8 +4973,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.indexWhere((message) => message.id == messageId) == -1) {
       return;
     }
+    // A coding agent (Open WebUI 0.13.1) waits on its request inside the
+    // turn that is still running: the server hands that turn the answer and
+    // starts nothing, so no task comes back, yet the reply goes on.
+    final agentRequest =
+        taskIds.isEmpty &&
+        isOpenWebUiAgentRequest(
+          state.firstWhere((message) => message.id == messageId).output,
+          callId,
+        );
     final resumeTailOwnsTask =
-        taskIds.isNotEmpty &&
+        (taskIds.isNotEmpty || agentRequest) &&
         state.isNotEmpty &&
         state.last.id == messageId &&
         state.last.role == 'assistant';
@@ -4837,7 +5024,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    if (taskIds.isEmpty) {
+    if (taskIds.isEmpty && !resumeTailOwnsTask) {
       try {
         final pulled = await ref
             .read(syncEngineProvider.notifier)
@@ -4858,7 +5045,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     await _attachResumeSocketStream(
       conversation,
       state.last,
-      taskId: taskIds.first,
+      taskId: taskIds.firstOrNull,
     );
     if (!_disposed &&
         ref.read(activeConversationProvider)?.id == conversation.id &&

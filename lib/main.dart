@@ -31,6 +31,7 @@ import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/ios_display_boost.dart';
 import 'platform/mobile_background_execution.dart';
+import 'platform/mobile_push_platform.dart';
 
 import 'package:conduit_core/services/share_staging_cleanup.dart'
     show shareStagingDirectoryName;
@@ -74,6 +75,10 @@ import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatRegistryProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -90,6 +95,7 @@ import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeLibreChatPersonalizationActionId,
         nativeNoVoiceProviderId,
         nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
@@ -97,16 +103,25 @@ import 'core/utils/native_sheet_utils.dart'
         nativeAccountSwitchActionId,
         nativeDirectEditActionId,
         nativeHermesUseActionId,
+        nativeLibreChatSignOutActionId,
+        nativeLibreChatUseActionId,
         nativeAdvancedFeaturesId,
         nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
         nativeCitationBackgroundId,
         nativeMemoryEditorActionPrefix,
         nativeMemoryEditorNewActionId,
-        nativeNotificationTargetsActionId;
+        nativeNotificationTargetsActionId,
+        nativePushEnabledId,
+        nativePushPrivacyActionId,
+        nativePushTargetActionId;
 import 'shared/utils/ui_utils.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
+import 'features/push/push_host_bindings.dart';
+import 'features/push/widgets/push_target_actions.dart'
+    show setPushEnabledFromNativeSheet;
+import 'features/push/widgets/push_target_detail_sheet.dart';
 
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 
@@ -151,6 +166,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
+import 'features/notifications/providers/notification_socket_listener.dart'
+    show notificationRouterProvider;
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
@@ -164,14 +182,20 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'shared/services/app_package_info.dart';
 
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+import 'features/hermes/widgets/hermes_model_switch_prompt.dart';
+
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
+
 import 'features/chat/services/chat_handoff_host.dart';
+
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
+
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
 import 'features/profile/widgets/account_sheet.dart'
@@ -226,6 +250,12 @@ Future<void> _configureUserAgent() async {
 
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      const ['noVNC', 'pako'],
+      await rootBundle.loadString('assets/computer/novnc-LICENSE.txt'),
+    );
+  });
+  LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
     yield LicenseEntryWithLineBreaks(const [
       'Open WebUI icon',
@@ -258,6 +288,13 @@ void main() {
     stagingDirectoryName: shareStagingDirectoryName,
   );
   AudioCapturePort.hostFactory = RecordAudioCapture.new;
+  // End-to-end-encrypted push: the keys and decryption live in the iOS
+  // Notification Service Extension and the Android receiver.
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android)) {
+    PushPlatformPort.hostDefault = MobilePushPlatform();
+  }
   // The preference store is a host capability too; installed
   // before bootstrap awaits its first synchronous read.
   PreferencesStore.installLoader(FlutterKeyValueStore.load);
@@ -434,28 +471,85 @@ void main() {
               }
             };
           }),
-          // Posted notifications deep-link into the account that posted them.
-          hostActiveAccountChangedProvider.overrideWith((ref) {
-            return (_) {
-              unawaited(
+          // Posted notifications open in the account that posted them, so a
+          // switch keeps them. Signing out of an account clears its own;
+          // signing out of everything clears them all.
+          hostSignedOutProvider.overrideWith((ref) {
+            return (accountId) {
+              // One still being routed (waiting on its sound or claim) for
+              // that account shows nothing either.
+              if (ref.read(notificationRouterProvider.exists)) {
                 ref
-                    .read(localNotificationServiceProvider)
-                    .cancelAll()
-                    .catchError((Object error, StackTrace stackTrace) {
-                      DebugLogger.error(
-                        'account-switch-notification-clear-failed',
-                        scope: 'notifications/system',
-                        error: error,
-                        stackTrace: stackTrace,
-                      );
-                    }),
+                    .read(notificationRouterProvider)
+                    .signedOut(
+                      accountId == null
+                          ? null
+                          : NotificationScope.openWebUi(accountId).value,
+                    );
+              }
+              final local = ref.read(localNotificationServiceProvider);
+              final clearing = accountId == null
+                  ? local.cancelAll()
+                  : Future.wait([
+                      local.cancelScope(
+                        NotificationScope.openWebUi(accountId).value,
+                      ),
+                      // Pushes that arrived while the sign-out ran.
+                      ref
+                          .read(pushPlatformPortProvider)
+                          .cancelScope(
+                            NotificationScope.openWebUi(accountId).value,
+                          ),
+                    ]);
+              unawaited(
+                clearing.catchError((Object error, StackTrace stackTrace) {
+                  DebugLogger.error(
+                    'sign-out-notification-clear-failed',
+                    scope: 'notifications/system',
+                    error: error,
+                    stackTrace: stackTrace,
+                  );
+                }),
               );
+            };
+          }),
+          // A deleted Hermes connection takes its push subscription and its
+          // posted notifications with it. Push goes first, while the
+          // connection's key still works.
+          hostHermesConnectionRemovingProvider.overrideWith((ref) {
+            return (connectionId) async {
+              await ref
+                  .read(pushSignOutHookProvider)
+                  .beforeHermesConnectionRemoved(connectionId);
+              final scope = NotificationScope.hermes(connectionId).value;
+              try {
+                await ref
+                    .read(localNotificationServiceProvider)
+                    .cancelScope(scope);
+              } catch (error, stackTrace) {
+                DebugLogger.error(
+                  'hermes-removal-notification-clear-failed',
+                  scope: 'notifications/system',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }
             };
           }),
           // The in-memory selection, so a language change applies to the
           // next request before the preference write lands.
           appLanguageTagProvider.overrideWith(
             (ref) => ref.watch(appLocaleProvider)?.toLanguageTag(),
+          ),
+          // What a push shows when it carries no title of its own, in the
+          // app's language; the core cannot localize.
+          pushLocalizedStringsProvider.overrideWith((ref) {
+            ref.watch(appLocaleProvider);
+            return pushDisplayStrings(currentAppLocalizations());
+          }),
+          // The Conduit Push function bundled for one-tap installs.
+          pushOpenWebUiFunctionSourceProvider.overrideWithValue(
+            loadBundledConduitPushFunction,
           ),
           // Apple Foundation Models through the Pigeon bridge
           // (ios/Runner/PccBridge.swift); the adapter lives in conduit_core.
@@ -477,6 +571,9 @@ void main() {
                       accessHeaders: accessHeaders,
                     ),
           ),
+          hostHermesDashboardSignOutProvider.overrideWithValue(
+            HermesDashboardRestBridge.signOutOf,
+          ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           uiRequestPortProvider.overrideWithValue(const FlutterUiRequests()),
           hermesConnectionSwitchPromptProvider.overrideWith(
@@ -484,6 +581,13 @@ void main() {
                 (name) => confirmHermesConnectionSwitch(
                   ref.read(uiRequestPortProvider),
                   name,
+                ),
+          ),
+          hermesModelSwitchPromptProvider.overrideWith(
+            (ref) =>
+                (held) => confirmHermesModelSwitch(
+                  ref.read(uiRequestPortProvider),
+                  held,
                 ),
           ),
           chatHandoffPromptProvider.overrideWith(
@@ -632,7 +736,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   /// The native Settings rows for accounts and connections. Returns whether
   /// [actionId] was one of them.
-  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+  Future<bool> _handleNativeAccountAction(
+    String actionId,
+    Object? value,
+  ) async {
     final context = NavigationService.context;
     switch (actionId) {
       case nativeAccountSwitchActionId:
@@ -661,6 +768,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;
         await useHermesConnection(context, ref, value);
+        return true;
+      case nativeLibreChatUseActionId:
+        if (context == null || value is! String) return true;
+        await switchToLibreChatAccount(context, ref, value);
+        return true;
+      case nativeLibreChatSignOutActionId:
+        if (context == null || value is! String) return true;
+        final registry = await ref.read(libreChatRegistryProvider.future);
+        final account = registry.byId(value);
+        if (account == null || !context.mounted) return true;
+        await signOutOfLibreChatAccount(context, account);
         return true;
       case nativeDirectEditActionId:
         if (context == null || value is! String) return true;
@@ -827,6 +945,25 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == nativeLibreChatPersonalizationActionId) {
+        // As for Scheduled tasks: a row from a sheet built while LibreChat
+        // was in charge must not navigate once it no longer is.
+        if (ref.read(primaryAccountKindProvider) !=
+            PrimaryAccountKind.libreChat) {
+          _showNativeOptionUnavailable();
+          return;
+        }
+        // As the other rows' pages: the sheet slides away, not the page in.
+        final request = libreChatPersonalizationNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
       if (event.id == NativeSheetRoutes.calendar) {
         // As for Scheduled tasks: the sheet was built before this arrived, so
         // a row that went stale (the account or its permission changed) must
@@ -894,6 +1031,26 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
       if (event.id == nativeNotificationTargetsActionId) {
         _openNativeNotificationTargets();
+        return;
+      }
+
+      if (event.id == nativePushTargetActionId && value is String) {
+        _openNativePushTarget(value);
+        return;
+      }
+
+      if (event.id == nativePushPrivacyActionId) {
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            RouteNames.pushPrivacy,
+            extra: const NativeSheetNavigationOrigin(),
+          ),
+        );
+        return;
+      }
+
+      if (event.id == nativePushEnabledId && value is bool) {
+        await _setNativePushEnabled(value);
         return;
       }
 
@@ -1072,14 +1229,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setVoiceSilenceDuration(ms);
           }
-        case 'tts-speech-rate':
-          final rate = switch (value) {
-            final double d => d,
-            final int i => i.toDouble(),
-            _ => double.tryParse('$value'),
-          };
-          if (rate != null) {
-            await ref.read(appSettingsProvider.notifier).setTtsSpeechRate(rate);
+        case 'tts-speed':
+          final speed = double.tryParse('$value');
+          if (speed != null) {
+            await ref.read(appSettingsProvider.notifier).setTtsSpeed(speed);
           }
         case 'tts-preview':
           final text = value is String ? value : null;
@@ -1189,6 +1342,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             case 'dark':
               ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.dark);
           }
+          await _refreshNativeAppearanceDetail();
         case 'language':
           if (value == 'system') {
             await ref.read(appLocaleProvider.notifier).setLocale(null);
@@ -1201,9 +1355,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         case 'theme-palette':
           if (value is String && value.isNotEmpty) {
             await ref.read(appThemePaletteProvider.notifier).setPalette(value);
+            await _refreshNativeAppearanceDetail();
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
+        case 'computer-enabled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setComputerEnabled(value);
+          }
         case 'composer-notes-button':
           if (value is bool) {
             await ref
@@ -1261,6 +1422,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationsEnabled(value);
             _syncNotificationPrefsToServer(enabled: value);
+            // The options under the switch come and go with it.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
             if (value) {
               // Best-effort OS permission on opt-in; OS governs delivery.
               await ref
@@ -1286,6 +1453,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationSound(value);
             _syncNotificationPrefsToServer(sound: value);
+            // Always play sound can be changed only while Sound is on.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
           }
         case 'notification-sound-always':
           if (value is bool) {
@@ -1305,6 +1478,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setNotificationChannelEnabled(value);
+          }
+        case 'notification-scheduled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationScheduledEnabled(value);
           }
         case 'transport-auto':
           await ref
@@ -1366,6 +1545,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               current: ref.read(appSettingsProvider).directVoiceProvider,
             ),
     );
+  }
+
+  /// Redraws Appearance after its scheme or palette changed, so its rows show
+  /// the choice -- the palette's name and swatch, the scheme tiles painted in
+  /// the new palette -- rather than the rows the sheet was opened with.
+  Future<void> _refreshNativeAppearanceDetail() {
+    return ref
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.appearance);
   }
 
   /// Redraws the Voice pages from [detailId], the one the change came from.
@@ -1453,6 +1641,49 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         extra: const NativeSheetNavigationOrigin(),
       ),
     );
+  }
+
+  /// Turns push on or off from the native Notifications sheet. The sheet
+  /// shows the push targets row once push is on, and their statuses once
+  /// setup has run, so it is refreshed at both points. A failure is logged
+  /// once.
+  Future<void> _setNativePushEnabled(bool value) {
+    final hydration = ref.read(nativeSheetHydrationServiceProvider);
+    return setPushEnabledFromNativeSheet(
+      coordinator: ref.read(pushCoordinatorProvider.notifier),
+      enabledNow: () => ref.read(pushCoordinatorProvider).enabled,
+      value: value,
+      refresh: () async {
+        await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
+        await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
+      },
+      onError: (message, error, stackTrace) => DebugLogger.error(
+        message,
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      ),
+    );
+  }
+
+  /// Opens one push target's detail sheet, with its one-tap fixes, over the
+  /// Notifications page, once the native sheet has closed. A target removed
+  /// since the native list was built opens the page alone, which lists the
+  /// targets there are now.
+  void _openNativePushTarget(String scope) {
+    unawaited(
+      NavigationService.router.pushNamed<void>(
+        RouteNames.notificationSettings,
+        extra: const NativeSheetNavigationOrigin(),
+      ),
+    );
+    final targets = ref.read(pushStateIfUsedProvider)?.targets;
+    if (targets == null || !targets.containsKey(scope)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = NavigationService.navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      unawaited(showPushTargetDetailSheet(context, scope));
+    });
   }
 
   /// Opens the Flutter memory editor, which the native sheet cannot match with

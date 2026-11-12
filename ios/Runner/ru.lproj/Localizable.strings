@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "Не удалось показать системное меню";
 "native.upload" = "Загрузить";
 "native.user" = "Пользователь";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "Новое уведомление";

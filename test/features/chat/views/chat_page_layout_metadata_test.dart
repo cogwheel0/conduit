@@ -7,7 +7,8 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/chat/views/chat_bottom_anchor_controller.dart';
@@ -110,102 +111,6 @@ void main() {
     expect(
       controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
       isTrue,
-    );
-  });
-
-  test('older paging requires navigation, history, and an oldest row', () {
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isTrue();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: false,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: false,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: true,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: false,
-      ),
-    ).isFalse();
-  });
-
-  test('deferred chat mutations are fenced to the scheduled conversation', () {
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isTrue,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-b',
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: false,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: null,
-        activeConversationId: null,
-        scheduledGeneration: 7,
-        activeGeneration: 7,
-      ),
-      isFalse,
-    );
-    expect(
-      debugShouldApplyDeferredConversationMutationForTesting(
-        isMounted: true,
-        scheduledConversationId: 'chat-a',
-        activeConversationId: 'chat-a',
-        scheduledGeneration: 7,
-        activeGeneration: 9,
-      ),
-      isFalse,
     );
   });
 
@@ -364,6 +269,77 @@ void main() {
         .equals(const Duration(seconds: 1));
     check(debugScreenContextRetryDelayForTesting(completedRetries: 3)).isNull();
   });
+
+  test(
+    'a pinned reply that runs on under the composer offers the way down',
+    () {
+      // Placed at the top and auto-following a streaming reply: as soon as its
+      // text passes the composer by more than the show threshold.
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: false,
+          pinAutoFollowing: true,
+          freeScrolling: false,
+          bottomAnchorDetached: false,
+          currentlyShowing: false,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 49,
+        ),
+      ).isTrue();
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: true,
+          freeScrolling: false,
+          bottomAnchorDetached: false,
+          currentlyShowing: false,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 48,
+        ),
+      ).isFalse();
+      // Finished (no longer following) and still running on below: it stays,
+      // with the same hysteresis as anywhere else.
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: false,
+          freeScrolling: true,
+          bottomAnchorDetached: true,
+          currentlyShowing: true,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 13,
+        ),
+      ).isTrue();
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: false,
+          freeScrolling: true,
+          bottomAnchorDetached: true,
+          currentlyShowing: true,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 12,
+        ),
+      ).isFalse();
+      // While the pin is still moving into place, what lies below means
+      // nothing yet, so the button never flashes during the move.
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: true,
+          freeScrolling: false,
+          bottomAnchorDetached: false,
+          currentlyShowing: false,
+          distanceFromLatest: 0,
+          contentBelowPinnedTurn: 400,
+        ),
+      ).isFalse();
+    },
+  );
 
   test('latest button follows free-scroll ownership, not stale metrics', () {
     check(
@@ -1156,6 +1132,25 @@ void main() {
     expect(indices, <int>[4, 5, 3]);
   });
 
+  test('markdown prewarm stays near visible rows in a sparse long history', () {
+    final messages = List.generate(
+      10000,
+      (index) => ChatMessage(
+        id: 'synthetic-$index',
+        role: index == 4999 || index == 9000 ? 'assistant' : 'user',
+        content: 'A synthetic shape has four sides.',
+        timestamp: DateTime(2026),
+      ),
+    );
+    expect(
+      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+        messages,
+        visibleMessageIds: const ['synthetic-5000'],
+      ),
+      [4999],
+    );
+  });
+
   test('markdown prewarm returns no candidates without visible IDs', () {
     final messages = <ChatMessage>[
       ChatMessage(
@@ -1224,6 +1219,25 @@ void main() {
       ]);
       throttle.cancel();
     });
+  });
+
+  test('markdown prewarm caches eligibility across immutable edits', () {
+    final cache = MarkdownPrewarmEligibilityCache();
+    final message = ChatMessage(
+      id: 'synthetic-prewarm',
+      role: 'assistant',
+      content: '  ${List.filled(4096, 'synthetic paragraph ').join()}  ',
+      timestamp: DateTime(2026),
+    );
+    expect(cache.isEligible(message), isTrue);
+    expect(cache.isEligible(message), isTrue);
+    expect(cache.isEligible(message.copyWith(isStreaming: true)), isFalse);
+    expect(cache.isEligible(message.copyWith(role: 'user')), isFalse);
+    expect(cache.isEligible(message.copyWith(content: '  ')), isFalse);
+    final image = message.copyWith(content: 'data:image/png;base64,synthetic');
+    expect(cache.isEligible(image), isFalse);
+    expect(cache.isEligible(image.copyWith(content: 'edited')), isTrue);
+    expect(cache.isEligible(message), isTrue);
   });
 
   test('markdown prewarm skips still-streaming assistant messages', () {
@@ -1836,7 +1850,10 @@ final class _GatedConversationRefreshApi extends ApiService {
   int fetches = 0;
 
   @override
-  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) {
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) {
     fetches++;
     if (!started.isCompleted) started.complete();
     return response.future;

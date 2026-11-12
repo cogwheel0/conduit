@@ -31,16 +31,24 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 
 import '../../direct_connections/views/ollama_model_actions.dart';
+import 'model_control_labels.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatModelSection;
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show isTerminalAgentModel;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatMutationOwnerToken,
+        ModelControlState,
         captureOpenWebUiReasoningPickTarget,
-        selectReasoningEffortForModel;
+        modelControlChoicesProvider,
+        selectReasoningEffortForModel,
+        selectedModelControlStatesProvider;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 class ModelSelectorSheet extends ConsumerStatefulWidget {
@@ -76,6 +84,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _showMore = false;
+  final Set<String> _collapsedSections = <String>{};
 
   /// The chat and account this sheet opened for: it can stay open while
   /// another chat opens under it, and a pick is only for this one.
@@ -96,6 +105,44 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   Future<void> _togglePinnedModel(String modelId) => ref
       .read(personalizationSettingsProvider.notifier)
       .togglePinnedModel(modelId);
+
+  /// Offers [state]'s options and saves the pick to the account's settings,
+  /// where the web client reads it too.
+  Future<void> _showModelControlSelector(ModelControlState state) async {
+    final l10n = AppLocalizations.of(context)!;
+    final model = ref.read(selectedModelProvider);
+    if (model == null) return;
+    final control = state.control;
+    final selected = await showAdaptiveSelectionSheet<String>(
+      context: context,
+      builder: (sheetContext) => AdaptiveSelectionSheet(
+        title: modelControlTitle(l10n, control),
+        initialChildSize: 0.5,
+        itemCount: control.options.length,
+        itemBuilder: (_, index) {
+          final option = control.options[index];
+          return AdaptiveSelectionTile(
+            title: modelControlOptionLabel(l10n, control, option.value),
+            selected: option.value == state.value,
+            onTap: () => Navigator.of(sheetContext).pop(option.value),
+          );
+        },
+      ),
+    );
+    if (!mounted || selected == null || selected == state.value) return;
+    try {
+      await ref
+          .read(modelControlChoicesProvider.notifier)
+          .choose(model, control.key, selected);
+    } catch (_) {
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
+  }
 
   Future<void> _showEffortSelector() async {
     final l10n = AppLocalizations.of(context)!;
@@ -190,18 +237,33 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     final markedModelId = widget.onPick != null
         ? widget.selectedModelId
         : chatModelId;
+    final codingAgents = AppLocalizations.of(context)!.modelPickerCodingAgents;
     final layout = buildModelSelectorLayout(
       models: widget.models,
       pinnedModelIds: pinnedModelIds,
       defaultModelId: defaultModelId,
       selectedModelId: markedModelId,
+      // A terminal's coding agents come last, under their own heading.
+      sectionOf: (model) =>
+          libreChatModelSection(model) ??
+          (isTerminalAgentModel(model)
+              ? (label: codingAgents, order: 1 << 20)
+              : null),
+      // An agent leads the list only when pinned or selected, so a short
+      // account list does not lift the agents out from under their heading.
+      fillsFallback: (model) => !isTerminalAgentModel(model),
     );
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     final moreModels = layout.more
         .where((model) => modelSelectorQueryMatches(model, normalizedQuery))
         .toList(growable: false);
+    final moreSections = [
+      for (final section in layout.sections)
+        ?modelSelectorSectionForQuery(section, normalizedQuery),
+    ];
     final l10n = AppLocalizations.of(context)!;
     final effortPolicy = ref.watch(reasoningEffortPolicyProvider);
+    final modelControls = ref.watch(selectedModelControlStatesProvider);
     final selectedModel = ref.watch(selectedModelProvider);
     final supportsHermesFast =
         selectedModel != null &&
@@ -263,7 +325,49 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                 const SizedBox(height: Spacing.md),
               ],
               Expanded(
-                child: _showMore
+                child: _showMore && layout.sections.isNotEmpty
+                    ? ListView(
+                        controller: scrollController,
+                        children: [
+                          if (moreModels.isNotEmpty || moreSections.isEmpty)
+                            _ModelGroup(
+                              models: moreModels,
+                              onTogglePinnedModel: _togglePinnedModel,
+                              selectedModelId: markedModelId,
+                              onPick: widget.onPick,
+                              pickTarget: _pickTarget,
+                            ),
+                          for (final section in moreSections) ...[
+                            const SizedBox(height: Spacing.md),
+                            _SectionToggle(
+                              label: section.label,
+                              // A search shows every section it matched.
+                              collapsed:
+                                  normalizedQuery.isEmpty &&
+                                  _collapsedSections.contains(section.label),
+                              onTap: normalizedQuery.isEmpty
+                                  ? () => setState(() {
+                                      if (!_collapsedSections.remove(
+                                        section.label,
+                                      )) {
+                                        _collapsedSections.add(section.label);
+                                      }
+                                    })
+                                  : null,
+                            ),
+                            if (normalizedQuery.isNotEmpty ||
+                                !_collapsedSections.contains(section.label))
+                              _ModelGroup(
+                                models: section.models,
+                                onTogglePinnedModel: _togglePinnedModel,
+                                selectedModelId: markedModelId,
+                                onPick: widget.onPick,
+                                pickTarget: _pickTarget,
+                              ),
+                          ],
+                        ],
+                      )
+                    : _showMore
                     ? _ModelGroup(
                         models: moreModels,
                         onTogglePinnedModel: _togglePinnedModel,
@@ -319,7 +423,24 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                               },
                             ),
                           ],
-                          if (layout.more.isNotEmpty) ...[
+                          if (widget.onPick == null)
+                            for (final control in modelControls) ...[
+                              const SizedBox(height: Spacing.md),
+                              _ActionCard(
+                                icon: Platform.isIOS
+                                    ? CupertinoIcons.slider_horizontal_3
+                                    : Icons.tune_rounded,
+                                title: modelControlTitle(l10n, control.control),
+                                subtitle: modelControlOptionLabel(
+                                  l10n,
+                                  control.control,
+                                  control.value,
+                                ),
+                                onTap: () => _showModelControlSelector(control),
+                              ),
+                            ],
+                          if (layout.more.isNotEmpty ||
+                              layout.sections.isNotEmpty) ...[
                             const SizedBox(height: Spacing.md),
                             _ActionCard(
                               icon: Platform.isIOS
@@ -340,20 +461,8 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   }
 }
 
-String _effortLabel(AppLocalizations l10n, String effort) => switch (effort) {
-  kAutomaticReasoningEffort => l10n.ollamaThinkingAutomatic,
-  'low' => l10n.reasoningEffortLow,
-  'medium' => l10n.reasoningEffortMedium,
-  'high' => l10n.reasoningEffortHigh,
-  'light' => l10n.reasoningEffortLight,
-  'moderate' => l10n.reasoningEffortModerate,
-  'deep' => l10n.reasoningEffortDeep,
-  'minimal' => l10n.reasoningEffortMinimal,
-  'xhigh' => l10n.reasoningEffortExtraHigh,
-  'max' => l10n.reasoningEffortMaximum,
-  'none' => l10n.reasoningEffortNone,
-  _ => effort,
-};
+String _effortLabel(AppLocalizations l10n, String effort) =>
+    reasoningEffortDisplayLabel(l10n, effort);
 
 @visibleForTesting
 String reasoningEffortLabelForTest(AppLocalizations l10n, String effort) =>
@@ -368,6 +477,128 @@ bool modelSelectorQueryMatches(Model model, String query) {
       model.id.toLowerCase().contains(normalizedQuery) ||
       (directSource?.contains(normalizedQuery) ?? false) ||
       model.modelTags.any((tag) => tag.toLowerCase().contains(normalizedQuery));
+}
+
+/// [section] as a search for [query] shows it: whole when its label
+/// matches, else only the models that match; null when nothing does.
+@visibleForTesting
+ModelSelectorSection? modelSelectorSectionForQuery(
+  ModelSelectorSection section,
+  String query,
+) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.isEmpty ||
+      section.label.toLowerCase().contains(normalizedQuery)) {
+    return section;
+  }
+  final models = section.models
+      .where((model) => modelSelectorQueryMatches(model, normalizedQuery))
+      .toList(growable: false);
+  return models.isEmpty
+      ? null
+      : ModelSelectorSection(label: section.label, models: models);
+}
+
+/// A section's title in the more-models list, which folds the section away.
+class _SectionToggle extends StatefulWidget {
+  const _SectionToggle({
+    required this.label,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool collapsed;
+  final VoidCallback? onTap;
+
+  @override
+  State<_SectionToggle> createState() => _SectionToggleState();
+}
+
+class _SectionToggleState extends State<_SectionToggle> {
+  bool _showFocus = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final onTap = widget.onTap;
+    final label = widget.label;
+    final collapsed = widget.collapsed;
+    // One node that screen readers announce and can activate, and a focus
+    // stop so a keyboard or switch can open and close the section too.
+    return Semantics(
+      container: true,
+      child: FocusableActionDetector(
+        enabled: onTap != null,
+        // A keyboard user sees which heading Enter or Space will fold.
+        onShowFocusHighlight: (show) => setState(() => _showFocus = show),
+        mouseCursor: onTap != null
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
+        actions: <Type, Action<Intent>>{
+          if (onTap != null)
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                onTap();
+                return null;
+              },
+            ),
+        },
+        child: Semantics(
+          button: onTap != null,
+          expanded: onTap == null ? null : !collapsed,
+          label: label,
+          onTap: onTap,
+          excludeSemantics: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                border: Border.all(
+                  color: _showFocus
+                      ? context.conduitTheme.buttonPrimary
+                      : const Color(0x00000000),
+                  width: 2,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.sm,
+                  vertical: Spacing.xs,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: AppTypography.labelMediumStyle.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: context.conduitTheme.textSecondary,
+                        ),
+                      ),
+                    ),
+                    if (onTap != null)
+                      Icon(
+                        collapsed
+                            ? (Platform.isIOS
+                                  ? CupertinoIcons.chevron_right
+                                  : Icons.chevron_right)
+                            : (Platform.isIOS
+                                  ? CupertinoIcons.chevron_down
+                                  : Icons.expand_more),
+                        size: 18,
+                        color: context.conduitTheme.iconSecondary,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SelectorHeader extends StatelessWidget {

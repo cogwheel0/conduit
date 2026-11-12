@@ -120,7 +120,7 @@ class TtsConfig {
     this.voice,
     this.serverVoice,
     this.splitOn = TtsManager.splitOnPunctuation,
-    this.speechRate = 0.5,
+    this.speed = 1.0,
     this.pitch = 1.0,
     this.volume = 1.0,
     this.preferServer = false,
@@ -129,7 +129,9 @@ class TtsConfig {
   final String? voice;
   final String? serverVoice;
   final String splitOn;
-  final double speechRate;
+
+  /// How fast speech plays, as a multiple of the voice's own pace.
+  final double speed;
   final double pitch;
   final double volume;
   final bool preferServer;
@@ -138,7 +140,7 @@ class TtsConfig {
     String? voice,
     String? serverVoice,
     String? splitOn,
-    double? speechRate,
+    double? speed,
     double? pitch,
     double? volume,
     bool? preferServer,
@@ -147,7 +149,7 @@ class TtsConfig {
       voice: voice ?? this.voice,
       serverVoice: serverVoice ?? this.serverVoice,
       splitOn: splitOn ?? this.splitOn,
-      speechRate: speechRate ?? this.speechRate,
+      speed: speed ?? this.speed,
       pitch: pitch ?? this.pitch,
       volume: volume ?? this.volume,
       preferServer: preferServer ?? this.preferServer,
@@ -172,7 +174,10 @@ class TtsManager {
   static const String splitOnPunctuation = speechSplitOnPunctuation;
   static const String splitOnParagraphs = speechSplitOnParagraphs;
   static const String splitOnNone = speechSplitOnNone;
-  static const double _serverPlaybackRate = 1.0;
+
+  /// The device engines' own pace: iOS's default utterance rate, and the
+  /// rate Android has always been given.
+  static const double _deviceBaseRate = 0.5;
 
   TtsManager._();
   static final instance = TtsManager._();
@@ -309,8 +314,10 @@ class TtsManager {
       _voiceConfigured = false;
     }
 
+    // Audio clips, from the server or rendered by the device, take the
+    // speed as they play, so a change reaches the reading under way.
     if (_playerConfigured) {
-      await _player.setSpeed(_serverPlaybackRate);
+      await _player.setSpeed(_config.speed);
     }
   }
 
@@ -373,7 +380,7 @@ class TtsManager {
         _serverCurrentIndex = index;
         _emitEvent(TtsChunkStarted(index));
       });
-      await _player.setSpeed(_serverPlaybackRate);
+      await _player.setSpeed(_config.speed);
       _playerConfigured = true;
     }
 
@@ -583,6 +590,27 @@ class TtsManager {
     return position;
   }
 
+  /// Where playback is in the clip now playing: its chunk, the position in
+  /// it and its length. Null unless the session plays audio clips and the
+  /// clip's length is known.
+  ({int index, Duration position, Duration duration})? get chunkProgress {
+    final session = _activeSession;
+    if (session == null || !session.usesAudioPlayer) return null;
+    final index = _player.currentIndex ?? _serverCurrentIndex;
+    if (index < 0 || index >= session.chunks.length) return null;
+    final duration = _clipDurations[index];
+    if (duration == null || duration <= Duration.zero) return null;
+    return (index: index, position: _player.position, duration: duration);
+  }
+
+  /// Whether the session reports each word as it is spoken. Only the device
+  /// engine speaking live does; audio clips, from the server or rendered by
+  /// the device for read-aloud, carry no word timings.
+  bool get reportsSpokenWords {
+    final session = _activeSession;
+    return session != null && !session.usesAudioPlayer;
+  }
+
   Duration? get playbackDuration {
     final session = _activeSession;
     if (session == null ||
@@ -597,12 +625,17 @@ class TtsManager {
   }
 
   Future<Duration?> seekRelative(Duration offset) async {
-    final session = _activeSession;
     final current = playbackPosition;
-    if (session == null || current == null) return null;
-    final target = current + offset < Duration.zero
-        ? Duration.zero
-        : current + offset;
+    if (_activeSession == null || current == null) return null;
+    return seekTo(current + offset);
+  }
+
+  /// Moves playback to [position] in the whole reading, waiting for the
+  /// audio to get there if it is still being prepared.
+  Future<Duration?> seekTo(Duration position) async {
+    final session = _activeSession;
+    if (session == null || playbackPosition == null) return null;
+    final target = position < Duration.zero ? Duration.zero : position;
     try {
       await _player.pause();
       // Wake as soon as the queue reaches the target, not after later clips.
@@ -717,7 +750,8 @@ class TtsManager {
     final audio = await _nativeTts.synthesize(
       text: session.chunks[index],
       voiceIdentifier: _config.voice,
-      rate: _config.speechRate,
+      // Rendered at the voice's own pace; the player applies the speed.
+      rate: _deviceBaseRate,
       pitch: _config.pitch,
       volume: _config.volume,
     );
@@ -1222,7 +1256,7 @@ class TtsManager {
     final started = await _nativeTts.speak(
       text: chunk,
       voiceIdentifier: _config.voice,
-      rate: _config.speechRate,
+      rate: _deviceBaseRate * _config.speed,
       pitch: _config.pitch,
       volume: _config.volume,
       voiceCall: _voiceCallActive,

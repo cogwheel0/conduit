@@ -50,7 +50,10 @@ bool conversationUsesOpenWebUiStorage(Conversation? conversation) {
   if (conversation == null) return false;
   final storage = chatStorageKindOf(conversation);
   if (storage == ChatStorageKind.openWebUi) return true;
-  if (storage == ChatStorageKind.directLocal) return false;
+  if (storage == ChatStorageKind.directLocal ||
+      storage == ChatStorageKind.libreChat) {
+    return false;
+  }
   final backend = conversation.metadata['backend'];
   if (backend == kDirectTransport || isNativeHermesConversation(conversation)) {
     return false;

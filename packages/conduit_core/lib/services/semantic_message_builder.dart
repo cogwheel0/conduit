@@ -65,6 +65,8 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     this.result,
     this.files,
     this.embeds,
+    this.runningLabel,
+    this.completedLabel,
   });
 
   factory SemanticDetailsBlock.reasoning({
@@ -102,6 +104,8 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     bool isError = false,
     Object? files,
     Object? embeds,
+    String? runningLabel,
+    String? completedLabel,
   }) {
     return SemanticDetailsBlock._(
       type: 'tool_calls',
@@ -120,6 +124,8 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
       result: result,
       files: files,
       embeds: embeds,
+      runningLabel: runningLabel,
+      completedLabel: completedLabel,
     );
   }
 
@@ -155,6 +161,11 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
   final Object? result;
   final Object? files;
   final Object? embeds;
+
+  /// A tool call's labels from Open WebUI's tool call labels, written as
+  /// upstream's `running_label` and `display_label` attributes.
+  final String? runningLabel;
+  final String? completedLabel;
 }
 
 String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
@@ -247,6 +258,8 @@ String _renderDetailsBlock(SemanticDetailsBlock block) {
     if (block.result != null) 'result': _jsonAttributeValue(block.result),
     if (block.files != null) 'files': _jsonAttributeValue(block.files),
     if (block.embeds != null) 'embeds': _jsonAttributeValue(block.embeds),
+    if (block.runningLabel != null) 'running_label': block.runningLabel!,
+    if (block.completedLabel != null) 'display_label': block.completedLabel!,
   };
   final attrs = attributes.entries
       .where((entry) => entry.key == 'status' || entry.value.trim().isNotEmpty)

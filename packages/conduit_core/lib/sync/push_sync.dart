@@ -84,15 +84,20 @@ class PushSync {
         final chat = await _db.chatsDao.getChat(localId);
         if (chat != null) {
           final messages = await _db.messagesDao.getForChat(localId);
-          final capturedMessageIds = _messageIdsIfSnapshotMatches(
-            chat,
-            messages,
-            contentHash,
-          );
+          // The server holds what the create sent: the snapshot its
+          // fingerprint names. Rows that match it are those, so their dirt
+          // goes. The chat's own dirt goes only if no update is owed
+          // besides: the snapshot leaves out the folder, pin and archive,
+          // and an update still owed is a change the create did not send. A
+          // chat left dirty keeps that change through a pull (one asked for
+          // by name refreshes a clean chat) until its update sends it.
+          final sent = _snapshotMatches(chat, messages, contentHash);
+          final owed = await _db.outboxDao.hasUnconfirmedUpdate(localId);
           await _clearDirty(
             chatId: localId,
-            messageIds: capturedMessageIds,
+            messageIds: sent ? [for (final m in messages) m.id] : const [],
             serverUpdatedAt: chat.serverUpdatedAt ?? chat.updatedAt,
+            chatRow: sent && !owed,
           );
         }
         return localId;
@@ -162,6 +167,7 @@ class PushSync {
         // local-id lock span, and remap+clear share this server-id lock span.
         // Clear only the captured message snapshot (now living under serverId)
         // and the chat row.
+        _db.chatsDao.notePushLanded(pushed.serverId);
         await _clearDirty(
           chatId: pushed.serverId,
           messageIds: pushed.capturedMessageIds,
@@ -224,6 +230,10 @@ class PushSync {
         );
         return;
       }
+      // The server holds these rows now, whatever happens to the reconcile
+      // below: a copy read before this is older than them, even should a
+      // pin or a move fail and leave the push to run again.
+      _db.chatsDao.notePushLanded(chatId);
       final serverUpdatedAt = _epoch(resp['updated_at']) ?? chat.updatedAt;
 
       // folder-move delta runs BEFORE the pin/archive reconcile: the server's
@@ -284,7 +294,10 @@ class PushSync {
 
       // Store serverUpdatedAt + clear dirty ONLY for the captured snapshot:
       // any row dirtied after the capture (none possible inside this single
-      // lock span, but defensively) stays dirty.
+      // lock span, but defensively) stays dirty. Noted again: the folder
+      // move, pin and archive above write too, so a copy read between them
+      // and the update is older than the chat as pushed.
+      _db.chatsDao.notePushLanded(chatId);
       await _clearDirty(
         chatId: chatId,
         messageIds: capturedMessageIds,
@@ -502,15 +515,24 @@ class PushSync {
   // ---- helpers ----
 
   /// Caller holds the chat lock. Stores [serverUpdatedAt] + clears dirty for
-  /// the chat row and exactly [messageIds] in ONE transaction (REQ §7.2/§10).
+  /// the chat row (unless [chatRow] is false) and exactly [messageIds] in ONE
+  /// transaction (REQ §7.2/§10).
+  ///
+  /// A push that reached the server notes it first
+  /// ([ChatsDao.notePushLanded]): a copy read before then is older than the
+  /// base stored here, even one stamped the same second. A create found
+  /// satisfied already sent nothing, so a copy read before it is current.
   Future<void> _clearDirty({
     required String chatId,
     required List<String> messageIds,
     required int serverUpdatedAt,
+    bool chatRow = true,
   }) {
     return _db.transaction(() async {
       await _db.customUpdate(
-        'UPDATE chats SET server_updated_at = ?, dirty = 0 WHERE id = ?',
+        chatRow
+            ? 'UPDATE chats SET server_updated_at = ?, dirty = 0 WHERE id = ?'
+            : 'UPDATE chats SET server_updated_at = ? WHERE id = ?',
         variables: [
           Variable.withInt(serverUpdatedAt),
           Variable.withString(chatId),
@@ -560,14 +582,14 @@ class PushSync {
     return null;
   }
 
-  static List<String> _messageIdsIfSnapshotMatches(
+  /// Whether [chat] and [messages] are still the snapshot [contentHash]
+  /// fingerprints: the blob a create sent. Unknown without a fingerprint.
+  static bool _snapshotMatches(
     ChatRow chat,
     List<MessageRow> messages,
     String? contentHash,
   ) {
-    if (contentHash == null || contentHash.isEmpty) {
-      return const [];
-    }
+    if (contentHash == null || contentHash.isEmpty) return false;
     final currentHash = createChatContentHash(chatRowsFromDb(chat, messages));
     if (currentHash != contentHash) {
       DebugLogger.log(
@@ -575,9 +597,9 @@ class PushSync {
         scope: 'sync/push',
         data: {'chatId': chat.id},
       );
-      return const [];
+      return false;
     }
-    return [for (final message in messages) message.id];
+    return true;
   }
 
   static int? _epoch(Object? value) {

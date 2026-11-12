@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart'
+    show kSidebarRowContentInset;
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
@@ -12,15 +14,17 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
-import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/native_platform_views.dart';
 import 'sidebar_page_test_support.dart';
 
 const _user = User(
@@ -390,10 +394,7 @@ void main() {
     expect(find.text('Conduit'), findsNothing);
     expect(sidebarTestTooltip('New Chat'), findsOneWidget);
     expect(tester.getCenter(profile).dy, tester.getCenter(search).dy);
-    expect(
-      tester.getCenter(profile).dx,
-      lessThan(tester.getCenter(search).dx),
-    );
+    expect(tester.getCenter(profile).dx, lessThan(tester.getCenter(search).dx));
     expect(find.byType(ConduitChromeGradientFade), findsNWidgets(2));
     // The destinations lead the history, which runs under both bars.
     expect(
@@ -420,6 +421,78 @@ void main() {
     expect(tester.getTopLeft(search), searchBefore);
     expect(tester.getTopLeft(create), createBefore);
     expect(tester.getTopLeft(destinations).dy, lessThan(destinationsBefore));
+  });
+
+  testWidgets('the sliding layout keeps its narrow rows to titles: no dates, '
+      'no Chats title, and New Chat below', (tester) async {
+    final date = DateTime(2026, 1, 1);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        conversations: [
+          for (var i = 0; i < 3; i++)
+            Conversation(
+              id: 'demo-$i',
+              title: 'Example $i',
+              createdAt: date,
+              updatedAt: date,
+            ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Example 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('conversation-updated-stamp')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('chats-large-title')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-collapsed-title')),
+      findsNothing,
+    );
+    // The destinations are the sidebar's own rows, with no rule under them.
+    final destinations = find.byKey(
+      const ValueKey<String>('sidebar-destinations'),
+    );
+    // Their symbols start on the rows' content edge, where a read chat's
+    // title starts, the names after them.
+    final notesRow = find.byKey(
+      const ValueKey<String>('sidebar-destination-notes'),
+    );
+    final notesSymbol = find.descendant(
+      of: notesRow,
+      matching: find.byType(Icon),
+    );
+    expect(tester.getTopLeft(notesSymbol).dx, kSidebarRowContentInset);
+    expect(
+      tester.getTopLeft(find.text('Notes')).dx,
+      greaterThan(tester.getTopRight(notesSymbol).dx),
+    );
+    expect(
+      find.descendant(of: destinations, matching: find.byType(ListTile)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: destinations, matching: find.byType(Divider)),
+      findsNothing,
+    );
+    // New Chat is below, in the bottom bar; the header keeps only Search.
+    final search = find.byKey(const ValueKey<String>('sidebar-search-button'));
+    final create = find.byKey(const ValueKey<String>('sidebar-create-button'));
+    expect(
+      tester.getTopLeft(create).dy,
+      greaterThan(tester.getBottomLeft(find.text('Example 2')).dy),
+    );
+    expect(
+      tester.getCenter(create).dy,
+      greaterThan(tester.getCenter(search).dy),
+    );
   });
 
   testWidgets('the sliding layout takes the tabbed sidebar surface', (
@@ -567,7 +640,9 @@ void main() {
     expect(empty, findsOneWidget);
     expect(
       tester.getTopLeft(empty).dy,
-      greaterThan(tester.getBottomLeft(sidebarTestDestinationLabel('Notes')).dy),
+      greaterThan(
+        tester.getBottomLeft(sidebarTestDestinationLabel('Notes')).dy,
+      ),
     );
     final history = find.descendant(
       of: find.byKey(const ValueKey<String>('sidebar-chat-history')),
@@ -577,135 +652,122 @@ void main() {
     expect(position.maxScrollExtent, 0);
   });
 
-  testWidgets('iOS 26 draws the bottom bar as one native view', (
-    tester,
-  ) async {
+  // On the default target platform, as the other sidebar tests. Under an iOS
+  // target, Linux CI draws the package's Flutter fallback for every native
+  // control in the sidebar, and one of them overflows its row by a few
+  // pixels. The bar follows PlatformUiCapabilities, so its configuration is
+  // checked either way.
+  testWidgets('iOS 26 draws the backends as the system tab bar beside a '
+      'glass New Chat', (tester) async {
+    final semantics = tester.ensureSemantics();
+    stubNativePlatformViews();
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-    AdaptiveFloatingTabBar.debugIconRenderer = (_, asset, _, _) =>
-        SynchronousFuture(Uint8List.fromList(asset.codeUnits));
-    addTearDown(AdaptiveFloatingTabBar.debugReset);
-    final updates = <Map<Object?, Object?>>[];
+    final haptics = <Object?>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform_views,
-      (_) async => null,
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments);
+        }
+        return null;
+      },
     );
-    const channel = MethodChannel('conduit/floating_tab_bar_4242');
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
-      call,
-    ) async {
-      if (call.method == 'update') {
-        updates.add(call.arguments as Map<Object?, Object?>);
-      }
-      return null;
-    });
-    try {
-      await tester.pumpWidget(
-        sidebarTestBuildHarness(
-          controllers: SidebarTestSidebarHarnessControllers(),
-          currentUser: _user,
-          hermesEnabled: true,
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 500));
-      final search = tester.widget<CNButton>(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('sidebar-search-button')),
-          matching: find.byType(CNButton),
-        ),
-      );
-      expect(search.icon?.name, 'magnifyingglass');
-      expect(search.config.style, CNButtonStyle.glass);
-      expect(find.byType(CNTabBar), findsNothing);
-
-      final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
-      final view = tester.widget<UiKitView>(
-        find.descendant(of: bar, matching: find.byType(UiKitView)),
-      );
-      expect(view.viewType, 'conduit/floating_tab_bar');
-      final params = view.creationParams as Map;
-      final tabs = (params['tabs'] as List).cast<Map>();
-      expect([for (final tab in tabs) tab['label']], ['Open WebUI', 'Hermes']);
-      expect([
-        for (final tab in tabs) String.fromCharCodes(tab['image'] as Uint8List),
-      ], ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png']);
-      expect(params['selectedIndex'], 0);
-      expect(params['actionSymbol'], 'square.and.pencil');
-      expect(params['actionLabel'], 'New Chat');
-      // The bar is drawn at the size of the header's search button.
-      final searchButton = find.byKey(
-        const ValueKey<String>('sidebar-search-button'),
-      );
-      expect(params['controlExtent'], tester.getSize(searchButton).height);
-      expect(params['actionSymbolSize'], search.icon?.size);
-      expect(
-        params['edgeInset'],
-        tester
-                .getTopRight(
-                  find.byKey(const ValueKey<String>('sidebar-page-surface')),
-                )
-                .dx -
-            tester.getTopRight(searchButton).dx,
-      );
-      // The chat composer's gap, so the bar lines up with it.
-      expect(params['bottomInset'], Spacing.sm);
-
-      view.onPlatformViewCreated!(4242);
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        channel.name,
-        const StandardMethodCodec().encodeMethodCall(
-          const MethodCall('select', 1),
-        ),
-        (_) {},
-      );
-      await tester.pump();
-      final container = ProviderScope.containerOf(tester.element(bar));
-      expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
-      expect(updates.last['selectedIndex'], 1);
-      expect(tester.takeException(), isNull);
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform_views,
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
         null,
-      );
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        channel,
-        null,
-      );
-    }
-  });
-
-  testWidgets('native tab icons render at their point size', (tester) async {
-    final icons = await tester.runAsync(
-      () => Future.wait([
-        AdaptiveFloatingTabBar.renderNativeIcon(
-          rootBundle,
-          'assets/icons/open_webui_tab.png',
-          22,
-          3,
-        ),
-        AdaptiveFloatingTabBar.renderNativeIcon(
-          rootBundle,
-          'assets/icons/hermes_agent.png',
-          26,
-          3,
-        ),
-      ]),
+      ),
     );
-    final sizes = [
-      for (final icon in icons!)
-        (() {
-          final png = ByteData.sublistView(icon);
-          expect(png.getUint32(0), 0x89504E47);
-          return (png.getUint32(16), png.getUint32(20));
-        })(),
-    ];
-    expect(sizes.first, (66, 66));
-    expect(sizes.last.$2, 78);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        hermesEnabled: true,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final searchButton = find.byKey(
+      const ValueKey<String>('sidebar-search-button'),
+    );
+    final search = tester.widget<CNButton>(
+      find.descendant(of: searchButton, matching: find.byType(CNButton)),
+    );
+    expect(search.icon?.name, 'magnifyingglass');
+    expect(search.config.style, CNButtonStyle.glass);
+
+    final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
+    // The only tab bar holds the backends; the destinations stay in the pane.
+    expect(find.byType(CNTabBar), findsOneWidget);
+    CNTabBar tabBar() => tester.widget<CNTabBar>(
+      find.descendant(of: bar, matching: find.byType(CNTabBar)),
+    );
+    final theme = tester.element(bar).conduitTheme;
+
+    // Icons only; screen readers read each tab by its backend's name.
+    expect([for (final item in tabBar().items) item.label], [null, null]);
+    expect(
+      [for (final item in tabBar().items) item.semanticLabel],
+      ['Open WebUI', 'Hermes'],
+    );
+    expect(
+      [for (final item in tabBar().items) item.imageAsset?.assetPath],
+      ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
+    );
+    expect(tabBar().currentIndex, 0);
+    expect(tabBar().tint, theme.buttonPrimary);
+    expect(tabBar().split, isFalse);
+
+    final button = find.descendant(
+      of: bar,
+      matching: find.byType(NativeGlassIconButton),
+    );
+    final action = tester.widget<NativeGlassIconButton>(button);
+    expect(action.symbol.name, 'square.and.pencil');
+    expect(action.symbol.color, theme.textPrimary);
+
+    // The test window is as wide as a tablet's, where UIKit lays the tab bar
+    // out inline, on a 44 point platter. The window has no safe area, so
+    // New Chat sits the chat composer's least gap of 8 points up, takes the
+    // platter's size, ends under the header's search button, and the
+    // history keeps their room clear.
+    final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
+    expect(tester.getSize(button), const Size.square(44));
+    expect(
+      tester.getBottomRight(button).dy,
+      tester.getBottomLeft(surface).dy - Spacing.sm,
+    );
+    expect(tester.getTopRight(button).dx, tester.getTopRight(searchButton).dx);
+    final layout = tester.widget<SidebarTabLayoutScope>(
+      find.byType(SidebarTabLayoutScope).first,
+    );
+    expect(layout.floatingChromeInsets?.bottom, Spacing.sm + 44);
+
+    // Choosing the other backend switches the history and taps once.
+    tabBar().onTap(1);
+    await tester.pump();
+    final container = ProviderScope.containerOf(tester.element(bar));
+    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
+    expect(tabBar().currentIndex, 1);
+    expect(haptics, ['HapticFeedbackType.selectionClick']);
+    // The tab bar reports the selected backend again; it changes nothing and
+    // stays quiet.
+    tabBar().onTap(1);
+    await tester.pump();
+    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
+    expect(haptics, hasLength(1));
+    // New Chat stays the action of the Hermes history, outside the tabs.
+    expect(tabBar().items, hasLength(2));
+    expect(
+      tester.widget<NativeGlassIconButton>(button).symbol.name,
+      'square.and.pencil',
+    );
+    expect(tester.takeException(), isNull);
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('Material backend tabs are an icon-only pill beside a FAB', (
@@ -726,14 +788,16 @@ void main() {
           matching: find.byType(NavigationBar),
         ),
       );
-      expect(
-        pill.labelBehavior,
-        NavigationDestinationLabelBehavior.alwaysHide,
-      );
+      expect(pill.labelBehavior, NavigationDestinationLabelBehavior.alwaysHide);
       expect(pill.selectedIndex, 0);
-      final create = find.byKey(const ValueKey<String>('sidebar-create-button'));
+      final create = find.byKey(
+        const ValueKey<String>('sidebar-create-button'),
+      );
       expect(
-        find.descendant(of: create, matching: find.byType(FloatingActionButton)),
+        find.descendant(
+          of: create,
+          matching: find.byType(FloatingActionButton),
+        ),
         findsOneWidget,
       );
       expect(
@@ -746,7 +810,9 @@ void main() {
       );
       expect(tester.getSize(create), tester.getSize(search));
       expect(
-        tester.getSize(find.byKey(const ValueKey<String>('sidebar-backend-tabs'))).height,
+        tester
+            .getSize(find.byKey(const ValueKey<String>('sidebar-backend-tabs')))
+            .height,
         tester.getSize(search).height,
       );
       expect(tester.getTopRight(create).dx, tester.getTopRight(search).dx);
@@ -772,9 +838,7 @@ void main() {
     }
   });
 
-  testWidgets('destinations lead only the Open WebUI history', (
-    tester,
-  ) async {
+  testWidgets('destinations lead only the Open WebUI history', (tester) async {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
@@ -823,6 +887,66 @@ void main() {
     );
   });
 
+  testWidgets('a long Hermes connection name stays clear of the profile in '
+      'a narrow header', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const name = 'Research gateway in the shared lab rack';
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        hermesOnly: true,
+        hermesEnabled: true,
+        extraOverrides: [
+          hermesConnectionsProvider.overrideWithValue(const [
+            HermesConnectionProfile(
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              name: name,
+              baseUrl: 'https://lab.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+            HermesConnectionProfile(
+              id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'bbbbbbbb-0000-4000-8000-000000000000',
+            ),
+          ]),
+          hermesActiveConnectionIdProvider.overrideWithValue(
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ),
+          hermesActiveConnectionNameProvider.overrideWithValue(name),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final switcher = find.byKey(
+      const ValueKey<String>('hermes-connection-switcher'),
+    );
+    final profile = find.byType(SidebarProfileAppBarLeading);
+    expect(switcher.hitTestable(), findsOneWidget);
+    expect(profile.hitTestable(), findsOneWidget);
+    // Centred in the bar, and shortened before it reaches the profile.
+    final bar = tester.getRect(
+      find.byKey(const ValueKey('sidebar-page-surface')),
+    );
+    final pill = tester.getRect(switcher);
+    expect(pill.left, greaterThan(tester.getRect(profile).right));
+    expect(pill.center.dx, moreOrLessEquals(bar.center.dx, epsilon: 1));
+    final semantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester.getSemantics(switcher),
+        isSemantics(hint: 'Switch Connection'),
+      );
+    } finally {
+      semantics.dispose();
+    }
+  });
   for (final size in [const Size(320, 568), const Size(844, 390)]) {
     testWidgets('sidebar controls stay reachable at 2x text in $size', (
       tester,

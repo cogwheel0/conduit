@@ -482,7 +482,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('alpha.txt'), findsOneWidget);
-      expect(find.text('Listening ports'), findsNothing);
+      expect(find.text('Listening Ports'), findsNothing);
 
       final container = ProviderScope.containerOf(
         tester.element(find.byType(TerminalTab)),
@@ -492,11 +492,11 @@ void main() {
           .setPanel(TerminalSidebarPanel.console);
       await tester.pumpAndSettle();
 
-      expect(find.text('Listening ports'), findsOneWidget);
+      expect(find.text('Listening Ports'), findsOneWidget);
       expect(find.text('alpha.txt'), findsNothing);
 
       expect(find.text('localhost:3000'), findsNothing);
-      await tester.tap(find.text('Listening ports'));
+      await tester.tap(find.text('Listening Ports'));
       await tester.pumpAndSettle();
       expect(find.text('localhost:3000'), findsOneWidget);
     });
@@ -591,7 +591,7 @@ void main() {
           .read(terminalSidebarPanelProvider.notifier)
           .setPanel(TerminalSidebarPanel.console);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Listening ports'));
+      await tester.tap(find.text('Listening Ports'));
       await tester.pumpAndSettle();
       expect(find.text('localhost:5173'), findsOneWidget);
     });

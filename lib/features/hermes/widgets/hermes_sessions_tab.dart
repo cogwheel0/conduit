@@ -20,11 +20,12 @@ import 'package:conduit_core/features/navigation/providers/drawer_section_notifi
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_bot_tile.dart';
-import 'hermes_connection_switcher.dart';
 import 'hermes_jobs_sheet.dart';
+import 'hermes_rooms_section.dart';
 import 'hermes_session_tile.dart';
 
 /// Sidebar tab listing the user's Hermes server-side conversations, with one
@@ -41,6 +42,9 @@ class HermesSessionsTab extends ConsumerStatefulWidget {
 class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     with SidebarTabScrollRegistration<HermesSessionsTab> {
   final ScrollController _scrollController = ScrollController();
+
+  /// Whether the archived chats are listed below their row.
+  bool _showArchived = false;
 
   @override
   SidebarTabId get sidebarTabId => SidebarTabId.hermes;
@@ -72,9 +76,8 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         SliverToBoxAdapter(
           child: SizedBox(height: sidebarTabContentTopPadding(context)),
         ),
-        // Names the active connection; switches when several are saved.
-        const SliverToBoxAdapter(child: HermesConnectionSwitcherTile()),
         ..._botSlivers(context, ref.watch(hermesBotsProvider).asData?.value),
+        const HermesRoomsSection(),
         if (showJobs) const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
         ..._sessionSlivers(context, sessionsAsync),
         SliverToBoxAdapter(
@@ -93,6 +96,10 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         ConduitHaptics.lightImpact();
         if (showJobs) ref.invalidate(hermesJobsProvider);
         ref.invalidate(hermesBotsProvider);
+        ref.invalidate(hermesArchivedSessionsProvider);
+        // A capabilities read that failed hid Rooms; this one retries it.
+        ref.invalidate(hermesRoomCapabilitiesProvider);
+        ref.invalidate(hermesRoomsProvider);
         ref.invalidate(hermesSessionsProvider);
         await ref.read(hermesSessionsProvider.future);
       },
@@ -147,9 +154,17 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final archivedAsync = ref.watch(hermesArchivedSessionsProvider);
+    // A failed refresh keeps the chats it last listed, and says it failed.
+    final archived = archivedAsync.value ?? const [];
+    // The archived list has its own loading and failure: neither reads as
+    // having no archived chats.
+    final archivedFailed = archivedAsync.hasError;
+    final archivedLoading = archivedAsync.isLoading && !archivedAsync.hasValue;
     return sessionsAsync.when(
       data: (sessions) {
-        if (sessions.isEmpty) {
+        if (sessions.isEmpty && archived.isEmpty && !archivedFailed) {
+          if (archivedLoading) return _loadingSlivers;
           return [
             SliverToBoxAdapter(
               child: _message(
@@ -161,34 +176,57 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
             ),
           ];
         }
+        final pinned = [
+          for (final session in sessions)
+            if (session.pinned) session,
+        ];
+        final recent = [
+          for (final session in sessions)
+            if (!session.pinned) session,
+        ];
         return [
-          SliverToBoxAdapter(
-            child: _SectionHeader(
-              title: l10n.hermesConversationsTitle,
-              count: sessions.length,
+          if (pinned.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: l10n.pinned, count: pinned.length),
             ),
-          ),
-          SliverPadding(
-            // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
-            // gutter. Keep list padding vertical to avoid doubling that inset
-            // only in this tab.
-            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-            sliver: SliverList.builder(
-              itemCount: sessions.length,
-              itemBuilder: (context, index) =>
-                  HermesSessionTile(session: sessions[index]),
+            _sessionList(pinned),
+          ],
+          if (recent.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(
+                title: l10n.hermesConversationsTitle,
+                count: recent.length,
+              ),
             ),
-          ),
+            _sessionList(recent),
+          ],
+          if (archived.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(
+                key: const ValueKey<String>('hermes-archived-sessions'),
+                title: l10n.archived,
+                count: archived.length,
+                expanded: _showArchived,
+                onToggle: () {
+                  ConduitHaptics.selectionClick();
+                  setState(() => _showArchived = !_showArchived);
+                },
+              ),
+            ),
+            if (_showArchived) _sessionList(archived),
+          ],
+          if (archivedFailed) ...[
+            if (archived.isEmpty)
+              SliverToBoxAdapter(child: _SectionHeader(title: l10n.archived)),
+            SliverToBoxAdapter(
+              child: _ArchivedLoadError(
+                onRetry: () => ref.invalidate(hermesArchivedSessionsProvider),
+              ),
+            ),
+          ],
         ];
       },
-      loading: () => const [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.only(top: 64),
-            child: Center(child: AdaptiveProgressIndicator()),
-          ),
-        ),
-      ],
+      loading: () => _loadingSlivers,
       error: (_, _) => [
         SliverToBoxAdapter(
           child: _message(
@@ -201,6 +239,27 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
       ],
     );
   }
+
+  static const List<Widget> _loadingSlivers = [
+    SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.only(top: 64),
+        child: Center(child: AdaptiveProgressIndicator()),
+      ),
+    ),
+  ];
+
+  Widget _sessionList(List<HermesSessionSummary> sessions) => SliverPadding(
+    // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
+    // gutter. Keep list padding vertical to avoid doubling that inset
+    // only in this tab.
+    padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+    sliver: SliverList.builder(
+      itemCount: sessions.length,
+      itemBuilder: (context, index) =>
+          HermesSessionTile(session: sessions[index]),
+    ),
+  );
 
   Widget _message(
     ConduitThemeExtension theme,
@@ -338,8 +397,46 @@ class _ScheduledAgentsTile extends ConsumerWidget {
 }
 
 /// Section header with an optional count badge.
+/// The archived row when its list failed to load: says so, with a retry.
+class _ArchivedLoadError extends StatelessWidget {
+  const _ArchivedLoadError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      key: const ValueKey<String>('hermes-archived-sessions-error'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.xs,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              l10n.hermesArchivedLoadError,
+              style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          AdaptiveButton(
+            onPressed: onRetry,
+            label: l10n.retry,
+            style: AdaptiveButtonStyle.tinted,
+            size: AdaptiveButtonSize.small,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
+    super.key,
     required this.title,
     this.count,
     this.expanded,

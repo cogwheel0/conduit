@@ -1061,12 +1061,15 @@ void main() {
         home: Scaffold(
           body: MediaQuery(
             data: MediaQueryData(disableAnimations: disableAnimations),
-            child: AssistantMessageWidget(
-              message: message,
-              isStreaming: isStreaming,
-              showFollowUps: false,
-              suppressStreamingHaptics: suppressStreamingHaptics,
-              onDelete: () {},
+            // Rows live in a scrolling timeline, never in a fixed-height box.
+            child: SingleChildScrollView(
+              child: AssistantMessageWidget(
+                message: message,
+                isStreaming: isStreaming,
+                showFollowUps: false,
+                suppressStreamingHaptics: suppressStreamingHaptics,
+                onDelete: () {},
+              ),
             ),
           ),
         ),
@@ -1084,20 +1087,22 @@ void main() {
     await tester.pumpWidget(buildHarness(content));
     await tester.pumpAndSettle();
 
-    DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
-    check(table().rows).length.equals(20);
+    // Header row plus the visible body rows.
+    int bodyRows() =>
+        tester.widget<Table>(find.byType(Table)).children.length - 1;
+    check(bodyRows()).equals(20);
 
-    final showMore = find.text('Show 15 more lines');
+    final showMore = find.text('Show 15 More Lines');
     await tester.ensureVisible(showMore);
     await tester.tap(showMore);
     await tester.pump();
-    check(table().rows).length.equals(35);
+    check(bodyRows()).equals(35);
 
-    final showLess = find.text('Show less');
+    final showLess = find.text('Show Less');
     await tester.ensureVisible(showLess);
     await tester.tap(showLess);
     await tester.pump();
-    check(table().rows).length.equals(20);
+    check(bodyRows()).equals(20);
   });
 
   testWidgets('renders correctly when a streaming display part is dropped', (
@@ -1160,7 +1165,7 @@ graph TD
 
       expect(find.byType(MermaidDiagram), findsOneWidget);
       expect(find.text('Preview deferred for large content.'), findsNothing);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
     },
   );
 
@@ -1194,14 +1199,14 @@ graph TD
       ),
     );
     expect(sheet.clipBehavior, Clip.antiAlias);
-    expect(find.bySemanticsLabel('Pan up'), findsOneWidget);
-    expect(find.bySemanticsLabel('Zoom in'), findsOneWidget);
-    expect(find.bySemanticsLabel('Reset diagram position'), findsOneWidget);
+    expect(find.bySemanticsLabel('Pan Up'), findsOneWidget);
+    expect(find.bySemanticsLabel('Zoom In'), findsOneWidget);
+    expect(find.bySemanticsLabel('Reset Diagram Position'), findsOneWidget);
     expect(find.bySemanticsLabel('Lock pan and zoom'), findsOneWidget);
     expect(find.byTooltip('Close Mermaid preview'), findsOneWidget);
     expect(
       tester
-          .getSemantics(find.bySemanticsLabel('Zoom in'))
+          .getSemantics(find.bySemanticsLabel('Zoom In'))
           .getSemanticsData()
           .hasAction(ui.SemanticsAction.tap),
       isTrue,
@@ -1213,14 +1218,14 @@ graph TD
     final controller = viewer.transformationController!;
     final initialTransform = Matrix4.copy(controller.value);
 
-    await tester.tap(find.bySemanticsLabel('Zoom in'));
+    await tester.tap(find.bySemanticsLabel('Zoom In'));
     await tester.pump();
     expect(
       controller.value.getMaxScaleOnAxis(),
       greaterThan(initialTransform.getMaxScaleOnAxis()),
     );
 
-    await tester.tap(find.bySemanticsLabel('Reset diagram position'));
+    await tester.tap(find.bySemanticsLabel('Reset Diagram Position'));
     await tester.pump();
     expect(controller.value.storage, orderedEquals(initialTransform.storage));
 
@@ -1307,7 +1312,7 @@ graph TD
       await tester.pumpWidget(buildHarness(content, isStreaming: true));
 
       expect(find.text('Preview deferred for large content.'), findsOneWidget);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
       expect(find.byType(MermaidDiagram), findsNothing);
 
       await tester.pumpWidget(buildHarness(content, isStreaming: false));
@@ -1315,7 +1320,7 @@ graph TD
 
       expect(find.byType(MermaidDiagram), findsOneWidget);
       expect(find.text('Preview deferred for large content.'), findsNothing);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
     },
   );
 
@@ -1413,7 +1418,7 @@ graph TD
 
       expect(find.byType(MermaidDiagram), findsNWidgets(2));
       expect(find.text('Preview deferred for large content.'), findsNothing);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
     },
   );
 
@@ -2258,6 +2263,32 @@ After
     }
   });
 
+  testWidgets('tool headers show the model\'s labels only while running or '
+      'once the call succeeded', (tester) async {
+    _reduceMotion(tester);
+    for (final entry in const [
+      ('completed', true, '', 'Checked R&D flights'),
+      ('completed', false, '', 'Checking flights'),
+      ('in_progress', false, '', 'Checking flights'),
+      ('pending', false, '', 'Tool Approval Needed: search'),
+      ('rejected', false, '', 'Denied search'),
+      ('failed', true, '', 'View Result from search'),
+      ('completed', true, 'Error: offline', 'View Result from search'),
+    ]) {
+      final content =
+          '<details type="tool_calls" done="${entry.$2}" name="search" '
+          'status="${entry.$1}" result="${entry.$3}" '
+          'running_label="Checking flights" '
+          'display_label="Checked R&amp;D flights">'
+          '<summary>Executing...</summary></details>';
+      await tester.pumpWidget(
+        buildHarness(content, isStreaming: entry.$2 != true),
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text(entry.$4), findsOneWidget);
+    }
+  });
+
   testWidgets('unsuccessful tool detail sheets do not show a success icon', (
     tester,
   ) async {
@@ -2372,7 +2403,7 @@ After
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('mcp-app-card')), findsOneWidget);
-    expect(find.text('Open app'), findsOneWidget);
+    expect(find.text('Open App'), findsOneWidget);
     expect(find.textContaining('An interactive app from maps'), findsOneWidget);
   });
 
@@ -2874,7 +2905,17 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(_mediumImpactCalls(platformCalls), hasLength(2));
+        // A selection tick when the reply starts, a medium impact when it
+        // completes.
+        expect(_mediumImpactCalls(platformCalls), hasLength(1));
+        expect(
+          platformCalls.where(
+            (call) =>
+                call.method == 'HapticFeedback.vibrate' &&
+                call.arguments == 'HapticFeedbackType.selectionClick',
+          ),
+          hasLength(1),
+        );
       } finally {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
         container.dispose();
@@ -4095,7 +4136,8 @@ Tail keeps growing
       await tester.pumpWidget(buildHarness(content));
 
       expect(find.text('Preview'), findsOneWidget);
-      expect(find.text('html'), findsAtLeastNWidgets(1));
+      // The header names the language properly.
+      expect(find.text('HTML'), findsAtLeastNWidgets(1));
       expect(find.text('HTML Preview'), findsNothing);
       expect(
         find.text('Embedded content preview is unavailable in widget tests.'),
@@ -4146,7 +4188,7 @@ $circles
         find.text('Embedded content preview is unavailable in widget tests.'),
         findsNothing,
       );
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
       expect(find.text('Preview deferred for large content.'), findsNothing);
 
       await tester.tap(find.text('Load SVG preview'));

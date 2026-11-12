@@ -130,4 +130,32 @@ void main() {
     check(content.reasoningSummary).equals('summary one\nsummary two');
     check(content.reasoning).equals('detail one\nsummary two\ndetail three');
   });
+
+  test('treats null optional fields from compatible servers as unset', () {
+    // Python-based compatible servers serialize every optional field, so
+    // unset ones arrive as nulls that openai_dart would otherwise reject.
+    Map<String, Object?> response() => {
+      'id': 'resp_1',
+      'object': 'response',
+      'created_at': 1,
+      'status': 'in_progress',
+      'output': <Object?>[],
+      'tool_usage': null,
+      'prompt_cache_diagnostics': null,
+      'usage': null,
+      'error': null,
+    };
+
+    final created = OpenAiResponsesCodec.decodeStreamEvent({
+      'type': 'response.created',
+      'sequence_number': 0,
+      'response': response(),
+      'obfuscation': null,
+    });
+    check(created).isA<openai.ResponseCreatedEvent>();
+
+    final decoded = OpenAiResponsesCodec.decodeResponse(response());
+    check(decoded.toolUsage).isNull();
+    check(decoded.usage).isNull();
+  });
 }

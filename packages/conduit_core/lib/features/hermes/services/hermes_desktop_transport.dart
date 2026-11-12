@@ -3,14 +3,22 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'package:conduit_core/network/external_link.dart';
 import 'package:conduit_core/network/no_redirect_web_socket.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
+import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
 const int kMaxHermesDesktopFrameBytes = 4 * 1024 * 1024;
+
+/// The close code a gateway's listener sends while it is starting,
+/// restarting or draining: try again later.
+const int kHermesGatewayNotReadyCloseCode = 1013;
 const int kMaxHermesDesktopFrameCharacters = 2 * 1024 * 1024;
 
 typedef HermesDesktopChannelFactory = WebSocketChannel Function(
@@ -23,15 +31,32 @@ final class HermesDesktopRpcException implements Exception {
   const HermesDesktopRpcException(
     this.message, {
     this.code,
+    this.data,
     this.timedOut = false,
     this.disconnected = false,
+    this.notReady = false,
   });
 
   final String message;
   final int? code;
+
+  /// Hermes closed the socket with 1013 (try again later): its gateway is
+  /// starting, restarting or draining.
+  final bool notReady;
+
+  /// The error's `data` member, when Hermes sent one: refusals such as
+  /// `{reason: 'SESSION_OWNER_BUSY'}` explain themselves there.
+  final Object? data;
   final bool timedOut;
   final bool disconnected;
   bool get deliveryAmbiguous => timedOut || disconnected;
+
+  /// `data.reason`, when Hermes named one.
+  String? get reason {
+    final data = this.data;
+    if (data is! Map) return null;
+    return validateHermesBoundedString(data['reason'], maxCharacters: 128);
+  }
 
   @override
   String toString() => message;
@@ -42,11 +67,316 @@ final class HermesDesktopEvent {
     required this.type,
     required this.payload,
     this.sessionId,
+    this.seq,
+    this.replayEpoch,
+    this.executionGeneration,
+    this.admissionId,
   });
 
   final String type;
   final Map<String, dynamic> payload;
   final String? sessionId;
+
+  /// The event's place in its session's replay stream ([replayEpoch]),
+  /// stamped by a session authority (the canonical wire).
+  final int? seq;
+  final String? replayEpoch;
+
+  /// The execution generation of the turn the event belongs to: what a
+  /// control (stop, steer, an answer) must name on the canonical wire.
+  final int? executionGeneration;
+
+  /// The admission (one submitted prompt) whose turn produced the event.
+  final String? admissionId;
+}
+
+/// The protocol a gateway's session authority speaks (its Webapp listener):
+/// `gateway.ready` says `session_authority: true` and session snapshots name
+/// it as `info.desktop_protocol`.
+const String kHermesCanonicalGatewayProtocol = 'hermes-gateway-v1';
+
+/// An approval or question a session authority asked as an event (canonical
+/// `approval.request` / `clarify.request`). It is answered with
+/// `approval.respond` / `clarify.respond`, naming [generation].
+typedef HermesCanonicalPrompt = ({
+  String sessionId,
+  int generation,
+  String kind,
+});
+
+/// Server→client requests Conduit answers. Since Hermes 0.21.3 the gateway
+/// asks for approvals, clarifications, sudo passwords and secrets this way
+/// instead of with `*.request` events, and only of a client that advertised
+/// `client.capabilities {server_requests: true}`.
+const Set<String> kHermesAnsweredServerRequests = {
+  'approval',
+  'clarify',
+  'sudo',
+  'secret',
+};
+
+/// How Hermes names its server→client requests (`srq-<hex>`); a session
+/// authority takes response frames only for ids like these.
+const String kHermesServerRequestIdPrefix = 'srq-';
+
+/// The JSON-RPC error a client sends for a server request it does not show,
+/// when the gateway said it takes declines (`declines_not_shown`).
+const int kHermesServerRequestNotShownCode = 4404;
+
+/// Splits a `<operation>/<target>` card id made by
+/// [hermesConnectionCardId].
+({String head, String tail})? _splitCardId(String cardId) {
+  final parts = cardId.split('/');
+  if (parts.length != 2 || parts.any((part) => part.isEmpty)) return null;
+  return (
+    head: _unescapeCardIdPart(parts.first),
+    tail: _unescapeCardIdPart(parts.last),
+  );
+}
+
+String _escapeCardIdPart(String part) =>
+    part.replaceAll('~', '~0').replaceAll('/', '~1');
+
+String _unescapeCardIdPart(String part) =>
+    part.replaceAll('~1', '/').replaceAll('~0', '~');
+
+/// The decision events a server→client request stands for, shaped like the
+/// `*.request` events earlier gateways sent, so one pipeline shows, persists
+/// and restores both. `request_id` is the id Conduit answers with: the
+/// request id itself, or a clarify question's card id.
+///
+/// A clarify request is one form: every question, with the answers Hermes
+/// already locked (a reconnect replay's `answers`) shown read-only.
+List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
+  required String id,
+  required String method,
+  required Map<String, dynamic> params,
+}) {
+  final requestId = validateHermesOpaqueIdentifier(id);
+  final sessionId = params['session_id']?.toString();
+  if (requestId == null) return const [];
+  final payload = <String, dynamic>{
+    for (final entry in params.entries)
+      if (entry.key != 'session_id') entry.key: entry.value,
+  };
+  switch (method) {
+    case 'approval':
+      return [
+        HermesDesktopEvent(
+          type: 'approval.request',
+          sessionId: sessionId,
+          payload: {
+            ...payload,
+            'request_id': requestId,
+            'approval_request_id': params['request_id'],
+            'server_request': requestId,
+          },
+        ),
+      ];
+    case 'sudo':
+      return [
+        HermesDesktopEvent(
+          type: 'sudo.request',
+          sessionId: sessionId,
+          payload: {
+            ...payload,
+            'request_id': requestId,
+            'prompt': params['command']?.toString() ?? '',
+            'server_request': requestId,
+          },
+        ),
+      ];
+    case 'secret':
+      return [
+        HermesDesktopEvent(
+          type: 'secret.request',
+          sessionId: sessionId,
+          payload: {
+            ...payload,
+            'request_id': requestId,
+            'server_request': requestId,
+          },
+        ),
+      ];
+    case 'clarify':
+      final raw = params['questions'];
+      final answers = params['answers'];
+      final questions = hermesClarifyQuestions(raw, answers: answers);
+      if (raw is! List || questions.isEmpty) return const [];
+      // Each question keeps its whole text and locked answer, not shortened:
+      // each reader redacts the whole text before it shortens it, and a
+      // secret cut here could no longer be matched there.
+      Map<String, Object?> whole(HermesClarifyQuestion question) {
+        final sent = raw.whereType<Map>().firstWhere(
+          (candidate) => candidate['qid'] == question.id,
+        );
+        final answer = answers is Map ? answers[question.id] : null;
+        return {
+          ...question.toJson(),
+          'question': sent['question'],
+          if (question.lockedAnswer != null && answer is String)
+            'answer': answer,
+        };
+      }
+
+      final forms = [for (final question in questions) whole(question)];
+      return [
+        HermesDesktopEvent(
+          type: 'clarify.request',
+          sessionId: sessionId,
+          payload: {
+            'request_id': requestId,
+            'question': forms.first['question'],
+            'questions': forms,
+            'server_request': requestId,
+          },
+        ),
+      ];
+  }
+  return const [];
+}
+
+/// One connection target's card id: its operation and the target's name.
+/// Each part escapes `~` and `/` (`~0`, `~1`), so the `/` joining them is
+/// the only one: a catalog target such as a skill's `owner/name` survives.
+/// Hermes does not bound target names: one too long for an id is named by
+/// a digest (`~h`, which escaping never makes), and the client keeps which
+/// name it stands for ([HermesDesktopRpcClient.connectionCardTarget]).
+String hermesConnectionCardId(String operationId, String target) {
+  final id = '${_escapeCardIdPart(operationId)}/${_escapeCardIdPart(target)}';
+  if (validateHermesOpaqueIdentifier(id) != null) return id;
+  final digest = sha256.convert(utf8.encode(target)).toString();
+  return '${_escapeCardIdPart(operationId)}/~h${digest.substring(0, 32)}';
+}
+
+/// Splits a card id made by [hermesConnectionCardId].
+({String operationId, String target})? parseHermesConnectionCardId(
+  String cardId,
+) {
+  final parsed = _splitCardId(cardId);
+  return parsed == null
+      ? null
+      : (operationId: parsed.head, target: parsed.tail);
+}
+
+/// The MCP setup card for a connection operation's first target still
+/// waiting on the user (Hermes 0.22+ `connection.request`, the
+/// `manage_connections` card), shaped like earlier gateways'
+/// `mcp.setup.request`. Null when no target is waiting. The operation itself
+/// installs or enables a `pending` target once the user approves it. An
+/// authorization or a hosted connector starts its sign-in before the card
+/// is sent: that target is `initiated` with a `connect_url`, and waits on
+/// the user opening the link.
+///
+/// The target named [shown] keeps the card while it waits. Targets named in
+/// [passed] had theirs and are not asked about again. A card offered again
+/// carries its count from [offers] as `offer`, so a turn that saw the first
+/// offer does not drop it as a repeat.
+HermesDesktopEvent? hermesDesktopConnectionTargetEvent({
+  required String operationId,
+  required String? sessionId,
+  required Object? targets,
+  String? shown,
+  Set<String> passed = const {},
+  Map<String, int> offers = const {},
+}) {
+  final raw = _waitingConnectionTarget(targets, shown: shown, passed: passed);
+  final name = validateHermesOpaqueIdentifier(raw?['name']?.toString());
+  if (raw == null || name == null) return null;
+  final launch = raw['launch'];
+  final reason = [
+    raw['detail'],
+    raw['description'],
+    raw['instructions'],
+    if (launch is Map) launch['target'],
+  ].map((value) => value?.toString().trim() ?? '').firstWhere(
+    (value) => value.isNotEmpty,
+    orElse: () => '',
+  );
+  final cardId = hermesConnectionCardId(operationId, name);
+  return HermesDesktopEvent(
+    type: 'mcp.setup.request',
+    sessionId: sessionId,
+    payload: {
+      'request_id': cardId,
+      'offer': ?offers[cardId],
+      'server': raw['display']?.toString().trim().isNotEmpty == true
+          ? raw['display']
+          : name,
+      'action': raw['action'],
+      'kind': raw['kind'],
+      'reason': reason,
+      'connection_operation': operationId,
+      'connection_target': name,
+    },
+  );
+}
+
+/// The target of [targets] whose card to show: [shown] while it waits on
+/// the user, else the first waiting one not in [passed].
+Map<dynamic, dynamic>? _waitingConnectionTarget(
+  Object? targets, {
+  String? shown,
+  Set<String> passed = const {},
+}) {
+  if (targets is! List) return null;
+  final waiting = [
+    for (final raw in targets.whereType<Map>().take(32))
+      if (validateHermesOpaqueIdentifier(raw['name']?.toString()) != null &&
+          raw['resolved'] != true &&
+          (raw['state'] == 'pending' ||
+              (raw['state'] == 'initiated' &&
+                  _hermesConnectLink(raw['connect_url']) != null)))
+        raw,
+  ];
+  for (final raw in waiting) {
+    if (shown != null && raw['name'] == shown) return raw;
+  }
+  for (final raw in waiting) {
+    if (!passed.contains(raw['name'])) return raw;
+  }
+  return null;
+}
+
+/// The sign-in link of the `initiated` target [name] of [targets].
+Uri? _connectLinkOf(Object? targets, String? name) {
+  if (targets is! List || name == null) return null;
+  for (final raw in targets.whereType<Map>().take(32)) {
+    if (raw['name'] == name && raw['state'] == 'initiated') {
+      return _hermesConnectLink(raw['connect_url']);
+    }
+  }
+  return null;
+}
+
+/// A target's sign-in link, when it is one a browser may open.
+Uri? _hermesConnectLink(Object? value) {
+  if (value is! String) return null;
+  final uri = parseAllowedExternalLink(value);
+  return uri != null && const {'http', 'https'}.contains(uri.scheme)
+      ? uri
+      : null;
+}
+
+/// A connection operation whose targets are shown one at a time.
+final class _OpenConnection {
+  _OpenConnection(this.sessionId);
+
+  final String? sessionId;
+  String? shownCardId;
+
+  /// The shown target's sign-in link, when its sign-in already started.
+  Uri? shownLink;
+
+  /// Targets whose card was shown and then closed: answered here or
+  /// elsewhere. One whose sign-in starts later is not asked about again.
+  final Set<String> passed = {};
+
+  /// The target name each card shown for this operation stands for.
+  final Map<String, String> cardTargets = {};
+
+  /// How many times each card was offered again after it was answered.
+  final Map<String, int> offers = {};
 }
 
 final class HermesDesktopEventBuffer {
@@ -109,6 +439,22 @@ final class HermesDesktopEventBuffer {
 
   void discard(String sessionId) => _removeQueue(sessionId);
 
+  /// Drops [sessionId]'s buffered requests for [requestId]: one closed
+  /// (answered, withdrawn, timed out) must not be saved again from here.
+  void dropRequest(String sessionId, String requestId) {
+    final queue = _pending[sessionId];
+    if (queue == null) return;
+    final before = queue.length;
+    queue.removeWhere(
+      (event) =>
+          event.type.endsWith('.request') &&
+          (event.payload['request_id'] ?? event.payload['id'])?.toString() ==
+              requestId,
+    );
+    _totalEvents -= before - queue.length;
+    if (queue.isEmpty) _pending.remove(sessionId);
+  }
+
   Queue<HermesDesktopEvent>? _removeQueue(String sessionId) {
     final removed = _pending.remove(sessionId);
     _totalEvents -= removed?.length ?? 0;
@@ -127,10 +473,16 @@ final class HermesDesktopRpcClient {
   HermesDesktopRpcClient({
     HermesDesktopChannelFactory? channelFactory,
     this.requestTimeout = const Duration(seconds: 60),
+    this.heartbeatInterval = const Duration(seconds: 15),
   }) : _channelFactory = channelFactory ?? connectNoRedirectWebSocket;
 
   final HermesDesktopChannelFactory _channelFactory;
   final Duration requestTimeout;
+
+  /// How often to ping a gateway that offers `heartbeat`, so a socket that
+  /// died while the phone slept is noticed. A ping unanswered for one more
+  /// interval drops the socket.
+  final Duration heartbeatInterval;
   final _events = StreamController<HermesDesktopEvent>.broadcast();
   final _disconnects = StreamController<void>.broadcast();
   final Map<String, _PendingRpc> _pending = {};
@@ -138,14 +490,42 @@ final class HermesDesktopRpcClient {
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
+  Timer? _heartbeat;
+  DateTime _lastFrameAt = DateTime.now();
   int _socketGeneration = 0;
   int _requestId = 0;
   bool _ready = false;
+  Map<String, dynamic> _readyPayload = const {};
+  bool _declinesNotShown = false;
+  bool _canonicalClarifyBatch = false;
+
+  /// Connection operations with a target card shown, by operation id.
+  final Map<String, _OpenConnection> _connections = {};
+
+  /// Canonical approvals and questions still open, by prompt id.
+  final Map<String, HermesCanonicalPrompt> _canonicalPrompts = {};
+
+  /// Prompts kept from an earlier socket. The next snapshot of their
+  /// session lists them again or closes them (they were settled while the
+  /// socket was down); until then none is answered from here.
+  final Set<String> _unconfirmedCanonicalPrompts = {};
 
   Stream<HermesDesktopEvent> get events => _events.stream;
   Stream<void> get disconnects => _disconnects.stream;
   bool get isReady => _ready;
   int get socketGeneration => _socketGeneration;
+
+  /// The current socket's `gateway.ready` payload.
+  Map<String, dynamic> get readyPayload => _readyPayload;
+
+  /// Whether the socket is served by a gateway's session authority (its own
+  /// Webapp listener), which speaks the canonical protocol.
+  bool get sessionAuthority => _readyPayload['session_authority'] == true;
+
+  /// Whether a session authority asks a turn's questions as one clarify
+  /// form when its `prompt.submit` says `clarify_batch: true`. Older
+  /// authorities refuse that key, so it is sent only when this is true.
+  bool get canonicalClarifyBatch => sessionAuthority && _canonicalClarifyBatch;
 
   /// Connection-wide params merged into every request as a *fallback*.
   /// Callers that pass the same key win (Bot Mode scopes single calls to
@@ -164,6 +544,11 @@ final class HermesDesktopRpcClient {
     final channel = _channelFactory(uri, headers, httpClient: httpClient);
     _channel = channel;
     _ready = false;
+    _readyPayload = const {};
+    _declinesNotShown = false;
+    _canonicalClarifyBatch = false;
+    _connections.clear();
+    _unconfirmedCanonicalPrompts.addAll(_canonicalPrompts.keys);
     final ready = Completer<void>();
 
     _subscription = channel.stream.listen(
@@ -177,8 +562,9 @@ final class HermesDesktopRpcClient {
         if (!_owns(channel, generation)) return;
         if (!ready.isCompleted) {
           ready.completeError(
-            const HermesDesktopRpcException(
+            HermesDesktopRpcException(
               'Hermes closed the gateway before it became ready.',
+              notReady: channel.closeCode == kHermesGatewayNotReadyCloseCode,
             ),
           );
         }
@@ -194,12 +580,69 @@ final class HermesDesktopRpcClient {
       if (_owns(channel, generation)) await disconnect();
       rethrow;
     }
+    _advertiseCapabilities(generation);
+    if (_readyPayload['heartbeat'] == true) _startHeartbeat(generation);
+  }
+
+  /// Tells the gateway this client answers server→client requests. Without
+  /// it Hermes withdraws every approval and question at once. The contract
+  /// is closed, so the connection's default `profile` must stay out.
+  void _advertiseCapabilities(int generation) {
+    unawaited(
+      request<Object?>(
+            'client.capabilities',
+            params: const {'server_requests': true},
+            includeDefaultParams: false,
+            timeout: const Duration(seconds: 15),
+          )
+          .then((result) {
+            if (generation != _socketGeneration || result is! Map) return;
+            _declinesNotShown = result['declines_not_shown'] == true;
+            _canonicalClarifyBatch = result['canonical_clarify_batch'] == true;
+          })
+          .catchError((Object error) {
+            DebugLogger.warning(
+              'client-capabilities-refused',
+              scope: 'hermes/desktop/ws',
+              data: {'errorType': error.runtimeType.toString()},
+            );
+          }),
+    );
+  }
+
+  /// Pings every [heartbeatInterval]; any frame counts as a sign of life, and
+  /// three intervals without one drop the socket so reconnection can start.
+  void _startHeartbeat(int generation) {
+    _heartbeat?.cancel();
+    _lastFrameAt = DateTime.now();
+    _heartbeat = Timer.periodic(heartbeatInterval, (timer) {
+      final channel = _channel;
+      if (generation != _socketGeneration || channel == null) {
+        timer.cancel();
+        return;
+      }
+      if (DateTime.now().difference(_lastFrameAt) >= heartbeatInterval * 3) {
+        DebugLogger.warning('heartbeat-missed', scope: 'hermes/desktop/ws');
+        timer.cancel();
+        unawaited(channel.sink.close());
+        _handleDisconnect(channel, generation);
+        return;
+      }
+      unawaited(
+        request<Object?>(
+          'gateway.ping',
+          includeDefaultParams: false,
+          timeout: heartbeatInterval * 3,
+        ).then<void>((_) {}, onError: (Object _) {}),
+      );
+    });
   }
 
   Future<T> request<T>(
     String method, {
     Map<String, dynamic> params = const {},
     Duration? timeout,
+    bool includeDefaultParams = true,
   }) {
     final channel = _channel;
     if (!_ready || channel == null) {
@@ -225,7 +668,10 @@ final class HermesDesktopRpcClient {
           'jsonrpc': '2.0',
           'id': id,
           'method': method,
-          'params': {..._defaultParams, ...params},
+          'params': {
+            if (includeDefaultParams) ..._defaultParams,
+            ...params,
+          },
         }),
       );
     } catch (error, stackTrace) {
@@ -242,6 +688,7 @@ final class HermesDesktopRpcClient {
     Completer<void> ready,
   ) {
     if (!_owns(channel, generation)) return;
+    _lastFrameAt = DateTime.now();
     try {
       final String source;
       if (raw is String) {
@@ -279,6 +726,7 @@ final class HermesDesktopRpcClient {
             HermesDesktopRpcException(
               error['message']?.toString() ?? 'Hermes RPC failed.',
               code: error['code'] is int ? error['code'] as int : null,
+              data: error['data'],
             ),
           );
         } else {
@@ -296,31 +744,49 @@ final class HermesDesktopRpcClient {
             ? Map<String, dynamic>.from(rawPayload)
             : <String, dynamic>{};
         if (type == 'gateway.ready') {
+          _readyPayload = Map.unmodifiable(payload);
           _ready = true;
           if (!ready.isCompleted) ready.complete();
         }
-        _events.add(
-          HermesDesktopEvent(
-            type: type,
-            payload: payload,
-            sessionId: params['session_id']?.toString(),
-          ),
+        final sessionId = params['session_id']?.toString();
+        final seq = params['seq'];
+        final generation = params['execution_generation'];
+        final event = HermesDesktopEvent(
+          type: type,
+          payload: payload,
+          sessionId: sessionId,
+          seq: seq is int ? seq : null,
+          replayEpoch: validateHermesOpaqueIdentifier(params['replay_epoch']),
+          executionGeneration: generation is int ? generation : null,
+          admissionId: validateHermesOpaqueIdentifier(params['admission_id']),
         );
+        if (sessionAuthority &&
+            (type == 'approval.request' || type == 'clarify.request')) {
+          _noteCanonicalOpened(_openCanonicalPrompt(event));
+        }
+        _events.add(event);
+        switch (type) {
+          case 'request.cancel':
+            _withdrawServerRequest(payload, sessionId);
+          case 'connection.request':
+          case 'connection.update':
+            _showConnection(payload, sessionId);
+          case 'approval.settled':
+          case 'clarify.settled':
+            if (sessionAuthority) {
+              _noteCanonicalSettled(payload['prompt_id']);
+              _settleCanonicalPrompt(
+                payload['prompt_id'],
+                sessionId,
+                reason: 'resolved',
+              );
+            }
+        }
         return;
       }
 
-      // Desktop-only host requests must never reach mobile platform features.
       if (frame['method'] is String && frame['id'] != null) {
-        channel.sink.add(
-          jsonEncode({
-            'jsonrpc': '2.0',
-            'id': frame['id'],
-            'error': {
-              'code': -32601,
-              'message': 'Method not supported on mobile',
-            },
-          }),
-        );
+        _handleServerRequest(channel, frame);
       }
     } catch (error) {
       DebugLogger.warning(
@@ -331,11 +797,378 @@ final class HermesDesktopRpcClient {
     }
   }
 
+  /// Shows the gateway's questions as decision events. They are answered
+  /// later, by RPC (`request.answer`, `clarify.lock`), from whichever socket
+  /// is open by then, so nothing is written back here.
+  ///
+  /// Anything else is a Desktop-only bridge (themes, tours, previews) that
+  /// must never reach mobile platform features. Declined with 4404 only when
+  /// the gateway takes declines; any other error would settle the request as
+  /// unanswered for every client sharing the session, including a Desktop
+  /// that could have shown it. A session authority settles a request on any
+  /// error, a decline included, so it gets no reply at all.
+  void _handleServerRequest(
+    WebSocketChannel channel,
+    Map<String, dynamic> frame,
+  ) {
+    final id = frame['id'];
+    if (_showServerRequest(id, frame['method'], frame['params'])) {
+      // Asked live: a snapshot read before it must not close its card.
+      _noteCanonicalOpened(validateHermesOpaqueIdentifier(id));
+      return;
+    }
+    if (!_declinesNotShown || sessionAuthority) return;
+    channel.sink.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': id,
+        'error': {
+          'code': kHermesServerRequestNotShownCode,
+          'message': 'Not shown on mobile',
+        },
+      }),
+    );
+  }
+
+  /// Answers the open server request [id] with [result] on this socket, as
+  /// a JSON-RPC response frame: how a session authority takes the answer to
+  /// a `sudo` or `secret` request, from a socket attached to its session.
+  /// False when no socket is open.
+  bool answerServerRequest(String id, Map<String, Object?> result) {
+    final channel = _channel;
+    if (!_ready || channel == null) return false;
+    channel.sink.add(
+      jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
+    );
+    return true;
+  }
+
+  /// The canonical approval or question [promptId], while it is open.
+  HermesCanonicalPrompt? canonicalPrompt(String promptId) =>
+      _unconfirmedCanonicalPrompts.contains(promptId)
+      ? null
+      : _canonicalPrompts[promptId];
+
+  /// How many canonical prompts and server requests this client saw open
+  /// live or settle, and when each of the latest did: a snapshot asked for
+  /// before then must neither reopen a prompt settled since nor close one
+  /// opened since ([canonicalSettleMark]).
+  int _canonicalSettles = 0;
+  final Map<String, int> _canonicalSettledAt = {};
+  final Map<String, int> _canonicalOpenedAt = {};
+
+  /// Taken before a session snapshot is asked for, and handed to
+  /// [replayCanonicalPrompts] with it.
+  int get canonicalSettleMark => _canonicalSettles;
+
+  /// Whether canonical prompt [promptId] opened live after [mark].
+  bool canonicalOpenedSince(String promptId, int mark) =>
+      (_canonicalOpenedAt[promptId] ?? 0) > mark;
+
+  void _noteCanonicalOpened(String? promptId) {
+    if (promptId == null) return;
+    _canonicalOpenedAt
+      ..remove(promptId)
+      ..[promptId] = ++_canonicalSettles;
+    if (_canonicalOpenedAt.length > 256) {
+      _canonicalOpenedAt.remove(_canonicalOpenedAt.keys.first);
+    }
+  }
+
+  void _noteCanonicalSettled(Object? rawPromptId) {
+    final promptId = validateHermesOpaqueIdentifier(rawPromptId);
+    if (promptId == null) return;
+    _canonicalSettledAt
+      ..remove(promptId)
+      ..[promptId] = ++_canonicalSettles;
+    if (_canonicalSettledAt.length > 256) {
+      _canonicalSettledAt.remove(_canonicalSettledAt.keys.first);
+    }
+  }
+
+  /// Re-shows the approvals and questions a canonical session snapshot
+  /// lists as open (`prompts`), and closes the ones of [sessionId] it no
+  /// longer lists: they were settled while this socket was not looking.
+  ///
+  /// [settledSince] is the [canonicalSettleMark] taken before the snapshot
+  /// was asked for: a prompt settled after it is stale in the snapshot and
+  /// stays closed, and one opened after it is not in the snapshot yet and
+  /// stays open. Every listed prompt counts as open and can be answered; at
+  /// most 32 are shown.
+  void replayCanonicalPrompts(
+    String sessionId,
+    Object? prompts, {
+    int? settledSince,
+  }) {
+    final listed = <String>{};
+    var shown = 0;
+    if (prompts is List) {
+      for (final raw in prompts.whereType<Map>().take(256)) {
+        final kind = raw['kind'];
+        final listedId = validateHermesOpaqueIdentifier(raw['prompt_id']);
+        if ((kind != 'approval' && kind != 'clarify') || listedId == null) {
+          continue;
+        }
+        listed.add(listedId);
+        final settledAt = _canonicalSettledAt[listedId];
+        if (settledSince != null &&
+            settledAt != null &&
+            settledAt > settledSince) {
+          continue;
+        }
+        final event = HermesDesktopEvent(
+          type: '$kind.request',
+          payload: Map<String, dynamic>.from(raw),
+          sessionId: sessionId,
+        );
+        // Recorded (so a saved card's answer reaches Hermes) whether or not
+        // it is one of the cards shown.
+        if (_openCanonicalPrompt(event) == null || shown >= 32) continue;
+        shown++;
+        _events.add(event);
+      }
+    }
+    final settled = [
+      for (final entry in _canonicalPrompts.entries)
+        if (entry.value.sessionId == sessionId &&
+            !listed.contains(entry.key) &&
+            (settledSince == null ||
+                !canonicalOpenedSince(entry.key, settledSince)))
+          entry.key,
+    ];
+    for (final promptId in settled) {
+      _settleCanonicalPrompt(promptId, sessionId, reason: 'resolved');
+    }
+  }
+
+  /// Records a canonical prompt event and gives it the `request_id` the
+  /// decision pipeline keys cards by: its `prompt_id`. Returns that id.
+  String? _openCanonicalPrompt(HermesDesktopEvent event) {
+    final payload = event.payload;
+    final promptId = validateHermesOpaqueIdentifier(payload['prompt_id']);
+    final generation =
+        payload['execution_generation'] ?? event.executionGeneration;
+    final sessionId = event.sessionId;
+    if (promptId == null || generation is! int || sessionId == null) {
+      return null;
+    }
+    payload['request_id'] = promptId;
+    _unconfirmedCanonicalPrompts.remove(promptId);
+    if (!_canonicalPrompts.containsKey(promptId) &&
+        _canonicalPrompts.length >= 256) {
+      _unconfirmedCanonicalPrompts.remove(_canonicalPrompts.keys.first);
+      _canonicalPrompts.remove(_canonicalPrompts.keys.first);
+    }
+    _canonicalPrompts[promptId] = (
+      sessionId: sessionId,
+      generation: generation,
+      kind: event.type == 'clarify.request' ? 'clarify' : 'approval',
+    );
+    return promptId;
+  }
+
+  /// A canonical prompt was settled (answered here or elsewhere, expired,
+  /// or its turn ended): close its card the way an expiry did before.
+  void _settleCanonicalPrompt(
+    Object? rawPromptId,
+    String? sessionId, {
+    required String reason,
+  }) {
+    final promptId = validateHermesOpaqueIdentifier(rawPromptId);
+    final prompt = promptId == null
+        ? null
+        : _canonicalPrompts.remove(promptId);
+    if (promptId == null || prompt == null) return;
+    _unconfirmedCanonicalPrompts.remove(promptId);
+    _events.add(
+      HermesDesktopEvent(
+        type: '${prompt.kind}.expire',
+        sessionId: sessionId ?? prompt.sessionId,
+        payload: {'request_id': promptId, 'reason': reason},
+      ),
+    );
+  }
+
+  /// Re-shows the requests a `session.resume` snapshot lists as still open
+  /// (`open_requests`), for a socket that was not attached when they were
+  /// sent. Their ids are unchanged, so answers made now still count.
+  ///
+  /// [settledSince] is the [canonicalSettleMark] taken before the snapshot
+  /// was asked for: a request withdrawn after it is stale in the snapshot
+  /// and stays closed.
+  void replayOpenRequests(Object? openRequests, {int? settledSince}) {
+    if (openRequests is! List) return;
+    for (final entry in openRequests.whereType<Map>().take(32)) {
+      final id = validateHermesOpaqueIdentifier(entry['id']);
+      final withdrawnAt = id == null ? null : _canonicalSettledAt[id];
+      if (settledSince != null &&
+          withdrawnAt != null &&
+          withdrawnAt > settledSince) {
+        continue;
+      }
+      _showServerRequest(entry['id'], entry['method'], entry['params']);
+    }
+  }
+
+  /// Emits the decision events for one request; false when it is not one
+  /// Conduit answers.
+  bool _showServerRequest(Object? id, Object? method, Object? rawParams) {
+    if (id is! String ||
+        method is! String ||
+        !kHermesAnsweredServerRequests.contains(method)) {
+      return false;
+    }
+    final params = rawParams is Map
+        ? Map<String, dynamic>.from(rawParams)
+        : <String, dynamic>{};
+    final events = hermesDesktopEventsForServerRequest(
+      id: id,
+      method: method,
+      params: params,
+    );
+    if (events.isEmpty) return false;
+    for (final event in events) {
+      _events.add(event);
+    }
+    return true;
+  }
+
+  /// Re-shows the connection operation a `session.resume` snapshot lists as
+  /// open (`pending_connection`, shaped like `connection.request`).
+  void replayPendingConnection(Object? payload, String? sessionId) {
+    if (payload is Map) {
+      _showConnection(Map<String, dynamic>.from(payload), sessionId);
+    }
+  }
+
+  /// Keeps a connection operation's card on a target still waiting on the
+  /// user. Every frame carries the full target list, so a request, an
+  /// update and a resume snapshot are handled alike: the shown card closes
+  /// (as an `mcp.setup.expire`) once its target moved on or the operation
+  /// settled, and the next waiting target gets its card.
+  void _showConnection(Map<String, dynamic> payload, String? sessionId) {
+    final operationId = validateHermesOpaqueIdentifier(
+      payload['op_id']?.toString(),
+    );
+    if (operationId == null) return;
+    final owner = payload['owner'];
+    final session =
+        sessionId ??
+        (owner is Map ? owner['session_id']?.toString() : null) ??
+        _connections[operationId]?.sessionId;
+    final open = _connections[operationId] ?? _OpenConnection(session);
+    final shown = open.shownCardId;
+    final shownTarget = shown == null
+        ? null
+        : open.cardTargets[shown] ?? parseHermesConnectionCardId(shown)?.target;
+    final next = payload['settled'] == true
+        ? null
+        : hermesDesktopConnectionTargetEvent(
+            operationId: operationId,
+            sessionId: open.sessionId ?? session,
+            targets: payload['targets'],
+            shown: shownTarget,
+            passed: open.passed,
+            offers: open.offers,
+          );
+    final nextCardId = next?.payload['request_id']?.toString();
+    final nextTarget = next?.payload['connection_target']?.toString();
+    if (shown != null && shown != nextCardId) {
+      if (shownTarget != null) open.passed.add(shownTarget);
+      _events.add(
+        HermesDesktopEvent(
+          type: 'mcp.setup.expire',
+          sessionId: open.sessionId ?? session,
+          payload: {'request_id': shown},
+        ),
+      );
+    }
+    if (payload['settled'] == true) {
+      _connections.remove(operationId);
+      return;
+    }
+    // Kept while the operation runs, card or not: a target answered here
+    // is not asked about again when its sign-in link arrives later.
+    if (!_connections.containsKey(operationId) && _connections.length >= 32) {
+      _connections.remove(_connections.keys.first);
+    }
+    _connections[operationId] = open
+      ..shownCardId = nextCardId
+      ..shownLink = _connectLinkOf(payload['targets'], nextTarget);
+    if (nextCardId != null && nextTarget != null) {
+      if (open.cardTargets.length >= 32 &&
+          !open.cardTargets.containsKey(nextCardId)) {
+        open.cardTargets.remove(open.cardTargets.keys.first);
+      }
+      open.cardTargets[nextCardId] = nextTarget;
+    }
+    if (next != null && shown != nextCardId) _events.add(next);
+  }
+
+  /// The target name connection card [cardId] stands for; null when its
+  /// operation is no longer open and the id carries only a digest.
+  String? connectionCardTarget(String cardId) {
+    final card = parseHermesConnectionCardId(cardId);
+    if (card == null) return null;
+    final known = _connections[card.operationId]?.cardTargets[cardId];
+    if (known != null) return known;
+    return hermesConnectionCardId(card.operationId, card.target) == cardId
+        ? card.target
+        : null;
+  }
+
+  /// Offers connection target [cardId] again with [update]: the frame that
+  /// carried a sign-in link the device could not open, or the one that kept
+  /// an approved install waiting on credentials. Approving it again retries.
+  /// No other card of its operation is displaced.
+  void offerConnectionTargetAgain(String cardId, Map<String, dynamic> update) {
+    final card = parseHermesConnectionCardId(cardId);
+    final open = card == null ? null : _connections[card.operationId];
+    if (card == null || open == null) return;
+    // Its card was answered; one still counted as shown is shown anew, as
+    // a new offer: the turn that saw the first one drops a repeat.
+    open.passed.remove(open.cardTargets[cardId] ?? card.target);
+    if (open.offers.length >= 32 && !open.offers.containsKey(cardId)) {
+      open.offers.remove(open.offers.keys.first);
+    }
+    open.offers[cardId] = (open.offers[cardId] ?? 0) + 1;
+    if (open.shownCardId == cardId) open.shownCardId = null;
+    _showConnection(update, open.sessionId);
+  }
+
+  /// The sign-in link of the connection target [cardId] while its card is
+  /// shown and its sign-in has started: opening it is the user's answer.
+  Uri? connectionLink(String cardId) {
+    final card = parseHermesConnectionCardId(cardId);
+    final open = card == null ? null : _connections[card.operationId];
+    return open?.shownCardId == cardId ? open?.shownLink : null;
+  }
+
+  /// `request.cancel` withdraws a server request: close its cards the way an
+  /// expiry event did on earlier gateways.
+  void _withdrawServerRequest(Map<String, dynamic> payload, String? sessionId) {
+    final id = validateHermesOpaqueIdentifier(payload['id']?.toString());
+    final method = payload['method']?.toString();
+    if (id == null || !kHermesAnsweredServerRequests.contains(method)) return;
+    // A snapshot read before now still lists it: its replay must not reopen
+    // it.
+    _noteCanonicalSettled(id);
+    _events.add(
+      HermesDesktopEvent(
+        type: '$method.expire',
+        sessionId: sessionId,
+        payload: {'request_id': id, 'reason': payload['reason']},
+      ),
+    );
+  }
+
   bool _owns(WebSocketChannel channel, int generation) =>
       identical(_channel, channel) && generation == _socketGeneration;
 
   void _handleDisconnect(WebSocketChannel channel, int generation) {
     if (!_owns(channel, generation)) return;
+    _heartbeat?.cancel();
+    _heartbeat = null;
     _ready = false;
     _channel = null;
     _rejectPending('Hermes gateway disconnected.');
@@ -354,6 +1187,8 @@ final class HermesDesktopRpcClient {
 
   Future<void> disconnect() async {
     _socketGeneration++;
+    _heartbeat?.cancel();
+    _heartbeat = null;
     _ready = false;
     final subscription = _subscription;
     final channel = _channel;

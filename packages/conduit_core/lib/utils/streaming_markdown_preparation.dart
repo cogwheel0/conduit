@@ -4,46 +4,29 @@ import 'dart:convert';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:meta/meta.dart';
 
+/// The mobile renderer's display preparation; the definition lives in
+/// `conduit_markdown` so the desktop block segmenter prepares content the
+/// same way.
 String prepareMarkdownContentCanonical(
   String content, {
   required bool streaming,
-}) {
-  final normalized = ConduitMarkdownPreprocessor.normalize(content);
-  return streaming
-      ? stripTrailingIncompleteToolCallDetailsCanonical(normalized)
-      : normalized;
-}
+}) => prepareAssistantMarkdown(content, streaming: streaming);
 
 final _detailsOpenPattern = RegExp(r'<details\b', caseSensitive: false);
 // Exactly the close the details parser recognizes; a looser match would
 // let the checkpoint think it left a details block the parser is still
 // inside, splitting prepared content mid-block.
 final _detailsClosePattern = RegExp(r'</details>', caseSensitive: false);
-final _toolCallDetailsOpenPattern = RegExp(
-  r'<details\b[^>]*type="tool_calls"[^>]*>',
-  caseSensitive: false,
+// A parenthesized reference title can span blank lines. Keep its opening line
+// mutable even before the complete definition is recognized by normalization.
+final _referenceDefinitionStartPattern = RegExp(
+  r'^[ ]{0,3}\[[^\]\r\n]+\]:',
+  multiLine: true,
 );
 
-String stripTrailingIncompleteToolCallDetailsCanonical(String input) {
-  if (input.isEmpty || !_detailsOpenPattern.hasMatch(input)) {
-    return input;
-  }
-
-  final matches = _toolCallDetailsOpenPattern
-      .allMatches(input)
-      .toList(growable: false);
-  if (matches.isEmpty) {
-    return input;
-  }
-
-  final lastOpen = matches.last;
-  final trailing = input.substring(lastOpen.start).toLowerCase();
-  if (trailing.contains('</details>')) {
-    return input;
-  }
-
-  return input.substring(0, lastOpen.start).trimRight();
-}
+/// See `stripTrailingIncompleteToolCallDetails` in `conduit_markdown`.
+String stripTrailingIncompleteToolCallDetailsCanonical(String input) =>
+    stripTrailingIncompleteToolCallDetails(input);
 
 enum MarkdownPreparationMode {
   full,
@@ -541,15 +524,21 @@ class StreamingMarkdownPreparationEngine {
     final checkpoint = state.checkpoint;
     if (commonRawPrefix < checkpoint.rawOffset ||
         checkpoint.rawOffset == 0 ||
-        state.hasReferenceDefinitions ||
-        ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
-          request.content,
-        )) {
+        state.hasReferenceDefinitions) {
       return null;
     }
 
     var rawRetainLength = checkpoint.rawOffset;
     var rawTail = request.content.substring(rawRetainLength);
+    // Whitespace trimming can move a checkpoint into its preceding line.
+    // Include that entire line when checking for a newly completed definition.
+    final referenceStart =
+        request.content.lastIndexOf('\n', rawRetainLength - 1) + 1;
+    if (ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+      request.content.substring(referenceStart),
+    )) {
+      return null;
+    }
     var replacementTail = prepareMarkdownContentCanonical(
       rawTail,
       streaming: request.streaming,
@@ -854,6 +843,8 @@ int _lastSafeRawBoundary(String input) {
     final lineEnd = newline == -1 ? input.length : newline;
     final line = input.substring(lineStart, lineEnd);
     final lower = line.toLowerCase();
+
+    if (_referenceDefinitionStartPattern.hasMatch(line)) break;
 
     // Counting the partial `<details\b` (vs the parser's complete-tag
     // count) can only overcount, which keeps content mutable longer —

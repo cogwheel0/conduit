@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "Nie można wyświetlić natywnej listy rozwijanej";
 "native.upload" = "Prześlij";
 "native.user" = "Użytkownik";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "Nowe powiadomienie";

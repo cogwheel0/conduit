@@ -165,6 +165,81 @@ OpenWebUiComposerPrompt? parseOpenWebUiAskUserPrompt(
   );
 }
 
+/// Whether the call [callId] in [output] is a request from one of Open WebUI
+/// 0.13.1's coding agents: it carries the agent's own request as `native`.
+bool isOpenWebUiAgentRequest(
+  List<Map<String, dynamic>>? output,
+  String callId,
+) {
+  final id = callId.trim();
+  if (output == null || id.isEmpty) return false;
+  return output.any(
+    (item) =>
+        item['type']?.toString() == 'function_call' &&
+        (item['call_id']?.toString().trim() ?? item['id']?.toString().trim()) ==
+            id &&
+        item['native'] != null,
+  );
+}
+
+/// The questions a coding agent asks (Open WebUI 0.13.1), shown as the web
+/// client shows them.
+///
+/// The agents pass on their own questions, which the built-in `ask_user`
+/// would refuse: any number of them, choices without descriptions, none at
+/// all for a free answer, and a question's whole text as its id. Each answer
+/// is keyed by that id as it came, so the id is never shortened.
+OpenWebUiComposerPrompt? _parseAgentQuestions(
+  Map<String, dynamic>? arguments, {
+  required String identity,
+}) {
+  final rawQuestions = arguments?['questions'];
+  if (rawQuestions is! List || rawQuestions.isEmpty) return null;
+  final defaultAllowOther = arguments!['allow_other'] != false;
+  final seenIds = <String>{};
+  final questions = <OpenWebUiPromptQuestion>[];
+  for (var index = 0; index < rawQuestions.length; index++) {
+    final rawQuestion = _stringMap(rawQuestions[index]);
+    if (rawQuestion == null) return null;
+    final id = rawQuestion['id']?.toString() ?? '';
+    if (id.isEmpty || !seenIds.add(id)) return null;
+    final rawHeader = boundedOpenWebUiString(rawQuestion['header'], 48);
+    final header = rawHeader.isEmpty ? 'Question ${index + 1}' : rawHeader;
+    final question = boundedOpenWebUiString(rawQuestion['question'], 2000);
+    final rawOptions = rawQuestion['options'];
+    final options = <OpenWebUiPromptOption>[
+      if (rawOptions is List)
+        for (final rawOption in rawOptions)
+          if (_stringMap(rawOption) case final option?)
+            if (boundedOpenWebUiString(option['label'], 200) case final label
+                when label.isNotEmpty)
+              OpenWebUiPromptOption(
+                label: label,
+                description: boundedOpenWebUiString(option['description'], 240),
+              ),
+    ];
+    questions.add(
+      OpenWebUiPromptQuestion(
+        id: id,
+        header: header,
+        question: question.isEmpty ? header : question,
+        options: List<OpenWebUiPromptOption>.unmodifiable(options),
+        // With nothing to choose, the answer can only be written.
+        allowOther:
+            options.isEmpty ||
+            (rawQuestion['allow_other'] is bool
+                ? rawQuestion['allow_other'] as bool
+                : defaultAllowOther),
+      ),
+    );
+  }
+  return OpenWebUiComposerPrompt(
+    identity: identity,
+    kind: OpenWebUiComposerPromptKind.askUser,
+    questions: List<OpenWebUiPromptQuestion>.unmodifiable(questions),
+  );
+}
+
 OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
   List<ChatMessage> messages,
 ) {
@@ -188,17 +263,19 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
           (status != 'pending' &&
               status != 'queued' &&
               status != 'requires_approval') ||
-          (status == 'queued' && item['approved'] == true)) {
+          (status == 'queued' && item['approved'] == true) ||
+          // An agent's request the server already handed its answer.
+          item['agent_resolution'] != null) {
         continue;
       }
 
       final name = boundedOpenWebUiString(item['name'], 80);
       if (name == 'ask_user') {
         final arguments = _decodeArguments(item['arguments']);
-        final prompt = parseOpenWebUiAskUserPrompt(
-          arguments,
-          identity: 'saved:${message.id}:$callId',
-        );
+        final identity = 'saved:${message.id}:$callId';
+        final prompt = item['native'] != null
+            ? _parseAgentQuestions(arguments, identity: identity)
+            : parseOpenWebUiAskUserPrompt(arguments, identity: identity);
         if (prompt == null) continue;
         return OpenWebUiPendingToolPrompt(
           messageId: message.id,

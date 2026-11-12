@@ -210,6 +210,41 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
   }
 
   Widget _buildTextField(PromptVariable variable) {
+    final field = _buildPlainTextField(variable);
+    final suggestions = variable.options
+        .where((option) => option.isNotEmpty)
+        .toList(growable: false);
+    if (suggestions.isEmpty) return field;
+    // An editable choice: any answer may be typed, and a suggestion fills
+    // the field in one tap.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        field,
+        const SizedBox(height: Spacing.xs),
+        Wrap(
+          spacing: Spacing.xs,
+          runSpacing: Spacing.xs,
+          children: [
+            for (final suggestion in suggestions)
+              AdaptiveChip.action(
+                label: Text(suggestion),
+                onPressed: () {
+                  final controller = _controllers[variable.name];
+                  if (controller == null) return;
+                  controller.text = suggestion;
+                  controller.selection = TextSelection.collapsed(
+                    offset: suggestion.length,
+                  );
+                },
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlainTextField(PromptVariable variable) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 

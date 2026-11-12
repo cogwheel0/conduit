@@ -3,7 +3,9 @@ import 'dart:collection';
 import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/services/notification_preview_text.dart';
 
 import 'local_notification_service.dart';
 import 'notification_sound_service.dart';
@@ -23,6 +25,33 @@ enum NotificationSurface {
   suppressed,
 }
 
+/// Claims [dedupKey] before a system notification for it is posted, and says
+/// whether this app may post it. [localNotificationId] is the id the posted
+/// notification will have, so a source that loses the race can remove it.
+/// The router claims again with the same id right after posting: a push that
+/// took the key over in between had nothing to remove yet, so the platform
+/// removes this copy then.
+///
+/// Push wires this to the native ledger it shares with the notification
+/// service extension, so a socket notification and a push for the same event
+/// never both show.
+typedef NotificationClaim =
+    Future<bool> Function(String dedupKey, String? localNotificationId);
+
+Future<bool> _alwaysClaim(String dedupKey, String? localNotificationId) =>
+    Future<bool>.value(true);
+
+/// Whether notifications for one scope (`owui:<accountId>`,
+/// `hermes:<connectionId>`, `direct`) are switched on.
+typedef ScopeNotificationsEnabled = bool Function(String scope);
+
+/// Whether a push will report the same event as [notification]: push is on
+/// for its scope (a test push decrypted here) and, for a Hermes reply, the
+/// plugin pushes that session's turns.
+typedef PushCovers = bool Function(AppNotification notification);
+
+bool _noPush(AppNotification notification) => false;
+
 /// The single decision point for whether and how to surface a classified
 /// [AppNotification]. UI-free and dependency-injected so every gating branch is
 /// unit-testable. The widget/provider layer supplies the collaborators.
@@ -35,15 +64,38 @@ class NotificationRouter {
     required NotificationSoundService sound,
     required void Function(AppNotification) showInAppBanner,
     required void Function(AppNotification) onChannelUnread,
+    NotificationClaim claim = _alwaysClaim,
+    ScopeNotificationsEnabled? scopeNotificationsEnabled,
+    PushCovers pushCovers = _noPush,
+    DateTime Function() now = DateTime.now,
     int dedupCapacity = 200,
   }) : _readSettings = readSettings,
+       _scopeNotificationsEnabled = scopeNotificationsEnabled,
+       _pushCovers = pushCovers,
        _readActiveView = readActiveView,
        _isAppForeground = isAppForeground,
        _localNotifications = localNotifications,
        _sound = sound,
        _showInAppBanner = showInAppBanner,
        _onChannelUnread = onChannelUnread,
+       _claim = claim,
+       _now = now,
        _dedupCapacity = dedupCapacity;
+
+  /// How long a Hermes reply suppresses another for the same session.
+  ///
+  /// The app can't know the server's turn id for a reply it watched finish, so
+  /// its key never matches the push for the same turn; the session does
+  /// (docs/push/PROTOCOL.md §2).
+  static const Duration hermesGroupWindow = Duration(seconds: 120);
+
+  /// How long a channel message counted as unread by one of its two
+  /// notifications, a frame that named no message and left its alert to
+  /// push, or its push, stands in for the other's count.
+  static const Duration countedForPushWindow = Duration(minutes: 10);
+
+  /// How many such messages one channel keeps at most, for each of the two.
+  static const int countedForPushCap = 10;
 
   final AppSettings Function() _readSettings;
   final ActiveView Function() _readActiveView;
@@ -52,6 +104,14 @@ class NotificationRouter {
   final NotificationSoundService _sound;
   final void Function(AppNotification) _showInAppBanner;
   final void Function(AppNotification) _onChannelUnread;
+  final NotificationClaim _claim;
+
+  /// The notification's own switch: its Open WebUI account's, or the
+  /// device-level one for Hermes and Direct. Without it, the active
+  /// settings' switch stands for every scope.
+  final ScopeNotificationsEnabled? _scopeNotificationsEnabled;
+  final PushCovers _pushCovers;
+  final DateTime Function() _now;
   final int _dedupCapacity;
 
   /// Bounded LRU of recently surfaced dedup keys. Lives for the router's
@@ -59,52 +119,153 @@ class NotificationRouter {
   /// buffered-event replay that re-delivers a terminal frame on re-registration.
   final LinkedHashSet<String> _seen = LinkedHashSet<String>();
 
+  /// When a Hermes reply last surfaced, by `<scope>|<group>`.
+  final Map<String, DateTime> _hermesGroups = <String, DateTime>{};
+
+  /// Channel messages counted as unread from a frame that named no message
+  /// and left its alert to push. Its key never matches its push's, so that
+  /// push, if it reaches the router in the foreground, takes the message
+  /// from here instead of counting it again.
+  late final _CountedMessages _countedByFrame = _CountedMessages(_now);
+
+  /// Channel messages counted as unread from a push in the foreground, for
+  /// the same message's frame to take if it names no message and comes
+  /// later, by then perhaps with the app in the background.
+  late final _CountedMessages _countedByPush = _CountedMessages(_now);
+
+  /// Sign-outs so far, of everything and by scope.
+  int _allSignOuts = 0;
+  final Map<String, int> _scopeSignOuts = <String, int>{};
+
+  /// Tells the router [scope] was signed out of, or everything when null. A
+  /// notification for it still being routed (waiting on its sound or its
+  /// claim) then shows nothing.
+  void signedOut(String? scope) {
+    if (scope == null) {
+      _allSignOuts++;
+    } else {
+      _scopeSignOuts.update(scope, (count) => count + 1, ifAbsent: () => 1);
+    }
+  }
+
+  (int, int) _signOutMark(String scope) =>
+      (_allSignOuts, _scopeSignOuts[scope] ?? 0);
+
   /// Routes [notification] through the gating chain and dispatches it. Returns
   /// the surface taken, primarily for tests and diagnostics.
+  ///
+  /// [alreadyClaimed] is for a push the platform handed over in the
+  /// foreground: the notification service extension claimed its key before
+  /// the app saw it, so claiming again would always lose.
   ///
   /// [alert] is false for a message in a channel set to mentions only that
   /// does not mention the user: it still counts as unread, but plays no sound
   /// and shows no banner or system notification, as in Open WebUI.
   Future<NotificationSurface> route(
     AppNotification notification, {
+    bool alreadyClaimed = false,
     bool alert = true,
   }) async {
     final settings = _readSettings();
+    final signOuts = _signOutMark(notification.scope);
+    bool signedOutSince() => _signOutMark(notification.scope) != signOuts;
 
-    // 1. Master toggle.
-    if (!settings.notificationsEnabled) return NotificationSurface.suppressed;
+    // 1. Master toggle: the switch of the account the notification belongs
+    // to, not the active account's. Hermes and Direct follow the
+    // device-level switch (see notificationsEnabledForScope).
+    final enabled =
+        _scopeNotificationsEnabled?.call(notification.scope) ??
+        settings.notificationsEnabled;
+    if (!enabled) return NotificationSurface.suppressed;
 
     // 2. Per-kind toggle.
     if (!_kindEnabled(notification.kind, settings)) {
       return NotificationSurface.suppressed;
     }
 
-    // 3. De-duplication (also guards replayed terminal frames after re-bind).
-    if (!_markFresh(notification.dedupKey)) {
+    final foreground = _isAppForeground();
+
+    // 3. In the background a push that reports the same event is shown
+    // without this router. A source whose key cannot match the push's (a
+    // Hermes turn this app watched, a frame with no message id) would then
+    // notify twice, so it leaves the system notification to the push -- only
+    // when one is sure to come, though, or nothing would notify at all.
+    // The push's own key differs from this source's, so recording this one
+    // never holds the push back if it reaches the router in the foreground.
+    // A push shown outside the app never reaches the loaded channel list, so
+    // its unread count still goes up here, once per message even when the
+    // frame is delivered again. If the app comes back before the push is
+    // shown, the push reaches the router under its own key, and must not
+    // count the message again (see _countedByFrame). Nor does the frame count
+    // one whose push came first, in the foreground (see _countedByPush).
+    if (!foreground &&
+        !alreadyClaimed &&
+        !notification.sharesPushDedupKey &&
+        _pushCovers(notification)) {
+      if (notification.kind == NotificationKind.channelMessage &&
+          _markFresh(notification.dedupKey) &&
+          !_countedByPush.take(notification)) {
+        _onChannelUnread(notification);
+        _countedByFrame.record(notification);
+      }
       return NotificationSurface.suppressed;
     }
 
-    final foreground = _isAppForeground();
+    // 4. De-duplication (also guards replayed terminal frames after re-bind),
+    // and a Hermes reply already shown for the same session.
+    if (!_markFresh(notification.dedupKey) ||
+        _hermesGroupShownRecently(notification)) {
+      return NotificationSurface.suppressed;
+    }
 
-    // 4. Don't alert for content the user is actively looking at — but only in
+    // A channel push may be for a message already counted when its frame
+    // left the alert to push, and a frame that names no message for one its
+    // push counted already. Taken whether or not it alerts below, so one
+    // hidden because its channel is on screen does not stay for a later
+    // message with the same preview.
+    final alreadyCounted =
+        notification.kind == NotificationKind.channelMessage &&
+        (alreadyClaimed
+            ? _countedByFrame.take(notification)
+            : !notification.sharesPushDedupKey &&
+                  _countedByPush.take(notification));
+
+    // 5. Don't alert for content the user is actively looking at — but only in
     // the foreground. Backgrounded, the user can't see any view, so a
     // completion in the chat they just left (the "active" chat) must still
     // notify. Mirrors Open WebUI's `(notViewingChat) || isInBackground` gate.
-    if (foreground && _isViewingTarget(notification)) {
+    // The same chat id in another account or connection is not on screen.
+    if (foreground && _readActiveView().isViewing(notification)) {
       return NotificationSurface.suppressed;
     }
 
-    // 5. Side effects for everything that passed gating. A muted channel
+    // A push counts its message below. Recorded before anything is awaited,
+    // so the same message's frame, routed meanwhile with no message id, finds
+    // it and does not count the message too.
+    if (alreadyClaimed &&
+        notification.kind == NotificationKind.channelMessage &&
+        !alreadyCounted) {
+      _countedByPush.record(notification);
+    }
+
+    // Only a Hermes reply that got this far holds back the next one for its
+    // session: one hidden because its session was on screen was never seen
+    // as an alert, so a later reply there must still notify.
+    _recordHermesGroup(notification);
+
+    // 6. Side effects for everything that passed gating. A muted channel
     // still counts the message as unread.
-    if (notification.kind == NotificationKind.channelMessage) {
+    if (notification.kind == NotificationKind.channelMessage &&
+        !alreadyCounted) {
       _onChannelUnread(notification);
     }
     if (!alert) return NotificationSurface.suppressed;
     if (settings.notificationSound && settings.notificationSoundAlways) {
       await _sound.play();
+      if (signedOutSince()) return NotificationSurface.suppressed;
     }
 
-    // 6. Exactly one primary surface, chosen by lifecycle. Unlike Open WebUI's
+    // 7. Exactly one primary surface, chosen by lifecycle. Unlike Open WebUI's
     // web client (which can show an in-app toast AND a browser Notification at
     // once), a foregrounded mobile app only needs the in-app banner; the OS
     // notification is the background affordance.
@@ -116,10 +277,18 @@ class NotificationRouter {
       return NotificationSurface.silent;
     } else {
       if (settings.notificationSystem) {
+        // Another source (a push) may already have shown this event.
+        final id = _localNotifications.nextNotificationId();
+        if (!alreadyClaimed && !await _claim(notification.dedupKey, '$id')) {
+          return NotificationSurface.suppressed;
+        }
+        if (signedOutSince()) return NotificationSurface.suppressed;
         await _localNotifications.show(
           notification,
           playSound: settings.notificationSound,
+          id: id,
         );
+        if (!alreadyClaimed) await _claim(notification.dedupKey, '$id');
         return NotificationSurface.system;
       }
       return NotificationSurface.silent;
@@ -129,20 +298,48 @@ class NotificationRouter {
   bool _kindEnabled(NotificationKind kind, AppSettings settings) {
     switch (kind) {
       case NotificationKind.chatCompletion:
+      case NotificationKind.replyFailed:
         return settings.notificationChatEnabled;
       case NotificationKind.channelMessage:
         return settings.notificationChannelEnabled;
+      case NotificationKind.scheduledTask:
+        return settings.notificationScheduledEnabled;
+      case NotificationKind.pushTest:
+        // A test push only proves delivery; it is never shown here.
+        return false;
     }
   }
 
-  bool _isViewingTarget(AppNotification notification) {
-    final view = _readActiveView();
-    switch (notification.kind) {
-      case NotificationKind.chatCompletion:
-        return view.isViewingChat(notification.sourceId);
-      case NotificationKind.channelMessage:
-        return view.isViewingChannel(notification.sourceId);
+  /// The key a Hermes reply's session window is kept under, `<scope>|<group>`;
+  /// null for anything else.
+  static String? _hermesGroupKey(AppNotification notification) {
+    final group = notification.group;
+    if (group == null ||
+        NotificationScope.tryParse(notification.scope)
+            is! HermesNotificationScope ||
+        (notification.kind != NotificationKind.chatCompletion &&
+            notification.kind != NotificationKind.replyFailed)) {
+      return null;
     }
+    return '${notification.scope}|$group';
+  }
+
+  /// Whether a Hermes reply for the same session surfaced within
+  /// [hermesGroupWindow].
+  bool _hermesGroupShownRecently(AppNotification notification) {
+    final key = _hermesGroupKey(notification);
+    if (key == null) return false;
+    final now = _now();
+    _hermesGroups.removeWhere(
+      (_, shownAt) => now.difference(shownAt) >= hermesGroupWindow,
+    );
+    return _hermesGroups.containsKey(key);
+  }
+
+  /// Opens the session window of a Hermes reply that passed gating.
+  void _recordHermesGroup(AppNotification notification) {
+    final key = _hermesGroupKey(notification);
+    if (key != null) _hermesGroups[key] = _now();
   }
 
   /// Returns true if [key] was not seen before (and records it). Evicts the
@@ -155,4 +352,71 @@ class NotificationRouter {
     }
     return true;
   }
+}
+
+/// Channel messages one notification source counted as unread, oldest
+/// first, by `<scope>|<channelId>`: when each was counted, and its preview
+/// ([_previewToMatch]). The other source's notification for the same message
+/// takes it by its preview instead of counting the message again; another
+/// message's takes nothing, so it still counts. A channel keeps the latest
+/// [NotificationRouter.countedForPushCap], each for
+/// [NotificationRouter.countedForPushWindow].
+final class _CountedMessages {
+  _CountedMessages(this._now);
+
+  final DateTime Function() _now;
+  final Map<String, Queue<({DateTime at, String preview})>> _byChannel = {};
+
+  void record(AppNotification notification) {
+    _dropExpired();
+    final counted = _byChannel.putIfAbsent(_key(notification), Queue.new)
+      ..addLast((at: _now(), preview: _previewToMatch(notification.body)));
+    if (counted.length > NotificationRouter.countedForPushCap) {
+      counted.removeFirst();
+    }
+  }
+
+  /// Takes the oldest message of [notification]'s channel with its preview.
+  bool take(AppNotification notification) {
+    _dropExpired();
+    final key = _key(notification);
+    final counted = _byChannel[key];
+    if (counted == null) return false;
+    final preview = _previewToMatch(notification.body);
+    for (final entry in counted) {
+      if (entry.preview != preview) continue;
+      counted.remove(entry);
+      if (counted.isEmpty) _byChannel.remove(key);
+      return true;
+    }
+    return false;
+  }
+
+  void _dropExpired() {
+    final now = _now();
+    _byChannel.removeWhere((_, counted) {
+      counted.removeWhere(
+        (entry) =>
+            now.difference(entry.at) >= NotificationRouter.countedForPushWindow,
+      );
+      return counted.isEmpty;
+    });
+  }
+
+  static String _key(AppNotification notification) =>
+      '${notification.scope}|${notification.sourceId}';
+
+  /// Open WebUI stores a channel mention as `<@U:id|Label>`.
+  static final RegExp _mention = RegExp(
+    r'<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>',
+  );
+
+  /// A channel message's [body] as its push previews it, so a frame's and
+  /// its push's compare equal. Both are cleaned and clipped the same way
+  /// ([notificationPreviewText]), but the push's from text whose mentions
+  /// already read `@Label` (`_MENTION` in the Conduit Push function), so
+  /// mentions are rewritten the same way and both are cleaned once more.
+  static String _previewToMatch(String body) => notificationPreviewText(
+    body.replaceAllMapped(_mention, (m) => '${m[1]}${m[3] ?? m[2]}'),
+  );
 }

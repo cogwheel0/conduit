@@ -724,6 +724,87 @@ void main() {
       },
     );
 
+    test('model control picks reach the open selector, and only it', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final firstPresentation = Completer<dynamic>();
+      var presentCalls = 0;
+      final firstPicks = <String>[];
+      final secondPicks = <String>[];
+      PlatformNativeSheetModelSelectorRequest? firstRequest;
+
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _presentModelSelectorChannel,
+        (message) async {
+          final args = message! as List<Object?>;
+          presentCalls += 1;
+          if (presentCalls == 1) {
+            firstRequest =
+                args.single as PlatformNativeSheetModelSelectorRequest;
+            await firstPresentation.future;
+            return wrapResponse(result: null);
+          }
+          return wrapResponse(
+            error: PlatformException(code: 'ALREADY_PRESENTING'),
+          );
+        },
+      );
+
+      final firstFuture = NativeSheetBridge.instance.presentModelSelector(
+        presentationId: 'presentation-a',
+        title: 'Models',
+        models: const [NativeSheetModelOption(id: 'model-a', name: 'A')],
+        modelControls: [
+          PlatformNativeSheetModelControl(
+            key: 'reasoning_effort',
+            title: 'Effort',
+            value: 'medium',
+            options: const ['low', 'medium'],
+            labels: const {'low': 'Low', 'medium': 'Medium'},
+          ),
+        ],
+        modelControlDefaultTitle: 'Default',
+        onModelControlChanged: (key, value) async {
+          firstPicks.add('$key=$value');
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(firstRequest!.modelControls.single.options)
+          .deepEquals(['low', 'medium']);
+      check(firstRequest!.modelControlDefaultTitle).equals('Default');
+
+      // A second selector the platform refuses leaves the first one's.
+      await NativeSheetBridge.instance.presentModelSelector(
+        presentationId: 'presentation-b',
+        title: 'Models again',
+        models: const [NativeSheetModelOption(id: 'model-b', name: 'B')],
+        onModelControlChanged: (key, value) async {
+          secondPicks.add('$key=$value');
+        },
+      );
+      NativeSheetBridge.instance.onModelControlChanged(
+        PlatformNativeSheetModelControlChangedEvent(
+          key: 'reasoning_effort',
+          value: 'low',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(firstPicks).deepEquals(['reasoning_effort=low']);
+      check(secondPicks).isEmpty();
+
+      firstPresentation.complete(null);
+      await firstFuture;
+      NativeSheetBridge.instance.onModelControlChanged(
+        PlatformNativeSheetModelControlChangedEvent(
+          key: 'reasoning_effort',
+          value: 'medium',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(firstPicks).deepEquals(['reasoning_effort=low']);
+    });
+
     test(
       'successful selector clears a previously active effort handler',
       () async {

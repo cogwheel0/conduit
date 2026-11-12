@@ -820,6 +820,11 @@ class WorkspacePrompts extends _$WorkspacePrompts {
         toId: toId,
       );
     } on DioException catch (error) {
+      // Open WebUI 0.13.1 compares versions of up to 5,000 lines and refuses
+      // longer ones, which the web client shows as an error too.
+      if (error.response?.statusCode == 413) {
+        throw const WorkspacePromptDiffTooLargeException();
+      }
       // Open WebUI registers `history/{history_id}` before `history/diff`,
       // so on the servers that do (0.11.x) the diff route answers 404 for
       // a history entry called "diff". The same diff from the two entries.
@@ -1375,6 +1380,14 @@ Future<WorkspaceSkillDetail?> workspaceSkillDetail(Ref ref, String id) async {
   final result = await session.api.getWorkspaceSkill(id);
   session.ensureCurrent(ref);
   return result;
+}
+
+/// The server will not compare two prompt versions this long.
+class WorkspacePromptDiffTooLargeException implements Exception {
+  const WorkspacePromptDiffTooLargeException();
+
+  @override
+  String toString() => 'The prompt versions are too long to compare.';
 }
 
 /// What Open WebUI's `history/diff` answers, from the two entries: the

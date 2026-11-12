@@ -100,28 +100,6 @@ class AppCustomizationPage extends ConsumerWidget {
           citationBackground: settings.citationBackground,
         ),
         _sectionGap,
-        CustomizationTile(
-          leading: _buildIconBadge(
-            context,
-            Icons.note_add_outlined,
-            color: context.conduitTheme.buttonPrimary,
-          ),
-          title: l10n.showComposerNotesButton,
-          subtitle: l10n.showComposerNotesButtonDescription,
-          toggled: settings.showComposerNotesButton,
-          trailing: AdaptiveSwitch(
-            key: const Key('appearance-composer-notes-toggle'),
-            value: settings.showComposerNotesButton,
-            onChanged: (value) => ref
-                .read(appSettingsProvider.notifier)
-                .setShowComposerNotesButton(value),
-          ),
-          showChevron: false,
-          onTap: () => ref
-              .read(appSettingsProvider.notifier)
-              .setShowComposerNotesButton(!settings.showComposerNotesButton),
-        ),
-        _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
         _sectionGap,
         InsetGroupedList(
@@ -146,6 +124,28 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
       ],
       AppCustomizationSection.chat => <Widget>[
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.desktop_windows_outlined,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.computerTitle,
+          subtitle: l10n.computerEnabledDescription,
+          toggled: settings.computerEnabled,
+          trailing: AdaptiveSwitch(
+            key: const Key('chat-computer-enabled-toggle'),
+            value: settings.computerEnabled,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setComputerEnabled(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setComputerEnabled(!settings.computerEnabled),
+        ),
+        _sectionGap,
         if (hasOpenWebUiAccount) ...[
           _buildQuickPillsSection(context, ref, settings),
           _sectionGap,
@@ -527,6 +527,29 @@ class AppCustomizationPage extends ConsumerWidget {
               .setSendOnEnter(!settings.sendOnEnter),
         ),
         const SizedBox(height: Spacing.sm),
+        // A button in the message field, so it sits with Send with Enter.
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.note_add_outlined,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.showComposerNotesButton,
+          subtitle: l10n.showComposerNotesButtonDescription,
+          toggled: settings.showComposerNotesButton,
+          trailing: AdaptiveSwitch(
+            key: const Key('appearance-composer-notes-toggle'),
+            value: settings.showComposerNotesButton,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setShowComposerNotesButton(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setShowComposerNotesButton(!settings.showComposerNotesButton),
+        ),
+        const SizedBox(height: Spacing.sm),
         CustomizationTile(
           leading: _buildIconBadge(
             context,
@@ -569,6 +592,31 @@ class AppCustomizationPage extends ConsumerWidget {
           onTap: () => ref
               .read(appSettingsProvider.notifier)
               .setCitationShowTitles(!settings.citationShowTitles),
+        ),
+        const SizedBox(height: Spacing.sm),
+        // How a streaming reply feels, so it belongs with chats.
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.vibration,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.disableHapticsWhileStreaming,
+          subtitle: l10n.disableHapticsWhileStreamingDescription,
+          toggled: settings.disableHapticsWhileStreaming,
+          trailing: AdaptiveSwitch(
+            value: settings.disableHapticsWhileStreaming,
+            semanticLabel: l10n.disableHapticsWhileStreaming,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setDisableHapticsWhileStreaming(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setDisableHapticsWhileStreaming(
+                !settings.disableHapticsWhileStreaming,
+              ),
         ),
         if (Platform.isAndroid) ...[
           const SizedBox(height: Spacing.sm),
@@ -680,30 +728,6 @@ class AppCustomizationPage extends ConsumerWidget {
           showChevron:
               transportAvailability.allowPolling &&
               transportAvailability.allowWebsocketOnly,
-        ),
-        const SizedBox(height: Spacing.sm),
-        CustomizationTile(
-          leading: _buildIconBadge(
-            context,
-            Icons.vibration,
-            color: theme.buttonPrimary,
-          ),
-          title: l10n.disableHapticsWhileStreaming,
-          subtitle: l10n.disableHapticsWhileStreamingDescription,
-          toggled: settings.disableHapticsWhileStreaming,
-          trailing: AdaptiveSwitch(
-            value: settings.disableHapticsWhileStreaming,
-            semanticLabel: l10n.disableHapticsWhileStreaming,
-            onChanged: (value) => ref
-                .read(appSettingsProvider.notifier)
-                .setDisableHapticsWhileStreaming(value),
-          ),
-          showChevron: false,
-          onTap: () => ref
-              .read(appSettingsProvider.notifier)
-              .setDisableHapticsWhileStreaming(
-                !settings.disableHapticsWhileStreaming,
-              ),
         ),
       ],
     );
@@ -1419,27 +1443,27 @@ class AppCustomizationPage extends ConsumerWidget {
                   subtitle: _ttsVoiceSubtitle(l10n, settings),
                   onTap: () => _showVoicePickerSheet(context, ref, settings),
                 ),
-              if (settings.ttsEngine == TtsEngine.device) ...[
-                const SizedBox(height: Spacing.md),
-                // Speech rate is device-only. Server TTS uses backend defaults.
-                _buildSliderTile(
-                  context,
-                  ref,
-                  icon: UiUtils.platformIcon(
-                    ios: CupertinoIcons.speedometer,
-                    android: Icons.speed,
-                  ),
-                  title: l10n.ttsSpeechRate,
-                  value: settings.ttsSpeechRate,
-                  min: 0.25,
-                  max: 2.0,
-                  divisions: 35,
-                  label: '${(settings.ttsSpeechRate * 100).round()}%',
-                  onChanged: (value) => ref
-                      .read(appSettingsProvider.notifier)
-                      .setTtsSpeechRate(value),
+              const SizedBox(height: Spacing.md),
+              // One speed for cloud and device voices, in read-aloud's steps.
+              _buildSliderTile(
+                context,
+                ref,
+                icon: UiUtils.platformIcon(
+                  ios: CupertinoIcons.speedometer,
+                  android: Icons.speed,
                 ),
-              ],
+                title: l10n.ttsPlaybackSpeed,
+                value: ttsSpeedPresets
+                    .indexOf(nearestTtsSpeed(settings.ttsSpeed))
+                    .toDouble(),
+                min: 0,
+                max: (ttsSpeedPresets.length - 1).toDouble(),
+                divisions: ttsSpeedPresets.length - 1,
+                label: l10n.ttsSpeedValue(settings.ttsSpeed),
+                onChanged: (value) => ref
+                    .read(appSettingsProvider.notifier)
+                    .setTtsSpeed(ttsSpeedPresets[value.round()]),
+              ),
               const SizedBox(height: Spacing.md),
               // Preview Button
               CustomizationTile(

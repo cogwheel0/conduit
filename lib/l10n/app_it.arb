@@ -66,7 +66,7 @@
   "credentials": "Credenziali",
   "apiKey": "Chiave API",
   "token": "Token",
-  "jwt": "JWT",
+  "jwt": "Token",
   "usernameOrEmail": "Username o e‑mail",
   "password": "Password",
   "signInWithToken": "Accedi con token",
@@ -198,12 +198,13 @@
   "technicalDetails": "Dettagli tecnici",
   "save": "Salva",
   "chooseModel": "Scegli modello",
-  "reviewerMode": "REVIEWER MODE",
+  "reviewerMode": "MODALITÀ REVISORE",
   "selectLanguage": "Seleziona lingua",
   "newFolder": "Nuova cartella",
   "folderName": "Nome cartella",
   "newChat": "Nuova chat",
   "more": "Altro",
+  "done": "Fatto",
   "clear": "Pulisci",
   "searchConversations": "Cerca conversazioni...",
   "create": "Crea",
@@ -288,8 +289,8 @@
   "usernameOrEmailHint": "Inserisci il tuo username o e‑mail",
   "passwordHint": "Inserisci la password",
   "enterToken": "Inserisci il tuo token JWT",
-  "tokenHint": "Ottieni il token JWT dalle impostazioni di Open WebUI. Le chiavi API (sk-...) non sono supportate per lo streaming.",
-  "apiKeyNotSupported": "Le chiavi API (sk-...) non sono supportate. Per favore usa un token JWT.",
+  "tokenHint": "Copia un token di sessione JWT da Open WebUI sul web e incollalo qui. Gli amministratori lo trovano in Impostazioni › Account › Chiavi API. Le chiavi API (sk-…) non funzionano.",
+  "apiKeyNotSupported": "Le chiavi API (sk-…) non servono per accedere. Incolla invece un token JWT.",
   "apiKeyNoLongerSupported": "Sei stato disconnesso perché le chiavi API non sono più supportate. Per favore accedi con un token JWT dalle impostazioni di Open WebUI.",
   "tokenTooShort": "Il token è troppo corto",
   "signingIn": "Accesso in corso...",
@@ -385,8 +386,8 @@
   },
   "analyzing": "Analisi…",
   "analyzed": "Analizzato",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButton": "Salva bozze come note",
+  "showComposerNotesButtonDescription": "Mentre scrivi, il menu + offre Salva come nota, che conserva il tuo messaggio come nota invece di inviarlo.",
   "appCustomization": "Personalizzazione",
   "appCustomizationSubtitle": "Tema, lingua, voce e quick actions",
   "quickActionsDescription": "Scorciatoie nella chat",
@@ -418,8 +419,8 @@
   "sttSilenceDuration": "Durata del silenzio",
   "sttSilenceDurationDescription": "Tempo di attesa dopo il silenzio prima di fermare automaticamente la registrazione",
   "sttTranscriptionLanguage": "Lingua di trascrizione",
-  "sttTranscriptionLanguageDescription": "Usa Auto per seguire la lingua di questo dispositivo oppure inserisci un codice come en.",
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageDescription": "Usa Rilevamento automatico per lasciare che il server deduca la lingua parlata oppure inserisci un codice come en.",
+  "sttTranscriptionLanguageAuto": "Rilevamento automatico",
   "sttTranscriptionLanguageCustom": "Codice lingua personalizzato",
   "sttTranscriptionLanguagePlaceholder": "Codice ISO-639-1, es. en",
   "sttTranscriptionLanguageInvalid": "Usa un codice lingua di due lettere come en.",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "Voce",
-  "ttsSpeechRate": "Velocità di sintesi vocale",
+  "ttsPlaybackSpeed": "Velocità di riproduzione",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Tonalità",
   "ttsVolume": "Volume",
   "ttsPreview": "Anteprima voce",
@@ -782,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monocromatica",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Tema neutro e pulito progettato per Conduit.",
+  "themePaletteConduitDescription": "Bianco e nero, senza colore di accento.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -814,7 +825,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Mandarino",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -969,9 +980,9 @@
   "sso": "SSO",
   "ssoDescription": "Accedi con il provider di identità della tua organizzazione",
   "signInWithSso": "Accedi con SSO",
-  "ssoAuthenticating": "Autenticazione...",
+  "ssoAuthenticating": "Accesso in corso…",
   "ssoAuthFailed": "Autenticazione SSO fallita",
-  "ssoLoadingLogin": "Caricamento pagina di accesso...",
+  "ssoLoadingLogin": "Caricamento della pagina di accesso…",
   "ldap": "LDAP",
   "ldapDescription": "Accedi con le credenziali della directory LDAP",
   "signInWithLdap": "Accedi con LDAP",
@@ -1019,12 +1030,30 @@
   "usageQueueTime": "Tempo in coda",
   "usageReasoningTokens": "Token di ragionamento",
   "usageTotalTokens": "Token totali",
+  "usageContextWindow": "Finestra di contesto",
+  "usageContextWindowValue": "{percent} · {used} di {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Autenticazione Proxy",
   "proxyAuthPlatformNotSupported": "L'autenticazione proxy richiede un dispositivo mobile. Si prega di autenticarsi prima tramite un browser.",
-  "proxyAuthLoading": "Caricamento della pagina di autenticazione...",
+  "proxyAuthLoading": "Caricamento della pagina di accesso…",
   "proxyAuthFailed": "Autenticazione proxy fallita",
   "proxyAuthHelpText": "Completa l'accesso tramite il proxy della tua organizzazione, poi accedi a Open WebUI. Sarai reindirizzato automaticamente.",
-  "proxyAuthHelpTextSimple": "Accedi tramite il tuo proxy. Una volta autenticato, tocca Continua per procedere all'accesso.",
+  "proxyAuthHelpTextSimple": "Accedi al tuo proxy in questa pagina, poi tocca Continua per accedere a Open WebUI.",
   "continueButton": "Continua",
   "proxyAuthRequired": "Questo server richiede l'autenticazione proxy",
   "proxyAuthRequiredDescription": "Il tuo server sembra essere dietro un proxy di autenticazione (come oauth2-proxy). Dovrai prima accedere tramite il proxy.",
@@ -1088,7 +1117,7 @@
   "chatSettingStop": "Sequenze di arresto",
   "chatSettingFunctionCalling": "Chiamata strumenti",
   "chatSettingFunctionCallingNative": "Nativa",
-  "chatSettingFunctionCallingLegacy": "Legacy",
+  "chatSettingFunctionCallingLegacy": "Classica",
   "chatSettingResponseFormat": "Formato della risposta",
   "chatSettingErrorRequired": "Inserisci un valore.",
   "chatSettingErrorNotANumber": "Inserisci un numero.",
@@ -2047,184 +2076,184 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Supporto",
   "settingsDataAndConnection": "Dati e connessione",
-  "slidingSidebar": "Barra laterale scorrevole",
-  "slidingSidebarDescription": "Apri Note, Terminale e Canali accanto alla cronologia delle chat.",
+  "slidingSidebar": "Unisci le schede della barra laterale",
+  "slidingSidebarDescription": "Mostra Note, Terminale e Canali sopra le tue chat invece che come schede e, su un telefono, lascia visibile parte della chat.",
   "settingsAppearance": "Aspetto",
   "settingsAppearanceSubtitle": "Tema, tavolozza colori e lingua",
   "settingsChatSubtitle": "Comportamento chat, azioni rapide e prompt avanzati",
   "workspaceTitle": "Area di lavoro",
-  "workspaceSubtitle": "Manage server resources and access.",
-  "workspaceModels": "Models",
-  "workspaceKnowledge": "Knowledge",
-  "workspacePrompts": "Prompts",
-  "workspaceTools": "Tools",
-  "workspaceSkills": "Skills",
-  "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
-  "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
-  "workspaceLoadFailed": "Workspace could not be loaded.",
-  "workspaceRetry": "Retry",
-  "workspaceSelectItem": "Select an item to view its details.",
-  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
-  "workspaceSearchHint": "Search workspace resources",
-  "workspaceLoadMore": "Load more",
-  "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
-  "workspaceAccessPeopleHeading": "People & groups",
-  "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
-  "workspaceAccessEmpty": "Not shared with anyone yet.",
-  "workspaceAccessAddPeople": "Add people or groups",
-  "workspaceAccessAddGroups": "Add groups",
+  "workspaceSubtitle": "Gestisci le risorse del server e l'accesso",
+  "workspaceModels": "Modelli",
+  "workspaceKnowledge": "Conoscenza",
+  "workspacePrompts": "Prompt",
+  "workspaceTools": "Strumenti",
+  "workspaceSkills": "Skill",
+  "workspaceCreate": "Crea",
+  "workspaceEmpty": "Ancora nessun elemento.",
+  "workspaceDenied": "Non hai il permesso di gestire questa sezione dell'area di lavoro.",
+  "workspaceUnsupported": "Questo server non supporta la gestione dell'area di lavoro.",
+  "workspaceLoadFailed": "Impossibile caricare l'area di lavoro.",
+  "workspaceRetry": "Riprova",
+  "workspaceSelectItem": "Seleziona un elemento per vederne i dettagli.",
+  "workspaceEditorComingSoon": "Questo editor sarà disponibile nella prossima fase dell'area di lavoro.",
+  "workspaceSearchHint": "Cerca nelle risorse dell'area di lavoro",
+  "workspaceLoadMore": "Carica altro",
+  "workspaceAccessPublicDisabled": "Non hai il permesso di condividerlo pubblicamente.",
+  "workspaceAccessPeopleHeading": "Persone e gruppi",
+  "workspaceAccessUsersDisabled": "La condivisione con singole persone è disattivata; puoi condividere solo con i gruppi.",
+  "workspaceAccessEmpty": "Non ancora condiviso con nessuno.",
+  "workspaceAccessAddPeople": "Aggiungi persone o gruppi",
+  "workspaceAccessAddGroups": "Aggiungi gruppi",
   "workspaceAccessAddUsers": "Aggiungi persone",
   "workspaceAccessGroupsDisabled": "La condivisione con i gruppi è disattivata; puoi condividere solo con singole persone.",
   "workspaceAccessGrantsDisabled": "Non hai il permesso di condividere con persone o gruppi. L'accesso esistente viene mantenuto.",
-  "workspaceAccessGroupBadge": "Group",
-  "workspaceAccessUserBadge": "Person",
-  "workspaceAccessCanEdit": "Can edit",
-  "workspaceAccessRemoveGrant": "Remove access",
-  "workspacePrincipalTitle": "Add people or groups",
-  "workspacePrincipalUsersTab": "People",
-  "workspacePrincipalGroupsTab": "Groups",
-  "workspacePrincipalSearchHint": "Search people by name or email",
-  "workspacePrincipalLoadFailed": "Could not load results.",
-  "workspacePrincipalSearchPrompt": "Search to find people to share with.",
-  "workspacePrincipalNoResults": "No matches found.",
-  "workspaceReadOnlyBadge": "Read only",
-  "workspaceReadOnlyExplanation": "You have view-only access to this resource.",
-  "workspaceEditorDiscardTitle": "Discard changes?",
-  "workspaceEditorDiscardMessage": "Your unsaved changes will be lost.",
-  "workspaceEditorDiscardConfirm": "Discard",
-  "workspaceEditorKeepEditing": "Keep editing",
-  "workspaceEditorSaveTooltip": "Save changes",
-  "workspaceEditorSaving": "Saving…",
-  "workspaceEditorMoreActions": "More actions",
-  "workspaceImportChooseFile": "Choose JSON file",
-  "workspaceImportPasteLabel": "Or paste JSON",
-  "workspaceImportPasteHint": "Paste exported JSON here",
-  "workspaceImportRun": "Import",
-  "workspaceImportInvalidJson": "That doesn't look like valid JSON.",
-  "workspaceImportEmpty": "No items were found to import.",
-  "workspaceImportReadFailed": "Could not read the selected file.",
-  "workspaceImportBatchFailed": "The import could not be completed.",
-  "workspaceImportSummary": "Imported {success} of {total} items",
-  "workspaceImportItemImported": "Imported",
-  "workspaceImportItemFailed": "Import failed",
-  "workspaceImportDone": "Done",
-  "workspaceModelNewTitle": "New model",
+  "workspaceAccessGroupBadge": "Gruppo",
+  "workspaceAccessUserBadge": "Persona",
+  "workspaceAccessCanEdit": "Può modificare",
+  "workspaceAccessRemoveGrant": "Rimuovi l'accesso",
+  "workspacePrincipalTitle": "Aggiungi persone o gruppi",
+  "workspacePrincipalUsersTab": "Persone",
+  "workspacePrincipalGroupsTab": "Gruppi",
+  "workspacePrincipalSearchHint": "Cerca persone per nome o e-mail",
+  "workspacePrincipalLoadFailed": "Impossibile caricare i risultati.",
+  "workspacePrincipalSearchPrompt": "Cerca le persone con cui condividere.",
+  "workspacePrincipalNoResults": "Nessuna corrispondenza trovata.",
+  "workspaceReadOnlyBadge": "Sola lettura",
+  "workspaceReadOnlyExplanation": "Hai accesso in sola lettura a questa risorsa.",
+  "workspaceEditorDiscardTitle": "Annullare le modifiche?",
+  "workspaceEditorDiscardMessage": "Le modifiche non salvate andranno perse.",
+  "workspaceEditorDiscardConfirm": "Scarta modifiche",
+  "workspaceEditorKeepEditing": "Continua a modificare",
+  "workspaceEditorSaveTooltip": "Salva modifiche",
+  "workspaceEditorSaving": "Salvataggio…",
+  "workspaceEditorMoreActions": "Altre azioni",
+  "workspaceImportChooseFile": "Scegli file JSON",
+  "workspaceImportPasteLabel": "Oppure incolla JSON",
+  "workspaceImportPasteHint": "Incolla qui il JSON esportato",
+  "workspaceImportRun": "Importa",
+  "workspaceImportInvalidJson": "Non sembra un JSON valido.",
+  "workspaceImportEmpty": "Non è stato trovato nessun elemento da importare.",
+  "workspaceImportReadFailed": "Impossibile leggere il file selezionato.",
+  "workspaceImportBatchFailed": "Impossibile completare l'importazione.",
+  "workspaceImportSummary": "Importati {success} elementi su {total}",
+  "workspaceImportItemImported": "Importato",
+  "workspaceImportItemFailed": "Importazione non riuscita",
+  "workspaceImportDone": "Fine",
+  "workspaceModelNewTitle": "Nuovo modello",
   "@workspaceModelNewTitle": {
     "description": "Title shown when creating a new workspace model."
   },
-  "workspaceModelIdLabel": "Model ID",
+  "workspaceModelIdLabel": "ID modello",
   "@workspaceModelIdLabel": {
     "description": "Label for the unique model identifier field."
   },
-  "workspaceModelBaseModel": "Base model",
+  "workspaceModelBaseModel": "Modello di base",
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelNone": "Nessuno (personalizzato)",
   "workspaceModelBaseModelRequired": "Scegli un modello di base.",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
-  "workspaceModelName": "Name",
+  "workspaceModelName": "Nome",
   "@workspaceModelName": {
     "description": "Label for the model display-name field."
   },
-  "workspaceModelDescription": "Description",
+  "workspaceModelDescription": "Descrizione",
   "@workspaceModelDescription": {
     "description": "Label for the model description field."
   },
-  "workspaceModelTags": "Tags",
+  "workspaceModelTags": "Tag",
   "@workspaceModelTags": {
     "description": "Label for the model tags editor."
   },
-  "workspaceModelTagsHint": "Add tag",
+  "workspaceModelTagsHint": "Aggiungi tag",
   "@workspaceModelTagsHint": {
     "description": "Action chip label to add a new tag."
   },
-  "workspaceModelSystemPrompt": "System prompt",
+  "workspaceModelSystemPrompt": "Prompt di sistema",
   "@workspaceModelSystemPrompt": {
     "description": "Label for the model system prompt field."
   },
-  "workspaceModelSuggestionPrompts": "Suggested prompts",
+  "workspaceModelSuggestionPrompts": "Prompt suggeriti",
   "@workspaceModelSuggestionPrompts": {
     "description": "Label for the suggested prompts editor."
   },
-  "workspaceModelAddSuggestion": "Add suggestion",
+  "workspaceModelAddSuggestion": "Aggiungi suggerimento",
   "@workspaceModelAddSuggestion": {
     "description": "Button to add a suggested prompt."
   },
-  "workspaceModelRemoveSuggestion": "Remove suggestion",
+  "workspaceModelRemoveSuggestion": "Rimuovi suggerimento",
   "@workspaceModelRemoveSuggestion": {
     "description": "Tooltip to remove a suggested prompt."
   },
-  "workspaceModelStopSequences": "Stop sequences",
+  "workspaceModelStopSequences": "Sequenze di stop",
   "@workspaceModelStopSequences": {
     "description": "Label for the stop-sequences field."
   },
-  "workspaceModelStopHint": "Comma-separated stop sequences",
+  "workspaceModelStopHint": "Sequenze di stop separate da virgole",
   "@workspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field."
   },
-  "workspaceModelAdvancedParams": "Advanced parameters (JSON)",
+  "workspaceModelAdvancedParams": "Parametri avanzati (JSON)",
   "@workspaceModelAdvancedParams": {
     "description": "Label for the advanced inference parameters JSON field."
   },
-  "workspaceModelParamsHint": "JSON object of additional parameters",
+  "workspaceModelParamsHint": "Oggetto JSON con parametri aggiuntivi",
   "@workspaceModelParamsHint": {
     "description": "Helper text for a JSON parameters field."
   },
-  "workspaceModelInvalidJson": "Enter a valid JSON object.",
+  "workspaceModelInvalidJson": "Inserisci un oggetto JSON valido.",
   "@workspaceModelInvalidJson": {
     "description": "Validation error for a malformed JSON field."
   },
-  "workspaceModelCapabilities": "Capabilities",
+  "workspaceModelCapabilities": "Funzionalità",
   "@workspaceModelCapabilities": {
     "description": "Label for the model capability toggles."
   },
-  "workspaceModelTerminal": "Terminal ID",
+  "workspaceModelTerminal": "ID terminale",
   "@workspaceModelTerminal": {
     "description": "Label for the terminal identifier field."
   },
-  "workspaceModelTtsVoice": "Text-to-speech voice",
+  "workspaceModelTtsVoice": "Voce di sintesi vocale",
   "@workspaceModelTtsVoice": {
     "description": "Label for the TTS voice field."
   },
-  "workspaceModelDefaultFeatures": "Default features",
+  "workspaceModelDefaultFeatures": "Funzionalità predefinite",
   "@workspaceModelDefaultFeatures": {
     "description": "Label for the default feature IDs field."
   },
-  "workspaceModelBuiltinTools": "Built-in tools (JSON)",
+  "workspaceModelBuiltinTools": "Strumenti integrati (JSON)",
   "@workspaceModelBuiltinTools": {
     "description": "Label for the built-in tools JSON field."
   },
-  "workspaceModelKnowledge": "Knowledge",
+  "workspaceModelKnowledge": "Conoscenza",
   "@workspaceModelKnowledge": {
     "description": "Label for the knowledge relationship selector."
   },
-  "workspaceModelTools": "Tools",
+  "workspaceModelTools": "Strumenti",
   "@workspaceModelTools": {
     "description": "Label for the tools relationship selector."
   },
-  "workspaceModelSkills": "Skills",
+  "workspaceModelSkills": "Skill",
   "@workspaceModelSkills": {
     "description": "Label for the skills relationship selector."
   },
-  "workspaceModelFilters": "Filters",
+  "workspaceModelFilters": "Filtri",
   "@workspaceModelFilters": {
     "description": "Label for the filter functions selector."
   },
-  "workspaceModelDefaultFilters": "Default filters",
+  "workspaceModelDefaultFilters": "Filtri predefiniti",
   "@workspaceModelDefaultFilters": {
     "description": "Label for the default filter functions selector."
   },
-  "workspaceModelActions": "Actions",
+  "workspaceModelActions": "Azioni",
   "@workspaceModelActions": {
     "description": "Label for the action functions selector."
   },
-  "workspaceModelSectionBasics": "Basics",
+  "workspaceModelSectionBasics": "Informazioni di base",
   "@workspaceModelSectionBasics": {
     "description": "Section header for basic model fields."
   },
@@ -2232,39 +2261,39 @@
   "@workspaceModelSectionPrompt": {
     "description": "Section header for prompt-related model fields."
   },
-  "workspaceModelSectionAdvanced": "Advanced",
+  "workspaceModelSectionAdvanced": "Avanzate",
   "@workspaceModelSectionAdvanced": {
     "description": "Section header for advanced model fields."
   },
-  "workspaceModelSectionRelationships": "Relationships",
+  "workspaceModelSectionRelationships": "Collegamenti",
   "@workspaceModelSectionRelationships": {
     "description": "Section header for model relationship selectors."
   },
-  "workspaceModelSectionAccess": "Access",
+  "workspaceModelSectionAccess": "Accesso",
   "@workspaceModelSectionAccess": {
     "description": "Section header for model access controls."
   },
-  "workspaceModelProfileImage": "Profile image",
+  "workspaceModelProfileImage": "Immagine del profilo",
   "@workspaceModelProfileImage": {
     "description": "Label for the model profile image."
   },
-  "workspaceModelChangeImage": "Change image",
+  "workspaceModelChangeImage": "Cambia immagine",
   "@workspaceModelChangeImage": {
     "description": "Button to pick a new profile image."
   },
-  "workspaceModelRemoveImage": "Remove image",
+  "workspaceModelRemoveImage": "Rimuovi immagine",
   "@workspaceModelRemoveImage": {
     "description": "Button to clear the profile image."
   },
-  "workspaceModelImageFailed": "Could not load the selected image.",
+  "workspaceModelImageFailed": "Impossibile caricare l'immagine selezionata.",
   "@workspaceModelImageFailed": {
     "description": "Error when picking a profile image fails."
   },
-  "workspaceModelSelectNone": "None selected",
+  "workspaceModelSelectNone": "Nessuna selezione",
   "@workspaceModelSelectNone": {
     "description": "Subtitle when no relationship items are selected."
   },
-  "workspaceModelSelectCount": "{count} selected",
+  "workspaceModelSelectCount": "{count} selezionati",
   "@workspaceModelSelectCount": {
     "description": "Subtitle showing how many relationship items are selected.",
     "placeholders": {
@@ -2273,47 +2302,47 @@
       }
     }
   },
-  "workspaceModelRelationshipEmpty": "Nothing available to select.",
+  "workspaceModelRelationshipEmpty": "Niente da selezionare.",
   "@workspaceModelRelationshipEmpty": {
     "description": "Empty state for a relationship picker."
   },
-  "workspaceModelManageAccess": "Manage access",
+  "workspaceModelManageAccess": "Gestisci l'accesso",
   "@workspaceModelManageAccess": {
     "description": "Action to open the access-grants sheet for a model."
   },
-  "workspaceModelClone": "Duplicate",
+  "workspaceModelClone": "Duplica",
   "@workspaceModelClone": {
     "description": "Action that duplicates the model."
   },
-  "workspaceModelCloneSuffix": "(copy)",
+  "workspaceModelCloneSuffix": "(copia)",
   "@workspaceModelCloneSuffix": {
     "description": "Suffix appended to a duplicated model name."
   },
-  "workspaceModelActivate": "Activate",
+  "workspaceModelActivate": "Attiva",
   "@workspaceModelActivate": {
     "description": "Action that marks the model active."
   },
-  "workspaceModelDeactivate": "Deactivate",
+  "workspaceModelDeactivate": "Disattiva",
   "@workspaceModelDeactivate": {
     "description": "Action that marks the model inactive."
   },
-  "workspaceModelHide": "Hide from selector",
+  "workspaceModelHide": "Nascondi dal selettore",
   "@workspaceModelHide": {
     "description": "Action that hides the model from model selectors."
   },
-  "workspaceModelUnhide": "Show in selector",
+  "workspaceModelUnhide": "Mostra nel selettore",
   "@workspaceModelUnhide": {
     "description": "Action that unhides the model in model selectors."
   },
-  "workspaceModelDelete": "Delete model",
+  "workspaceModelDelete": "Elimina modello",
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
+  "workspaceModelDeleteConfirmTitle": "Eliminare il modello?",
   "@workspaceModelDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a model."
   },
-  "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "workspaceModelDeleteConfirmMessage": "{name} verrà rimosso definitivamente.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
     "placeholders": {
@@ -2322,83 +2351,83 @@
       }
     }
   },
-  "workspaceModelExport": "Export model",
+  "workspaceModelExport": "Esporta modello",
   "@workspaceModelExport": {
     "description": "Action that exports a single model as JSON."
   },
-  "workspaceModelExportAll": "Export all models",
+  "workspaceModelExportAll": "Esporta tutti i modelli",
   "@workspaceModelExportAll": {
     "description": "Action that exports every readable model as JSON."
   },
-  "workspaceModelExportFailed": "The export could not be completed.",
+  "workspaceModelExportFailed": "Impossibile completare l'esportazione.",
   "@workspaceModelExportFailed": {
     "description": "Error when exporting models fails."
   },
-  "workspaceModelImport": "Import models",
+  "workspaceModelImport": "Importa modelli",
   "@workspaceModelImport": {
     "description": "Action that imports models from JSON."
   },
-  "workspaceModelIdRequired": "A model ID is required.",
+  "workspaceModelIdRequired": "L'ID modello è obbligatorio.",
   "@workspaceModelIdRequired": {
     "description": "Validation error when the model ID is empty."
   },
-  "workspaceModelNameRequired": "A name is required.",
+  "workspaceModelNameRequired": "Il nome è obbligatorio.",
   "@workspaceModelNameRequired": {
     "description": "Validation error when the model name is empty."
   },
-  "workspaceModelSaved": "Model saved.",
+  "workspaceModelSaved": "Modello salvato.",
   "@workspaceModelSaved": {
     "description": "Confirmation that the model was saved."
   },
-  "workspaceModelSaveFailed": "The model could not be saved.",
+  "workspaceModelSaveFailed": "Impossibile salvare il modello.",
   "@workspaceModelSaveFailed": {
     "description": "Error when saving the model fails."
   },
-  "workspaceModelDeleted": "Model deleted.",
+  "workspaceModelDeleted": "Modello eliminato.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
   },
-  "workspaceModelAddAction": "Add",
+  "workspaceModelAddAction": "Aggiungi",
   "@workspaceModelAddAction": {
     "description": "Confirm button in a small add-text dialog."
   },
-  "workspaceKnowledgeCreateTitle": "New knowledge base",
+  "workspaceKnowledgeCreateTitle": "Nuova base di conoscenza",
   "@workspaceKnowledgeCreateTitle": {
     "description": "Title of the create form for a new knowledge base."
   },
-  "workspaceKnowledgeName": "Name",
+  "workspaceKnowledgeName": "Nome",
   "@workspaceKnowledgeName": {
     "description": "Label for the knowledge base name field."
   },
-  "workspaceKnowledgeDescription": "Description",
+  "workspaceKnowledgeDescription": "Descrizione",
   "@workspaceKnowledgeDescription": {
     "description": "Label for the knowledge base description field."
   },
-  "workspaceKnowledgeNameRequired": "A name is required.",
+  "workspaceKnowledgeNameRequired": "Il nome è obbligatorio.",
   "@workspaceKnowledgeNameRequired": {
     "description": "Validation error when the knowledge base name is empty."
   },
-  "workspaceKnowledgeSaved": "Knowledge base saved.",
+  "workspaceKnowledgeSaved": "Base di conoscenza salvata.",
   "@workspaceKnowledgeSaved": {
     "description": "Confirmation that the knowledge base was saved."
   },
-  "workspaceKnowledgeSaveFailed": "The knowledge base could not be saved.",
+  "workspaceKnowledgeSaveFailed": "Impossibile salvare la base di conoscenza.",
   "@workspaceKnowledgeSaveFailed": {
     "description": "Error when saving a knowledge base fails."
   },
-  "workspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "workspaceKnowledgeDeleted": "Base di conoscenza eliminata.",
   "@workspaceKnowledgeDeleted": {
     "description": "Confirmation that the knowledge base was deleted."
   },
-  "workspaceKnowledgeDelete": "Delete knowledge base",
+  "workspaceKnowledgeDelete": "Elimina base di conoscenza",
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "workspaceKnowledgeDeleteConfirmTitle": "Eliminare la base di conoscenza?",
   "@workspaceKnowledgeDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "workspaceKnowledgeDeleteConfirmMessage": "{name} verrà rimossa definitivamente e i suoi file verranno scollegati.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
     "placeholders": {
@@ -2407,15 +2436,15 @@
       }
     }
   },
-  "workspaceKnowledgeReset": "Reset",
+  "workspaceKnowledgeReset": "Reimposta",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "workspaceKnowledgeResetConfirmTitle": "Reimpostare la base di conoscenza?",
   "@workspaceKnowledgeResetConfirmTitle": {
     "description": "Confirmation dialog title for resetting a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "workspaceKnowledgeResetConfirmMessage": "Tutti i file verranno rimossi da {name}, ma la base di conoscenza resterà.",
   "@workspaceKnowledgeResetConfirmMessage": {
     "description": "Confirmation dialog body for resetting a knowledge base.",
     "placeholders": {
@@ -2424,51 +2453,51 @@
       }
     }
   },
-  "workspaceKnowledgeResetDone": "Knowledge base reset.",
+  "workspaceKnowledgeResetDone": "Base di conoscenza reimpostata.",
   "@workspaceKnowledgeResetDone": {
     "description": "Confirmation that the knowledge base files were reset."
   },
-  "workspaceKnowledgeExport": "Export knowledge base",
+  "workspaceKnowledgeExport": "Esporta base di conoscenza",
   "@workspaceKnowledgeExport": {
     "description": "Overflow action that exports a knowledge base archive."
   },
-  "workspaceKnowledgeExportFailed": "The export could not be completed.",
+  "workspaceKnowledgeExportFailed": "Impossibile completare l'esportazione.",
   "@workspaceKnowledgeExportFailed": {
     "description": "Error when exporting a knowledge base fails."
   },
-  "workspaceKnowledgeManageAccess": "Manage access",
+  "workspaceKnowledgeManageAccess": "Gestisci l'accesso",
   "@workspaceKnowledgeManageAccess": {
     "description": "Action that opens the sharing and access sheet for a knowledge base."
   },
-  "workspaceKnowledgeViewAll": "All",
+  "workspaceKnowledgeViewAll": "Tutte",
   "@workspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases."
   },
-  "workspaceKnowledgeViewCreated": "Created by you",
+  "workspaceKnowledgeViewCreated": "Create da te",
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Shared with you",
+  "workspaceKnowledgeViewShared": "Condivise con te",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },
-  "workspaceKnowledgeSourceAll": "All sources",
+  "workspaceKnowledgeSourceAll": "Tutte le fonti",
   "@workspaceKnowledgeSourceAll": {
     "description": "Knowledge collection filter showing both local and connected sources."
   },
-  "workspaceKnowledgeSourceLocal": "Local",
+  "workspaceKnowledgeSourceLocal": "Locali",
   "@workspaceKnowledgeSourceLocal": {
     "description": "Knowledge collection filter showing only local knowledge bases."
   },
-  "workspaceKnowledgeSourceExternal": "Connected",
+  "workspaceKnowledgeSourceExternal": "Collegate",
   "@workspaceKnowledgeSourceExternal": {
     "description": "Knowledge collection filter showing only external/connected knowledge bases."
   },
-  "workspaceKnowledgeExternalBadge": "Connected",
+  "workspaceKnowledgeExternalBadge": "Collegata",
   "@workspaceKnowledgeExternalBadge": {
     "description": "Badge marking a knowledge base as external/connected (read-only)."
   },
-  "workspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "workspaceKnowledgeExternalReadOnly": "In questa app le basi di conoscenza collegate sono di sola lettura.",
   "@workspaceKnowledgeExternalReadOnly": {
     "description": "Notice shown when viewing an external/connected knowledge base."
   },
@@ -2476,31 +2505,31 @@
   "@workspaceKnowledgeFilesTitle": {
     "description": "Heading of the knowledge base file browser."
   },
-  "workspaceKnowledgeFilesEmpty": "No files yet.",
+  "workspaceKnowledgeFilesEmpty": "Ancora nessun file.",
   "@workspaceKnowledgeFilesEmpty": {
     "description": "Empty state when a knowledge base directory contains no files."
   },
-  "workspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "workspaceKnowledgeFilesLoadFailed": "Impossibile caricare i file.",
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Refresh",
+  "workspaceKnowledgeRefreshFiles": "Aggiorna",
   "@workspaceKnowledgeRefreshFiles": {
     "description": "Tooltip for the button that refreshes the knowledge file list."
   },
-  "workspaceKnowledgeRoot": "Root",
+  "workspaceKnowledgeRoot": "Radice",
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Add files",
+  "workspaceKnowledgeAddMenu": "Aggiungi file",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
-  "workspaceKnowledgeUpload": "Upload file",
+  "workspaceKnowledgeUpload": "Carica file",
   "@workspaceKnowledgeUpload": {
     "description": "Menu item to upload a single local file into a knowledge base."
   },
-  "workspaceKnowledgeUploading": "Uploading {name}…",
+  "workspaceKnowledgeUploading": "Caricamento di {name}…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
     "placeholders": {
@@ -2509,63 +2538,63 @@
       }
     }
   },
-  "workspaceKnowledgeUploadFailed": "The file could not be uploaded.",
+  "workspaceKnowledgeUploadFailed": "Impossibile caricare il file.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
   },
-  "workspaceKnowledgeBatchAttach": "Upload multiple files",
+  "workspaceKnowledgeBatchAttach": "Carica più file",
   "@workspaceKnowledgeBatchAttach": {
     "description": "Menu item to upload several local files into a knowledge base at once."
   },
-  "workspaceKnowledgeAttachExisting": "Attach server file",
+  "workspaceKnowledgeAttachExisting": "Allega file del server",
   "@workspaceKnowledgeAttachExisting": {
     "description": "Menu item to attach an existing server file to a knowledge base."
   },
-  "workspaceKnowledgeAttachFailed": "The file could not be attached.",
+  "workspaceKnowledgeAttachFailed": "Impossibile allegare il file.",
   "@workspaceKnowledgeAttachFailed": {
     "description": "Error when attaching an existing file to a knowledge base fails."
   },
-  "workspaceKnowledgeAddText": "Add text file",
+  "workspaceKnowledgeAddText": "Aggiungi file di testo",
   "@workspaceKnowledgeAddText": {
     "description": "Menu item to create a text file and attach it to a knowledge base."
   },
-  "workspaceKnowledgeAddTextName": "File name",
+  "workspaceKnowledgeAddTextName": "Nome del file",
   "@workspaceKnowledgeAddTextName": {
     "description": "Label for the file name field when adding a text file."
   },
-  "workspaceKnowledgeAddTextContent": "Content",
+  "workspaceKnowledgeAddTextContent": "Contenuto",
   "@workspaceKnowledgeAddTextContent": {
     "description": "Label for the content field when adding a text file."
   },
-  "workspaceKnowledgeAddTextFailed": "The text file could not be added.",
+  "workspaceKnowledgeAddTextFailed": "Impossibile aggiungere il file di testo.",
   "@workspaceKnowledgeAddTextFailed": {
     "description": "Error when adding a text file to a knowledge base fails."
   },
-  "workspaceKnowledgeNewFolder": "New folder",
+  "workspaceKnowledgeNewFolder": "Nuova cartella",
   "@workspaceKnowledgeNewFolder": {
     "description": "Menu item and dialog title to create a new directory in a knowledge base."
   },
-  "workspaceKnowledgeFolderName": "Folder name",
+  "workspaceKnowledgeFolderName": "Nome della cartella",
   "@workspaceKnowledgeFolderName": {
     "description": "Label for the folder name field."
   },
-  "workspaceKnowledgeFolderCreateFailed": "The folder could not be created.",
+  "workspaceKnowledgeFolderCreateFailed": "Impossibile creare la cartella.",
   "@workspaceKnowledgeFolderCreateFailed": {
     "description": "Error when creating or renaming a knowledge base folder fails."
   },
-  "workspaceKnowledgeRenameFolder": "Rename folder",
+  "workspaceKnowledgeRenameFolder": "Rinomina cartella",
   "@workspaceKnowledgeRenameFolder": {
     "description": "Action to rename a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolder": "Delete folder",
+  "workspaceKnowledgeDeleteFolder": "Elimina cartella",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "workspaceKnowledgeDeleteFolderConfirmTitle": "Eliminare la cartella?",
   "@workspaceKnowledgeDeleteFolderConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "workspaceKnowledgeDeleteFolderConfirmMessage": "I file in {name} verranno spostati nella cartella superiore.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base directory.",
     "placeholders": {
@@ -2574,43 +2603,43 @@
       }
     }
   },
-  "workspaceKnowledgeFolderDeleteFailed": "The folder could not be deleted.",
+  "workspaceKnowledgeFolderDeleteFailed": "Impossibile eliminare la cartella.",
   "@workspaceKnowledgeFolderDeleteFailed": {
     "description": "Error when deleting a knowledge base folder fails."
   },
-  "workspaceKnowledgeFileRename": "Rename",
+  "workspaceKnowledgeFileRename": "Rinomina",
   "@workspaceKnowledgeFileRename": {
     "description": "Per-file action to rename a knowledge base file."
   },
-  "workspaceKnowledgeFileRefresh": "Re-index",
+  "workspaceKnowledgeFileRefresh": "Reindicizza",
   "@workspaceKnowledgeFileRefresh": {
     "description": "Per-file action to re-index a knowledge base file."
   },
-  "workspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "workspaceKnowledgeFileReindexed": "Reindicizzazione avviata.",
   "@workspaceKnowledgeFileReindexed": {
     "description": "Confirmation that re-indexing a knowledge base file began."
   },
-  "workspaceKnowledgeFileMove": "Move",
+  "workspaceKnowledgeFileMove": "Sposta",
   "@workspaceKnowledgeFileMove": {
     "description": "Per-file action to move a knowledge base file to another folder."
   },
-  "workspaceKnowledgeFileRenameFailed": "The file could not be renamed.",
+  "workspaceKnowledgeFileRenameFailed": "Impossibile rinominare il file.",
   "@workspaceKnowledgeFileRenameFailed": {
     "description": "Error when renaming a knowledge base file fails."
   },
-  "workspaceKnowledgeFileMoveFailed": "The file could not be moved.",
+  "workspaceKnowledgeFileMoveFailed": "Impossibile spostare il file.",
   "@workspaceKnowledgeFileMoveFailed": {
     "description": "Error when moving a knowledge base file fails."
   },
-  "workspaceKnowledgeFileDetach": "Remove from knowledge",
+  "workspaceKnowledgeFileDetach": "Rimuovi dalla base di conoscenza",
   "@workspaceKnowledgeFileDetach": {
     "description": "Per-file action to detach a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachTitle": "Remove file?",
+  "workspaceKnowledgeFileDetachTitle": "Rimuovere il file?",
   "@workspaceKnowledgeFileDetachTitle": {
     "description": "Confirmation dialog title for detaching a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "workspaceKnowledgeFileDetachMessage": "Rimuovere {name} da questa base di conoscenza?",
   "@workspaceKnowledgeFileDetachMessage": {
     "description": "Confirmation dialog body for detaching a file from a knowledge base.",
     "placeholders": {
@@ -2619,151 +2648,151 @@
       }
     }
   },
-  "workspaceKnowledgeFileDeleteUnderlying": "Also delete the underlying file",
+  "workspaceKnowledgeFileDeleteUnderlying": "Elimina anche il file originale",
   "@workspaceKnowledgeFileDeleteUnderlying": {
     "description": "Checkbox to delete the stored file when detaching, shown to owners/admins."
   },
-  "workspaceKnowledgeFileDetachFailed": "The file could not be removed.",
+  "workspaceKnowledgeFileDetachFailed": "Impossibile rimuovere il file.",
   "@workspaceKnowledgeFileDetachFailed": {
     "description": "Error when detaching a file from a knowledge base fails."
   },
-  "workspaceKnowledgeMoveTitle": "Move to folder",
+  "workspaceKnowledgeMoveTitle": "Sposta nella cartella",
   "@workspaceKnowledgeMoveTitle": {
     "description": "Title of the sheet for choosing a destination folder."
   },
-  "workspaceKnowledgeMoveRoot": "Root (no folder)",
+  "workspaceKnowledgeMoveRoot": "Radice (nessuna cartella)",
   "@workspaceKnowledgeMoveRoot": {
     "description": "Move destination representing the knowledge base root."
   },
-  "workspaceKnowledgeStatusPending": "Processing…",
+  "workspaceKnowledgeStatusPending": "Elaborazione…",
   "@workspaceKnowledgeStatusPending": {
     "description": "Status shown for a knowledge base file still being ingested."
   },
-  "workspaceKnowledgeStatusFailed": "Failed",
+  "workspaceKnowledgeStatusFailed": "Non riuscito",
   "@workspaceKnowledgeStatusFailed": {
     "description": "Status shown for a knowledge base file whose ingestion failed."
   },
-  "workspacePromptCreateTitle": "New prompt",
+  "workspacePromptCreateTitle": "Nuovo prompt",
   "@workspacePromptCreateTitle": {
     "description": "Title shown while creating a new workspace prompt."
   },
-  "workspacePromptName": "Name",
+  "workspacePromptName": "Nome",
   "@workspacePromptName": {
     "description": "Label for the prompt name field."
   },
-  "workspacePromptNameRequired": "Name is required.",
+  "workspacePromptNameRequired": "Il nome è obbligatorio.",
   "@workspacePromptNameRequired": {
     "description": "Validation error when the prompt name is empty."
   },
-  "workspacePromptCommand": "Command",
+  "workspacePromptCommand": "Comando",
   "@workspacePromptCommand": {
     "description": "Label for the prompt slash-command field."
   },
-  "workspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "workspacePromptCommandHint": "Solo lettere, numeri, trattini e trattini bassi. Digitalo in chat come comando slash.",
   "@workspacePromptCommandHint": {
     "description": "Helper text explaining the allowed prompt command characters."
   },
-  "workspacePromptCommandRequired": "Command is required.",
+  "workspacePromptCommandRequired": "Il comando è obbligatorio.",
   "@workspacePromptCommandRequired": {
     "description": "Validation error when the prompt command is empty."
   },
-  "workspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspacePromptCommandInvalid": "Sono consentiti solo lettere, numeri, trattini e trattini bassi.",
   "@workspacePromptCommandInvalid": {
     "description": "Validation error when the prompt command contains illegal characters."
   },
-  "workspacePromptCommandTaken": "That command is already in use.",
+  "workspacePromptCommandTaken": "Questo comando è già in uso.",
   "@workspacePromptCommandTaken": {
     "description": "Error shown when saving a prompt whose command collides with another prompt."
   },
-  "workspacePromptContent": "Prompt content",
+  "workspacePromptContent": "Contenuto del prompt",
   "@workspacePromptContent": {
     "description": "Label for the prompt template body field."
   },
-  "workspacePromptContentHint": "Write the prompt template…",
+  "workspacePromptContentHint": "Scrivi il modello del prompt…",
   "@workspacePromptContentHint": {
     "description": "Placeholder text for the empty prompt content field."
   },
-  "workspacePromptContentRequired": "Prompt content is required.",
+  "workspacePromptContentRequired": "Il contenuto del prompt è obbligatorio.",
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Write",
+  "workspacePromptWriteTab": "Scrivi",
   "@workspacePromptWriteTab": {
     "description": "Toggle label for the editable prompt content view."
   },
-  "workspacePromptPreviewTab": "Preview",
+  "workspacePromptPreviewTab": "Anteprima",
   "@workspacePromptPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the prompt content."
   },
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "workspacePromptPreviewEmpty": "Ancora niente da mostrare nell'anteprima.",
   "@workspacePromptPreviewEmpty": {
     "description": "Empty-state text shown in the prompt preview when there is no content."
   },
-  "workspacePromptTags": "Tags",
+  "workspacePromptTags": "Tag",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
   },
-  "workspacePromptTagAdd": "Add tag",
+  "workspacePromptTagAdd": "Aggiungi tag",
   "@workspacePromptTagAdd": {
     "description": "Action to add a tag to a prompt."
   },
-  "workspacePromptVersionSection": "Version",
+  "workspacePromptVersionSection": "Versione",
   "@workspacePromptVersionSection": {
     "description": "Section header for prompt versioning controls."
   },
-  "workspacePromptCommitMessage": "Commit message",
+  "workspacePromptCommitMessage": "Messaggio di commit",
   "@workspacePromptCommitMessage": {
     "description": "Label for the optional commit message recorded with a prompt version."
   },
-  "workspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "workspacePromptCommitMessageHint": "Descrivi cosa è cambiato (facoltativo)",
   "@workspacePromptCommitMessageHint": {
     "description": "Placeholder for the prompt commit message field."
   },
-  "workspacePromptSetProduction": "Set as production version",
+  "workspacePromptSetProduction": "Imposta come versione di produzione",
   "@workspacePromptSetProduction": {
     "description": "Toggle that marks the saved prompt version as the live production version."
   },
-  "workspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "workspacePromptSetProductionSubtitle": "Rendi questa la versione attiva usata in chat.",
   "@workspacePromptSetProductionSubtitle": {
     "description": "Explanation for the production-version toggle."
   },
-  "workspacePromptManageAccess": "Manage access",
+  "workspacePromptManageAccess": "Gestisci l'accesso",
   "@workspacePromptManageAccess": {
     "description": "Action to open the sharing/access editor for a prompt."
   },
-  "workspacePromptClone": "Duplicate",
+  "workspacePromptClone": "Duplica",
   "@workspacePromptClone": {
     "description": "Overflow action that clones a prompt."
   },
-  "workspacePromptCloneSuffix": "(copy)",
+  "workspacePromptCloneSuffix": "(copia)",
   "@workspacePromptCloneSuffix": {
     "description": "Suffix appended to the name and command of a cloned prompt."
   },
-  "workspacePromptUpdateDetails": "Save name & command only",
+  "workspacePromptUpdateDetails": "Salva solo nome e comando",
   "@workspacePromptUpdateDetails": {
     "description": "Overflow action that updates prompt metadata without creating a new version."
   },
-  "workspacePromptDetailsSaved": "Details saved",
+  "workspacePromptDetailsSaved": "Dettagli salvati",
   "@workspacePromptDetailsSaved": {
     "description": "Confirmation that prompt name and command were updated."
   },
-  "workspacePromptActivate": "Activate",
+  "workspacePromptActivate": "Attiva",
   "@workspacePromptActivate": {
     "description": "Overflow action that enables a prompt."
   },
-  "workspacePromptDeactivate": "Deactivate",
+  "workspacePromptDeactivate": "Disattiva",
   "@workspacePromptDeactivate": {
     "description": "Overflow action that disables a prompt."
   },
-  "workspacePromptDelete": "Delete prompt",
+  "workspacePromptDelete": "Elimina prompt",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
   },
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "workspacePromptDeleteConfirmTitle": "Eliminare il prompt?",
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspacePromptDeleteConfirmMessage": "«{name}» verrà eliminato definitivamente.",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -2772,211 +2801,211 @@
       }
     }
   },
-  "workspacePromptDeleted": "Prompt deleted",
+  "workspacePromptDeleted": "Prompt eliminato",
   "@workspacePromptDeleted": {
     "description": "Confirmation that a prompt was deleted."
   },
-  "workspacePromptSaved": "Prompt saved",
+  "workspacePromptSaved": "Prompt salvato",
   "@workspacePromptSaved": {
     "description": "Confirmation that a prompt was saved."
   },
-  "workspacePromptSaveFailed": "Couldn't save the prompt. Please try again.",
+  "workspacePromptSaveFailed": "Impossibile salvare il prompt. Riprova.",
   "@workspacePromptSaveFailed": {
     "description": "Error shown when saving a prompt fails."
   },
-  "workspacePromptImport": "Import prompts",
+  "workspacePromptImport": "Importa prompt",
   "@workspacePromptImport": {
     "description": "Overflow action that imports prompt definitions from JSON."
   },
-  "workspacePromptExport": "Export prompts",
+  "workspacePromptExport": "Esporta prompt",
   "@workspacePromptExport": {
     "description": "Overflow action that exports readable prompts as JSON."
   },
-  "workspacePromptExportFailed": "Couldn't export prompts.",
+  "workspacePromptExportFailed": "Impossibile esportare i prompt.",
   "@workspacePromptExportFailed": {
     "description": "Error shown when exporting prompts fails."
   },
-  "workspacePromptHistory": "Version history",
+  "workspacePromptHistory": "Cronologia versioni",
   "@workspacePromptHistory": {
     "description": "Header of the prompt version-history panel."
   },
-  "workspacePromptHistoryEmpty": "No versions yet.",
+  "workspacePromptHistoryEmpty": "Ancora nessuna versione.",
   "@workspacePromptHistoryEmpty": {
     "description": "Empty-state text when a prompt has no version history."
   },
-  "workspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "workspacePromptHistoryLoadFailed": "Impossibile caricare la cronologia delle versioni.",
   "@workspacePromptHistoryLoadFailed": {
     "description": "Error shown when loading prompt history fails."
   },
-  "workspacePromptHistoryCommitFallback": "No commit message",
+  "workspacePromptHistoryCommitFallback": "Nessun messaggio di commit",
   "@workspacePromptHistoryCommitFallback": {
     "description": "Placeholder shown for a history entry without a commit message."
   },
-  "workspacePromptHistoryLive": "Live",
+  "workspacePromptHistoryLive": "Attiva",
   "@workspacePromptHistoryLive": {
     "description": "Badge marking the active production version of a prompt."
   },
-  "workspacePromptHistoryDiff": "Compare with production",
+  "workspacePromptHistoryDiff": "Confronta con la produzione",
   "@workspacePromptHistoryDiff": {
     "description": "Action to diff a prompt version against the production version."
   },
-  "workspacePromptHistoryDiffTitle": "Version comparison",
+  "workspacePromptHistoryDiffTitle": "Confronto tra versioni",
   "@workspacePromptHistoryDiffTitle": {
     "description": "Title of the prompt version diff sheet."
   },
-  "workspacePromptHistoryDiffEmpty": "No content differences.",
+  "workspacePromptHistoryDiffEmpty": "Nessuna differenza nei contenuti.",
   "@workspacePromptHistoryDiffEmpty": {
     "description": "Shown when two prompt versions have identical content."
   },
-  "workspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "workspacePromptHistoryDiffNameChanged": "Il nome è cambiato tra queste versioni.",
   "@workspacePromptHistoryDiffNameChanged": {
     "description": "Note shown in the diff sheet when the prompt name changed."
   },
-  "workspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "workspacePromptHistoryDiffFailed": "Impossibile calcolare le differenze.",
   "@workspacePromptHistoryDiffFailed": {
     "description": "Error shown when computing a prompt version diff fails."
   },
-  "workspacePromptHistoryRestore": "Restore this version",
+  "workspacePromptHistoryRestore": "Ripristina questa versione",
   "@workspacePromptHistoryRestore": {
     "description": "Action that loads a version snapshot back into the editor."
   },
-  "workspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "workspacePromptHistoryRestored": "Contenuto della versione ripristinato. Salva per mantenerlo.",
   "@workspacePromptHistoryRestored": {
     "description": "Confirmation that a version snapshot was loaded into the editor."
   },
-  "workspacePromptHistorySetProduction": "Set as production",
+  "workspacePromptHistorySetProduction": "Imposta come produzione",
   "@workspacePromptHistorySetProduction": {
     "description": "Action that pins a version as the production version."
   },
-  "workspacePromptHistoryProductionSet": "Production version updated.",
+  "workspacePromptHistoryProductionSet": "Versione di produzione aggiornata.",
   "@workspacePromptHistoryProductionSet": {
     "description": "Confirmation that the production version was changed."
   },
-  "workspacePromptHistoryDelete": "Delete version",
+  "workspacePromptHistoryDelete": "Elimina versione",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
   },
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "workspacePromptHistoryDeleteConfirmTitle": "Eliminare la versione?",
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "workspacePromptHistoryDeleteConfirmMessage": "Questa istantanea della versione verrà rimossa. L'operazione non può essere annullata.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleted": "Version deleted",
+  "workspacePromptHistoryDeleted": "Versione eliminata",
   "@workspacePromptHistoryDeleted": {
     "description": "Confirmation that a prompt version was deleted."
   },
-  "workspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "workspacePromptHistoryDeleteProduction": "La versione di produzione attiva non può essere eliminata.",
   "@workspacePromptHistoryDeleteProduction": {
     "description": "Error shown when trying to delete the active production version."
   },
-  "workspaceSkillCreateTitle": "New skill",
+  "workspaceSkillCreateTitle": "Nuova skill",
   "@workspaceSkillCreateTitle": {
     "description": "Title shown while creating a new workspace skill."
   },
-  "workspaceSkillName": "Name",
+  "workspaceSkillName": "Nome",
   "@workspaceSkillName": {
     "description": "Label for the skill name field."
   },
-  "workspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "workspaceSkillNameHint": "es. Linee guida per la revisione del codice",
   "@workspaceSkillNameHint": {
     "description": "Placeholder example for the skill name field."
   },
-  "workspaceSkillNameRequired": "Name is required.",
+  "workspaceSkillNameRequired": "Il nome è obbligatorio.",
   "@workspaceSkillNameRequired": {
     "description": "Validation error when the skill name is empty."
   },
-  "workspaceSkillId": "Skill ID",
+  "workspaceSkillId": "ID skill",
   "@workspaceSkillId": {
     "description": "Label for the skill identifier field."
   },
-  "workspaceSkillIdHint": "e.g. code-review-guidelines",
+  "workspaceSkillIdHint": "es. linee-guida-revisione-codice",
   "@workspaceSkillIdHint": {
     "description": "Placeholder example for the skill identifier field."
   },
-  "workspaceSkillIdRequired": "Skill ID is required.",
+  "workspaceSkillIdRequired": "L'ID skill è obbligatorio.",
   "@workspaceSkillIdRequired": {
     "description": "Validation error when the skill identifier is empty."
   },
-  "workspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspaceSkillIdInvalid": "Sono consentiti solo lettere, numeri, trattini e trattini bassi.",
   "@workspaceSkillIdInvalid": {
     "description": "Validation error when the skill identifier contains illegal characters."
   },
-  "workspaceSkillIdTaken": "That skill ID or name is already in use.",
+  "workspaceSkillIdTaken": "Questo ID skill o nome è già in uso.",
   "@workspaceSkillIdTaken": {
     "description": "Error shown when saving a skill whose id or name collides with another skill."
   },
-  "workspaceSkillDescription": "Description",
+  "workspaceSkillDescription": "Descrizione",
   "@workspaceSkillDescription": {
     "description": "Label for the optional skill description field."
   },
-  "workspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "workspaceSkillDescriptionHint": "es. Istruzioni passo passo per le revisioni del codice",
   "@workspaceSkillDescriptionHint": {
     "description": "Placeholder example for the skill description field."
   },
-  "workspaceSkillContent": "Instructions",
+  "workspaceSkillContent": "Istruzioni",
   "@workspaceSkillContent": {
     "description": "Label for the skill Markdown instructions body field."
   },
-  "workspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "workspaceSkillContentHint": "Inserisci le istruzioni della skill in Markdown…",
   "@workspaceSkillContentHint": {
     "description": "Placeholder text for the empty skill instructions field."
   },
-  "workspaceSkillContentRequired": "Instructions are required.",
+  "workspaceSkillContentRequired": "Le istruzioni sono obbligatorie.",
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Write",
+  "workspaceSkillWriteTab": "Scrivi",
   "@workspaceSkillWriteTab": {
     "description": "Toggle label for the editable skill instructions view."
   },
-  "workspaceSkillPreviewTab": "Preview",
+  "workspaceSkillPreviewTab": "Anteprima",
   "@workspaceSkillPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the skill instructions."
   },
-  "workspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "workspaceSkillPreviewEmpty": "Ancora niente da mostrare nell'anteprima.",
   "@workspaceSkillPreviewEmpty": {
     "description": "Empty-state text shown in the skill preview when there is no content."
   },
-  "workspaceSkillManageAccess": "Manage access",
+  "workspaceSkillManageAccess": "Gestisci l'accesso",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
   },
-  "workspaceSkillSaved": "Skill saved",
+  "workspaceSkillSaved": "Skill salvata",
   "@workspaceSkillSaved": {
     "description": "Confirmation that a skill was saved."
   },
-  "workspaceSkillSaveFailed": "Couldn't save the skill. Please try again.",
+  "workspaceSkillSaveFailed": "Impossibile salvare la skill. Riprova.",
   "@workspaceSkillSaveFailed": {
     "description": "Error shown when saving a skill fails."
   },
-  "workspaceSkillClone": "Duplicate",
+  "workspaceSkillClone": "Duplica",
   "@workspaceSkillClone": {
     "description": "Overflow action that clones a skill."
   },
-  "workspaceSkillCloneSuffix": "(Clone)",
+  "workspaceSkillCloneSuffix": "(copia)",
   "@workspaceSkillCloneSuffix": {
     "description": "Suffix appended to the name of a cloned skill."
   },
-  "workspaceSkillActivate": "Activate",
+  "workspaceSkillActivate": "Attiva",
   "@workspaceSkillActivate": {
     "description": "Overflow action that enables a skill."
   },
-  "workspaceSkillDeactivate": "Deactivate",
+  "workspaceSkillDeactivate": "Disattiva",
   "@workspaceSkillDeactivate": {
     "description": "Overflow action that disables a skill."
   },
-  "workspaceSkillDelete": "Delete skill",
+  "workspaceSkillDelete": "Elimina skill",
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "workspaceSkillDeleteConfirmTitle": "Eliminare la skill?",
   "@workspaceSkillDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a skill."
   },
-  "workspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspaceSkillDeleteConfirmMessage": "«{name}» verrà eliminata definitivamente.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
     "placeholders": {
@@ -2985,97 +3014,97 @@
       }
     }
   },
-  "workspaceSkillDeleted": "Skill deleted",
+  "workspaceSkillDeleted": "Skill eliminata",
   "@workspaceSkillDeleted": {
     "description": "Confirmation that a skill was deleted."
   },
-  "workspaceSkillImport": "Import skills",
+  "workspaceSkillImport": "Importa skill",
   "@workspaceSkillImport": {
     "description": "Title of the JSON skill import sheet."
   },
-  "workspaceSkillImportMarkdown": "Import Markdown",
+  "workspaceSkillImportMarkdown": "Importa Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
   },
-  "workspaceSkillImportJson": "Import JSON",
+  "workspaceSkillImportJson": "Importa JSON",
   "@workspaceSkillImportJson": {
     "description": "Overflow action that imports one or more skills from a JSON file."
   },
-  "workspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "workspaceSkillImportMarkdownLoaded": "Markdown caricato. Controllalo e salva per creare la skill.",
   "@workspaceSkillImportMarkdownLoaded": {
     "description": "Confirmation that a Markdown file was loaded into the unsaved skill editor."
   },
-  "workspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "workspaceSkillImportMarkdownFailed": "Impossibile leggere il file Markdown.",
   "@workspaceSkillImportMarkdownFailed": {
     "description": "Error shown when reading a Markdown skill file fails."
   },
-  "workspaceSkillExport": "Export skills",
+  "workspaceSkillExport": "Esporta skill",
   "@workspaceSkillExport": {
     "description": "Overflow action that exports readable skills as JSON."
   },
-  "workspaceSkillExportFailed": "Couldn't export skills.",
+  "workspaceSkillExportFailed": "Impossibile esportare le skill.",
   "@workspaceSkillExportFailed": {
     "description": "Error shown when exporting skills fails."
   },
-  "workspaceToolCreateTitle": "Create tool",
-  "workspaceToolName": "Name",
-  "workspaceToolNameHint": "e.g. My Tools",
-  "workspaceToolNameRequired": "Enter a tool name.",
-  "workspaceToolId": "Tool ID",
-  "workspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
-  "workspaceToolIdRequired": "Enter a tool ID.",
-  "workspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
-  "workspaceToolIdTaken": "That tool ID is already in use.",
-  "workspaceToolDescription": "Description",
-  "workspaceToolDescriptionHint": "e.g. Tools for performing various operations",
-  "workspaceToolContent": "Python source",
-  "workspaceToolContentHint": "Write your tool as a Python class named Tools…",
-  "workspaceToolContentRequired": "Add Python source before saving.",
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
-  "workspaceToolSaved": "Tool saved",
-  "workspaceToolDeleted": "Tool deleted",
-  "workspaceToolSaveFailed": "Couldn't save the tool.",
-  "workspaceToolManageAccess": "Manage access",
-  "workspaceToolClone": "Duplicate",
-  "workspaceToolCloneSuffix": "(Clone)",
-  "workspaceToolDelete": "Delete",
-  "workspaceToolDeleteConfirmTitle": "Delete tool?",
-  "workspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
-  "workspaceToolImport": "Import tools",
-  "workspaceToolImportJson": "Import JSON",
-  "workspaceToolImportUrl": "Import from URL",
-  "workspaceToolImportUrlTitle": "Import tool from URL",
-  "workspaceToolImportUrlHint": "Enter a raw or GitHub URL to a tool's Python file",
+  "workspaceToolCreateTitle": "Crea strumento",
+  "workspaceToolName": "Nome",
+  "workspaceToolNameHint": "es. I miei strumenti",
+  "workspaceToolNameRequired": "Inserisci un nome per lo strumento.",
+  "workspaceToolId": "ID strumento",
+  "workspaceToolIdHint": "Lettere, numeri e trattini bassi; non può iniziare con un numero.",
+  "workspaceToolIdRequired": "Inserisci un ID strumento.",
+  "workspaceToolIdInvalid": "Gli ID strumento usano lettere, numeri e trattini bassi e non possono iniziare con un numero.",
+  "workspaceToolIdTaken": "Questo ID strumento è già in uso.",
+  "workspaceToolDescription": "Descrizione",
+  "workspaceToolDescriptionHint": "es. Strumenti per eseguire varie operazioni",
+  "workspaceToolContent": "Codice sorgente Python",
+  "workspaceToolContentHint": "Scrivi lo strumento come classe Python chiamata Tools…",
+  "workspaceToolContentRequired": "Aggiungi il codice sorgente Python prima di salvare.",
+  "workspaceToolWarning": "Gli strumenti eseguono codice Python arbitrario sul server. Aggiungi solo codice da fonti attendibili.",
+  "workspaceToolSaved": "Strumento salvato",
+  "workspaceToolDeleted": "Strumento eliminato",
+  "workspaceToolSaveFailed": "Impossibile salvare lo strumento.",
+  "workspaceToolManageAccess": "Gestisci l'accesso",
+  "workspaceToolClone": "Duplica",
+  "workspaceToolCloneSuffix": "(copia)",
+  "workspaceToolDelete": "Elimina",
+  "workspaceToolDeleteConfirmTitle": "Eliminare lo strumento?",
+  "workspaceToolDeleteConfirmMessage": "«{name}» verrà eliminato definitivamente.",
+  "workspaceToolImport": "Importa strumenti",
+  "workspaceToolImportJson": "Importa JSON",
+  "workspaceToolImportUrl": "Importa da URL",
+  "workspaceToolImportUrlTitle": "Importa strumento da URL",
+  "workspaceToolImportUrlHint": "Inserisci l'URL GitHub del file Python di uno strumento",
   "workspaceToolImportUrlLabel": "URL",
-  "workspaceToolImportUrlInvalid": "Enter a valid URL.",
-  "workspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
-  "workspaceToolExport": "Export tools",
-  "workspaceToolExportFailed": "Couldn't export tools.",
-  "workspaceToolManifest": "Manifest",
-  "workspaceToolManifestVersion": "Version {version}",
-  "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
-  "workspaceToolManifestFunding": "Funding: {url}",
-  "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolImportUrlInvalid": "Inserisci un URL valido.",
+  "workspaceToolImportUrlFailed": "Impossibile importare lo strumento da questo URL.",
+  "workspaceToolImportUrlLoaded": "Strumento caricato. Controllalo e salva.",
+  "workspaceToolExport": "Esporta strumenti",
+  "workspaceToolExportFailed": "Impossibile esportare gli strumenti.",
+  "workspaceToolManifest": "Manifesto",
+  "workspaceToolManifestVersion": "Versione {version}",
+  "workspaceToolManifestRequiredVersion": "Richiede Open WebUI {version}",
+  "workspaceToolManifestFunding": "Finanziamento: {url}",
+  "workspaceToolSpecs": "Specifiche generate",
   "workspaceToolDetails": "Dettagli dello strumento",
   "workspaceToolFunctionCount": "{count, plural, =1{1 funzione} other{{count} funzioni}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
-  "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
-  "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
-  "workspaceToolValves": "Valves",
-  "workspaceToolValvesTitle": "Valves",
-  "workspaceToolValvesServer": "Server valves",
-  "workspaceToolValvesUser": "User valves",
-  "workspaceToolValvesEmpty": "No valves",
-  "workspaceToolValvesSaved": "Valves updated",
-  "workspaceToolValvesSaveFailed": "Couldn't update valves.",
-  "workspaceToolValvesLoadFailed": "Couldn't load valves.",
-  "workspaceValveRequired": "required",
-  "workspaceValveDefault": "Default",
-  "workspaceValveCustom": "Custom",
-  "workspaceValveNone": "None",
-  "workspaceValveEnabled": "Enabled",
-  "workspaceValveDisabled": "Disabled",
+  "workspaceToolSpecsEmpty": "Non sono state generate specifiche per questo strumento.",
+  "workspaceToolIncompatible": "Questo strumento richiede Open WebUI v{required}, ma il server usa la v{current}. Aggiorna il server per salvare.",
+  "workspaceToolValves": "Valvole",
+  "workspaceToolValvesTitle": "Valvole",
+  "workspaceToolValvesServer": "Valvole del server",
+  "workspaceToolValvesUser": "Valvole dell'utente",
+  "workspaceToolValvesEmpty": "Nessuna valvola",
+  "workspaceToolValvesSaved": "Valvole aggiornate",
+  "workspaceToolValvesSaveFailed": "Impossibile aggiornare le valvole.",
+  "workspaceToolValvesLoadFailed": "Impossibile caricare le valvole.",
+  "workspaceValveRequired": "obbligatorio",
+  "workspaceValveDefault": "Predefinito",
+  "workspaceValveCustom": "Personalizzato",
+  "workspaceValveNone": "Nessuno",
+  "workspaceValveEnabled": "Attivato",
+  "workspaceValveDisabled": "Disattivato",
   "noteConflictCopyBadge": "Copia in conflitto",
   "noteConflictCopySuffix": " (copia in conflitto)",
   "notificationChannelDescription": "Avvisa quando qualcuno invia un messaggio in un canale o in un MD.",
@@ -3094,73 +3123,73 @@
   "notificationSystemDescription": "Mostra le notifiche fuori dall'app quando è in background.",
   "notificationSystemTitle": "Notifiche di sistema",
   "notificationViewAction": "Visualizza",
+  "notificationReplyFailedBody": "Non è stato possibile completare la risposta.",
+  "notificationTargetUnavailable": "L'account o la connessione di questa notifica non è più su questo dispositivo.",
   "notificationsEnabledDescription": "Ricevi avvisi quando l'app è in background e all'interno dell'app.",
   "notificationsEnabledTitle": "Abilita le notifiche",
   "notificationsPermissionDenied": "Le notifiche sono disattivate nelle impostazioni di sistema.",
   "notificationsSubtitle": "Avvisi per risposte, messaggi e risposte completate",
   "notificationsTitle": "Notifiche",
-  "hermesSecretsUnavailable": "Could not access saved Hermes credentials. Unlock secure storage and retry.",
+  "hermesSecretsUnavailable": "Impossibile accedere alle credenziali Hermes salvate. Sblocca l'archivio sicuro e riprova.",
   "hermesAgentSettingsTitle": "Hermes Agent",
-  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
-  "connectOpenWebUITitle": "Connect to Open WebUI",
-  "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
-  "hermesApprovalRequired": "Approval required",
-  "hermesApprovalFallback": "The agent is requesting permission to continue.",
+  "hermesAgentSettingsSubtitle": "Agente self-hosted",
+  "connectOpenWebUITitle": "Connettiti a Open WebUI",
+  "connectOpenWebUISubtitle": "Aggiungi un server Open WebUI self-hosted",
+  "backendChooserOpenWebUISubtitle": "Accedi al tuo server per avere chat, note e altro sincronizzati.",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "Chatta con il tuo agente, che usa strumenti e ricorda le sessioni passate.",
+  "hermesApprovalRequired": "Approvazione richiesta",
+  "hermesApprovalFallback": "L'agente chiede il permesso di continuare.",
   "openWebUiPromptOther": "Altro",
   "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
   "openWebUiPromptAnswerHint": "Digita la risposta",
   "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
   "openWebUiPromptSubmit": "Invia",
   "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
-  "hermesApprovalApproved": "Approved ✓",
-  "hermesApprovalDenied": "Denied",
-  "hermesApprovalApproveAction": "Approve",
-  "hermesApprovalDenyAction": "Deny",
-  "hermesEnableTitle": "Enable Hermes Agent",
-  "hermesEnableSubtitle": "Use your self-hosted Hermes agent as a model in the picker.",
-  "hermesServerUrlTitle": "Server URL",
-  "hermesApiKeyTitle": "API key",
-  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API key",
-  "hermesMemoryKeyTitle": "Memory key (optional)",
-  "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
-  "hermesCapabilitiesTitle": "Capabilities",
-  "hermesCapabilityApproval": "Approval",
-  "hermesCapabilitySkills": "Skills",
-  "hermesCapabilityToolsets": "Toolsets",
-  "hermesCapabilityJobs": "Jobs",
-  "hermesCapabilitySessions": "Sessions",
-  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
-  "hermesTabInfoSubtitle": "Available in the Hermes tab once enabled.",
-  "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
-  "hermesSelfHostedAgentLabel": "Self-hosted agent",
-  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
-  "hermesConversationsTitle": "Conversations",
+  "hermesApprovalApproved": "Approvato ✓",
+  "hermesApprovalDenied": "Rifiutato",
+  "hermesApprovalApproveAction": "Approva",
+  "hermesApprovalDenyAction": "Rifiuta",
+  "hermesEnableTitle": "Attiva Hermes Agent",
+  "hermesEnableSubtitle": "Usa il tuo agente Hermes self-hosted come modello nel selettore.",
+  "hermesServerUrlTitle": "URL del server",
+  "hermesApiKeyTitle": "Chiave API",
+  "hermesConfiguredReplacePlaceholder": "Configurato; inserisci un nuovo valore per sostituirlo",
+  "hermesApiKeyPlaceholder": "Inserisci la chiave API",
+  "hermesMemoryKeyTitle": "Chiave di memoria (facoltativa)",
+  "hermesMemoryKeyPlaceholder": "Generata automaticamente se lasci vuoto il campo",
+  "hermesCapabilitiesTitle": "Funzionalità",
+  "hermesCapabilityApproval": "Approvazione",
+  "hermesCapabilitySkills": "Skill",
+  "hermesCapabilityToolsets": "Set di strumenti",
+  "hermesCapabilityJobs": "Attività",
+  "hermesCapabilitySessions": "Sessioni",
+  "hermesTabInfoTitle": "Conversazioni e pianificazioni",
+  "hermesTabInfoSubtitle": "Disponibile nella scheda Hermes dopo l'attivazione.",
+  "hermesNativeSettingsSubtitle": "Connettiti direttamente a un agente Hermes self-hosted.",
+  "hermesSelfHostedAgentLabel": "Agente self-hosted",
+  "hermesNoConversationsMessage": "Ancora nessuna conversazione",
+  "hermesConversationsTitle": "Conversazioni",
   "hermesBotsTitle": "Bot",
-  "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
-  "hermesSchedulesLoading": "Loading schedules…",
-  "hermesSchedulesUnavailable": "Schedules unavailable",
-  "hermesNoSchedulesYet": "No schedules yet",
-  "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
-  "hermesReviewSchedules": "Review schedules",
-  "hermesScheduledAgentsTitle": "Scheduled agents",
-  "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "hermesConversationsLoadError": "Impossibile caricare le conversazioni Hermes.\nControlla la connessione in Impostazioni → Hermes Agent.",
+  "hermesSchedulesLoading": "Caricamento delle pianificazioni…",
+  "hermesSchedulesUnavailable": "Pianificazioni non disponibili",
+  "hermesNoSchedulesYet": "Nessuna pianificazione",
+  "hermesSchedulesSummary": "{active} attive · {total, plural, =1{1 pianificazione} other{{total} pianificazioni}}",
+  "hermesReviewSchedules": "Rivedi le pianificazioni",
+  "hermesScheduledAgentsTitle": "Agenti pianificati",
+  "workspaceToolImportUrlHost": "Si possono importare solo URL di strumenti su GitHub.",
+  "signInServerDescription": "Usa il tuo account Open WebUI per accedere al server indicato qui sotto.",
+  "openWebUIServer": "Server Open WebUI",
+  "serverAddressUnavailable": "Indirizzo del server non disponibile",
+  "showPassword": "Mostra password",
+  "hidePassword": "Nascondi password",
+  "reviewerModeEnabled": "Modalità revisore attivata. Puoi aprire la demo senza un server.",
+  "reviewerModeDisabled": "Modalità revisore disattivata.",
+  "openSourceLicenses": "Licenze open source",
   "directConnectionsTitle": "Connessioni dirette",
-  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
-  "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
+  "directConnectionsSubtitle": "API compatibili con OpenAI e Ollama",
+  "directConnectionsDescription": "Connettiti ai fornitori di modelli senza Open WebUI. Le credenziali vengono salvate in modo sicuro su questo dispositivo e inviate al fornitore insieme alle richieste.",
   "directConnectionsCombinedDescription": "Connettiti direttamente ai fornitori di modelli usando connessioni sincronizzate da Open WebUI o salvate solo su questo dispositivo.",
   "openWebUiDirectConnectionsSectionTitle": "Server Open WebUI",
   "openWebUiDirectConnectionsSectionDescription": "Salvate nel tuo account Open WebUI e disponibili sugli altri client connessi.",
@@ -3180,76 +3209,76 @@
   "directConnectionNoLongerExists": "Questa connessione non esiste più.",
   "openWebUiDirectConnectionDeleteMessage": "Questa operazione rimuove {name} dal tuo account Open WebUI e dagli altri client connessi.",
   "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
-  "addDirectConnection": "Add connection",
-  "editDirectConnection": "Edit connection",
-  "directConnectionName": "Connection name",
+  "addDirectConnection": "Aggiungi connessione",
+  "editDirectConnection": "Modifica connessione",
+  "directConnectionName": "Nome della connessione",
   "directDefaultConnectionName": "Il mio provider",
   "sidebarButtonLabel": "Barra laterale",
-  "directConnectionNameRequired": "Enter a connection name.",
-  "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
-  "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
-  "directConnectionApiKeyRequired": "Enter an API key or choose no authentication.",
-  "directConnectionHeaderNameRequired": "Enter a header name, then add the header.",
-  "directConnectionCredentialTransferTitle": "Use credentials with new server?",
-  "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
-  "directConnectionCredentialTransferConfirm": "Use credentials",
-  "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionNameRequired": "Inserisci un nome per la connessione.",
+  "directConnectionUrlInvalid": "Usa un URL http:// o https:// valido.",
+  "directConnectionCredentialsReentryRequired": "Inserisci di nuovo le credenziali quando cambi server.",
+  "directConnectionApiKeyRequired": "Inserisci una chiave API o scegli Nessuna autenticazione.",
+  "directConnectionHeaderNameRequired": "Inserisci il nome dell'header, poi aggiungi l'header.",
+  "directConnectionCredentialTransferTitle": "Usare le credenziali con il nuovo server?",
+  "directConnectionCredentialTransferMessage": "La chiave API e tutti gli header personalizzati verranno inviati al nuovo server. Continua solo se ti fidi.",
+  "directConnectionCredentialTransferConfirm": "Usa le credenziali",
+  "directConnectionSaveFailed": "Impossibile salvare questa connessione.",
   "directConnectionSaveConflict": "Questa connessione è stata modificata altrove. Riaprila prima di salvare.",
-  "directConnectionReachFailed": "Could not reach the provider.",
-  "directConnectionDeleteTitle": "Delete connection?",
-  "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",
-  "directConnectionDeleteFailed": "Could not delete this connection.",
-  "directConnectionProbeConnected": "Connected",
-  "directConnectionProbeConnectedModels": "{count, plural, =1{Connected · 1 model} other{Connected · {count} models}}",
-  "directProvider": "Provider type",
-  "openAICompatible": "OpenAI-compatible",
+  "directConnectionReachFailed": "Impossibile raggiungere il fornitore.",
+  "directConnectionDeleteTitle": "Eliminare la connessione?",
+  "directConnectionDeleteMessage": "{name} e le sue credenziali verranno rimossi da questo dispositivo.",
+  "directConnectionDeleteFailed": "Impossibile eliminare questa connessione.",
+  "directConnectionProbeConnected": "Connesso",
+  "directConnectionProbeConnectedModels": "{count, plural, =1{Connesso · 1 modello} other{Connesso · {count} modelli}}",
+  "directProvider": "Tipo di fornitore",
+  "openAICompatible": "Compatibile con OpenAI",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
-  "directApiBaseUrl": "Base URL",
-  "directOpenRouterUrlInvalid": "Use OpenRouter’s HTTPS /api/v1 root (global or EU).",
+  "directApiBaseUrl": "URL di base",
+  "directOpenRouterUrlInvalid": "Usa la radice HTTPS /api/v1 di OpenRouter (globale o UE).",
   "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
-  "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
-  "directCompletionApi": "Completion API",
+  "directOpenRouterChatCompletionsDescription": "Chat Completions viene usato per la ricerca web nativa, la generazione di immagini, l'analisi dei PDF e le annotazioni PDF riutilizzabili.",
+  "directCompletionApi": "Tipo di API",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
   "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
-  "directResponsesDescription": "Use the typed Responses event stream. Choose this only when the provider exposes /responses.",
-  "directApiVersion": "API version",
-  "directApiVersionDescription": "Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.",
-  "directAuthentication": "Authentication",
-  "noAuthentication": "No authentication",
-  "bearerToken": "Bearer token",
-  "directApiKeyHeader": "API-key header",
-  "directApiKeyHeaderDescription": "Sends the credential in the api-key header used by Azure OpenAI.",
-  "directApiKey": "API key",
-  "directCustomHeaders": "Custom headers",
-  "directManualModelIds": "Manual model IDs",
+  "directResponsesDescription": "Usa il flusso di eventi tipizzato di Responses. Sceglilo solo se il fornitore espone /responses.",
+  "directApiVersion": "Versione API",
+  "directApiVersionDescription": "Facoltativo. Aggiunge il parametro di query api-version richiesto dagli endpoint Azure OpenAI.",
+  "directAuthentication": "Autenticazione",
+  "noAuthentication": "Nessuna autenticazione",
+  "bearerToken": "Token bearer",
+  "directApiKeyHeader": "Header api-key",
+  "directApiKeyHeaderDescription": "Invia la credenziale nell'header api-key usato da Azure OpenAI.",
+  "directApiKey": "Chiave API",
+  "directCustomHeaders": "Header personalizzati",
+  "directManualModelIds": "ID modello manuali",
   "directManualModelIdsDescription": "Facoltativo. Inserisci un ID per riga se il server non può elencare i modelli.",
   "@directManualModelIdsDescription": {"placeholders":{}},
-  "directModelIdPrefix": "Model ID prefix",
-  "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
-  "directModelTags": "Model tags",
-  "directModelTagsDescription": "Optional. Separate tags with commas or new lines.",
-  "syncDirectHistory": "Open WebUI history",
-  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
-  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
-  "testDirectConnection": "Test connection",
-  "directConnectionTestUnavailable": "Connection testing is not available yet.",
-  "finishDirectSetup": "Start chatting",
-  "directProfilesEmptyTitle": "No direct connections yet",
-  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
-  "directConnectionsSectionTitle": "Connections",
-  "directSavedDataUnreadable": "The saved connection data could not be read.",
-  "directSecureStorageUnavailable": "Check secure storage access and try again.",
-  "onDevice": "On device",
-  "directConnectionError": "Direct connection error",
-  "directAttachmentUnsupported": "This direct model does not support this attachment.",
+  "directModelIdPrefix": "Prefisso ID modello",
+  "directModelIdPrefixDescription": "Facoltativo. Aggiunge uno spazio dei nomi visibile come studio.model-name senza modificare l'ID modello inviato al fornitore.",
+  "directModelTags": "Tag del modello",
+  "directModelTagsDescription": "Facoltativo. Separa i tag con virgole o a capo.",
+  "syncDirectHistory": "Cronologia Open WebUI",
+  "syncDirectHistorySubtitle": "Salva le nuove chat dirette nel tuo account Open WebUI.",
+  "directHistoryLocalOnlySubtitle": "Mantieni le nuove chat dirette solo su questo dispositivo.",
+  "backendChooserDirectTitle": "Provider di modelli",
+  "backendChooserDirectSubtitle": "Chatta tramite OpenAI, OpenRouter o Ollama. La tua chiave resta su questo dispositivo.",
+  "testDirectConnection": "Prova la connessione",
+  "directConnectionTestUnavailable": "Il test della connessione non è ancora disponibile.",
+  "finishDirectSetup": "Inizia a chattare",
+  "directProfilesEmptyTitle": "Ancora nessuna connessione diretta",
+  "directProfilesEmptySubtitle": "Aggiungi un fornitore API per iniziare a chattare.",
+  "directConnectionsSectionTitle": "Connessioni",
+  "directSavedDataUnreadable": "Impossibile leggere i dati di connessione salvati.",
+  "directSecureStorageUnavailable": "Controlla l'accesso all'archivio sicuro e riprova.",
+  "onDevice": "Sul dispositivo",
+  "directConnectionError": "Errore della connessione diretta",
+  "directAttachmentUnsupported": "Questo modello diretto non supporta questo allegato.",
   "backendChooserOpenWebUITitle": "Open WebUI",
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
-  "moreModels": "More models",
-  "reasoningEffort": "Effort",
+  "hermesMemoryKeyDescription": "Mantiene separata la memoria a lungo termine per questo dispositivo. Se lasci vuoto il campo, Conduit crea una chiave.",
+  "moreModels": "Altri modelli",
+  "reasoningEffort": "Livello di ragionamento",
   "reasoningEffortLow": "Basso",
   "reasoningEffortMedium": "Medio",
   "reasoningEffortHigh": "Alto",
@@ -3257,53 +3286,53 @@
   "reasoningEffortExtraHigh": "Extra alto",
   "reasoningEffortMaximum": "Massimo",
   "reasoningEffortNone": "Nessuno",
-  "customReasoningEffort": "Custom effort",
-  "retryWithoutReasoningEffort": "Riprova senza Effort",
-  "reasoningEffortClearIncomplete": "Impossibile cancellare completamente l'Effort; questo tentativo continua senza.",
-  "customReasoningEffortHint": "Enter a provider-supported effort",
-  "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
-  "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",
-  "sidebarSyncingChats": "Syncing chats",
-  "sidebarSyncingNotes": "Syncing notes",
-  "sidebarFinishingSync": "Finishing sync",
-  "loadMermaidPreview": "Load Mermaid preview",
-  "loadChartPreview": "Load chart preview",
-  "loadPdfPreview": "Load PDF preview: {title}",
+  "customReasoningEffort": "Livello personalizzato",
+  "retryWithoutReasoningEffort": "Riprova senza livello di ragionamento",
+  "reasoningEffortClearIncomplete": "Impossibile cancellare completamente il livello di ragionamento; questo tentativo continua senza.",
+  "customReasoningEffortHint": "Inserisci un livello supportato dal fornitore",
+  "proxyServerVerificationFailed": "Impossibile verificare il server Open WebUI. La sessione del proxy potrebbe essere scaduta o non valida. Riprova.",
+  "proxyManualSignInRequired": "Autenticazione non riuscita. Prova ad accedere manualmente.",
+  "sidebarSyncingChats": "Sincronizzazione delle chat",
+  "sidebarSyncingNotes": "Sincronizzazione delle note",
+  "sidebarFinishingSync": "Completamento della sincronizzazione",
+  "loadMermaidPreview": "Carica anteprima Mermaid",
+  "loadChartPreview": "Carica anteprima del grafico",
+  "loadPdfPreview": "Carica anteprima PDF: {title}",
   "ollamaCloudDefaultName": "Ollama Cloud",
   "ollamaCloudBaseUrlHint": "https://ollama.com",
-  "ollamaCloudBaseUrlDescription": "Use https://ollama.com with an API key for Ollama Cloud.",
-  "ollamaModelLoaded": "Loaded",
-  "ollamaModelActions": "Model memory",
-  "ollamaModelActionsDescription": "Manage this model in Ollama's RAM or VRAM.",
-  "ollamaLoadModel": "Load model",
-  "ollamaLoadModelDescription": "Warm it now to make the first response faster.",
-  "ollamaUnloadModel": "Unload model",
-  "ollamaUnloadModelDescription": "Free its RAM or VRAM. It loads automatically on the next message.",
-  "ollamaUnloadModelConfirmTitle": "Unload {name}?",
-  "ollamaUnloadModelConfirmMessage": "This frees the model's RAM or VRAM. Ollama will load it again automatically when you send a message.",
-  "ollamaKeepAlive": "Keep alive",
-  "ollamaKeepAliveDescription": "Applied to this model after each chat request.",
-  "ollamaKeepAliveServerDefault": "Server default",
-  "ollamaKeepAliveFiveMinutes": "5 minutes",
-  "ollamaKeepAliveThirtyMinutes": "30 minutes",
-  "ollamaKeepAliveOneHour": "1 hour",
-  "ollamaKeepAliveAlways": "Always loaded",
-  "ollamaKeepAliveImmediate": "Unload after every response",
-  "ollamaKeepAliveCustom": "Custom",
-  "ollamaKeepAliveCustomHint": "Examples: 10m, 24h, 3600, -1, or 0",
-  "ollamaKeepAliveInvalid": "Use seconds or a duration such as 10m or 24h.",
-  "ollamaModelLoadedMessage": "{name} is loaded.",
-  "ollamaModelUnloadedMessage": "{name} was unloaded.",
-  "ollamaModelActionFailed": "Could not update this model's memory state.",
-  "ollamaThinking": "Thinking",
-  "ollamaCloudModelActionsDescription": "Configure how this Ollama Cloud model responds.",
-  "ollamaThinkingDescription": "Choose how much reasoning the model should use. Available levels depend on the model.",
-  "ollamaThinkingAutomatic": "Automatic",
-  "ollamaThinkingDisabled": "Off",
-  "ollamaThinkingLow": "Low",
-  "ollamaThinkingMedium": "Medium",
-  "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum",
+  "ollamaCloudBaseUrlDescription": "Connettiti a Ollama Cloud con una chiave API.",
+  "ollamaModelLoaded": "Caricato",
+  "ollamaModelActions": "Memoria del modello",
+  "ollamaModelActionsDescription": "Gestisci questo modello nella RAM o nella VRAM di Ollama.",
+  "ollamaLoadModel": "Carica modello",
+  "ollamaLoadModelDescription": "Caricalo ora per rendere più veloce la prima risposta.",
+  "ollamaUnloadModel": "Scarica modello dalla memoria",
+  "ollamaUnloadModelDescription": "Libera la sua RAM o VRAM. Verrà ricaricato automaticamente al prossimo messaggio.",
+  "ollamaUnloadModelConfirmTitle": "Scaricare {name} dalla memoria?",
+  "ollamaUnloadModelConfirmMessage": "Libera la RAM o la VRAM del modello. Ollama lo ricaricherà automaticamente quando invierai un messaggio.",
+  "ollamaKeepAlive": "Mantieni in memoria",
+  "ollamaKeepAliveDescription": "Applicato a questo modello dopo ogni richiesta di chat.",
+  "ollamaKeepAliveServerDefault": "Predefinito del server",
+  "ollamaKeepAliveFiveMinutes": "5 minuti",
+  "ollamaKeepAliveThirtyMinutes": "30 minuti",
+  "ollamaKeepAliveOneHour": "1 ora",
+  "ollamaKeepAliveAlways": "Sempre caricato",
+  "ollamaKeepAliveImmediate": "Scarica dopo ogni risposta",
+  "ollamaKeepAliveCustom": "Personalizzato",
+  "ollamaKeepAliveCustomHint": "Esempi: 10m, 24h, 3600, -1 o 0",
+  "ollamaKeepAliveInvalid": "Usa i secondi o una durata come 10m o 24h.",
+  "ollamaModelLoadedMessage": "{name} è caricato.",
+  "ollamaModelUnloadedMessage": "{name} è stato scaricato dalla memoria.",
+  "ollamaModelActionFailed": "Impossibile aggiornare lo stato di memoria di questo modello.",
+  "ollamaThinking": "Ragionamento",
+  "ollamaCloudModelActionsDescription": "Configura come risponde questo modello Ollama Cloud.",
+  "ollamaThinkingDescription": "Scegli quanto ragionamento deve usare il modello. I livelli disponibili dipendono dal modello.",
+  "ollamaThinkingAutomatic": "Automatico",
+  "ollamaThinkingDisabled": "Disattivato",
+  "ollamaThinkingLow": "Basso",
+  "ollamaThinkingMedium": "Medio",
+  "ollamaThinkingHigh": "Alto",
+  "ollamaThinkingMaximum": "Massimo",
   "releaseNotesSupportPromptHeading": "Ti piace Conduit?",
   "releaseNotesSupportPromptMessage": "Una breve recensione aiuta più persone a scoprire Conduit. Una piccola mancia mi aiuta a continuare a svilupparlo. Entrambe significano molto.",
   "directConnectProvider": "Connetti provider",
@@ -3331,7 +3360,7 @@
   "hermesRefreshProfiles": "Aggiorna profili",
   "hermesDesktopAuthentication": "Autenticazione desktop",
   "hermesDashboardAuthHelp": "Apri la dashboard Hermes nella finestra di accesso, quindi torna qui per testare la connessione.",
-  "hermesAuthLegacy": "Legacy",
+  "hermesAuthLegacy": "Precedente",
   "hermesAuthNative": "Nativo",
   "hermesAuthDashboard": "Dashboard",
   "hermesNativeSignIn": "Accedi con Hermes",
@@ -3344,12 +3373,110 @@
   "hermesMcpServers": "Server MCP",
   "hermesSignOut": "Esci da Hermes",
   "hermesActionFailed": "Azione Hermes non riuscita.",
+  "hermesSignOutFailed": "Impossibile uscire dalla dashboard Hermes. Controlla la connessione e riprova.",
   "hermesToolsetUpdateFailed": "Aggiornamento del set di strumenti Hermes non riuscito.",
   "hermesJobStateLabel": "Stato",
   "hermesJobDeliveryLabel": "Consegna",
   "hermesJobLastLabel": "Ultima",
   "hermesJobNextLabel": "Successiva",
   "hermesJobRunHistory": "Cronologia esecuzioni",
+  "hermesJobStop": "Interrompi",
+  "hermesJobStopping": "Interruzione…",
+  "hermesJobStopped": "Esecuzione interrotta.",
+  "hermesJobFinishedBeforeStop": "L'esecuzione è terminata prima di poter essere interrotta.",
+  "hermesJobNothingToStop": "Nessuna esecuzione in corso.",
+  "hermesJobStopFailed": "Impossibile interrompere l'esecuzione.",
+  "hermesJobStopUnsupported": "Aggiorna Hermes per interrompere le attività in esecuzione.",
+  "hermesJobRunning": "In esecuzione",
+  "hermesJobLastCancelled": "Ultima esecuzione interrotta: {reason}",
+  "@hermesJobLastCancelled": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesJobLastCancelledNoReason": "Ultima esecuzione interrotta",
+  "hermesJobCatchUpLabel": "Esecuzioni perse",
+  "hermesJobCatchUpHint": "Cosa fare con le esecuzioni perse mentre Hermes non era attivo.",
+  "hermesJobCatchUpDefault": "Predefinito di Hermes",
+  "hermesJobCatchUpRunOnce": "Recupera una volta",
+  "hermesJobCatchUpSkip": "Salta le esecuzioni perse",
+  "hermesJobDeliverLabel": "Consegna a",
+  "hermesJobDeliverLocal": "Salva in Hermes",
+  "hermesJobDeliverMessaging": "App di messaggistica",
+  "hermesJobDeliverBotChats": "Chat dei bot",
+  "hermesJobDeliverGroupChats": "Chat di gruppo",
+  "hermesJobDeliverBotChat": "Chat del bot: {name}",
+  "@hermesJobDeliverBotChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverGroupChat": "Chat di gruppo: {name}",
+  "@hermesJobDeliverGroupChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverNeedsHomeChannel": "Imposta prima un canale principale in Hermes.",
+  "hermesJobDeliverRoomHint": "Le chat di gruppo svegliano solo i bot che l'attività menziona con @.",
+  "hermesRoomsTitle": "Stanze",
+  "hermesRoomNew": "Nuova stanza",
+  "hermesRoomCreateHint": "Scegli da 2 a 6 bot. Ognuno risponde nella stanza come sé stesso.",
+  "hermesRoomNameHint": "Nome della stanza",
+  "hermesRoomCreateFailed": "Impossibile creare la stanza.",
+  "hermesRoomNeedsBots": "Una stanza richiede almeno due bot su questa connessione.",
+  "hermesRoomMessageHint": "Scrivi alla stanza, @ per menzionare un bot",
+  "hermesRoomScheduled": "Pianificato",
+  "hermesRoomEveryone": "Tutti",
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} other{{count} bot}}",
+  "@hermesRoomBotCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomWorking": "al lavoro",
+  "hermesRoomWaiting": "in attesa",
+  "hermesRoomQuiet": "in silenzio da {elapsed}",
+  "@hermesRoomQuiet": {"placeholders": {"elapsed": {"type": "String"}}},
+  "hermesRoomNeedsYou": "Attende una tua risposta",
+  "hermesRoomTurnFailed": "Turno non riuscito",
+  "hermesRoomTurnCancelled": "Turno annullato",
+  "hermesRoomTurnDeferred": "Turno rinviato",
+  "hermesRoomMemberUnavailable": "Bot non disponibile",
+  "hermesRoomStopped": "Stanza fermata",
+  "hermesRoomDisbanded": "Stanza sciolta",
+  "hermesRoomAuthorityLost": "Un altro gateway ha preso in carico questa stanza",
+  "hermesRoomWorkLimit": "Limite di turni raggiunto",
+  "hermesRoomRoutedTo": "Assegnato a {names}",
+  "@hermesRoomRoutedTo": {"placeholders": {"names": {"type": "String"}}},
+  "hermesRoomRoutedEveryone": "Assegnato a tutti",
+  "hermesRoomRoutedFallback": "Impossibile scegliere chi risponde, quindi risponderanno tutti",
+  "hermesRoomAssigned": "{lead} ha affidato questo a {names}",
+  "@hermesRoomAssigned": {"placeholders": {"lead": {"type": "String"}, "names": {"type": "String"}}},
+  "hermesRoomLeadTaking": "Se ne occupa {lead}",
+  "@hermesRoomLeadTaking": {"placeholders": {"lead": {"type": "String"}}},
+  "hermesRoomContinued": "Ripreso",
+  "hermesRoomHandoff": "{from} ha chiesto a {to}",
+  "@hermesRoomHandoff": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+  "hermesRoomPaused": "{count, plural, =1{In pausa dopo 1 messaggio} other{In pausa dopo {count} messaggi}}",
+  "@hermesRoomPaused": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRetryPrompt": "Il turno di {name} è terminato senza un risultato chiaro.",
+  "@hermesRoomRetryPrompt": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomLoadFailed": "Impossibile caricare questa stanza.",
+  "hermesRoomRefreshFailed": "Impossibile aggiornare la stanza.",
+  "hermesRoomGone": "Questa stanza non è più disponibile.",
+  "hermesRoomNotRunning": "Hermes non sta eseguendo questa stanza al momento, quindi non può ricevere messaggi.",
+  "hermesRoomSendUnclear": "Hermes non ha confermato il messaggio. Invialo di nuovo; non verrà pubblicato due volte.",
+  "hermesRoomStoppedCount": "{count, plural, =0{Non c'era nulla in esecuzione} =1{1 attività fermata} other{{count} attività fermate}}",
+  "@hermesRoomStoppedCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRefused": "Hermes ha rifiutato: {reason}",
+  "@hermesRoomRefused": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesRoomActionFailed": "Non ha funzionato. Riprova.",
+  "hermesRoomInfoTitle": "Info stanza",
+  "hermesRoomPurpose": "Scopo",
+  "hermesRoomPurposeHint": "A cosa serve questa stanza, in una riga",
+  "hermesRoomNotes": "Note condivise",
+  "hermesRoomNotesHint": "Fatti che ogni bot deve tenere a mente",
+  "hermesRoomNotesTooLong": "Le note condivise sono troppo lunghe.",
+  "hermesRoomWhoAnswers": "Chi risponde a un messaggio che non nomina nessuno",
+  "hermesRoomRoutingEveryoneHint": "Ogni bot fa un turno.",
+  "hermesRoomRoutingLead": "Bot guida",
+  "hermesRoomRoutingLeadHint": "Il bot guida sceglie chi se ne occupa. Le @menzioni vanno comunque direttamente ai bot nominati.",
+  "hermesRoomRoutingAuto": "Automatico",
+  "hermesRoomRoutingAutoHint": "Una rapida chiamata al modello sceglie a chi è rivolto. Le @menzioni vanno comunque direttamente ai bot nominati.",
+  "hermesRoomLead": "Guida",
+  "hermesRoomMembers": "Bot",
+  "hermesRoomMembersFixed": "Non è possibile aggiungere o rimuovere bot dopo la creazione della stanza.",
+  "hermesRoomStopWork": "Ferma tutto il lavoro",
+  "hermesRoomDisband": "Sciogli stanza",
+  "hermesRoomDisbandTitle": "Sciogliere «{name}»?",
+  "@hermesRoomDisbandTitle": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomDisbandMessage": "Il suo lavoro si ferma e la stanza sparisce per sempre.",
+  "hermesRoomRenameTitle": "Rinomina stanza",
   "hermesApprovalAllowOnce": "Consenti una volta",
   "hermesApprovalAllowSession": "Consenti per la sessione",
   "hermesApprovalAlwaysAllow": "Consenti sempre",
@@ -3368,6 +3495,7 @@
   "hermesFastTierOff": "Disattivo",
   "hermesTurnSteer": "Orienta",
   "hermesTurnSendNext": "Invia successivo",
+  "hermesSteerUncertain": "Hermes non ha confermato il tuo orientamento. Controlla la risposta prima di inviare di nuovo l'orientamento.",
   "hermesTurnControlsUnsupported": "Aggiorna Hermes per abilitare i controlli di turno sicuri.",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "{count, plural, =1{Mostra 1 riga in più} other{Mostra {count} righe in più}}",
@@ -3380,7 +3508,7 @@
   "colorScheme": "Schema colori",
   "channelEmptyHint": "Crea un canale per avviare una conversazione di gruppo.",
   "passwordChangeDescription": "Aggiorna la password dell'account",
-  "profileDetailsSummary": "Biografia, genere e data di nascita",
+  "profileDetailsSummary": "Genere e data di nascita",
   "notificationRequiresMaster": "Attiva le notifiche per modificare questa impostazione.",
   "notificationRequiresSound": "Attiva l'audio per modificare questa impostazione.",
   "enabled": "Attivo",
@@ -3432,34 +3560,34 @@
   "hermesSessionDeleteFailed": "Impossibile eliminare la conversazione.",
   "hermesSessionLoadFailed": "Impossibile caricare questa conversazione. Controlla la connessione e riprova.",
   "hermesMemoryKeyFieldLabel": "Chiave di memoria",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Rifiuta", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "Server MCP", "directMcpEmptyTitle": "Ancora nessun server MCP", "directMcpReachabilityHelp": "Aggiungi un endpoint Streamable HTTP raggiungibile da questo dispositivo.", "directMcpEditorTitle": "Modifica server MCP", "directMcpAddTitle": "Aggiungi server MCP", "directMcpName": "Nome del server", "directMcpEndpoint": "Endpoint Streamable HTTP", "directMcpBearerToken": "Token bearer (facoltativo)", "directMcpCustomHeaders": "Header personalizzati (facoltativi)", "directMcpCustomHeadersHint": "Uno per riga: Nome: Valore", "directMcpTestConnection": "Prova la connessione", "directMcpTesting": "Verifica della connessione…", "directMcpTestSucceeded": "{count, plural, =1{Connesso: trovato 1 strumento.} other{Connesso: trovati {count} strumenti.}}", "directMcpTestFailed": "Impossibile elencare gli strumenti di questo server MCP.", "directMcpSaveFailed": "Impossibile salvare questo server MCP.", "directMcpLoadFailed": "Impossibile caricare i server MCP dall'archivio sicuro.", "directMcpMissing": "Questo server MCP non esiste più.", "directMcpCredentialTransferTitle": "Usare le credenziali con il nuovo server?", "directMcpCredentialTransferMessage": "Il token bearer e gli header personalizzati verranno inviati al nuovo server. Continua solo se ti fidi. Annulla salva il server senza credenziali.", "directMcpCredentialTransferConfirm": "Usa le credenziali", "directMcpDeleteTitle": "Eliminare il server MCP?", "directMcpDeleteMessage": "{name} e le sue credenziali verranno rimossi da questo dispositivo.", "directMcpDeleteFailed": "Impossibile eliminare questo server MCP.", "directMcpAuthMode": "Autenticazione", "directMcpAuthNone": "Nessuna", "directMcpAuthBearer": "Token bearer", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connetti nel browser", "directMcpOAuthReconnect": "Riconnetti nel browser", "directMcpOAuthDisconnect": "Disconnetti OAuth", "directMcpOAuthPending": "In attesa dell'autorizzazione nel browser…", "directMcpOAuthConnected": "OAuth connesso.", "directMcpOAuthConnectionDetails": "Connesso a {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "Nessuno scope indicato", "directMcpOAuthConnectFailed": "Impossibile connettere questo server MCP con OAuth.", "directMcpOAuthDisconnectFailed": "Impossibile disconnettere OAuth da questo server MCP.", "directMcpApprovalTitle": "Approvazione dello strumento", "directMcpApprovalAllowOnce": "Consenti una volta", "directMcpApprovalAllowSession": "Consenti per questa sessione", "directMcpApprovalAllowAlways": "Consenti sempre", "directMcpApprovalAlwaysTitle": "Consentire sempre questo strumento?", "directMcpApprovalAlwaysMessage": "{serverName} potrà eseguire {toolName} senza chiedere di nuovo. L'approvazione viene revocata automaticamente se lo schema dello strumento cambia.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Impossibile memorizzare questa approvazione. Puoi riprovare o scegliere un'altra opzione.", "directMcpApprovalDeny": "Rifiuta", "directMcpApprovalAllowed": "Consentito una volta", "directMcpApprovalAllowedSession": "Consentito per questa sessione", "directMcpApprovalAllowedAlways": "Sempre consentito", "directMcpApprovalDenied": "Negato", "directMcpApprovalExpired": "Approvazione scaduta", "directMcpRememberedApprovalsTitle": "Strumenti sempre consentiti", "directMcpRememberedApprovalsSubtitle": "Proprio questi strumenti possono essere eseguiti senza chiedere finché il loro server e lo schema di input restano invariati.", "directMcpRememberedApprovalRevoke": "Revoca", "directMcpRememberedApprovalsRevokeAll": "Revoca tutto", "directMcpRememberedApprovalRevokeFailed": "Impossibile revocare l'approvazione memorizzata."
+  ,"directMcpContentAction": "Contenuti MCP"
+  ,"directMcpContentTitle": "Contenuti MCP"
+  ,"directMcpContentServer": "Server MCP"
+  ,"directMcpContentSearch": "Cerca prompt e risorse"
+  ,"directMcpContentPrompts": "Prompt"
+  ,"directMcpContentResources": "Risorse"
+  ,"directMcpContentEmpty": "Questo server non ha prompt né risorse."
+  ,"directMcpContentNoMatches": "Nessun prompt o risorsa corrispondente."
+  ,"directMcpContentLoadFailed": "Impossibile caricare i contenuti da questo server MCP."
+  ,"directMcpContentRefresh": "Aggiorna i contenuti MCP"
+  ,"directMcpContentPreviewTitle": "Anteprima"
+  ,"directMcpContentInsert": "Inserisci"
+  ,"directMcpContentPromptHeading": "Prompt MCP da {serverName}: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "Risorsa MCP da {serverName}: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpContentRoleUser": "Utente"
+  ,"directMcpContentRoleAssistant": "Assistente"
+  ,"directMcpContentRequestFailed": "Impossibile caricare questo contenuto MCP. Riprova."
+  ,"directMcpContentUnsupported": "Questo elemento è binario o non è supportato. Scegli un prompt o una risorsa di testo."
+  ,"directMcpContentChanged": "Questo elemento è cambiato sul server. Aggiorna e sceglilo di nuovo."
+  ,"directMcpContentTooLarge": "Questo contenuto è troppo grande per essere inserito."
+  ,"directMcpContentComposerTooLarge": "La bozza e questo contenuto superano il limite di 256 KiB per messaggio. Accorcia la bozza o il contenuto e riprova."
+  ,"directMcpContentLoading": "Caricamento dei contenuti MCP…"
+  ,"directMcpInsecureCredentialsTitle": "Inviare le credenziali senza crittografia?"
+  ,"directMcpInsecureCredentialsMessage": "Questo server usa HTTP non crittografato. Il tuo token bearer, il token OAuth e le intestazioni personalizzate potrebbero essere letti o modificati sulla rete."
+  ,"directMcpInsecureCredentialsConfirm": "Invia senza crittografia"
   ,"hermesSessionTooLarge": "Questa conversazione è troppo grande per essere caricata su questo dispositivo."
   ,"hermesSessionNotFound": "Questa conversazione non è più disponibile sul server Hermes."
   ,"hermesSessionLoadFailedDetail": "Impossibile caricare questa conversazione: {detail}"
@@ -3492,8 +3620,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API dei modelli",
   "backendChooserSelfHostedSectionTitle": "Servizi self-hosted",
-  "citationBackground": "Sfondo delle citazioni",
-  "citationBackgroundDescription": "Disattiva per rendere trasparenti le citazioni nel testo",
+  "citationBackground": "Evidenzia le citazioni",
+  "citationBackgroundDescription": "Dà alle citazioni nelle risposte uno sfondo ombreggiato, così risaltano sul testo.",
   "citationShowTitles": "Mostra i titoli delle pagine citate",
   "citationShowTitlesDescription": "Usa i titoli delle pagine invece dei domini nei badge delle citazioni",
   "directContextCompactionDescription": "Questi modelli non indicano la finestra di contesto. Conduit usa il limite selezionato per compattare i messaggi meno recenti prima che le richieste diventino troppo grandi.",
@@ -3574,6 +3702,12 @@
   "webSearchRegionAuto": "Come il dispositivo",
   "webSearchRegionWorldwide": "Tutto il mondo",
   "directModelToolsUnsupported": "Questo modello non può usare strumenti, quindi non può cercare sul web. Disattiva la ricerca web e gli strumenti, poi riprova.",
+  "directImagesPerRequest": "Immagini per richiesta",
+  "directImagesPerRequestFooter": "Ogni messaggio invia le immagini più recenti di questa chat, fino a questo numero. Le immagini meno recenti vengono escluse. Riducilo se un modello rifiuta le richieste con troppe immagini.",
+  "directImagesPerRequestSaveFailed": "Impossibile salvare Immagini per richiesta. Riprova.",
+  "directModelTooManyImages": "Questo modello accetta meno immagini per richiesta di quante ne abbia inviate questa chat. Riduci Immagini per richiesta nelle impostazioni di Connessioni dirette, poi riprova. Se questo messaggio da solo contiene più immagini di quante il modello ne accetti, invialo di nuovo con meno immagini.",
+  "directToolLoopNoAnswer": "Il modello ha continuato a usare strumenti senza dare una risposta. Riprova oppure disattiva la ricerca web e gli strumenti.",
+  "directContextLimitOllamaNote": "Per i modelli Ollama sul tuo server, il limite scelto qui è anche la finestra di contesto con cui Ollama carica il modello. Una finestra più grande usa più memoria.",
   "directContextCompactionModelCount": "{count, plural, =1{1 modello} other{{count} modelli}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} di {total}",
@@ -4142,7 +4276,7 @@
   "chatMergeChooseDescription": "Scegli le risposte da unire. Selezionane almeno due; le originali restano invariate.",
   "folderProjectComparisonFallbackNotice": "Non tutti i modelli salvati di questo progetto possono essere usati, quindi la chat parte con meno modelli. Un confronto ne usa esattamente due.",
   "advancedFeaturesFooter": "Aggiunge confronto tra modelli, impostazioni per chat, impostazioni degli strumenti, attività pianificate, connessioni personali, webhook e controlli dei dati. Disattivarlo li nasconde soltanto; ciò che è già configurato continua a funzionare.",
-  "profileAdvancedFooter": "Mostrato perché Avanzate è attivo in Impostazioni > Chat.",
+  "profileAdvancedFooter": "Mostrato perché Avanzate è attivo in Chat.",
   "advancedRequiredTitle": "Parte di Avanzate",
   "advancedRequiredMessage": "{feature} è una funzione di Avanzate. Attiva Avanzate per usarla. Ciò che è già configurato continua a funzionare.",
   "advancedTurnOn": "Attiva Avanzate",
@@ -4191,7 +4325,7 @@
   "calendarRemoveEnd": "Rimuovi l'ora di fine",
   "calendarEventReadOnlyNotInvited": "Non puoi modificare questo evento.",
   "calendarFieldOrganizer": "Organizzatore",
-  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} other{Colore}}",
+  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} custom{Colore personalizzato} other{Colore}}",
   "calendarVisibilityFooter": "Vengono mostrati gli eventi dei calendari selezionati. Tocca un calendario per mostrarne o nasconderne gli eventi.",
   "personalizationMemoryTypeUserDescription": "Una preferenza, un fatto o un'istruzione che ti riguarda.",
   "personalizationMemoryTypeContextDescription": "Contesto da tenere presente nelle chat future.",
@@ -4251,12 +4385,25 @@
   "hermesDeleteConnectionTitle": "Eliminare la connessione?",
   "hermesDeleteConnectionMessage": "Questa azione rimuove {name} e le relative credenziali da questo dispositivo.",
   "hermesDeleteConnectionFailed": "Impossibile eliminare questa connessione.",
+  "hermesInsecureCredentialsMessage": "Questo server usa HTTP non crittografato. La tua chiave API, i token di autenticazione e le intestazioni di accesso potrebbero essere letti o modificati sulla rete.",
+  "hermesNotEncrypted": "Non crittografato",
   "hermesSwitchConnectionFailed": "Impossibile passare a questa connessione.",
   "hermesSwitchConnectionTitle": "Cambia connessione",
   "hermesSwitchConnectionPromptTitle": "Passare a {name}?",
   "hermesSwitchConnectionPromptMessage": "La sessione Hermes di questa chat appartiene a {name}. Passa a quella connessione per continuarla, oppure mantieni quella attuale per iniziare una nuova sessione.",
   "hermesSwitchConnectionConfirm": "Passa",
   "hermesKeepCurrentConnection": "Mantieni quella attuale",
+  "hermesModelSwitchConfirmTitle": "Passare a {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes chiede una conferma prima di passare questa chat a quel modello.",
+  "hermesModelSwitchConfirmAction": "Passa e invia",
+  "hermesModelSwitchKeepCurrent": "Mantieni il modello attuale",
   "accountsTitle": "Account",
   "accountsAddAccount": "Aggiungi account",
   "accountsManage": "Gestisci account",
@@ -4322,5 +4469,446 @@
   "mcpAppOpenLinkConfirm": "Apri",
   "terminalPortPreviewForward": "Avanti",
   "terminalPortPreviewReload": "Ricarica",
-  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina."
+  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
+  "modelMenuAllModels": "Tutti i modelli…",
+  "citationPreviewOpen": "Apri",
+  "chatUnreadState": "Non letta",
+  "codeCopied": "Copiato",
+  "onboardingWelcomeTitle": "Ti diamo il benvenuto in Conduit",
+  "onboardingWelcomeSubtitle": "Chatta con l’IA sul tuo server, su questo dispositivo o tramite un’API.",
+  "backendChooserFooter": "Puoi aggiungere altre connessioni più tardi in Impostazioni.",
+  "serverAddressFooter": "Usa l’indirizzo che apri nel browser web.",
+  "signInChangeServer": "Cambia",
+  "signInContinueWithSso": "Continua con SSO",
+  "mutualTlsChooseFile": "Scegli…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Copiato",
+  "composerAddAttachment": "Aggiungi allegato",
+  "composerShowKeyboard": "Mostra tastiera",
+  "composerAttachUploads": "Caricati",
+  "supportConduitFooter": "Conduit è gratuito e open source. Il tuo supporto aiuta a mantenerlo tale.",
+  "aiMemoryFooter": "Il tuo prompt di sistema guida ogni chat. La memoria permette all'assistente di ricordare ciò che gli hai detto.",
+  "composerAttachServerFiles": "File sul server",
+  "codeBlockPlainText": "Testo semplice",
+  "codeBlockWrapLines": "A capo automatico",
+  "workspacePromptHistoryDiffTooLarge": "Queste versioni sono troppo lunghe per essere confrontate.",
+  "composerSaveDraftAsNote": "Salva come nota",
+  "composerSaveDraftAsNoteDescription": "Conserva questo messaggio come nuova nota invece di inviarlo.",
+  "authFieldServer": "Server",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Nome",
+  "authFieldRequired": "Obbligatorio",
+  "authFieldOptional": "Facoltativo",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Foto",
+  "modelPickerAppleOnDeviceSubtitle": "Su questo dispositivo, anche offline",
+  "modelPickerApplePccSubtitle": "Sui server privati di Apple",
+  "accountsSavedServers": "Server salvati",
+  "computerEnabledDescription": "Guarda e controlla sessioni desktop e browser nelle chat.",
+  "computerTrackpadHint": "Scorri per muovere il cursore. Tocca per fare clic, tieni premuto per trascinare; scorri con due dita.",
+  "computerShortcut": "Scorciatoia da tastiera",
+  "computerInputFailed": "Impossibile inviare al computer. Riprova.",
+  "computerQualityLow": "Minore consumo di dati",
+  "computerDesktopSite": "Sito desktop",
+  "computerAudioUnavailable": "L’audio del desktop non è disponibile su questa connessione o dispositivo.",
+  "computerSound": "Audio",
+  "computerTabs": "Schede del browser",
+  "computerNewTab": "Nuova scheda",
+  "computerCloseTab": "Chiudi scheda",
+  "computerRefreshTabs": "Aggiorna schede",
+  "computerNoTabs": "Nessuna scheda aperta",
+  "computerTabsWatchHint": "Prendi il controllo per modificare le schede. La risposta si interrompe; invia un nuovo messaggio per continuare.",
+  "computerTabsUnavailable": "Impossibile caricare le schede. Prova ad aggiornare.",
+  "computerTitle": "Computer",
+  "computerConnecting": "Connessione al computer…",
+  "computerReconnecting": "Riconnessione…",
+  "computerDisconnected": "Computer disconnesso",
+  "computerBrowserStartHint": "Prendi il controllo per avviare la vista dal vivo di questa scheda.",
+  "computerBrowserUnavailable": "Questo terminale richiede Chrome o Chromium per un browser in diretta.",
+  "computerStopFailed": "Impossibile interrompere la risposta attuale. Puoi continuare a guardare e riprovare.",
+  "computerStopping": "Interruzione della risposta…",
+  "computerTakeControl": "Prendi il controllo",
+  "computerTrackpadMode": "Modalità trackpad",
+  "computerRecenterPointer": "Centra puntatore",
+  "computerClick": "Clic",
+  "computerRightClick": "Clic destro",
+  "computerDoubleClick": "Doppio clic",
+  "computerStartDrag": "Inizia trascinamento",
+  "computerEndDrag": "Termina trascinamento",
+  "computerShowKeyboard": "Mostra tastiera",
+  "computerHideKeyboard": "Nascondi tastiera",
+  "computerAgentWorking": "L’agente sta lavorando",
+  "computerDesktop": "Desktop",
+  "computerBrowser": "Browser",
+  "computerForward": "Avanti",
+  "computerReload": "Ricarica pagina",
+  "computerAddress": "Apri un indirizzo",
+  "computerTypeText": "Scrivi sul computer",
+  "computerSend": "Invia",
+  "computerZoom": "Ingrandisci",
+  "libreChatTemporaryChatOff": "LibreChat salva ogni chat. Disattiva la chat temporanea per inviare.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Accedi al tuo server LibreChat per chat sincronizzate, agenti e altro.",
+  "libreChatAddAccount": "Aggiungi account LibreChat",
+  "libreChatFileSearch": "Ricerca nei file",
+  "libreChatFileSearchDescription": "Cerca risposte nei file caricati.",
+  "libreChatMcpConnect": "Connetti in LibreChat",
+  "libreChatApprovalRun": "Consentire l’esecuzione di {tool}?",
+  "libreChatQuestionProgress": "Domanda {current} di {total}",
+  "libreChatAnswerFailed": "Impossibile inviare la risposta. Riprova.",
+  "libreChatApprovalRespond": "Rispondi",
+  "libreChatApprovalArguments": "Argomenti (JSON)",
+  "libreChatAddAccountMessage": "Inserisci l'indirizzo del tuo server LibreChat.",
+  "libreChatInvalidAddress": "Inserisci l'indirizzo di un server, ad esempio chat.example.com.",
+  "libreChatUnreachable": "Impossibile raggiungere il server. Controlla l'indirizzo e la connessione.",
+  "libreChatNotLibreChat": "Questo server non è LibreChat. Controlla l'indirizzo.",
+  "libreChatIsOpenWebUi": "Questo è un server Open WebUI. Aggiungilo dalla scheda Open WebUI.",
+  "libreChatPasswordSignInOff": "Questo server consente solo l'accesso Single Sign-On.",
+  "libreChatGoogleUnsupported": "Google non consente l'accesso all'interno delle app. Usa un altro metodo di accesso.",
+  "libreChatSsoUnfinished": "L'accesso non è stato completato. Riprova.",
+  "libreChatChangeServer": "Usa un altro server",
+  "libreChatSessionEnded": "La tua sessione su {server} è scaduta. Accedi di nuovo.",
+  "libreChatDuplicateChat": "Duplica chat",
+  "libreChatCopyFailed": "Impossibile copiare la chat. Controlla la connessione e riprova.",
+  "libreChatMemoryKeyLabel": "Chiave",
+  "libreChatMemoryKeyHint": "es. preferenze",
+  "libreChatMemoryKeyRequired": "Assegna una chiave al ricordo.",
+  "libreChatMemoryUsage": "{used} di {limit} token usati",
+  "hermesReadOnlySessionNotice": "Questa chat è iniziata in un'altra app Hermes. Puoi leggerla qui, ma Hermes permette a Conduit di rispondere solo nelle chat avviate da Conduit.",
+  "hermesReadOnlySessionNoticeFrom": "Questa chat è iniziata in {source}. Puoi leggerla qui, ma Hermes permette a Conduit di rispondere solo nelle chat avviate da Conduit.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Continua in una copia",
+  "hermesContinueInCopyFailed": "Impossibile copiare questa chat. Riprova.",
+  "hermesContinueHere": "Continua qui",
+  "hermesContinueHereFailed": "Impossibile continuare questa chat qui. Riprova.",
+  "hermesContinueChoiceExplanation": "Se continui qui, questa chat termina nell'altra app, che ne inizierà una nuova al prossimo messaggio. Una copia lascia intatta quella chat, ma salva i messaggi precedenti solo su questo dispositivo. Conserva fino ai 1.000 messaggi più recenti (1 MB), per le 32 copie aperte più di recente.",
+  "hermesSessionHide": "Nascondi",
+  "hermesSessionUnhide": "Mostra",
+  "hermesSessionUpdateFailed": "Impossibile aggiornare questa chat. Riprova.",
+  "hermesSessionHiddenNotice": "Chat nascosta. La trovi in Chat nascoste nelle impostazioni di Hermes.",
+  "hermesHiddenChatsTitle": "Chat nascoste",
+  "hermesHiddenChatsDescription": "Chat nascoste dall’elenco di Hermes su questo dispositivo. Toccane una per aprirla, oppure mostrala di nuovo per rivederla nell’elenco.",
+  "hermesHiddenChatsEmpty": "Nessuna chat nascosta su questo dispositivo.",
+  "hermesHiddenChatsLoadError": "Impossibile caricare le chat nascoste.",
+  "hermesBranchFromHere": "Dirama da qui",
+  "hermesBranchFailed": "Impossibile diramare questa chat. Riprova.",
+  "hermesUndoLastTurn": "Annulla l’ultimo scambio",
+  "hermesUndoLastTurnDone": "Ultimo scambio annullato.",
+  "hermesUndoLastTurnFailed": "Impossibile annullare l’ultimo scambio. Riprova.",
+  "hermesArchivedLoadError": "Impossibile caricare le chat archiviate.",
+  "hermesClarifyProgress": "{answered} di {total} completate",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Impossibile inviare le risposte. Riprova.",
+  "hermesClarifyAlreadySettled": "A questa domanda è già stata data risposta altrove oppure è scaduta, quindi la tua risposta non è stata inviata.",
+  "hermesClarifyAnswerOrSkip": "Rispondi o salta ogni domanda.",
+  "hermesClarifyOtherAnswer": "Oppure scrivi la tua risposta",
+  "hermesClarifySkip": "Salta",
+  "hermesClarifySkipped": "Saltata",
+  "hermesClarifyRecommended": "Consigliata",
+  "hermesChangedFiles": "{count, plural, =1{1 file modificato} other{{count} file modificati}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, =1{Un altro file} other{Altri {count} file}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "File modificato",
+  "hermesDiffLineCounts": "Righe aggiunte: {added}, rimosse: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Usati circa {spent} su {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Usati circa {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Limite {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Questa chiamata supera il limite di spesa di questa chat. Puoi consentirla solo una volta.",
+  "hermesApprovalCost": "Costo stimato: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "Piano",
+  "hermesPlanProgress": "{done} di {total} completate",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Mostra piano",
+  "hermesPlanHide": "Nascondi piano",
+  "hermesContextUsage": "Contesto e utilizzo",
+  "hermesContextWindow": "Finestra di contesto",
+  "hermesContextUsed": "{used} di {max} token",
+  "@hermesContextUsed": {"placeholders": {"used": {"type": "String", "example": "32,768"}, "max": {"type": "String", "example": "131,072"}}},
+  "hermesContextPercentFull": "pieno al {percent}%",
+  "@hermesContextPercentFull": {"placeholders": {"percent": {"type": "int", "example": "25"}}},
+  "hermesContextEstimatedNote": "Stimato",
+  "hermesContextRequestEstimate": "Circa {tokens} token per richiesta",
+  "@hermesContextRequestEstimate": {"placeholders": {"tokens": {"type": "String", "example": "13,036"}}},
+  "hermesContextNoWindow": "Questa connessione non indica la finestra di contesto.",
+  "hermesContextBreakdown": "Cosa la occupa",
+  "hermesContextSystemPrompt": "Prompt di sistema",
+  "hermesContextToolDefinitions": "Definizioni degli strumenti",
+  "hermesContextSubagentDefinitions": "Definizioni dei subagenti",
+  "hermesContextConversation": "Conversazione",
+  "hermesContextTotals": "Questa chat finora",
+  "hermesContextInput": "Token di input",
+  "hermesContextOutput": "Token di output",
+  "hermesContextReasoning": "Token di ragionamento",
+  "hermesContextCacheRead": "Letti dalla cache",
+  "hermesContextCacheWrite": "Scritti nella cache",
+  "hermesContextCacheHits": "Hit della cache",
+  "hermesContextCalls": "Chiamate al modello",
+  "hermesContextCompactions": "Compattazioni",
+  "hermesContextCost": "Costo",
+  "hermesContextCostEstimated": "Costo (stimato)",
+  "hermesContextPlan": "Utilizzo del piano",
+  "hermesContextGaugeDay": "Oggi",
+  "hermesContextGaugeWeek": "Questa settimana",
+  "hermesContextGaugeMonth": "Questo mese",
+  "hermesContextGaugeTopTier": "Modelli di fascia alta",
+  "hermesContextUsedPercent": "{percent}% usato",
+  "@hermesContextUsedPercent": {"placeholders": {"percent": {"type": "int", "example": "63"}}},
+  "hermesContextResets": "Azzeramento: {time}",
+  "@hermesContextResets": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextLeftOf": "Restano {remaining} su {total}",
+  "@hermesContextLeftOf": {"placeholders": {"remaining": {"type": "String", "example": "$12.00"}, "total": {"type": "String", "example": "$20.00"}}},
+  "hermesContextRenews": "Rinnovo: {date}",
+  "@hermesContextRenews": {"placeholders": {"date": {"type": "String", "example": "Dec 1"}}},
+  "hermesContextTopUp": "Crediti ricaricati",
+  "hermesContextRateLimited": "Limite di frequenza raggiunto",
+  "hermesContextRateLimitedUntil": "Limite di frequenza fino a {time}",
+  "@hermesContextRateLimitedUntil": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextUsageLevel": "Consumo di questo modello: {level}",
+  "@hermesContextUsageLevel": {"placeholders": {"level": {"type": "String", "example": "medium"}}},
+  "hermesContextLevelFree": "gratuito",
+  "hermesContextLevelLow": "basso",
+  "hermesContextLevelMedium": "medio",
+  "hermesContextLevelTopTier": "massimo",
+  "hermesContextCompactSection": "Compattazione",
+  "hermesContextCompactHint": "Hermes riassume i messaggi più vecchi per liberare contesto. I messaggi recenti restano invariati.",
+  "hermesContextCompactFocus": "Argomento da mantenere (facoltativo)",
+  "hermesContextCompactNow": "Compatta ora",
+  "hermesContextCompacted": "Chat compattata.",
+  "hermesContextCompactedTokens": "Token: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {"placeholders": {"before": {"type": "String", "example": "12,351"}, "after": {"type": "String", "example": "4,020"}}},
+  "hermesContextCompactedMessages": "Messaggi: {before} → {after}",
+  "@hermesContextCompactedMessages": {"placeholders": {"before": {"type": "int", "example": "24"}, "after": {"type": "int", "example": "8"}}},
+  "hermesContextCompactUnchanged": "Ancora niente da compattare.",
+  "hermesContextCompactRefused": "Lasciata invariata: un riassunto sarebbe più lungo dei messaggi che sostituisce.",
+  "hermesContextCompactAborted": "Compattazione non riuscita. Nessun messaggio è stato rimosso.",
+  "hermesContextCompactPending": "Compattazione in corso. La chat si aggiornerà al termine.",
+  "hermesContextCompactBusy": "È in corso un'altra compattazione. Riprova tra poco.",
+  "hermesContextCompactWait": "Attendi la fine della risposta, poi compatta.",
+  "hermesContextCompactFailed": "Impossibile compattare questa chat. Riprova.",
+  "hermesContextLoadFailed": "Impossibile caricare contesto e utilizzo.",
+  "hermesErrorProvider": "Il provider del modello non ha potuto rispondere",
+  "hermesErrorEndpoint": "Impossibile raggiungere il server del modello",
+  "hermesErrorConnection": "Il flusso della risposta si è interrotto",
+  "hermesErrorAuth": "Il provider ha rifiutato le credenziali di Hermes",
+  "hermesErrorBilling": "Crediti esauriti",
+  "hermesErrorUsageLimit": "Limite del piano raggiunto",
+  "hermesErrorFreeTier": "Il piano gratuito non può eseguire questa richiesta",
+  "hermesErrorRateLimit": "Limite di frequenza raggiunto",
+  "hermesErrorContextOverflow": "Questa chat è troppo lunga per il modello",
+  "hermesErrorModel": "Il modello non è disponibile",
+  "hermesErrorPolicy": "Bloccato da una policy",
+  "hermesErrorTruncated": "La risposta è stata troncata",
+  "hermesErrorBadReply": "Il modello ha inviato una risposta inutilizzabile",
+  "hermesErrorWorkspace": "Manca la cartella di lavoro della chat",
+  "hermesErrorSession": "Questa chat non può continuare qui",
+  "hermesErrorBusy": "Hermes è occupato con questa chat",
+  "hermesErrorGateway": "Hermes ha riscontrato un problema",
+  "hermesErrorDisk": "Hermes ha esaurito lo spazio su disco",
+  "hermesErrorUnknown": "Hermes non è riuscito a completare questa risposta",
+  "hermesErrorBlocking": "Bloccato finché non viene risolto",
+  "hermesErrorDegraded": "Puoi continuare a chattare",
+  "hermesErrorResetsAt": "Si azzera alle {time}",
+  "@hermesErrorResetsAt": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesErrorPartialKept": "La risposta finora resta qui sopra.",
+  "hermesErrorContinue": "Continua",
+  "hermesErrorCompact": "Compatta chat",
+  "hermesErrorSwitchModel": "Passa a {model}",
+  "@hermesErrorSwitchModel": {"placeholders": {"model": {"type": "String", "example": "Hermes 4 70B"}}},
+  "hermesErrorOpenProviderSettings": "Apri impostazioni di {provider}",
+  "@hermesErrorOpenProviderSettings": {"placeholders": {"provider": {"type": "String", "example": "OpenRouter"}}},
+  "hermesErrorOpenBilling": "Apri fatturazione",
+  "hermesErrorUseCredits": "Usa crediti",
+  "hermesErrorActionFailed": "Operazione non riuscita. Riprova.",
+  "hermesBackgroundAgentCount": "{count, plural, =1{1 agente} other{{count} agenti}}",
+  "@hermesBackgroundAgentCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundProcessCount": "{count, plural, =1{1 processo} other{{count} processi}}",
+  "@hermesBackgroundProcessCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundWorkShow": "Mostra il lavoro in background",
+  "hermesBackgroundWorkTitle": "Lavoro in background",
+  "hermesBackgroundWorkEmpty": "Non c'è niente in esecuzione in background.",
+  "hermesBackgroundAgents": "Agenti",
+  "hermesBackgroundProcesses": "Processi",
+  "hermesSubagentQueued": "in coda",
+  "hermesSubagentLastTool": "ultimo strumento: {tool}",
+  "@hermesSubagentLastTool": {"placeholders": {"tool": {"type": "String"}}},
+  "hermesSubagentFinished": "Questo agente ha finito.",
+  "hermesSubagentOutput": "Output in tempo reale",
+  "hermesSubagentNoOutput": "Ancora nessun output.",
+  "hermesSubagentOutputTruncated": "Viene mostrata la parte più recente del suo output.",
+  "hermesSubagentOutputFailed": "Impossibile caricare il suo output.",
+  "hermesSubagentSteerHint": "Di' qualcosa a questo agente",
+  "hermesSubagentSteer": "Indirizza",
+  "hermesSubagentSteerQueued": "In coda. L'agente lo leggerà solo se fa un altro passo.",
+  "hermesSubagentSteerRejected": "Questo agente non accetta più istruzioni.",
+  "hermesSubagentStop": "Ferma agente",
+  "hermesSubagentStopped": "È stato chiesto all'agente di fermarsi.",
+  "hermesBackgroundActionFailed": "Non ha funzionato. Riprova.",
+  "hermesProcessKill": "Termina",
+  "hermesProcessKillLabel": "Termina processo",
+  "hermesProcessKillTitle": "Terminare questo processo?",
+  "hermesProcessKillMessage": "Hermes proverà a fermare questo comando e tutto ciò che ha avviato:\n{command}\nAlcuni processi potrebbero restare in esecuzione.",
+  "@hermesProcessKillMessage": {"placeholders": {"command": {"type": "String"}}},
+  "hermesProcessKilled": "Processo terminato.",
+  "hermesProcessAlreadyStopped": "Era già fermo.",
+  "hermesProcessKillFailed": "Impossibile terminarlo: {error}",
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Agenti di programmazione",
+  "modelControlServiceTier": "Livello di servizio",
+  "scheduledTaskTerminalSearchHint": "Cerca terminali",
+  "scheduledTaskWorkingFolderLabel": "Cartella di lavoro",
+  "scheduledTaskWorkingFolderHint": "Predefinita del terminale",
+  "scheduledTaskTerminalRequired": "Scegli il terminale su cui gira questo agente.",
+  "scheduledTaskAgentNeedsChat": "I risultati di un agente vanno in una nuova chat.",
+  "scheduledTaskAgentsLoading": "Caricamento degli agenti di questo terminale…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nuova notifica",
+  "pushReplyTitle": "Nuova risposta",
+  "pushReplyFailedTitle": "Risposta non riuscita",
+  "pushReplyFailedBody": "Non è stato possibile completare la risposta.",
+  "pushChannelTitle": "Nuovo messaggio",
+  "pushCronTitle": "Attività pianificata",
+  "pushTestTitle": "Le notifiche push funzionano",
+  "pushTestBody": "Questa notifica di prova arriva dal tuo server.",
+  "pushSectionTitle": "Notifiche push",
+  "pushEnabledTitle": "Notifiche push",
+  "pushEnabledDescription": "Ricevi avvisi anche quando Conduit è chiuso. Crittografia end-to-end.",
+  "pushUnavailableBuild": "Non disponibile in questa versione",
+  "pushUnavailableAndroid": "Non disponibile in questa versione senza un distributore UnifiedPush",
+  "pushGetDistributor": "Ottieni un distributore UnifiedPush",
+  "pushPrivacyTitle": "Come il push resta privato",
+  "pushStatusOff": "Disattivato",
+  "pushStatusOptedOut": "Disattivato su questo dispositivo",
+  "pushStatusSettingUp": "Configurazione…",
+  "pushStatusVerifying": "Invio di una notifica di prova…",
+  "pushStatusOn": "Attivo",
+  "pushStatusNeedsAdminSetup": "Deve configurarlo il tuo admin",
+  "pushStatusCanInstall": "Non configurato su questo server",
+  "pushStatusUpdateAvailable": "Attivo · Aggiornamento disponibile",
+  "pushStatusPluginsDisabled": "Le funzioni sono disattivate su questo server",
+  "pushStatusServerTooOldOpenWebUi": "Richiede Open WebUI 0.11 o successivo",
+  "pushStatusServerTooOldHermes": "Richiede una versione più recente di Hermes",
+  "pushStatusNeedsHermesPlugin": "Richiede il plugin Conduit in Hermes",
+  "pushStatusRestartHermes": "Riavvia Hermes per completare",
+  "pushStatusSignInNeeded": "Accedi per usare il push",
+  "pushStatusPermissionDenied": "Le notifiche sono bloccate",
+  "pushStatusNotificationsOff": "Attivo · Notifiche disattivate per questo account",
+  "pushActionSetUp": "Configura",
+  "pushActionAskAdmin": "Chiedi all'admin",
+  "pushActionUpdate": "Aggiorna",
+  "pushActionInstall": "Installa",
+  "pushActionCopyCommand": "Copia comando",
+  "pushExplainOn": "Le notifiche di questo account arrivano su questo dispositivo anche quando Conduit è chiuso.",
+  "pushExplainOptedOut": "Il push è disattivato per questo account su questo dispositivo.",
+  "pushExplainSettingUp": "Conduit sta registrando questo dispositivo sul server.",
+  "pushExplainVerifying": "Il server sta inviando una notifica di prova a questo dispositivo.",
+  "pushExplainNotificationsOff": "Il push è configurato, ma le notifiche sono disattivate per questo account, quindi non vengono mostrate.",
+  "pushExplainNeedsAdminSetup": "Il push richiede la funzione open source Conduit Push su questo server e solo un admin può installarla. Invia al tuo admin il link di configurazione.",
+  "pushExplainCanInstall": "Il push richiede la funzione open source Conduit Push su questo server. Sei admin, quindi puoi installarla ora.",
+  "pushExplainUpdateAvailable": "Il push funziona. Questa app include una versione più recente della funzione Conduit Push.",
+  "pushExplainPluginsDisabled": "Questo server Open WebUI ha le funzioni disattivate, quindi Conduit Push non può funzionare. Un admin può attivarle.",
+  "pushExplainServerTooOld": "Questo server è troppo vecchio per le notifiche push. Aggiornalo per usarle.",
+  "pushExplainNeedsHermesPlugin": "Il push richiede il plugin open source Conduit in Hermes. Conduit può installarlo tramite la dashboard di Hermes.",
+  "pushExplainHermesCommand": "Il push richiede il plugin open source Conduit in Hermes. Esegui questo comando sul computer su cui gira Hermes:",
+  "pushExplainRestartHermes": "Il plugin è installato. Riavvia Hermes per completare; Conduit ricontrolla da solo.",
+  "pushExplainSignInNeeded": "Accedi di nuovo a questo account per usare il push.",
+  "pushExplainRelayUnavailable": "Questa versione di Conduit non può consegnare notifiche push.",
+  "pushExplainPermissionDenied": "Consenti le notifiche per Conduit nelle impostazioni di sistema.",
+  "pushFailureNoTransport": "Questo dispositivo non può ricevere notifiche push.",
+  "pushFailureNoToken": "Questo dispositivo non ha ricevuto un token push. Controlla la connessione e riprova.",
+  "pushFailureDistributor": "Il distributore UnifiedPush non ha risposto.",
+  "pushFailureRelay": "Il relay push non è raggiungibile.",
+  "pushFailureRelayBusy": "Il relay push è occupato. Riprova più tardi.",
+  "pushFailureServerUnreachable": "Il server non è raggiungibile.",
+  "pushFailureServerRejected": "Il server ha rifiutato la richiesta.",
+  "pushFailureHermesAuth": "Hermes non ha accettato la chiave API.",
+  "pushFailureSubscriptionLost": "Il server non ha conservato l'iscrizione di questo dispositivo.",
+  "pushFailureInstall": "L'installazione non è riuscita.",
+  "pushFailureTestTimeout": "La notifica di prova non è arrivata.",
+  "pushFailureDelivery": "Il server non è riuscito a consegnare la notifica di prova.",
+  "pushFailurePlatform": "Questo dispositivo non è riuscito a salvare le sue chiavi push.",
+  "pushFailureUnknown": "Qualcosa è andato storto.",
+  "pushInstallOpenWebUiTitle": "Installare Conduit Push?",
+  "pushInstallOpenWebUiMessage": "Installa la funzione open source Conduit Push su questo server e la attiva, così tutti qui possono ricevere notifiche push in Conduit. Crittografa ogni notifica sul server prima che esca.",
+  "pushUpdateOpenWebUiTitle": "Aggiornare Conduit Push?",
+  "pushUpdateOpenWebUiMessage": "Sostituisce la funzione Conduit Push di questo server con la versione inclusa in questa app. Le iscrizioni esistenti vengono mantenute.",
+  "pushInstallHermesTitle": "Installare il plugin Conduit?",
+  "pushInstallHermesMessage": "Installa il plugin open source Conduit in Hermes da GitHub e lo attiva. Hermes controlla i plugin prima di installarli. Riavvia Hermes una volta per completare.",
+  "pushViewSource": "Vedi il codice sorgente",
+  "pushHermesCommandLabel": "Comando",
+  "pushDetailSendTest": "Invia notifica di prova",
+  "pushTestArrived": "La notifica di prova è arrivata.",
+  "pushTestMissing": "La notifica di prova non è arrivata.",
+  "pushDetailUseForAccount": "Usa il push per questo account",
+  "pushDetailUseForConnection": "Usa il push per questa connessione",
+  "pushDetailOriginTitle": "Risposte da",
+  "pushDetailOriginDescription": "Quali risposte completate inviano una notifica push.",
+  "pushOriginConduit": "Chat avviate in Conduit",
+  "pushOriginAny": "Tutte le mie chat",
+  "pushDiagnosticsTitle": "Diagnostica",
+  "pushDiagnosticsTransport": "Consegna",
+  "pushDiagnosticsServer": "Versione del server",
+  "pushDiagnosticsPlugin": "Versione del plugin",
+  "pushDiagnosticsVerified": "Ultima verifica",
+  "pushDiagnosticsServerReport": "Rapporto del server",
+  "pushDiagnosticsError": "Ultimo errore",
+  "pushDeliveryTitle": "Consegna push",
+  "pushDeliveryAutomatic": "Automatica",
+  "pushDeliveryFcm": "Google (FCM)",
+  "pushDeliveryUnifiedPush": "UnifiedPush",
+  "pushDistributorTitle": "Distributore UnifiedPush",
+  "pushNoDistributor": "Nessun distributore UnifiedPush è installato.",
+  "pushResetKeys": "Reimposta chiavi push",
+  "pushResetKeysDescription": "Rimuovi questo dispositivo da tutti i server e configura di nuovo il push con nuove chiavi.",
+  "pushResetKeysConfirmTitle": "Reimpostare le chiavi push?",
+  "pushResetKeysConfirmMessage": "Conduit rimuove questo dispositivo da tutti i server, elimina le sue chiavi push e configura di nuovo il push con nuove chiavi.",
+  "pushResetKeysConfirm": "Reimposta",
+  "pushPrivacyIntro": "Il tuo server crittografa ogni notifica push in modo che solo questo dispositivo possa leggerla. La chiave per decrittografarla non lascia mai questo dispositivo, quindi nulla nel mezzo può leggerla.",
+  "pushPrivacyServerTitle": "Il tuo server",
+  "pushPrivacyServerBody": "Ha già le tue chat. Per il push conserva anche l'indirizzo push di questo dispositivo, la sua chiave pubblica, un ID dispositivo casuale e un'etichetta come «iOS». Decide cosa c'è in una notifica: un titolo e una breve anteprima.",
+  "pushPrivacyRelayTitle": "Il relay di Conduit",
+  "pushPrivacyRelayBody": "Inoltra le notifiche crittografate ad Apple o Google. Vede l'indirizzo IP del tuo server, quando invia e una dimensione arrotondata, ma mai titoli, testo, account, né il nome o l'URL del tuo server. È open source e non conserva log né database.",
+  "pushPrivacyProvidersTitle": "Apple e Google",
+  "pushPrivacyProvidersBody": "Consegnano la notifica crittografata e non possono leggerla. Se non si può decrittografare, il telefono mostra solo «Nuova notifica».",
+  "pushPrivacyUnifiedPushTitle": "UnifiedPush",
+  "pushPrivacyUnifiedPushBody": "Su Android puoi usare invece un distributore UnifiedPush. Il tuo server invia direttamente a lui, senza il relay di Conduit né Google.",
+  "pushPrivacyOffTitle": "Disattivare il push",
+  "pushPrivacyOffBody": "Disattivare il push elimina tutte le chiavi push di questo dispositivo; disattivarlo per un account, uscirne o rimuoverlo elimina quelle di quell'account. Nulla di ciò che viene inviato loro dopo può essere letto. Conduit chiede anche ai server degli account interessati di dimenticare questo dispositivo.",
+  "pushPrivacyReadMore": "Leggi tutti i dettagli",
+  "pushAttentionChip": "Il push richiede attenzione",
+  "notificationScheduledTitle": "Attività pianificate",
+  "notificationScheduledDescription": "Avvisa quando un'attività pianificata di Hermes consegna il risultato.",
+  "hermesJobNotifyTitle": "Avvisami",
+  "hermesJobNotifyDescription": "Invia una notifica push quando questo job consegna un risultato.",
+  "pushAskAdminMessage": "Potresti configurare Conduit Push sul nostro server Open WebUI? Permette a Conduit di inviare notifiche push con crittografia end-to-end. In Pannello di amministrazione → Funzioni, importa {url} e imposta l'ID della funzione su {functionId}. Guida: {guide}",
+  "pushExplainFailed": "Conduit riprova da solo la prossima volta che lo apri, oppure puoi riprovare ora.",
+  "pushHermesCommandLatest": "Questo installa l'ultima versione pubblicata del plugin.",
+  "hermesJobCreatedNotifyFailed": "Attività creata, ma non è stato possibile attivarne le notifiche.",
+  "hermesJobUpdatedNotifyFailed": "Attività salvata, ma non è stato possibile modificarne le notifiche.",
+  "hermesJobNotifyNeedsScheduled": "Attiva Attività pianificate in Notifiche per usarlo."
 }

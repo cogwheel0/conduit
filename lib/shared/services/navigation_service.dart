@@ -46,6 +46,14 @@ const NativeSheetNavigationRequest calendarNativeSheetNavigationRequest = (
   extra: NativeSheetNavigationOrigin(),
 );
 
+/// LibreChat's Personalization opens the same way, from the native Settings
+/// sheet.
+const NativeSheetNavigationRequest
+libreChatPersonalizationNativeSheetNavigationRequest = (
+  routeName: RouteNames.personalization,
+  extra: NativeSheetNavigationOrigin(),
+);
+
 /// Data controls open the same way, from the native Settings sheet.
 const NativeSheetNavigationRequest
 chatDataControlsNativeSheetNavigationRequest = (
@@ -119,7 +127,8 @@ class NavigationService {
         path == Routes.hermesSessions ||
         path.startsWith('/folder/') ||
         path.startsWith('/notes/') ||
-        path.startsWith('/channel/');
+        path.startsWith('/channel/') ||
+        path.startsWith('/hermes-room/');
   }
 
   /// Goes back to the main-pane page shown before the current one, or to

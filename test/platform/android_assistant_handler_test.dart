@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:conduit/core/services/media_upload_controller.dart';
+import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
@@ -15,12 +18,15 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _codec = StandardMethodCodec();
+const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
 const _model = Model(id: 'model-a', name: 'Model A');
 
 void main() {
@@ -144,6 +150,102 @@ void main() {
 
     expect(drawer.closeCalls, 1);
   });
+
+  group('an assistant screenshot', () {
+    late Directory root;
+    late Directory cache;
+    late Directory files;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('assistant-screenshot-');
+      cache = Directory(path.join(root.path, 'cache'))..createSync();
+      files = Directory(path.join(root.path, 'files'))..createSync();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_pathProvider, (call) async {
+            if (call.method == 'getTemporaryDirectory') return cache.path;
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_pathProvider, null);
+      root.deleteSync(recursive: true);
+    });
+
+    Future<({List<int> resets, List<String> uploads, List<String> attached})>
+    analyze(WidgetTester tester, String screenshotPath) async {
+      final resets = <int>[];
+      final uploads = <String>[];
+      final container = await _pumpApp(
+        tester,
+        resets: resets,
+        overrides: [
+          fileAttachmentServiceProvider.overrideWithValue(Object()),
+          mediaUploadControllerProvider.overrideWith(
+            (ref) => _RecordingUploads(ref, uploads),
+          ),
+        ],
+      );
+      container.read(androidAssistantProvider);
+
+      await _invokeAssistant(
+        tester,
+        MethodCall('analyzeScreenshot', screenshotPath),
+      );
+
+      return (
+        resets: resets,
+        uploads: uploads,
+        attached: [
+          for (final file in container.read(attachedFilesProvider))
+            file.file.path,
+        ],
+      );
+    }
+
+    testWidgets('the assistant session cached is attached and uploaded', (
+      tester,
+    ) async {
+      final screenshot = File(
+        path.join(cache.path, 'assistant_screenshot_1.png'),
+      )..writeAsBytesSync([1, 2, 3]);
+      final resolved = screenshot.resolveSymbolicLinksSync();
+
+      final result = await analyze(tester, screenshot.path);
+
+      expect(result.resets, hasLength(1));
+      expect(result.attached, [resolved]);
+      expect(result.uploads, [resolved]);
+    });
+
+    testWidgets('from anywhere but the cache is dropped', (tester) async {
+      final elsewhere = File(
+        path.join(files.path, 'assistant_screenshot_1.png'),
+      )..writeAsBytesSync([1, 2, 3]);
+      Directory(path.join(cache.path, 'nested')).createSync();
+      File(path.join(cache.path, 'nested', 'assistant_screenshot_1.png'))
+          .writeAsBytesSync([1, 2, 3]);
+      File(path.join(cache.path, 'app.db')).writeAsBytesSync([1, 2, 3]);
+      final link = Link(path.join(cache.path, 'assistant_screenshot_link.png'))
+        ..createSync(elsewhere.path);
+
+      for (final screenshotPath in [
+        elsewhere.path,
+        path.join(cache.path, '..', 'files', 'assistant_screenshot_1.png'),
+        path.join(cache.path, 'nested', 'assistant_screenshot_1.png'),
+        path.join(cache.path, 'app.db'),
+        link.path,
+        path.join(cache.path, 'assistant_screenshot_missing.png'),
+      ]) {
+        final result = await analyze(tester, screenshotPath);
+
+        expect(result.resets, isEmpty, reason: screenshotPath);
+        expect(result.attached, isEmpty, reason: screenshotPath);
+        expect(result.uploads, isEmpty, reason: screenshotPath);
+      }
+    });
+  });
 }
 
 Future<ProviderContainer> _pumpApp(
@@ -151,6 +253,7 @@ Future<ProviderContainer> _pumpApp(
   List<int>? resets,
   Map<String, Object?>? pendingAction,
   VoiceCallLauncher Function(Ref ref)? launcher,
+  List<Override> overrides = const [],
 }) async {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(AndroidAssistantHandler.platform, (call) async {
@@ -190,6 +293,7 @@ Future<ProviderContainer> _pumpApp(
         ),
       ),
       if (launcher != null) voiceCallLauncherProvider.overrideWith(launcher),
+      ...overrides,
     ],
   );
   addTearDown(container.dispose);
@@ -234,6 +338,23 @@ final class _RecordingVoiceCallLauncher extends VoiceCallLauncher {
   @override
   Future<void> launch({required bool startNewConversation}) async {
     launches.add(startNewConversation);
+  }
+}
+
+final class _RecordingUploads extends MediaUploadController {
+  _RecordingUploads(super.ref, this.uploads);
+
+  final List<String> uploads;
+
+  @override
+  Future<void> upload({
+    required String filePath,
+    required String fileName,
+    int? fileSize,
+    String? mimeType,
+    String? checksum,
+  }) async {
+    uploads.add(filePath);
   }
 }
 

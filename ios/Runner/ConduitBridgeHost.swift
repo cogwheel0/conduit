@@ -90,8 +90,11 @@ enum ConduitAppGroup {
 enum ConduitBridgeRegistry {
   /// Call from `application(_:didFinishLaunchingWithOptions:)` before it
   /// returns. BGTaskScheduler only accepts launch handlers registered then.
-  static func applicationDidFinishLaunching() {
+  static func applicationDidFinishLaunching(
+    launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) {
     BackgroundStreamingHandler.shared.registerBackgroundTasks()
+    PushBridge.shared.applicationDidFinishLaunching(launchOptions: launchOptions)
     if #available(iOS 16.2, *) { RecordingActivityBridge.endInterruptedActivities() }
   }
 
@@ -119,5 +122,6 @@ enum ConduitBridgeRegistry {
     BackgroundStreamingHandler.shared.attach(to: host)
     ShareImportBridge.shared.attach(to: host)
     CookieBridge.shared.attach(to: host)
+    PushBridge.shared.attach(to: host)
   }
 }

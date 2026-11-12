@@ -99,6 +99,8 @@ class SettingsService {
       PreferenceKeys.notificationChatEnabled;
   static const String _notificationChannelEnabledKey =
       PreferenceKeys.notificationChannelEnabled;
+  static const String _notificationScheduledEnabledKey =
+      PreferenceKeys.notificationScheduledEnabled;
 
   // Settings that name a server's data are stored per Open WebUI account;
   // see account_scoped_preferences.dart. Every read and write below resolves
@@ -159,8 +161,20 @@ class SettingsService {
     );
   }
 
-  static Future<void> setNotificationsEnabled(bool value) {
-    return _putPreference(_notificationsEnabledKey, value);
+  /// Sets the active Open WebUI account's notifications switch, or the
+  /// device-level one without an account. With an account, the device-level
+  /// switch, which Hermes and Direct notifications follow, is set as well, so
+  /// it is always the value the user chose last; the server's copy of an
+  /// account's switch, mirrored in by itself, leaves it alone.
+  static Future<void> setNotificationsEnabled(bool value) async {
+    // Both started at once: each lands in the preference cache before
+    // anything awaited here yields, so a reader woken by the change sees
+    // both.
+    await Future.wait([
+      _putPreference(_notificationsEnabledKey, value),
+      if (currentPreferenceAccountId() != null)
+        PreferencesStore.put(_notificationsEnabledKey, value),
+    ]);
   }
 
   static Future<bool> getNotificationSound() {
@@ -217,6 +231,17 @@ class SettingsService {
 
   static Future<void> setNotificationChannelEnabled(bool value) {
     return _putPreference(_notificationChannelEnabledKey, value);
+  }
+
+  /// Whether Hermes scheduled-task results notify. Device-wide.
+  static Future<bool> getNotificationScheduledEnabled() {
+    return Future.value(
+      _getPreference<bool>(_notificationScheduledEnabledKey) ?? true,
+    );
+  }
+
+  static Future<void> setNotificationScheduledEnabled(bool value) {
+    return _putPreference(_notificationScheduledEnabledKey, value);
   }
 
   /// Get high contrast preference
@@ -308,7 +333,7 @@ class SettingsService {
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
       _sendOnEnterKey: settings.sendOnEnter,
-      PreferenceKeys.ttsSpeechRate: settings.ttsSpeechRate,
+      PreferenceKeys.ttsSpeed: settings.ttsSpeed,
       PreferenceKeys.ttsPitch: settings.ttsPitch,
       PreferenceKeys.ttsVolume: settings.ttsVolume,
       PreferenceKeys.ttsEngine: settings.ttsEngine.name,
@@ -328,6 +353,7 @@ class SettingsService {
       _notificationSystemKey: settings.notificationSystem,
       _notificationChatEnabledKey: settings.notificationChatEnabled,
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
+      _notificationScheduledEnabledKey: settings.notificationScheduledEnabled,
     };
 
     // Resolve every account-scoped key now, before the first write yields: a
@@ -748,6 +774,7 @@ class SettingsService {
           false,
       citationBackground: get<bool>(PreferenceKeys.citationBackground) ?? true,
       highContrast: get<bool>(_highContrastKey) ?? false,
+      computerEnabled: get<bool>(PreferenceKeys.computerEnabled) ?? true,
       showComposerNotesButton:
           get<bool>(PreferenceKeys.showComposerNotesButton) ?? true,
       darkMode: get<bool>(_darkModeKey) ?? true,
@@ -785,9 +812,11 @@ class SettingsService {
       sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
-      ttsSpeechRate:
-          get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble() ??
-          0.5,
+      ttsSpeed:
+          get<num>(PreferenceKeys.ttsSpeed)?.toDouble() ??
+          ttsSpeedFromLegacyRate(
+            get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble(),
+          ),
       ttsPitch:
           get<num>(PreferenceKeys.ttsPitch)?.toDouble() ?? 1.0,
       ttsVolume:
@@ -838,6 +867,8 @@ class SettingsService {
           get<bool>(_notificationChatEnabledKey) ?? true,
       notificationChannelEnabled:
           get<bool>(_notificationChannelEnabledKey) ?? true,
+      notificationScheduledEnabled:
+          get<bool>(_notificationScheduledEnabledKey) ?? true,
       webSearchEngine: WebSearchEngineChoice.parse(
         get<String>(PreferenceKeys.webSearchEngine),
       ),
@@ -872,6 +903,19 @@ class _DefaultValue {
 const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
 
 /// Data class for app settings
+/// The speech speeds offered, as multiples of the voice's own pace.
+const List<double> ttsSpeedPresets = [0.75, 1.0, 1.25, 1.5, 2.0];
+
+/// The offered speed nearest [speed].
+double nearestTtsSpeed(double speed) => ttsSpeedPresets.reduce(
+  (best, next) => (next - speed).abs() < (best - speed).abs() ? next : best,
+);
+
+/// The speed for the device engine [rate] an older install saved, where 0.5
+/// was the voice's own pace; the voice's own pace when none was saved.
+double ttsSpeedFromLegacyRate(double? rate) =>
+    rate == null ? 1.0 : nearestTtsSpeed(rate * 2);
+
 class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
@@ -880,6 +924,7 @@ class AppSettings {
   /// Whether inline citations use the filled Sources badge surface.
   final bool citationBackground;
   final bool highContrast;
+  final bool computerEnabled;
   final bool showComposerNotesButton;
   final bool darkMode;
   final bool slidingSidebarEnabled;
@@ -902,7 +947,9 @@ class AppSettings {
   final String? sttLanguageCode;
   final String? ttsVoice;
   final String? ttsVoiceName;
-  final double ttsSpeechRate;
+  /// How fast speech plays, as a multiple of the voice's own pace: cloud and
+  /// device voices alike, for read-aloud and calls.
+  final double ttsSpeed;
   final double ttsPitch;
   final double ttsVolume;
   final TtsEngine ttsEngine;
@@ -921,6 +968,7 @@ class AppSettings {
   final bool notificationSystem;
   final bool notificationChatEnabled;
   final bool notificationChannelEnabled;
+  final bool notificationScheduledEnabled;
   // On-device web search (Direct models without provider-hosted search).
   final WebSearchEngineChoice webSearchEngine;
   final SafeSearch webSearchSafeSearch;
@@ -938,6 +986,7 @@ class AppSettings {
     this.citationShowTitles = false,
     this.citationBackground = true,
     this.highContrast = false,
+    this.computerEnabled = true,
     this.showComposerNotesButton = true,
     this.darkMode = true,
     this.slidingSidebarEnabled = false,
@@ -958,7 +1007,7 @@ class AppSettings {
     this.sttLanguageCode,
     this.ttsVoice,
     this.ttsVoiceName,
-    this.ttsSpeechRate = 0.5,
+    this.ttsSpeed = 1.0,
     this.ttsPitch = 1.0,
     this.ttsVolume = 1.0,
     this.ttsEngine = TtsEngine.device,
@@ -976,6 +1025,7 @@ class AppSettings {
     this.notificationSystem = true,
     this.notificationChatEnabled = true,
     this.notificationChannelEnabled = true,
+    this.notificationScheduledEnabled = true,
     this.webSearchEngine = WebSearchEngineChoice.auto,
     this.webSearchSafeSearch = SafeSearch.moderate,
     this.webSearchRegion,
@@ -989,6 +1039,7 @@ class AppSettings {
     bool? citationShowTitles,
     bool? citationBackground,
     bool? highContrast,
+    bool? computerEnabled,
     bool? showComposerNotesButton,
     bool? darkMode,
     bool? slidingSidebarEnabled,
@@ -1009,7 +1060,7 @@ class AppSettings {
     Object? sttLanguageCode = const _DefaultValue(),
     Object? ttsVoice = const _DefaultValue(),
     Object? ttsVoiceName = const _DefaultValue(),
-    double? ttsSpeechRate,
+    double? ttsSpeed,
     double? ttsPitch,
     double? ttsVolume,
     TtsEngine? ttsEngine,
@@ -1027,6 +1078,7 @@ class AppSettings {
     bool? notificationSystem,
     bool? notificationChatEnabled,
     bool? notificationChannelEnabled,
+    bool? notificationScheduledEnabled,
     WebSearchEngineChoice? webSearchEngine,
     SafeSearch? webSearchSafeSearch,
     Object? webSearchRegion = const _DefaultValue(),
@@ -1040,6 +1092,7 @@ class AppSettings {
       citationShowTitles: citationShowTitles ?? this.citationShowTitles,
       citationBackground: citationBackground ?? this.citationBackground,
       highContrast: highContrast ?? this.highContrast,
+      computerEnabled: computerEnabled ?? this.computerEnabled,
       showComposerNotesButton:
           showComposerNotesButton ?? this.showComposerNotesButton,
       darkMode: darkMode ?? this.darkMode,
@@ -1076,7 +1129,7 @@ class AppSettings {
       ttsVoiceName: ttsVoiceName is _DefaultValue
           ? this.ttsVoiceName
           : ttsVoiceName as String?,
-      ttsSpeechRate: ttsSpeechRate ?? this.ttsSpeechRate,
+      ttsSpeed: ttsSpeed ?? this.ttsSpeed,
       ttsPitch: ttsPitch ?? this.ttsPitch,
       ttsVolume: ttsVolume ?? this.ttsVolume,
       ttsEngine: ttsEngine ?? this.ttsEngine,
@@ -1105,6 +1158,8 @@ class AppSettings {
           notificationChatEnabled ?? this.notificationChatEnabled,
       notificationChannelEnabled:
           notificationChannelEnabled ?? this.notificationChannelEnabled,
+      notificationScheduledEnabled:
+          notificationScheduledEnabled ?? this.notificationScheduledEnabled,
       webSearchEngine: webSearchEngine ?? this.webSearchEngine,
       webSearchSafeSearch: webSearchSafeSearch ?? this.webSearchSafeSearch,
       webSearchRegion: webSearchRegion is _DefaultValue
@@ -1126,6 +1181,7 @@ class AppSettings {
         other.citationShowTitles == citationShowTitles &&
         other.citationBackground == citationBackground &&
         other.highContrast == highContrast &&
+        other.computerEnabled == computerEnabled &&
         other.showComposerNotesButton == showComposerNotesButton &&
         other.darkMode == darkMode &&
         other.slidingSidebarEnabled == slidingSidebarEnabled &&
@@ -1145,7 +1201,7 @@ class AppSettings {
         other.sendOnEnter == sendOnEnter &&
         other.ttsVoice == ttsVoice &&
         other.ttsVoiceName == ttsVoiceName &&
-        other.ttsSpeechRate == ttsSpeechRate &&
+        other.ttsSpeed == ttsSpeed &&
         other.ttsPitch == ttsPitch &&
         other.ttsVolume == ttsVolume &&
         other.ttsEngine == ttsEngine &&
@@ -1162,6 +1218,7 @@ class AppSettings {
         other.notificationSystem == notificationSystem &&
         other.notificationChatEnabled == notificationChatEnabled &&
         other.notificationChannelEnabled == notificationChannelEnabled &&
+        other.notificationScheduledEnabled == notificationScheduledEnabled &&
         other.webSearchEngine == webSearchEngine &&
         other.webSearchSafeSearch == webSearchSafeSearch &&
         other.webSearchRegion == webSearchRegion &&
@@ -1180,6 +1237,7 @@ class AppSettings {
       citationShowTitles,
       citationBackground,
       highContrast,
+      computerEnabled,
       showComposerNotesButton,
       darkMode,
       slidingSidebarEnabled,
@@ -1197,7 +1255,7 @@ class AppSettings {
       sendOnEnter,
       ttsVoice,
       ttsVoiceName,
-      ttsSpeechRate,
+      ttsSpeed,
       ttsPitch,
       ttsVolume,
       ttsEngine,
@@ -1214,6 +1272,7 @@ class AppSettings {
       notificationSystem,
       notificationChatEnabled,
       notificationChannelEnabled,
+      notificationScheduledEnabled,
       webSearchEngine,
       webSearchSafeSearch,
       webSearchRegion,
@@ -1343,6 +1402,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.setNotificationChannelEnabled(value);
   }
 
+  Future<void> setNotificationScheduledEnabled(bool value) async {
+    state = state.copyWith(notificationScheduledEnabled: value);
+    await SettingsService.setNotificationScheduledEnabled(value);
+  }
+
   /// Applies the three server-synced notification prefs fetched from Open WebUI
   /// without echoing them back to the server. Used at bootstrap so the server
   /// stays authoritative for cross-device parity. Only writes when a value
@@ -1396,6 +1460,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       ),
     );
     if (next != state) state = next;
+  }
+
+  Future<void> setComputerEnabled(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(computerEnabled: value);
+    await SettingsService._putPreference(PreferenceKeys.computerEnabled, value);
   }
 
   Future<void> setShowComposerNotesButton(bool value) async {
@@ -1644,8 +1714,8 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.saveSettings(state);
   }
 
-  Future<void> setTtsSpeechRate(double rate) async {
-    state = state.copyWith(ttsSpeechRate: rate);
+  Future<void> setTtsSpeed(double speed) async {
+    state = state.copyWith(ttsSpeed: speed);
     await SettingsService.saveSettings(state);
   }
 
@@ -1704,6 +1774,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> resetToDefaults() async {
     await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     const defaultSettings = AppSettings();
+    await SettingsService._putOrRemove(PreferenceKeys.computerEnabled, null);
     await SettingsService._putOrRemove(
       PreferenceKeys.showComposerNotesButton,
       null,

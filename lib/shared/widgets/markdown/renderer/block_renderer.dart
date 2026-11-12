@@ -3,7 +3,6 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../conduit_loading.dart';
-import '../../horizontal_gesture_ownership.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
@@ -15,8 +14,11 @@ import 'details_group_widget.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'markdown_table_frame.dart';
 import 'markdown_text.dart';
 import 'pdf_inline_view.dart';
+
+export 'markdown_table_frame.dart' show MarkdownTableFrame;
 
 /// Signature for a builder that creates image widgets.
 typedef ImageBuilder = Widget Function(String src, String? alt, String? title);
@@ -59,6 +61,7 @@ class BlockRenderer {
     this.nodePathPrefix,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.streamingFade,
+    this.listDepth = 0,
   ]);
 
   /// The active build context.
@@ -94,6 +97,27 @@ class BlockRenderer {
   /// the span tree or its recognizers.
   final MarkdownStreamingFade? streamingFade;
 
+  /// How many lists enclose the blocks this renderer draws. Nested lists use
+  /// it to pick their bullet glyph.
+  final int listDepth;
+
+  /// A renderer for blocks nested inside this one (quotes, list items,
+  /// alerts, sections), sharing every setting except the node path and list
+  /// depth.
+  BlockRenderer _nested(String nodePath, {int? listDepth}) => BlockRenderer(
+    context,
+    style,
+    inlineRenderer,
+    latexPreprocessor,
+    onLinkTap,
+    imageBuilder,
+    stateScopeId,
+    nodePath,
+    heavyBlockPolicy,
+    streamingFade,
+    listDepth ?? this.listDepth,
+  );
+
   /// Builds a rich-text widget for an inline [nodes] run.
   ///
   /// When a [streamingFade] source is present the run is rendered through
@@ -124,12 +148,14 @@ class BlockRenderer {
   Widget renderCompiledBlocks(
     List<CompiledMarkdownBlock> blocks, {
     bool trimLastBlockBottomPadding = true,
+    bool trimFirstBlockTopPadding = true,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: renderCompiledBlockWidgets(
         blocks,
         trimLastBlockBottomPadding: trimLastBlockBottomPadding,
+        trimFirstBlockTopPadding: trimFirstBlockTopPadding,
       ),
     );
   }
@@ -140,6 +166,7 @@ class BlockRenderer {
   List<Widget> renderCompiledBlockWidgets(
     List<CompiledMarkdownBlock> blocks, {
     bool trimLastBlockBottomPadding = true,
+    bool trimFirstBlockTopPadding = true,
   }) {
     final renderedBlocks = <(String blockId, Widget widget)>[];
     for (final block in blocks) {
@@ -147,6 +174,10 @@ class BlockRenderer {
       if (widget != null) {
         renderedBlocks.add((block.blockId, widget));
       }
+    }
+    if (trimFirstBlockTopPadding && renderedBlocks.isNotEmpty) {
+      final firstBlock = renderedBlocks.first;
+      renderedBlocks[0] = (firstBlock.$1, _withoutTopPadding(firstBlock.$2));
     }
     if (trimLastBlockBottomPadding && renderedBlocks.isNotEmpty) {
       final lastBlock = renderedBlocks.last;
@@ -180,6 +211,27 @@ class BlockRenderer {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, 0),
+      child: widget.child,
+    );
+  }
+
+  /// Drops a leading heading's extra top space when it opens the message, so
+  /// the reply starts flush under its header.
+  Widget _withoutTopPadding(Widget widget) {
+    if (widget is! Padding) return widget;
+
+    final padding = widget.padding;
+    if (padding is! EdgeInsets || padding.top == 0) {
+      return widget;
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        padding.left,
+        0,
+        padding.right,
+        padding.bottom,
+      ),
       child: widget.child,
     );
   }
@@ -679,12 +731,17 @@ class BlockRenderer {
   Widget _renderCodeBlock(CompiledMarkdownElement element) {
     final codeElement = _extractCodeChild(element);
     final language = element.language;
-    final code = (codeElement ?? element).textContent;
+    final rawCode = (codeElement ?? element).textContent;
     // The code body is rendered outside the inline renderer, but it is still
     // part of the document-wide textContent that the streaming-fade offset is
     // measured against. Advance the offset so a streaming tail after this code
     // block fades the correct character range.
-    inlineRenderer.advanceVisibleTextOffset(code.length);
+    inlineRenderer.advanceVisibleTextOffset(rawCode.length);
+    // A fenced block's text ends with the newline before the closing fence;
+    // drawing it would add an empty last line below the code.
+    final code = rawCode.endsWith('\n')
+        ? rawCode.substring(0, rawCode.length - 1)
+        : rawCode;
     final blockKind = element.blockKind;
     final previewable = blockKind == CompiledMarkdownBlockKind.previewableCode;
     final inlinePreview =
@@ -702,7 +759,7 @@ class BlockRenderer {
     }
 
     final codeBlock = Padding(
-      padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+      padding: EdgeInsets.only(bottom: style.codeBlockSpacing),
       child: ConduitMarkdown.buildCodeBlock(
         context: context,
         code: code,
@@ -715,6 +772,7 @@ class BlockRenderer {
                 language: language,
               )
             : null,
+        stateId: _scopedCodeBlockStateId(element.nodeId),
       ),
     );
 
@@ -730,6 +788,7 @@ class BlockRenderer {
           code: code,
           language: language,
         ),
+        SizedBox(height: style.paragraphSpacing),
         codeBlock,
       ],
     );
@@ -738,11 +797,11 @@ class BlockRenderer {
   Widget _buildHeavyPreview(CompiledMarkdownBlockKind blockKind, String code) {
     return switch (blockKind) {
       CompiledMarkdownBlockKind.mermaid => Padding(
-        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        padding: EdgeInsets.only(bottom: style.codeBlockSpacing),
         child: ConduitMarkdown.buildMermaidBlock(context, code),
       ),
       CompiledMarkdownBlockKind.chartJs => Padding(
-        padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+        padding: EdgeInsets.only(bottom: style.codeBlockSpacing),
         child: ConduitMarkdown.buildChartJsBlock(context, code),
       ),
       _ => const SizedBox.shrink(),
@@ -755,7 +814,7 @@ class BlockRenderer {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: style.codeBlockSpacing),
+      padding: EdgeInsets.only(bottom: style.codeBlockSpacing),
       child: Container(
         width: double.infinity,
         height: _deferredHeavyPreviewHeight(blockKind),
@@ -807,66 +866,44 @@ class BlockRenderer {
       return const SizedBox.shrink();
     }
 
-    final inner = BlockRenderer(
-      context,
-      style,
-      inlineRenderer,
-      latexPreprocessor,
-      onLinkTap,
-      imageBuilder,
-      stateScopeId,
-      nodePath,
-      heavyBlockPolicy,
-      streamingFade,
-    );
+    final inner = _nested(nodePath);
 
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: style.blockquoteSpacing),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(color: style.blockquoteBorderColor, width: 2),
+      padding: EdgeInsets.only(bottom: style.blockquoteSpacing),
+      child: CustomPaint(
+        painter: _QuoteBarPainter(color: style.blockquoteBorderColor),
+        child: Padding(
+          padding: const EdgeInsets.only(
+            left: _QuoteBarPainter.barWidth + Spacing.md - Spacing.xxs,
           ),
-        ),
-        padding: const EdgeInsets.only(left: 12),
-        child: DefaultTextStyle.merge(
-          style: style.blockquoteText,
-          child: inner.renderBlocks(children),
+          child: DefaultTextStyle.merge(
+            style: style.blockquoteText,
+            child: inner.renderBlocks(children),
+          ),
         ),
       ),
     );
   }
 
-  // -- Unordered list --
+  // -- Lists --
+
+  static const _bulletGlyphs = ['•', '◦', '▪'];
 
   Widget _renderUnorderedList(
     CompiledMarkdownElement element, {
     required String nodePath,
   }) {
+    final marker = _bulletGlyphs[listDepth.clamp(0, _bulletGlyphs.length - 1)];
+    final items = <(CompiledMarkdownElement, String, String)>[];
     final children = element.children;
-    final items = <Widget>[];
     for (var index = 0; index < children.length; index++) {
       final child = children[index];
       if (child is CompiledMarkdownElement && child.tag == 'li') {
-        items.add(
-          _renderListItem(
-            child,
-            '\u2022',
-            nodePath: _childNodePath(nodePath, index),
-          ),
-        );
+        items.add((child, marker, _childNodePath(nodePath, index)));
       }
     }
-    return Padding(
-      padding: EdgeInsets.only(bottom: style.paragraphSpacing),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: items,
-      ),
-    );
+    return _renderList(items, ordered: false);
   }
-
-  // -- Ordered list --
 
   Widget _renderOrderedList(
     CompiledMarkdownElement element, {
@@ -875,30 +912,88 @@ class BlockRenderer {
     final startAttr = element.attributes['start'];
     final start = startAttr != null ? (int.tryParse(startAttr) ?? 1) : 1;
 
+    final items = <(CompiledMarkdownElement, String, String)>[];
     final children = element.children;
-    final items = <Widget>[];
-    var index = start;
+    var number = start;
     for (var childIndex = 0; childIndex < children.length; childIndex++) {
       final child = children[childIndex];
       if (child is CompiledMarkdownElement && child.tag == 'li') {
-        items.add(
-          _renderListItem(
-            child,
-            '$index.',
-            nodePath: _childNodePath(nodePath, childIndex),
-          ),
-        );
-        index++;
+        items.add((child, '$number.', _childNodePath(nodePath, childIndex)));
+        number++;
       }
+    }
+    return _renderList(items, ordered: true);
+  }
+
+  /// Lays out list items with one marker column for the whole list, so text
+  /// lines up across items and a nested list starts at its parent's text.
+  Widget _renderList(
+    List<(CompiledMarkdownElement, String, String)> items, {
+    required bool ordered,
+  }) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    final markerWidth = _listMarkerColumnWidth(
+      ordered ? items.map((item) => item.$2) : const <String>[],
+    );
+    // Loose lists (items separated by blank lines in the source) get a
+    // little more air between items; tight lists stay tight.
+    final loose = items.any(
+      (item) => item.$1.children.any(
+        (child) => child is CompiledMarkdownElement && child.tag == 'p',
+      ),
+    );
+    final itemGap = loose ? style.looseListItemSpacing : style.listItemSpacing;
+    final rows = <Widget>[];
+    for (var index = 0; index < items.length; index++) {
+      if (index > 0) rows.add(SizedBox(height: itemGap));
+      final (item, marker, path) = items[index];
+      rows.add(
+        _renderListItem(
+          item,
+          marker,
+          nodePath: path,
+          markerWidth: markerWidth,
+          ordered: ordered,
+        ),
+      );
     }
     return Padding(
       padding: EdgeInsets.only(bottom: style.paragraphSpacing),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: items,
+        children: rows,
       ),
     );
   }
+
+  /// Width of the marker column: about 1.2em for bullets, and wide enough for
+  /// the longest number (plus a gap) for ordered lists. Scales with Dynamic
+  /// Type like the text it sits beside.
+  double _listMarkerColumnWidth(Iterable<String> orderedMarkers) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final em = scaler.scale(style.body.fontSize ?? 17);
+    final minimum = em * _bulletColumnEm;
+    var widest = '';
+    for (final marker in orderedMarkers) {
+      if (marker.length > widest.length) widest = marker;
+    }
+    if (widest.isEmpty) return minimum;
+    final painter = TextPainter(
+      text: TextSpan(text: widest, style: _orderedMarkerStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final width = painter.width + em * _orderedMarkerGapEm;
+    painter.dispose();
+    return width > minimum ? width.ceilToDouble() : minimum;
+  }
+
+  TextStyle get _orderedMarkerStyle =>
+      style.body.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+
+  static const double _bulletColumnEm = 20 / 17;
+  static const double _orderedMarkerGapEm = 0.4;
 
   // -- List item --
 
@@ -906,15 +1001,26 @@ class BlockRenderer {
     CompiledMarkdownElement element,
     String marker, {
     required String nodePath,
+    double? markerWidth,
+    bool ordered = false,
   }) {
     final task = _splitTaskCheckbox(element.children);
     final children = task.children;
     final inlineNodes = <CompiledMarkdownNode>[];
     final blockNodes = <CompiledMarkdownNode>[];
+    var lastChunkWasParagraph = false;
 
     for (final child in children) {
-      if (_appendInlineListChild(child, inlineNodes)) {
-        continue;
+      if (blockNodes.isEmpty) {
+        final appended = _appendInlineListChild(
+          child,
+          inlineNodes,
+          afterParagraph: lastChunkWasParagraph,
+        );
+        if (appended != null) {
+          lastChunkWasParagraph = appended;
+          continue;
+        }
       }
       blockNodes.add(child);
     }
@@ -923,28 +1029,25 @@ class BlockRenderer {
     if (inlineNodes.isNotEmpty && blockNodes.isEmpty) {
       content = _buildInlineRichText(inlineNodes);
     } else if (blockNodes.isNotEmpty) {
-      final inner = BlockRenderer(
-        context,
-        style,
-        inlineRenderer,
-        latexPreprocessor,
-        onLinkTap,
-        imageBuilder,
-        stateScopeId,
-        nodePath,
-        heavyBlockPolicy,
-        streamingFade,
-      );
+      final inner = _nested(nodePath, listDepth: listDepth + 1);
       final blockContent = inner.renderBlocks(blockNodes);
 
       if (inlineNodes.isEmpty) {
         content = blockContent;
       } else {
+        final first = blockNodes.first;
+        final startsWithList =
+            first is CompiledMarkdownElement &&
+            (first.tag == 'ul' || first.tag == 'ol');
         content = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildInlineRichText(inlineNodes),
-            const SizedBox(height: Spacing.xs),
+            SizedBox(
+              height: startsWithList
+                  ? style.listItemSpacing
+                  : style.looseListItemSpacing,
+            ),
             blockContent,
           ],
         );
@@ -953,29 +1056,36 @@ class BlockRenderer {
       content = Text(element.textContent, style: style.body);
     }
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: style.listItemSpacing),
-      // Baseline alignment puts the marker on the first line's baseline
-      // whatever the content's strut or line height, instead of a fixed
-      // nudge that left bullets and numbers sitting low.
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          SizedBox(
-            width: 24,
-            child: switch (task.checked) {
-              final checked? => _taskCheckbox(checked),
-              null => Text(
+    final columnWidth = markerWidth ?? _listMarkerColumnWidth(const []);
+    final markerGap = ordered
+        ? MediaQuery.textScalerOf(context).scale(style.body.fontSize ?? 17) *
+              _orderedMarkerGapEm
+        : 0.0;
+    // Baseline alignment puts the marker on the first line's baseline
+    // whatever the content's strut or line height, instead of a fixed
+    // nudge that left bullets and numbers sitting low.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        SizedBox(
+          width: columnWidth,
+          child: switch (task.checked) {
+            final checked? => _taskCheckbox(checked),
+            null => Padding(
+              padding: EdgeInsetsDirectional.only(end: markerGap),
+              child: Text(
                 marker,
-                style: style.body,
-                textAlign: TextAlign.center,
+                style: ordered ? _orderedMarkerStyle : style.body,
+                textAlign: ordered ? TextAlign.end : TextAlign.center,
+                maxLines: 1,
+                softWrap: false,
               ),
-            },
-          ),
-          Expanded(child: content),
-        ],
-      ),
+            ),
+          },
+        ),
+        Expanded(child: content),
+      ],
     );
   }
 
@@ -1072,18 +1182,27 @@ class BlockRenderer {
     );
   }
 
-  bool _appendInlineListChild(
+  /// Appends [child] to the item's leading inline run when it is inline
+  /// content (or a plain paragraph). Returns whether the appended chunk was a
+  /// paragraph, or `null` when [child] is block content.
+  ///
+  /// Inline siblings (text, bold, code, links) already carry their own
+  /// whitespace, so they join directly; adding a space between them doubled
+  /// the gap after `**bold**` or `code`. Only separate paragraphs of a loose
+  /// item are joined with a space, matching the web renderer.
+  bool? _appendInlineListChild(
     CompiledMarkdownNode child,
-    List<CompiledMarkdownNode> inlineNodes,
-  ) {
+    List<CompiledMarkdownNode> inlineNodes, {
+    required bool afterParagraph,
+  }) {
     if (child is CompiledMarkdownText) {
-      _appendInlineChunkSeparator(inlineNodes);
+      if (afterParagraph) _appendParagraphSeparator(inlineNodes);
       inlineNodes.add(child);
-      return true;
+      return false;
     }
 
     if (child is! CompiledMarkdownElement) {
-      return false;
+      return null;
     }
 
     if (child.tag == 'p') {
@@ -1092,24 +1211,24 @@ class BlockRenderer {
       if (singleImage != null ||
           paragraphChildren.isEmpty ||
           _containsBlockElements(paragraphChildren)) {
-        return false;
+        return null;
       }
 
-      _appendInlineChunkSeparator(inlineNodes);
+      _appendParagraphSeparator(inlineNodes);
       inlineNodes.addAll(paragraphChildren);
       return true;
     }
 
     if (_isBlockElementTag(child.tag)) {
-      return false;
+      return null;
     }
 
-    _appendInlineChunkSeparator(inlineNodes);
+    if (afterParagraph) _appendParagraphSeparator(inlineNodes);
     inlineNodes.add(child);
-    return true;
+    return false;
   }
 
-  void _appendInlineChunkSeparator(List<CompiledMarkdownNode> inlineNodes) {
+  void _appendParagraphSeparator(List<CompiledMarkdownNode> inlineNodes) {
     if (inlineNodes.isEmpty) {
       return;
     }
@@ -1159,13 +1278,20 @@ class BlockRenderer {
   // -- Table --
 
   Widget _renderTable(CompiledMarkdownElement element) {
-    final columns = <DataColumn>[];
+    final header = <Widget>[];
     final rows = <CompiledMarkdownElement>[];
 
     for (final section in element.children) {
       if (section is! CompiledMarkdownElement) continue;
       if (section.tag == 'thead') {
-        _parseTableHead(section, columns);
+        for (final row in section.children) {
+          if (row is! CompiledMarkdownElement || row.tag != 'tr') continue;
+          for (final cell in row.children) {
+            if (cell is! CompiledMarkdownElement) continue;
+            if (cell.tag != 'th' && cell.tag != 'td') continue;
+            header.add(_buildTableCell(cell, isHeader: true));
+          }
+        }
       } else if (section.tag == 'tbody') {
         rows.addAll(
           section.children.whereType<CompiledMarkdownElement>().where(
@@ -1175,10 +1301,10 @@ class BlockRenderer {
       }
     }
 
-    if (columns.isEmpty) return const SizedBox.shrink();
+    if (header.isEmpty) return const SizedBox.shrink();
     final previewRows = rows
         .take(_ExpandableMarkdownTable.previewRowCount)
-        .map((row) => _buildTableRow(row, columns.length))
+        .map((row) => _buildTableRow(row, header.length))
         .toList(growable: false);
     final remainingRows = rows
         .skip(_ExpandableMarkdownTable.previewRowCount)
@@ -1188,73 +1314,63 @@ class BlockRenderer {
     }
 
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: style.tableSpacing),
+      padding: EdgeInsets.only(bottom: style.tableSpacing),
       child: _ExpandableMarkdownTable(
-        columns: columns,
+        header: header,
         previewRows: previewRows,
         remainingRows: remainingRows,
-        rowBuilder: (row) => _buildTableRow(row, columns.length),
+        rowBuilder: (row) => _buildTableRow(row, header.length),
         style: style,
       ),
     );
   }
 
-  void _parseTableHead(
-    CompiledMarkdownElement thead,
-    List<DataColumn> columns,
-  ) {
-    for (final row in thead.children) {
-      if (row is! CompiledMarkdownElement || row.tag != 'tr') continue;
-      for (final cell in row.children) {
-        if (cell is! CompiledMarkdownElement) continue;
-        if (cell.tag != 'th' && cell.tag != 'td') continue;
-        final children = cell.children;
-        columns.add(
-          DataColumn(
-            label: children.isNotEmpty
-                ? MarkdownText(
-                    inlineRenderer.render(
-                      children,
-                      parentStyle: style.tableHeader,
-                    ),
-                  )
-                : Text(cell.textContent, style: style.tableHeader),
-          ),
-        );
-      }
-    }
+  Widget _buildTableCell(
+    CompiledMarkdownElement cell, {
+    required bool isHeader,
+  }) {
+    final cellStyle = isHeader ? style.tableHeader : style.tableCell;
+    final children = cell.children;
+    final text = children.isNotEmpty
+        ? MarkdownText(inlineRenderer.render(children, parentStyle: cellStyle))
+        : Text(cell.textContent, style: cellStyle);
+    final alignment = switch (cell.attributes['align']) {
+      'center' => AlignmentDirectional.topCenter,
+      'right' => AlignmentDirectional.topEnd,
+      _ => null,
+    };
+    return alignment == null ? text : Align(alignment: alignment, child: text);
   }
 
-  DataRow _buildTableRow(CompiledMarkdownElement row, int columnCount) {
-    final cells = <DataCell>[];
+  List<Widget> _buildTableRow(CompiledMarkdownElement row, int columnCount) {
+    final cells = <Widget>[];
     for (final cell in row.children) {
       if (cell is! CompiledMarkdownElement) continue;
       if (cell.tag != 'td' && cell.tag != 'th') continue;
-      final children = cell.children;
-      cells.add(
-        DataCell(
-          children.isNotEmpty
-              ? MarkdownText(
-                  inlineRenderer.render(children, parentStyle: style.tableCell),
-                )
-              : Text(cell.textContent, style: style.tableCell),
-        ),
-      );
+      cells.add(_buildTableCell(cell, isHeader: false));
     }
-    // Keep malformed rows compatible with DataTable's fixed column count.
+    // Keep malformed rows compatible with the table's fixed column count.
     if (cells.length > columnCount) {
       cells.removeRange(columnCount, cells.length);
     }
     while (cells.length < columnCount) {
-      cells.add(const DataCell(SizedBox.shrink()));
+      cells.add(const SizedBox.shrink());
     }
-    return DataRow(cells: cells);
+    return cells;
   }
 
   // -- Horizontal rule --
 
   Widget _renderHorizontalRule() {
-    return Divider(color: style.dividerColor);
+    // Equal space above and below the rule: the previous block's bottom gap
+    // plus a little, mirrored underneath.
+    return Padding(
+      padding: EdgeInsets.only(
+        top: Spacing.xs,
+        bottom: style.paragraphSpacing + Spacing.xs,
+      ),
+      child: Container(height: BorderWidth.thin, color: style.dividerColor),
+    );
   }
 
   // -- Div (GitHub alerts) --
@@ -1298,21 +1414,10 @@ class BlockRenderer {
       }
     }
 
-    final inner = BlockRenderer(
-      context,
-      style,
-      inlineRenderer,
-      latexPreprocessor,
-      onLinkTap,
-      imageBuilder,
-      stateScopeId,
-      nodePath,
-      heavyBlockPolicy,
-      streamingFade,
-    );
+    final inner = _nested(nodePath);
 
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: style.blockquoteSpacing),
+      padding: EdgeInsets.only(bottom: style.blockquoteSpacing),
       child: Container(
         decoration: BoxDecoration(
           border: Border(left: BorderSide(color: config.color, width: 3)),
@@ -1450,18 +1555,7 @@ class BlockRenderer {
   }) {
     final children = element.children;
     if (children.isEmpty) return null;
-    final inner = BlockRenderer(
-      context,
-      style,
-      inlineRenderer,
-      latexPreprocessor,
-      onLinkTap,
-      imageBuilder,
-      stateScopeId,
-      nodePath,
-      heavyBlockPolicy,
-      streamingFade,
-    );
+    final inner = _nested(nodePath);
     return inner.renderBlocks(children);
   }
 
@@ -1612,6 +1706,15 @@ class BlockRenderer {
     ].join('|');
   }
 
+  /// Where a code block keeps its wrap choice on the page, or null when the
+  /// block has no stable identity there.
+  String? _scopedCodeBlockStateId(String stableId) {
+    if (stateScopeId == null || stateScopeId!.isEmpty || stableId.isEmpty) {
+      return null;
+    }
+    return [stateScopeId!, stableId, 'code-wrap'].join('|');
+  }
+
   String _scopedDetailsGroupStateId(String stableId) {
     return [
       if (stateScopeId != null && stateScopeId!.isNotEmpty) stateScopeId!,
@@ -1655,7 +1758,7 @@ class BlockRenderer {
 
 class _ExpandableMarkdownTable extends StatefulWidget {
   const _ExpandableMarkdownTable({
-    required this.columns,
+    required this.header,
     required this.previewRows,
     required this.remainingRows,
     required this.rowBuilder,
@@ -1664,10 +1767,10 @@ class _ExpandableMarkdownTable extends StatefulWidget {
 
   static const previewRowCount = 20;
 
-  final List<DataColumn> columns;
-  final List<DataRow> previewRows;
+  final List<Widget> header;
+  final List<List<Widget>> previewRows;
   final List<CompiledMarkdownElement> remainingRows;
-  final DataRow Function(CompiledMarkdownElement row) rowBuilder;
+  final List<Widget> Function(CompiledMarkdownElement row) rowBuilder;
   final ConduitMarkdownStyle style;
 
   @override
@@ -1682,7 +1785,7 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
   Widget build(BuildContext context) {
     final collapsible = widget.remainingRows.isNotEmpty;
     final visibleRows = _expanded
-        ? <DataRow>[
+        ? <List<Widget>>[
             ...widget.previewRows,
             ...widget.remainingRows.map(widget.rowBuilder),
           ]
@@ -1691,21 +1794,10 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        HorizontalScrollGestureBoundary(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStatePropertyAll(
-                widget.style.tableHeaderBackground,
-              ),
-              border: TableBorder.all(
-                color: widget.style.tableBorderColor,
-                borderRadius: BorderRadius.circular(widget.style.tableRadius),
-              ),
-              columns: widget.columns,
-              rows: visibleRows,
-            ),
-          ),
+        MarkdownTableFrame(
+          header: widget.header,
+          rows: visibleRows,
+          style: widget.style,
         ),
         if (collapsible)
           TextButton.icon(
@@ -1723,6 +1815,32 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
       ],
     );
   }
+}
+
+/// Paints a blockquote's leading bar as a slim capsule the full height of the
+/// quote: visible, but quieter than the text beside it.
+class _QuoteBarPainter extends CustomPainter {
+  const _QuoteBarPainter({required this.color});
+
+  static const double barWidth = 3;
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.height <= 0) return;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 0, barWidth, size.height),
+        const Radius.circular(barWidth / 2),
+      ),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_QuoteBarPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 /// Configuration for a GitHub-style alert.

@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -22,11 +23,11 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/native_platform_views.dart';
 import 'sidebar_page_test_support.dart';
 
 void main() {
@@ -112,7 +113,8 @@ void main() {
 
     expect(identical(button.imageAsset?.imageData, bytes), isTrue);
     expect(button.imageAsset?.assetPath, isEmpty);
-    expect(button.imageAsset?.size, 28);
+    // The photo fills the glass button: no ring around a smaller disc.
+    expect(button.imageAsset?.size, TouchTarget.minimum);
     expect(button.config.minHeight, TouchTarget.minimum);
     expect(button.config.width, TouchTarget.minimum);
     expect(button.config.style, CNButtonStyle.glass);
@@ -400,23 +402,11 @@ void main() {
   testWidgets(
     'iOS 26 keeps destinations in the pane without a native tab overlay',
     (tester) async {
+      stubNativePlatformViews();
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
       PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
       PlatformUiCapabilities.debugNativeIOS26Override = true;
       addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-      AdaptiveFloatingTabBar.debugIconRenderer = (_, _, _, _) =>
-          SynchronousFuture(Uint8List(0));
-      addTearDown(AdaptiveFloatingTabBar.debugReset);
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform_views,
-        (_) async => null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform_views,
-          null,
-        ),
-      );
       await tester.pumpWidget(
         sidebarTestBuildHarness(
           controllers: SidebarTestSidebarHarnessControllers(),
@@ -424,26 +414,24 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.byType(CNTabBar), findsNothing);
-      expect(find.byType(CupertinoTabBar), findsNothing);
       for (final label in ['Notes', 'Terminal', 'Channels']) {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
+      // The only native tab bar holds the backends, not the destinations.
       final bar = find.byKey(
         const ValueKey<String>('sidebar-backend-selector'),
       );
-      final params =
-          tester
-                  .widget<UiKitView>(
-                    find.descendant(of: bar, matching: find.byType(UiKitView)),
-                  )
-                  .creationParams
-              as Map;
-      expect([
-        for (final tab in (params['tabs'] as List).cast<Map>()) tab['label'],
-      ], ['Open WebUI', 'Hermes']);
-      expect(params['selectedIndex'], 0);
+      expect(find.byType(CNTabBar), findsOneWidget);
+      final tabs = tester.widget<CNTabBar>(
+        find.descendant(of: bar, matching: find.byType(CNTabBar)),
+      );
+      expect(
+        [for (final item in tabs.items) item.imageAsset?.assetPath],
+        ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
+      );
+      expect(tabs.currentIndex, 0);
       await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
     },
   );
 
@@ -473,7 +461,12 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 500));
-    final toolbar = find.byType(CNGlassButtonGroup, skipOffstage: false);
+    // The chat header's glass group: one capsule of plain glyphs.
+    final toolbar = find.byType(
+      ConduitToolbarActionCluster,
+      skipOffstage: false,
+    );
+    expect(toolbar, findsOneWidget);
     final buttons = tester
         .widgetList<CNButton>(
           find.descendant(
@@ -718,7 +711,10 @@ void main() {
 
     final barScope = find.byKey(const ValueKey<String>('sidebar-destinations'));
     // The history below is the chats, so they need no row of their own.
-    expect(find.descendant(of: barScope, matching: find.text('Chats')), findsNothing);
+    expect(
+      find.descendant(of: barScope, matching: find.text('Chats')),
+      findsNothing,
+    );
 
     final notesSemantics = tester.getSemantics(
       find.descendant(of: barScope, matching: find.text('Notes')).first,

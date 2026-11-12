@@ -66,7 +66,7 @@
   "credentials": "Inloggegevens",
   "apiKey": "API-sleutel",
   "token": "Token",
-  "jwt": "JWT",
+  "jwt": "Token",
   "usernameOrEmail": "Gebruikersnaam of e-mail",
   "password": "Wachtwoord",
   "signInWithToken": "Inloggen met token",
@@ -204,6 +204,7 @@
   "folderName": "Mapnaam",
   "newChat": "Nieuwe chat",
   "more": "Meer",
+  "done": "Gereed",
   "clear": "Wissen",
   "searchConversations": "Gesprekken zoeken...",
   "create": "Aanmaken",
@@ -288,8 +289,8 @@
   "usernameOrEmailHint": "Voer je gebruikersnaam of e-mail in",
   "passwordHint": "Voer je wachtwoord in",
   "enterToken": "Voer je JWT-token in",
-  "tokenHint": "Haal het JWT-token uit de Open WebUI-instellingen. API-sleutels (sk-...) worden niet ondersteund voor streaming.",
-  "apiKeyNotSupported": "API-sleutels (sk-...) worden niet ondersteund. Gebruik in plaats daarvan een JWT-token.",
+  "tokenHint": "Kopieer een JWT-sessietoken uit Open WebUI op het web en plak het hier. Beheerders vinden het onder Instellingen › Account › API-sleutels. API-sleutels (sk-…) werken niet.",
+  "apiKeyNotSupported": "Met API-sleutels (sk-…) kun je niet inloggen. Plak in plaats daarvan een JWT-token.",
   "apiKeyNoLongerSupported": "Je bent uitgelogd omdat API-sleutels niet meer worden ondersteund. Log in met een JWT-token uit de Open WebUI-instellingen.",
   "tokenTooShort": "Token is te kort",
   "signingIn": "Inloggen...",
@@ -350,7 +351,7 @@
     }
   },
   "themeDark": "Donker",
-  "themePalette": "Accentpalet",
+  "themePalette": "Kleurenpalet",
   "@themePalette": {
     "description": "Titel voor het selecteren van het app-kleurenpalet."
   },
@@ -385,8 +386,8 @@
   },
   "analyzing": "Analyseren…",
   "analyzed": "Geanalyseerd",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButton": "Concepten als notities bewaren",
+  "showComposerNotesButtonDescription": "Terwijl je typt, biedt het +-menu Bewaar als notitie, waarmee je je bericht als notitie bewaart in plaats van het te versturen.",
   "appCustomization": "Aanpassing",
   "appCustomizationSubtitle": "Thema, taal, stem en quick actions",
   "quickActionsDescription": "Snelkoppelingen in chat",
@@ -418,8 +419,8 @@
   "sttSilenceDuration": "Stilteduur",
   "sttSilenceDurationDescription": "Tijd om te wachten na stilte voordat de opname automatisch stopt",
   "sttTranscriptionLanguage": "Transcriptietaal",
-  "sttTranscriptionLanguageDescription": "Gebruik Auto om de taal van dit apparaat te volgen, of voer een code zoals en in.",
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageDescription": "Gebruik Automatisch herkennen om de server de gesproken taal te laten bepalen, of voer een code zoals en in.",
+  "sttTranscriptionLanguageAuto": "Automatisch herkennen",
   "sttTranscriptionLanguageCustom": "Aangepaste taalcode",
   "sttTranscriptionLanguagePlaceholder": "ISO-639-1-code, bijv. en",
   "sttTranscriptionLanguageInvalid": "Gebruik een tweeletterige taalcode zoals en.",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "Stem",
-  "ttsSpeechRate": "Spraaksnelheid",
+  "ttsPlaybackSpeed": "Afspeelsnelheid",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Toonhoogte",
   "ttsVolume": "Volume",
   "ttsPreview": "Stemvoorbeeld",
@@ -782,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochroom",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Strak neutraal thema ontworpen voor Conduit.",
+  "themePaletteConduitDescription": "Zwart-wit, zonder accentkleur.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -814,7 +825,7 @@
   "@themePaletteCatppuccinDescription": {
     "description": "Description of the Catppuccin palette."
   },
-  "themePaletteTangerineLabel": "Tangerine",
+  "themePaletteTangerineLabel": "Mandarijn",
   "@themePaletteTangerineLabel": {
     "description": "Palette name for Tangerine colors."
   },
@@ -969,9 +980,9 @@
   "sso": "SSO",
   "ssoDescription": "Aanmelden met de identiteitsprovider van uw organisatie",
   "signInWithSso": "Aanmelden met SSO",
-  "ssoAuthenticating": "Authenticeren...",
+  "ssoAuthenticating": "Inloggen…",
   "ssoAuthFailed": "SSO-authenticatie mislukt",
-  "ssoLoadingLogin": "Inlogpagina laden...",
+  "ssoLoadingLogin": "Aanmeldpagina laden…",
   "ldap": "LDAP",
   "ldapDescription": "Aanmelden met uw LDAP-directorygegevens",
   "signInWithLdap": "Aanmelden met LDAP",
@@ -1019,12 +1030,30 @@
   "usageQueueTime": "Wachttijd",
   "usageReasoningTokens": "Redeneertokens",
   "usageTotalTokens": "Totaal tokens",
+  "usageContextWindow": "Contextvenster",
+  "usageContextWindowValue": "{percent} · {used} van {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Proxy-authenticatie",
   "proxyAuthPlatformNotSupported": "Proxy-authenticatie vereist een mobiel apparaat. Authenticeer eerst via een browser.",
-  "proxyAuthLoading": "Authenticatiepagina laden...",
+  "proxyAuthLoading": "Aanmeldpagina laden…",
   "proxyAuthFailed": "Proxy-authenticatie mislukt",
   "proxyAuthHelpText": "Meld u aan via de proxy van uw organisatie en vervolgens bij Open WebUI. U wordt automatisch doorgestuurd.",
-  "proxyAuthHelpTextSimple": "Meld u aan via uw proxy. Na authenticatie tikt u op Doorgaan om in te loggen.",
+  "proxyAuthHelpTextSimple": "Log op deze pagina in bij je proxy en tik daarna op Doorgaan om in te loggen bij Open WebUI.",
   "continueButton": "Doorgaan",
   "proxyAuthRequired": "Deze server vereist proxy-authenticatie",
   "proxyAuthRequiredDescription": "Uw server lijkt achter een authenticatieproxy (zoals oauth2-proxy) te staan. U moet eerst inloggen via de proxy.",
@@ -1087,8 +1116,8 @@
   "chatSettingSeed": "Seed",
   "chatSettingStop": "Stopreeksen",
   "chatSettingFunctionCalling": "Tool-aanroep",
-  "chatSettingFunctionCallingNative": "Native",
-  "chatSettingFunctionCallingLegacy": "Legacy",
+  "chatSettingFunctionCallingNative": "Systeemeigen",
+  "chatSettingFunctionCallingLegacy": "Verouderd",
   "chatSettingResponseFormat": "Antwoordformaat",
   "chatSettingErrorRequired": "Voer een waarde in.",
   "chatSettingErrorNotANumber": "Voer een getal in.",
@@ -2047,92 +2076,92 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Ondersteuning",
   "settingsDataAndConnection": "Gegevens en verbinding",
-  "slidingSidebar": "Uitschuifbare zijbalk",
-  "slidingSidebarDescription": "Open Notities, Terminal en Kanalen naast de chatgeschiedenis.",
+  "slidingSidebar": "Zijbalktabbladen samenvoegen",
+  "slidingSidebarDescription": "Toont Notities, Terminal en Kanalen boven je chats in plaats van als tabbladen, en houdt op een telefoon een deel van de chat in beeld.",
   "settingsAppearance": "Weergave",
   "settingsAppearanceSubtitle": "Thema, kleurenpalet en taal",
   "settingsChatSubtitle": "Chatgedrag, snelle acties en geavanceerde prompts",
   "workspaceTitle": "Werkruimte",
-  "workspaceSubtitle": "Manage server resources and access.",
-  "workspaceModels": "Models",
-  "workspaceKnowledge": "Knowledge",
+  "workspaceSubtitle": "Serverbronnen en toegang beheren",
+  "workspaceModels": "Modellen",
+  "workspaceKnowledge": "Kennis",
   "workspacePrompts": "Prompts",
-  "workspaceTools": "Tools",
-  "workspaceSkills": "Skills",
-  "workspaceCreate": "Create",
-  "workspaceEmpty": "No resources yet.",
-  "workspaceDenied": "You do not have permission to manage this workspace section.",
-  "workspaceUnsupported": "This server does not support Workspace management.",
-  "workspaceLoadFailed": "Workspace could not be loaded.",
-  "workspaceRetry": "Retry",
-  "workspaceSelectItem": "Select an item to view its details.",
-  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
-  "workspaceSearchHint": "Search workspace resources",
-  "workspaceLoadMore": "Load more",
-  "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
-  "workspaceAccessPeopleHeading": "People & groups",
-  "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
-  "workspaceAccessEmpty": "Not shared with anyone yet.",
-  "workspaceAccessAddPeople": "Add people or groups",
-  "workspaceAccessAddGroups": "Add groups",
+  "workspaceTools": "Hulpmiddelen",
+  "workspaceSkills": "Vaardigheden",
+  "workspaceCreate": "Maken",
+  "workspaceEmpty": "Nog geen items.",
+  "workspaceDenied": "Je hebt geen toestemming om dit onderdeel van de werkruimte te beheren.",
+  "workspaceUnsupported": "Deze server ondersteunt geen werkruimtebeheer.",
+  "workspaceLoadFailed": "Kan de werkruimte niet laden.",
+  "workspaceRetry": "Opnieuw proberen",
+  "workspaceSelectItem": "Selecteer een item om de details te bekijken.",
+  "workspaceEditorComingSoon": "Deze editor komt beschikbaar in de volgende mijlpaal van de werkruimte.",
+  "workspaceSearchHint": "Bronnen in de werkruimte zoeken",
+  "workspaceLoadMore": "Meer laden",
+  "workspaceAccessPublicDisabled": "Je hebt geen toestemming om dit openbaar te delen.",
+  "workspaceAccessPeopleHeading": "Personen en groepen",
+  "workspaceAccessUsersDisabled": "Delen met afzonderlijke personen is uitgeschakeld; je kunt alleen met groepen delen.",
+  "workspaceAccessEmpty": "Nog met niemand gedeeld.",
+  "workspaceAccessAddPeople": "Personen of groepen toevoegen",
+  "workspaceAccessAddGroups": "Groepen toevoegen",
   "workspaceAccessAddUsers": "Mensen toevoegen",
   "workspaceAccessGroupsDisabled": "Delen met groepen is uitgeschakeld; je kunt alleen met individuele mensen delen.",
   "workspaceAccessGrantsDisabled": "Je hebt geen toestemming om met mensen of groepen te delen. Bestaande toegang blijft behouden.",
-  "workspaceAccessGroupBadge": "Group",
-  "workspaceAccessUserBadge": "Person",
-  "workspaceAccessCanEdit": "Can edit",
-  "workspaceAccessRemoveGrant": "Remove access",
-  "workspacePrincipalTitle": "Add people or groups",
-  "workspacePrincipalUsersTab": "People",
-  "workspacePrincipalGroupsTab": "Groups",
-  "workspacePrincipalSearchHint": "Search people by name or email",
-  "workspacePrincipalLoadFailed": "Could not load results.",
-  "workspacePrincipalSearchPrompt": "Search to find people to share with.",
-  "workspacePrincipalNoResults": "No matches found.",
-  "workspaceReadOnlyBadge": "Read only",
-  "workspaceReadOnlyExplanation": "You have view-only access to this resource.",
-  "workspaceEditorDiscardTitle": "Discard changes?",
-  "workspaceEditorDiscardMessage": "Your unsaved changes will be lost.",
-  "workspaceEditorDiscardConfirm": "Discard",
-  "workspaceEditorKeepEditing": "Keep editing",
-  "workspaceEditorSaveTooltip": "Save changes",
-  "workspaceEditorSaving": "Saving…",
-  "workspaceEditorMoreActions": "More actions",
-  "workspaceImportChooseFile": "Choose JSON file",
-  "workspaceImportPasteLabel": "Or paste JSON",
-  "workspaceImportPasteHint": "Paste exported JSON here",
-  "workspaceImportRun": "Import",
-  "workspaceImportInvalidJson": "That doesn't look like valid JSON.",
-  "workspaceImportEmpty": "No items were found to import.",
-  "workspaceImportReadFailed": "Could not read the selected file.",
-  "workspaceImportBatchFailed": "The import could not be completed.",
-  "workspaceImportSummary": "Imported {success} of {total} items",
-  "workspaceImportItemImported": "Imported",
-  "workspaceImportItemFailed": "Import failed",
-  "workspaceImportDone": "Done",
-  "workspaceModelNewTitle": "New model",
+  "workspaceAccessGroupBadge": "Groep",
+  "workspaceAccessUserBadge": "Persoon",
+  "workspaceAccessCanEdit": "Mag bewerken",
+  "workspaceAccessRemoveGrant": "Toegang intrekken",
+  "workspacePrincipalTitle": "Personen of groepen toevoegen",
+  "workspacePrincipalUsersTab": "Personen",
+  "workspacePrincipalGroupsTab": "Groepen",
+  "workspacePrincipalSearchHint": "Personen zoeken op naam of e-mail",
+  "workspacePrincipalLoadFailed": "Kan resultaten niet laden.",
+  "workspacePrincipalSearchPrompt": "Zoek personen om mee te delen.",
+  "workspacePrincipalNoResults": "Geen resultaten gevonden.",
+  "workspaceReadOnlyBadge": "Alleen-lezen",
+  "workspaceReadOnlyExplanation": "Je hebt alleen leestoegang tot deze bron.",
+  "workspaceEditorDiscardTitle": "Wijzigingen weggooien?",
+  "workspaceEditorDiscardMessage": "Je niet-opgeslagen wijzigingen gaan verloren.",
+  "workspaceEditorDiscardConfirm": "Weggooien",
+  "workspaceEditorKeepEditing": "Verder bewerken",
+  "workspaceEditorSaveTooltip": "Wijzigingen opslaan",
+  "workspaceEditorSaving": "Opslaan…",
+  "workspaceEditorMoreActions": "Meer acties",
+  "workspaceImportChooseFile": "JSON-bestand kiezen",
+  "workspaceImportPasteLabel": "Of plak JSON",
+  "workspaceImportPasteHint": "Plak hier geëxporteerde JSON",
+  "workspaceImportRun": "Importeren",
+  "workspaceImportInvalidJson": "Dat lijkt geen geldige JSON te zijn.",
+  "workspaceImportEmpty": "Er zijn geen items gevonden om te importeren.",
+  "workspaceImportReadFailed": "Kan het geselecteerde bestand niet lezen.",
+  "workspaceImportBatchFailed": "De import kon niet worden voltooid.",
+  "workspaceImportSummary": "{success} van {total} items geïmporteerd",
+  "workspaceImportItemImported": "Geïmporteerd",
+  "workspaceImportItemFailed": "Importeren mislukt",
+  "workspaceImportDone": "Klaar",
+  "workspaceModelNewTitle": "Nieuw model",
   "@workspaceModelNewTitle": {
     "description": "Title shown when creating a new workspace model."
   },
-  "workspaceModelIdLabel": "Model ID",
+  "workspaceModelIdLabel": "Model-ID",
   "@workspaceModelIdLabel": {
     "description": "Label for the unique model identifier field."
   },
-  "workspaceModelBaseModel": "Base model",
+  "workspaceModelBaseModel": "Basismodel",
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "None (custom)",
+  "workspaceModelBaseModelNone": "Geen (aangepast)",
   "workspaceModelBaseModelRequired": "Kies een basismodel.",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
-  "workspaceModelName": "Name",
+  "workspaceModelName": "Naam",
   "@workspaceModelName": {
     "description": "Label for the model display-name field."
   },
-  "workspaceModelDescription": "Description",
+  "workspaceModelDescription": "Beschrijving",
   "@workspaceModelDescription": {
     "description": "Label for the model description field."
   },
@@ -2140,75 +2169,75 @@
   "@workspaceModelTags": {
     "description": "Label for the model tags editor."
   },
-  "workspaceModelTagsHint": "Add tag",
+  "workspaceModelTagsHint": "Tag toevoegen",
   "@workspaceModelTagsHint": {
     "description": "Action chip label to add a new tag."
   },
-  "workspaceModelSystemPrompt": "System prompt",
+  "workspaceModelSystemPrompt": "Systeemprompt",
   "@workspaceModelSystemPrompt": {
     "description": "Label for the model system prompt field."
   },
-  "workspaceModelSuggestionPrompts": "Suggested prompts",
+  "workspaceModelSuggestionPrompts": "Voorgestelde prompts",
   "@workspaceModelSuggestionPrompts": {
     "description": "Label for the suggested prompts editor."
   },
-  "workspaceModelAddSuggestion": "Add suggestion",
+  "workspaceModelAddSuggestion": "Suggestie toevoegen",
   "@workspaceModelAddSuggestion": {
     "description": "Button to add a suggested prompt."
   },
-  "workspaceModelRemoveSuggestion": "Remove suggestion",
+  "workspaceModelRemoveSuggestion": "Suggestie verwijderen",
   "@workspaceModelRemoveSuggestion": {
     "description": "Tooltip to remove a suggested prompt."
   },
-  "workspaceModelStopSequences": "Stop sequences",
+  "workspaceModelStopSequences": "Stopreeksen",
   "@workspaceModelStopSequences": {
     "description": "Label for the stop-sequences field."
   },
-  "workspaceModelStopHint": "Comma-separated stop sequences",
+  "workspaceModelStopHint": "Stopreeksen, gescheiden door komma’s",
   "@workspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field."
   },
-  "workspaceModelAdvancedParams": "Advanced parameters (JSON)",
+  "workspaceModelAdvancedParams": "Geavanceerde parameters (JSON)",
   "@workspaceModelAdvancedParams": {
     "description": "Label for the advanced inference parameters JSON field."
   },
-  "workspaceModelParamsHint": "JSON object of additional parameters",
+  "workspaceModelParamsHint": "JSON-object met extra parameters",
   "@workspaceModelParamsHint": {
     "description": "Helper text for a JSON parameters field."
   },
-  "workspaceModelInvalidJson": "Enter a valid JSON object.",
+  "workspaceModelInvalidJson": "Voer een geldig JSON-object in.",
   "@workspaceModelInvalidJson": {
     "description": "Validation error for a malformed JSON field."
   },
-  "workspaceModelCapabilities": "Capabilities",
+  "workspaceModelCapabilities": "Mogelijkheden",
   "@workspaceModelCapabilities": {
     "description": "Label for the model capability toggles."
   },
-  "workspaceModelTerminal": "Terminal ID",
+  "workspaceModelTerminal": "Terminal-ID",
   "@workspaceModelTerminal": {
     "description": "Label for the terminal identifier field."
   },
-  "workspaceModelTtsVoice": "Text-to-speech voice",
+  "workspaceModelTtsVoice": "Stem voor tekst-naar-spraak",
   "@workspaceModelTtsVoice": {
     "description": "Label for the TTS voice field."
   },
-  "workspaceModelDefaultFeatures": "Default features",
+  "workspaceModelDefaultFeatures": "Standaardfuncties",
   "@workspaceModelDefaultFeatures": {
     "description": "Label for the default feature IDs field."
   },
-  "workspaceModelBuiltinTools": "Built-in tools (JSON)",
+  "workspaceModelBuiltinTools": "Ingebouwde tools (JSON)",
   "@workspaceModelBuiltinTools": {
     "description": "Label for the built-in tools JSON field."
   },
-  "workspaceModelKnowledge": "Knowledge",
+  "workspaceModelKnowledge": "Kennis",
   "@workspaceModelKnowledge": {
     "description": "Label for the knowledge relationship selector."
   },
-  "workspaceModelTools": "Tools",
+  "workspaceModelTools": "Hulpmiddelen",
   "@workspaceModelTools": {
     "description": "Label for the tools relationship selector."
   },
-  "workspaceModelSkills": "Skills",
+  "workspaceModelSkills": "Vaardigheden",
   "@workspaceModelSkills": {
     "description": "Label for the skills relationship selector."
   },
@@ -2216,15 +2245,15 @@
   "@workspaceModelFilters": {
     "description": "Label for the filter functions selector."
   },
-  "workspaceModelDefaultFilters": "Default filters",
+  "workspaceModelDefaultFilters": "Standaardfilters",
   "@workspaceModelDefaultFilters": {
     "description": "Label for the default filter functions selector."
   },
-  "workspaceModelActions": "Actions",
+  "workspaceModelActions": "Acties",
   "@workspaceModelActions": {
     "description": "Label for the action functions selector."
   },
-  "workspaceModelSectionBasics": "Basics",
+  "workspaceModelSectionBasics": "Basis",
   "@workspaceModelSectionBasics": {
     "description": "Section header for basic model fields."
   },
@@ -2232,39 +2261,39 @@
   "@workspaceModelSectionPrompt": {
     "description": "Section header for prompt-related model fields."
   },
-  "workspaceModelSectionAdvanced": "Advanced",
+  "workspaceModelSectionAdvanced": "Geavanceerd",
   "@workspaceModelSectionAdvanced": {
     "description": "Section header for advanced model fields."
   },
-  "workspaceModelSectionRelationships": "Relationships",
+  "workspaceModelSectionRelationships": "Koppelingen",
   "@workspaceModelSectionRelationships": {
     "description": "Section header for model relationship selectors."
   },
-  "workspaceModelSectionAccess": "Access",
+  "workspaceModelSectionAccess": "Toegang",
   "@workspaceModelSectionAccess": {
     "description": "Section header for model access controls."
   },
-  "workspaceModelProfileImage": "Profile image",
+  "workspaceModelProfileImage": "Profielafbeelding",
   "@workspaceModelProfileImage": {
     "description": "Label for the model profile image."
   },
-  "workspaceModelChangeImage": "Change image",
+  "workspaceModelChangeImage": "Afbeelding wijzigen",
   "@workspaceModelChangeImage": {
     "description": "Button to pick a new profile image."
   },
-  "workspaceModelRemoveImage": "Remove image",
+  "workspaceModelRemoveImage": "Afbeelding verwijderen",
   "@workspaceModelRemoveImage": {
     "description": "Button to clear the profile image."
   },
-  "workspaceModelImageFailed": "Could not load the selected image.",
+  "workspaceModelImageFailed": "Kan de geselecteerde afbeelding niet laden.",
   "@workspaceModelImageFailed": {
     "description": "Error when picking a profile image fails."
   },
-  "workspaceModelSelectNone": "None selected",
+  "workspaceModelSelectNone": "Niets geselecteerd",
   "@workspaceModelSelectNone": {
     "description": "Subtitle when no relationship items are selected."
   },
-  "workspaceModelSelectCount": "{count} selected",
+  "workspaceModelSelectCount": "{count} geselecteerd",
   "@workspaceModelSelectCount": {
     "description": "Subtitle showing how many relationship items are selected.",
     "placeholders": {
@@ -2273,47 +2302,47 @@
       }
     }
   },
-  "workspaceModelRelationshipEmpty": "Nothing available to select.",
+  "workspaceModelRelationshipEmpty": "Niets beschikbaar om te selecteren.",
   "@workspaceModelRelationshipEmpty": {
     "description": "Empty state for a relationship picker."
   },
-  "workspaceModelManageAccess": "Manage access",
+  "workspaceModelManageAccess": "Toegang beheren",
   "@workspaceModelManageAccess": {
     "description": "Action to open the access-grants sheet for a model."
   },
-  "workspaceModelClone": "Duplicate",
+  "workspaceModelClone": "Dupliceren",
   "@workspaceModelClone": {
     "description": "Action that duplicates the model."
   },
-  "workspaceModelCloneSuffix": "(copy)",
+  "workspaceModelCloneSuffix": "(kopie)",
   "@workspaceModelCloneSuffix": {
     "description": "Suffix appended to a duplicated model name."
   },
-  "workspaceModelActivate": "Activate",
+  "workspaceModelActivate": "Activeren",
   "@workspaceModelActivate": {
     "description": "Action that marks the model active."
   },
-  "workspaceModelDeactivate": "Deactivate",
+  "workspaceModelDeactivate": "Deactiveren",
   "@workspaceModelDeactivate": {
     "description": "Action that marks the model inactive."
   },
-  "workspaceModelHide": "Hide from selector",
+  "workspaceModelHide": "Verbergen in kiezer",
   "@workspaceModelHide": {
     "description": "Action that hides the model from model selectors."
   },
-  "workspaceModelUnhide": "Show in selector",
+  "workspaceModelUnhide": "Tonen in kiezer",
   "@workspaceModelUnhide": {
     "description": "Action that unhides the model in model selectors."
   },
-  "workspaceModelDelete": "Delete model",
+  "workspaceModelDelete": "Model verwijderen",
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
+  "workspaceModelDeleteConfirmTitle": "Model verwijderen?",
   "@workspaceModelDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a model."
   },
-  "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "workspaceModelDeleteConfirmMessage": "Hiermee wordt {name} definitief verwijderd.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
     "placeholders": {
@@ -2322,83 +2351,83 @@
       }
     }
   },
-  "workspaceModelExport": "Export model",
+  "workspaceModelExport": "Model exporteren",
   "@workspaceModelExport": {
     "description": "Action that exports a single model as JSON."
   },
-  "workspaceModelExportAll": "Export all models",
+  "workspaceModelExportAll": "Alle modellen exporteren",
   "@workspaceModelExportAll": {
     "description": "Action that exports every readable model as JSON."
   },
-  "workspaceModelExportFailed": "The export could not be completed.",
+  "workspaceModelExportFailed": "De export kon niet worden voltooid.",
   "@workspaceModelExportFailed": {
     "description": "Error when exporting models fails."
   },
-  "workspaceModelImport": "Import models",
+  "workspaceModelImport": "Modellen importeren",
   "@workspaceModelImport": {
     "description": "Action that imports models from JSON."
   },
-  "workspaceModelIdRequired": "A model ID is required.",
+  "workspaceModelIdRequired": "Een model-ID is verplicht.",
   "@workspaceModelIdRequired": {
     "description": "Validation error when the model ID is empty."
   },
-  "workspaceModelNameRequired": "A name is required.",
+  "workspaceModelNameRequired": "Een naam is verplicht.",
   "@workspaceModelNameRequired": {
     "description": "Validation error when the model name is empty."
   },
-  "workspaceModelSaved": "Model saved.",
+  "workspaceModelSaved": "Model opgeslagen.",
   "@workspaceModelSaved": {
     "description": "Confirmation that the model was saved."
   },
-  "workspaceModelSaveFailed": "The model could not be saved.",
+  "workspaceModelSaveFailed": "Het model kon niet worden opgeslagen.",
   "@workspaceModelSaveFailed": {
     "description": "Error when saving the model fails."
   },
-  "workspaceModelDeleted": "Model deleted.",
+  "workspaceModelDeleted": "Model verwijderd.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
   },
-  "workspaceModelAddAction": "Add",
+  "workspaceModelAddAction": "Toevoegen",
   "@workspaceModelAddAction": {
     "description": "Confirm button in a small add-text dialog."
   },
-  "workspaceKnowledgeCreateTitle": "New knowledge base",
+  "workspaceKnowledgeCreateTitle": "Nieuwe kennisbank",
   "@workspaceKnowledgeCreateTitle": {
     "description": "Title of the create form for a new knowledge base."
   },
-  "workspaceKnowledgeName": "Name",
+  "workspaceKnowledgeName": "Naam",
   "@workspaceKnowledgeName": {
     "description": "Label for the knowledge base name field."
   },
-  "workspaceKnowledgeDescription": "Description",
+  "workspaceKnowledgeDescription": "Beschrijving",
   "@workspaceKnowledgeDescription": {
     "description": "Label for the knowledge base description field."
   },
-  "workspaceKnowledgeNameRequired": "A name is required.",
+  "workspaceKnowledgeNameRequired": "Een naam is verplicht.",
   "@workspaceKnowledgeNameRequired": {
     "description": "Validation error when the knowledge base name is empty."
   },
-  "workspaceKnowledgeSaved": "Knowledge base saved.",
+  "workspaceKnowledgeSaved": "Kennisbank opgeslagen.",
   "@workspaceKnowledgeSaved": {
     "description": "Confirmation that the knowledge base was saved."
   },
-  "workspaceKnowledgeSaveFailed": "The knowledge base could not be saved.",
+  "workspaceKnowledgeSaveFailed": "De kennisbank kon niet worden opgeslagen.",
   "@workspaceKnowledgeSaveFailed": {
     "description": "Error when saving a knowledge base fails."
   },
-  "workspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "workspaceKnowledgeDeleted": "Kennisbank verwijderd.",
   "@workspaceKnowledgeDeleted": {
     "description": "Confirmation that the knowledge base was deleted."
   },
-  "workspaceKnowledgeDelete": "Delete knowledge base",
+  "workspaceKnowledgeDelete": "Kennisbank verwijderen",
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "workspaceKnowledgeDeleteConfirmTitle": "Kennisbank verwijderen?",
   "@workspaceKnowledgeDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "workspaceKnowledgeDeleteConfirmMessage": "Hiermee wordt {name} definitief verwijderd en worden de bestanden ervan losgekoppeld.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
     "placeholders": {
@@ -2407,15 +2436,15 @@
       }
     }
   },
-  "workspaceKnowledgeReset": "Reset",
+  "workspaceKnowledgeReset": "Resetten",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "workspaceKnowledgeResetConfirmTitle": "Kennisbank resetten?",
   "@workspaceKnowledgeResetConfirmTitle": {
     "description": "Confirmation dialog title for resetting a knowledge base."
   },
-  "workspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "workspaceKnowledgeResetConfirmMessage": "Hiermee worden alle bestanden uit {name} verwijderd, maar de kennisbank blijft bestaan.",
   "@workspaceKnowledgeResetConfirmMessage": {
     "description": "Confirmation dialog body for resetting a knowledge base.",
     "placeholders": {
@@ -2424,83 +2453,83 @@
       }
     }
   },
-  "workspaceKnowledgeResetDone": "Knowledge base reset.",
+  "workspaceKnowledgeResetDone": "Kennisbank gereset.",
   "@workspaceKnowledgeResetDone": {
     "description": "Confirmation that the knowledge base files were reset."
   },
-  "workspaceKnowledgeExport": "Export knowledge base",
+  "workspaceKnowledgeExport": "Kennisbank exporteren",
   "@workspaceKnowledgeExport": {
     "description": "Overflow action that exports a knowledge base archive."
   },
-  "workspaceKnowledgeExportFailed": "The export could not be completed.",
+  "workspaceKnowledgeExportFailed": "De export kon niet worden voltooid.",
   "@workspaceKnowledgeExportFailed": {
     "description": "Error when exporting a knowledge base fails."
   },
-  "workspaceKnowledgeManageAccess": "Manage access",
+  "workspaceKnowledgeManageAccess": "Toegang beheren",
   "@workspaceKnowledgeManageAccess": {
     "description": "Action that opens the sharing and access sheet for a knowledge base."
   },
-  "workspaceKnowledgeViewAll": "All",
+  "workspaceKnowledgeViewAll": "Alle",
   "@workspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases."
   },
-  "workspaceKnowledgeViewCreated": "Created by you",
+  "workspaceKnowledgeViewCreated": "Door jou gemaakt",
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Shared with you",
+  "workspaceKnowledgeViewShared": "Met jou gedeeld",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },
-  "workspaceKnowledgeSourceAll": "All sources",
+  "workspaceKnowledgeSourceAll": "Alle bronnen",
   "@workspaceKnowledgeSourceAll": {
     "description": "Knowledge collection filter showing both local and connected sources."
   },
-  "workspaceKnowledgeSourceLocal": "Local",
+  "workspaceKnowledgeSourceLocal": "Lokaal",
   "@workspaceKnowledgeSourceLocal": {
     "description": "Knowledge collection filter showing only local knowledge bases."
   },
-  "workspaceKnowledgeSourceExternal": "Connected",
+  "workspaceKnowledgeSourceExternal": "Gekoppeld",
   "@workspaceKnowledgeSourceExternal": {
     "description": "Knowledge collection filter showing only external/connected knowledge bases."
   },
-  "workspaceKnowledgeExternalBadge": "Connected",
+  "workspaceKnowledgeExternalBadge": "Gekoppeld",
   "@workspaceKnowledgeExternalBadge": {
     "description": "Badge marking a knowledge base as external/connected (read-only)."
   },
-  "workspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "workspaceKnowledgeExternalReadOnly": "Gekoppelde kennisbanken zijn in deze app alleen-lezen.",
   "@workspaceKnowledgeExternalReadOnly": {
     "description": "Notice shown when viewing an external/connected knowledge base."
   },
-  "workspaceKnowledgeFilesTitle": "Files",
+  "workspaceKnowledgeFilesTitle": "Bestanden",
   "@workspaceKnowledgeFilesTitle": {
     "description": "Heading of the knowledge base file browser."
   },
-  "workspaceKnowledgeFilesEmpty": "No files yet.",
+  "workspaceKnowledgeFilesEmpty": "Nog geen bestanden.",
   "@workspaceKnowledgeFilesEmpty": {
     "description": "Empty state when a knowledge base directory contains no files."
   },
-  "workspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "workspaceKnowledgeFilesLoadFailed": "Kan bestanden niet laden.",
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Refresh",
+  "workspaceKnowledgeRefreshFiles": "Vernieuwen",
   "@workspaceKnowledgeRefreshFiles": {
     "description": "Tooltip for the button that refreshes the knowledge file list."
   },
-  "workspaceKnowledgeRoot": "Root",
+  "workspaceKnowledgeRoot": "Hoofdmap",
   "@workspaceKnowledgeRoot": {
     "description": "Breadcrumb label for the top level of a knowledge base."
   },
-  "workspaceKnowledgeAddMenu": "Add files",
+  "workspaceKnowledgeAddMenu": "Bestanden toevoegen",
   "@workspaceKnowledgeAddMenu": {
     "description": "Tooltip for the menu that adds files or folders to a knowledge base."
   },
-  "workspaceKnowledgeUpload": "Upload file",
+  "workspaceKnowledgeUpload": "Bestand uploaden",
   "@workspaceKnowledgeUpload": {
     "description": "Menu item to upload a single local file into a knowledge base."
   },
-  "workspaceKnowledgeUploading": "Uploading {name}…",
+  "workspaceKnowledgeUploading": "{name} uploaden…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
     "placeholders": {
@@ -2509,63 +2538,63 @@
       }
     }
   },
-  "workspaceKnowledgeUploadFailed": "The file could not be uploaded.",
+  "workspaceKnowledgeUploadFailed": "Het bestand kon niet worden geüpload.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
   },
-  "workspaceKnowledgeBatchAttach": "Upload multiple files",
+  "workspaceKnowledgeBatchAttach": "Meerdere bestanden uploaden",
   "@workspaceKnowledgeBatchAttach": {
     "description": "Menu item to upload several local files into a knowledge base at once."
   },
-  "workspaceKnowledgeAttachExisting": "Attach server file",
+  "workspaceKnowledgeAttachExisting": "Serverbestand koppelen",
   "@workspaceKnowledgeAttachExisting": {
     "description": "Menu item to attach an existing server file to a knowledge base."
   },
-  "workspaceKnowledgeAttachFailed": "The file could not be attached.",
+  "workspaceKnowledgeAttachFailed": "Het bestand kon niet worden gekoppeld.",
   "@workspaceKnowledgeAttachFailed": {
     "description": "Error when attaching an existing file to a knowledge base fails."
   },
-  "workspaceKnowledgeAddText": "Add text file",
+  "workspaceKnowledgeAddText": "Tekstbestand toevoegen",
   "@workspaceKnowledgeAddText": {
     "description": "Menu item to create a text file and attach it to a knowledge base."
   },
-  "workspaceKnowledgeAddTextName": "File name",
+  "workspaceKnowledgeAddTextName": "Bestandsnaam",
   "@workspaceKnowledgeAddTextName": {
     "description": "Label for the file name field when adding a text file."
   },
-  "workspaceKnowledgeAddTextContent": "Content",
+  "workspaceKnowledgeAddTextContent": "Inhoud",
   "@workspaceKnowledgeAddTextContent": {
     "description": "Label for the content field when adding a text file."
   },
-  "workspaceKnowledgeAddTextFailed": "The text file could not be added.",
+  "workspaceKnowledgeAddTextFailed": "Het tekstbestand kon niet worden toegevoegd.",
   "@workspaceKnowledgeAddTextFailed": {
     "description": "Error when adding a text file to a knowledge base fails."
   },
-  "workspaceKnowledgeNewFolder": "New folder",
+  "workspaceKnowledgeNewFolder": "Nieuwe map",
   "@workspaceKnowledgeNewFolder": {
     "description": "Menu item and dialog title to create a new directory in a knowledge base."
   },
-  "workspaceKnowledgeFolderName": "Folder name",
+  "workspaceKnowledgeFolderName": "Mapnaam",
   "@workspaceKnowledgeFolderName": {
     "description": "Label for the folder name field."
   },
-  "workspaceKnowledgeFolderCreateFailed": "The folder could not be created.",
+  "workspaceKnowledgeFolderCreateFailed": "De map kon niet worden gemaakt.",
   "@workspaceKnowledgeFolderCreateFailed": {
     "description": "Error when creating or renaming a knowledge base folder fails."
   },
-  "workspaceKnowledgeRenameFolder": "Rename folder",
+  "workspaceKnowledgeRenameFolder": "Map hernoemen",
   "@workspaceKnowledgeRenameFolder": {
     "description": "Action to rename a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolder": "Delete folder",
+  "workspaceKnowledgeDeleteFolder": "Map verwijderen",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "workspaceKnowledgeDeleteFolderConfirmTitle": "Map verwijderen?",
   "@workspaceKnowledgeDeleteFolderConfirmTitle": {
     "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
-  "workspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "workspaceKnowledgeDeleteFolderConfirmMessage": "Bestanden in {name} worden naar de bovenliggende map verplaatst.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base directory.",
     "placeholders": {
@@ -2574,43 +2603,43 @@
       }
     }
   },
-  "workspaceKnowledgeFolderDeleteFailed": "The folder could not be deleted.",
+  "workspaceKnowledgeFolderDeleteFailed": "De map kon niet worden verwijderd.",
   "@workspaceKnowledgeFolderDeleteFailed": {
     "description": "Error when deleting a knowledge base folder fails."
   },
-  "workspaceKnowledgeFileRename": "Rename",
+  "workspaceKnowledgeFileRename": "Hernoemen",
   "@workspaceKnowledgeFileRename": {
     "description": "Per-file action to rename a knowledge base file."
   },
-  "workspaceKnowledgeFileRefresh": "Re-index",
+  "workspaceKnowledgeFileRefresh": "Opnieuw indexeren",
   "@workspaceKnowledgeFileRefresh": {
     "description": "Per-file action to re-index a knowledge base file."
   },
-  "workspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "workspaceKnowledgeFileReindexed": "Opnieuw indexeren gestart.",
   "@workspaceKnowledgeFileReindexed": {
     "description": "Confirmation that re-indexing a knowledge base file began."
   },
-  "workspaceKnowledgeFileMove": "Move",
+  "workspaceKnowledgeFileMove": "Verplaatsen",
   "@workspaceKnowledgeFileMove": {
     "description": "Per-file action to move a knowledge base file to another folder."
   },
-  "workspaceKnowledgeFileRenameFailed": "The file could not be renamed.",
+  "workspaceKnowledgeFileRenameFailed": "Het bestand kon niet worden hernoemd.",
   "@workspaceKnowledgeFileRenameFailed": {
     "description": "Error when renaming a knowledge base file fails."
   },
-  "workspaceKnowledgeFileMoveFailed": "The file could not be moved.",
+  "workspaceKnowledgeFileMoveFailed": "Het bestand kon niet worden verplaatst.",
   "@workspaceKnowledgeFileMoveFailed": {
     "description": "Error when moving a knowledge base file fails."
   },
-  "workspaceKnowledgeFileDetach": "Remove from knowledge",
+  "workspaceKnowledgeFileDetach": "Uit kennisbank verwijderen",
   "@workspaceKnowledgeFileDetach": {
     "description": "Per-file action to detach a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachTitle": "Remove file?",
+  "workspaceKnowledgeFileDetachTitle": "Bestand verwijderen?",
   "@workspaceKnowledgeFileDetachTitle": {
     "description": "Confirmation dialog title for detaching a file from a knowledge base."
   },
-  "workspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "workspaceKnowledgeFileDetachMessage": "{name} uit deze kennisbank verwijderen?",
   "@workspaceKnowledgeFileDetachMessage": {
     "description": "Confirmation dialog body for detaching a file from a knowledge base.",
     "placeholders": {
@@ -2619,83 +2648,83 @@
       }
     }
   },
-  "workspaceKnowledgeFileDeleteUnderlying": "Also delete the underlying file",
+  "workspaceKnowledgeFileDeleteUnderlying": "Ook het onderliggende bestand verwijderen",
   "@workspaceKnowledgeFileDeleteUnderlying": {
     "description": "Checkbox to delete the stored file when detaching, shown to owners/admins."
   },
-  "workspaceKnowledgeFileDetachFailed": "The file could not be removed.",
+  "workspaceKnowledgeFileDetachFailed": "Het bestand kon niet worden verwijderd.",
   "@workspaceKnowledgeFileDetachFailed": {
     "description": "Error when detaching a file from a knowledge base fails."
   },
-  "workspaceKnowledgeMoveTitle": "Move to folder",
+  "workspaceKnowledgeMoveTitle": "Naar map verplaatsen",
   "@workspaceKnowledgeMoveTitle": {
     "description": "Title of the sheet for choosing a destination folder."
   },
-  "workspaceKnowledgeMoveRoot": "Root (no folder)",
+  "workspaceKnowledgeMoveRoot": "Hoofdmap (geen map)",
   "@workspaceKnowledgeMoveRoot": {
     "description": "Move destination representing the knowledge base root."
   },
-  "workspaceKnowledgeStatusPending": "Processing…",
+  "workspaceKnowledgeStatusPending": "Verwerken…",
   "@workspaceKnowledgeStatusPending": {
     "description": "Status shown for a knowledge base file still being ingested."
   },
-  "workspaceKnowledgeStatusFailed": "Failed",
+  "workspaceKnowledgeStatusFailed": "Mislukt",
   "@workspaceKnowledgeStatusFailed": {
     "description": "Status shown for a knowledge base file whose ingestion failed."
   },
-  "workspacePromptCreateTitle": "New prompt",
+  "workspacePromptCreateTitle": "Nieuwe prompt",
   "@workspacePromptCreateTitle": {
     "description": "Title shown while creating a new workspace prompt."
   },
-  "workspacePromptName": "Name",
+  "workspacePromptName": "Naam",
   "@workspacePromptName": {
     "description": "Label for the prompt name field."
   },
-  "workspacePromptNameRequired": "Name is required.",
+  "workspacePromptNameRequired": "Naam is verplicht.",
   "@workspacePromptNameRequired": {
     "description": "Validation error when the prompt name is empty."
   },
-  "workspacePromptCommand": "Command",
+  "workspacePromptCommand": "Opdracht",
   "@workspacePromptCommand": {
     "description": "Label for the prompt slash-command field."
   },
-  "workspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "workspacePromptCommandHint": "Alleen letters, cijfers, koppeltekens en underscores. Typ het in de chat als slash-opdracht.",
   "@workspacePromptCommandHint": {
     "description": "Helper text explaining the allowed prompt command characters."
   },
-  "workspacePromptCommandRequired": "Command is required.",
+  "workspacePromptCommandRequired": "Opdracht is verplicht.",
   "@workspacePromptCommandRequired": {
     "description": "Validation error when the prompt command is empty."
   },
-  "workspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspacePromptCommandInvalid": "Alleen letters, cijfers, koppeltekens en underscores zijn toegestaan.",
   "@workspacePromptCommandInvalid": {
     "description": "Validation error when the prompt command contains illegal characters."
   },
-  "workspacePromptCommandTaken": "That command is already in use.",
+  "workspacePromptCommandTaken": "Die opdracht is al in gebruik.",
   "@workspacePromptCommandTaken": {
     "description": "Error shown when saving a prompt whose command collides with another prompt."
   },
-  "workspacePromptContent": "Prompt content",
+  "workspacePromptContent": "Promptinhoud",
   "@workspacePromptContent": {
     "description": "Label for the prompt template body field."
   },
-  "workspacePromptContentHint": "Write the prompt template…",
+  "workspacePromptContentHint": "Schrijf het promptsjabloon…",
   "@workspacePromptContentHint": {
     "description": "Placeholder text for the empty prompt content field."
   },
-  "workspacePromptContentRequired": "Prompt content is required.",
+  "workspacePromptContentRequired": "Promptinhoud is verplicht.",
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Write",
+  "workspacePromptWriteTab": "Schrijven",
   "@workspacePromptWriteTab": {
     "description": "Toggle label for the editable prompt content view."
   },
-  "workspacePromptPreviewTab": "Preview",
+  "workspacePromptPreviewTab": "Voorvertoning",
   "@workspacePromptPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the prompt content."
   },
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "workspacePromptPreviewEmpty": "Nog niets om te tonen.",
   "@workspacePromptPreviewEmpty": {
     "description": "Empty-state text shown in the prompt preview when there is no content."
   },
@@ -2703,67 +2732,67 @@
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
   },
-  "workspacePromptTagAdd": "Add tag",
+  "workspacePromptTagAdd": "Tag toevoegen",
   "@workspacePromptTagAdd": {
     "description": "Action to add a tag to a prompt."
   },
-  "workspacePromptVersionSection": "Version",
+  "workspacePromptVersionSection": "Versie",
   "@workspacePromptVersionSection": {
     "description": "Section header for prompt versioning controls."
   },
-  "workspacePromptCommitMessage": "Commit message",
+  "workspacePromptCommitMessage": "Commitbericht",
   "@workspacePromptCommitMessage": {
     "description": "Label for the optional commit message recorded with a prompt version."
   },
-  "workspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "workspacePromptCommitMessageHint": "Beschrijf wat er is gewijzigd (optioneel)",
   "@workspacePromptCommitMessageHint": {
     "description": "Placeholder for the prompt commit message field."
   },
-  "workspacePromptSetProduction": "Set as production version",
+  "workspacePromptSetProduction": "Instellen als productieversie",
   "@workspacePromptSetProduction": {
     "description": "Toggle that marks the saved prompt version as the live production version."
   },
-  "workspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "workspacePromptSetProductionSubtitle": "Maak dit de live versie die in de chat wordt gebruikt.",
   "@workspacePromptSetProductionSubtitle": {
     "description": "Explanation for the production-version toggle."
   },
-  "workspacePromptManageAccess": "Manage access",
+  "workspacePromptManageAccess": "Toegang beheren",
   "@workspacePromptManageAccess": {
     "description": "Action to open the sharing/access editor for a prompt."
   },
-  "workspacePromptClone": "Duplicate",
+  "workspacePromptClone": "Dupliceren",
   "@workspacePromptClone": {
     "description": "Overflow action that clones a prompt."
   },
-  "workspacePromptCloneSuffix": "(copy)",
+  "workspacePromptCloneSuffix": "(kopie)",
   "@workspacePromptCloneSuffix": {
     "description": "Suffix appended to the name and command of a cloned prompt."
   },
-  "workspacePromptUpdateDetails": "Save name & command only",
+  "workspacePromptUpdateDetails": "Alleen naam en opdracht opslaan",
   "@workspacePromptUpdateDetails": {
     "description": "Overflow action that updates prompt metadata without creating a new version."
   },
-  "workspacePromptDetailsSaved": "Details saved",
+  "workspacePromptDetailsSaved": "Details opgeslagen",
   "@workspacePromptDetailsSaved": {
     "description": "Confirmation that prompt name and command were updated."
   },
-  "workspacePromptActivate": "Activate",
+  "workspacePromptActivate": "Activeren",
   "@workspacePromptActivate": {
     "description": "Overflow action that enables a prompt."
   },
-  "workspacePromptDeactivate": "Deactivate",
+  "workspacePromptDeactivate": "Deactiveren",
   "@workspacePromptDeactivate": {
     "description": "Overflow action that disables a prompt."
   },
-  "workspacePromptDelete": "Delete prompt",
+  "workspacePromptDelete": "Prompt verwijderen",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
   },
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "workspacePromptDeleteConfirmTitle": "Prompt verwijderen?",
   "@workspacePromptDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt."
   },
-  "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspacePromptDeleteConfirmMessage": "„{name}” wordt definitief verwijderd.",
   "@workspacePromptDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt.",
     "placeholders": {
@@ -2772,43 +2801,43 @@
       }
     }
   },
-  "workspacePromptDeleted": "Prompt deleted",
+  "workspacePromptDeleted": "Prompt verwijderd",
   "@workspacePromptDeleted": {
     "description": "Confirmation that a prompt was deleted."
   },
-  "workspacePromptSaved": "Prompt saved",
+  "workspacePromptSaved": "Prompt opgeslagen",
   "@workspacePromptSaved": {
     "description": "Confirmation that a prompt was saved."
   },
-  "workspacePromptSaveFailed": "Couldn't save the prompt. Please try again.",
+  "workspacePromptSaveFailed": "Kan de prompt niet opslaan. Probeer het opnieuw.",
   "@workspacePromptSaveFailed": {
     "description": "Error shown when saving a prompt fails."
   },
-  "workspacePromptImport": "Import prompts",
+  "workspacePromptImport": "Prompts importeren",
   "@workspacePromptImport": {
     "description": "Overflow action that imports prompt definitions from JSON."
   },
-  "workspacePromptExport": "Export prompts",
+  "workspacePromptExport": "Prompts exporteren",
   "@workspacePromptExport": {
     "description": "Overflow action that exports readable prompts as JSON."
   },
-  "workspacePromptExportFailed": "Couldn't export prompts.",
+  "workspacePromptExportFailed": "Kan prompts niet exporteren.",
   "@workspacePromptExportFailed": {
     "description": "Error shown when exporting prompts fails."
   },
-  "workspacePromptHistory": "Version history",
+  "workspacePromptHistory": "Versiegeschiedenis",
   "@workspacePromptHistory": {
     "description": "Header of the prompt version-history panel."
   },
-  "workspacePromptHistoryEmpty": "No versions yet.",
+  "workspacePromptHistoryEmpty": "Nog geen versies.",
   "@workspacePromptHistoryEmpty": {
     "description": "Empty-state text when a prompt has no version history."
   },
-  "workspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "workspacePromptHistoryLoadFailed": "Kan de versiegeschiedenis niet laden.",
   "@workspacePromptHistoryLoadFailed": {
     "description": "Error shown when loading prompt history fails."
   },
-  "workspacePromptHistoryCommitFallback": "No commit message",
+  "workspacePromptHistoryCommitFallback": "Geen commitbericht",
   "@workspacePromptHistoryCommitFallback": {
     "description": "Placeholder shown for a history entry without a commit message."
   },
@@ -2816,167 +2845,167 @@
   "@workspacePromptHistoryLive": {
     "description": "Badge marking the active production version of a prompt."
   },
-  "workspacePromptHistoryDiff": "Compare with production",
+  "workspacePromptHistoryDiff": "Vergelijken met productie",
   "@workspacePromptHistoryDiff": {
     "description": "Action to diff a prompt version against the production version."
   },
-  "workspacePromptHistoryDiffTitle": "Version comparison",
+  "workspacePromptHistoryDiffTitle": "Versievergelijking",
   "@workspacePromptHistoryDiffTitle": {
     "description": "Title of the prompt version diff sheet."
   },
-  "workspacePromptHistoryDiffEmpty": "No content differences.",
+  "workspacePromptHistoryDiffEmpty": "Geen verschillen in inhoud.",
   "@workspacePromptHistoryDiffEmpty": {
     "description": "Shown when two prompt versions have identical content."
   },
-  "workspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "workspacePromptHistoryDiffNameChanged": "De naam is tussen deze versies gewijzigd.",
   "@workspacePromptHistoryDiffNameChanged": {
     "description": "Note shown in the diff sheet when the prompt name changed."
   },
-  "workspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "workspacePromptHistoryDiffFailed": "Kan de verschillen niet berekenen.",
   "@workspacePromptHistoryDiffFailed": {
     "description": "Error shown when computing a prompt version diff fails."
   },
-  "workspacePromptHistoryRestore": "Restore this version",
+  "workspacePromptHistoryRestore": "Deze versie herstellen",
   "@workspacePromptHistoryRestore": {
     "description": "Action that loads a version snapshot back into the editor."
   },
-  "workspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "workspacePromptHistoryRestored": "Inhoud van de versie hersteld. Sla op om deze te bewaren.",
   "@workspacePromptHistoryRestored": {
     "description": "Confirmation that a version snapshot was loaded into the editor."
   },
-  "workspacePromptHistorySetProduction": "Set as production",
+  "workspacePromptHistorySetProduction": "Instellen als productie",
   "@workspacePromptHistorySetProduction": {
     "description": "Action that pins a version as the production version."
   },
-  "workspacePromptHistoryProductionSet": "Production version updated.",
+  "workspacePromptHistoryProductionSet": "Productieversie bijgewerkt.",
   "@workspacePromptHistoryProductionSet": {
     "description": "Confirmation that the production version was changed."
   },
-  "workspacePromptHistoryDelete": "Delete version",
+  "workspacePromptHistoryDelete": "Versie verwijderen",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
   },
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "workspacePromptHistoryDeleteConfirmTitle": "Versie verwijderen?",
   "@workspacePromptHistoryDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "workspacePromptHistoryDeleteConfirmMessage": "Deze momentopname van de versie wordt verwijderd. Dit kan niet ongedaan worden gemaakt.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a prompt version."
   },
-  "workspacePromptHistoryDeleted": "Version deleted",
+  "workspacePromptHistoryDeleted": "Versie verwijderd",
   "@workspacePromptHistoryDeleted": {
     "description": "Confirmation that a prompt version was deleted."
   },
-  "workspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "workspacePromptHistoryDeleteProduction": "De live productieversie kan niet worden verwijderd.",
   "@workspacePromptHistoryDeleteProduction": {
     "description": "Error shown when trying to delete the active production version."
   },
-  "workspaceSkillCreateTitle": "New skill",
+  "workspaceSkillCreateTitle": "Nieuwe vaardigheid",
   "@workspaceSkillCreateTitle": {
     "description": "Title shown while creating a new workspace skill."
   },
-  "workspaceSkillName": "Name",
+  "workspaceSkillName": "Naam",
   "@workspaceSkillName": {
     "description": "Label for the skill name field."
   },
-  "workspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "workspaceSkillNameHint": "bijv. Richtlijnen voor codereview",
   "@workspaceSkillNameHint": {
     "description": "Placeholder example for the skill name field."
   },
-  "workspaceSkillNameRequired": "Name is required.",
+  "workspaceSkillNameRequired": "Naam is verplicht.",
   "@workspaceSkillNameRequired": {
     "description": "Validation error when the skill name is empty."
   },
-  "workspaceSkillId": "Skill ID",
+  "workspaceSkillId": "Vaardigheids-ID",
   "@workspaceSkillId": {
     "description": "Label for the skill identifier field."
   },
-  "workspaceSkillIdHint": "e.g. code-review-guidelines",
+  "workspaceSkillIdHint": "bijv. richtlijnen-codereview",
   "@workspaceSkillIdHint": {
     "description": "Placeholder example for the skill identifier field."
   },
-  "workspaceSkillIdRequired": "Skill ID is required.",
+  "workspaceSkillIdRequired": "Vaardigheids-ID is verplicht.",
   "@workspaceSkillIdRequired": {
     "description": "Validation error when the skill identifier is empty."
   },
-  "workspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "workspaceSkillIdInvalid": "Alleen letters, cijfers, koppeltekens en underscores zijn toegestaan.",
   "@workspaceSkillIdInvalid": {
     "description": "Validation error when the skill identifier contains illegal characters."
   },
-  "workspaceSkillIdTaken": "That skill ID or name is already in use.",
+  "workspaceSkillIdTaken": "Die vaardigheids-ID of naam is al in gebruik.",
   "@workspaceSkillIdTaken": {
     "description": "Error shown when saving a skill whose id or name collides with another skill."
   },
-  "workspaceSkillDescription": "Description",
+  "workspaceSkillDescription": "Beschrijving",
   "@workspaceSkillDescription": {
     "description": "Label for the optional skill description field."
   },
-  "workspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "workspaceSkillDescriptionHint": "bijv. Stapsgewijze instructies voor codereviews",
   "@workspaceSkillDescriptionHint": {
     "description": "Placeholder example for the skill description field."
   },
-  "workspaceSkillContent": "Instructions",
+  "workspaceSkillContent": "Instructies",
   "@workspaceSkillContent": {
     "description": "Label for the skill Markdown instructions body field."
   },
-  "workspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "workspaceSkillContentHint": "Voer de instructies voor de vaardigheid in als Markdown…",
   "@workspaceSkillContentHint": {
     "description": "Placeholder text for the empty skill instructions field."
   },
-  "workspaceSkillContentRequired": "Instructions are required.",
+  "workspaceSkillContentRequired": "Instructies zijn verplicht.",
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Write",
+  "workspaceSkillWriteTab": "Schrijven",
   "@workspaceSkillWriteTab": {
     "description": "Toggle label for the editable skill instructions view."
   },
-  "workspaceSkillPreviewTab": "Preview",
+  "workspaceSkillPreviewTab": "Voorvertoning",
   "@workspaceSkillPreviewTab": {
     "description": "Toggle label for the rendered markdown preview of the skill instructions."
   },
-  "workspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "workspaceSkillPreviewEmpty": "Nog niets om te tonen.",
   "@workspaceSkillPreviewEmpty": {
     "description": "Empty-state text shown in the skill preview when there is no content."
   },
-  "workspaceSkillManageAccess": "Manage access",
+  "workspaceSkillManageAccess": "Toegang beheren",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
   },
-  "workspaceSkillSaved": "Skill saved",
+  "workspaceSkillSaved": "Vaardigheid opgeslagen",
   "@workspaceSkillSaved": {
     "description": "Confirmation that a skill was saved."
   },
-  "workspaceSkillSaveFailed": "Couldn't save the skill. Please try again.",
+  "workspaceSkillSaveFailed": "Kan de vaardigheid niet opslaan. Probeer het opnieuw.",
   "@workspaceSkillSaveFailed": {
     "description": "Error shown when saving a skill fails."
   },
-  "workspaceSkillClone": "Duplicate",
+  "workspaceSkillClone": "Dupliceren",
   "@workspaceSkillClone": {
     "description": "Overflow action that clones a skill."
   },
-  "workspaceSkillCloneSuffix": "(Clone)",
+  "workspaceSkillCloneSuffix": "(kopie)",
   "@workspaceSkillCloneSuffix": {
     "description": "Suffix appended to the name of a cloned skill."
   },
-  "workspaceSkillActivate": "Activate",
+  "workspaceSkillActivate": "Activeren",
   "@workspaceSkillActivate": {
     "description": "Overflow action that enables a skill."
   },
-  "workspaceSkillDeactivate": "Deactivate",
+  "workspaceSkillDeactivate": "Deactiveren",
   "@workspaceSkillDeactivate": {
     "description": "Overflow action that disables a skill."
   },
-  "workspaceSkillDelete": "Delete skill",
+  "workspaceSkillDelete": "Vaardigheid verwijderen",
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "workspaceSkillDeleteConfirmTitle": "Vaardigheid verwijderen?",
   "@workspaceSkillDeleteConfirmTitle": {
     "description": "Confirmation dialog title for deleting a skill."
   },
-  "workspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "workspaceSkillDeleteConfirmMessage": "„{name}” wordt definitief verwijderd.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
     "placeholders": {
@@ -2985,97 +3014,97 @@
       }
     }
   },
-  "workspaceSkillDeleted": "Skill deleted",
+  "workspaceSkillDeleted": "Vaardigheid verwijderd",
   "@workspaceSkillDeleted": {
     "description": "Confirmation that a skill was deleted."
   },
-  "workspaceSkillImport": "Import skills",
+  "workspaceSkillImport": "Vaardigheden importeren",
   "@workspaceSkillImport": {
     "description": "Title of the JSON skill import sheet."
   },
-  "workspaceSkillImportMarkdown": "Import Markdown",
+  "workspaceSkillImportMarkdown": "Markdown importeren",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
   },
-  "workspaceSkillImportJson": "Import JSON",
+  "workspaceSkillImportJson": "JSON importeren",
   "@workspaceSkillImportJson": {
     "description": "Overflow action that imports one or more skills from a JSON file."
   },
-  "workspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "workspaceSkillImportMarkdownLoaded": "Markdown geladen. Controleer het en sla op om de vaardigheid te maken.",
   "@workspaceSkillImportMarkdownLoaded": {
     "description": "Confirmation that a Markdown file was loaded into the unsaved skill editor."
   },
-  "workspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "workspaceSkillImportMarkdownFailed": "Kan het Markdown-bestand niet lezen.",
   "@workspaceSkillImportMarkdownFailed": {
     "description": "Error shown when reading a Markdown skill file fails."
   },
-  "workspaceSkillExport": "Export skills",
+  "workspaceSkillExport": "Vaardigheden exporteren",
   "@workspaceSkillExport": {
     "description": "Overflow action that exports readable skills as JSON."
   },
-  "workspaceSkillExportFailed": "Couldn't export skills.",
+  "workspaceSkillExportFailed": "Kan vaardigheden niet exporteren.",
   "@workspaceSkillExportFailed": {
     "description": "Error shown when exporting skills fails."
   },
-  "workspaceToolCreateTitle": "Create tool",
-  "workspaceToolName": "Name",
-  "workspaceToolNameHint": "e.g. My Tools",
-  "workspaceToolNameRequired": "Enter a tool name.",
-  "workspaceToolId": "Tool ID",
-  "workspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
-  "workspaceToolIdRequired": "Enter a tool ID.",
-  "workspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
-  "workspaceToolIdTaken": "That tool ID is already in use.",
-  "workspaceToolDescription": "Description",
-  "workspaceToolDescriptionHint": "e.g. Tools for performing various operations",
-  "workspaceToolContent": "Python source",
-  "workspaceToolContentHint": "Write your tool as a Python class named Tools…",
-  "workspaceToolContentRequired": "Add Python source before saving.",
-  "workspaceToolWarning": "Tools run arbitrary Python on the server — only add code from sources you trust.",
-  "workspaceToolSaved": "Tool saved",
-  "workspaceToolDeleted": "Tool deleted",
-  "workspaceToolSaveFailed": "Couldn't save the tool.",
-  "workspaceToolManageAccess": "Manage access",
-  "workspaceToolClone": "Duplicate",
-  "workspaceToolCloneSuffix": "(Clone)",
-  "workspaceToolDelete": "Delete",
-  "workspaceToolDeleteConfirmTitle": "Delete tool?",
-  "workspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
-  "workspaceToolImport": "Import tools",
-  "workspaceToolImportJson": "Import JSON",
-  "workspaceToolImportUrl": "Import from URL",
-  "workspaceToolImportUrlTitle": "Import tool from URL",
-  "workspaceToolImportUrlHint": "Enter a raw or GitHub URL to a tool's Python file",
+  "workspaceToolCreateTitle": "Tool maken",
+  "workspaceToolName": "Naam",
+  "workspaceToolNameHint": "bijv. Mijn tools",
+  "workspaceToolNameRequired": "Voer een naam voor de tool in.",
+  "workspaceToolId": "Tool-ID",
+  "workspaceToolIdHint": "Letters, cijfers en underscores; mag niet met een cijfer beginnen.",
+  "workspaceToolIdRequired": "Voer een tool-ID in.",
+  "workspaceToolIdInvalid": "Tool-ID’s bestaan uit letters, cijfers en underscores en mogen niet met een cijfer beginnen.",
+  "workspaceToolIdTaken": "Die tool-ID is al in gebruik.",
+  "workspaceToolDescription": "Beschrijving",
+  "workspaceToolDescriptionHint": "bijv. Tools voor allerlei bewerkingen",
+  "workspaceToolContent": "Python-broncode",
+  "workspaceToolContentHint": "Schrijf je tool als een Python-klasse met de naam Tools…",
+  "workspaceToolContentRequired": "Voeg Python-broncode toe voordat je opslaat.",
+  "workspaceToolWarning": "Tools voeren willekeurige Python-code uit op de server. Voeg alleen code toe uit bronnen die je vertrouwt.",
+  "workspaceToolSaved": "Tool opgeslagen",
+  "workspaceToolDeleted": "Tool verwijderd",
+  "workspaceToolSaveFailed": "Kan de tool niet opslaan.",
+  "workspaceToolManageAccess": "Toegang beheren",
+  "workspaceToolClone": "Dupliceren",
+  "workspaceToolCloneSuffix": "(kopie)",
+  "workspaceToolDelete": "Verwijderen",
+  "workspaceToolDeleteConfirmTitle": "Tool verwijderen?",
+  "workspaceToolDeleteConfirmMessage": "„{name}” wordt definitief verwijderd.",
+  "workspaceToolImport": "Tools importeren",
+  "workspaceToolImportJson": "JSON importeren",
+  "workspaceToolImportUrl": "Importeren via URL",
+  "workspaceToolImportUrlTitle": "Tool importeren via URL",
+  "workspaceToolImportUrlHint": "Voer een GitHub-URL naar het Python-bestand van een tool in",
   "workspaceToolImportUrlLabel": "URL",
-  "workspaceToolImportUrlInvalid": "Enter a valid URL.",
-  "workspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
-  "workspaceToolImportUrlLoaded": "Tool loaded — review and save.",
-  "workspaceToolExport": "Export tools",
-  "workspaceToolExportFailed": "Couldn't export tools.",
+  "workspaceToolImportUrlInvalid": "Voer een geldige URL in.",
+  "workspaceToolImportUrlFailed": "Kan de tool niet importeren via die URL.",
+  "workspaceToolImportUrlLoaded": "Tool geladen. Controleer en sla op.",
+  "workspaceToolExport": "Tools exporteren",
+  "workspaceToolExportFailed": "Kan tools niet exporteren.",
   "workspaceToolManifest": "Manifest",
-  "workspaceToolManifestVersion": "Version {version}",
-  "workspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
-  "workspaceToolManifestFunding": "Funding: {url}",
-  "workspaceToolSpecs": "Generated specifications",
+  "workspaceToolManifestVersion": "Versie {version}",
+  "workspaceToolManifestRequiredVersion": "Vereist Open WebUI {version}",
+  "workspaceToolManifestFunding": "Financiering: {url}",
+  "workspaceToolSpecs": "Gegenereerde specificaties",
   "workspaceToolDetails": "Tooldetails",
   "workspaceToolFunctionCount": "{count, plural, =1{1 functie} other{{count} functies}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
-  "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
-  "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
-  "workspaceToolValves": "Valves",
-  "workspaceToolValvesTitle": "Valves",
-  "workspaceToolValvesServer": "Server valves",
-  "workspaceToolValvesUser": "User valves",
-  "workspaceToolValvesEmpty": "No valves",
-  "workspaceToolValvesSaved": "Valves updated",
-  "workspaceToolValvesSaveFailed": "Couldn't update valves.",
-  "workspaceToolValvesLoadFailed": "Couldn't load valves.",
-  "workspaceValveRequired": "required",
-  "workspaceValveDefault": "Default",
-  "workspaceValveCustom": "Custom",
-  "workspaceValveNone": "None",
-  "workspaceValveEnabled": "Enabled",
-  "workspaceValveDisabled": "Disabled",
+  "workspaceToolSpecsEmpty": "Er zijn geen specificaties voor deze tool gegenereerd.",
+  "workspaceToolIncompatible": "Deze tool vereist Open WebUI v{required}, maar de server draait v{current}. Werk de server bij om op te slaan.",
+  "workspaceToolValves": "Kleppen",
+  "workspaceToolValvesTitle": "Kleppen",
+  "workspaceToolValvesServer": "Serverkleppen",
+  "workspaceToolValvesUser": "Gebruikerskleppen",
+  "workspaceToolValvesEmpty": "Geen kleppen",
+  "workspaceToolValvesSaved": "Kleppen bijgewerkt",
+  "workspaceToolValvesSaveFailed": "Kan kleppen niet bijwerken.",
+  "workspaceToolValvesLoadFailed": "Kan kleppen niet laden.",
+  "workspaceValveRequired": "verplicht",
+  "workspaceValveDefault": "Standaard",
+  "workspaceValveCustom": "Aangepast",
+  "workspaceValveNone": "Geen",
+  "workspaceValveEnabled": "Ingeschakeld",
+  "workspaceValveDisabled": "Uitgeschakeld",
   "noteConflictCopyBadge": "Conflictkopie",
   "noteConflictCopySuffix": " (conflictkopie)",
   "notificationChannelDescription": "Melden wanneer iemand een bericht stuurt in een kanaal of DM.",
@@ -3094,73 +3123,73 @@
   "notificationSystemDescription": "Meldingen buiten de app tonen wanneer deze op de achtergrond draait.",
   "notificationSystemTitle": "Systeemmeldingen",
   "notificationViewAction": "Bekijken",
+  "notificationReplyFailedBody": "Het antwoord kon niet worden voltooid.",
+  "notificationTargetUnavailable": "Het account of de verbinding van deze melding staat niet meer op dit apparaat.",
   "notificationsEnabledDescription": "Ontvang meldingen wanneer de app op de achtergrond draait en in de app.",
   "notificationsEnabledTitle": "Meldingen inschakelen",
   "notificationsPermissionDenied": "Meldingen zijn uitgeschakeld in de systeeminstellingen.",
   "notificationsSubtitle": "Meldingen voor antwoorden, berichten en voltooide reacties",
   "notificationsTitle": "Meldingen",
-  "hermesSecretsUnavailable": "Could not access saved Hermes credentials. Unlock secure storage and retry.",
+  "hermesSecretsUnavailable": "Kan de opgeslagen Hermes-inloggegevens niet openen. Ontgrendel de beveiligde opslag en probeer het opnieuw.",
   "hermesAgentSettingsTitle": "Hermes Agent",
-  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
-  "connectOpenWebUITitle": "Connect to Open WebUI",
-  "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
-  "hermesApprovalRequired": "Approval required",
-  "hermesApprovalFallback": "The agent is requesting permission to continue.",
+  "hermesAgentSettingsSubtitle": "Zelfgehoste agent",
+  "connectOpenWebUITitle": "Verbinden met Open WebUI",
+  "connectOpenWebUISubtitle": "Een zelfgehoste Open WebUI-server toevoegen",
+  "backendChooserOpenWebUISubtitle": "Log in op je server voor gesynchroniseerde chats, notities en meer.",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "Chat met je eigen agent die tools gebruikt en eerdere sessies onthoudt.",
+  "hermesApprovalRequired": "Toestemming vereist",
+  "hermesApprovalFallback": "De agent vraagt toestemming om door te gaan.",
   "openWebUiPromptOther": "Anders",
   "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
   "openWebUiPromptAnswerHint": "Typ je antwoord",
   "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
   "openWebUiPromptSubmit": "Indienen",
   "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
-  "hermesApprovalApproved": "Approved ✓",
-  "hermesApprovalDenied": "Denied",
-  "hermesApprovalApproveAction": "Approve",
-  "hermesApprovalDenyAction": "Deny",
-  "hermesEnableTitle": "Enable Hermes Agent",
-  "hermesEnableSubtitle": "Use your self-hosted Hermes agent as a model in the picker.",
-  "hermesServerUrlTitle": "Server URL",
-  "hermesApiKeyTitle": "API key",
-  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
-  "hermesApiKeyPlaceholder": "Enter API key",
-  "hermesMemoryKeyTitle": "Memory key (optional)",
-  "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
-  "hermesCapabilitiesTitle": "Capabilities",
-  "hermesCapabilityApproval": "Approval",
-  "hermesCapabilitySkills": "Skills",
+  "hermesApprovalApproved": "Goedgekeurd ✓",
+  "hermesApprovalDenied": "Geweigerd",
+  "hermesApprovalApproveAction": "Goedkeuren",
+  "hermesApprovalDenyAction": "Weigeren",
+  "hermesEnableTitle": "Hermes Agent inschakelen",
+  "hermesEnableSubtitle": "Gebruik je zelfgehoste Hermes-agent als model in de modelkiezer.",
+  "hermesServerUrlTitle": "Server-URL",
+  "hermesApiKeyTitle": "API-sleutel",
+  "hermesConfiguredReplacePlaceholder": "Ingesteld; voer iets in om te vervangen",
+  "hermesApiKeyPlaceholder": "Voer een API-sleutel in",
+  "hermesMemoryKeyTitle": "Geheugensleutel (optioneel)",
+  "hermesMemoryKeyPlaceholder": "Wordt automatisch gemaakt als je dit leeg laat",
+  "hermesCapabilitiesTitle": "Mogelijkheden",
+  "hermesCapabilityApproval": "Toestemming",
+  "hermesCapabilitySkills": "Vaardigheden",
   "hermesCapabilityToolsets": "Toolsets",
-  "hermesCapabilityJobs": "Jobs",
-  "hermesCapabilitySessions": "Sessions",
-  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
-  "hermesTabInfoSubtitle": "Available in the Hermes tab once enabled.",
-  "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
-  "hermesSelfHostedAgentLabel": "Self-hosted agent",
-  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
-  "hermesConversationsTitle": "Conversations",
+  "hermesCapabilityJobs": "Taken",
+  "hermesCapabilitySessions": "Sessies",
+  "hermesTabInfoTitle": "Gesprekken en planningen",
+  "hermesTabInfoSubtitle": "Beschikbaar op het tabblad Hermes zodra dit is ingeschakeld.",
+  "hermesNativeSettingsSubtitle": "Maak rechtstreeks verbinding met een zelfgehoste Hermes-agent.",
+  "hermesSelfHostedAgentLabel": "Zelfgehoste agent",
+  "hermesNoConversationsMessage": "Nog geen gesprekken",
+  "hermesConversationsTitle": "Gesprekken",
   "hermesBotsTitle": "Bots",
-  "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
-  "hermesSchedulesLoading": "Loading schedules…",
-  "hermesSchedulesUnavailable": "Schedules unavailable",
-  "hermesNoSchedulesYet": "No schedules yet",
-  "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
-  "hermesReviewSchedules": "Review schedules",
-  "hermesScheduledAgentsTitle": "Scheduled agents",
-  "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
-  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
-  "openWebUIServer": "Open WebUI server",
-  "serverAddressUnavailable": "Server address unavailable",
-  "showPassword": "Show password",
-  "hidePassword": "Hide password",
-  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
-  "reviewerModeDisabled": "Reviewer mode disabled.",
-  "openSourceLicenses": "Open source licenses",
+  "hermesConversationsLoadError": "Kan Hermes-gesprekken niet laden.\nControleer de verbinding in Instellingen → Hermes Agent.",
+  "hermesSchedulesLoading": "Planningen laden…",
+  "hermesSchedulesUnavailable": "Planningen niet beschikbaar",
+  "hermesNoSchedulesYet": "Geen planningen",
+  "hermesSchedulesSummary": "{active} actief · {total, plural, =1{1 planning} other{{total} planningen}}",
+  "hermesReviewSchedules": "Planningen bekijken",
+  "hermesScheduledAgentsTitle": "Geplande agents",
+  "workspaceToolImportUrlHost": "Alleen tool-URL’s van GitHub kunnen worden geïmporteerd.",
+  "signInServerDescription": "Gebruik je Open WebUI-account om je aan te melden bij de onderstaande server.",
+  "openWebUIServer": "Open WebUI-server",
+  "serverAddressUnavailable": "Serveradres niet beschikbaar",
+  "showPassword": "Wachtwoord tonen",
+  "hidePassword": "Wachtwoord verbergen",
+  "reviewerModeEnabled": "Beoordelaarsmodus ingeschakeld. Je kunt de demo zonder server openen.",
+  "reviewerModeDisabled": "Beoordelaarsmodus uitgeschakeld.",
+  "openSourceLicenses": "Opensourcelicenties",
   "directConnectionsTitle": "Directe verbindingen",
-  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
-  "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
+  "directConnectionsSubtitle": "OpenAI-compatibele API’s en Ollama",
+  "directConnectionsDescription": "Maak zonder Open WebUI verbinding met modelaanbieders. Inloggegevens worden veilig op dit apparaat opgeslagen en met verzoeken naar de aanbieder gestuurd.",
   "directConnectionsCombinedDescription": "Maak rechtstreeks verbinding met modelproviders via verbindingen die vanuit Open WebUI worden gesynchroniseerd of alleen op dit apparaat zijn opgeslagen.",
   "openWebUiDirectConnectionsSectionTitle": "Open WebUI-server",
   "openWebUiDirectConnectionsSectionDescription": "Opgeslagen in je Open WebUI-account en beschikbaar voor andere aangemelde clients.",
@@ -3180,72 +3209,72 @@
   "directConnectionNoLongerExists": "Deze verbinding bestaat niet meer.",
   "openWebUiDirectConnectionDeleteMessage": "Hiermee verwijder je {name} uit je Open WebUI-account en uit andere clients waarop je bent aangemeld.",
   "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
-  "addDirectConnection": "Add connection",
-  "editDirectConnection": "Edit connection",
-  "directConnectionName": "Connection name",
+  "addDirectConnection": "Verbinding toevoegen",
+  "editDirectConnection": "Verbinding bewerken",
+  "directConnectionName": "Naam van verbinding",
   "directDefaultConnectionName": "Mijn provider",
   "sidebarButtonLabel": "Zijbalk",
-  "directConnectionNameRequired": "Enter a connection name.",
-  "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
-  "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
-  "directConnectionApiKeyRequired": "Enter an API key or choose no authentication.",
-  "directConnectionHeaderNameRequired": "Enter a header name, then add the header.",
-  "directConnectionCredentialTransferTitle": "Use credentials with new server?",
-  "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
-  "directConnectionCredentialTransferConfirm": "Use credentials",
-  "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionNameRequired": "Voer een naam voor de verbinding in.",
+  "directConnectionUrlInvalid": "Gebruik een geldige http://- of https://-URL.",
+  "directConnectionCredentialsReentryRequired": "Voer de inloggegevens opnieuw in als je van server wisselt.",
+  "directConnectionApiKeyRequired": "Voer een API-sleutel in of kies Geen authenticatie.",
+  "directConnectionHeaderNameRequired": "Voer een headernaam in en voeg de header daarna toe.",
+  "directConnectionCredentialTransferTitle": "Inloggegevens gebruiken met nieuwe server?",
+  "directConnectionCredentialTransferMessage": "Hiermee worden de API-sleutel en alle aangepaste headers naar de nieuwe server gestuurd. Ga alleen verder als je deze server vertrouwt.",
+  "directConnectionCredentialTransferConfirm": "Inloggegevens gebruiken",
+  "directConnectionSaveFailed": "Kan deze verbinding niet opslaan.",
   "directConnectionSaveConflict": "Deze verbinding is elders gewijzigd. Open deze opnieuw voordat je opslaat.",
-  "directConnectionReachFailed": "Could not reach the provider.",
-  "directConnectionDeleteTitle": "Delete connection?",
-  "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",
-  "directConnectionDeleteFailed": "Could not delete this connection.",
-  "directConnectionProbeConnected": "Connected",
-  "directConnectionProbeConnectedModels": "{count, plural, =1{Connected · 1 model} other{Connected · {count} models}}",
-  "directProvider": "Provider type",
-  "openAICompatible": "OpenAI-compatible",
+  "directConnectionReachFailed": "Kan de aanbieder niet bereiken.",
+  "directConnectionDeleteTitle": "Verbinding verwijderen?",
+  "directConnectionDeleteMessage": "Hiermee worden {name} en de bijbehorende inloggegevens van dit apparaat verwijderd.",
+  "directConnectionDeleteFailed": "Kan deze verbinding niet verwijderen.",
+  "directConnectionProbeConnected": "Verbonden",
+  "directConnectionProbeConnectedModels": "{count, plural, =1{Verbonden · 1 model} other{Verbonden · {count} modellen}}",
+  "directProvider": "Type aanbieder",
+  "openAICompatible": "OpenAI-compatibel",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
-  "directApiBaseUrl": "Base URL",
+  "directApiBaseUrl": "Basis-URL",
   "directOpenRouterUrlInvalid": "Gebruik de HTTPS-/api/v1-hoofd-URL van OpenRouter (wereldwijd of EU).",
   "directOpenRouterBaseUrlDescription": "Conduit gebruikt je OpenRouter-API-sleutel, geverifieerde modelcatalogus en door Conduit beheerde tools.",
   "directOpenRouterChatCompletionsDescription": "Chat Completions wordt gebruikt voor ingebouwd zoeken op het web, afbeeldingsgeneratie, PDF-verwerking en herbruikbare PDF-annotaties.",
-  "directCompletionApi": "Completion API",
+  "directCompletionApi": "API-type",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
   "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
-  "directResponsesDescription": "Use the typed Responses event stream. Choose this only when the provider exposes /responses.",
-  "directApiVersion": "API version",
-  "directApiVersionDescription": "Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.",
-  "directAuthentication": "Authentication",
-  "noAuthentication": "No authentication",
-  "bearerToken": "Bearer token",
-  "directApiKeyHeader": "API-key header",
-  "directApiKeyHeaderDescription": "Sends the credential in the api-key header used by Azure OpenAI.",
-  "directApiKey": "API key",
-  "directCustomHeaders": "Custom headers",
-  "directManualModelIds": "Manual model IDs",
+  "directResponsesDescription": "Gebruikt de getypeerde Responses-eventstream. Kies dit alleen als de aanbieder /responses aanbiedt.",
+  "directApiVersion": "API-versie",
+  "directApiVersionDescription": "Optioneel. Voegt de queryparameter api-version toe die Azure OpenAI-endpoints vereisen.",
+  "directAuthentication": "Authenticatie",
+  "noAuthentication": "Geen authenticatie",
+  "bearerToken": "Bearer-token",
+  "directApiKeyHeader": "api-key-header",
+  "directApiKeyHeaderDescription": "Stuurt de inloggegevens in de api-key-header die Azure OpenAI gebruikt.",
+  "directApiKey": "API-sleutel",
+  "directCustomHeaders": "Aangepaste headers",
+  "directManualModelIds": "Handmatige model-ID’s",
   "directManualModelIdsDescription": "Optioneel. Voer één ID per regel in als de server de modellen niet kan weergeven.",
   "@directManualModelIdsDescription": {"placeholders":{}},
-  "directModelIdPrefix": "Model ID prefix",
-  "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
-  "directModelTags": "Model tags",
-  "directModelTagsDescription": "Optional. Separate tags with commas or new lines.",
-  "syncDirectHistory": "Open WebUI history",
-  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
-  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
-  "testDirectConnection": "Test connection",
-  "directConnectionTestUnavailable": "Connection testing is not available yet.",
-  "finishDirectSetup": "Start chatting",
-  "directProfilesEmptyTitle": "No direct connections yet",
-  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
-  "directConnectionsSectionTitle": "Connections",
-  "directSavedDataUnreadable": "The saved connection data could not be read.",
-  "directSecureStorageUnavailable": "Check secure storage access and try again.",
-  "onDevice": "On device",
-  "directConnectionError": "Direct connection error",
-  "directAttachmentUnsupported": "This direct model does not support this attachment.",
+  "directModelIdPrefix": "Voorvoegsel voor model-ID",
+  "directModelIdPrefixDescription": "Optioneel. Voegt een zichtbare naamruimte toe, zoals studio.model-name, zonder de model-ID te wijzigen die naar de aanbieder gaat.",
+  "directModelTags": "Modeltags",
+  "directModelTagsDescription": "Optioneel. Scheid tags met komma’s of nieuwe regels.",
+  "syncDirectHistory": "Open WebUI-geschiedenis",
+  "syncDirectHistorySubtitle": "Nieuwe directe chats opslaan in je Open WebUI-account.",
+  "directHistoryLocalOnlySubtitle": "Nieuwe directe chats alleen op dit apparaat bewaren.",
+  "backendChooserDirectTitle": "Modelaanbieder",
+  "backendChooserDirectSubtitle": "Chat via OpenAI, OpenRouter of Ollama. Je sleutel blijft op dit apparaat.",
+  "testDirectConnection": "Verbinding testen",
+  "directConnectionTestUnavailable": "Verbindingen testen is nog niet beschikbaar.",
+  "finishDirectSetup": "Beginnen met chatten",
+  "directProfilesEmptyTitle": "Nog geen directe verbindingen",
+  "directProfilesEmptySubtitle": "Voeg een API-aanbieder toe om te gaan chatten.",
+  "directConnectionsSectionTitle": "Verbindingen",
+  "directSavedDataUnreadable": "De opgeslagen verbindingsgegevens kunnen niet worden gelezen.",
+  "directSecureStorageUnavailable": "Controleer de toegang tot de beveiligde opslag en probeer het opnieuw.",
+  "onDevice": "Op dit apparaat",
+  "directConnectionError": "Fout in directe verbinding",
+  "directAttachmentUnsupported": "Dit directe model ondersteunt deze bijlage niet.",
   "backendChooserOpenWebUITitle": "Open WebUI",
   "hermesMemoryKeyDescription": "De geheugensleutel koppelt het langetermijngeheugen van de agent aan jou (X-Hermes-Session-Key). Als je dit leeg laat, wordt automatisch een vaste sleutel gemaakt wanneer je voor het eerst chat.",
   "moreModels": "Meer modellen",
@@ -3332,7 +3361,7 @@
   "hermesDesktopAuthentication": "Desktopverificatie",
   "hermesDashboardAuthHelp": "Open het Hermes-dashboard in het aanmeldvenster en kom hier terug om de verbinding te testen.",
   "hermesAuthLegacy": "Verouderd",
-  "hermesAuthNative": "Native",
+  "hermesAuthNative": "Systeemeigen",
   "hermesAuthDashboard": "Dashboard",
   "hermesNativeSignIn": "Aanmelden met Hermes",
   "hermesDashboardSignIn": "Dashboard-aanmelding openen",
@@ -3344,12 +3373,110 @@
   "hermesMcpServers": "MCP-servers",
   "hermesSignOut": "Afmelden bij Hermes",
   "hermesActionFailed": "Hermes-actie mislukt.",
+  "hermesSignOutFailed": "Afmelden bij het Hermes-dashboard is mislukt. Controleer je verbinding en probeer het opnieuw.",
   "hermesToolsetUpdateFailed": "Bijwerken van Hermes-toolset mislukt.",
   "hermesJobStateLabel": "Status",
   "hermesJobDeliveryLabel": "Levering",
   "hermesJobLastLabel": "Laatste",
   "hermesJobNextLabel": "Volgende",
   "hermesJobRunHistory": "Uitvoeringsgeschiedenis",
+  "hermesJobStop": "Stoppen",
+  "hermesJobStopping": "Bezig met stoppen…",
+  "hermesJobStopped": "Uitvoering gestopt.",
+  "hermesJobFinishedBeforeStop": "De uitvoering was klaar voordat die kon stoppen.",
+  "hermesJobNothingToStop": "Er loopt geen uitvoering.",
+  "hermesJobStopFailed": "De uitvoering kon niet worden gestopt.",
+  "hermesJobStopUnsupported": "Werk Hermes bij om lopende taken te stoppen.",
+  "hermesJobRunning": "Loopt nu",
+  "hermesJobLastCancelled": "Laatste uitvoering gestopt: {reason}",
+  "@hermesJobLastCancelled": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesJobLastCancelledNoReason": "Laatste uitvoering gestopt",
+  "hermesJobCatchUpLabel": "Gemiste uitvoeringen",
+  "hermesJobCatchUpHint": "Wat er gebeurt met uitvoeringen die zijn gemist terwijl Hermes niet draaide.",
+  "hermesJobCatchUpDefault": "Standaard van Hermes",
+  "hermesJobCatchUpRunOnce": "Eén keer inhalen",
+  "hermesJobCatchUpSkip": "Gemiste uitvoeringen overslaan",
+  "hermesJobDeliverLabel": "Bezorgen bij",
+  "hermesJobDeliverLocal": "In Hermes opslaan",
+  "hermesJobDeliverMessaging": "Berichtenapps",
+  "hermesJobDeliverBotChats": "Botchats",
+  "hermesJobDeliverGroupChats": "Groepschats",
+  "hermesJobDeliverBotChat": "Botchat: {name}",
+  "@hermesJobDeliverBotChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverGroupChat": "Groepschat: {name}",
+  "@hermesJobDeliverGroupChat": {"placeholders": {"name": {"type": "String"}}},
+  "hermesJobDeliverNeedsHomeChannel": "Stel eerst een thuiskanaal in Hermes in.",
+  "hermesJobDeliverRoomHint": "Groepschats wekken alleen de bots die de taak via @ vermeldt.",
+  "hermesRoomsTitle": "Ruimtes",
+  "hermesRoomNew": "Nieuwe ruimte",
+  "hermesRoomCreateHint": "Kies 2 tot 6 bots. Elke bot antwoordt in de ruimte als zichzelf.",
+  "hermesRoomNameHint": "Naam van de ruimte",
+  "hermesRoomCreateFailed": "Kan de ruimte niet maken.",
+  "hermesRoomNeedsBots": "Een ruimte heeft minstens twee bots op deze verbinding nodig.",
+  "hermesRoomMessageHint": "Bericht aan de ruimte, @ om een bot te noemen",
+  "hermesRoomScheduled": "Gepland",
+  "hermesRoomEveryone": "Iedereen",
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} other{{count} bots}}",
+  "@hermesRoomBotCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomWorking": "bezig",
+  "hermesRoomWaiting": "wacht",
+  "hermesRoomQuiet": "stil sinds {elapsed}",
+  "@hermesRoomQuiet": {"placeholders": {"elapsed": {"type": "String"}}},
+  "hermesRoomNeedsYou": "Wacht op je antwoord",
+  "hermesRoomTurnFailed": "Beurt mislukt",
+  "hermesRoomTurnCancelled": "Beurt geannuleerd",
+  "hermesRoomTurnDeferred": "Beurt uitgesteld",
+  "hermesRoomMemberUnavailable": "Bot niet beschikbaar",
+  "hermesRoomStopped": "Ruimte gestopt",
+  "hermesRoomDisbanded": "Ruimte opgeheven",
+  "hermesRoomAuthorityLost": "Een andere gateway heeft deze ruimte overgenomen",
+  "hermesRoomWorkLimit": "Beurtlimiet bereikt",
+  "hermesRoomRoutedTo": "Toegewezen aan {names}",
+  "@hermesRoomRoutedTo": {"placeholders": {"names": {"type": "String"}}},
+  "hermesRoomRoutedEveryone": "Toegewezen aan iedereen",
+  "hermesRoomRoutedFallback": "Kon niet kiezen wie antwoordt, dus iedereen antwoordt",
+  "hermesRoomAssigned": "{lead} gaf dit aan {names}",
+  "@hermesRoomAssigned": {"placeholders": {"lead": {"type": "String"}, "names": {"type": "String"}}},
+  "hermesRoomLeadTaking": "{lead} neemt dit op zich",
+  "@hermesRoomLeadTaking": {"placeholders": {"lead": {"type": "String"}}},
+  "hermesRoomContinued": "Voortgezet",
+  "hermesRoomHandoff": "{from} vroeg {to}",
+  "@hermesRoomHandoff": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}}},
+  "hermesRoomPaused": "{count, plural, =1{Gepauzeerd na 1 bericht} other{Gepauzeerd na {count} berichten}}",
+  "@hermesRoomPaused": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRetryPrompt": "De beurt van {name} eindigde zonder duidelijk resultaat.",
+  "@hermesRoomRetryPrompt": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomLoadFailed": "Kan deze ruimte niet laden.",
+  "hermesRoomRefreshFailed": "Kan de ruimte niet vernieuwen.",
+  "hermesRoomGone": "Deze ruimte is niet meer beschikbaar.",
+  "hermesRoomNotRunning": "Hermes voert deze ruimte nu niet uit, dus er kunnen geen berichten in.",
+  "hermesRoomSendUnclear": "Hermes heeft het bericht niet bevestigd. Stuur het opnieuw; het wordt niet dubbel geplaatst.",
+  "hermesRoomStoppedCount": "{count, plural, =0{Er liep niets} =1{1 taak gestopt} other{{count} taken gestopt}}",
+  "@hermesRoomStoppedCount": {"placeholders": {"count": {"type": "int", "example": "2"}}},
+  "hermesRoomRefused": "Hermes weigerde: {reason}",
+  "@hermesRoomRefused": {"placeholders": {"reason": {"type": "String"}}},
+  "hermesRoomActionFailed": "Dat werkte niet. Probeer het opnieuw.",
+  "hermesRoomInfoTitle": "Ruimte-info",
+  "hermesRoomPurpose": "Doel",
+  "hermesRoomPurposeHint": "Waar deze ruimte voor is, in één regel",
+  "hermesRoomNotes": "Gedeelde notities",
+  "hermesRoomNotesHint": "Feiten die elke bot moet onthouden",
+  "hermesRoomNotesTooLong": "De gedeelde notities zijn te lang.",
+  "hermesRoomWhoAnswers": "Wie antwoordt op een bericht dat niemand noemt",
+  "hermesRoomRoutingEveryoneHint": "Elke bot krijgt een beurt.",
+  "hermesRoomRoutingLead": "Leidende bot",
+  "hermesRoomRoutingLeadHint": "De leidende bot kiest wie het oppakt. @vermeldingen gaan nog steeds direct naar de bots die je noemt.",
+  "hermesRoomRoutingAuto": "Automatisch",
+  "hermesRoomRoutingAutoHint": "Een snelle modelaanroep kiest voor wie het is. @vermeldingen gaan nog steeds direct naar de bots die je noemt.",
+  "hermesRoomLead": "Leider",
+  "hermesRoomMembers": "Bots",
+  "hermesRoomMembersFixed": "Bots kunnen niet worden toegevoegd of verwijderd zodra een ruimte bestaat.",
+  "hermesRoomStopWork": "Al het werk stoppen",
+  "hermesRoomDisband": "Ruimte opheffen",
+  "hermesRoomDisbandTitle": "„{name}” opheffen?",
+  "@hermesRoomDisbandTitle": {"placeholders": {"name": {"type": "String"}}},
+  "hermesRoomDisbandMessage": "Het werk stopt en de ruimte is voorgoed weg.",
+  "hermesRoomRenameTitle": "Ruimte hernoemen",
   "hermesApprovalAllowOnce": "Eenmaal toestaan",
   "hermesApprovalAllowSession": "Toestaan voor sessie",
   "hermesApprovalAlwaysAllow": "Altijd toestaan",
@@ -3368,6 +3495,7 @@
   "hermesFastTierOff": "Uit",
   "hermesTurnSteer": "Bijsturen",
   "hermesTurnSendNext": "Volgende verzenden",
+  "hermesSteerUncertain": "Hermes heeft je bijsturing niet bevestigd. Controleer het antwoord voordat je je bijsturing opnieuw verzendt.",
   "hermesTurnControlsUnsupported": "Werk Hermes bij om veilige beurtbediening in te schakelen.",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "{count, plural, =1{Toon nog 1 regel} other{Toon nog {count} regels}}",
@@ -3380,7 +3508,7 @@
   "colorScheme": "Kleurenschema",
   "channelEmptyHint": "Maak een kanaal om een groepsgesprek te starten.",
   "passwordChangeDescription": "Werk je accountwachtwoord bij",
-  "profileDetailsSummary": "Bio, gender en verjaardag",
+  "profileDetailsSummary": "Gender en verjaardag",
   "notificationRequiresMaster": "Schakel meldingen in om deze instelling te wijzigen.",
   "notificationRequiresSound": "Schakel geluid in om deze instelling te wijzigen.",
   "enabled": "Aan",
@@ -3432,34 +3560,34 @@
   "hermesSessionDeleteFailed": "Het gesprek kon niet worden verwijderd.",
   "hermesSessionLoadFailed": "Dit gesprek kon niet worden geladen. Controleer de verbinding en probeer het opnieuw.",
   "hermesMemoryKeyFieldLabel": "Geheugensleutel",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Weigeren", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
+  "directMcpServersTitle": "MCP-servers", "directMcpEmptyTitle": "Nog geen MCP-servers", "directMcpReachabilityHelp": "Voeg een Streamable HTTP-endpoint toe dat dit apparaat kan bereiken.", "directMcpEditorTitle": "MCP-server bewerken", "directMcpAddTitle": "MCP-server toevoegen", "directMcpName": "Servernaam", "directMcpEndpoint": "Streamable HTTP-endpoint", "directMcpBearerToken": "Bearer-token (optioneel)", "directMcpCustomHeaders": "Aangepaste headers (optioneel)", "directMcpCustomHeadersHint": "Eén per regel: Naam: Waarde", "directMcpTestConnection": "Verbinding testen", "directMcpTesting": "Verbinding testen…", "directMcpTestSucceeded": "{count, plural, =1{Verbonden — 1 tool gevonden.} other{Verbonden — {count} tools gevonden.}}", "directMcpTestFailed": "Kan de tools van deze MCP-server niet ophalen.", "directMcpSaveFailed": "Kan deze MCP-server niet opslaan.", "directMcpLoadFailed": "Kan MCP-servers niet laden uit de beveiligde opslag.", "directMcpMissing": "Deze MCP-server bestaat niet meer.", "directMcpCredentialTransferTitle": "Inloggegevens gebruiken met nieuwe server?", "directMcpCredentialTransferMessage": "Hiermee worden het bearer-token en de aangepaste headers naar de nieuwe server gestuurd. Ga alleen verder als je deze server vertrouwt. Met Annuleren sla je de server op zonder inloggegevens.", "directMcpCredentialTransferConfirm": "Inloggegevens gebruiken", "directMcpDeleteTitle": "MCP-server verwijderen?", "directMcpDeleteMessage": "Hiermee worden {name} en de bijbehorende inloggegevens van dit apparaat verwijderd.", "directMcpDeleteFailed": "Kan deze MCP-server niet verwijderen.", "directMcpAuthMode": "Authenticatie", "directMcpAuthNone": "Geen", "directMcpAuthBearer": "Bearer-token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Verbinden in browser", "directMcpOAuthReconnect": "Opnieuw verbinden in browser", "directMcpOAuthDisconnect": "OAuth loskoppelen", "directMcpOAuthPending": "Wachten op autorisatie in de browser…", "directMcpOAuthConnected": "OAuth verbonden.", "directMcpOAuthConnectionDetails": "Verbonden met {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "Geen scopes gemeld", "directMcpOAuthConnectFailed": "Kan deze MCP-server niet verbinden via OAuth.", "directMcpOAuthDisconnectFailed": "Kan OAuth niet loskoppelen van deze MCP-server.", "directMcpApprovalTitle": "Toestemming voor tool", "directMcpApprovalAllowOnce": "Eenmalig toestaan", "directMcpApprovalAllowSession": "Toestaan voor deze sessie", "directMcpApprovalAllowAlways": "Altijd toestaan", "directMcpApprovalAlwaysTitle": "Deze tool altijd toestaan?", "directMcpApprovalAlwaysMessage": "{serverName} mag {toolName} voortaan uitvoeren zonder het opnieuw te vragen. De toestemming wordt automatisch ingetrokken als het schema van de tool verandert.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Kan deze toestemming niet onthouden. Je kunt het opnieuw proberen of een andere optie kiezen.", "directMcpApprovalDeny": "Weigeren", "directMcpApprovalAllowed": "Eenmalig toegestaan", "directMcpApprovalAllowedSession": "Toegestaan voor deze sessie", "directMcpApprovalAllowedAlways": "Altijd toegestaan", "directMcpApprovalDenied": "Geweigerd", "directMcpApprovalExpired": "Toestemming verlopen", "directMcpRememberedApprovalsTitle": "Altijd toegestane tools", "directMcpRememberedApprovalsSubtitle": "Precies deze tools mogen zonder te vragen worden uitgevoerd zolang hun server en invoerschema ongewijzigd blijven.", "directMcpRememberedApprovalRevoke": "Intrekken", "directMcpRememberedApprovalsRevokeAll": "Alles intrekken", "directMcpRememberedApprovalRevokeFailed": "Kan de onthouden toestemming niet intrekken."
+  ,"directMcpContentAction": "MCP-inhoud"
+  ,"directMcpContentTitle": "MCP-inhoud"
+  ,"directMcpContentServer": "MCP-server"
+  ,"directMcpContentSearch": "Prompts en bronnen zoeken"
   ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  ,"directMcpContentResources": "Bronnen"
+  ,"directMcpContentEmpty": "Deze server heeft geen prompts of bronnen."
+  ,"directMcpContentNoMatches": "Geen overeenkomende prompts of bronnen."
+  ,"directMcpContentLoadFailed": "Kan geen inhoud laden van deze MCP-server."
+  ,"directMcpContentRefresh": "MCP-inhoud vernieuwen"
+  ,"directMcpContentPreviewTitle": "Voorvertoning"
+  ,"directMcpContentInsert": "Invoegen"
+  ,"directMcpContentPromptHeading": "MCP-prompt van {serverName}: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "MCP-bron van {serverName}: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpContentRoleUser": "Gebruiker"
+  ,"directMcpContentRoleAssistant": "Assistent"
+  ,"directMcpContentRequestFailed": "Kan deze MCP-inhoud niet laden. Probeer het opnieuw."
+  ,"directMcpContentUnsupported": "Dit item is binair of wordt niet ondersteund. Kies een tekstprompt of tekstbron."
+  ,"directMcpContentChanged": "Dit item is op de server gewijzigd. Vernieuw en kies het opnieuw."
+  ,"directMcpContentTooLarge": "Deze inhoud is te groot om in te voegen."
+  ,"directMcpContentComposerTooLarge": "Het concept en deze inhoud overschrijden samen de berichtlimiet van 256 KiB. Maak het concept of de inhoud korter en probeer het opnieuw."
+  ,"directMcpContentLoading": "MCP-inhoud laden…"
+  ,"directMcpInsecureCredentialsTitle": "Inloggegevens zonder versleuteling verzenden?"
+  ,"directMcpInsecureCredentialsMessage": "Deze server gebruikt onversleutelde HTTP. Je bearer-token, OAuth-token en aangepaste headers kunnen op het netwerk worden gelezen of gewijzigd."
+  ,"directMcpInsecureCredentialsConfirm": "Zonder versleuteling verzenden"
   ,"hermesSessionTooLarge": "Dit gesprek is te groot om op dit apparaat te laden."
   ,"hermesSessionNotFound": "Dit gesprek is niet meer beschikbaar op de Hermes-server."
   ,"hermesSessionLoadFailedDetail": "Kan dit gesprek niet laden: {detail}"
@@ -3492,8 +3620,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "Model-API's",
   "backendChooserSelfHostedSectionTitle": "Zelfgehoste diensten",
-  "citationBackground": "Achtergrond van bronvermeldingen",
-  "citationBackgroundDescription": "Schakel uit voor transparante bronvermeldingen in de tekst",
+  "citationBackground": "Bronvermeldingen markeren",
+  "citationBackgroundDescription": "Geeft bronvermeldingen in antwoorden een gearceerde achtergrond, zodat ze opvallen in de tekst.",
   "citationShowTitles": "Paginatitels in bronvermeldingen tonen",
   "citationShowTitlesDescription": "Paginatitels gebruiken in plaats van websitedomeinen in bronlabels",
   "directContextCompactionDescription": "Deze modellen geven geen contextvenster op. Conduit gebruikt de gekozen limiet om oudere berichten te comprimeren voordat verzoeken te groot worden.",
@@ -3574,6 +3702,12 @@
   "webSearchRegionAuto": "Zoals apparaat",
   "webSearchRegionWorldwide": "Wereldwijd",
   "directModelToolsUnsupported": "Dit model kan geen hulpmiddelen gebruiken en kan dus niet op het web zoeken. Zet webzoeken en alle hulpmiddelen uit en probeer het opnieuw.",
+  "directImagesPerRequest": "Afbeeldingen per verzoek",
+  "directImagesPerRequestFooter": "Elk bericht stuurt de nieuwste afbeeldingen uit deze chat mee, tot dit aantal. Oudere afbeeldingen worden weggelaten. Verlaag dit als een model verzoeken met te veel afbeeldingen weigert.",
+  "directImagesPerRequestSaveFailed": "Afbeeldingen per verzoek kon niet worden opgeslagen. Probeer het opnieuw.",
+  "directModelTooManyImages": "Dit model accepteert minder afbeeldingen per verzoek dan deze chat heeft verstuurd. Verlaag Afbeeldingen per verzoek in de instellingen voor Directe verbindingen en probeer het opnieuw. Als dit bericht alleen al meer afbeeldingen heeft dan het model accepteert, verstuur het dan opnieuw met minder afbeeldingen.",
+  "directToolLoopNoAnswer": "Het model bleef hulpmiddelen gebruiken zonder antwoord te geven. Probeer het opnieuw of zet webzoeken en hulpmiddelen uit.",
+  "directContextLimitOllamaNote": "Voor Ollama-modellen op je eigen server is een hier gekozen limiet ook het contextvenster waarmee Ollama het model laadt. Een groter venster gebruikt meer geheugen.",
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} modellen}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} van {total}",
@@ -4142,7 +4276,7 @@
   "chatMergeChooseDescription": "Kies de reacties die je wilt samenvoegen. Kies er minstens twee; de originelen blijven zoals ze zijn.",
   "folderProjectComparisonFallbackNotice": "Niet alle opgeslagen modellen van dit project kunnen worden gebruikt, dus de chat begint met minder. Een vergelijking gebruikt er precies twee.",
   "advancedFeaturesFooter": "Voegt modelvergelijking, instellingen per chat, toolinstellingen, geplande taken, persoonlijke verbindingen, webhooks en gegevensbeheer toe. Uitschakelen verbergt ze alleen; wat al is ingesteld, blijft werken.",
-  "profileAdvancedFooter": "Getoond omdat Geavanceerd aan staat in Instellingen > Chat.",
+  "profileAdvancedFooter": "Getoond omdat Geavanceerd aan staat in Chats.",
   "advancedRequiredTitle": "Onderdeel van Geavanceerd",
   "advancedRequiredMessage": "{feature} hoort bij Geavanceerd. Zet Geavanceerd aan om het te gebruiken. Wat al is ingesteld, blijft werken.",
   "advancedTurnOn": "Geavanceerd aanzetten",
@@ -4191,7 +4325,7 @@
   "calendarRemoveEnd": "Eindtijd verwijderen",
   "calendarEventReadOnlyNotInvited": "Je kunt deze afspraak niet wijzigen.",
   "calendarFieldOrganizer": "Organisator",
-  "calendarColorName": "{color, select, blue{Blauw} green{Groen} amber{Amber} red{Rood} purple{Paars} teal{Groenblauw} other{Kleur}}",
+  "calendarColorName": "{color, select, blue{Blauw} green{Groen} amber{Amber} red{Rood} purple{Paars} teal{Groenblauw} custom{Aangepaste kleur} other{Kleur}}",
   "calendarVisibilityFooter": "Afspraken uit aangevinkte agenda's worden getoond. Tik op een agenda om de afspraken ervan te tonen of te verbergen.",
   "personalizationMemoryTypeUserDescription": "Een voorkeur, feit of instructie over jou.",
   "personalizationMemoryTypeContextDescription": "Achtergrond om in toekomstige chats rekening mee te houden.",
@@ -4251,12 +4385,25 @@
   "hermesDeleteConnectionTitle": "Verbinding verwijderen?",
   "hermesDeleteConnectionMessage": "Hiermee worden {name} en de bijbehorende inloggegevens van dit apparaat verwijderd.",
   "hermesDeleteConnectionFailed": "Kan deze verbinding niet verwijderen.",
+  "hermesInsecureCredentialsMessage": "Deze server gebruikt onversleutelde HTTP. Je API-sleutel, aanmeldtokens en toegangsheaders kunnen op het netwerk worden gelezen of gewijzigd.",
+  "hermesNotEncrypted": "Niet versleuteld",
   "hermesSwitchConnectionFailed": "Kan niet overschakelen naar deze verbinding.",
   "hermesSwitchConnectionTitle": "Verbinding wisselen",
   "hermesSwitchConnectionPromptTitle": "Overschakelen naar {name}?",
   "hermesSwitchConnectionPromptMessage": "De Hermes-sessie van deze chat hoort bij {name}. Schakel over om verder te gaan, of houd de huidige verbinding om een nieuwe sessie te starten.",
   "hermesSwitchConnectionConfirm": "Overschakelen",
   "hermesKeepCurrentConnection": "Huidige houden",
+  "hermesModelSwitchConfirmTitle": "Overschakelen naar {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes vraagt om een bevestiging voordat deze chat naar dat model overschakelt.",
+  "hermesModelSwitchConfirmAction": "Overschakelen en verzenden",
+  "hermesModelSwitchKeepCurrent": "Huidig model houden",
   "accountsTitle": "Accounts",
   "accountsAddAccount": "Account toevoegen",
   "accountsManage": "Accounts beheren",
@@ -4322,5 +4469,446 @@
   "mcpAppOpenLinkConfirm": "Openen",
   "terminalPortPreviewForward": "Vooruit",
   "terminalPortPreviewReload": "Opnieuw laden",
-  "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen."
+  "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen.",
+  "modelMenuAllModels": "Alle modellen…",
+  "citationPreviewOpen": "Openen",
+  "chatUnreadState": "Ongelezen",
+  "codeCopied": "Gekopieerd",
+  "onboardingWelcomeTitle": "Welkom bij Conduit",
+  "onboardingWelcomeSubtitle": "Chat met AI op je eigen server, op dit apparaat of via een API.",
+  "backendChooserFooter": "Je kunt later meer verbindingen toevoegen in Instellingen.",
+  "serverAddressFooter": "Gebruik het adres dat je in een webbrowser opent.",
+  "signInChangeServer": "Wijzig",
+  "signInContinueWithSso": "Ga door met SSO",
+  "mutualTlsChooseFile": "Kies…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Gekopieerd",
+  "composerAddAttachment": "Bijlage toevoegen",
+  "composerShowKeyboard": "Toetsenbord tonen",
+  "composerAttachUploads": "Uploads",
+  "supportConduitFooter": "Conduit is gratis en open source. Jouw steun helpt dat zo te houden.",
+  "aiMemoryFooter": "Je systeemprompt stuurt elke chat. Met Geheugen onthoudt de assistent wat je hem hebt verteld.",
+  "composerAttachServerFiles": "Serverbestanden",
+  "codeBlockPlainText": "Platte tekst",
+  "codeBlockWrapLines": "Regels afbreken",
+  "workspacePromptHistoryDiffTooLarge": "Deze versies zijn te lang om te vergelijken.",
+  "composerSaveDraftAsNote": "Bewaar als notitie",
+  "composerSaveDraftAsNoteDescription": "Bewaar dit bericht als nieuwe notitie in plaats van het te versturen.",
+  "authFieldServer": "Server",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Naam",
+  "authFieldRequired": "Vereist",
+  "authFieldOptional": "Optioneel",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Foto's",
+  "modelPickerAppleOnDeviceSubtitle": "Op dit apparaat, ook offline",
+  "modelPickerApplePccSubtitle": "Op de privéservers van Apple",
+  "accountsSavedServers": "Opgeslagen servers",
+  "computerEnabledDescription": "Bekijk en bedien desktop- en browsersessies in chats.",
+  "computerTrackpadHint": "Veeg om de cursor te bewegen. Tik om te klikken, houd vast om te slepen; scroll met twee vingers.",
+  "computerShortcut": "Sneltoets",
+  "computerInputFailed": "Kon niet naar de computer worden verzonden. Probeer het opnieuw.",
+  "computerQualityLow": "Minder dataverbruik",
+  "computerDesktopSite": "Desktopwebsite",
+  "computerAudioUnavailable": "Desktopaudio is niet beschikbaar op deze verbinding of dit apparaat.",
+  "computerSound": "Geluid",
+  "computerTabs": "Browsertabs",
+  "computerNewTab": "Nieuw tabblad",
+  "computerCloseTab": "Tabblad sluiten",
+  "computerRefreshTabs": "Tabs vernieuwen",
+  "computerNoTabs": "Geen browsertabs",
+  "computerTabsWatchHint": "Neem de besturing over om tabbladen te wijzigen. Dit stopt het antwoord; stuur een nieuw bericht om verder te gaan.",
+  "computerTabsUnavailable": "Tabs konden niet worden geladen. Probeer te vernieuwen.",
+  "computerTitle": "Computer",
+  "computerConnecting": "Verbinden met computer…",
+  "computerReconnecting": "Opnieuw verbinden…",
+  "computerDisconnected": "Computer niet verbonden",
+  "computerBrowserStartHint": "Neem de bediening over om de liveweergave van dit tabblad te starten.",
+  "computerBrowserUnavailable": "Deze terminal heeft Chrome of Chromium nodig voor een livebrowser.",
+  "computerStopFailed": "Het huidige antwoord kon niet worden gestopt. Je kunt blijven kijken en het opnieuw proberen.",
+  "computerStopping": "Antwoord stoppen…",
+  "computerTakeControl": "Bediening overnemen",
+  "computerTrackpadMode": "Trackpadmodus",
+  "computerRecenterPointer": "Aanwijzer centreren",
+  "computerClick": "Klikken",
+  "computerRightClick": "Rechtsklikken",
+  "computerDoubleClick": "Dubbelklikken",
+  "computerStartDrag": "Slepen starten",
+  "computerEndDrag": "Slepen beëindigen",
+  "computerShowKeyboard": "Toetsenbord tonen",
+  "computerHideKeyboard": "Toetsenbord verbergen",
+  "computerAgentWorking": "Agent is bezig",
+  "computerDesktop": "Bureaublad",
+  "computerBrowser": "Browser",
+  "computerForward": "Vooruit",
+  "computerReload": "Pagina herladen",
+  "computerAddress": "Naar adres",
+  "computerTypeText": "Typen op computer",
+  "computerSend": "Versturen",
+  "computerZoom": "Inzoomen",
+  "libreChatTemporaryChatOff": "LibreChat bewaart elke chat. Zet tijdelijke chat uit om te verzenden.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Bèta",
+  "libreChatChooserSubtitle": "Log in op je LibreChat-server voor gesynchroniseerde chats, agents en meer.",
+  "libreChatAddAccount": "LibreChat-account toevoegen",
+  "libreChatFileSearch": "Bestanden zoeken",
+  "libreChatFileSearchDescription": "Zoekt antwoorden in geüploade bestanden.",
+  "libreChatMcpConnect": "Verbinden in LibreChat",
+  "libreChatApprovalRun": "{tool} laten uitvoeren?",
+  "libreChatQuestionProgress": "Vraag {current} van {total}",
+  "libreChatAnswerFailed": "Je antwoord kon niet worden verstuurd. Probeer het opnieuw.",
+  "libreChatApprovalRespond": "Beantwoorden",
+  "libreChatApprovalArguments": "Argumenten (JSON)",
+  "libreChatAddAccountMessage": "Voer het adres van je LibreChat-server in.",
+  "libreChatInvalidAddress": "Voer een serveradres in, zoals chat.example.com.",
+  "libreChatUnreachable": "Kan de server niet bereiken. Controleer het adres en je verbinding.",
+  "libreChatNotLibreChat": "Deze server is geen LibreChat-server. Controleer het adres.",
+  "libreChatIsOpenWebUi": "Dit is een Open WebUI-server. Voeg hem toe via het tabblad Open WebUI.",
+  "libreChatPasswordSignInOff": "Deze server staat alleen inloggen via single sign-on toe.",
+  "libreChatGoogleUnsupported": "Google staat inloggen binnen apps niet toe. Log op een andere manier in.",
+  "libreChatSsoUnfinished": "Het inloggen is niet voltooid. Probeer het opnieuw.",
+  "libreChatChangeServer": "Andere server gebruiken",
+  "libreChatSessionEnded": "Je sessie op {server} is beëindigd. Log opnieuw in.",
+  "libreChatDuplicateChat": "Chat dupliceren",
+  "libreChatCopyFailed": "De chat kon niet worden gekopieerd. Controleer je verbinding en probeer het opnieuw.",
+  "libreChatMemoryKeyLabel": "Sleutel",
+  "libreChatMemoryKeyHint": "bijv. voorkeuren",
+  "libreChatMemoryKeyRequired": "Geef de herinnering een sleutel.",
+  "libreChatMemoryUsage": "{used} van {limit} tokens gebruikt",
+  "hermesReadOnlySessionNotice": "Deze chat is gestart in een andere Hermes-app. Je kunt hem hier lezen, maar Hermes laat Conduit alleen antwoorden in chats die Conduit zelf is begonnen.",
+  "hermesReadOnlySessionNoticeFrom": "Deze chat is gestart in {source}. Je kunt hem hier lezen, maar Hermes laat Conduit alleen antwoorden in chats die Conduit zelf is begonnen.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Doorgaan in een kopie",
+  "hermesContinueInCopyFailed": "Deze chat kon niet worden gekopieerd. Probeer het opnieuw.",
+  "hermesContinueHere": "Hier doorgaan",
+  "hermesContinueHereFailed": "Deze chat kon hier niet worden voortgezet. Probeer het opnieuw.",
+  "hermesContinueChoiceExplanation": "Als je hier doorgaat, eindigt deze chat in de andere app, die bij het volgende bericht een nieuwe begint. Een kopie laat die chat ongemoeid, maar bewaart de eerdere berichten alleen op dit apparaat. Ze bewaart maximaal de nieuwste 1.000 berichten (1 MB), voor de 32 kopieën die het laatst zijn geopend.",
+  "hermesSessionHide": "Verbergen",
+  "hermesSessionUnhide": "Weer tonen",
+  "hermesSessionUpdateFailed": "Deze chat kon niet worden bijgewerkt. Probeer het opnieuw.",
+  "hermesSessionHiddenNotice": "Chat verborgen. Je vindt hem onder Verborgen chats in de Hermes-instellingen.",
+  "hermesHiddenChatsTitle": "Verborgen chats",
+  "hermesHiddenChatsDescription": "Chats die op dit apparaat uit de Hermes-lijst zijn verborgen. Tik op een chat om hem te openen, of toon hem weer om hem opnieuw in de lijst te zien.",
+  "hermesHiddenChatsEmpty": "Geen chats verborgen op dit apparaat.",
+  "hermesHiddenChatsLoadError": "Verborgen chats konden niet worden geladen.",
+  "hermesBranchFromHere": "Vanaf hier vertakken",
+  "hermesBranchFailed": "Deze chat kon niet worden vertakt. Probeer het opnieuw.",
+  "hermesUndoLastTurn": "Laatste beurt ongedaan maken",
+  "hermesUndoLastTurnDone": "Laatste beurt ongedaan gemaakt.",
+  "hermesUndoLastTurnFailed": "De laatste beurt kon niet ongedaan worden gemaakt. Probeer het opnieuw.",
+  "hermesArchivedLoadError": "Gearchiveerde chats konden niet worden geladen.",
+  "hermesClarifyProgress": "{answered} van {total} afgehandeld",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Je antwoorden konden niet worden verzonden. Probeer het opnieuw.",
+  "hermesClarifyAlreadySettled": "Deze vraag is elders al beantwoord of verlopen, dus je antwoord is niet verzonden.",
+  "hermesClarifyAnswerOrSkip": "Beantwoord of sla elke vraag over.",
+  "hermesClarifyOtherAnswer": "Of typ je eigen antwoord",
+  "hermesClarifySkip": "Overslaan",
+  "hermesClarifySkipped": "Overgeslagen",
+  "hermesClarifyRecommended": "Aanbevolen",
+  "hermesChangedFiles": "{count, plural, =1{1 bestand gewijzigd} other{{count} bestanden gewijzigd}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, =1{Nog 1 bestand} other{Nog {count} bestanden}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "Gewijzigd bestand",
+  "hermesDiffLineCounts": "Regels toegevoegd: {added}, verwijderd: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Ongeveer {spent} van {limit} gebruikt",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Ongeveer {spent} gebruikt",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Limiet {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Deze aanroep gaat over de bestedingslimiet van deze chat. Je kunt hem maar één keer toestaan.",
+  "hermesApprovalCost": "Geschatte kosten: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "Plan",
+  "hermesPlanProgress": "{done} van {total} klaar",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Plan tonen",
+  "hermesPlanHide": "Plan verbergen",
+  "hermesContextUsage": "Context en gebruik",
+  "hermesContextWindow": "Contextvenster",
+  "hermesContextUsed": "{used} van {max} tokens",
+  "@hermesContextUsed": {"placeholders": {"used": {"type": "String", "example": "32,768"}, "max": {"type": "String", "example": "131,072"}}},
+  "hermesContextPercentFull": "{percent}% vol",
+  "@hermesContextPercentFull": {"placeholders": {"percent": {"type": "int", "example": "25"}}},
+  "hermesContextEstimatedNote": "Geschat",
+  "hermesContextRequestEstimate": "Ongeveer {tokens} tokens per verzoek",
+  "@hermesContextRequestEstimate": {"placeholders": {"tokens": {"type": "String", "example": "13,036"}}},
+  "hermesContextNoWindow": "Deze verbinding meldt het contextvenster niet.",
+  "hermesContextBreakdown": "Waarmee het gevuld is",
+  "hermesContextSystemPrompt": "Systeemprompt",
+  "hermesContextToolDefinitions": "Tooldefinities",
+  "hermesContextSubagentDefinitions": "Subagentdefinities",
+  "hermesContextConversation": "Gesprek",
+  "hermesContextTotals": "Deze chat tot nu toe",
+  "hermesContextInput": "Invoertokens",
+  "hermesContextOutput": "Uitvoertokens",
+  "hermesContextReasoning": "Redeneertokens",
+  "hermesContextCacheRead": "Uit cache gelezen",
+  "hermesContextCacheWrite": "Naar cache geschreven",
+  "hermesContextCacheHits": "Cachetreffers",
+  "hermesContextCalls": "Modelaanroepen",
+  "hermesContextCompactions": "Compacties",
+  "hermesContextCost": "Kosten",
+  "hermesContextCostEstimated": "Kosten (geschat)",
+  "hermesContextPlan": "Abonnementsgebruik",
+  "hermesContextGaugeDay": "Vandaag",
+  "hermesContextGaugeWeek": "Deze week",
+  "hermesContextGaugeMonth": "Deze maand",
+  "hermesContextGaugeTopTier": "Topmodellen",
+  "hermesContextUsedPercent": "{percent}% gebruikt",
+  "@hermesContextUsedPercent": {"placeholders": {"percent": {"type": "int", "example": "63"}}},
+  "hermesContextResets": "Reset: {time}",
+  "@hermesContextResets": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextLeftOf": "{remaining} van {total} over",
+  "@hermesContextLeftOf": {"placeholders": {"remaining": {"type": "String", "example": "$12.00"}, "total": {"type": "String", "example": "$20.00"}}},
+  "hermesContextRenews": "Verlengt: {date}",
+  "@hermesContextRenews": {"placeholders": {"date": {"type": "String", "example": "Dec 1"}}},
+  "hermesContextTopUp": "Opgewaardeerd tegoed",
+  "hermesContextRateLimited": "Snelheidslimiet bereikt",
+  "hermesContextRateLimitedUntil": "Snelheidslimiet tot {time}",
+  "@hermesContextRateLimitedUntil": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesContextUsageLevel": "Verbruik van dit model: {level}",
+  "@hermesContextUsageLevel": {"placeholders": {"level": {"type": "String", "example": "medium"}}},
+  "hermesContextLevelFree": "gratis",
+  "hermesContextLevelLow": "laag",
+  "hermesContextLevelMedium": "gemiddeld",
+  "hermesContextLevelTopTier": "hoogste",
+  "hermesContextCompactSection": "Compactie",
+  "hermesContextCompactHint": "Hermes vat oudere berichten samen om context vrij te maken. Recente berichten blijven ongewijzigd.",
+  "hermesContextCompactFocus": "Focus op (optioneel)",
+  "hermesContextCompactNow": "Nu compacteren",
+  "hermesContextCompacted": "Chat gecompacteerd.",
+  "hermesContextCompactedTokens": "Tokens: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {"placeholders": {"before": {"type": "String", "example": "12,351"}, "after": {"type": "String", "example": "4,020"}}},
+  "hermesContextCompactedMessages": "Berichten: {before} → {after}",
+  "@hermesContextCompactedMessages": {"placeholders": {"before": {"type": "int", "example": "24"}, "after": {"type": "int", "example": "8"}}},
+  "hermesContextCompactUnchanged": "Nog niets om te compacteren.",
+  "hermesContextCompactRefused": "Ongewijzigd gelaten: een samenvatting zou langer zijn dan de berichten die ze vervangt.",
+  "hermesContextCompactAborted": "Compacteren mislukt. Er zijn geen berichten verwijderd.",
+  "hermesContextCompactPending": "Nog bezig met compacteren. De chat wordt vernieuwd als het klaar is.",
+  "hermesContextCompactBusy": "Er loopt al een andere compactie. Probeer het zo opnieuw.",
+  "hermesContextCompactWait": "Wacht tot het antwoord klaar is en compacteer dan.",
+  "hermesContextCompactFailed": "Kan deze chat niet compacteren. Probeer het opnieuw.",
+  "hermesContextLoadFailed": "Kan context en gebruik niet laden.",
+  "hermesErrorProvider": "De modelaanbieder kon niet antwoorden",
+  "hermesErrorEndpoint": "Kan de modelserver niet bereiken",
+  "hermesErrorConnection": "De antwoordstream is weggevallen",
+  "hermesErrorAuth": "De aanbieder heeft de inloggegevens van Hermes geweigerd",
+  "hermesErrorBilling": "Tegoed op",
+  "hermesErrorUsageLimit": "Abonnementslimiet bereikt",
+  "hermesErrorFreeTier": "De gratis versie kan dit niet uitvoeren",
+  "hermesErrorRateLimit": "Snelheidslimiet bereikt",
+  "hermesErrorContextOverflow": "Deze chat is te lang voor het model",
+  "hermesErrorModel": "Het model is niet beschikbaar",
+  "hermesErrorPolicy": "Geblokkeerd door een beleid",
+  "hermesErrorTruncated": "Het antwoord is afgekapt",
+  "hermesErrorBadReply": "Het model stuurde een onbruikbaar antwoord",
+  "hermesErrorWorkspace": "De werkmap van de chat ontbreekt",
+  "hermesErrorSession": "Deze chat kan hier niet verder",
+  "hermesErrorBusy": "Hermes is bezig met deze chat",
+  "hermesErrorGateway": "Hermes liep tegen een probleem aan",
+  "hermesErrorDisk": "Hermes heeft geen schijfruimte meer",
+  "hermesErrorUnknown": "Hermes kon dit antwoord niet afmaken",
+  "hermesErrorBlocking": "Geblokkeerd tot dit is opgelost",
+  "hermesErrorDegraded": "Je kunt verder chatten",
+  "hermesErrorResetsAt": "Wordt om {time} gereset",
+  "@hermesErrorResetsAt": {"placeholders": {"time": {"type": "String", "example": "3:00 PM"}}},
+  "hermesErrorPartialKept": "Het antwoord tot nu toe staat hierboven.",
+  "hermesErrorContinue": "Doorgaan",
+  "hermesErrorCompact": "Chat compacteren",
+  "hermesErrorSwitchModel": "Overschakelen naar {model}",
+  "@hermesErrorSwitchModel": {"placeholders": {"model": {"type": "String", "example": "Hermes 4 70B"}}},
+  "hermesErrorOpenProviderSettings": "Instellingen van {provider} openen",
+  "@hermesErrorOpenProviderSettings": {"placeholders": {"provider": {"type": "String", "example": "OpenRouter"}}},
+  "hermesErrorOpenBilling": "Facturering openen",
+  "hermesErrorUseCredits": "Tegoed gebruiken",
+  "hermesErrorActionFailed": "Dat is niet gelukt. Probeer het opnieuw.",
+  "hermesBackgroundAgentCount": "{count, plural, =1{1 agent} other{{count} agents}}",
+  "@hermesBackgroundAgentCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundProcessCount": "{count, plural, =1{1 proces} other{{count} processen}}",
+  "@hermesBackgroundProcessCount": {"placeholders": {"count": {"type": "int"}}},
+  "hermesBackgroundWorkShow": "Achtergrondwerk tonen",
+  "hermesBackgroundWorkTitle": "Achtergrondwerk",
+  "hermesBackgroundWorkEmpty": "Er draait niets op de achtergrond.",
+  "hermesBackgroundAgents": "Agents",
+  "hermesBackgroundProcesses": "Processen",
+  "hermesSubagentQueued": "in de wachtrij",
+  "hermesSubagentLastTool": "laatste tool: {tool}",
+  "@hermesSubagentLastTool": {"placeholders": {"tool": {"type": "String"}}},
+  "hermesSubagentFinished": "Deze agent is klaar.",
+  "hermesSubagentOutput": "Live-uitvoer",
+  "hermesSubagentNoOutput": "Nog geen uitvoer.",
+  "hermesSubagentOutputTruncated": "Het nieuwste deel van de uitvoer wordt getoond.",
+  "hermesSubagentOutputFailed": "De uitvoer kon niet worden geladen.",
+  "hermesSubagentSteerHint": "Vertel deze agent iets",
+  "hermesSubagentSteer": "Bijsturen",
+  "hermesSubagentSteerQueued": "In de wachtrij. De agent leest het alleen als hij nog een stap zet.",
+  "hermesSubagentSteerRejected": "Deze agent neemt geen instructies meer aan.",
+  "hermesSubagentStop": "Agent stoppen",
+  "hermesSubagentStopped": "De agent is gevraagd te stoppen.",
+  "hermesBackgroundActionFailed": "Dat is niet gelukt. Probeer het opnieuw.",
+  "hermesProcessKill": "Beëindigen",
+  "hermesProcessKillLabel": "Proces beëindigen",
+  "hermesProcessKillTitle": "Dit proces beëindigen?",
+  "hermesProcessKillMessage": "Hermes probeert deze opdracht en alles wat die heeft gestart te stoppen:\n{command}\nSommige processen kunnen blijven draaien.",
+  "@hermesProcessKillMessage": {"placeholders": {"command": {"type": "String"}}},
+  "hermesProcessKilled": "Proces beëindigd.",
+  "hermesProcessAlreadyStopped": "Het was al gestopt.",
+  "hermesProcessKillFailed": "Beëindigen mislukt: {error}",
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Codeeragents",
+  "modelControlServiceTier": "Serviceniveau",
+  "scheduledTaskTerminalSearchHint": "Terminals zoeken",
+  "scheduledTaskWorkingFolderLabel": "Werkmap",
+  "scheduledTaskWorkingFolderHint": "Standaard van de terminal",
+  "scheduledTaskTerminalRequired": "Kies de terminal waarop deze agent draait.",
+  "scheduledTaskAgentNeedsChat": "De resultaten van een agent gaan naar een nieuwe chat.",
+  "scheduledTaskAgentsLoading": "Agents van deze terminal laden…",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nieuwe melding",
+  "pushReplyTitle": "Nieuw antwoord",
+  "pushReplyFailedTitle": "Antwoord mislukt",
+  "pushReplyFailedBody": "Het antwoord kon niet worden voltooid.",
+  "pushChannelTitle": "Nieuw bericht",
+  "pushCronTitle": "Geplande taak",
+  "pushTestTitle": "Pushmeldingen werken",
+  "pushTestBody": "Deze testmelding kwam van je server.",
+  "pushSectionTitle": "Pushmeldingen",
+  "pushEnabledTitle": "Pushmeldingen",
+  "pushEnabledDescription": "Krijg meldingen, ook als Conduit gesloten is. End-to-end versleuteld.",
+  "pushUnavailableBuild": "Niet beschikbaar in deze versie",
+  "pushUnavailableAndroid": "Niet beschikbaar in deze versie zonder UnifiedPush-distributor",
+  "pushGetDistributor": "Een UnifiedPush-distributor installeren",
+  "pushPrivacyTitle": "Zo blijft push privé",
+  "pushStatusOff": "Uit",
+  "pushStatusOptedOut": "Uitgezet op dit apparaat",
+  "pushStatusSettingUp": "Instellen…",
+  "pushStatusVerifying": "Testmelding wordt verstuurd…",
+  "pushStatusOn": "Aan",
+  "pushStatusNeedsAdminSetup": "Je beheerder moet dit instellen",
+  "pushStatusCanInstall": "Niet ingesteld op deze server",
+  "pushStatusUpdateAvailable": "Aan · Update beschikbaar",
+  "pushStatusPluginsDisabled": "Functies staan uit op deze server",
+  "pushStatusServerTooOldOpenWebUi": "Vereist Open WebUI 0.11 of nieuwer",
+  "pushStatusServerTooOldHermes": "Vereist een nieuwere versie van Hermes",
+  "pushStatusNeedsHermesPlugin": "Vereist de Conduit-plug-in in Hermes",
+  "pushStatusRestartHermes": "Start Hermes opnieuw om af te ronden",
+  "pushStatusSignInNeeded": "Log in om push te gebruiken",
+  "pushStatusPermissionDenied": "Meldingen zijn geblokkeerd",
+  "pushStatusNotificationsOff": "Aan · Meldingen staan uit voor dit account",
+  "pushActionSetUp": "Instellen",
+  "pushActionAskAdmin": "Vraag je beheerder",
+  "pushActionUpdate": "Bijwerken",
+  "pushActionInstall": "Installeren",
+  "pushActionCopyCommand": "Opdracht kopiëren",
+  "pushExplainOn": "Meldingen van dit account komen op dit apparaat binnen, ook als Conduit gesloten is.",
+  "pushExplainOptedOut": "Push staat uit voor dit account op dit apparaat.",
+  "pushExplainSettingUp": "Conduit registreert dit apparaat bij de server.",
+  "pushExplainVerifying": "De server stuurt een testmelding naar dit apparaat.",
+  "pushExplainNotificationsOff": "Push is ingesteld, maar meldingen staan uit voor dit account, dus ze worden niet getoond.",
+  "pushExplainNeedsAdminSetup": "Push heeft de opensource-functie Conduit Push op deze server nodig, en alleen een beheerder kan die installeren. Stuur je beheerder de instellink.",
+  "pushExplainCanInstall": "Push heeft de opensource-functie Conduit Push op deze server nodig. Je bent beheerder, dus je kunt hem nu installeren.",
+  "pushExplainUpdateAvailable": "Push werkt. Deze app bevat een nieuwere versie van de functie Conduit Push.",
+  "pushExplainPluginsDisabled": "Op deze Open WebUI-server staan functies uit, dus Conduit Push kan er niet draaien. Een beheerder kan ze aanzetten.",
+  "pushExplainServerTooOld": "Deze server is te oud voor pushmeldingen. Werk hem bij om ze te gebruiken.",
+  "pushExplainNeedsHermesPlugin": "Push heeft de opensource-plug-in van Conduit in Hermes nodig. Conduit kan hem via het Hermes-dashboard installeren.",
+  "pushExplainHermesCommand": "Push heeft de opensource-plug-in van Conduit in Hermes nodig. Voer deze opdracht uit op de computer waarop Hermes draait:",
+  "pushExplainRestartHermes": "De plug-in is geïnstalleerd. Start Hermes opnieuw om af te ronden; Conduit controleert daarna vanzelf opnieuw.",
+  "pushExplainSignInNeeded": "Log opnieuw in bij dit account om push te gebruiken.",
+  "pushExplainRelayUnavailable": "Deze versie van Conduit kan geen pushmeldingen afleveren.",
+  "pushExplainPermissionDenied": "Sta meldingen voor Conduit toe in de systeeminstellingen.",
+  "pushFailureNoTransport": "Dit apparaat kan geen pushmeldingen ontvangen.",
+  "pushFailureNoToken": "Dit apparaat heeft geen pushtoken gekregen. Controleer de verbinding en probeer het opnieuw.",
+  "pushFailureDistributor": "De UnifiedPush-distributor gaf geen antwoord.",
+  "pushFailureRelay": "Het pushrelais was niet bereikbaar.",
+  "pushFailureRelayBusy": "Het pushrelais is druk. Probeer het later opnieuw.",
+  "pushFailureServerUnreachable": "De server was niet bereikbaar.",
+  "pushFailureServerRejected": "De server heeft het verzoek geweigerd.",
+  "pushFailureHermesAuth": "Hermes accepteerde de API-sleutel niet.",
+  "pushFailureSubscriptionLost": "De server heeft het abonnement van dit apparaat niet bewaard.",
+  "pushFailureInstall": "Installeren is niet gelukt.",
+  "pushFailureTestTimeout": "De testmelding is niet aangekomen.",
+  "pushFailureDelivery": "De server kon de testmelding niet afleveren.",
+  "pushFailurePlatform": "Dit apparaat kon zijn pushsleutels niet opslaan.",
+  "pushFailureUnknown": "Er is iets misgegaan.",
+  "pushInstallOpenWebUiTitle": "Conduit Push installeren?",
+  "pushInstallOpenWebUiMessage": "Hiermee wordt de opensource-functie Conduit Push op deze server geïnstalleerd en aangezet, zodat iedereen hier pushmeldingen in Conduit kan krijgen. Ze versleutelt elke melding op de server voordat die vertrekt.",
+  "pushUpdateOpenWebUiTitle": "Conduit Push bijwerken?",
+  "pushUpdateOpenWebUiMessage": "Hiermee wordt de functie Conduit Push op deze server vervangen door de versie uit deze app. Bestaande abonnementen blijven behouden.",
+  "pushInstallHermesTitle": "Conduit-plug-in installeren?",
+  "pushInstallHermesMessage": "Hiermee wordt de opensource-plug-in van Conduit vanaf GitHub in Hermes geïnstalleerd en aangezet. Hermes controleert plug-ins voordat ze worden geïnstalleerd. Start Hermes daarna één keer opnieuw.",
+  "pushViewSource": "Broncode bekijken",
+  "pushHermesCommandLabel": "Opdracht",
+  "pushDetailSendTest": "Testmelding sturen",
+  "pushTestArrived": "De testmelding is aangekomen.",
+  "pushTestMissing": "De testmelding is niet aangekomen.",
+  "pushDetailUseForAccount": "Push gebruiken voor dit account",
+  "pushDetailUseForConnection": "Push gebruiken voor deze verbinding",
+  "pushDetailOriginTitle": "Antwoorden uit",
+  "pushDetailOriginDescription": "Welke voltooide antwoorden een pushmelding sturen.",
+  "pushOriginConduit": "Chats gestart in Conduit",
+  "pushOriginAny": "Al mijn chats",
+  "pushDiagnosticsTitle": "Diagnose",
+  "pushDiagnosticsTransport": "Aflevering",
+  "pushDiagnosticsServer": "Serverversie",
+  "pushDiagnosticsPlugin": "Plug-inversie",
+  "pushDiagnosticsVerified": "Laatst gecontroleerd",
+  "pushDiagnosticsServerReport": "Serverrapport",
+  "pushDiagnosticsError": "Laatste fout",
+  "pushDeliveryTitle": "Pushaflevering",
+  "pushDeliveryAutomatic": "Automatisch",
+  "pushDeliveryFcm": "Google (FCM)",
+  "pushDeliveryUnifiedPush": "UnifiedPush",
+  "pushDistributorTitle": "UnifiedPush-distributor",
+  "pushNoDistributor": "Er is geen UnifiedPush-distributor geïnstalleerd.",
+  "pushResetKeys": "Pushsleutels resetten",
+  "pushResetKeysDescription": "Dit apparaat van elke server verwijderen en push opnieuw instellen met nieuwe sleutels.",
+  "pushResetKeysConfirmTitle": "Pushsleutels resetten?",
+  "pushResetKeysConfirmMessage": "Conduit verwijdert dit apparaat van elke server, wist de pushsleutels en stelt push opnieuw in met nieuwe sleutels.",
+  "pushResetKeysConfirm": "Resetten",
+  "pushPrivacyIntro": "Je eigen server versleutelt elke pushmelding zo dat alleen dit apparaat hem kan lezen. De sleutel om hem te ontsleutelen verlaat dit apparaat nooit, dus niets daartussen kan hem lezen.",
+  "pushPrivacyServerTitle": "Je server",
+  "pushPrivacyServerBody": "Die heeft je chats al. Voor push bewaart hij ook het pushadres van dit apparaat, de publieke sleutel, een willekeurige apparaat-ID en een label zoals ‘iOS’. Hij bepaalt wat er in een melding staat: een titel en een korte preview.",
+  "pushPrivacyRelayTitle": "Het Conduit-relais",
+  "pushPrivacyRelayBody": "Het geeft versleutelde meldingen door aan Apple of Google. Het ziet het IP-adres van je server, wanneer die verstuurt en een afgeronde grootte, maar nooit titels, tekst, accounts of de naam of URL van je server. Het is opensource en houdt geen logs of database bij.",
+  "pushPrivacyProvidersTitle": "Apple en Google",
+  "pushPrivacyProvidersBody": "Zij leveren de versleutelde melding af en kunnen hem niet lezen. Kan hij niet ontsleuteld worden, dan toont je telefoon alleen ‘Nieuwe melding’.",
+  "pushPrivacyUnifiedPushTitle": "UnifiedPush",
+  "pushPrivacyUnifiedPushBody": "Op Android kun je in plaats daarvan een UnifiedPush-distributor gebruiken. Je server stuurt dan rechtstreeks daarheen, zonder het Conduit-relais of Google.",
+  "pushPrivacyOffTitle": "Push uitzetten",
+  "pushPrivacyOffBody": "Push uitzetten wist alle pushsleutels van dit apparaat; push uitzetten voor één account, uitloggen bij dat account of het verwijderen wist alleen de sleutels van dat account. Wat daarna naar die sleutels wordt verstuurd, is niet meer leesbaar. Conduit vraagt de servers van de betreffende accounts ook om dit apparaat te vergeten.",
+  "pushPrivacyReadMore": "Alle details lezen",
+  "pushAttentionChip": "Push vraagt aandacht",
+  "notificationScheduledTitle": "Geplande taken",
+  "notificationScheduledDescription": "Melden wanneer een geplande Hermes-taak het resultaat aflevert.",
+  "hermesJobNotifyTitle": "Stuur me een melding",
+  "hermesJobNotifyDescription": "Een pushmelding sturen wanneer deze taak een resultaat aflevert.",
+  "pushAskAdminMessage": "Kun je Conduit Push instellen op onze Open WebUI-server? Daarmee kan Conduit end-to-end versleutelde pushmeldingen sturen. Importeer in Beheerpaneel → Functies {url} en zet de functie-ID op {functionId}. Handleiding: {guide}",
+  "pushExplainFailed": "Conduit probeert het vanzelf opnieuw wanneer je het weer opent, of je kunt het nu opnieuw proberen.",
+  "pushHermesCommandLatest": "Hiermee installeer je de nieuwste gepubliceerde versie van de plug-in.",
+  "hermesJobCreatedNotifyFailed": "Taak gemaakt, maar de meldingen ervoor konden niet worden ingeschakeld.",
+  "hermesJobUpdatedNotifyFailed": "Taak opgeslagen, maar de meldingen ervan konden niet worden gewijzigd.",
+  "hermesJobNotifyNeedsScheduled": "Zet Geplande taken aan bij Meldingen om dit te gebruiken."
 }

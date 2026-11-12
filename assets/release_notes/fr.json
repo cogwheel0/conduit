@@ -282,6 +282,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.1",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! LibreChat arrive en bêta : connectez-vous, discutez avec ses modèles et ses agents, et gardez son historique dans l'onglet Discussions. Hermes 0.23 fonctionne, avec les Salons, les chats épinglés et masqués, et une feuille Contexte et utilisation. Open WebUI 0.13.3 propose les agents de programmation de ses terminaux comme modèles, et Ordinateur ouvre le bureau d'un terminal depuis l'en-tête du chat.",
+      "bullets": [
+        {
+          "text": "LibreChat (Bêta) : connectez-vous à un serveur LibreChat par e-mail ou LDAP, vérification en deux étapes ou authentification unique, et basculez entre LibreChat et Open WebUI dans Comptes. Ses chats remplissent l'onglet Discussions et restent lisibles hors ligne. Choisissez ses spécifications de modèle, ses agents et ses modèles, joignez des fichiers, activez la recherche web, l'exécution de code, la recherche de fichiers et les serveurs MCP, répondez aux demandes d'approbation des outils, et insérez ses prompts avec /. Les réponses continuent pendant que vous êtes dans un autre chat. Les liens de partage, les branches, Dupliquer la discussion, les voix du serveur et les mémoires dans Personnalisation fonctionnent aussi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes 0.23 : les chats via Desktop Gateway et via le serveur API fonctionnent, et vous pouvez vous connecter à l'écouteur Webapp propre à une passerelle. Les approbations et les questions s'affichent de nouveau, et toutes les questions d'un échange arrivent dans un seul formulaire. Un chat commencé dans une autre app Hermes propose Continuer dans une copie, une exécution interrompue par un redémarrage reprend, et la réponse à un message que Hermes a enregistré pendant son redémarrage apparaît dès qu'elle est prête. Conduit demande votre accord avant qu'une connexion envoie des identifiants en HTTP non chiffré, et avant de passer à un modèle que Hermes veut vous faire confirmer.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chats Hermes : épinglez, archivez ou masquez un chat, créez une branche depuis n'importe quelle réponse, ou annulez le dernier échange. Dans un chat Desktop Gateway, modifier ou régénérer poursuit la même session, avec son contexte. Contexte et utilisation montre le remplissage de la fenêtre de contexte et les limites de votre abonnement, et compacte le chat. Une pastille au-dessus de la zone de saisie liste les sous-agents et processus en cours, à orienter, arrêter ou terminer. Un échange en échec affiche une carte qui indique ce qui n'a pas fonctionné et propose une correction, les fichiers modifiés apparaissent dans une carte de diff, les outils payants affichent leur prix, et le plan de l'agent reste au-dessus de la zone de saisie.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Salons et tâches Hermes : les connexions Desktop Gateway obtiennent les Salons, des chats de groupe réunissant de deux à six de vos bots. Leurs tâches planifiées peuvent être arrêtées en cours d'exécution ; vous choisissez quoi faire des Exécutions manquées, et Livrer à propose les applications de messagerie, les Chats des bots et les Chats de groupe. Les tâches du serveur API peuvent être modifiées, et l'effort de raisonnement que vous choisissez s'y applique désormais. Les serveurs MCP du catalogue demandent leurs clés quand vous les ajoutez, et avec plusieurs connexions, vous en changez depuis le nom en haut de la barre latérale.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.2 et 0.13.3 : l'app fonctionne sans avertissement de compatibilité. Sélectionnez un terminal dans un chat enregistré, et ses agents de programmation, comme Codex et Claude Code, apparaissent sous Agents de programmation dans le sélecteur de modèle. Ordinateur, dans l'en-tête du chat, ouvre le Bureau ou le Navigateur du terminal en plein écran : regardez pendant qu'une réponse est en cours, ou utilisez Prendre le contrôle pour taper, cliquer et naviguer. Désactivez-le dans Réglages > Discussion. Les rappels de mémoire et les listes de compétences que le serveur masque ne s'affichent plus comme des blocs d'outil.",
+          "icon": "direct"
+        },
+        {
+          "text": "Direct : les appels d'outils ne s'arrêtent plus après 8 tours. Le nouveau réglage Images par requête (10 par défaut) et le budget de documents s'appliquent désormais à chaque requête, si bien que les pièces jointes plus anciennes sont écartées au lieu de faire échouer tous les échanges suivants. La limite de contexte que vous choisissez pour un modèle Ollama local est envoyée à Ollama. Les étapes de raisonnement et d'outils restent quand vous rouvrez un chat, le remplissage du contexte dans l'utilisation est mesuré correctement, et les serveurs qui envoient des champs vides ne cassent plus le streaming.",
+          "icon": "direct"
+        },
+        {
+          "text": "iOS : sur iOS 26, les menus, alertes, feuilles et champs de recherche sont ceux du système, et les Réglages sont regroupés comme dans l'app Réglages. La voix et la lecture à voix haute flottent sur des îlots de verre : touchez la barre de lecture pour vous déplacer, sautez de 15 secondes et suivez le mot surligné. Les chats et les notes sont classés par date, l'utilisation d'une réponse s'ouvre dans une fenêtre contextuelle avec le remplissage du contexte, l'éditeur de notes a une barre d'outils en bas, et les pages de réglages se floutent sous la barre quand vous faites défiler.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats : les longs chats défilent sans que la barre de défilement saute, sur Android vous pouvez la faire glisser, et le chat reste en place pendant que vous ouvrez la barre latérale en la faisant glisser. Les longues lignes des blocs de code passent à la ligne, les colonnes des tableaux s'ajustent à leur contenu, les suggestions de suivi s'affichent en lignes complètes, et une réponse affiche Réflexion… avec le temps d'attente. Une seule vitesse règle désormais les voix cloud et celles de l'appareil, la connexion au tableau de bord Hermes ne devient plus blanche derrière le clavier, et toucher deux fois votre profil n'ouvre plus deux fois les Réglages.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

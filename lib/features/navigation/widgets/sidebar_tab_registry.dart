@@ -62,6 +62,11 @@ final class SidebarTabDescriptor {
   final SidebarTabBodyBuilder bodyBuilder;
   final IconData materialIcon;
   final IconData selectedMaterialIcon;
+
+  /// SF Symbols for the iOS tab bar: the outline glyph, and its filled form
+  /// for the current tab. Conduit's palette is monochrome, so the bar's tint
+  /// is the same colour as the other tabs; the fill, with the selection pill,
+  /// is what marks the current tab.
   final String sfSymbol;
   final String selectedSfSymbol;
   final SidebarTabVisibilityPredicate isVisible;
@@ -198,7 +203,7 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     materialIcon: Icons.terminal_rounded,
     selectedMaterialIcon: Icons.terminal,
     sfSymbol: 'terminal',
-    selectedSfSymbol: 'terminal',
+    selectedSfSymbol: 'terminal.fill',
     isVisible: _terminalVisible,
     behavior: terminalSidebarTabBehavior,
   ),

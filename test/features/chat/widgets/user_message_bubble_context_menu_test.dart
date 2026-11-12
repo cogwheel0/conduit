@@ -2,6 +2,8 @@ import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/widgets/user_message_bubble.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/utils/conversation_context_menu.dart'
+    show ConduitContextMenu;
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -114,4 +116,70 @@ void main() {
       check(tester.getRect(bubble)).equals(rect);
     });
   }
+
+  testWidgets('a message that cannot be deleted offers no Delete', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: UserMessageBubble(
+              message: ChatMessage(
+                id: 'kept-on-server',
+                role: 'user',
+                content: 'Blue paper boats.',
+                timestamp: DateTime.utc(2026, 1, 1),
+              ),
+              isUser: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final menu = tester.widget<ConduitContextMenu>(
+      find.byType(ConduitContextMenu),
+    );
+    check([for (final action in menu.actions) action.label]).not(
+      (it) => it.contains('Delete'),
+    );
+  });
+
+  testWidgets('a message to a coding agent offers no Edit', (tester) async {
+    // Open WebUI continues an agent's chat only with a new message.
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: UserMessageBubble(
+              message: ChatMessage(
+                id: 'to-agent',
+                role: 'user',
+                content: 'Rename the folder.',
+                timestamp: DateTime.utc(2026, 1, 1),
+              ),
+              isUser: true,
+              allowsEdit: false,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final menu = tester.widget<ConduitContextMenu>(
+      find.byType(ConduitContextMenu),
+    );
+    check([for (final action in menu.actions) action.label])
+      ..contains('Copy')
+      ..not((it) => it.contains('Edit'));
+  });
 }

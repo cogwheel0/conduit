@@ -265,6 +265,11 @@ class ChatAdmissionNotDurableException implements Exception {
 /// that certification, so a send that would take an inline path throws
 /// [ChatAdmissionNotDurableException] instead of running without one.
 ///
+/// [onTurnStarted] runs once a Hermes or Direct turn is in the chat and
+/// handed to its run. The send itself returns only when that run ends,
+/// which an approval or a question can hold open for as long as the user
+/// takes.
+///
 /// [contextAttachments] replaces the composer's context attachments for this
 /// send and leaves the composer's own untouched.
 Future<void> durableSend(
@@ -279,6 +284,7 @@ Future<void> durableSend(
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
   void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
+  void Function()? onTurnStarted,
 }) async {
   Future<void> inlineSend() {
     if (onAdmissionCommitted != null) {
@@ -293,6 +299,7 @@ Future<void> durableSend(
       pendingFolderIdOverride,
       onAssistantPlaceholderCreated,
       voice,
+      onTurnStarted,
     );
   }
   final voiceReply = voice?.reply;
@@ -353,6 +360,14 @@ Future<void> durableSend(
     return;
   }
 
+  // LibreChat runs its turns on its server, which keeps them across a
+  // dropped connection; they never touch Open WebUI's outbox either.
+  if ((selectedModel != null && isLibreChatModel(selectedModel)) ||
+      isLibreChatConversation(activeAtSendStart)) {
+    await inlineSend();
+    return;
+  }
+
   if (hasTrustedDirectBinding) {
     await inlineSend();
     return;
@@ -371,9 +386,10 @@ Future<void> durableSend(
   final filterIds = selectedFilterIdsForModel(ref, selectedModel);
   final now = ref.read(syncClockProvider).nowEpochSeconds();
   final selectedTerminalId = ref.read(selectedTerminalIdProvider);
-  final terminalIdForCompletion = modelSupportsTerminal(selectedModel)
-      ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
-      : null;
+  final terminalIdForCompletion = terminalIdForModelRequest(
+    selectedModel,
+    selectedTerminalId: selectedTerminalId,
+  );
   final webSearchEnabled =
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);

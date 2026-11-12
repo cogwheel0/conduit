@@ -20,6 +20,7 @@ import 'package:conduit_core/features/direct_connections/models/openrouter_reaso
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -541,6 +542,36 @@ void main() {
         .isTrue();
   });
 
+  test('a model with an effort control of its own has no second picker', () {
+    // A coding agent's id ends in its model's, which can read as a GPT-5.
+    const agent = Model(id: 'agent:t1:codex:gpt-5.1', name: 'Codex · gpt-5.1');
+    const controlled = Model(
+      id: 'custom',
+      name: 'Custom',
+      metadata: <String, dynamic>{
+        'info': {
+          'params': {
+            'model_controls': {
+              'reasoning_effort': {
+                'label': 'Effort',
+                'options': {
+                  'low': {'label': 'Low'},
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    check(reasoningEffortPolicyForModel(container.read, agent).visible)
+        .isFalse();
+    check(reasoningEffortPolicyForModel(container.read, controlled).visible)
+        .isFalse();
+  });
+
   test(
     'chat payload omits the implicit effort for undeclared server models',
     () {
@@ -818,6 +849,24 @@ void main() {
     check(reasoningEffortPolicyForModel(container.read, cloud).visible)
         .isTrue();
     check(reasoningEffortPolicyForModel(container.read, onDevice).visible)
+        .isFalse();
+  });
+
+  test('LibreChat models offer no reasoning effort picker', () {
+    final model = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'openAI': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'openAI': <String>['sample-model'],
+      },
+    ).single;
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    check(isLibreChatModel(model)).isTrue();
+    check(reasoningEffortPolicyForModel(container.read, model).visible)
         .isFalse();
   });
 

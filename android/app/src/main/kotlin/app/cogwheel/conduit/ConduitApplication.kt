@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import app.cogwheel.conduit.push.FcmTransport
+import app.cogwheel.conduit.push.PushNotifier
 
 /**
  * Custom Application class to perform early initialization tasks.
@@ -22,6 +24,11 @@ class ConduitApplication : Application() {
         // Create notification channels immediately at app startup
         // This ensures channels exist before any service tries to use them
         createNotificationChannels()
+        // A push can start the process before the app ever ran: the message
+        // channel must exist, and Firebase must be up (only once the user
+        // turned push on) for the FCM service to deliver.
+        PushNotifier.ensureChannel(this)
+        FcmTransport.initializeIfOptedIn(this)
     }
 
     private fun createNotificationChannels() {

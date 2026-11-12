@@ -38,8 +38,8 @@ void main() {
     ) async {
       final session = await _pump(tester, settings: const AppSettings());
 
-      expect(find.text('Webhook destinations'), findsNothing);
-      expect(find.text('Enable notifications'), findsOneWidget);
+      expect(find.text('Webhook Destinations'), findsNothing);
+      expect(find.text('Allow Notifications'), findsOneWidget);
       // Hidden, not deleted: nothing is sent, so server delivery is untouched.
       expect(session.wire.requests, isEmpty);
     });
@@ -54,8 +54,8 @@ void main() {
         },
       );
 
-      expect(find.text('Webhook destinations'), findsNothing);
-      expect(find.text('Enable notifications'), findsOneWidget);
+      expect(find.text('Webhook Destinations'), findsNothing);
+      expect(find.text('Allow Notifications'), findsOneWidget);
       expect(session.wire.requests, isEmpty);
     });
 
@@ -64,7 +64,7 @@ void main() {
     ) async {
       final session = await _pump(tester, serverEnabled: false);
 
-      expect(find.text('Webhook destinations'), findsNothing);
+      expect(find.text('Webhook Destinations'), findsNothing);
       expect(session.wire.requests, isEmpty);
     });
 
@@ -73,7 +73,7 @@ void main() {
     ) async {
       await _pump(tester);
 
-      expect(find.text('Webhook destinations'), findsOneWidget);
+      expect(find.text('Webhook Destinations'), findsOneWidget);
       expect(find.text('ops'), findsOneWidget);
     });
   });
@@ -425,7 +425,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('notification-target-delete')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete destination').last);
+      await tester.tap(find.text('Delete Destination').last);
       await tester.pumpAndSettle();
 
       expect(session.wire.writes.single.method, 'DELETE');
@@ -521,7 +521,7 @@ void main() {
       await tester.pumpAndSettle();
       session.switchAccount();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete destination').last);
+      await tester.tap(find.text('Delete Destination').last);
       await tester.pumpAndSettle();
 
       expect(session.wire.writes, isEmpty);
@@ -665,7 +665,7 @@ void main() {
       await tester.tap(find.text('Cancel').last);
       await tester.pumpAndSettle();
       expect(find.text('Discard changes?'), findsOneWidget);
-      await tester.tap(find.text('Keep editing'));
+      await tester.tap(find.text('Keep Editing'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('notification-target-save')), findsOneWidget);
 

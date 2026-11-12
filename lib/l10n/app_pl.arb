@@ -110,8 +110,8 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Otwieraj Notatki, Terminal i Kanały obok historii czatów.",
+  "slidingSidebar": "Połącz karty panelu bocznego",
+  "slidingSidebarDescription": "Pokazuje Notatki, Terminal i Kanały nad listą czatów zamiast jako karty, a na telefonie zostawia część czatu na widoku.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
@@ -1096,6 +1096,7 @@
     "description": "Action to start a new chat."
   },
   "more": "Więcej",
+  "done": "Gotowe",
   "@more": {
     "description": "Opens additional actions or content."
   },
@@ -1455,6 +1456,28 @@
   "@usageTotalTokens": {
     "description": "Label for total token count"
   },
+  "usageContextWindow": "Okno kontekstu",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} z {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "edit": "Edytuj",
   "@edit": {
     "description": "Action to edit an item/message."
@@ -1479,11 +1502,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Wklej token sesji Open WebUI z zalogowanej przeglądarki. Klucze API nie są obsługiwane.",
+  "tokenHint": "Skopiuj token sesji JWT z Open WebUI w przeglądarce i wklej go tutaj. Administratorzy znajdą go w Ustawienia › Konto › Klucze API. Klucze API (sk-…) nie zadziałają.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "Klucze API nie są tu obsługiwane. Użyj tokena sesji Open WebUI.",
+  "apiKeyNotSupported": "Kluczami API (sk-…) nie można się zalogować. Wklej zamiast tego token JWT.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -1631,15 +1654,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Paleta akcentów",
+  "themePalette": "Paleta kolorów",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochromatyczna",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Czysty, neutralny motyw zaprojektowany dla Conduit.",
+  "themePaletteConduitDescription": "Czerń i biel, bez koloru akcentu.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1741,8 +1764,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Pokaż przycisk notatek",
-  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
+  "showComposerNotesButton": "Zapisuj szkice jako notatki",
+  "showComposerNotesButtonDescription": "Podczas pisania menu + oferuje opcję Zapisz jako notatkę, która zachowuje wiadomość jako notatkę zamiast ją wysyłać.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1801,8 +1824,8 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "citationBackground": "Tło cytowań",
-  "citationBackgroundDescription": "Wyłącz, aby cytowania w tekście miały przezroczyste tło",
+  "citationBackground": "Wyróżniaj cytowania",
+  "citationBackgroundDescription": "Dodaje do cytowań w odpowiedziach cieniowane tło, aby wyróżniały się w tekście.",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -1955,9 +1978,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Tempo mowy",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Prędkość odtwarzania",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Ton",
   "@ttsPitch": {
@@ -2474,7 +2508,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Uwierzytelnianie…",
+  "ssoAuthenticating": "Logowanie…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2526,7 +2560,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Wczytywanie strony uwierzytelniania…",
+  "proxyAuthLoading": "Wczytywanie strony logowania…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2547,7 +2581,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Zaloguj się przez swoje proxy. Po uwierzytelnieniu dotknij Kontynuuj, aby przejść do logowania.",
+  "proxyAuthHelpTextSimple": "Zaloguj się na tej stronie do swojego proxy, a potem dotknij Kontynuuj, aby zalogować się do Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -3787,7 +3821,7 @@
   "@passwordChangeDescription": {
     "description": "Subtitle for the action that updates the account password."
   },
-  "profileDetailsSummary": "Bio, płeć i data urodzenia",
+  "profileDetailsSummary": "Płeć i data urodzenia",
   "@profileDetailsSummary": {
     "description": "Subtitle for the profile details editor."
   },
@@ -4443,6 +4477,14 @@
   "notificationViewAction": "Wyświetl",
   "@notificationViewAction": {
     "description": "Action label on an in-app notification banner that opens the target."
+  },
+  "notificationReplyFailedBody": "Nie udało się dokończyć odpowiedzi.",
+  "@notificationReplyFailedBody": {
+    "description": "Notification body for a reply that failed, when the source gives no detail."
+  },
+  "notificationTargetUnavailable": "Konta lub połączenia z tego powiadomienia nie ma już na tym urządzeniu.",
+  "@notificationTargetUnavailable": {
+    "description": "Shown when a tapped notification belongs to an account or connection that was removed from this device."
   },
   "notificationsPermissionDenied": "Powiadomienia są wyłączone w ustawieniach systemowych.",
   "@notificationsPermissionDenied": {
@@ -6164,7 +6206,7 @@
   "@ollamaUnloadModelConfirmMessage": {
     "description": "Confirmation message shown before unloading an Ollama model."
   },
-  "ollamaKeepAlive": "Keep alive",
+  "ollamaKeepAlive": "Utrzymywanie w pamięci",
   "@ollamaKeepAlive": {
     "description": "Setting that controls how long an Ollama model remains loaded."
   },
@@ -6352,11 +6394,11 @@
   "@backendChooserModelApisSectionTitle": {
     "description": "Section title for direct model API choices on the first-run backend chooser."
   },
-  "backendChooserDirectTitle": "Połącz bezpośrednio",
+  "backendChooserDirectTitle": "Dostawca modeli",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Połącz interfejs API zgodny z OpenAI lub Ollama. Dane logowania pozostaną na tym urządzeniu.",
+  "backendChooserDirectSubtitle": "Rozmawiaj przez OpenAI, OpenRouter lub Ollama. Twój klucz pozostaje na tym urządzeniu.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
   },
@@ -6489,14 +6531,6 @@
   "@directAttachmentUnsupported": {
     "description": "Error shown when a direct model cannot accept an attached file."
   },
-  "backendChooserWelcome": "Wybierz sposób połączenia",
-  "@backendChooserWelcome": {
-    "description": "Welcome heading on the first-run backend chooser."
-  },
-  "backendChooserPrompt": "Wybierz jedną opcję na początek. Kolejne możesz dodać później.",
-  "@backendChooserPrompt": {
-    "description": "Prompt on the first-run backend chooser."
-  },
   "backendChooserOpenWebUITitle": "Open WebUI",
   "@backendChooserOpenWebUITitle": {
     "description": "Short Open WebUI title used on the backend chooser and server setup page."
@@ -6509,7 +6543,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Połącz samodzielnie hostowanego agenta Hermes.",
+  "backendChooserHermesSubtitle": "Rozmawiaj z własnym agentem, który korzysta z narzędzi i pamięta wcześniejsze sesje.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
@@ -6864,12 +6898,206 @@
   "hermesMcpServers": "Serwery MCP",
   "hermesSignOut": "Wyloguj się z Hermes",
   "hermesActionFailed": "Akcja Hermes nie powiodła się.",
+  "hermesSignOutFailed": "Nie udało się wylogować z panelu Hermes. Sprawdź połączenie i spróbuj ponownie.",
+  "@hermesSignOutFailed": {
+    "description": "Shown when signing out of the Hermes Desktop Gateway failed, for example because Hermes could not be reached to end the dashboard session."
+  },
   "hermesToolsetUpdateFailed": "Aktualizacja zestawu narzędzi Hermes nie powiodła się.",
   "hermesJobStateLabel": "Stan",
   "hermesJobDeliveryLabel": "Dostarczanie",
   "hermesJobLastLabel": "Ostatnie",
   "hermesJobNextLabel": "Następne",
   "hermesJobRunHistory": "Historia uruchomień",
+  "hermesJobStop": "Zatrzymaj",
+  "hermesJobStopping": "Zatrzymywanie…",
+  "hermesJobStopped": "Zatrzymano uruchomienie.",
+  "hermesJobFinishedBeforeStop": "Uruchomienie zakończyło się, zanim udało się je zatrzymać.",
+  "hermesJobNothingToStop": "Żadne uruchomienie nie trwa.",
+  "hermesJobStopFailed": "Nie można zatrzymać uruchomienia.",
+  "hermesJobStopUnsupported": "Zaktualizuj Hermes, aby zatrzymywać trwające zadania.",
+  "hermesJobRunning": "Trwa teraz",
+  "hermesJobLastCancelled": "Ostatnie uruchomienie zatrzymane: {reason}",
+  "@hermesJobLastCancelled": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobLastCancelledNoReason": "Ostatnie uruchomienie zatrzymane",
+  "hermesJobCatchUpLabel": "Pominięte uruchomienia",
+  "hermesJobCatchUpHint": "Co zrobić z uruchomieniami pominiętymi, gdy Hermes nie działał.",
+  "hermesJobCatchUpDefault": "Domyślne ustawienie Hermes",
+  "hermesJobCatchUpRunOnce": "Uruchom raz po pominięciu",
+  "hermesJobCatchUpSkip": "Pomijaj zaległe uruchomienia",
+  "hermesJobDeliverLabel": "Dostarczaj do",
+  "hermesJobDeliverLocal": "Zapisz w Hermes",
+  "hermesJobDeliverMessaging": "Komunikatory",
+  "hermesJobDeliverBotChats": "Czaty botów",
+  "hermesJobDeliverGroupChats": "Czaty grupowe",
+  "hermesJobDeliverBotChat": "Czat bota: {name}",
+  "@hermesJobDeliverBotChat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverGroupChat": "Czat grupowy: {name}",
+  "@hermesJobDeliverGroupChat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverNeedsHomeChannel": "Najpierw ustaw kanał domowy w Hermes.",
+  "hermesJobDeliverRoomHint": "Czaty grupowe budzą tylko boty, które zadanie oznaczy przez @.",
+  "hermesRoomsTitle": "Pokoje",
+  "hermesRoomNew": "Nowy pokój",
+  "hermesRoomCreateHint": "Wybierz od 2 do 6 botów. Każdy odpowiada w pokoju jako on sam.",
+  "hermesRoomNameHint": "Nazwa pokoju",
+  "hermesRoomCreateFailed": "Nie można utworzyć pokoju.",
+  "hermesRoomNeedsBots": "Pokój wymaga co najmniej dwóch botów w tym połączeniu.",
+  "hermesRoomMessageHint": "Wiadomość do pokoju, @ wspomina bota",
+  "hermesRoomScheduled": "Zaplanowane",
+  "hermesRoomEveryone": "Wszyscy",
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} few{{count} boty} many{{count} botów} other{{count} bota}}",
+  "@hermesRoomBotCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomWorking": "pracuje",
+  "hermesRoomWaiting": "czeka",
+  "hermesRoomQuiet": "cisza od {elapsed}",
+  "@hermesRoomQuiet": {
+    "placeholders": {
+      "elapsed": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomNeedsYou": "Czeka na Twoją odpowiedź",
+  "hermesRoomTurnFailed": "Tura nieudana",
+  "hermesRoomTurnCancelled": "Tura anulowana",
+  "hermesRoomTurnDeferred": "Tura odłożona",
+  "hermesRoomMemberUnavailable": "Bot niedostępny",
+  "hermesRoomStopped": "Pokój zatrzymany",
+  "hermesRoomDisbanded": "Pokój rozwiązany",
+  "hermesRoomAuthorityLost": "Inna brama przejęła ten pokój",
+  "hermesRoomWorkLimit": "Osiągnięto limit tur",
+  "hermesRoomRoutedTo": "Przydzielono: {names}",
+  "@hermesRoomRoutedTo": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomRoutedEveryone": "Przydzielono wszystkim",
+  "hermesRoomRoutedFallback": "Nie udało się wybrać, kto odpowie, więc odpowiedzą wszyscy",
+  "hermesRoomAssigned": "{lead} przekazuje to: {names}",
+  "@hermesRoomAssigned": {
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLeadTaking": "{lead} się tym zajmie",
+  "@hermesRoomLeadTaking": {
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomContinued": "Wznowiono",
+  "hermesRoomHandoff": "{from} pyta {to}",
+  "@hermesRoomHandoff": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomPaused": "{count, plural, =1{Wstrzymano po 1 wiadomości} few{Wstrzymano po {count} wiadomościach} many{Wstrzymano po {count} wiadomościach} other{Wstrzymano po {count} wiadomości}}",
+  "@hermesRoomPaused": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRetryPrompt": "Tura bota {name} zakończyła się bez jasnego wyniku.",
+  "@hermesRoomRetryPrompt": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLoadFailed": "Nie można wczytać tego pokoju.",
+  "hermesRoomRefreshFailed": "Nie można odświeżyć pokoju.",
+  "hermesRoomGone": "Ten pokój nie jest już dostępny.",
+  "hermesRoomNotRunning": "Hermes nie obsługuje teraz tego pokoju, więc nie może przyjmować wiadomości.",
+  "hermesRoomSendUnclear": "Hermes nie potwierdził wiadomości. Wyślij ją ponownie; nie zostanie opublikowana dwa razy.",
+  "hermesRoomStoppedCount": "{count, plural, =0{Nic nie było uruchomione} =1{Zatrzymano 1 zadanie} few{Zatrzymano {count} zadania} many{Zatrzymano {count} zadań} other{Zatrzymano {count} zadania}}",
+  "@hermesRoomStoppedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRefused": "Hermes odmówił: {reason}",
+  "@hermesRoomRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomActionFailed": "To się nie udało. Spróbuj ponownie.",
+  "hermesRoomInfoTitle": "Informacje o pokoju",
+  "hermesRoomPurpose": "Cel",
+  "hermesRoomPurposeHint": "Do czego służy ten pokój, w jednym wierszu",
+  "hermesRoomNotes": "Wspólne notatki",
+  "hermesRoomNotesHint": "Fakty, o których każdy bot ma pamiętać",
+  "hermesRoomNotesTooLong": "Wspólne notatki są za długie.",
+  "hermesRoomWhoAnswers": "Kto odpowiada na wiadomość, która nikogo nie wymienia",
+  "hermesRoomRoutingEveryoneHint": "Każdy bot zabiera głos.",
+  "hermesRoomRoutingLead": "Bot prowadzący",
+  "hermesRoomRoutingLeadHint": "Prowadzący wybiera, kto się tym zajmie. @wzmianki nadal trafiają prosto do wskazanych botów.",
+  "hermesRoomRoutingAuto": "Automatycznie",
+  "hermesRoomRoutingAutoHint": "Szybkie wywołanie modelu wybiera, do kogo jest wiadomość. @wzmianki nadal trafiają prosto do wskazanych botów.",
+  "hermesRoomLead": "Prowadzący",
+  "hermesRoomMembers": "Boty",
+  "hermesRoomMembersFixed": "Po utworzeniu pokoju nie można dodawać ani usuwać botów.",
+  "hermesRoomStopWork": "Zatrzymaj całą pracę",
+  "hermesRoomDisband": "Rozwiąż pokój",
+  "hermesRoomDisbandTitle": "Rozwiązać „{name}”?",
+  "@hermesRoomDisbandTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomDisbandMessage": "Jego praca się zatrzyma, a pokój zniknie na zawsze.",
+  "hermesRoomRenameTitle": "Zmień nazwę pokoju",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",
@@ -6888,6 +7116,7 @@
   "hermesFastTierOff": "Wył.",
   "hermesTurnSteer": "Skieruj",
   "hermesTurnSendNext": "Wyślij następne",
+  "hermesSteerUncertain": "Hermes nie potwierdził instrukcji. Sprawdź odpowiedź, zanim ponownie wyślesz instrukcję.",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
   "@sidebarHermesTab": {
@@ -6923,34 +7152,34 @@
   "@voiceCallSpeakerOff": {
     "description": "Tooltip for disabling the loudspeaker during a voice call."
   },
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "@directMcpTestSucceeded": {"placeholders":{"count":{"type":"int"}}}, "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "@directMcpDeleteMessage": {"placeholders":{"name":{"type":"String"}}}, "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "@directMcpOAuthConnectionDetails": {"placeholders":{"issuerHost":{"type":"String"},"scopes":{"type":"String"}}}, "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Odrzuć", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
+  "directMcpServersTitle": "Serwery MCP", "directMcpEmptyTitle": "Brak serwerów MCP", "directMcpReachabilityHelp": "Dodaj punkt końcowy Streamable HTTP, do którego to urządzenie ma dostęp.", "directMcpEditorTitle": "Edytuj serwer MCP", "directMcpAddTitle": "Dodaj serwer MCP", "directMcpName": "Nazwa serwera", "directMcpEndpoint": "Punkt końcowy Streamable HTTP", "directMcpBearerToken": "Token Bearer (opcjonalnie)", "directMcpCustomHeaders": "Własne nagłówki (opcjonalnie)", "directMcpCustomHeadersHint": "Jeden na wiersz: Nazwa: Wartość", "directMcpTestConnection": "Testuj połączenie", "directMcpTesting": "Testowanie połączenia…", "directMcpTestSucceeded": "{count, plural, one{Połączono — znaleziono {count} narzędzie.} few{Połączono — znaleziono {count} narzędzia.} many{Połączono — znaleziono {count} narzędzi.} other{Połączono — znaleziono {count} narzędzia.}}", "@directMcpTestSucceeded": {"placeholders":{"count":{"type":"int"}}}, "directMcpTestFailed": "Nie udało się pobrać listy narzędzi z tego serwera MCP.", "directMcpSaveFailed": "Nie można zapisać tego serwera MCP.", "directMcpLoadFailed": "Nie udało się wczytać serwerów MCP z bezpiecznego magazynu.", "directMcpMissing": "Ten serwer MCP już nie istnieje.", "directMcpCredentialTransferTitle": "Użyć danych logowania z nowym serwerem?", "directMcpCredentialTransferMessage": "Spowoduje to wysłanie tokena Bearer i własnych nagłówków do nowego serwera. Kontynuuj tylko wtedy, gdy mu ufasz. Anuluj zapisuje serwer bez danych logowania.", "directMcpCredentialTransferConfirm": "Użyj danych logowania", "directMcpDeleteTitle": "Usunąć serwer MCP?", "directMcpDeleteMessage": "Spowoduje to usunięcie serwera „{name}” i jego danych logowania z tego urządzenia.", "@directMcpDeleteMessage": {"placeholders":{"name":{"type":"String"}}}, "directMcpDeleteFailed": "Nie można usunąć tego serwera MCP.", "directMcpAuthMode": "Uwierzytelnianie", "directMcpAuthNone": "Brak", "directMcpAuthBearer": "Token Bearer", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Połącz w przeglądarce", "directMcpOAuthReconnect": "Połącz ponownie w przeglądarce", "directMcpOAuthDisconnect": "Rozłącz OAuth", "directMcpOAuthPending": "Oczekiwanie na autoryzację w przeglądarce…", "directMcpOAuthConnected": "Połączono przez OAuth.", "directMcpOAuthConnectionDetails": "Połączono z {issuerHost} · {scopes}", "@directMcpOAuthConnectionDetails": {"placeholders":{"issuerHost":{"type":"String"},"scopes":{"type":"String"}}}, "directMcpOAuthNoScopes": "Nie zgłoszono zakresów", "directMcpOAuthConnectFailed": "Nie udało się połączyć tego serwera MCP przez OAuth.", "directMcpOAuthDisconnectFailed": "Nie udało się rozłączyć OAuth od tego serwera MCP.", "directMcpApprovalTitle": "Zgoda na narzędzie", "directMcpApprovalAllowOnce": "Zezwól raz", "directMcpApprovalAllowSession": "Zezwól na czas sesji", "directMcpApprovalAllowAlways": "Zawsze zezwalaj", "directMcpApprovalAlwaysTitle": "Zawsze zezwalać na to narzędzie?", "directMcpApprovalAlwaysMessage": "{serverName} będzie mógł uruchamiać {toolName} bez ponownego pytania. Zgoda zostanie automatycznie cofnięta, jeśli zmieni się schemat narzędzia.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Nie udało się zapamiętać tej zgody. Możesz spróbować ponownie lub wybrać inną opcję.", "directMcpApprovalDeny": "Odrzuć", "directMcpApprovalAllowed": "Zezwolono raz", "directMcpApprovalAllowedSession": "Zezwolono na czas sesji", "directMcpApprovalAllowedAlways": "Zawsze dozwolone", "directMcpApprovalDenied": "Odrzucono", "directMcpApprovalExpired": "Zgoda wygasła", "directMcpRememberedApprovalsTitle": "Zawsze dozwolone narzędzia", "directMcpRememberedApprovalsSubtitle": "Właśnie te narzędzia mogą działać bez pytania, dopóki ich serwer i schemat wejściowy pozostają bez zmian.", "directMcpRememberedApprovalRevoke": "Cofnij", "directMcpRememberedApprovalsRevokeAll": "Cofnij wszystkie", "directMcpRememberedApprovalRevokeFailed": "Nie udało się cofnąć zapamiętanej zgody."
+  ,"directMcpContentAction": "Zawartość MCP"
+  ,"directMcpContentTitle": "Zawartość MCP"
+  ,"directMcpContentServer": "Serwer MCP"
+  ,"directMcpContentSearch": "Szukaj promptów i zasobów"
+  ,"directMcpContentPrompts": "Prompty"
+  ,"directMcpContentResources": "Zasoby"
+  ,"directMcpContentEmpty": "Ten serwer nie ma promptów ani zasobów."
+  ,"directMcpContentNoMatches": "Brak pasujących promptów lub zasobów."
+  ,"directMcpContentLoadFailed": "Nie udało się wczytać zawartości z tego serwera MCP."
+  ,"directMcpContentRefresh": "Odśwież zawartość MCP"
+  ,"directMcpContentPreviewTitle": "Podgląd"
+  ,"directMcpContentInsert": "Wstaw"
+  ,"directMcpContentPromptHeading": "Prompt MCP z serwera {serverName}: {promptName}"
   ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
+  ,"directMcpContentResourceHeading": "Zasób MCP z serwera {serverName}: {resourceUri}"
   ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpContentRoleUser": "Użytkownik"
+  ,"directMcpContentRoleAssistant": "Asystent"
+  ,"directMcpContentRequestFailed": "Nie udało się wczytać tej zawartości MCP. Spróbuj ponownie."
+  ,"directMcpContentUnsupported": "Ten element jest binarny lub nieobsługiwany. Wybierz prompt tekstowy lub zasób tekstowy."
+  ,"directMcpContentChanged": "Ten element zmienił się na serwerze. Odśwież i wybierz go ponownie."
+  ,"directMcpContentTooLarge": "Ta zawartość jest za duża, aby ją wstawić."
+  ,"directMcpContentComposerTooLarge": "Szkic i ta zawartość przekraczają limit wiadomości 256 KiB. Skróć szkic lub zawartość i spróbuj ponownie."
+  ,"directMcpContentLoading": "Wczytywanie zawartości MCP…"
+  ,"directMcpInsecureCredentialsTitle": "Wysłać dane uwierzytelniające bez szyfrowania?"
+  ,"directMcpInsecureCredentialsMessage": "Ten serwer używa nieszyfrowanego HTTP. Twój token bearer, token OAuth i niestandardowe nagłówki mogą zostać odczytane lub zmienione w sieci."
+  ,"directMcpInsecureCredentialsConfirm": "Wyślij bez szyfrowania"
   ,"hermesSessionTooLarge": "Ta rozmowa jest zbyt duża, aby wczytać ją na tym urządzeniu."
   ,"hermesSessionNotFound": "Ta rozmowa nie jest już dostępna na serwerze Hermes."
   ,"hermesSessionLoadFailedDetail": "Nie można wczytać tej rozmowy: {detail}"
@@ -6992,6 +7221,12 @@
   "webSearchRegionAuto": "Jak urządzenie",
   "webSearchRegionWorldwide": "Cały świat",
   "directModelToolsUnsupported": "Ten model nie może używać narzędzi, więc nie może przeszukiwać sieci. Wyłącz wyszukiwanie w sieci i wszystkie narzędzia, a następnie spróbuj ponownie.",
+  "directImagesPerRequest": "Obrazy na żądanie",
+  "directImagesPerRequestFooter": "Każda wiadomość wysyła najnowsze obrazy z tego czatu, maksymalnie tyle. Starsze obrazy są pomijane. Zmniejsz tę wartość, jeśli model odrzuca żądania ze zbyt wieloma obrazami.",
+  "directImagesPerRequestSaveFailed": "Nie udało się zapisać ustawienia Obrazy na żądanie. Spróbuj ponownie.",
+  "directModelTooManyImages": "Ten model przyjmuje mniej obrazów na żądanie, niż wysłał ten czat. Zmniejsz Obrazy na żądanie w ustawieniach Połączeń bezpośrednich, a następnie spróbuj ponownie. Jeśli już sama ta wiadomość ma więcej obrazów, niż model przyjmuje, wyślij ją ponownie z mniejszą liczbą obrazów.",
+  "directToolLoopNoAnswer": "Model wciąż używał narzędzi, nie udzielając odpowiedzi. Spróbuj ponownie lub wyłącz wyszukiwanie w sieci i narzędzia.",
+  "directContextLimitOllamaNote": "W przypadku modeli Ollama na własnym serwerze wybrany tutaj limit jest też rozmiarem okna kontekstu, z jakim Ollama ładuje model. Większe okno zużywa więcej pamięci.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modele} many{{count} modeli} other{{count} modelu}}",
   "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} z {total}",
@@ -7579,7 +7814,7 @@
   "chatMergeChooseDescription": "Wybierz odpowiedzi do scalenia. Wybierz co najmniej dwie; oryginały pozostają bez zmian.",
   "folderProjectComparisonFallbackNotice": "Nie wszystkie zapisane modele tego projektu mogą być użyte, więc czat rozpoczyna się z mniejszą ich liczbą. Porównanie używa dokładnie dwóch.",
   "advancedFeaturesFooter": "Dodaje porównywanie modeli, ustawienia czatu, ustawienia narzędzi, zaplanowane zadania, połączenia osobiste, webhooki i zarządzanie danymi. Wyłączenie tylko je ukrywa; to, co już skonfigurowano, nadal działa.",
-  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w Ustawienia > Czat.",
+  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w sekcji Czaty.",
   "advancedRequiredTitle": "Część trybu Zaawansowane",
   "advancedRequiredMessage": "{feature} to funkcja trybu Zaawansowane. Włącz go, aby z niej korzystać. To, co już skonfigurowano, nadal działa.",
   "@advancedRequiredMessage": {
@@ -7722,7 +7957,7 @@
   "calendarRemoveEnd": "Usuń godzinę zakończenia",
   "calendarEventReadOnlyNotInvited": "Nie możesz zmienić tego wydarzenia.",
   "calendarFieldOrganizer": "Organizator",
-  "calendarColorName": "{color, select, blue{Niebieski} green{Zielony} amber{Bursztynowy} red{Czerwony} purple{Fioletowy} teal{Morski} other{Kolor}}",
+  "calendarColorName": "{color, select, blue{Niebieski} green{Zielony} amber{Bursztynowy} red{Czerwony} purple{Fioletowy} teal{Morski} custom{Własny kolor} other{Kolor}}",
   "@calendarColorName": {
     "placeholders": {
       "color": {
@@ -7855,6 +8090,8 @@
     }
   },
   "hermesDeleteConnectionFailed": "Nie można usunąć tego połączenia.",
+  "hermesInsecureCredentialsMessage": "Ten serwer używa nieszyfrowanego HTTP. Twój klucz API, tokeny logowania i nagłówki dostępu mogą zostać odczytane lub zmienione w sieci.",
+  "hermesNotEncrypted": "Bez szyfrowania",
   "hermesSwitchConnectionFailed": "Nie można przełączyć na to połączenie.",
   "hermesSwitchConnectionTitle": "Przełącz połączenie",
   "hermesSwitchConnectionPromptTitle": "Przełączyć na „{name}”?",
@@ -7879,6 +8116,28 @@
   },
   "hermesSwitchConnectionConfirm": "Przełącz",
   "hermesKeepCurrentConnection": "Zostań przy obecnym",
+  "hermesModelSwitchConfirmTitle": "Przełączyć na „{model}”?",
+  "@hermesModelSwitchConfirmTitle": {
+    "description": "Title of the dialog asking whether to switch a Hermes chat to a model Hermes holds for confirmation (a pricier, data-sharing or smaller-context model) and send the waiting message.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "pricier-model"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes prosi o potwierdzenie przed przełączeniem tego czatu na ten model.",
+  "@hermesModelSwitchConfirmMessage": {
+    "description": "Message of that dialog when Hermes gave no reason of its own."
+  },
+  "hermesModelSwitchConfirmAction": "Przełącz i wyślij",
+  "@hermesModelSwitchConfirmAction": {
+    "description": "Button that confirms the model switch and sends the waiting message."
+  },
+  "hermesModelSwitchKeepCurrent": "Zostań przy obecnym modelu",
+  "@hermesModelSwitchKeepCurrent": {
+    "description": "Button that keeps the chat's current model; the message goes back to the composer unsent."
+  },
   "accountsTitle": "Konta",
   "accountsAddAccount": "Dodaj konto",
   "accountsManage": "Zarządzaj kontami",
@@ -8119,5 +8378,913 @@
   "terminalPortPreviewLoadFailed": "Nie udało się wczytać tej strony.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
-  }
+  },
+  "modelMenuAllModels": "Wszystkie modele…",
+  "@modelMenuAllModels": {
+    "description": "Last item of the chat's model menu, under the pinned models; opens the complete, searchable model list."
+  },
+  "citationPreviewOpen": "Otwórz",
+  "@citationPreviewOpen": {
+    "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "chatUnreadState": "Nieprzeczytany",
+  "codeCopied": "Skopiowano",
+  "onboardingWelcomeTitle": "Witamy w Conduit",
+  "onboardingWelcomeSubtitle": "Rozmawiaj z AI na własnym serwerze, na tym urządzeniu lub przez API.",
+  "backendChooserFooter": "Więcej połączeń możesz dodać później w Ustawieniach.",
+  "serverAddressFooter": "Użyj adresu, który otwierasz w przeglądarce.",
+  "signInChangeServer": "Zmień",
+  "signInContinueWithSso": "Kontynuuj przez SSO",
+  "mutualTlsChooseFile": "Wybierz…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Skopiowano",
+  "composerAddAttachment": "Dodaj załącznik",
+  "composerShowKeyboard": "Pokaż klawiaturę",
+  "composerAttachUploads": "Przesłane",
+  "supportConduitFooter": "Conduit jest darmowy i open source. Twoje wsparcie pomaga, by tak zostało.",
+  "aiMemoryFooter": "Twój prompt systemowy kieruje każdym czatem. Pamięć pozwala asystentowi zapamiętywać informacje z rozmów.",
+  "composerAttachServerFiles": "Pliki na serwerze",
+  "codeBlockPlainText": "Zwykły tekst",
+  "codeBlockWrapLines": "Zawijaj wiersze",
+  "workspacePromptHistoryDiffTooLarge": "Te wersje są zbyt długie, aby je porównać.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
+  },
+  "composerSaveDraftAsNote": "Zapisz jako notatkę",
+  "composerSaveDraftAsNoteDescription": "Zachowaj tę wiadomość jako nową notatkę zamiast ją wysyłać.",
+  "authFieldServer": "Serwer",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Nazwa",
+  "authFieldRequired": "Wymagane",
+  "authFieldOptional": "Opcjonalne",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Zdjęcia",
+  "modelPickerAppleOnDeviceSubtitle": "Na tym urządzeniu, także offline",
+  "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple",
+  "accountsSavedServers": "Zapisane serwery",
+  "computerEnabledDescription": "Obserwuj i kontroluj sesje pulpitu i przeglądarki w czatach.",
+  "computerTrackpadHint": "Przesuń, aby poruszyć kursorem. Stuknij, aby kliknąć, przytrzymaj, aby przeciągnąć; przewijaj dwoma palcami.",
+  "computerShortcut": "Skrót klawiaturowy",
+  "computerInputFailed": "Nie udało się wysłać do komputera. Spróbuj ponownie.",
+  "computerQualityLow": "Mniejsze zużycie danych",
+  "computerDesktopSite": "Wersja na komputer",
+  "computerAudioUnavailable": "Dźwięk pulpitu jest niedostępny dla tego połączenia lub urządzenia.",
+  "computerSound": "Dźwięk",
+  "computerTabs": "Karty przeglądarki",
+  "computerNewTab": "Nowa karta",
+  "computerCloseTab": "Zamknij kartę",
+  "computerRefreshTabs": "Odśwież karty",
+  "computerNoTabs": "Brak kart przeglądarki",
+  "computerTabsWatchHint": "Przejmij sterowanie, aby zmieniać karty. Odpowiedź zostanie zatrzymana; wyślij nową wiadomość, aby kontynuować.",
+  "computerTabsUnavailable": "Nie udało się wczytać kart. Spróbuj je odświeżyć.",
+  "computerTitle": "Komputer",
+  "computerConnecting": "Łączenie z komputerem…",
+  "computerReconnecting": "Ponowne łączenie…",
+  "computerDisconnected": "Komputer rozłączony",
+  "computerBrowserStartHint": "Przejmij kontrolę, aby uruchomić podgląd tej karty na żywo.",
+  "computerBrowserUnavailable": "Ten terminal wymaga Chrome lub Chromium do przeglądarki na żywo.",
+  "computerStopFailed": "Nie udało się zatrzymać bieżącej odpowiedzi. Możesz nadal obserwować i spróbować ponownie.",
+  "computerStopping": "Zatrzymywanie odpowiedzi…",
+  "computerTakeControl": "Przejmij sterowanie",
+  "computerTrackpadMode": "Tryb gładzika",
+  "computerRecenterPointer": "Wyśrodkuj wskaźnik",
+  "computerClick": "Kliknij",
+  "computerRightClick": "Prawy przycisk",
+  "computerDoubleClick": "Dwukrotne kliknięcie",
+  "computerStartDrag": "Rozpocznij przeciąganie",
+  "computerEndDrag": "Zakończ przeciąganie",
+  "computerShowKeyboard": "Pokaż klawiaturę",
+  "computerHideKeyboard": "Ukryj klawiaturę",
+  "computerAgentWorking": "Agent pracuje",
+  "computerDesktop": "Pulpit",
+  "computerBrowser": "Przeglądarka",
+  "computerForward": "Dalej",
+  "computerReload": "Odśwież stronę",
+  "computerAddress": "Przejdź do adresu",
+  "computerTypeText": "Pisz na komputerze",
+  "computerSend": "Wyślij",
+  "computerZoom": "Powiększ",
+  "libreChatTemporaryChatOff": "LibreChat zapisuje każdy czat. Wyłącz czat tymczasowy, aby wysłać.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Zaloguj się na swój serwer LibreChat, aby synchronizować czaty, agentów i nie tylko.",
+  "libreChatAddAccount": "Dodaj konto LibreChat",
+  "libreChatFileSearch": "Wyszukiwanie w plikach",
+  "libreChatFileSearchDescription": "Szuka odpowiedzi w przesłanych plikach.",
+  "libreChatMcpConnect": "Połącz w LibreChat",
+  "libreChatApprovalRun": "Pozwolić na uruchomienie {tool}?",
+  "@libreChatApprovalRun": {
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Pytanie {current} z {total}",
+  "@libreChatQuestionProgress": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "libreChatApprovalRespond": "Odpowiedz",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
+  "libreChatAddAccountMessage": "Wpisz adres swojego serwera LibreChat.",
+  "libreChatInvalidAddress": "Wpisz adres serwera, np. chat.example.com.",
+  "libreChatUnreachable": "Nie udało się połączyć z serwerem. Sprawdź adres i połączenie.",
+  "libreChatNotLibreChat": "Ten serwer to nie LibreChat. Sprawdź adres.",
+  "libreChatIsOpenWebUi": "To serwer Open WebUI. Dodaj go na karcie Open WebUI.",
+  "libreChatPasswordSignInOff": "Ten serwer pozwala logować się tylko przez jednokrotne logowanie (SSO).",
+  "libreChatGoogleUnsupported": "Google nie pozwala logować się wewnątrz aplikacji. Zaloguj się w inny sposób.",
+  "libreChatSsoUnfinished": "Logowanie nie zostało zakończone. Spróbuj ponownie.",
+  "libreChatChangeServer": "Użyj innego serwera",
+  "libreChatSessionEnded": "Twoja sesja na {server} wygasła. Zaloguj się ponownie.",
+  "@libreChatSessionEnded": {
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "libreChatDuplicateChat": "Duplikuj czat",
+  "libreChatCopyFailed": "Nie udało się skopiować czatu. Sprawdź połączenie i spróbuj ponownie.",
+  "libreChatMemoryKeyLabel": "Klucz",
+  "libreChatMemoryKeyHint": "np. preferencje",
+  "libreChatMemoryKeyRequired": "Nadaj wspomnieniu klucz.",
+  "libreChatMemoryUsage": "Wykorzystano {used} z {limit} tokenów",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesReadOnlySessionNotice": "Ten czat rozpoczęto w innej aplikacji Hermes. Możesz go tu czytać, ale Hermes pozwala Conduit odpowiadać tylko w czatach, które Conduit rozpoczął.",
+  "@hermesReadOnlySessionNotice": {
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns, so Conduit can read it but not reply."
+  },
+  "hermesReadOnlySessionNoticeFrom": "Ten czat rozpoczęto w aplikacji: {source}. Możesz go tu czytać, ale Hermes pozwala Conduit odpowiadać tylko w czatach, które Conduit rozpoczął.",
+  "@hermesReadOnlySessionNoticeFrom": {
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns. source is the name of that app, for example Telegram or Hermes CLI.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesContinueInCopy": "Kontynuuj w kopii",
+  "@hermesContinueInCopy": {
+    "description": "Button that copies a read-only Hermes chat into a new chat Conduit can continue."
+  },
+  "hermesContinueInCopyFailed": "Nie można skopiować tego czatu. Spróbuj ponownie.",
+  "@hermesContinueInCopyFailed": {
+    "description": "Error shown when copying a read-only Hermes chat fails."
+  },
+  "hermesContinueHere": "Kontynuuj tutaj",
+  "@hermesContinueHere": {
+    "description": "Button that continues a read-only Hermes chat in Conduit through Hermes' fork, which ends the chat in the app that started it."
+  },
+  "hermesContinueHereFailed": "Nie można kontynuować tego czatu tutaj. Spróbuj ponownie.",
+  "@hermesContinueHereFailed": {
+    "description": "Error shown when continuing a read-only Hermes chat in Conduit fails."
+  },
+  "hermesContinueChoiceExplanation": "Kontynuowanie tutaj kończy ten czat w drugiej aplikacji, która przy następnej wiadomości zacznie nowy. Kopia pozostawia ten czat bez zmian, ale wcześniejsze wiadomości zapisuje tylko na tym urządzeniu. Przechowuje do 1000 najnowszych wiadomości (1 MB), dla 32 ostatnio otwieranych kopii.",
+  "@hermesContinueChoiceExplanation": {
+    "description": "Explains, under the read-only Hermes chat notice, the difference between continuing the chat here and continuing it in a copy."
+  },
+  "hermesSessionHide": "Ukryj",
+  "@hermesSessionHide": {
+    "description": "Session menu action that hides a Hermes chat from the session list."
+  },
+  "hermesSessionUnhide": "Odkryj",
+  "@hermesSessionUnhide": {
+    "description": "Button that puts a hidden Hermes chat back in the session list."
+  },
+  "hermesSessionUpdateFailed": "Nie można zaktualizować tego czatu. Spróbuj ponownie.",
+  "@hermesSessionUpdateFailed": {
+    "description": "Error shown when pinning, archiving or hiding a Hermes chat fails."
+  },
+  "hermesSessionHiddenNotice": "Czat ukryty. Znajdziesz go w ustawieniach Hermes w sekcji Ukryte czaty.",
+  "@hermesSessionHiddenNotice": {
+    "description": "Confirmation shown after a Hermes chat is hidden from the session list."
+  },
+  "hermesHiddenChatsTitle": "Ukryte czaty",
+  "@hermesHiddenChatsTitle": {
+    "description": "Title of the Hermes settings page, and its row, listing chats hidden from the session list."
+  },
+  "hermesHiddenChatsDescription": "Czaty ukryte na liście Hermes na tym urządzeniu. Stuknij czat, aby go otworzyć, lub odkryj go, aby wrócił na listę.",
+  "@hermesHiddenChatsDescription": {
+    "description": "Footer of the hidden Hermes chats list."
+  },
+  "hermesHiddenChatsEmpty": "Brak czatów ukrytych na tym urządzeniu.",
+  "@hermesHiddenChatsEmpty": {
+    "description": "Shown when no Hermes chats are hidden."
+  },
+  "hermesHiddenChatsLoadError": "Nie można wczytać ukrytych czatów.",
+  "@hermesHiddenChatsLoadError": {
+    "description": "Error shown when the hidden Hermes chats cannot be loaded."
+  },
+  "hermesBranchFromHere": "Rozgałęź od tego miejsca",
+  "@hermesBranchFromHere": {
+    "description": "Hermes reply menu action that opens a new chat continuing the conversation up to this reply."
+  },
+  "hermesBranchFailed": "Nie można rozgałęzić tego czatu. Spróbuj ponownie.",
+  "@hermesBranchFailed": {
+    "description": "Error shown when branching a Hermes chat from a reply fails."
+  },
+  "hermesUndoLastTurn": "Cofnij ostatnią wymianę",
+  "@hermesUndoLastTurn": {
+    "description": "Hermes reply menu action that removes the last message and its reply from the chat and from the Hermes server."
+  },
+  "hermesUndoLastTurnDone": "Cofnięto ostatnią wymianę.",
+  "@hermesUndoLastTurnDone": {
+    "description": "Confirmation shown after the last turn of a Hermes chat is undone."
+  },
+  "hermesUndoLastTurnFailed": "Nie można cofnąć ostatniej wymiany. Spróbuj ponownie.",
+  "@hermesUndoLastTurnFailed": {
+    "description": "Error shown when undoing the last turn of a Hermes chat fails."
+  },
+  "hermesArchivedLoadError": "Nie można wczytać zarchiwizowanych czatów.",
+  "@hermesArchivedLoadError": {
+    "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
+  },
+  "hermesClarifyProgress": "Gotowe: {answered} z {total}",
+  "@hermesClarifyProgress": {
+    "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
+    "placeholders": {
+      "answered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesClarifySendFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "hermesClarifyAlreadySettled": "Na to pytanie już odpowiedziano gdzie indziej lub wygasło, więc Twoja odpowiedź nie została wysłana.",
+  "@hermesClarifySendFailed": {
+    "description": "Error on a Hermes question form when its answers could not be sent."
+  },
+  "hermesClarifyAnswerOrSkip": "Odpowiedz na każde pytanie lub je pomiń.",
+  "@hermesClarifyAnswerOrSkip": {
+    "description": "Hint next to the disabled send button of a Hermes question form until every question has an answer or is skipped."
+  },
+  "hermesClarifyOtherAnswer": "Lub wpisz własną odpowiedź",
+  "@hermesClarifyOtherAnswer": {
+    "description": "Placeholder of the text field under a Hermes question's choices, for an answer that is not one of them."
+  },
+  "hermesClarifySkip": "Pomiń",
+  "@hermesClarifySkip": {
+    "description": "Toggle on one question of a Hermes question form that sends no answer for it."
+  },
+  "hermesClarifySkipped": "Pominięto",
+  "@hermesClarifySkipped": {
+    "description": "Shown for a Hermes question that was skipped on another device."
+  },
+  "hermesClarifyRecommended": "Zalecane",
+  "@hermesClarifyRecommended": {
+    "description": "Badge on the choice Hermes recommends in a question form."
+  },
+  "hermesChangedFiles": "{count, plural, =1{Zmieniono 1 plik} few{Zmieniono {count} pliki} many{Zmieniono {count} plików} other{Zmieniono {count} pliku}}",
+  "@hermesChangedFiles": {
+    "description": "Title of the card under a Hermes reply listing the files its tools edited.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesChangedFilesMore": "{count, plural, =1{Jeszcze 1 plik} few{Jeszcze {count} pliki} many{Jeszcze {count} plików} other{Jeszcze {count} pliku}}",
+  "@hermesChangedFilesMore": {
+    "description": "Last row of the changed-files card under a Hermes reply when it lists only some files; opens the rest.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesDiffUnnamedFile": "Zmieniony plik",
+  "@hermesDiffUnnamedFile": {
+    "description": "Name shown for an edited file when Hermes did not say which file it was."
+  },
+  "hermesDiffLineCounts": "Dodane wiersze: {added}, usunięte: {removed}",
+  "@hermesDiffLineCounts": {
+    "description": "Screen reader text for how many lines an edit added and removed in a file.",
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "removed": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesApprovalSpentOfLimit": "Wykorzystano około {spent} z {limit}",
+  "@hermesApprovalSpentOfLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server and its spend limit there. spent includes the unit, for example 20 credits.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpent": "Wykorzystano około {spent}",
+  "@hermesApprovalSpent": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which has no spend limit.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpendLimit": "Limit {limit}",
+  "@hermesApprovalSpendLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: this chat's spend limit on the tool's server, before anything was spent.",
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalOverLimit": "To wywołanie przekracza limit wydatków tego czatu. Możesz zezwolić na nie tylko raz.",
+  "@hermesApprovalOverLimit": {
+    "description": "Warning on a Hermes approval whose paid tool call would take the chat past its spend limit."
+  },
+  "hermesApprovalCost": "Szacowany koszt: {cost}",
+  "@hermesApprovalCost": {
+    "description": "Screen reader text for the price chip on a Hermes approval for a paid tool. cost is the price as Hermes states it, for example 5 credits.",
+    "placeholders": {
+      "cost": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesPlanTitle": "Plan",
+  "@hermesPlanTitle": {
+    "description": "Title of the agent's task list pinned above the composer of a Hermes chat."
+  },
+  "hermesPlanProgress": "Ukończono {done} z {total}",
+  "@hermesPlanProgress": {
+    "description": "How many items of the agent's task list are done, out of all of them.",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesPlanShow": "Pokaż plan",
+  "@hermesPlanShow": {
+    "description": "Screen reader label of the folded task list header: unfolds the agent's plan."
+  },
+  "hermesPlanHide": "Ukryj plan",
+  "@hermesPlanHide": {
+    "description": "Screen reader label of the open task list header: folds the agent's plan to one line."
+  },
+  "hermesContextUsage": "Kontekst i użycie",
+  "hermesContextWindow": "Okno kontekstu",
+  "hermesContextUsed": "{used} z {max} tokenów",
+  "@hermesContextUsed": {
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "32,768"
+      },
+      "max": {
+        "type": "String",
+        "example": "131,072"
+      }
+    }
+  },
+  "hermesContextPercentFull": "zapełnione w {percent}%",
+  "@hermesContextPercentFull": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "25"
+      }
+    }
+  },
+  "hermesContextEstimatedNote": "Szacunkowo",
+  "hermesContextRequestEstimate": "Około {tokens} tokenów na żądanie",
+  "@hermesContextRequestEstimate": {
+    "placeholders": {
+      "tokens": {
+        "type": "String",
+        "example": "13,036"
+      }
+    }
+  },
+  "hermesContextNoWindow": "To połączenie nie podaje okna kontekstu.",
+  "hermesContextBreakdown": "Co je wypełnia",
+  "hermesContextSystemPrompt": "Prompt systemowy",
+  "hermesContextToolDefinitions": "Definicje narzędzi",
+  "hermesContextSubagentDefinitions": "Definicje podagentów",
+  "hermesContextConversation": "Rozmowa",
+  "hermesContextTotals": "Ten czat do tej pory",
+  "hermesContextInput": "Tokeny wejściowe",
+  "hermesContextOutput": "Tokeny wyjściowe",
+  "hermesContextReasoning": "Tokeny rozumowania",
+  "hermesContextCacheRead": "Odczytane z pamięci podręcznej",
+  "hermesContextCacheWrite": "Zapisane w pamięci podręcznej",
+  "hermesContextCacheHits": "Trafienia w pamięci podręcznej",
+  "hermesContextCalls": "Wywołania modelu",
+  "hermesContextCompactions": "Kompaktowania",
+  "hermesContextCost": "Koszt",
+  "hermesContextCostEstimated": "Koszt (szacunkowy)",
+  "hermesContextPlan": "Wykorzystanie planu",
+  "hermesContextGaugeDay": "Dzisiaj",
+  "hermesContextGaugeWeek": "W tym tygodniu",
+  "hermesContextGaugeMonth": "W tym miesiącu",
+  "hermesContextGaugeTopTier": "Modele najwyższej klasy",
+  "hermesContextUsedPercent": "wykorzystano {percent}%",
+  "@hermesContextUsedPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "63"
+      }
+    }
+  },
+  "hermesContextResets": "Odnowienie: {time}",
+  "@hermesContextResets": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextLeftOf": "Pozostało {remaining} z {total}",
+  "@hermesContextLeftOf": {
+    "placeholders": {
+      "remaining": {
+        "type": "String",
+        "example": "$12.00"
+      },
+      "total": {
+        "type": "String",
+        "example": "$20.00"
+      }
+    }
+  },
+  "hermesContextRenews": "Przedłużenie: {date}",
+  "@hermesContextRenews": {
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Dec 1"
+      }
+    }
+  },
+  "hermesContextTopUp": "Doładowane środki",
+  "hermesContextRateLimited": "Osiągnięto limit zapytań",
+  "hermesContextRateLimitedUntil": "Limit zapytań do {time}",
+  "@hermesContextRateLimitedUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextUsageLevel": "Zużycie tego modelu: {level}",
+  "@hermesContextUsageLevel": {
+    "placeholders": {
+      "level": {
+        "type": "String",
+        "example": "medium"
+      }
+    }
+  },
+  "hermesContextLevelFree": "bezpłatne",
+  "hermesContextLevelLow": "niskie",
+  "hermesContextLevelMedium": "średnie",
+  "hermesContextLevelTopTier": "najwyższe",
+  "hermesContextCompactSection": "Kompaktowanie",
+  "hermesContextCompactHint": "Hermes streszcza starsze wiadomości, aby zwolnić kontekst. Najnowsze wiadomości pozostają bez zmian.",
+  "hermesContextCompactFocus": "Skup się na (opcjonalnie)",
+  "hermesContextCompactNow": "Kompaktuj teraz",
+  "hermesContextCompacted": "Czat został skompaktowany.",
+  "hermesContextCompactedTokens": "Tokeny: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {
+    "placeholders": {
+      "before": {
+        "type": "String",
+        "example": "12,351"
+      },
+      "after": {
+        "type": "String",
+        "example": "4,020"
+      }
+    }
+  },
+  "hermesContextCompactedMessages": "Wiadomości: {before} → {after}",
+  "@hermesContextCompactedMessages": {
+    "placeholders": {
+      "before": {
+        "type": "int",
+        "example": "24"
+      },
+      "after": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "hermesContextCompactUnchanged": "Na razie nie ma czego kompaktować.",
+  "hermesContextCompactRefused": "Pozostawiono bez zmian: streszczenie byłoby dłuższe niż zastępowane wiadomości.",
+  "hermesContextCompactAborted": "Kompaktowanie nie powiodło się. Nie usunięto żadnych wiadomości.",
+  "hermesContextCompactPending": "Kompaktowanie trwa. Czat odświeży się po zakończeniu.",
+  "hermesContextCompactBusy": "Trwa inne kompaktowanie. Spróbuj ponownie za chwilę.",
+  "hermesContextCompactWait": "Poczekaj na zakończenie odpowiedzi, a potem kompaktuj.",
+  "hermesContextCompactFailed": "Nie udało się skompaktować tego czatu. Spróbuj ponownie.",
+  "hermesContextLoadFailed": "Nie udało się wczytać kontekstu i użycia.",
+  "hermesErrorProvider": "Dostawca modelu nie mógł odpowiedzieć",
+  "hermesErrorEndpoint": "Nie można połączyć się z serwerem modelu",
+  "hermesErrorConnection": "Strumień odpowiedzi został przerwany",
+  "hermesErrorAuth": "Dostawca odrzucił dane uwierzytelniające Hermesa",
+  "hermesErrorBilling": "Brak środków",
+  "hermesErrorUsageLimit": "Osiągnięto limit planu",
+  "hermesErrorFreeTier": "Plan bezpłatny nie może tego uruchomić",
+  "hermesErrorRateLimit": "Osiągnięto limit zapytań",
+  "hermesErrorContextOverflow": "Ten czat jest za długi dla modelu",
+  "hermesErrorModel": "Model jest niedostępny",
+  "hermesErrorPolicy": "Zablokowane przez zasady",
+  "hermesErrorTruncated": "Odpowiedź została ucięta",
+  "hermesErrorBadReply": "Model wysłał nieprzydatną odpowiedź",
+  "hermesErrorWorkspace": "Brakuje folderu roboczego czatu",
+  "hermesErrorSession": "Ten czat nie może być tutaj kontynuowany",
+  "hermesErrorBusy": "Hermes jest zajęty tym czatem",
+  "hermesErrorGateway": "Hermes napotkał problem",
+  "hermesErrorDisk": "Hermesowi skończyło się miejsce na dysku",
+  "hermesErrorUnknown": "Hermes nie mógł dokończyć tej odpowiedzi",
+  "hermesErrorBlocking": "Zablokowane do czasu rozwiązania problemu",
+  "hermesErrorDegraded": "Możesz kontynuować czat",
+  "hermesErrorResetsAt": "Odnowi się o {time}",
+  "@hermesErrorResetsAt": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesErrorPartialKept": "Dotychczasowa odpowiedź pozostaje powyżej.",
+  "hermesErrorContinue": "Kontynuuj",
+  "hermesErrorCompact": "Kompaktuj czat",
+  "hermesErrorSwitchModel": "Przełącz na {model}",
+  "@hermesErrorSwitchModel": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Hermes 4 70B"
+      }
+    }
+  },
+  "hermesErrorOpenProviderSettings": "Otwórz ustawienia {provider}",
+  "@hermesErrorOpenProviderSettings": {
+    "placeholders": {
+      "provider": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "hermesErrorOpenBilling": "Otwórz rozliczenia",
+  "hermesErrorUseCredits": "Użyj środków",
+  "hermesErrorActionFailed": "Nie udało się. Spróbuj ponownie.",
+  "hermesBackgroundAgentCount": "{count, plural, =1{1 agent} few{{count} agenty} many{{count} agentów} other{{count} agenta}}",
+  "@hermesBackgroundAgentCount": {
+    "description": "How many subagents the agent of a Hermes chat has running, on the chip above the composer.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesBackgroundProcessCount": "{count, plural, =1{1 proces} few{{count} procesy} many{{count} procesów} other{{count} procesu}}",
+  "@hermesBackgroundProcessCount": {
+    "description": "How many background processes the agent of a Hermes chat has running, on the chip above the composer.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesBackgroundWorkShow": "Pokaż pracę w tle",
+  "@hermesBackgroundWorkShow": {
+    "description": "Screen reader hint of the chip above a Hermes chat's composer: opens the list of its running subagents and background processes."
+  },
+  "hermesBackgroundWorkTitle": "Praca w tle",
+  "@hermesBackgroundWorkTitle": {
+    "description": "Title of the sheet listing a Hermes chat's running subagents and background processes."
+  },
+  "hermesBackgroundWorkEmpty": "Nic nie działa w tle.",
+  "@hermesBackgroundWorkEmpty": {
+    "description": "Shown in the background work sheet when no subagent or process runs any more."
+  },
+  "hermesBackgroundAgents": "Agenci",
+  "@hermesBackgroundAgents": {
+    "description": "Section label of the background work sheet: the subagents the chat's agent delegated tasks to."
+  },
+  "hermesBackgroundProcesses": "Procesy",
+  "@hermesBackgroundProcesses": {
+    "description": "Section label of the background work sheet: commands the agent left running in the background."
+  },
+  "hermesSubagentQueued": "w kolejce",
+  "@hermesSubagentQueued": {
+    "description": "Short status of a subagent that waits for its turn to start, after its model name."
+  },
+  "hermesSubagentLastTool": "ostatnie narzędzie: {tool}",
+  "@hermesSubagentLastTool": {
+    "description": "The tool a subagent called last, after its model and running time.",
+    "placeholders": {
+      "tool": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesSubagentFinished": "Ten agent zakończył pracę.",
+  "@hermesSubagentFinished": {
+    "description": "Shown on a subagent once it has finished: it can no longer be steered or stopped."
+  },
+  "hermesSubagentOutput": "Wyjście na żywo",
+  "@hermesSubagentOutput": {
+    "description": "Label above the end of a running subagent's transcript, read live."
+  },
+  "hermesSubagentNoOutput": "Brak wyjścia.",
+  "@hermesSubagentNoOutput": {
+    "description": "Shown in place of a subagent's output before it has written any."
+  },
+  "hermesSubagentOutputTruncated": "Wyświetlana jest najnowsza część wyjścia.",
+  "@hermesSubagentOutputTruncated": {
+    "description": "Shown above a subagent's output when earlier output was left out."
+  },
+  "hermesSubagentOutputFailed": "Nie udało się wczytać wyjścia.",
+  "@hermesSubagentOutputFailed": {
+    "description": "Shown in place of a subagent's output when reading it failed."
+  },
+  "hermesSubagentSteerHint": "Napisz coś temu agentowi",
+  "@hermesSubagentSteerHint": {
+    "description": "Placeholder of the field for a message to a running subagent."
+  },
+  "hermesSubagentSteer": "Pokieruj",
+  "@hermesSubagentSteer": {
+    "description": "Button that sends the typed message to a running subagent, to change its course."
+  },
+  "hermesSubagentSteerQueued": "W kolejce. Agent przeczyta to tylko wtedy, gdy wykona kolejny krok.",
+  "@hermesSubagentSteerQueued": {
+    "description": "Shown after a message to a subagent was queued: the subagent reads it only if it takes another step."
+  },
+  "hermesSubagentSteerRejected": "Ten agent nie przyjmuje już poleceń.",
+  "@hermesSubagentSteerRejected": {
+    "description": "Shown when a subagent no longer accepts messages, usually because it is about to finish."
+  },
+  "hermesSubagentStop": "Zatrzymaj agenta",
+  "@hermesSubagentStop": {
+    "description": "Button that stops a running subagent."
+  },
+  "hermesSubagentStopped": "Poproszono agenta o zatrzymanie.",
+  "@hermesSubagentStopped": {
+    "description": "Shown after the user stopped a subagent."
+  },
+  "hermesBackgroundActionFailed": "Nie udało się. Spróbuj ponownie.",
+  "@hermesBackgroundActionFailed": {
+    "description": "Shown when steering, stopping or killing background work failed."
+  },
+  "hermesProcessKill": "Zakończ",
+  "@hermesProcessKill": {
+    "description": "Confirm button of the dialog that kills a background process."
+  },
+  "hermesProcessKillLabel": "Zakończ proces",
+  "@hermesProcessKillLabel": {
+    "description": "Tooltip and screen reader label of the button that kills a background process."
+  },
+  "hermesProcessKillTitle": "Zakończyć ten proces?",
+  "@hermesProcessKillTitle": {
+    "description": "Title of the dialog confirming that a background process should be killed."
+  },
+  "hermesProcessKillMessage": "Hermes spróbuje zatrzymać to polecenie i wszystko, co uruchomiło:\n{command}\nNiektóre procesy mogą nadal działać.",
+  "@hermesProcessKillMessage": {
+    "description": "Body of the dialog confirming that a background process should be killed: its command, then a note that some processes may keep running.",
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesProcessKilled": "Proces zakończony.",
+  "@hermesProcessKilled": {
+    "description": "Shown after a background process was killed."
+  },
+  "hermesProcessAlreadyStopped": "Był już zatrzymany.",
+  "@hermesProcessAlreadyStopped": {
+    "description": "Shown when a background process the user tried to kill had already stopped."
+  },
+  "hermesProcessKillFailed": "Nie udało się go zakończyć: {error}",
+  "@hermesProcessKillFailed": {
+    "description": "Shown when killing a background process failed, with Hermes' reason.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "modelPickerCodingAgents": "Agenci programistyczni",
+  "@modelPickerCodingAgents": {"description": "Heading in the model picker over the coding agents (such as Codex or Claude Code) that the selected Open WebUI terminal offers as models."},
+  "modelControlServiceTier": "Poziom usługi",
+  "@modelControlServiceTier": {"description": "Row title in the model picker for a coding agent's service tier setting (which processing tier, such as faster or cheaper, the agent's model uses)."},
+  "scheduledTaskTerminalSearchHint": "Szukaj terminali",
+  "@scheduledTaskTerminalSearchHint": {"description": "Search field hint in the list of terminals a scheduled task can run with."},
+  "scheduledTaskWorkingFolderLabel": "Folder roboczy",
+  "@scheduledTaskWorkingFolderLabel": {"description": "Label of the field for the folder on the terminal where a scheduled task starts. Optional."},
+  "scheduledTaskWorkingFolderHint": "Domyślny folder terminala",
+  "@scheduledTaskWorkingFolderHint": {"description": "Placeholder of the working folder field of a scheduled task, shown while it is empty: the terminal's own default folder is used."},
+  "scheduledTaskTerminalRequired": "Wybierz terminal, na którym działa ten agent.",
+  "@scheduledTaskTerminalRequired": {"description": "Shown on the terminal row of a scheduled task whose model is a coding agent (such as Codex) but which has no terminal."},
+  "scheduledTaskAgentNeedsChat": "Wyniki agenta trafiają do nowego czatu.",
+  "@scheduledTaskAgentNeedsChat": {"description": "Shown on the destination of a scheduled task whose model is a coding agent (such as Codex) when a channel is chosen: Open WebUI posts an agent's results only to a new chat."},
+  "scheduledTaskAgentsLoading": "Wczytywanie agentów tego terminala…",
+  "@scheduledTaskAgentsLoading": {"description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."},
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nowe powiadomienie",
+  "pushReplyTitle": "Nowa odpowiedź",
+  "pushReplyFailedTitle": "Odpowiedź nie powiodła się",
+  "pushReplyFailedBody": "Nie udało się dokończyć odpowiedzi.",
+  "pushChannelTitle": "Nowa wiadomość",
+  "pushCronTitle": "Zadanie zaplanowane",
+  "pushTestTitle": "Powiadomienia push działają",
+  "pushTestBody": "To powiadomienie testowe przyszło z Twojego serwera.",
+  "pushSectionTitle": "Powiadomienia push",
+  "pushEnabledTitle": "Powiadomienia push",
+  "pushEnabledDescription": "Powiadomienia docierają, nawet gdy Conduit jest zamknięty. Szyfrowanie end-to-end.",
+  "pushUnavailableBuild": "Niedostępne w tej wersji",
+  "pushUnavailableAndroid": "Niedostępne w tej wersji bez dystrybutora UnifiedPush",
+  "pushGetDistributor": "Pobierz dystrybutora UnifiedPush",
+  "pushPrivacyTitle": "Jak push pozostaje prywatny",
+  "pushStatusOff": "Wyłączone",
+  "pushStatusOptedOut": "Wyłączone na tym urządzeniu",
+  "pushStatusSettingUp": "Konfigurowanie…",
+  "pushStatusVerifying": "Wysyłanie powiadomienia testowego…",
+  "pushStatusOn": "Włączone",
+  "pushStatusNeedsAdminSetup": "Wymaga konfiguracji przez administratora",
+  "pushStatusCanInstall": "Nieskonfigurowane na tym serwerze",
+  "pushStatusUpdateAvailable": "Włączone · Dostępna aktualizacja",
+  "pushStatusPluginsDisabled": "Funkcje są wyłączone na tym serwerze",
+  "pushStatusServerTooOldOpenWebUi": "Wymaga Open WebUI 0.11 lub nowszego",
+  "pushStatusServerTooOldHermes": "Wymaga nowszej wersji Hermes",
+  "pushStatusNeedsHermesPlugin": "Wymaga wtyczki Conduit w Hermes",
+  "pushStatusRestartHermes": "Uruchom ponownie Hermes, aby dokończyć",
+  "pushStatusSignInNeeded": "Zaloguj się, aby używać push",
+  "pushStatusPermissionDenied": "Powiadomienia są zablokowane",
+  "pushStatusNotificationsOff": "Włączone · Powiadomienia tego konta są wyłączone",
+  "pushActionSetUp": "Skonfiguruj",
+  "pushActionAskAdmin": "Poproś administratora",
+  "pushActionUpdate": "Zaktualizuj",
+  "pushActionInstall": "Zainstaluj",
+  "pushActionCopyCommand": "Kopiuj polecenie",
+  "pushExplainOn": "Powiadomienia tego konta docierają na to urządzenie, nawet gdy Conduit jest zamknięty.",
+  "pushExplainOptedOut": "Push jest wyłączony dla tego konta na tym urządzeniu.",
+  "pushExplainSettingUp": "Conduit rejestruje to urządzenie na serwerze.",
+  "pushExplainVerifying": "Serwer wysyła powiadomienie testowe na to urządzenie.",
+  "pushExplainNotificationsOff": "Push jest skonfigurowany, ale powiadomienia tego konta są wyłączone, więc się nie wyświetlają.",
+  "pushExplainNeedsAdminSetup": "Push wymaga na tym serwerze funkcji open source Conduit Push, a zainstalować ją może tylko administrator. Wyślij administratorowi link do konfiguracji.",
+  "pushExplainCanInstall": "Push wymaga na tym serwerze funkcji open source Conduit Push. Jesteś administratorem, więc możesz ją teraz zainstalować.",
+  "pushExplainUpdateAvailable": "Push działa. Ta aplikacja zawiera nowszą wersję funkcji Conduit Push.",
+  "pushExplainPluginsDisabled": "Ten serwer Open WebUI działa z wyłączonymi funkcjami, więc Conduit Push nie może na nim działać. Administrator może je włączyć.",
+  "pushExplainServerTooOld": "Ten serwer jest zbyt stary na powiadomienia push. Zaktualizuj go, aby z nich korzystać.",
+  "pushExplainNeedsHermesPlugin": "Push wymaga wtyczki open source Conduit w Hermes. Conduit może ją zainstalować przez panel Hermes.",
+  "pushExplainHermesCommand": "Push wymaga wtyczki open source Conduit w Hermes. Uruchom to polecenie na komputerze, na którym działa Hermes:",
+  "pushExplainRestartHermes": "Wtyczka jest zainstalowana. Uruchom ponownie Hermes, aby dokończyć; Conduit sprawdzi stan sam.",
+  "pushExplainSignInNeeded": "Zaloguj się ponownie do tego konta, aby używać push.",
+  "pushExplainRelayUnavailable": "Ta wersja Conduit nie może dostarczać powiadomień push.",
+  "pushExplainPermissionDenied": "Zezwól na powiadomienia Conduit w ustawieniach systemu.",
+  "pushFailureNoTransport": "To urządzenie nie może odbierać powiadomień push.",
+  "pushFailureNoToken": "To urządzenie nie otrzymało tokenu push. Sprawdź połączenie i spróbuj ponownie.",
+  "pushFailureDistributor": "Dystrybutor UnifiedPush nie odpowiedział.",
+  "pushFailureRelay": "Nie udało się połączyć z przekaźnikiem push.",
+  "pushFailureRelayBusy": "Przekaźnik push jest przeciążony. Spróbuj później.",
+  "pushFailureServerUnreachable": "Nie udało się połączyć z serwerem.",
+  "pushFailureServerRejected": "Serwer odrzucił żądanie.",
+  "pushFailureHermesAuth": "Hermes nie zaakceptował klucza API.",
+  "pushFailureSubscriptionLost": "Serwer nie zachował subskrypcji tego urządzenia.",
+  "pushFailureInstall": "Instalacja się nie powiodła.",
+  "pushFailureTestTimeout": "Powiadomienie testowe nie dotarło.",
+  "pushFailureDelivery": "Serwer nie mógł dostarczyć powiadomienia testowego.",
+  "pushFailurePlatform": "To urządzenie nie mogło zapisać kluczy push.",
+  "pushFailureUnknown": "Coś poszło nie tak.",
+  "pushInstallOpenWebUiTitle": "Zainstalować Conduit Push?",
+  "pushInstallOpenWebUiMessage": "Na tym serwerze zostanie zainstalowana i włączona funkcja open source Conduit Push, aby wszyscy tutaj mogli otrzymywać powiadomienia push w Conduit. Szyfruje ona każde powiadomienie na serwerze, zanim je opuści.",
+  "pushUpdateOpenWebUiTitle": "Zaktualizować Conduit Push?",
+  "pushUpdateOpenWebUiMessage": "Funkcja Conduit Push na tym serwerze zostanie zastąpiona wersją dołączoną do tej aplikacji. Istniejące subskrypcje zostaną zachowane.",
+  "pushInstallHermesTitle": "Zainstalować wtyczkę Conduit?",
+  "pushInstallHermesMessage": "Wtyczka open source Conduit zostanie zainstalowana w Hermes z GitHuba i włączona. Hermes sprawdza wtyczki przed instalacją. Na koniec uruchom Hermes ponownie.",
+  "pushViewSource": "Zobacz kod źródłowy",
+  "pushHermesCommandLabel": "Polecenie",
+  "pushDetailSendTest": "Wyślij powiadomienie testowe",
+  "pushTestArrived": "Powiadomienie testowe dotarło.",
+  "pushTestMissing": "Powiadomienie testowe nie dotarło.",
+  "pushDetailUseForAccount": "Używaj push dla tego konta",
+  "pushDetailUseForConnection": "Używaj push dla tego połączenia",
+  "pushDetailOriginTitle": "Odpowiedzi z",
+  "pushDetailOriginDescription": "Które ukończone odpowiedzi wysyłają powiadomienie push.",
+  "pushOriginConduit": "Czaty rozpoczęte w Conduit",
+  "pushOriginAny": "Wszystkie moje czaty",
+  "pushDiagnosticsTitle": "Diagnostyka",
+  "pushDiagnosticsTransport": "Dostarczanie",
+  "pushDiagnosticsServer": "Wersja serwera",
+  "pushDiagnosticsPlugin": "Wersja wtyczki",
+  "pushDiagnosticsVerified": "Ostatnio sprawdzono",
+  "pushDiagnosticsServerReport": "Raport serwera",
+  "pushDiagnosticsError": "Ostatni błąd",
+  "pushDeliveryTitle": "Dostarczanie push",
+  "pushDeliveryAutomatic": "Automatycznie",
+  "pushDeliveryFcm": "Google (FCM)",
+  "pushDeliveryUnifiedPush": "UnifiedPush",
+  "pushDistributorTitle": "Dystrybutor UnifiedPush",
+  "pushNoDistributor": "Nie zainstalowano żadnego dystrybutora UnifiedPush.",
+  "pushResetKeys": "Zresetuj klucze push",
+  "pushResetKeysDescription": "Usuń to urządzenie ze wszystkich serwerów i skonfiguruj push od nowa z nowymi kluczami.",
+  "pushResetKeysConfirmTitle": "Zresetować klucze push?",
+  "pushResetKeysConfirmMessage": "Conduit usunie to urządzenie ze wszystkich serwerów, skasuje jego klucze push i skonfiguruje push od nowa z nowymi kluczami.",
+  "pushResetKeysConfirm": "Zresetuj",
+  "pushPrivacyIntro": "Twój własny serwer szyfruje każde powiadomienie push tak, by mogło je odczytać tylko to urządzenie. Klucz do jego odszyfrowania nigdy nie opuszcza tego urządzenia, więc nic po drodze nie może go odczytać.",
+  "pushPrivacyServerTitle": "Twój serwer",
+  "pushPrivacyServerBody": "Ma już Twoje czaty. Na potrzeby push przechowuje też adres push tego urządzenia, jego klucz publiczny, losowy identyfikator urządzenia i etykietę, np. „iOS”. To on decyduje, co trafia do powiadomienia: tytuł i krótki podgląd.",
+  "pushPrivacyRelayTitle": "Przekaźnik Conduit",
+  "pushPrivacyRelayBody": "Przekazuje zaszyfrowane powiadomienia do Apple lub Google. Widzi adres IP Twojego serwera, kiedy wysyła, i zaokrąglony rozmiar, nigdy tytuły, tekst, konta ani nazwę czy adres URL Twojego serwera. Jest open source i nie prowadzi logów ani bazy danych.",
+  "pushPrivacyProvidersTitle": "Apple i Google",
+  "pushPrivacyProvidersBody": "Dostarczają zaszyfrowane powiadomienie i nie mogą go odczytać. Jeśli nie da się go odszyfrować, telefon pokaże tylko „Nowe powiadomienie”.",
+  "pushPrivacyUnifiedPushTitle": "UnifiedPush",
+  "pushPrivacyUnifiedPushBody": "Na Androidzie możesz zamiast tego użyć dystrybutora UnifiedPush. Twój serwer wysyła wtedy bezpośrednio do niego, bez przekaźnika Conduit i bez Google.",
+  "pushPrivacyOffTitle": "Wyłączanie push",
+  "pushPrivacyOffBody": "Wyłączenie push kasuje wszystkie klucze push tego urządzenia, a wyłączenie go dla jednego konta, wylogowanie z niego lub jego usunięcie kasuje klucze tego konta. Nic wysłanego do nich później nie da się odczytać. Conduit prosi też serwery tych kont, by zapomniały o tym urządzeniu.",
+  "pushPrivacyReadMore": "Przeczytaj wszystkie szczegóły",
+  "pushAttentionChip": "Push wymaga uwagi",
+  "notificationScheduledTitle": "Zaplanowane zadania",
+  "notificationScheduledDescription": "Powiadamiaj, gdy zaplanowane zadanie Hermes dostarczy wynik.",
+  "hermesJobNotifyTitle": "Powiadom mnie",
+  "hermesJobNotifyDescription": "Wyślij powiadomienie push, gdy to zadanie dostarczy wynik.",
+  "pushAskAdminMessage": "Czy możesz skonfigurować Conduit Push na naszym serwerze Open WebUI? Dzięki temu Conduit może wysyłać powiadomienia push z szyfrowaniem end-to-end. W Panelu administratora → Funkcje zaimportuj {url} i ustaw ID funkcji na {functionId}. Instrukcja: {guide}",
+  "@pushAskAdminMessage": {
+    "placeholders": {
+      "url": {
+        "type": "String",
+        "example": "https://raw.githubusercontent.com/cogwheel0/conduit/main/server-plugins/openwebui/conduit_push.py"
+      },
+      "functionId": {
+        "type": "String",
+        "example": "conduit_push"
+      },
+      "guide": {
+        "type": "String",
+        "example": "https://github.com/cogwheel0/conduit/blob/main/docs/push/ADMIN_SETUP.md"
+      }
+    }
+  },
+  "pushExplainFailed": "Conduit spróbuje ponownie sam przy następnym otwarciu, albo możesz spróbować ponownie teraz.",
+  "pushHermesCommandLatest": "To polecenie instaluje najnowszą opublikowaną wersję wtyczki.",
+  "hermesJobCreatedNotifyFailed": "Utworzono zadanie, ale nie udało się włączyć dla niego powiadomień.",
+  "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
+  "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach."
 }

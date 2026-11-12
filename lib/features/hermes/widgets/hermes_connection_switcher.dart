@@ -1,5 +1,6 @@
+import 'dart:math' as math;
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,8 +12,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
-import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 
 /// Up to two initials for a Hermes connection name; "HA" (Hermes Agent)
 /// without a usable name.
@@ -29,12 +30,21 @@ String hermesConnectionInitials(String? name) {
 }
 
 /// "Desktop Gateway · host" style summary of a saved connection.
-String hermesConnectionSummary(HermesConnectionProfile profile) {
+String hermesConnectionSummary(
+  HermesConnectionProfile profile,
+  AppLocalizations l10n,
+) {
   final mode = profile.mode == HermesBackendMode.desktopGateway
       ? 'Desktop Gateway'
       : 'Responses API';
   final host = Uri.tryParse(profile.baseUrl)?.host ?? '';
-  return host.isEmpty ? mode : '$mode · $host';
+  return [
+    mode,
+    if (host.isNotEmpty) host,
+    // Its credentials travel in the clear, consented to or not.
+    if (HermesConfig.plainHttpOrigin(profile.baseUrl) != null)
+      l10n.hermesNotEncrypted,
+  ].join(' · ');
 }
 
 /// The app's [HermesConnectionSwitchPrompt]: asks, through the UI request
@@ -60,13 +70,23 @@ Future<bool> switchHermesConnection(
   BuildContext context,
   WidgetRef ref,
   String connectionId,
+) => switchHermesConnectionOf(
+  context,
+  ref.read(hermesConfigProvider.notifier),
+  connectionId,
+);
+
+/// [switchHermesConnection] through [config], for a caller with no widget
+/// ref, such as a tapped notification.
+Future<bool> switchHermesConnectionOf(
+  BuildContext context,
+  HermesConfigController config,
+  String connectionId,
 ) async {
   final failureMessage = AppLocalizations.of(context)!
       .hermesSwitchConnectionFailed;
   try {
-    await ref
-        .read(hermesConfigProvider.notifier)
-        .setActiveConnection(connectionId);
+    await config.setActiveConnection(connectionId);
     return true;
   } catch (error) {
     DebugLogger.warning(
@@ -107,101 +127,81 @@ Future<void> showHermesConnectionPicker(
         return AdaptiveSelectionTile(
           key: ValueKey<String>('hermes-connection-option-${connection.id}'),
           title: connection.name,
-          subtitle: hermesConnectionSummary(connection),
+          subtitle: hermesConnectionSummary(connection, l10n),
           selected: connection.id == activeId,
           onTap: () => Navigator.of(sheetContext).pop(connection.id),
         );
       },
     ),
   );
-  if (picked == null || picked == activeId || !context.mounted) return;
+  if (picked == null || !context.mounted) return;
+  // Read again: the active connection may have changed while it was open.
+  if (picked == ref.read(hermesActiveConnectionIdProvider)) return;
   await switchHermesConnection(context, ref, picked);
 }
 
-/// Sidebar header naming the active Hermes connection. With more than one
-/// saved connection it opens [showHermesConnectionPicker].
-class HermesConnectionSwitcherTile extends ConsumerWidget {
-  const HermesConnectionSwitcherTile({super.key});
+/// Opens the saved connections as a native menu under [anchor], with the
+/// active one checked and each one's [hermesConnectionSummary] under its
+/// name; picking another switches to it. Without a native menu
+/// (before iOS 26, or on Android) they open as [showHermesConnectionPicker]'s
+/// sheet instead.
+Future<void> showHermesConnectionMenu(
+  BuildContext anchor,
+  WidgetRef ref,
+) async {
+  if (!AdaptiveAnchoredMenu.canShow(anchor)) {
+    return showHermesConnectionPicker(anchor, ref);
+  }
+  final connections = ref.read(hermesConnectionsProvider);
+  final activeId = ref.read(hermesActiveConnectionIdProvider);
+  final l10n = AppLocalizations.of(anchor)!;
+  final picked = await AdaptiveAnchoredMenu.show(
+    anchorContext: anchor,
+    items: [
+      for (final connection in connections)
+        AdaptiveAnchoredMenuItem(
+          id: connection.id,
+          label: connection.name,
+          subtitle: hermesConnectionSummary(connection, l10n),
+          checked: connection.id == activeId,
+        ),
+    ],
+  );
+  if (picked == null || !anchor.mounted) return;
+  // Read again: the active connection may have changed while it was open.
+  if (picked == ref.read(hermesActiveConnectionIdProvider)) return;
+  await switchHermesConnection(anchor, ref, picked);
+}
+
+/// The Hermes sidebar header's centre: the active connection's name in the
+/// glass pill the chat header uses for its model, opening
+/// [showHermesConnectionMenu]. Shown only while more than one connection is
+/// saved; with one there is nothing to switch to, and the header names
+/// nothing.
+class HermesConnectionHeaderSwitcher extends ConsumerWidget {
+  const HermesConnectionHeaderSwitcher({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final name = ref.watch(hermesActiveConnectionNameProvider);
     final count = ref.watch(hermesConnectionsProvider).length;
-    if (name == null) return const SizedBox.shrink();
-    final theme = context.conduitTheme;
+    if (name == null || count < 2) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    final canSwitch = count > 1;
-    final label = Text(
-      name,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: AppTypography.bodyMediumStyle.copyWith(
-        color: theme.textPrimary,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-    final row = Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.sm,
-      ),
-      child: Row(
-        children: [
-          SizedBox.square(
-            dimension: 24,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.surfaceContainer,
-                shape: BoxShape.circle,
-              ),
-              // Unscaled, so large text can't push the initials out of the
-              // circle.
-              child: Center(
-                child: MediaQuery.withNoTextScaling(
-                  child: Text(
-                    hermesConnectionInitials(name),
-                    style: AppTypography.labelSmallStyle.copyWith(
-                      color: theme.textSecondary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
+    return LayoutBuilder(
+      builder: (context, constraints) => Semantics(
+        hint: l10n.hermesSwitchConnectionTitle,
+        child: Builder(
+          builder: (anchor) => ConduitAdaptiveAppBarModelSelector(
+            key: const ValueKey<String>('hermes-connection-switcher'),
+            label: name,
+            maxWidth: math.min(
+              constraints.maxWidth,
+              kConduitAdaptiveToolbarMaxModelSelectorWidth,
             ),
+            onPressed: () => showHermesConnectionMenu(anchor, ref),
           ),
-          const SizedBox(width: Spacing.sm),
-          Expanded(child: label),
-          if (canSwitch)
-            Icon(
-              Icons.unfold_more_rounded,
-              size: IconSize.listItem,
-              color: theme.iconSecondary,
-            ),
-        ],
+        ),
       ),
-    );
-    const key = ValueKey<String>('hermes-connection-switcher');
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        Spacing.sm,
-        Spacing.xs,
-        Spacing.sm,
-        Spacing.xs,
-      ),
-      child: canSwitch
-          ? AdaptiveButton.child(
-              key: key,
-              style: AdaptiveButtonStyle.plain,
-              padding: EdgeInsets.zero,
-              borderRadius: BorderRadius.circular(AppBorderRadius.card),
-              useSmoothRectangleBorder: false,
-              onPressed: () => showHermesConnectionPicker(context, ref),
-              child: Semantics(
-                label: l10n.hermesSwitchConnectionTitle,
-                child: row,
-              ),
-            )
-          : Semantics(key: key, container: true, child: row),
     );
   }
 }

@@ -9,6 +9,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
@@ -174,6 +175,7 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(
       modelId: model.id,
       // A chat the server has not created yet is not named.
       chatId: chatId == null || chatId.contains(':') ? null : chatId,
+      terminalId: terminalAgentTerminalId(model),
       httpClient: ServerTlsHttpClientFactory.requiresCustomHttpClient(server)
           ? ServerTlsHttpClientFactory.createHttpClient(server)
           : null,

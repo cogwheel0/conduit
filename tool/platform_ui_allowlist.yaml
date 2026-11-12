@@ -387,12 +387,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/chat/widgets/chat_timeline_viewport.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: chat
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/chat/widgets/chat_timeline_viewport.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
     owner: chat
@@ -400,7 +394,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/chat/widgets/chat_timeline_viewport.dart
     symbol: "CircularProgressIndicator"
-    count: 4
+    count: 2
     owner: chat
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
@@ -490,12 +484,6 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/chat/widgets/file_attachment_widget.dart
     symbol: "LinearProgressIndicator"
-    count: 1
-    owner: chat
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/chat/widgets/follow_up_suggestions.dart
-    package: "package:material_ui/material_ui.dart"
     count: 1
     owner: chat
     reason: "Existing use awaiting migration to the platform UI seam"
@@ -2488,7 +2476,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/shared/widgets/themed_dialogs.dart
     symbol: "AlertDialog"
-    count: 6
+    count: 5
     owner: shared-widgets
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration

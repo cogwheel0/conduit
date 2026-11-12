@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/utils/emoji_shortcodes.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -155,6 +156,38 @@ bool _looksLikeRenderedGlyph(String value) {
   return !RegExp(r'^[a-z0-9_:+-]+$', caseSensitive: false).hasMatch(normalized);
 }
 
+/// The emoji drawn for a saved icon alias: a curated option's, any other
+/// shortcode Open WebUI knows (a folder's icon chosen on the web, such as
+/// `fire`), or a glyph saved as is. Null for no icon or an unknown name,
+/// which show the platform folder icon.
+String? folderIconEmoji(String? alias) {
+  final normalized = normalizeFolderIconAlias(alias);
+  if (normalized == null) {
+    return null;
+  }
+  return folderIconOptionForAlias(normalized)?.emoji ??
+      emojiForShortcode(normalized) ??
+      (_looksLikeRenderedGlyph(normalized) ? normalized : null);
+}
+
+/// A saved icon alias that none of [folderIconOptions] is, but that still
+/// draws an emoji (one chosen on the web), so an icon picker can offer it
+/// as the folder's current choice. Null otherwise.
+String? customFolderIconAlias(String? alias) {
+  final normalized = normalizeFolderIconAlias(alias);
+  if (normalized == null || folderIconOptionForAlias(normalized) != null) {
+    return null;
+  }
+  return folderIconEmoji(normalized) == null ? null : normalized;
+}
+
+/// The label an icon picker gives [alias], a [customFolderIconAlias]: its
+/// emoji, followed by the shortcode Open WebUI names it with, if any.
+String customFolderIconLabel(String alias) {
+  final emoji = folderIconEmoji(alias) ?? alias;
+  return emoji == alias ? emoji : '$emoji $alias';
+}
+
 /// Renders a saved folder icon alias or falls back to the platform folder icon.
 class FolderIconGlyph extends StatelessWidget {
   const FolderIconGlyph({
@@ -175,12 +208,10 @@ class FolderIconGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final normalized = normalizeFolderIconAlias(iconAlias);
-    final option = folderIconOptionForAlias(normalized);
+    final option = folderIconOptionForAlias(iconAlias);
+    final displayValue = folderIconEmoji(iconAlias);
 
-    if (option != null ||
-        (normalized != null && _looksLikeRenderedGlyph(normalized))) {
-      final displayValue = option?.emoji ?? normalized!;
+    if (displayValue != null) {
       return Semantics(
         label: option == null
             ? l10n.folderIconGeneric
