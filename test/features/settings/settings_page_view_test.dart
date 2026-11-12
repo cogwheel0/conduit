@@ -345,6 +345,77 @@ void main() {
     // A query of the page's own replaces it.
     await show(page(''));
     check(text()).equals('');
+
+    // Echoed back trimmed, the query keeps the space typed after it.
+    final before = controller.changes.length;
+    await tester.enterText(field, 'weekly ');
+    await tester.pump(settingsSearchDebounce);
+    await show(page('weekly'));
+    check(text()).equals('weekly ');
+
+    // Show All while typing waits: the text goes, and so does its send.
+    await tester.enterText(field, 'weekly re');
+    await show(page(''));
+    check(text()).equals('');
+    await tester.pump(settingsSearchDebounce);
+    check(controller.changes.skip(before).toList())
+        .deepEquals([('tasks.search', 'weekly ')]);
+  });
+
+  testWidgets('text typed on a page with no discard question is kept as '
+      'it is left', (tester) async {
+    final controller = _RecordingController();
+    final container = ProviderContainer(
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/rule',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('editor'),
+          routes: [
+            GoRoute(
+              path: 'rule',
+              builder: (_, _) => SettingsPageView(
+                detail: _detail([
+                  const NativeSheetItemConfig(
+                    id: 'rule',
+                    title: 'Rule',
+                    kind: NativeSheetItemKind.textField,
+                    value: '',
+                  ),
+                ]),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(of: _row('rule'), matching: find.byType(EditableText)),
+      'FREQ=WEEKLY',
+    );
+    await tester.pumpAndSettle();
+    check(controller.changes).isEmpty();
+
+    router.pop();
+    await tester.pumpAndSettle();
+
+    check(controller.changes).deepEquals([('rule', 'FREQ=WEEKLY')]);
   });
 
   testWidgets('text stays a draft until Done sends it', (tester) async {

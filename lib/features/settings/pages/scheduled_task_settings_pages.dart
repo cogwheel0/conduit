@@ -597,13 +597,14 @@ NativeSheetDetailConfig _buildTaskPage(
               ),
         ],
       ),
+      // The row heads its own text: a row without a title is no row on
+      // iOS, which would drop the whole group.
       NativeSheetSectionConfig(
-        title: l10n.scheduledTaskPromptSection,
         footer: task.terminal != null ? l10n.scheduledTaskTerminalKept : null,
         items: [
           NativeSheetItemConfig(
             id: '$pageId-prompt',
-            title: '',
+            title: l10n.scheduledTaskPromptLabel,
             sfSymbol: 'text.bubble',
             kind: NativeSheetItemKind.readOnlyText,
             value: task.prompt,
@@ -1503,7 +1504,7 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     );
     await _surface.applyDetail(
       buildScheduledTasksPage(l10n, _clock(l10n), state),
-      detailSheets: [
+      detailSheets: _unknownPages([
         for (final task in data?.items ?? const <Automation>[])
           buildNativeLoadingDetail(
             l10n: l10n,
@@ -1515,7 +1516,7 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
           id: scheduledTaskEditorPageId(null),
           title: l10n.scheduledTaskNewTitle,
         ),
-      ],
+      ]),
     );
   }
 
@@ -1616,15 +1617,28 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     final task = view.task;
     await _surface.applyDetail(
       _buildTaskPage(l10n, _clock(l10n), view, _names()),
-      detailSheets: [
+      detailSheets: _unknownPages([
         if (task != null)
           buildNativeLoadingDetail(
             l10n: l10n,
             id: scheduledTaskEditorPageId(task.id),
             title: l10n.scheduledTaskEditTitle,
           ),
-      ],
+      ]),
     );
+  }
+
+  /// Of [pages], those not known yet. A page already known -- an editor
+  /// open over this one, say -- keeps what it shows, rather than being
+  /// drawn loading again by a redraw of the page that leads to it.
+  List<NativeSheetDetailConfig> _unknownPages(
+    List<NativeSheetDetailConfig> pages,
+  ) {
+    final known = _ref.read(settingsPagesProvider);
+    return [
+      for (final page in pages)
+        if (!known.contains(page.id)) page,
+    ];
   }
 
   Future<void> _loadTask(_TaskView view) async {

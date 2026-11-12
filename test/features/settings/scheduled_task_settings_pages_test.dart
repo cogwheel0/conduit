@@ -497,6 +497,15 @@ void main() {
       expect(session.row(_pageA, _row('runs-more')), isNull);
     });
 
+    testWidgets("a task's instructions are a row with a caption, which the "
+        'native sheet needs to draw it', (tester) async {
+      final session = await pumpAutomations(tester);
+      await session.open(_pageA);
+
+      final prompt = session.row(_pageA, '$_pageA-prompt')!;
+      expect(prompt.title, _l10n.scheduledTaskPromptLabel);
+    });
+
     group('results', () {
       testWidgets('a chat result opens through the account the page opened '
           'for', (tester) async {
@@ -506,8 +515,19 @@ void main() {
               wire.runs['a'] = [runJson('r1', chatId: 'chat-1')],
         );
         await session.open(_pageA);
+        // Somewhere else first, so opening the result has to go to the chat.
+        session.router.goNamed(
+          RouteNames.channel,
+          pathParameters: {'id': 'c0'},
+        );
+        await tester.pumpAndSettle();
+        expect(
+          session.router.routerDelegate.currentConfiguration.uri.path,
+          isNot(Routes.chat),
+        );
 
         await session.change(_row('open-run', 'r1'));
+        await tester.pumpAndSettle();
 
         expect(FakeSelection.selected.single.id, 'chat-1');
         expect(

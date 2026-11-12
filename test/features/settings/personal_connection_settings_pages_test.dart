@@ -69,6 +69,12 @@ final class _Rig {
   /// Whether the account that opened the pages is still signed in.
   var current = true;
 
+  /// Signs [session] in, or out with null.
+  late void Function(PersonalConnectionsSession? session) useSession;
+
+  /// The server's API, for the sessions a test signs in.
+  late ApiService api;
+
   PersonalConnectionSettingsPages get module => container
       .read(settingsPageModulesProvider)
       .whereType<PersonalConnectionSettingsPages>()
@@ -170,8 +176,12 @@ void main() {
     bool advanced = true,
     PersonalConnectionsAccess access =
         const PersonalConnectionsAccess.allowed(),
+    bool signedOut = false,
   }) async {
     late final _Rig rig;
+    final signedIn = NotifierProvider<_Session, PersonalConnectionsSession?>(
+      _Session.new,
+    );
     final container = ProviderContainer(
       overrides: [
         appSettingsProvider.overrideWithValue(
@@ -199,15 +209,8 @@ void main() {
             ),
           ],
         ),
-        personalConnectionsSessionProvider.overrideWithValue(
-          access.available
-              ? PersonalConnectionsSession(
-                  api: api,
-                  authSnapshot: api.captureAuthSnapshot(),
-                  accountName: 'Alex',
-                  isCurrent: () => rig.current,
-                )
-              : null,
+        personalConnectionsSessionProvider.overrideWith(
+          (ref) => ref.watch(signedIn),
         ),
       ],
     );
@@ -218,7 +221,19 @@ void main() {
         child: const SizedBox.shrink(),
       ),
     );
-    rig = _Rig(tester, container, server);
+    rig = _Rig(tester, container, server)
+      ..useSession = container.read(signedIn.notifier).use
+      ..api = api;
+    if (access.available && !signedOut) {
+      rig.useSession(
+        PersonalConnectionsSession(
+          api: api,
+          authSnapshot: api.captureAuthSnapshot(),
+          accountName: 'Alex',
+          isCurrent: () => rig.current,
+        ),
+      );
+    }
     // Followed, as the app's own pages follow them; read with no listener a
     // provider whose inputs change can wait forever.
     container
@@ -563,6 +578,41 @@ void main() {
       expect(rig.closed, isEmpty);
     });
 
+    testWidgets('a form opened before any account loaded acts only for the '
+        'one that filled it', (tester) async {
+      final rig = await pump(tester, signedOut: true);
+      final api = rig.api;
+      await rig.open(_newTool);
+
+      // Alex's list arrives and fills the form.
+      rig.useSession(
+        PersonalConnectionsSession(
+          api: api,
+          authSnapshot: api.captureAuthSnapshot(),
+          accountName: 'Alex',
+          isCurrent: () => rig.current,
+        ),
+      );
+      await rig.settle(rig.container.read(personalConnectionsProvider.future));
+      await rig.change(_row('name', _newToolKey), 'Beta');
+      await rig.change(_row('url', _newToolKey), 'https://beta.example');
+      final writes = rig.writes.length;
+
+      // Another account signs in before Save.
+      rig.current = false;
+      rig.useSession(
+        PersonalConnectionsSession(
+          api: api,
+          authSnapshot: api.captureAuthSnapshot(),
+          accountName: 'Sam',
+          isCurrent: () => true,
+        ),
+      );
+      await rig.change(_row('save', _newToolKey));
+
+      expect(rig.writes, hasLength(writes));
+    });
+
     testWidgets('deleting a selected server clears it and says so', (
       tester,
     ) async {
@@ -604,4 +654,12 @@ void main() {
       expect(rig.row(_alpha, _row('name'))!.value, 'Alpha tools');
     });
   });
+}
+
+/// The Personal Connections session signed in, swapped by a test.
+final class _Session extends Notifier<PersonalConnectionsSession?> {
+  @override
+  PersonalConnectionsSession? build() => null;
+
+  void use(PersonalConnectionsSession? session) => state = session;
 }

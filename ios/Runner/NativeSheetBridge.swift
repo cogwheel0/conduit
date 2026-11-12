@@ -5053,7 +5053,9 @@ private enum NativeSheetDateValue {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        // Follows the device's zone as it changes, as the picker does, so a
+        // set time is not shifted after travel with the app open.
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         return formatter
     }()
@@ -5758,6 +5760,10 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                 navigationItem.searchController = nil
                 searchController = nil
                 shownSearchValue = nil
+                // A search bar made again shows the query it is given.
+                sentSearchQuery = nil
+                searchDebounce?.invalidate()
+                searchDebounce = nil
             }
             return
         }
@@ -5777,8 +5783,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         controller.searchBar.placeholder = search.placeholder
         if search.value != shownSearchValue {
             shownSearchValue = search.value
-            if search.value != sentSearchQuery,
-               controller.searchBar.text != search.value {
+            // The page echoes a query trimmed; what is typed (a trailing
+            // space included) stays. Only a query from elsewhere -- Show All
+            // -- replaces it, and the send waiting for typing to pause goes.
+            let trimmed = { (text: String?) in
+                (text ?? "").trimmingCharacters(in: .whitespaces)
+            }
+            if trimmed(search.value) != trimmed(sentSearchQuery),
+               trimmed(controller.searchBar.text) != trimmed(search.value) {
+                searchDebounce?.invalidate()
+                searchDebounce = nil
                 controller.searchBar.text = search.value
             }
         }

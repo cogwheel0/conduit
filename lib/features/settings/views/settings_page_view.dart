@@ -597,7 +597,16 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     );
     // A form asks before Back or a swipe drops its unsaved changes; closing
     // it after a save does not ask.
-    if (widget.detail.discardPrompt == null) return page;
+    // A page with no discard question keeps, as it is popped, the text
+    // typed into it, as if done -- as the native sheet does.
+    if (widget.detail.discardPrompt == null) {
+      return PopScope(
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) _commitPendingText();
+        },
+        child: page,
+      );
+    }
     final prompt = widget.detail.discardPrompt!;
     return DiscardChangesScope(
       dirty: _hasUnsavedChanges,
@@ -649,9 +658,13 @@ class _SettingsSearchFieldState extends State<SettingsSearchField> {
   void didUpdateWidget(covariant SettingsSearchField oldWidget) {
     super.didUpdateWidget(oldWidget);
     final value = widget.search.value;
+    // The page echoes a query trimmed; what is typed (a trailing space
+    // included) stays. Only a query from elsewhere -- Show All -- replaces
+    // it, and the send still waiting for the typing to pause is dropped.
     if (value != oldWidget.search.value &&
-        value != _sent &&
-        value != _controller.text) {
+        value.trim() != (_sent ?? '').trim() &&
+        value.trim() != _controller.text.trim()) {
+      _debounce?.cancel();
       _controller.text = value;
     }
   }

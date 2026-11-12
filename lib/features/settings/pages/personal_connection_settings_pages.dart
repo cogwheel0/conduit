@@ -310,7 +310,10 @@ final class _ConnectionEditor {
 
   /// The identity of the connection, or [personalConnectionNewRouteValue].
   final String identity;
-  final PersonalConnectionsSession? owner;
+
+  /// The account the form acts for. Opened before any account had loaded,
+  /// it is the one whose list first fills it.
+  PersonalConnectionsSession? owner;
 
   /// Given to a tool server that has none: the reference editor keeps it
   /// under `info.id`, so it survives edits made in the Open WebUI client.
@@ -382,6 +385,7 @@ final class _ConnectionEditor {
   /// Fills the form from [snapshot] once, then follows the entry through
   /// later reads of the list, within the account that opened the form.
   void initialize(PersonalConnectionsSnapshot snapshot) {
+    owner ??= snapshot.session;
     if (initialized) {
       if (ownerChanged) return;
       final current = snapshot.find(kind, identity);
