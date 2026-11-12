@@ -3457,10 +3457,22 @@ class AuthStateManager extends _$AuthStateManager {
       await refresh();
       return;
     }
+    final attemptRevision = _authAttemptRevision;
+    final safetyEpoch = _sessionSafetyEpoch;
     final (:accepted, :error) = await _checkKeptSession(token, user);
     if (accepted || error == null) return;
+    // A newer sign-in attempt may have started while the answer came back
+    // (a refresh keeps the token while it runs): the answer is then this
+    // Retry's alone, and the newer attempt is left to finish.
+    if (!ref.mounted ||
+        _authAttemptRevision != attemptRevision ||
+        _sessionSafetyEpoch != safetyEpoch ||
+        _current.status != AuthStatus.error ||
+        _current.token != token) {
+      return;
+    }
     if (_isConfirmedAuthFailure(error)) {
-      if (_current.token == token) await onTokenInvalidated();
+      await onTokenInvalidated();
       return;
     }
     if (error is DioException && error.response == null) {
@@ -3488,12 +3500,14 @@ class AuthStateManager extends _$AuthStateManager {
         _current.status == AuthStatus.error &&
         _current.token == token;
     const notAsked = (accepted: false, error: null);
+    Object? asked;
     try {
       // The client follows the address moved to once this settles.
       await ref.read(activeServerProvider.future);
       if (!stillKept()) return notAsked;
       final api = ref.read(apiServiceProvider);
       if (api == null || api.authToken != token) return notAsked;
+      asked = api;
       final accepted = await api.getCurrentUser(
         suppressAuthFailureNotification: true,
         authSnapshot: api.captureAuthSnapshot(),
@@ -3517,7 +3531,13 @@ class AuthStateManager extends _$AuthStateManager {
       );
       return (accepted: true, error: null);
     } catch (error) {
-      return stillKept() ? (accepted: false, error: error) : notAsked;
+      // As with an acceptance, a refusal speaks only for the client that
+      // got it: an address moved to meanwhile has not been asked.
+      if (!stillKept() ||
+          (asked != null && !identical(ref.read(apiServiceProvider), asked))) {
+        return notAsked;
+      }
+      return (accepted: false, error: error);
     }
   }
 
