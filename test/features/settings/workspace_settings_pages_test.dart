@@ -489,8 +489,10 @@ void main() {
         workspaceToolsProvider.overrideWith(_Tools.new),
         workspaceKnowledgeProvider.overrideWith(_Knowledge.new),
         workspaceBaseModelsProvider.overrideWith(
+          // Read for the account signed in, as the app's provider is.
           (ref) =>
-              baseModels?.call() ??
+              (ref.watch(currentUserProvider2) == null ? null : baseModels)
+                  ?.call() ??
               Future.value(const [
                 WorkspaceRelationshipOption(id: 'base-1', label: 'Base One'),
               ]),
@@ -608,6 +610,37 @@ void main() {
 
       await rig.change(workspaceRowId('list-search', 'models'), 'orbit');
       check(models.queries).deepEquals(['orbit']);
+    });
+
+    testWidgets('a row change is not sent once another account signed in '
+        'while the row was drawn busy', (tester) async {
+      final models = _Models([_writableModel()]);
+      final rig = await pump(tester, models: models);
+      await rig.open(modelsPage);
+      final gate = rig.surface.gate = Completer<void>();
+
+      final deleting = rig.module<WorkspaceSettingsPages>().handleChange(
+        workspaceRowId('list-delete', 'models', 'model-1'),
+        true,
+        _l10n,
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.surface.gate = null;
+      gate.complete();
+      await rig.settle(deleting);
+
+      check(models.deleted).isEmpty();
     });
 
     testWidgets('a row menu deletes or switches off its model', (tester) async {
@@ -941,6 +974,39 @@ void main() {
       await rig.change(_modelRow('save', _model1Key));
       check(models.updated.single.meta['toolIds'] as List)
           .deepEquals(['tool-1']);
+    });
+
+    testWidgets("another account's editor reads its own base models", (
+      tester,
+    ) async {
+      var reads = 0;
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+        baseModels: () async {
+          reads++;
+          return const [
+            WorkspaceRelationshipOption(id: 'base-1', label: 'One'),
+          ];
+        },
+      );
+      await rig.open(_newModel);
+      check(reads).equals(1);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      rig.leave(_newModel);
+      await rig.open(_newModel);
+
+      check(reads).equals(2);
     });
 
     testWidgets('base models that could not be read offer Retry', (

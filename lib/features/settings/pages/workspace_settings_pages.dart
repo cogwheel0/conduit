@@ -793,8 +793,17 @@ class WorkspaceSettingsPages extends SettingsPageModule {
   }) async {
     final busy = _busy.putIfAbsent(section, () => {});
     if (!busy.add(itemId)) return;
+    // The account the row was drawn for: the change goes to it or nowhere.
+    final account = _account();
     _notices.remove(section);
     await _applyList(l10n, section);
+    // Checked with nothing awaited before the request: another account may
+    // have signed in while the row was drawn busy, and may hold an item by
+    // the same id.
+    if (_account() != account) {
+      busy.remove(itemId);
+      return;
+    }
     try {
       await action();
     } catch (error, stackTrace) {

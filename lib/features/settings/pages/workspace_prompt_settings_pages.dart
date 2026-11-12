@@ -1506,6 +1506,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     final editor = _editors[draft.editorKey];
     final summary = editor?.summary;
     if (l10n == null || editor == null || summary == null) return null;
+    // Another account signed in while the page was drawn: nothing is sent,
+    // and the page says it was not saved rather than closing as if it was.
+    if (!_current(editor)) return l10n.workspacePromptSaveFailed;
     try {
       await _notifier.updateAccess(summary.id, grants);
     } catch (error, stackTrace) {

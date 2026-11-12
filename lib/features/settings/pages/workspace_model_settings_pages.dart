@@ -712,6 +712,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   AppLocalizations? _l10n;
   final Map<String, WorkspaceModelEditor> _editors = {};
   List<WorkspaceRelationshipOption>? _baseModels;
+  WorkspaceSessionIdentity? _baseModelsSession;
   bool _baseModelsLoading = false;
   bool _baseModelsFailed = false;
 
@@ -839,6 +840,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     _editors.clear();
     _access.clear();
     _baseModels = null;
+    _baseModelsSession = null;
     _baseModelsFailed = false;
   }
 
@@ -889,13 +891,24 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       );
 
   Future<void> _loadBaseModels() async {
+    // The list is the account's it was read for: another one reads its own.
+    final session = _session();
+    if (_baseModelsSession != null &&
+        !(_baseModelsSession?.isCurrent(_ref) ?? false)) {
+      _baseModels = null;
+      _baseModelsSession = null;
+    }
     if (_baseModels != null || _baseModelsLoading) return;
     _baseModelsLoading = true;
     _baseModelsFailed = false;
     try {
       final listening = _ref.listen(workspaceBaseModelsProvider, (_, _) {});
       try {
-        _baseModels = await _ref.read(workspaceBaseModelsProvider.future);
+        final models = await _ref.read(workspaceBaseModelsProvider.future);
+        // Read for an account since gone: not this one's list.
+        if (session == null || !session.isCurrent(_ref)) return;
+        _baseModels = models;
+        _baseModelsSession = session;
       } finally {
         listening.close();
       }
@@ -1573,6 +1586,9 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     final editor = _editors[draft.editorKey];
     final state = editor?.state;
     if (l10n == null || editor == null || state == null) return null;
+    // Another account signed in while the page was drawn: nothing is sent,
+    // and the page says it was not saved.
+    if (!_current(editor)) return l10n.workspaceModelSaveFailed;
     try {
       await _notifier.updateAccess(state.draft.id, state.draft.name, grants);
     } catch (error, stackTrace) {
