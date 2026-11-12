@@ -449,15 +449,15 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
           ].join('\n'),
   );
 
-  /// Links freshly uploaded [fileIds] into the current directory. When the
-  /// server refuses them, as for the knowledge base's limits, they are
-  /// deleted so they do not linger among the user's files, and the server's
-  /// reason is thrown as [KnowledgeUploadRefused].
   /// The folder files go into: the one open as the change began, null for
   /// the root. Read once, so opening another folder while an upload is
   /// processed does not move where it lands.
   String? get _destination => _current.isRoot ? null : _current.directoryId;
 
+  /// Links freshly uploaded [fileIds] into folder [directoryId] (null for
+  /// the root). When the server refuses them, as for the knowledge base's
+  /// limits, they are deleted so they do not linger among the user's files,
+  /// and the server's reason is thrown as [KnowledgeUploadRefused].
   Future<void> _attachUploaded(
     ApiService api,
     List<String> fileIds,
@@ -512,7 +512,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         : null;
   }
 
-  /// Attaches a single [fileId] into the current directory via the JSON
+  /// Attaches a single [fileId] into folder [directoryId] via the JSON
   /// `/file/add` route (upload-then-link flow, the verified v0.10.2 contract).
   Future<void> _attach(
     ApiService api,
