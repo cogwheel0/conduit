@@ -210,7 +210,17 @@ extension NativeSheetLeaveGuarding {
     }
 }
 
-final class NativeSheetNavigationController: UINavigationController, UIGestureRecognizerDelegate {
+/// A presented Settings sheet, one column or two, whose pages may hold
+/// unsaved changes: swiping it away asks the page that would lose them.
+protocol NativeSheetCloseGuarding: AnyObject {
+    /// The page whose changes closing the sheet would drop, if any; with
+    /// `always`, it asks although it holds nothing unsaved itself.
+    var guardingClosePage: (page: NativeSheetLeaveGuarding, always: Bool)? { get }
+    /// Chosen to close without saving: no page sends what it held.
+    func dropUnsavedChanges()
+}
+
+final class NativeSheetNavigationController: UINavigationController, UIGestureRecognizerDelegate, NativeSheetCloseGuarding {
     override func viewDidLoad() {
         super.viewDidLoad()
         modalPresentationStyle = .pageSheet

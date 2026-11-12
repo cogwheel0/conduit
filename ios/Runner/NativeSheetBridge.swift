@@ -1969,8 +1969,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                active.detailId == detailId {
                 pages.append(active)
             }
+            let openPages = self.activeSettingsColumns?.allViewControllers
+                ?? self.activeNavigationController?.viewControllers ?? []
             for case let page as NativeDetailTableViewController
-                in self.activeNavigationController?.viewControllers ?? []
+                in openPages
                 where page.detailId == detailId && !pages.contains(where: { $0 === page }) {
                 pages.append(page)
             }
@@ -1990,6 +1992,12 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
 
     func closeDetail(detailId: String) throws -> Bool {
         let close = { () -> Bool in
+            if let columns = self.activeSettingsColumns,
+               columns.closeRootPage(where: {
+                   ($0 as? NativeDetailTableViewController)?.detailId == detailId
+               }) {
+                return true
+            }
             guard let navigation = self.activeNavigationController,
                   let index = navigation.viewControllers.firstIndex(where: {
                       ($0 as? NativeDetailTableViewController)?.detailId == detailId
@@ -2124,11 +2132,16 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private func presentProfileMenu(_ configuration: NativeSheetConfiguration) -> Bool {
         let controller = NativeProfileMenuTableViewController(
             configuration: configuration,
-            onSelect: { [weak self] item in self?.handleSelection(item) },
+            onSelect: { [weak self] item in self?.handleSelection(item, fromRoot: true) },
             onClose: { [weak self] in self?.dismissActive() }
         )
-        let navigation = NativeSheetNavigationController(rootViewController: controller)
-        let presented = present(navigation, initialDetent: .large)
+        let sheet: UIViewController
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            sheet = makeSettingsColumns(root: controller)
+        } else {
+            sheet = NativeSheetNavigationController(rootViewController: controller)
+        }
+        let presented = present(sheet, initialDetent: .large)
         if presented {
             activeProfileMenuController = controller
             settingsPresentations += 1
@@ -2217,6 +2230,38 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
+    /// Settings on iPad: the root list beside the page it opened.
+    private func makeSettingsColumns(
+        root: NativeProfileMenuTableViewController
+    ) -> NativeSettingsColumnsController {
+        let columns = NativeSettingsColumnsController(root: root)
+        columns.makePage = { [weak self] id in
+            guard let self, let detail = self.detailPayloads[id] else { return nil }
+            return self.makeDetailController(detail: detail)
+        }
+        columns.defaultRootId = { [weak root, weak self] in
+            guard let root, let self else { return nil }
+            return root.firstRowId { item in
+                self.detailPayloads[item.id] != nil
+                    && !item.dismissOnSelect
+                    && item.kind != "searchablePicker"
+                    && item.url == nil
+            }
+        }
+        columns.onPageLeft = { [weak self] controller in
+            if let page = controller as? NativeDetailTableViewController {
+                self?.notifyDetailLeft(page)
+            }
+        }
+        columns.onSelectionChanged = { [weak root] id in
+            root?.selectedRowId = id
+        }
+        columns.onColumnsChanged = { [weak root] twoColumns in
+            root?.closesFromLeadingEdge = twoColumns
+        }
+        return columns
+    }
+
     private func makeDetailController(detail: NativeSheetDetail) -> NativeDetailTableViewController {
         NativeDetailTableViewController(
             detail: detail,
@@ -2291,8 +2336,11 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
-    private func presentInlineOptionsSelector(for item: NativeSheetItem) {
-        guard let navigation = activeNavigationController else { return }
+    private func presentInlineOptionsSelector(
+        for item: NativeSheetItem,
+        on chosenNavigation: UINavigationController? = nil
+    ) {
+        guard let navigation = chosenNavigation ?? activeNavigationController else { return }
         // A short list (five palettes) is read at a glance, so only a long
         // one (languages, voices) gets a search field.
         let configuration = NativeOptionsSelectorConfiguration(
@@ -2472,12 +2520,12 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             // Swiped away with unsaved changes on any of its pages, the
             // sheet stays and asks first.
             shouldDismiss: { [weak self] in
-                (self?.activeController as? NativeSheetNavigationController)?
+                (self?.activeController as? NativeSheetCloseGuarding)?
                     .guardingClosePage == nil
             },
             onAttemptToDismiss: { [weak self] in
                 guard let navigation = self?.activeController
-                    as? NativeSheetNavigationController,
+                    as? NativeSheetCloseGuarding,
                     let guarding = navigation.guardingClosePage
                 else { return }
                 guarding.page.askBeforeLeaving(always: guarding.always) { [weak self] in
@@ -2527,13 +2575,23 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             }
         )
 
-        controller.modalPresentationStyle = .pageSheet
+        if let columns = controller as? NativeSettingsColumnsController {
+            // Two columns need more room than a page sheet: a form sheet as
+            // large as the window allows, which UIKit turns into a page
+            // sheet itself when the window is narrow (Slide Over).
+            columns.modalPresentationStyle = .formSheet
+            columns.sizeToFit(presenter.view.bounds.size)
+        } else {
+            controller.modalPresentationStyle = .pageSheet
+        }
         controller.presentationController?.delegate = presentationDelegate
-        applySheetStyle(
-            to: controller,
-            initialDetent: initialDetent,
-            maxHeightFraction: maxHeightFraction
-        )
+        if !(controller is NativeSettingsColumnsController) {
+            applySheetStyle(
+                to: controller,
+                initialDetent: initialDetent,
+                maxHeightFraction: maxHeightFraction
+            )
+        }
         if let configureSheet, let sheet = controller.sheetPresentationController {
             configureSheet(sheet)
         }
@@ -2852,9 +2910,19 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = true
     }
 
-    private func handleSelection(_ item: NativeSheetItem, confirmed: Bool = false) {
+    private func handleSelection(
+        _ item: NativeSheetItem,
+        confirmed: Bool = false,
+        fromRoot: Bool = false
+    ) {
+        // A root row's picker opens in the root's own column, so the page
+        // beside it stays.
+        let rootColumns = fromRoot ? activeSettingsColumns : nil
         if item.kind == "searchablePicker" {
-            presentInlineOptionsSelector(for: item)
+            presentInlineOptionsSelector(
+                for: item,
+                on: rootColumns?.isExpanded == true ? rootColumns?.sidebar : nil
+            )
             return
         }
 
@@ -2865,7 +2933,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
 
         if !confirmed, let message = item.confirmMessage, !message.isEmpty {
             presentConfirmation(for: item, message: message) { [weak self] in
-                self?.handleSelection(item, confirmed: true)
+                self?.handleSelection(item, confirmed: true, fromRoot: fromRoot)
             }
             return
         }
@@ -2915,6 +2983,16 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
 
         if detailPayloads[item.id] != nil {
+            if let columns = rootColumns {
+                // In two columns the page fills the second one; in one, it
+                // is pushed as on iPhone, and shown beside the root once
+                // there is room.
+                if columns.isExpanded {
+                    columns.showRootPage(item.id)
+                    return
+                }
+                columns.noteRootPageOpened(item.id)
+            }
             presentDetail(id: item.id)
             return
         }
@@ -3081,8 +3159,16 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         activeSheetMode = .profileMenu
     }
 
+    /// The column pages are pushed into: the only one, or the second of
+    /// Settings's two columns on iPad.
     private var activeNavigationController: UINavigationController? {
-        activeController as? UINavigationController
+        if let columns = activeSettingsColumns { return columns.pageNavigation }
+        return activeController as? UINavigationController
+    }
+
+    /// Settings in two columns, on iPad.
+    private var activeSettingsColumns: NativeSettingsColumnsController? {
+        activeController as? NativeSettingsColumnsController
     }
 
     private func topViewController() -> UIViewController? {
@@ -3112,8 +3198,21 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         ) { _ in }
     }
 
-    /// Page [controller] is gone: popped, or its sheet closed.
+    /// Page [controller] is gone: popped, or its sheet closed. Moved between
+    /// Settings's two columns, or replaced there (told separately), it is
+    /// not.
     fileprivate func markDetailLeft(_ controller: NativeDetailTableViewController) {
+        // Settings closing leaves every page, wherever it was.
+        if let columns = activeSettingsColumns,
+           !columns.isBeingDismissed,
+           columns.presentingViewController != nil,
+           columns.isRelocating || columns.holds(controller) {
+            return
+        }
+        notifyDetailLeft(controller)
+    }
+
+    private func notifyDetailLeft(_ controller: NativeDetailTableViewController) {
         guard activeSheetMode == .profileMenu else { return }
         flutterApi?.onDetailLeft(
             event: PlatformNativeSheetDetailAppearedEvent(
@@ -4102,6 +4201,287 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
     }
 }
 
+// MARK: - Settings in two columns (iPad)
+
+/// Settings on iPad as the system Settings app shows itself: the root list
+/// in a column of its own, beside the page it opened. Narrower than two
+/// columns allow (Slide Over, a narrow Split View), every page stacks on the
+/// root in one column, as on iPhone, and the page shown is kept.
+private final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseGuarding {
+    /// The width below which Settings keeps one column.
+    static let minimumTwoColumnWidth: CGFloat = 700
+
+    /// The root list's column; in one column, every page too.
+    let sidebar: NativeSheetNavigationController
+    /// The pages opened from the root, beside it.
+    let pages = NativeSheetNavigationController()
+    private let separator = UIView()
+
+    /// Whether the root list and its page show side by side.
+    private(set) var isExpanded = false
+    /// Set while pages move between the columns, so a page moved is not
+    /// taken for one the person left.
+    private(set) var isRelocating = false
+    /// The root row whose page the second column shows, or showed last.
+    private(set) var selectedRootId: String?
+
+    /// Builds the page a root row opens.
+    var makePage: ((String) -> UIViewController?)?
+    /// The root row whose page shows first, when nothing was opened yet.
+    var defaultRootId: (() -> String?)?
+    /// A page closed for good by the columns themselves, told as a page
+    /// popped is.
+    var onPageLeft: ((UIViewController) -> Void)?
+    /// The root list keeps the row of the page beside it selected; nil in
+    /// one column.
+    var onSelectionChanged: ((String?) -> Void)?
+    /// Two columns came or went.
+    var onColumnsChanged: ((Bool) -> Void)?
+
+    init(root: UIViewController) {
+        sidebar = NativeSheetNavigationController(rootViewController: root)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    /// The column pages are pushed into.
+    var pageNavigation: NativeSheetNavigationController {
+        isExpanded ? pages : sidebar
+    }
+
+    /// Every page open, in either column, the root list first.
+    var allViewControllers: [UIViewController] {
+        sidebar.viewControllers + (isExpanded ? pages.viewControllers : [])
+    }
+
+    /// Whether [controller] is still open in either column: one moved
+    /// between them has not been left.
+    func holds(_ controller: UIViewController) -> Bool {
+        allViewControllers.contains { $0 === controller }
+            || pages.viewControllers.contains { $0 === controller }
+    }
+
+    /// Sizes the sheet to the window it opens over: as large as leaves the
+    /// window's edges showing, up to what Settings can use.
+    func sizeToFit(_ window: CGSize) {
+        let size = CGSize(
+            width: max(min(window.width - 96, 1180), 320),
+            height: max(min(window.height - 96, 1000), 320)
+        )
+        if preferredContentSize != size { preferredContentSize = size }
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = NativeSheetTheme.shared.background
+        addChild(sidebar)
+        view.addSubview(sidebar.view)
+        sidebar.didMove(toParent: self)
+        separator.backgroundColor = .separator
+        separator.isHidden = true
+        separator.isAccessibilityElement = false
+        view.addSubview(separator)
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self, let window = self.presentingViewController?.view.bounds.size
+            else { return }
+            self.sizeToFit(window)
+        }
+    }
+
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        let wantsTwoColumns = view.bounds.width >= Self.minimumTwoColumnWidth
+        if wantsTwoColumns != isExpanded {
+            if wantsTwoColumns { expand() } else { collapse() }
+        }
+        layoutColumns()
+    }
+
+    private var sidebarWidth: CGFloat {
+        // Larger text needs a wider list, as the system's sidebars do.
+        let large = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        let width = view.bounds.width * 0.36
+        return min(max(width, 300), large ? 440 : 375)
+    }
+
+    private func layoutColumns() {
+        let bounds = view.bounds
+        guard isExpanded else {
+            sidebar.view.frame = bounds
+            return
+        }
+        let listWidth = sidebarWidth
+        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let rightToLeft = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let listX = rightToLeft ? bounds.width - listWidth : 0
+        let pageX = rightToLeft ? 0 : listWidth
+        sidebar.view.frame = CGRect(x: listX, y: 0, width: listWidth, height: bounds.height)
+        pages.view.frame = CGRect(
+            x: pageX,
+            y: 0,
+            width: bounds.width - listWidth,
+            height: bounds.height
+        )
+        separator.frame = CGRect(
+            x: rightToLeft ? listX - hairline : listWidth - hairline,
+            y: 0,
+            width: hairline,
+            height: bounds.height
+        )
+    }
+
+    /// Two columns: the pages above the root move beside it, or the page of
+    /// the row chosen last (the first one, at first) opens there.
+    private func expand() {
+        view.endEditing(true)
+        isRelocating = true
+        let stack = sidebar.viewControllers
+        guard let root = stack.first else {
+            finishRelocating()
+            return
+        }
+        var opened = Array(stack.dropFirst())
+        if let first = opened.first as? NativeDetailTableViewController {
+            selectedRootId = first.detailId
+        } else {
+            // A root row's picker is passing; the page beside it opens anew.
+            opened = []
+        }
+        if opened.isEmpty,
+           let id = selectedRootId ?? defaultRootId?(),
+           let page = makePage?(id) {
+            selectedRootId = id
+            opened = [page]
+        }
+        sidebar.setViewControllers([root], animated: false)
+        pages.setViewControllers(opened, animated: false)
+        addChild(pages)
+        view.insertSubview(pages.view, belowSubview: separator)
+        pages.didMove(toParent: self)
+        isExpanded = true
+        separator.isHidden = false
+        // VoiceOver reads the list, then the page beside it.
+        view.accessibilityElements = [sidebar.view as Any, pages.view as Any]
+        finishRelocating()
+        onColumnsChanged?(true)
+        onSelectionChanged?(selectedRootId)
+    }
+
+    /// One column: the page shown stacks on the root, as on iPhone.
+    private func collapse() {
+        view.endEditing(true)
+        isRelocating = true
+        let opened = pages.viewControllers
+        pages.willMove(toParent: nil)
+        pages.view.removeFromSuperview()
+        pages.removeFromParent()
+        pages.setViewControllers([], animated: false)
+        let root = Array(sidebar.viewControllers.prefix(1))
+        sidebar.setViewControllers(root + opened, animated: false)
+        isExpanded = false
+        separator.isHidden = true
+        view.accessibilityElements = nil
+        finishRelocating()
+        onColumnsChanged?(false)
+        onSelectionChanged?(nil)
+    }
+
+    /// Moves are done once UIKit has told the pages they moved.
+    private func finishRelocating() {
+        DispatchQueue.main.async { [weak self] in
+            self?.isRelocating = false
+        }
+    }
+
+    /// One column: the root row [id] opened its page on top of the list,
+    /// which shows beside the list once there is room.
+    func noteRootPageOpened(_ id: String) {
+        selectedRootId = id
+    }
+
+    /// Two columns: root row [id] opens its page beside the list, asking
+    /// first when the pages there would lose unsaved changes. Its own row
+    /// again goes back to its page's top.
+    func showRootPage(_ id: String) {
+        let replace = { [weak self] in
+            guard let self else { return }
+            if id == self.selectedRootId,
+               let first = self.pages.viewControllers.first,
+               (first as? NativeDetailTableViewController)?.detailId == id {
+                self.popPagesToFirst()
+                return
+            }
+            self.replacePages(withPageOf: id)
+        }
+        guard let guarding = pages.guardingClosePage else {
+            replace()
+            return
+        }
+        guarding.page.askBeforeLeaving(always: guarding.always) { [weak self] in
+            self?.pages.dropUnsavedChanges()
+            replace()
+        }
+    }
+
+    /// Replaces the second column's pages with root row [id]'s. The page on
+    /// top says it left as it disappears; those under it, which UIKit does
+    /// not tell, are told here.
+    private func replacePages(withPageOf id: String) {
+        guard let page = makePage?(id) else { return }
+        let covered = pages.viewControllers.dropLast()
+        pages.setViewControllers([page], animated: false)
+        selectedRootId = id
+        onSelectionChanged?(id)
+        for controller in covered { onPageLeft?(controller) }
+    }
+
+    /// Pops the second column to its first page; the pages popped under the
+    /// top one are told they left, as the top one tells itself.
+    private func popPagesToFirst() {
+        let popped = pages.viewControllers.dropFirst()
+        for controller in popped.dropLast() { onPageLeft?(controller) }
+        pages.popToRootViewController(animated: true)
+    }
+
+    /// Two columns: a page closing itself that is the second column's first
+    /// gives way to the first root row's page. Returns whether it did;
+    /// otherwise the page is closed as in one column.
+    func closeRootPage(where matches: (UIViewController) -> Bool) -> Bool {
+        guard isExpanded,
+              let first = pages.viewControllers.first,
+              matches(first)
+        else { return false }
+        let fallback = defaultRootId?()
+        if let fallback, fallback != selectedRootId {
+            replacePages(withPageOf: fallback)
+        } else if pages.viewControllers.count > 1 {
+            popPagesToFirst()
+        }
+        return true
+    }
+
+    // MARK: NativeSheetCloseGuarding
+
+    var guardingClosePage: (page: NativeSheetLeaveGuarding, always: Bool)? {
+        (isExpanded ? pages.guardingClosePage : nil) ?? sidebar.guardingClosePage
+    }
+
+    func dropUnsavedChanges() {
+        sidebar.dropUnsavedChanges()
+        pages.dropUnsavedChanges()
+    }
+}
+
 private final class NativeProfileMenuTableViewController: UITableViewController {
     private var configuration: NativeSheetConfiguration
     private let onSelect: (NativeSheetItem) -> Void
@@ -4156,13 +4536,83 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         title = newConfiguration.profileMenuTitle
         guard isViewLoaded else { return }
         tableView.reloadData()
+        applyRowSelection(animated: false)
+    }
+
+    /// The row whose page shows beside the list, when Settings has two
+    /// columns; it stays selected, as a sidebar's does. Nil in one column.
+    var selectedRowId: String? {
+        didSet {
+            guard selectedRowId != oldValue, isViewLoaded else { return }
+            applyRowSelection(animated: false)
+        }
+    }
+
+    /// Where the list carries Close: at its trailing edge alone, or at its
+    /// leading edge beside a page -- the sheet's corner, which stays put
+    /// whatever the page column shows.
+    var closesFromLeadingEdge = false {
+        didSet {
+            guard closesFromLeadingEdge != oldValue, isViewLoaded else { return }
+            placeCloseButton()
+        }
+    }
+
+    private func placeCloseButton() {
+        navigationItem.leftBarButtonItem = closesFromLeadingEdge ? closeButton() : nil
+        navigationItem.rightBarButtonItem = closesFromLeadingEdge ? nil : closeButton()
+    }
+
+    /// The id of the first row, from the top, that [matches].
+    func firstRowId(where matches: (NativeSheetItem) -> Bool) -> String? {
+        for section in tableSections {
+            if let item = section.items.first(where: matches) { return item.id }
+        }
+        return nil
+    }
+
+    private func applyRowSelection(animated: Bool) {
+        for indexPath in tableView.indexPathsForSelectedRows ?? [] {
+            tableView.deselectRow(at: indexPath, animated: animated)
+        }
+        guard let id = selectedRowId else { return }
+        for (section, rows) in tableSections.enumerated() {
+            if let row = rows.items.firstIndex(where: { $0.id == id }) {
+                tableView.selectRow(
+                    at: IndexPath(row: row, section: section),
+                    animated: animated,
+                    scrollPosition: .none
+                )
+                return
+            }
+        }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyRowSelection(animated: false)
+    }
+
+    // A reload -- new rows, or the theme drawn again -- clears a table's
+    // selection; the row of the page beside the list takes it back as it
+    // shows.
+    override func tableView(
+        _ tableView: UITableView,
+        willDisplay cell: UITableViewCell,
+        forRowAt indexPath: IndexPath
+    ) {
+        guard let id = selectedRowId,
+              item(at: indexPath).id == id,
+              tableView.indexPathForSelectedRow != indexPath
+        else { return }
+        tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = configuration.profileMenuTitle
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.rightBarButtonItem = closeButton()
+        placeCloseButton()
         navigationController?.navigationBar.prefersLargeTitles = false
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "profileCell")
@@ -4229,8 +4679,15 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
         onSelect(item(at: indexPath))
+        // In two columns the row of the page beside the list stays selected
+        // -- this one once its page shows, the last one if the tap asked
+        // first, opened nothing, or was cancelled.
+        if selectedRowId == nil {
+            tableView.deselectRow(at: indexPath, animated: true)
+        } else {
+            applyRowSelection(animated: true)
+        }
     }
 
     private func item(at indexPath: IndexPath) -> NativeSheetItem {
@@ -6624,12 +7081,6 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         super.viewDidLoad()
         title = detail.title
         navigationItem.largeTitleDisplayMode = .never
-        // Back asks first when it would drop unsaved changes.
-        navigationItem.backAction = UIAction { [weak self] _ in
-            self?.askBeforeLeaving { [weak self] in
-                _ = self?.navigationController?.popViewController(animated: true)
-            }
-        }
         refreshNavigationAction()
         configureSearch()
         configureCalendar(previous: nil)
@@ -6759,6 +7210,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         super.viewDidDisappear(animated)
         // Gone, not covered by a page it opened: popped, or the sheet closed.
         let sheetClosed = navigationController?.isBeingDismissed == true
+            || navigationController?.parent?.isBeingDismissed == true
             || navigationController?.presentingViewController == nil
         if isMovingFromParent || sheetClosed {
             NativeSheetBridge.shared.markDetailLeft(self)
@@ -7172,7 +7624,35 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         )
     }
 
+    /// Back asks first when it would drop unsaved changes. Set only with a
+    /// page to go back to: UIKit shows a Back button for a backAction even
+    /// on a stack's first page, as the first page of Settings's second
+    /// column on iPad is.
+    private func refreshBackAction() {
+        let isFirst = navigationController?.viewControllers.first === self
+        navigationItem.backAction = isFirst ? nil : UIAction { [weak self] _ in
+            self?.askBeforeLeaving { [weak self] in
+                _ = self?.navigationController?.popViewController(animated: true)
+            }
+        }
+    }
+
+    /// Whether this page carries the sheet's Close: the first page of a
+    /// one-column sheet does; in Settings's second column on iPad, the root
+    /// list beside it carries Close instead.
+    private var carriesClose: Bool {
+        guard let navigation = navigationController,
+              navigation.viewControllers.first === self
+        else { return false }
+        if let columns = navigation.parent as? NativeSettingsColumnsController,
+           columns.pages === navigation {
+            return false
+        }
+        return true
+    }
+
     private func refreshNavigationAction() {
+        refreshBackAction()
         if detail.busy {
             // Done is working: it turns until the page is described again.
             let spinner = UIActivityIndicatorView(style: .medium)
@@ -7182,7 +7662,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         }
         navigationItem.leftBarButtonItem = nil
         if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
-            if navigationController?.viewControllers.first === self {
+            if carriesClose {
                 navigationItem.leftBarButtonItem = closeButton()
             }
             navigationItem.rightBarButtonItem = confirmButton(
@@ -7220,10 +7700,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             // A pushed detail already has a Back button. Showing Close as
             // well creates two competing exit actions, so reserve Close for
             // the root controller of a presented sheet.
-            navigationItem.rightBarButtonItem =
-                navigationController?.viewControllers.first === self
-                ? closeButton()
-                : nil
+            navigationItem.rightBarButtonItem = carriesClose ? closeButton() : nil
             return
         }
 
