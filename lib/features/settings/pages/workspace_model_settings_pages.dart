@@ -149,6 +149,7 @@ NativeSheetDetailConfig buildWorkspaceModelPage(
   required WorkspaceSectionCapabilities capabilities,
   required List<WorkspaceRelationshipOption>? baseModels,
   required bool baseModelRequired,
+  bool baseModelsFailed = false,
 }) {
   final key = editor.key;
   final pageId = '$workspaceModelPagePrefix$key';
@@ -307,6 +308,14 @@ NativeSheetDetailConfig buildWorkspaceModelPage(
                 ),
             ],
           ),
+          if (!readOnly && baseModels == null && baseModelsFailed)
+            NativeSheetItemConfig(
+              id: workspaceRowId('model-base-retry', key),
+              title: l10n.workspaceLoadFailed,
+              subtitle: l10n.workspaceRetry,
+              sfSymbol: 'exclamationmark.triangle',
+              showsDisclosure: false,
+            ),
           field(
             'description',
             l10n.workspaceModelDescription,
@@ -702,6 +711,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   final Map<String, WorkspaceModelEditor> _editors = {};
   List<WorkspaceRelationshipOption>? _baseModels;
   bool _baseModelsLoading = false;
+  bool _baseModelsFailed = false;
 
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
   WorkspaceModels get _notifier => _ref.read(workspaceModelsProvider.notifier);
@@ -827,6 +837,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     _editors.clear();
     _access.clear();
     _baseModels = null;
+    _baseModelsFailed = false;
   }
 
   // -- Loading -----------------------------------------------------------------
@@ -878,6 +889,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   Future<void> _loadBaseModels() async {
     if (_baseModels != null || _baseModelsLoading) return;
     _baseModelsLoading = true;
+    _baseModelsFailed = false;
     try {
       final listening = _ref.listen(workspaceBaseModelsProvider, (_, _) {});
       try {
@@ -886,6 +898,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
         listening.close();
       }
     } catch (error, stackTrace) {
+      _baseModelsFailed = true;
       DebugLogger.error(
         'workspace-base-models-failed',
         scope: 'settings/workspace',
@@ -934,10 +947,24 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   ) async {
     switch (kind) {
       case WorkspaceModelRelationshipKind.knowledge:
+        // Every page, not only the first the list read: any of them may be
+        // chosen.
         final listening = _ref.listen(workspaceKnowledgeProvider, (_, _) {});
-        final state = await _ref
-            .read(workspaceKnowledgeProvider.future)
-            .whenComplete(listening.close);
+        var state = await _ref.read(workspaceKnowledgeProvider.future);
+        try {
+          while (state.hasMore) {
+            await _ref.read(workspaceKnowledgeProvider.notifier).loadMore();
+            final next = _ref.read(workspaceKnowledgeProvider).value;
+            if (next == null ||
+                next.error != null ||
+                next.items.length <= state.items.length) {
+              break;
+            }
+            state = next;
+          }
+        } finally {
+          listening.close();
+        }
         return [
           for (final item in state.items)
             WorkspaceRelationshipOption(
@@ -957,9 +984,21 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
         ];
       case WorkspaceModelRelationshipKind.skills:
         final listening = _ref.listen(workspaceSkillsProvider, (_, _) {});
-        final state = await _ref
-            .read(workspaceSkillsProvider.future)
-            .whenComplete(listening.close);
+        var state = await _ref.read(workspaceSkillsProvider.future);
+        try {
+          while (state.hasMore) {
+            await _ref.read(workspaceSkillsProvider.notifier).loadMore();
+            final next = _ref.read(workspaceSkillsProvider).value;
+            if (next == null ||
+                next.error != null ||
+                next.items.length <= state.items.length) {
+              break;
+            }
+            state = next;
+          }
+        } finally {
+          listening.close();
+        }
         return [
           for (final skill in state.items)
             WorkspaceRelationshipOption(
@@ -997,6 +1036,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   }) {
     final key = editor.key;
     editor.shownEdited = editor.edited;
+    final known = _ref.read(settingsPagesProvider);
     return _surface.applyDetail(
       buildWorkspaceModelPage(
         l10n,
@@ -1004,21 +1044,28 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
         capabilities: _capabilities,
         baseModels: _baseModels,
         baseModelRequired: _baseModelRequired(editor),
+        baseModelsFailed: _baseModelsFailed,
       ),
       detailSheets: [
         if (withPages && editor.state != null) ...[
           buildWorkspaceModelAdvancedPage(l10n, editor: editor),
+          // Stand-ins only for pages not drawn yet: an open one keeps its
+          // rows.
           for (final kind in WorkspaceModelRelationshipKind.values)
+            if (!known.contains(workspaceModelRelationshipPageId(kind, key)))
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: workspaceModelRelationshipPageId(kind, key),
+                title: _relationshipTitle(l10n, kind),
+              ),
+          if (!known.contains(
+            workspaceAccessPageId(WorkspaceSection.models, key),
+          ))
             buildNativeLoadingDetail(
               l10n: l10n,
-              id: workspaceModelRelationshipPageId(kind, key),
-              title: _relationshipTitle(l10n, kind),
+              id: workspaceAccessPageId(WorkspaceSection.models, key),
+              title: l10n.workspaceModelManageAccess,
             ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: workspaceAccessPageId(WorkspaceSection.models, key),
-            title: l10n.workspaceModelManageAccess,
-          ),
         ],
       ],
     );
@@ -1133,6 +1180,10 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
             .where((value) => value.name == row.extra)
             .firstOrNull;
         if (kind != null) await _loadOptions(editor, kind);
+      case 'base-retry':
+        // Read afresh: a failed read is not kept as the answer.
+        _ref.invalidate(workspaceBaseModelsProvider);
+        await _loadBaseModels();
       case 'image-pick' when !editor.readOnly:
         await _pickImage(l10n, editor);
       case 'image-remove' when !editor.readOnly:

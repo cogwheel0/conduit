@@ -503,6 +503,7 @@ final class WorkspaceAccessPages {
 
   Future<void> apply(AppLocalizations l10n, WorkspaceAccessDraft draft) {
     final capabilities = _capabilities;
+    final known = _ref.read(settingsPagesProvider);
     return _surface.applyDetail(
       buildWorkspaceAccessPage(
         l10n,
@@ -512,6 +513,29 @@ final class WorkspaceAccessPages {
         allowGroupGrants: capabilities?.allowGroupGrants ?? false,
         lookup: _currentLookup(),
       ),
+      // The pages its Add rows open, so a tap pushes them; one already
+      // open keeps what it shows.
+      detailSheets: [
+        for (final groups in const [false, true])
+          if (!known.contains(
+            workspaceAccessAddPageId(
+              draft.section,
+              draft.editorKey,
+              groups: groups,
+            ),
+          ))
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: workspaceAccessAddPageId(
+                draft.section,
+                draft.editorKey,
+                groups: groups,
+              ),
+              title: groups
+                  ? l10n.workspaceAccessAddGroups
+                  : l10n.workspaceAccessAddUsers,
+            ),
+      ],
     );
   }
 

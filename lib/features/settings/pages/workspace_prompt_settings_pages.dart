@@ -57,6 +57,9 @@ final class WorkspacePromptEditor {
   bool noticeIsError = true;
   bool shownEdited = false;
 
+  /// What went wrong with the last change to a version, for its page.
+  ({String versionId, String text})? versionFailure;
+
   /// Comparisons of versions with the live one, by version id.
   final Map<String, WorkspacePromptComparison> comparisons = {};
 
@@ -414,13 +417,21 @@ NativeSheetDetailConfig buildWorkspacePromptVersionPage(
   final live = entry.id == editor.versionId;
   final content = entry.snapshot['content']?.toString() ?? '';
   final author = entry.owner?.name.trim();
+  final failure = editor.versionFailure?.versionId == entry.id
+      ? editor.versionFailure!.text
+      : null;
   return NativeSheetDetailConfig(
     id: pageId,
     title: entry.commitMessage?.trim().isNotEmpty ?? false
         ? entry.commitMessage!.trim()
         : l10n.workspacePromptHistoryCommitFallback,
     busy: editor.busy,
+    announcement: failure,
     sections: [
+      if (failure != null)
+        NativeSheetSectionConfig(
+          items: [workspaceWarning('$pageId-failure', failure)],
+        ),
       NativeSheetSectionConfig(
         items: [
           workspaceNote(
@@ -501,8 +512,8 @@ String workspacePromptDiffPageId(String key, String versionId) =>
 
 /// The rows of a comparison: each line of [lines] (unified-diff style) as a
 /// diff row, added, removed or unchanged, read out as such. The file
-/// headers are left out, and a gap between two runs of lines is a line of
-/// its own.
+/// headers before the first run are left out, and a gap between two runs of
+/// lines is a line of its own.
 @visibleForTesting
 List<NativeSheetItemConfig> workspacePromptDiffRows(
   AppLocalizations l10n,
@@ -512,10 +523,12 @@ List<NativeSheetItemConfig> workspacePromptDiffRows(
   final rows = <NativeSheetItemConfig>[];
   var hunks = 0;
   for (final (index, line) in lines.indexed) {
-    if (line.startsWith('--- ') ||
-        line.startsWith('+++ ') ||
-        line == '---' ||
-        line == '+++') {
+    // Past the first run, `--- ` is a removed line that began with `-- `.
+    if (hunks == 0 &&
+        (line.startsWith('--- ') ||
+            line.startsWith('+++ ') ||
+            line == '---' ||
+            line == '+++')) {
       continue;
     }
     if (line.startsWith('@@')) {
@@ -578,7 +591,9 @@ NativeSheetDetailConfig buildWorkspacePromptDiffPage(
     id: pageId,
     title: l10n.workspacePromptHistoryDiffTitle,
     sections: [
-      if (comparison == null || (lines == null && comparison.loading))
+      // Not read yet, or being read: only a failed read offers Retry.
+      if (comparison == null ||
+          (lines == null && !comparison.failed && !comparison.tooLarge))
         NativeSheetSectionConfig(
           items: [buildNativeLoadingItem(l10n, id: '$pageId-loading')],
         )
@@ -871,16 +886,21 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
   }) {
     final key = editor.key;
     editor.shownEdited = editor.dirty;
+    // Stand-ins only for pages not drawn yet: an open one keeps its rows.
+    final known = _ref.read(settingsPagesProvider);
+    final access = workspaceAccessPageId(WorkspaceSection.prompts, key);
     return _surface.applyDetail(
       buildWorkspacePromptPage(l10n, editor: editor),
       detailSheets: [
         if (withPages && editor.ready) ...[
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: workspaceAccessPageId(WorkspaceSection.prompts, key),
-            title: l10n.workspacePromptManageAccess,
-          ),
-          if (!editor.isCreate)
+          if (!known.contains(access))
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: access,
+              title: l10n.workspacePromptManageAccess,
+            ),
+          if (!editor.isCreate &&
+              !known.contains('$workspacePromptHistoryPagePrefix$key'))
             buildNativeLoadingDetail(
               l10n: l10n,
               id: '$workspacePromptHistoryPagePrefix$key',
@@ -1278,7 +1298,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     final summary = editor.summary;
     final entry = _entry(editor, versionId);
     if (summary == null || entry == null || !editor.writeAccess) return;
-    editor.busy = true;
+    editor
+      ..busy = true
+      ..versionFailure = null;
     await _applyVersion(l10n, editor, entry);
     WorkspacePromptSummary? updated;
     Object? failed;
@@ -1296,13 +1318,25 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     if (!_current(editor)) return;
     editor.busy = false;
     if (failed == null) {
+      if (updated != null) {
+        // An editor with no edits shows the version now live, so a later
+        // save starts from it; a draft keeps what was typed.
+        if (editor.dirty) {
+          editor.summary = updated;
+        } else {
+          editor.adopt(updated);
+        }
+      }
       editor.versionId = updated?.versionId ?? versionId;
       // Compared with the old live version, the comparisons are stale.
       editor.comparisons.clear();
-      if (updated != null) editor.summary = updated;
       _say(editor, l10n.workspacePromptHistoryProductionSet, error: false);
     } else {
       _say(editor, l10n.workspacePromptSaveFailed);
+      editor.versionFailure = (
+        versionId: versionId,
+        text: l10n.workspacePromptSaveFailed,
+      );
     }
     await _applyVersion(l10n, editor, entry);
     await _applyHistory(l10n, editor);
@@ -1318,7 +1352,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     final entry = _entry(editor, versionId);
     if (summary == null || entry == null || !editor.writeAccess) return;
     if (versionId == editor.versionId) return;
-    editor.busy = true;
+    editor
+      ..busy = true
+      ..versionFailure = null;
     await _applyVersion(l10n, editor, entry);
     Object? failed;
     try {
@@ -1336,6 +1372,10 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     editor.busy = false;
     if (failed != null) {
       _say(editor, l10n.workspacePromptSaveFailed);
+      editor.versionFailure = (
+        versionId: versionId,
+        text: l10n.workspacePromptSaveFailed,
+      );
       await _applyVersion(l10n, editor, entry);
       await _applyEditor(l10n, editor, withPages: false);
       return;
@@ -1347,6 +1387,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     ];
     _say(editor, l10n.workspacePromptHistoryDeleted, error: false);
     await _applyHistory(l10n, editor);
+    // The server's pages moved up by one: read them again from the first,
+    // so Load More does not skip the version that moved into it.
+    if (editor.historyHasMore) unawaited(_loadHistory(editor, reset: true));
     await _applyEditor(l10n, editor, withPages: false);
     await _surface.closeDetail(
       workspacePromptVersionPageId(editor.key, versionId),

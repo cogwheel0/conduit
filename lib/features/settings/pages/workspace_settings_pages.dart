@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' show PlatformDispatcher, Offset, Rect;
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_collection_view.dart';
 import 'package:conduit_core/features/workspace/models/workspace_prompt_command.dart';
@@ -313,7 +314,8 @@ NativeSheetDetailConfig buildWorkspaceListPage(
         ),
       NativeSheetSectionConfig(
         items: [
-          if (items == null && state.loadFailed)
+          // A list that could not be read, or read again while empty.
+          if ((items == null || items.isEmpty) && state.loadFailed)
             NativeSheetItemConfig(
               id: workspaceRowId('list-retry', key),
               title: l10n.workspaceLoadFailed,
@@ -543,11 +545,14 @@ class WorkspaceSettingsPages extends SettingsPageModule {
 
   Future<void> _applyHub(AppLocalizations l10n) {
     final state = readWorkspaceHubState(_ref);
+    // Stand-ins only for pages not drawn yet: an open one keeps its rows.
+    final known = _ref.read(settingsPagesProvider);
     return _surface.applyDetail(
       buildWorkspaceHubPage(l10n, state),
       detailSheets: [
         for (final section in state.permitted)
-          if (workspaceSectionsInSettings.contains(section))
+          if (workspaceSectionsInSettings.contains(section) &&
+              !known.contains(workspaceSectionPageId(section)))
             buildNativeLoadingDetail(
               l10n: l10n,
               id: workspaceSectionPageId(section),
@@ -657,23 +662,26 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       // The first read: reading the provider below is what loads it.
       _readList(section);
     }
+    String editorId(String? id) => section == WorkspaceSection.models
+        ? workspaceModelPageId(id)
+        : workspacePromptPageId(id);
+    // Stand-ins only for editors not drawn yet: one open over the list
+    // keeps its rows through the list's redraws.
+    final known = _ref.read(settingsPagesProvider);
     return _surface.applyDetail(
       buildWorkspaceListPage(l10n, state),
       detailSheets: [
         for (final item in state.items ?? const <WorkspaceListItem>[])
+          if (!known.contains(editorId(item.id)))
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: editorId(item.id),
+              title: item.title,
+            ),
+        if (state.capabilities.manage && !known.contains(editorId(null)))
           buildNativeLoadingDetail(
             l10n: l10n,
-            id: section == WorkspaceSection.models
-                ? workspaceModelPageId(item.id)
-                : workspacePromptPageId(item.id),
-            title: item.title,
-          ),
-        if (state.capabilities.manage)
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: section == WorkspaceSection.models
-                ? workspaceModelPageId(null)
-                : workspacePromptPageId(null),
+            id: editorId(null),
             title: section == WorkspaceSection.models
                 ? l10n.workspaceModelNewTitle
                 : l10n.workspacePromptCreateTitle,
@@ -913,8 +921,16 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     if (_listsShown.contains(section)) await _applyList(l10n, section);
   }
 
+  /// The account the pages act for, by server and user.
+  (String?, String?) _account() => (
+    _ref.read(activeServerProvider).asData?.value?.id,
+    _ref.read(currentUserProvider2)?.id,
+  );
+
   Future<void> _import(AppLocalizations l10n, WorkspaceSection section) async {
     if (_running.containsKey(section)) return;
+    // A file chosen under one account is never imported into another.
+    final account = _account();
     final String? text;
     try {
       // Over the Settings sheet, as a picker opened from one of its rows.
@@ -930,7 +946,11 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       if (_listsShown.contains(section)) await _applyList(l10n, section);
       return;
     }
-    if (text == null || !_listsShown.contains(section)) return;
+    if (text == null ||
+        !_listsShown.contains(section) ||
+        _account() != account) {
+      return;
+    }
     final List<Map<String, dynamic>> items;
     try {
       items = workspaceImportItemsFromJson(jsonDecode(text));
@@ -952,6 +972,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       report = await runWorkspaceImport(
         items,
         importItem: (item) async {
+          if (_account() != account) throw StateError('account changed');
           switch (section) {
             case WorkspaceSection.models:
               final ok = await _ref
@@ -978,6 +999,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     } finally {
       _running.remove(section);
     }
+    if (_account() != account) return;
     _notices[section] = report == null
         ? (text: l10n.workspaceImportBatchFailed, error: true)
         : (

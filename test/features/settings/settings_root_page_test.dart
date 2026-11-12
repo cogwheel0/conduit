@@ -23,7 +23,9 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/navigation/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -96,10 +98,19 @@ Future<_RecordingController> _pumpRoot(
         hermesEnabledProvider.overrideWithValue(false),
         appLocaleProvider.overrideWithValue(null),
       ],
-      child: MaterialApp(
+      child: MaterialApp.router(
+        routerConfig: GoRouter(
+          routes: [
+            GoRoute(path: '/', builder: (_, _) => const SettingsRootPage()),
+            GoRoute(
+              path: Routes.settingsPage,
+              name: RouteNames.settingsPage,
+              builder: (_, state) => Text('page ${state.pathParameters['id']}'),
+            ),
+          ],
+        ),
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const SettingsRootPage(),
       ),
     ),
   );
@@ -120,9 +131,6 @@ void main() {
     );
 
     await tester.scrollUntilVisible(_row(NativeSheetRoutes.workspace), 300);
-
-    // It opens the Workspace's page inside Settings, sending nothing that
-    // would close Settings.
     final container = ProviderScope.containerOf(
       tester.element(find.byType(SettingsRootPage)),
     );
@@ -131,6 +139,14 @@ void main() {
           .read(settingsPagesProvider)
           .contains(NativeSheetRoutes.workspace),
     ).isTrue();
+
+    await tester.tap(_row(NativeSheetRoutes.workspace));
+    await tester.pumpAndSettle();
+
+    // It opens the Workspace's page inside Settings, sending nothing that
+    // would close Settings.
+    check(find.text('page ${NativeSheetRoutes.workspace}').evaluate()).length
+        .equals(1);
     check(controller.changes).isEmpty();
   });
 

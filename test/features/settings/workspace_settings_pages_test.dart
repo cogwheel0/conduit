@@ -18,6 +18,7 @@ import 'package:conduit_core/features/workspace/editor/workspace_model_editor_st
     show WorkspaceModelRelationshipKind;
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_model_relationships.dart';
@@ -73,11 +74,12 @@ WorkspacePromptSummary _prompt({
   bool writeAccess = true,
   List<String> tags = const ['travel'],
   String? versionId = 'v2',
+  String content = 'List what to pack for {{destination}}.',
 }) => WorkspacePromptSummary(
   id: 'prompt-1',
   command: 'packing-list',
   name: 'Packing List',
-  content: 'List what to pack for {{destination}}.',
+  content: content,
   userId: 'user-1',
   tags: tags,
   versionId: versionId,
@@ -108,6 +110,10 @@ final class _Models extends WorkspaceModels {
   @override
   Future<WorkspaceCollectionState<WorkspaceModelSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
+
+  /// The list read again, as after a change made elsewhere.
+  void reread() =>
+      state = AsyncData(WorkspaceCollectionState(items: items, total: 1));
 
   @override
   Future<WorkspaceModelDetail> create(WorkspaceModelForm form) async {
@@ -168,6 +174,7 @@ final class _Prompts extends WorkspacePrompts {
   final liveSet = <String>[];
   Object? createError;
   List<WorkspacePromptHistoryEntry> versions = const [];
+  Object? liveError;
 
   @override
   Future<WorkspaceCollectionState<WorkspacePromptSummary>> build() async =>
@@ -211,7 +218,13 @@ final class _Prompts extends WorkspacePrompts {
     String versionId,
   ) async {
     liveSet.add(versionId);
-    return _prompt(versionId: versionId);
+    final error = liveError;
+    if (error != null) throw error;
+    final live = versions.where((entry) => entry.id == versionId).firstOrNull;
+    return _prompt(
+      versionId: versionId,
+      content: live?.snapshot['content'] as String? ?? _prompt().content,
+    );
   }
 
   final diffs = <(String, String)>[];
@@ -243,7 +256,18 @@ final class _Prompts extends WorkspacePrompts {
   Future<List<WorkspacePromptHistoryEntry>> history(
     String id, {
     int page = 0,
-  }) async => page == 0 ? versions : const [];
+  }) async => versions
+      .skip(page * workspacePromptHistoryPageSize)
+      .take(workspacePromptHistoryPageSize)
+      .toList();
+
+  @override
+  Future<void> deleteHistoryEntry(String id, String historyId) async {
+    versions = [
+      for (final entry in versions)
+        if (entry.id != historyId) entry,
+    ];
+  }
 
   @override
   Future<void> refresh() async {}
@@ -258,6 +282,34 @@ final class _Tools extends WorkspaceTools {
         ],
         total: 1,
       );
+}
+
+/// Who is signed in, when a test switches to another account.
+final class _SignedIn extends Notifier<User?> {
+  @override
+  User? build() => null;
+
+  void use(User user) => state = user;
+}
+
+final _signedInProvider = NotifierProvider<_SignedIn, User?>(_SignedIn.new);
+
+/// Two knowledge bases, served a page at a time.
+final class _Knowledge extends WorkspaceKnowledge {
+  static const _all = [
+    WorkspaceKnowledgeSummary(id: 'kb-1', name: 'Star Atlas', userId: 'u'),
+    WorkspaceKnowledgeSummary(id: 'kb-2', name: 'Moon Notes', userId: 'u'),
+  ];
+
+  @override
+  Future<WorkspaceCollectionState<WorkspaceKnowledgeSummary>> build() async =>
+      WorkspaceCollectionState(items: _all.take(1).toList(), total: 2);
+
+  @override
+  Future<void> loadMore() async {
+    final current = state.requireValue;
+    state = AsyncData(current.copyWith(page: current.page + 1, items: _all));
+  }
 }
 
 /// Settings as the pages see it: each question is answered with [answer].
@@ -387,6 +439,8 @@ void main() {
     Map<String, WorkspacePromptSummary> promptDetails = const {},
     Future<List<WorkspaceToolSummary>> Function()? tools,
     String? importFile,
+    Future<String?> Function()? picker,
+    Future<List<WorkspaceRelationshipOption>> Function()? baseModels,
   }) async {
     late final _Surface surface;
     final export = _Export();
@@ -394,7 +448,9 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         reviewerModeProvider.overrideWithValue(reviewer),
-        currentUserProvider2.overrideWithValue(_user(role: role)),
+        currentUserProvider2.overrideWith(
+          (ref) => ref.watch(_signedInProvider) ?? _user(role: role),
+        ),
         apiServiceProvider.overrideWithValue(api),
         authTokenProvider3.overrideWithValue('token-a'),
         activeServerProvider.overrideWith((ref) async => _server),
@@ -406,10 +462,13 @@ void main() {
         workspaceModelsProvider.overrideWith(() => models ?? _Models()),
         workspacePromptsProvider.overrideWith(() => prompts ?? _Prompts()),
         workspaceToolsProvider.overrideWith(_Tools.new),
+        workspaceKnowledgeProvider.overrideWith(_Knowledge.new),
         workspaceBaseModelsProvider.overrideWith(
-          (ref) async => const [
-            WorkspaceRelationshipOption(id: 'base-1', label: 'Base One'),
-          ],
+          (ref) =>
+              baseModels?.call() ??
+              Future.value(const [
+                WorkspaceRelationshipOption(id: 'base-1', label: 'Base One'),
+              ]),
         ),
         for (final entry in modelDetails.entries)
           workspaceModelDetailProvider(entry.key)
@@ -420,7 +479,7 @@ void main() {
         settingsSurfaceProvider.overrideWith((ref) => surface = _Surface(ref)),
         workspaceExportControllerProvider.overrideWithValue(export),
         workspaceImportFilePickerProvider.overrideWithValue(
-          () async => importFile,
+          picker ?? () async => importFile,
         ),
       ],
     );
@@ -550,6 +609,75 @@ void main() {
       check(models.imported.single['id']).equals('imported-1');
       check(rig.page(modelsPage).announcement)
           .equals(_l10n.workspaceImportSummary(1, 1));
+    });
+
+    testWidgets('an editor open over the list keeps its rows as the list '
+        'is drawn again', (tester) async {
+      final models = _Models([_writableModel()]);
+      final rig = await pump(
+        tester,
+        models: models,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      await rig.open(modelsPage);
+      await rig.open(_model1);
+      check(rig.page(_model1).confirmActionId).isNotNull();
+
+      // The list hears of a change and is drawn again, under the editor.
+      models.reread();
+      await rig.settle(Future<void>.value());
+
+      check(rig.page(_model1).confirmActionId).isNotNull();
+      check(rig.row(_model1, _modelRow('name', _model1Key))).isNotNull();
+    });
+
+    test('an empty list that could not be read again offers Retry', () {
+      final page = buildWorkspaceListPage(
+        _l10n,
+        const WorkspaceListState(
+          section: WorkspaceSection.models,
+          items: [],
+          loadFailed: true,
+        ),
+      );
+      final ids = [
+        for (final section in page.sections)
+          for (final item in section.items) item.id,
+      ];
+
+      check(ids).contains(workspaceRowId('list-retry', 'models'));
+      check(ids).not((it) => it.contains('$modelsPage-empty'));
+    });
+
+    testWidgets('a file chosen as another account signs in is not imported', (
+      tester,
+    ) async {
+      final models = _Models();
+      late final _Rig rig;
+      rig = await pump(
+        tester,
+        models: models,
+        picker: () async {
+          rig.container
+              .read(_signedInProvider.notifier)
+              .use(
+                const User(
+                  id: 'user-2',
+                  username: 'grace',
+                  email: 'grace@example.com',
+                  role: 'user',
+                ),
+              );
+          return jsonEncode([
+            {'id': 'imported-1', 'name': 'Imported One'},
+          ]);
+        },
+      );
+      await rig.open(modelsPage);
+
+      await rig.change(workspaceRowId('list-import', 'models'));
+
+      check(models.imported).isEmpty();
     });
 
     testWidgets('a file that is not JSON imports nothing and says so', (
@@ -770,6 +898,47 @@ void main() {
           .deepEquals(['tool-1']);
     });
 
+    testWidgets('base models that could not be read offer Retry', (
+      tester,
+    ) async {
+      var offline = true;
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+        baseModels: () async => offline
+            ? throw StateError('offline')
+            : const [WorkspaceRelationshipOption(id: 'base-1', label: 'One')],
+      );
+      await rig.open(_model1);
+      final retry = _modelRow('base-retry', _model1Key);
+      check(rig.row(_model1, retry)).isNotNull();
+      check(rig.row(_model1, _modelRow('base', _model1Key))!.disabled).isTrue();
+
+      offline = false;
+      await rig.change(retry);
+
+      check(rig.row(_model1, retry)).isNull();
+      check(rig.row(_model1, _modelRow('base', _model1Key))!.disabled)
+          .isFalse();
+    });
+
+    testWidgets('knowledge past the first page can be chosen', (tester) async {
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      await rig.open(_model1);
+      final page = workspaceModelRelationshipPageId(
+        WorkspaceModelRelationshipKind.knowledge,
+        _model1Key,
+      );
+      await rig.open(page);
+
+      check(
+        rig.row(page, _modelRow('relationship', _model1Key, 'knowledge|kb-2')),
+      ).isNotNull();
+    });
+
     testWidgets('a capability switched on Advanced marks the editor edited', (
       tester,
     ) async {
@@ -874,6 +1043,25 @@ void main() {
         );
         check(models.accessSaves).length.equals(2);
         check(rig.closed).deepEquals([access]);
+      });
+
+      testWidgets('its Add rows open pages of their own', (tester) async {
+        final rig = await pump(
+          tester,
+          modelDetails: {'model-1': _writableModel()},
+        );
+        await rig.open(_model1);
+        await rig.open(access);
+
+        final adds = rig
+            .rows(access)
+            .where((row) => row.id.startsWith(workspaceAccessAddPagePrefix));
+        check(adds).isNotEmpty();
+        for (final add in adds) {
+          // Known, so a tap pushes the page rather than sending the row.
+          check(rig.container.read(settingsPagesProvider).contains(add.id))
+              .isTrue();
+        }
       });
 
       testWidgets('of a new model is kept for its first save', (tester) async {
@@ -1135,6 +1323,25 @@ void main() {
         ).startsWith(_l10n.workspacePromptHistoryLive);
       });
 
+      testWidgets('an editor with no edits shows the version made live', (
+        tester,
+      ) async {
+        final prompts = _Prompts()..versions = versions;
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+
+        await rig.change(_promptRow('version-live', _prompt1Key, 'v1'));
+
+        check(rig.row(_prompt1, _promptRow('content', _prompt1Key))!.value)
+            .equals('Pack a towel.');
+        check(rig.page(_prompt1).edited).isFalse();
+      });
+
       testWidgets('a restored version fills the editor, its command kept', (
         tester,
       ) async {
@@ -1199,6 +1406,91 @@ void main() {
         ).equals(_l10n.workspacePromptHistoryDiffRemovedLine('Pack a towel.'));
         check(rig.titles(compare))
             .contains(_l10n.workspacePromptHistoryDiffNameChanged);
+      });
+
+      testWidgets('a version that could not be made live says so on its '
+          'page', (tester) async {
+        final prompts = _Prompts()
+          ..versions = versions
+          ..liveError = StateError('refused');
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+        final version = workspacePromptVersionPageId(_prompt1Key, 'v1');
+        await rig.open(version);
+
+        await rig.change(_promptRow('version-live', _prompt1Key, 'v1'));
+
+        check(rig.page(version).announcement)
+            .equals(_l10n.workspacePromptSaveFailed);
+        check(rig.titles(version)).contains(_l10n.workspacePromptSaveFailed);
+      });
+
+      testWidgets('a deleted version brings in the one after the page', (
+        tester,
+      ) async {
+        final prompts = _Prompts()
+          ..versions = [
+            for (var i = 0; i <= workspacePromptHistoryPageSize; i++)
+              WorkspacePromptHistoryEntry(
+                id: i == 0 ? 'v2' : 'old-$i',
+                promptId: 'prompt-1',
+                snapshot: {'content': 'Text $i'},
+                userId: 'u',
+                createdAt: 100 - i,
+                commitMessage: 'Change $i',
+              ),
+          ];
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+        final last = 'Change $workspacePromptHistoryPageSize';
+        check(rig.titles(history)).not((it) => it.contains(last));
+
+        await rig.change(_promptRow('version-delete', _prompt1Key, 'old-5'));
+
+        check(rig.titles(history))
+          ..not((it) => it.contains('Change 5'))
+          ..contains(last);
+      });
+
+      test('a comparison not read yet is loading, not failed', () {
+        final page = buildWorkspacePromptDiffPage(
+          _l10n,
+          editor: WorkspacePromptEditor(_prompt1Key, null),
+          versionId: 'v1',
+          comparison: WorkspacePromptComparison(),
+        );
+        final ids = [
+          for (final section in page.sections)
+            for (final item in section.items) item.id,
+        ];
+
+        check(ids).deepEquals([
+          '${workspacePromptDiffPageId(_prompt1Key, 'v1')}-loading',
+        ]);
+      });
+
+      test('a removed line that began with dashes is kept', () {
+        final rows = workspacePromptDiffRows(_l10n, 'diff', const [
+          '--- v1',
+          '+++ v2',
+          '@@ -1 +1 @@',
+          '--- old comment',
+          '+-- new comment',
+        ]);
+
+        check(rows.map((row) => row.title))
+            .deepEquals(['-- old comment', '-- new comment']);
+        check(rows.map((row) => row.value)).deepEquals(['removed', 'added']);
       });
 
       testWidgets('versions too long to compare say so', (tester) async {
