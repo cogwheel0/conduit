@@ -909,6 +909,112 @@ void main() {
     });
   }
 
+  testWidgets('Escape closes search while message text has focus', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    final reply = FocusNode();
+    addTearDown(reply.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => Scaffold(
+                  body: Column(
+                    children: [
+                      const Consumer(builder: _searchShortcutTestChild),
+                      // As a settled assistant reply is wrapped: its
+                      // DismissIntent action only passes the key on.
+                      SelectionArea(
+                        focusNode: reply,
+                        child: const Text('Synthetic reply'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Content')),
+    );
+    container
+        .read(sidebarHeaderSearchExpandedProvider.notifier)
+        .setExpanded(true);
+    reply.requestFocus();
+    await tester.pump();
+    expect(reply.hasFocus, isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(container.read(sidebarHeaderSearchExpandedProvider), isFalse);
+
+    // With search closed, the next Escape leaves the text.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(reply.hasFocus, isFalse);
+  });
+
+  testWidgets('Escape closes an open menu before search', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    final menu = MenuController();
+    final anchor = FocusNode();
+    addTearDown(anchor.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => Scaffold(
+                  body: Column(
+                    children: [
+                      const Consumer(builder: _searchShortcutTestChild),
+                      MenuAnchor(
+                        controller: menu,
+                        menuChildren: [
+                          MenuItemButton(
+                            onPressed: () {},
+                            child: const Text('Synthetic action'),
+                          ),
+                        ],
+                        child: TextButton(
+                          focusNode: anchor,
+                          onPressed: () {},
+                          child: const Text('More'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Content')),
+    );
+    container
+        .read(sidebarHeaderSearchExpandedProvider.notifier)
+        .setExpanded(true);
+    anchor.requestFocus();
+    menu.open();
+    await tester.pumpAndSettle();
+    expect(find.text('Synthetic action'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(menu.isOpen, isFalse);
+    expect(container.read(sidebarHeaderSearchExpandedProvider), isTrue);
+  });
+
   testWidgets('a dialog that Escape cannot dismiss keeps the layers behind '
       'it', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
