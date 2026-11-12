@@ -143,6 +143,18 @@ final class _Connection extends Notifier<HermesBackendService?> {
 final _connectionProvider =
     NotifierProvider<_Connection, HermesBackendService?>(_Connection.new);
 
+/// The saved id of the connection in use, switched by a test.
+final class _ConnectionId extends Notifier<String?> {
+  @override
+  String? build() => 'home';
+
+  void use(String id) => state = id;
+}
+
+final _connectionIdProvider = NotifierProvider<_ConnectionId, String?>(
+  _ConnectionId.new,
+);
+
 final class _Rig {
   _Rig(this.tester, this.container, this.jobs);
 
@@ -229,6 +241,9 @@ Future<_Rig> _pump(
       ),
       hermesApiServiceProvider.overrideWith(
         (ref) => ref.watch(_connectionProvider),
+      ),
+      hermesActiveConnectionIdProvider.overrideWith(
+        (ref) => ref.watch(_connectionIdProvider),
       ),
       hermesJobDeliveryOptionsProvider.overrideWith((ref) async => _options),
       hermesJobRunsProvider.overrideWith((ref, jobId) async => const []),
@@ -368,6 +383,7 @@ void main() {
 
       rig.start(_stop);
       await rig.frames();
+      rig.container.read(_connectionIdProvider.notifier).use('work');
       rig.container
           .read(_connectionProvider.notifier)
           .use(
@@ -395,6 +411,7 @@ void main() {
 
       rig.start(_run);
       await rig.frames();
+      rig.container.read(_connectionIdProvider.notifier).use('work');
       rig.container
           .read(_connectionProvider.notifier)
           .use(
@@ -411,6 +428,34 @@ void main() {
       await rig.frames();
 
       check(rig.notice).not((it) => it.equals(_l10n.hermesJobStarted));
+      rig.leave();
+    });
+
+    testWidgets('a Run Now that fails across a token refresh still says so', (
+      tester,
+    ) async {
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs);
+
+      rig.start(_run);
+      await rig.frames();
+      // The same connection, its client rebuilt with new tokens.
+      rig.container
+          .read(_connectionProvider.notifier)
+          .use(
+            HermesApiService(
+              config: const HermesConfig(
+                enabled: true,
+                baseUrl: 'https://hermes.example',
+                apiKey: 'synthetic-key',
+              ),
+            ),
+          );
+      await rig.frames();
+      jobs.running!.completeError(StateError('offline'));
+      await rig.frames();
+
+      check(rig.notice).equals(_l10n.hermesJobRunFailed);
       rig.leave();
     });
 

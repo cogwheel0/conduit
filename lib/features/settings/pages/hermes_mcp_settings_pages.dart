@@ -820,7 +820,10 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       if (service == null) {
         throw StateError('Desktop Gateway is not connected.');
       }
-      _catalog = await service.mcpCatalog();
+      final catalog = await service.mcpCatalog();
+      // Read through the last connection: not this one's catalog.
+      if (!identical(service, _service)) return;
+      _catalog = catalog;
     } catch (error) {
       DebugLogger.warning(
         'mcp-catalog-load-failed',

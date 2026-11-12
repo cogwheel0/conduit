@@ -739,10 +739,13 @@ class HermesJobSettingsPages extends SettingsPageModule {
       if (identical(previous, next)) return;
       _stopping.clear();
       _runPending.clear();
-      // Rows waiting on the last connection's requests are free on this
-      // one, which may have jobs by the same ids.
-      _busy.clear();
       _stopUnsupported = false;
+    });
+    // Rows waiting on the last connection's requests are free on another
+    // one, which may have jobs by the same ids. (A token refresh keeps the
+    // connection, and its requests still say how they went.)
+    _ref.listen<String?>(hermesActiveConnectionIdProvider, (previous, next) {
+      if (previous != next) _busy.clear();
     });
   }
 
@@ -1170,6 +1173,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
   }) async {
     if (_busy.contains(jobId)) return false;
     final api = _ref.read(hermesApiServiceProvider);
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
     if (api == null) {
       _notice = failureMessage;
       await _applyShown();
@@ -1187,7 +1191,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
     }
     // Another connection in use since: its pages say nothing of this one,
     // and its rows are not this request's to free.
-    if (!identical(_ref.read(hermesApiServiceProvider), api)) return false;
+    if (_ref.read(hermesActiveConnectionIdProvider) != connection) {
+      return false;
+    }
     _busy.remove(jobId);
     if (!succeeded) {
       _notice = failureMessage;
@@ -1205,6 +1211,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
     var stopRequested = false;
     void onStop() => stopRequested = true;
     _stopRequests[jobId] = onStop;
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
     try {
       final started = await _mutate(
         jobId,
@@ -1217,8 +1224,12 @@ class HermesJobSettingsPages extends SettingsPageModule {
         await _applyShown();
       }
     } finally {
-      _stopRequests.remove(jobId);
-      _runPending.remove(jobId);
+      // This call's own: another connection's Run Now for a job by the same
+      // id may be waiting now, and keeps its state.
+      if (identical(_stopRequests[jobId], onStop)) _stopRequests.remove(jobId);
+      if (_ref.read(hermesActiveConnectionIdProvider) == connection) {
+        _runPending.remove(jobId);
+      }
       _syncPolling();
       await _applyShown();
     }
