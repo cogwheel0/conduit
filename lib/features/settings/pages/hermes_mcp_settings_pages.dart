@@ -606,6 +606,10 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   /// The Hermes connection the lists above were read from.
   String? _readFor;
 
+  /// Counts visits to the Add, catalog entry and key forms: a request's
+  /// answer arriving after its form was left belongs to no form shown.
+  int _formVisit = 0;
+
   // The forms, as typed.
   final Map<String, String> _add = {};
   String? _addNotice;
@@ -651,6 +655,8 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     final connection = _ref.read(hermesActiveConnectionIdProvider);
     if (connection == _readFor) return;
     _readFor = connection;
+    // Reads still on their way are the last connection's.
+    _listReads++;
     _servers = null;
     _failed = false;
     _testResults.clear();
@@ -672,6 +678,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         ),
       );
     } else if (detailId == hermesMcpAddPageId) {
+      _formVisit++;
       _add.clear();
       _addNotice = null;
       await _surface.applyDetail(buildHermesMcpAddPage(l10n));
@@ -684,10 +691,12 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         ),
       );
       if (entry == null) return;
+      _formVisit++;
       _credentials.clear();
       _catalogNotice = null;
       await _surface.applyDetail(buildHermesMcpCatalogEntryPage(l10n, entry));
     } else if (detailId.startsWith(hermesMcpKeyPagePrefix)) {
+      _formVisit++;
       _key = '';
       _keyNotice = null;
       await _surface.applyDetail(
@@ -705,10 +714,13 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   void pageLeft(String detailId) {
     // What a form held, secrets included, goes with it.
     if (detailId == hermesMcpAddPageId) {
+      _formVisit++;
       _add.clear();
     } else if (detailId.startsWith(hermesMcpCatalogEntryPagePrefix)) {
+      _formVisit++;
       _credentials.clear();
     } else if (detailId.startsWith(hermesMcpKeyPagePrefix)) {
+      _formVisit++;
       _key = '';
     } else if (detailId == hermesMcpPageId) {
       _notice = null;
@@ -766,7 +778,11 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   Future<void> _readServers(HermesDesktopApiService service) async {
     final read = ++_listReads;
     final servers = await service.mcpServers();
-    if (read == _listReads) _servers = servers;
+    // Kept only as the newest read, through the connection in use now: a
+    // read through the last one's service never fills this one's list.
+    if (read == _listReads && identical(service, _service)) {
+      _servers = servers;
+    }
   }
 
   /// Reads the servers again; answers whether that worked.
@@ -924,6 +940,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _adding = true;
     _addNotice = null;
     await _applyAdd(l10n);
+    final visit = _formVisit;
     try {
       await service.addMcpServer(
         name: name,
@@ -936,9 +953,14 @@ class HermesMcpSettingsPages extends SettingsPageModule {
             .toList(),
         bearerToken: _add['key'] ?? '',
       );
+      _adding = false;
+      // Left and opened again meanwhile: the new visit's form is its own.
+      if (visit != _formVisit) {
+        await _load(l10n);
+        return;
+      }
       // The only copy of the key here goes as soon as it is sent.
       _add.clear();
-      _adding = false;
       await _surface.closeDetail(hermesMcpAddPageId);
       await _load(l10n);
     } catch (error) {
@@ -948,6 +970,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _adding = false;
+      if (visit != _formVisit) return;
       _addNotice = l10n.hermesMcpActionFailed;
       await _applyAdd(l10n);
     }
@@ -985,6 +1008,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _catalogAdding = true;
     _catalogNotice = null;
     await applyEntry();
+    final visit = _formVisit;
     bool stillInstalling;
     try {
       stillInstalling = await service.addMcpCatalogEntry(
@@ -998,14 +1022,20 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _catalogAdding = false;
-      _catalogNotice = l10n.hermesMcpActionFailed;
       // Shows what Hermes has even when a step after the install failed,
       // so the entry is not asked for again.
       await _load(l10n);
+      if (visit != _formVisit) return;
+      _catalogNotice = l10n.hermesMcpActionFailed;
       return applyEntry();
     }
-    _credentials.clear();
     _catalogAdding = false;
+    // Left and opened again meanwhile: the new visit's form is its own.
+    if (visit != _formVisit) {
+      await _load(l10n);
+      return;
+    }
+    _credentials.clear();
     await _surface.closeDetail(
       '$hermesMcpCatalogEntryPagePrefix${Uri.encodeComponent(name)}',
     );
@@ -1042,10 +1072,16 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _keySaving = true;
     _keyNotice = null;
     await _surface.applyDetail(buildHermesMcpKeyPage(l10n, name, busy: true));
+    final visit = _formVisit;
     try {
       await service.setMcpApiKey(name, _key);
-      _key = '';
       _keySaving = false;
+      // Left and opened again meanwhile: the new visit's key is its own.
+      if (visit != _formVisit) {
+        await _load(l10n);
+        return;
+      }
+      _key = '';
       await _surface.closeDetail(pageId);
       await _load(l10n);
     } catch (error) {
@@ -1055,6 +1091,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _keySaving = false;
+      if (visit != _formVisit) return;
       _keyNotice = l10n.hermesMcpActionFailed;
       await _surface.applyDetail(
         buildHermesMcpKeyPage(l10n, name, notice: _keyNotice),

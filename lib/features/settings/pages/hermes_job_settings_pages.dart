@@ -739,6 +739,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
       if (identical(previous, next)) return;
       _stopping.clear();
       _runPending.clear();
+      // Rows waiting on the last connection's requests are free on this
+      // one, which may have jobs by the same ids.
+      _busy.clear();
       _stopUnsupported = false;
     });
   }
@@ -1141,6 +1144,8 @@ class HermesJobSettingsPages extends SettingsPageModule {
         _drafts.remove(key);
         await _surface.closeDetail('$hermesJobEditorPagePrefix$key');
       }
+      // New can be tapped again as the list is drawn.
+      if (!editing) _creating = false;
       await _applyShown();
     } catch (_) {
       draft
@@ -1164,7 +1169,8 @@ class HermesJobSettingsPages extends SettingsPageModule {
     String? successMessage,
   }) async {
     if (_busy.contains(jobId)) return false;
-    if (_ref.read(hermesApiServiceProvider) == null) {
+    final api = _ref.read(hermesApiServiceProvider);
+    if (api == null) {
       _notice = failureMessage;
       await _applyShown();
       return false;
@@ -1176,11 +1182,17 @@ class HermesJobSettingsPages extends SettingsPageModule {
     try {
       await action();
       succeeded = true;
-      if (successMessage != null) _notice = successMessage;
     } catch (_) {
+      // Said below, for the connection that asked.
+    }
+    // Another connection in use since: its pages say nothing of this one,
+    // and its rows are not this request's to free.
+    if (!identical(_ref.read(hermesApiServiceProvider), api)) return false;
+    _busy.remove(jobId);
+    if (!succeeded) {
       _notice = failureMessage;
-    } finally {
-      _busy.remove(jobId);
+    } else if (successMessage != null) {
+      _notice = successMessage;
     }
     await _applyShown();
     return succeeded;

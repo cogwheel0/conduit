@@ -9182,11 +9182,32 @@ final class NativeWebSignInViewController: UIViewController,
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         spinner.stopAnimating()
-        guard let loaded = webView.url?.absoluteString, !checking else { return }
+        guard let loaded = webView.url?.absoluteString else { return }
+        // Finished while a check runs: looked at once that check ends.
+        guard !checking else {
+            finishedWhileChecking = loaded
+            return
+        }
+        considerChecking(loaded)
+    }
+
+    /// The page that finished loading while a check ran, if any.
+    private var finishedWhileChecking: String?
+
+    private func considerChecking(_ loaded: String) {
         checksPage(loaded) { [weak self] check in
             guard check else { return }
             self?.checkSignedIn(approved: loaded)
         }
+    }
+
+    /// A check ended without a sign-in: a page that finished meanwhile, and
+    /// is still the one shown, is looked at now.
+    private func checkLatestPage() {
+        guard let latest = finishedWhileChecking else { return }
+        finishedWhileChecking = nil
+        guard webView?.url?.absoluteString == latest else { return }
+        considerChecking(latest)
     }
 
     /// Runs the signed-in check on [approved], the page Dart said to check,
@@ -9207,7 +9228,10 @@ final class NativeWebSignInViewController: UIViewController,
             self.checking = false
             guard case .success(let value) = result,
                   (value as? Bool) == true || (value as? NSNumber)?.boolValue == true
-            else { return }
+            else {
+                self.checkLatestPage()
+                return
+            }
             self.finish(true)
             self.dismiss(animated: true)
         }

@@ -80,13 +80,19 @@ final class _Hermes implements HttpClientAdapter {
         'mcp.servers.add' => _added(params['name'] as String),
         _ => <String, Object?>{},
       };
-      scheduleMicrotask(
-        () => incoming.add(
-          jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
-        ),
-      );
+      final answer = jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result});
+      final gate = method == 'mcp.servers.add' ? addGate : null;
+      if (gate != null) {
+        addGate = null;
+        unawaited(gate.future.then((_) => incoming.add(answer)));
+        return;
+      }
+      scheduleMicrotask(() => incoming.add(answer));
     });
   }
+
+  /// Holds the next addition's answer until completed, when set.
+  Completer<void>? addGate;
 
   final List<Map<String, Object?>>? dashboardCatalog;
   final List<Map<String, Object?>> gatewayCatalog;
@@ -489,6 +495,37 @@ void main() {
     // added, and the page says where to sign in again.
     check(rig.page(hermesMcpPageId).announcement)
         .equals(_l10n.hermesMcpAddedSignInUnfinished('tide-calendar'));
+    await hermes.dispose();
+  });
+
+  testWidgets('an addition answered after its form was left and opened '
+      'again leaves the new form alone', (tester) async {
+    final hermes = _Hermes();
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    await rig.open(hermesMcpAddPageId);
+    await rig.change(hermesMcpRowId('add-name'), 'tide-notes');
+    await rig.change(hermesMcpRowId('add-url'), 'https://tides.example/mcp');
+    final gate = hermes.addGate = Completer<void>();
+    final adding = rig.module.handleChange(hermesMcpRowId('add'), true, _l10n);
+    await tester.pump();
+
+    // Left, then Add opened again and filled in, before the answer.
+    rig.module.pageLeft(hermesMcpAddPageId);
+    await rig.open(hermesMcpAddPageId);
+    await rig.change(hermesMcpRowId('add-name'), 'tide-more');
+    gate.complete();
+    await rig.settle(adding);
+
+    check(container.read(settingsPagesProvider).closeRequests.keys)
+        .not((it) => it.contains(hermesMcpAddPageId));
+    await rig.change(hermesMcpRowId('add'));
+    check(hermes.calls('mcp.servers.add').last['name']).equals('tide-more');
     await hermes.dispose();
   });
 

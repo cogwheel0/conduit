@@ -388,6 +388,32 @@ void main() {
       rig.leave();
     });
 
+    testWidgets('a Run Now answered after another connection took over '
+        'says nothing of it', (tester) async {
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs);
+
+      rig.start(_run);
+      await rig.frames();
+      rig.container
+          .read(_connectionProvider.notifier)
+          .use(
+            HermesApiService(
+              config: const HermesConfig(
+                enabled: true,
+                baseUrl: 'https://hermes-b.example',
+                apiKey: 'synthetic-key',
+              ),
+            ),
+          );
+      await rig.frames();
+      jobs.running!.complete();
+      await rig.frames();
+
+      check(rig.notice).not((it) => it.equals(_l10n.hermesJobStarted));
+      rig.leave();
+    });
+
     testWidgets('says when nothing is in flight', (tester) async {
       final jobs = _Jobs([_job(status: 'claimed')]);
       jobs.onStop = () async => const HermesJobStopResult(cancelled: false);
@@ -537,6 +563,8 @@ void main() {
         'Evening review|List what changed today|0 18 * * *|local,telegram|skip',
       ]);
       check(rig.notice).equals(_l10n.hermesJobCreated);
+      // New can be tapped again straight away.
+      check(rig.row(hermesJobsPageId, editor)!.disabled).isFalse();
       rig.leave();
     });
 
