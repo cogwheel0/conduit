@@ -490,7 +490,17 @@ final class _CutScanner {
 
   /// Lines the preprocessor counts as fences; it closes an odd count.
   int _fenceLines = 0;
+
+  /// `<details>` sections open outside code. Inside code a tag is text, to
+  /// the segmenter as to the mobile renderer.
   int _details = 0;
+
+  /// Whether the last tool-call section opened, in code or not, has no
+  /// `</details>` after it. While an answer streams, such a call is dropped
+  /// with everything after it, wherever it stands, so nothing after it may
+  /// be parsed on its own. An opening tag that does not end on its line
+  /// may be one.
+  bool _toolCallOpen = false;
   int _doubleDollars = 0;
   int _brackets = 0;
   int _parens = 0;
@@ -531,6 +541,7 @@ final class _CutScanner {
         _tildes != 0 ||
         _fenceLines.isOdd ||
         _details != 0 ||
+        _toolCallOpen ||
         _doubleDollars.isOdd ||
         _brackets != 0 ||
         _parens != 0 ||
@@ -554,10 +565,7 @@ final class _CutScanner {
   void _read(String line) {
     _beforePrevious = _previous;
     _previous = line;
-
-    _details += _detailsOpen.allMatches(line).length;
-    _details -= _detailsClose.allMatches(line).length;
-    if (_details < 0) _details = 0;
+    _followToolCalls(line);
 
     if (line.contains('```')) {
       if (_fenceAtStart.hasMatch(line)) _fenceLines++;
@@ -571,6 +579,7 @@ final class _CutScanner {
       return;
     }
 
+    // Inside a tilde fence the line is code, sections and all.
     if (_tildes != 0) {
       final close = _tildeFence.firstMatch(line);
       if (close != null &&
@@ -603,11 +612,13 @@ final class _CutScanner {
     }
 
     // Backtick runs open and close code (fences and spans alike); math
-    // delimiters count only outside them.
+    // delimiters and sections count only outside them.
+    final outside = StringBuffer();
     var index = 0;
     while (index < line.length) {
       final unit = line.codeUnitAt(index);
       if (unit == 0x60) {
+        outside.write(' ');
         var end = index + 1;
         while (end < line.length && line.codeUnitAt(end) == 0x60) {
           end++;
@@ -623,6 +634,7 @@ final class _CutScanner {
         continue;
       }
       if (_ticks == 0) {
+        outside.writeCharCode(unit);
         if (unit == 0x24 &&
             index + 1 < line.length &&
             line.codeUnitAt(index + 1) == 0x24) {
@@ -636,11 +648,36 @@ final class _CutScanner {
           if (next == 0x5D && _brackets > 0) _brackets--; // \]
           if (next == 0x28) _parens++; // \(
           if (next == 0x29 && _parens > 0) _parens--; // \)
+          outside.writeCharCode(next);
           index += 2;
           continue;
         }
       }
       index++;
     }
+
+    final text = outside.toString();
+    _details += _detailsOpen.allMatches(text).length;
+    _details -= _detailsClose.allMatches(text).length;
+    if (_details < 0) _details = 0;
+  }
+
+  /// Follows tool-call sections as the streaming strip sees them: the last
+  /// opener counts, code or not, until a `</details>` follows it.
+  void _followToolCalls(String line) {
+    final opens = _detailsOpen.allMatches(line).toList(growable: false);
+    for (final open in opens.reversed) {
+      final end = line.indexOf('>', open.end);
+      if (end >= 0 &&
+          !line
+              .substring(open.start, end)
+              .toLowerCase()
+              .contains('tool_calls')) {
+        continue;
+      }
+      _toolCallOpen = !_detailsClose.hasMatch(line.substring(open.end));
+      return;
+    }
+    if (_toolCallOpen && _detailsClose.hasMatch(line)) _toolCallOpen = false;
   }
 }

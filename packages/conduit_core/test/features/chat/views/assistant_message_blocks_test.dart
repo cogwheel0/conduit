@@ -413,6 +413,43 @@ void main() {
       expectSameAsWholeParse('hard twice', '$hard$hard', sources: 2, step: 3);
     });
 
+    test('a section tag shown in code does not hold the rest open', () {
+      final paragraphs = [
+        for (var i = 0; i < 20; i++) 'Paragraph $i on tides.\n\n',
+      ].join();
+      for (final example in <String>[
+        'A section is written like this:\n\n'
+            '```html\n<details>\n<summary>More</summary>\n```\n\n',
+        'Write `<details>` to open a section.\n\n',
+        'A tilde fence:\n\n~~~\n<details open>\n~~~\n\n',
+      ]) {
+        final content = '$example${paragraphs}Still writ';
+        final live = StreamingContentBlocks()..blocks(content, sourceCount: 0);
+        expect(
+          live.closedLength,
+          greaterThan(content.indexOf('Paragraph 18')),
+          reason: example,
+        );
+        expectSameAsWholeParse(example, content, sources: 0, step: 7);
+      }
+    });
+
+    test('a tool call opened in code still holds the rest open', () {
+      // While an answer streams, an unfinished tool call is dropped with
+      // everything after it, in code or not.
+      final content =
+          'The call looks like:\n\n```\n<details type="tool_calls" '
+          'name="tide_table">\n```\n\n'
+          '${[for (var i = 0; i < 6; i++) 'Paragraph $i.\n\n'].join()}'
+          'Still writ';
+      expectSameAsWholeParse('tool call in code', content, sources: 0);
+      expectSameAsWholeParse(
+        'tool call in code, closed',
+        content.replaceFirst('Paragraph 3.', 'Paragraph 3 </details>.'),
+        sources: 0,
+      );
+    });
+
     test('keeps what is closed and re-reads only the tail', () {
       final live = StreamingContentBlocks();
       final long = [for (var i = 0; i < 50; i++) 'Paragraph $i costs \$$i.\n\n']
