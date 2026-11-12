@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -7,6 +8,8 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -391,5 +394,83 @@ void main() {
       expect(taken, isFalse);
       expect(_stateOf(container), 'pending');
     });
+
+    test('sends a restored approval only once', () async {
+      // A restored approval is answered through its gateway session. Read
+      // while pending, it is already being answered by the time this answer
+      // is given, as when two answers are given at once.
+      final requests = <String>[];
+      final desktop = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.legacyToken,
+          desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+        ),
+        dio: Dio()..httpClientAdapter = _Refusing(requests),
+        rpc: HermesDesktopRpcClient(
+          channelFactory: (uri, _, {httpClient}) {
+            requests.add('connect $uri');
+            throw StateError('No gateway in this test.');
+          },
+        ),
+      );
+      addTearDown(desktop.close);
+      ChatMessage restored(String state) => _answer(<String, dynamic>{
+        'restoredDesktopDecision': true,
+        kHermesApprovalMeta: <String, dynamic>{
+          'state': state,
+          'approvalId': 'approval-1',
+          'runId': 'run-1',
+          'storedSessionId': 'session-1',
+          'choices': const <String>['once', 'deny'],
+        },
+      });
+      final reader = _open(
+        [restored('pending')],
+        service: desktop,
+        conversation: _chat(metadata: {'hermesSessionId': 'session-1'}),
+      );
+      final approval = pendingHermesApprovalOf(
+        reader,
+        reader.read(chatMessagesProvider).single,
+      )!;
+      final container = _open(
+        [restored('resolving')],
+        service: desktop,
+        conversation: _chat(metadata: {'hermesSessionId': 'session-1'}),
+      );
+
+      final taken = await resolveHermesApproval(
+        container,
+        approval,
+        choice: 'once',
+      );
+
+      expect(taken, isFalse);
+      expect(requests, isEmpty);
+      expect(_stateOf(container), 'resolving');
+    });
   });
+}
+
+/// Records each REST request and refuses it.
+final class _Refusing implements HttpClientAdapter {
+  _Refusing(this.requests);
+
+  final List<String> requests;
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add('${options.method} ${options.uri.path}');
+    return ResponseBody.fromString('{}', 503);
+  }
 }

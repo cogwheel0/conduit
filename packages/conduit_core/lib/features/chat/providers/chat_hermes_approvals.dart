@@ -352,7 +352,8 @@ Future<bool> _resolveRestoredHermesDesktopApproval(
   if (admission == null || !ownsDecision()) return false;
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-  void update(String expected, String next) {
+  bool update(String expected, String next) {
+    var changed = false;
     messagesNotifier.updateMessageById(approval.messageId, (message) {
       final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
       final stored = metadata[kHermesApprovalMeta];
@@ -365,11 +366,15 @@ Future<bool> _resolveRestoredHermesDesktopApproval(
         ...stored.cast<String, dynamic>(),
         'state': next,
       };
+      changed = true;
       return message.copyWith(metadata: metadata);
     });
+    return changed;
   }
 
-  update('pending', 'resolving');
+  // Only the answer that moved it from pending is sent: another one already
+  // under way owns it.
+  if (!update('pending', 'resolving')) return false;
   try {
     await service.resolveApprovalChoiceForSession(
       storedSessionId,
