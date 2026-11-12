@@ -7,7 +7,14 @@ import 'package:web_socket/web_socket.dart' as ws;
 import 'package:conduit_core/models/server_config.dart';
 
 import '../network/conduit_user_agent.dart';
+import '../network/no_redirect_web_socket.dart';
+import 'engine_io_polling_socket_io.dart';
 import 'server_tls_http_client_factory.dart';
+
+/// socket_io_client's WebSocket transport cannot pause for an upgrade, and on
+/// native platforms that transport also carries polling (through
+/// [EngineIoPollingSocket]), so a session that starts on polling stays there.
+const bool socketPollingCanUpgrade = false;
 
 // Match dart:io WebSocket's shared-client lifecycle while replacing its
 // generic runtime identity with the public product identity.
@@ -30,10 +37,11 @@ io.Socket createSocketWithOptionalBadCertOverride(
     return io.io(base, builder.build());
   }
 
+  // Both transports go through this connector, so polling keeps the custom
+  // TLS client as well.
   final connector = _CustomTlsWebSocketConnector(serverConfig);
   builder
     ..enableForceNew()
-    ..setTransports(const ['websocket'])
     ..setWebSocketConnector(connector.connect);
   return io.io(base, builder.build());
 }
@@ -47,9 +55,15 @@ Uri? _tryParseUri(String url) {
 }
 
 class _ScopedWebSocketConnector {
-  _ScopedWebSocketConnector(this._httpClient);
+  _ScopedWebSocketConnector(this._httpClient)
+    : _upgradeClient = noRedirectWebSocketClient(_httpClient);
 
   final HttpClient _httpClient;
+
+  // The WebSocket handshake never follows a redirect, as browsers do not
+  // either; dart:io would otherwise carry the custom headers to another
+  // origin. Polling requests refuse redirects themselves.
+  final HttpClient _upgradeClient;
 
   // socket_io_client's connector contract returns package:web_socket sockets.
   Future<ws.WebSocket> connect(
@@ -62,11 +76,21 @@ class _ScopedWebSocketConnector {
       forwardedHeaders = Map<String, String>.from(headers)
         ..removeWhere((name, _) => ConduitUserAgent.isHeaderName(name));
     }
+    // socket_io_client opens its polling transport here too, as a WebSocket
+    // to the polling address, which a polling-only server accepts and then
+    // drops without a handshake. Poll over HTTP instead.
+    if (uri.queryParameters['transport'] == 'polling') {
+      return EngineIoPollingSocket.connect(
+        uri,
+        client: _httpClient,
+        headers: forwardedHeaders,
+      );
+    }
     final socket = await WebSocket.connect(
       uri.toString(),
       protocols: protocols,
       headers: forwardedHeaders,
-      customClient: _httpClient,
+      customClient: _upgradeClient,
     );
     return IOWebSocket.fromWebSocket(socket);
   }

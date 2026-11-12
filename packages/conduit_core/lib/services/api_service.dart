@@ -361,6 +361,15 @@ class ApiService extends _ApiServiceBase
     super.publicHealthRequestTimeout,
     super.reportsRouteRefusals,
   });
+
+  /// How long a chat completion request that is answered only once its reply
+  /// has finished may wait for that answer. Open WebUI 0.9+ answers so for a
+  /// saved chat sent without a socket session.
+  static const Duration heldCompletionReceiveTimeout = Duration(minutes: 10);
+
+  /// How long, after such a request ran out of time, the saved reply is
+  /// waited for before the turn ends with what the server has saved so far.
+  static const Duration heldReplyWaitLimit = Duration(minutes: 20);
 }
 
 List<Map<String, dynamic>> _normalizeMapListWorker(

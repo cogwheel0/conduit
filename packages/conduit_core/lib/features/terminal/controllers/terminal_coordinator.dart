@@ -4,6 +4,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/providers/app_providers.dart'
     show systemTerminalLiveFeaturesProvider;
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
@@ -74,14 +75,14 @@ final class TerminalCoordinator<S extends TerminalScreen>
       _,
     ) {
       if (_gateway.isActive) {
-        unawaited(_contextController.sync(force: true));
+        _syncInBackground();
       }
     });
     _selectedServerSubscription = listen<AsyncValue<TerminalServerInfo?>>(
       terminalSelectedServerProvider,
       (_, next) => next.whenData((_) {
         if (_gateway.isActive) {
-          unawaited(_contextController.sync(force: true));
+          _syncInBackground();
         }
       }),
     );
@@ -145,12 +146,31 @@ final class TerminalCoordinator<S extends TerminalScreen>
     _started = true;
     _handleInitialServerList(_read(terminalAvailableServersProvider));
     if (_gateway.isActive) {
-      unawaited(_contextController.sync(force: true));
+      _syncInBackground();
     }
   }
 
+  /// Syncs without waiting. Parts of a sync run outside its own error
+  /// handling (selecting a server writes the user's settings to the
+  /// server), so a failure there is logged here instead of escaping.
+  void _syncInBackground() {
+    unawaited(
+      _contextController.sync(force: true).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'sync-failed',
+          scope: 'terminal/context',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    );
+  }
+
   void activate() {
-    if (!_disposed) unawaited(_contextController.sync(force: true));
+    if (!_disposed) _syncInBackground();
   }
 
   void deactivate() {

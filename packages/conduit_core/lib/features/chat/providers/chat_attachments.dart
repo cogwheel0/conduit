@@ -124,6 +124,11 @@ String? mimeTypeFromFileNameForTest(String fileName) {
   return _getMimeTypeFromFileName(fileName);
 }
 
+@visibleForTesting
+List<Map<String, dynamic>> contextAttachmentsToFilesForTest(
+  List<ChatContextAttachment> attachments,
+) => _contextAttachmentsToFiles(attachments);
+
 List<Map<String, dynamic>> _contextAttachmentsToFiles(
   List<ChatContextAttachment> attachments,
 ) {
@@ -161,6 +166,16 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
               if (attachment.url != null) 'source': attachment.url,
             },
           },
+        };
+      case ChatContextAttachmentType.knowledge when attachment.isKnowledgeBase:
+        // A whole base: Open WebUI's `collection`, as its client sends it.
+        return <String, dynamic>{
+          'type': 'collection',
+          'id': attachment.id,
+          'name': attachment.displayName,
+          if (attachment.content case final description?
+              when description.isNotEmpty)
+            'description': description,
         };
       case ChatContextAttachmentType.knowledge:
         // Knowledge base files use type 'file' with id for lookup

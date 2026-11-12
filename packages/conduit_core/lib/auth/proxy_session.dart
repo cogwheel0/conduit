@@ -13,7 +13,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 /// Open WebUI issues a JWT and no second sign-in is needed.
 ///
 /// Host-agnostic on purpose: the mobile app fills this from an in-app
-/// WebView, the desktop from an Electron auth window, and neither difference
+/// WebView, another host from its own sign-in window, and neither difference
 /// reaches the prevalidation below.
 class ProxyAuthCapture {
   const ProxyAuthCapture({this.cookies = const <String, String>{}, this.token});

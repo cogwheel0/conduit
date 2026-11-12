@@ -8,7 +8,7 @@ import 'package:conduit_core/sync/sync_engine.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'chat_providers.dart' show conversationUsesOpenWebUiStorage;
+import 'chat_providers.dart' show applyChatRemapToActiveConversation;
 
 part 'remap_route_sync_provider.g.dart';
 
@@ -52,19 +52,7 @@ void remapRouteSync(Ref ref) {
 
   final sub = ref.read(syncEngineProvider.notifier).remapEvents.listen((event) {
     if (event.entityKind == 'chat') {
-      final active = ref.read(activeConversationProvider);
-      if (active != null &&
-          active.id == event.fromId &&
-          conversationUsesOpenWebUiStorage(active)) {
-        DebugLogger.log(
-          'remap-active-chat',
-          scope: 'chat/remap',
-          data: {'from': event.fromId, 'to': event.toId},
-        );
-        ref
-            .read(activeConversationProvider.notifier)
-            .remapIdInPlace(fromId: event.fromId, toId: event.toId);
-      }
+      applyChatRemapToActiveConversation(ref, event);
     } else if (event.entityKind == 'folder') {
       final pending = ref.read(pendingFolderIdProvider);
       if (pending == event.fromId) {

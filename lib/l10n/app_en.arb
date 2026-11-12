@@ -7453,6 +7453,8 @@
   "@directModelTooManyImages": {"description": "Error shown when a Direct model rejects a request for having too many images."},
   "directToolLoopNoAnswer": "The model kept using tools without giving an answer. Try again, or turn off web search and tools.",
   "@directToolLoopNoAnswer": {"description": "Error shown when a Direct model kept asking for tools instead of answering after Conduit stopped offering them."},
+  "heldReplyStillRunning": "The server is still working on this reply. Open this chat again later to see it.",
+  "@heldReplyStillRunning": {"description": "Error shown on a reply when Conduit stopped waiting for the server to finish it, without a live connection; the server may still be writing it."},
   "directContextLimitOllamaNote": "For Ollama models on your own server, a limit you choose here is also the context window Ollama loads the model with. A larger window uses more memory.",
   "@directContextLimitOllamaNote": {"description": "Note under the Direct context limit list: for local Ollama models the chosen limit is also sent as the context window, which costs memory."},
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} models}}",
@@ -11343,6 +11345,10 @@
   "hermesShowScheduledRunsAction": "Show",
   "@hermesShowScheduledRunsAction": {
     "description": "Button on the row that says scheduled runs are hidden from the Hermes chat list; turns Show Scheduled Runs back on."
+  },
+  "voiceCallLibreChatUnavailable": "Voice calls aren't available in LibreChat chats.",
+  "@voiceCallLibreChatUnavailable": {
+    "description": "Shown when the voice call button is used in a LibreChat chat, which has no voice calls."
   },
   "messageHintTextForModel": "Ask {modelName}",
   "@messageHintTextForModel": {

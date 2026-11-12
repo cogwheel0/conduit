@@ -86,7 +86,20 @@ final directLocalDatabaseManagerProvider = Provider<DatabaseManager>((ref) {
     opener: () => ref.read(databaseOpenerProvider),
     databaseFileName: (_) => kDirectLocalDatabaseFileName,
   );
-  ref.onDispose(() => unawaited(manager.closeActive()));
+  // On dispose nobody can wait for the close: a failed one is logged, not
+  // left to escape.
+  ref.onDispose(
+    () => unawaited(
+      manager.closeActive().catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'close-active-failed',
+          scope: 'database/direct-local',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    ),
+  );
   return manager;
 });
 

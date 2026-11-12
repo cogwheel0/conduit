@@ -28,6 +28,11 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
   Timer? _timeout;
   void Function(dynamic response)? _acknowledge;
 
+  /// The kind of the prompt [_acknowledge] answers, kept apart from `state`:
+  /// a prompt still waiting when the notifier is disposed is declined in its
+  /// kind's terms, and `state` cannot be read while disposing.
+  OpenWebUiComposerPromptKind? _pendingKind;
+
   @override
   OpenWebUiLivePromptState? build() {
     ref.onDispose(() {
@@ -56,6 +61,7 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
         return;
       }
       _acknowledge = acknowledge;
+      _pendingKind = prompt.kind;
       state = OpenWebUiLivePromptState(
         conversationId: conversationId,
         prompt: prompt,
@@ -76,6 +82,7 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
         message: text.message,
       );
       _acknowledge = acknowledge;
+      _pendingKind = prompt.kind;
       state = OpenWebUiLivePromptState(
         conversationId: conversationId,
         prompt: prompt,
@@ -127,6 +134,7 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
   void _settle(dynamic response) {
     final acknowledge = _acknowledge;
     _acknowledge = null;
+    _pendingKind = null;
     _timeout?.cancel();
     _timeout = null;
     state = null;
@@ -137,10 +145,10 @@ class OpenWebUiLivePromptNotifier extends Notifier<OpenWebUiLivePromptState?> {
     final acknowledge = _acknowledge;
     if (acknowledge == null) return;
     _acknowledge = null;
-    final response =
-        state?.prompt.kind == OpenWebUiComposerPromptKind.confirmation
+    final response = _pendingKind == OpenWebUiComposerPromptKind.confirmation
         ? false
         : const <String, dynamic>{'status': 'cancelled', 'answers': {}};
+    _pendingKind = null;
     _safeAcknowledge(acknowledge, response);
   }
 

@@ -8,14 +8,18 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/ports/log_sink.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+
+import 'package:conduit_core/testing.dart';
 
 /// Targeted guards for [ChatRequestCompletionRunner] (Wiring D / R3 / R5).
 ///
@@ -337,6 +341,31 @@ void main() {
     check(rows).isEmpty();
   });
 
+  // Dropped unsent, the answer would show as running with nothing behind
+  // it: a log kept at warning level must still say which exit it took.
+  test('a request dropped for want of its placeholder is logged as a '
+      'warning', () async {
+    const chatId = 'chat-missing-placeholder-warning';
+    await seedChat(chatId);
+    final (container: _, :runner) = makeRunner(
+      isStreaming: false,
+      active: conv('a-different-chat'),
+    );
+    final records = <(LogLevel, String)>[];
+    DebugLogger.sink = _RecordingLogSink(records);
+    addTearDown(() => DebugLogger.sink = const NullLogSink());
+
+    await runner.run(chatId: chatId, payload: payload('missing-asst'));
+
+    check(
+      records.where(
+        (record) =>
+            record.$1 == LogLevel.warning &&
+            record.$2.contains('completion-placeholder-absent'),
+      ),
+    ).isNotEmpty();
+  });
+
   test(
     'same-database auth-session switch defers after an awaited read',
     () async {
@@ -505,6 +534,98 @@ void main() {
     check(chatStorageKindOf(container.read(activeConversationProvider)))
         .equals(ChatStorageKind.directLocal);
   });
+
+  group('with a chat open in a chat session scope', () {
+    /// A root whose own open chat is another one, so only a scope can stream
+    /// [chatId] live.
+    ({ChatSessionScope scope, RequestCompletionRunner runner}) scoped(
+      String chatId,
+    ) {
+      final runnerProvider = Provider<RequestCompletionRunner>(
+        (ref) => ChatRequestCompletionRunner(ref),
+      );
+      final root = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(database: db),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(root.dispose);
+      root.read(activeConversationProvider.notifier).set(conv('root-chat'));
+      final scope = ChatSessionScope.open(root);
+      addTearDown(scope.dispose);
+      scope.container
+          .read(activeConversationProvider.notifier)
+          .set(conv(chatId));
+      return (scope: scope, runner: root.read(runnerProvider));
+    }
+
+    test('drives the scope live instead of running headless', () async {
+      const chatId = 'chat-in-scope';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-scope', '');
+      final (:scope, :runner) = scoped(chatId);
+      scope.container.read(chatMessagesProvider.notifier).setMessages([
+        ChatMessage(
+          id: 'user-scope',
+          role: 'user',
+          content: 'hello',
+          timestamp: DateTime.now(),
+        ),
+        ChatMessage(
+          id: 'asst-scope',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+        ),
+      ]);
+
+      // With no API in this harness the live drive stops at its own guard,
+      // which names it: the headless path's guard names itself instead.
+      await check(runner.run(chatId: chatId, payload: payload('asst-scope')))
+          .throws<StateError>(
+            (it) => it
+                .has((error) => error.message, 'message')
+                .contains('runQueuedCompletion'),
+          );
+    });
+
+    test('defers while the scope streams another answer', () async {
+      const chatId = 'chat-scope-busy';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-queued', '');
+      final (:scope, :runner) = scoped(chatId);
+      scope.container.read(chatMessagesProvider.notifier).setMessages([
+        ChatMessage(
+          id: 'asst-running',
+          role: 'assistant',
+          content: 'still answering',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+        ),
+      ]);
+
+      await check(runner.run(chatId: chatId, payload: payload('asst-queued')))
+          .throws<CompletionBusyException>();
+    });
+
+    test('runs headless once the scope is disposed', () async {
+      const chatId = 'chat-scope-gone';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-gone', '');
+      final (:scope, :runner) = scoped(chatId);
+      scope.dispose();
+
+      await check(runner.run(chatId: chatId, payload: payload('asst-gone')))
+          .throws<StateError>(
+            (it) => it
+                .has((error) => error.message, 'message')
+                .contains('runHeadlessCompletion'),
+          );
+    });
+  });
 }
 
 class _SeededActive extends ActiveConversationNotifier {
@@ -524,4 +645,23 @@ class _TestMessagesNotifier extends ChatMessagesNotifier {
   void setMessages(List<ChatMessage> messages) {
     state = List<ChatMessage>.from(messages);
   }
+}
+
+/// Keeps each record's level and message.
+final class _RecordingLogSink implements LogSink {
+  _RecordingLogSink(this.records);
+
+  final List<(LogLevel, String)> records;
+
+  @override
+  bool get isVerbose => true;
+
+  @override
+  void write(
+    LogLevel level,
+    String message, {
+    String? scope,
+    Object? error,
+    StackTrace? stackTrace,
+  }) => records.add((level, message));
 }

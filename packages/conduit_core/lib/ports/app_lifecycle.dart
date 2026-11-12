@@ -1,8 +1,9 @@
 /// Which phase the host application is in.
 ///
 /// The values mirror Flutter's `AppLifecycleState` one for one, deliberately:
-/// the mobile adapter is then a pure rename, and the desktop adapter has an
-/// unambiguous target to map Electron's focus/blur/suspend/resume events onto.
+/// the mobile adapter is then a pure rename, and another host's adapter has
+/// an unambiguous target to map its window's focus, blur, sleep and wake
+/// events onto.
 /// Reusing the names also means the switch statements that
 /// move into the core keep the same shape and stay reviewable as diffs.
 enum AppLifecyclePhase {
@@ -28,7 +29,7 @@ enum AppLifecyclePhase {
 /// The core cares about this for three things: keeping the socket open only
 /// while it can be useful, pulling on foreground, and pausing periodic work.
 /// None of those should know whether "background" means an Android onStop or
-/// an Electron window blur.
+/// a window losing focus.
 abstract interface class AppLifecyclePort {
   /// The phase right now, or null before the host has observed one.
   ///

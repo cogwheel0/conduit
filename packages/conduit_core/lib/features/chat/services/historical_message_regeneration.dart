@@ -254,28 +254,36 @@ Future<void> regenerateHistoricalMessageById(
   var mutatedState = false;
 
   try {
-    if (truncatedMessages.length != originalMessages.length) {
-      notifier.setMessages(truncatedMessages);
-      mutatedState = true;
-    }
+    // The archive marker holds stored copies of the chat off only while the
+    // regeneration prepares; one that gives up leaves the answer to them.
+    await (notifier as ChatMessagesNotifier).whileRegenerationPrepares(
+      () async {
+        if (truncatedMessages.length != originalMessages.length) {
+          notifier.setMessages(truncatedMessages);
+          mutatedState = true;
+        }
 
-    notifier.updateLastMessageWithFunction((ChatMessage message) {
-      final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
-      metadata['archivedVariant'] = true;
-      return message.copyWith(metadata: metadata, isStreaming: false);
-    });
-    mutatedState = true;
-    mutation.capturePostArchivePrefix(
-      ref.read(chatMessagesProvider) as List<ChatMessage>,
-    );
+        notifier.updateLastMessageWithFunction((ChatMessage message) {
+          final metadata = Map<String, dynamic>.from(
+            message.metadata ?? const {},
+          );
+          metadata['archivedVariant'] = true;
+          return message.copyWith(metadata: metadata, isStreaming: false);
+        });
+        mutatedState = true;
+        mutation.capturePostArchivePrefix(
+          ref.read(chatMessagesProvider) as List<ChatMessage>,
+        );
 
-    await regenerateMessage(
-      ref,
-      targetUser.content,
-      targetUser.attachmentIds,
-      forceImageGeneration: isImageRegeneration,
-      ownsPreparationState: () =>
-          mutation.ownsCurrentState(ref, mutationRegistry),
+        await regenerateMessage(
+          ref,
+          targetUser.content,
+          targetUser.attachmentIds,
+          forceImageGeneration: isImageRegeneration,
+          ownsPreparationState: () =>
+              mutation.ownsCurrentState(ref, mutationRegistry),
+        );
+      },
     );
   } catch (error, stackTrace) {
     final ownsMutation =

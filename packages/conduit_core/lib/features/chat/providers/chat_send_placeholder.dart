@@ -197,7 +197,10 @@ void recoverFailedChatSend(
 /// Removes the optimistic rows of a send that never committed, for a caller
 /// that keeps the content to send again. Marking the assistant failed instead
 /// would leave a turn on screen that the retry then sends a second time.
-void discardUncommittedChatSend(dynamic ref, ChatSendPlaceholderHandle? handle) {
+void discardUncommittedChatSend(
+  dynamic ref,
+  ChatSendPlaceholderHandle? handle,
+) {
   if (handle == null) return;
   final active = ref.read(activeConversationProvider) as Conversation?;
   handle._followOpenWebUiRemap(
@@ -302,6 +305,7 @@ Future<void> durableSend(
       onTurnStarted,
     );
   }
+
   final voiceReply = voice?.reply;
 
   final activeAtSendStart = ref.read(activeConversationProvider);
@@ -818,7 +822,30 @@ Map<String, dynamic> debugBuildDurableAssistantPayloadForTesting({
   );
 }
 
-typedef _AttachmentTypeMap = Map<String, String>;
+/// What a sent file's descriptor says about it beyond its id, as Open WebUI's
+/// own client writes a user message's `files`: the type it is shown as, and
+/// the name and size every client shows the stored copy by.
+final class _AttachmentFacts {
+  const _AttachmentFacts({this.contentType, this.name, this.size});
+
+  final String? contentType;
+  final String? name;
+  final int? size;
+
+  bool get complete =>
+      (contentType?.isNotEmpty ?? false) && (name?.isNotEmpty ?? false);
+
+  /// These facts, with what they lack taken from [other].
+  _AttachmentFacts fill(_AttachmentFacts other) => _AttachmentFacts(
+    contentType: (contentType?.isNotEmpty ?? false)
+        ? contentType
+        : other.contentType,
+    name: (name?.isNotEmpty ?? false) ? name : other.name,
+    size: size ?? other.size,
+  );
+}
+
+typedef _AttachmentFactsMap = Map<String, _AttachmentFacts>;
 
 Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
   dynamic ref,
@@ -826,23 +853,26 @@ Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
   required Object? sourceApi,
   ApiAuthSnapshot? sourceAuthSnapshot,
   CancelToken? cancelToken,
-  _AttachmentTypeMap? capturedContentTypes,
+  _AttachmentFactsMap? capturedFacts,
   void Function()? requireSourceContext,
 }) async {
   if (attachments.isEmpty) return const [];
 
-  final contentTypes = capturedContentTypes == null
-      ? _durableAttachmentContentTypesFromState(ref, attachments)
-      : Map<String, String>.from(capturedContentTypes);
+  final facts = capturedFacts == null
+      ? _durableAttachmentFactsFromState(ref, attachments)
+      : Map<String, _AttachmentFacts>.from(capturedFacts);
+  // The server's record of a file has what the composer and the cached list
+  // do not: the type of a document, and the name of one attached from
+  // elsewhere.
   final missingIds = attachments
       .where((id) => !id.startsWith('data:image/'))
-      .where((id) => (contentTypes[id] ?? '').isEmpty)
+      .where((id) => !(facts[id]?.complete ?? false))
       .toSet();
 
   final dynamic api = sourceApi;
   if (api != null && missingIds.isNotEmpty) {
     requireSourceContext?.call();
-    final fetchedTypes = await Future.wait(
+    final fetched = await Future.wait(
       missingIds.map((id) async {
         try {
           requireSourceContext?.call();
@@ -855,9 +885,7 @@ Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
               : await api.getFileInfo(id);
           requireSourceContext?.call();
           if (raw is! Map) return null;
-          final contentType = _contentTypeFromFileInfo(raw);
-          if (contentType.isEmpty) return null;
-          return MapEntry(id, contentType);
+          return MapEntry(id, _attachmentFactsFromFileInfo(raw));
         } on _DirectOpenWebUiAuthSessionChanged {
           rethrow;
         } catch (_) {
@@ -866,40 +894,45 @@ Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
       }),
     );
     requireSourceContext?.call();
-    for (final entry in fetchedTypes) {
-      if (entry != null) contentTypes[entry.key] = entry.value;
+    for (final entry in fetched) {
+      if (entry == null) continue;
+      facts[entry.key] = facts[entry.key]?.fill(entry.value) ?? entry.value;
     }
   }
 
-  return _durableFilesFor(attachments, contentTypes: contentTypes);
+  return _durableFilesFor(attachments, facts: facts);
 }
 
-_AttachmentTypeMap _durableAttachmentContentTypesFromState(
+_AttachmentFactsMap _durableAttachmentFactsFromState(
   dynamic ref,
   List<String> attachments,
 ) {
   final ids = attachments.where((id) => !id.startsWith('data:image/')).toSet();
-  if (ids.isEmpty) return <String, String>{};
+  if (ids.isEmpty) return <String, _AttachmentFacts>{};
 
-  final contentTypes = <String, String>{};
+  final facts = <String, _AttachmentFacts>{};
 
   try {
     // Files of drafts queued behind a response are no longer in the tray.
     for (final file in [
       ...ref.read(attachedFilesProvider) as List<FileUploadState>,
-      for (final held
-          in ref.read(queuedDraftAttachmentsProvider)
-              as List<QueuedDraftAttachment>)
+      for (final held in ref.read(
+        queuedDraftAttachmentsProvider,
+      ) as List<QueuedDraftAttachment>)
         held.upload,
     ]) {
       final fileId = file.fileId;
-      if (fileId == null || !ids.contains(fileId) || file.isImage != true) {
-        continue;
-      }
-      final contentType = _getMimeTypeFromFileName(file.fileName);
-      if (contentType != null && contentType.isNotEmpty) {
-        contentTypes[fileId] = contentType;
-      }
+      if (fileId == null || !ids.contains(fileId)) continue;
+      // An image's type from its name; a document's is the server's.
+      final contentType = file.isImage == true
+          ? _getMimeTypeFromFileName(file.fileName)
+          : null;
+      final name = file.fileName.trim();
+      facts[fileId] = _AttachmentFacts(
+        contentType: (contentType?.isNotEmpty ?? false) ? contentType : null,
+        name: name.isEmpty ? null : name,
+        size: file.fileSize > 0 ? file.fileSize : null,
+      );
     }
   } catch (_) {}
 
@@ -907,15 +940,20 @@ _AttachmentTypeMap _durableAttachmentContentTypesFromState(
     final cachedFiles = ref.read(userFilesProvider).asData?.value;
     if (cachedFiles != null) {
       for (final FileInfo file in cachedFiles) {
+        if (!ids.contains(file.id)) continue;
         final contentType = file.mimeType.trim();
-        if (ids.contains(file.id) && contentType.isNotEmpty) {
-          contentTypes[file.id] = contentType;
-        }
+        final name = file.displayName.trim();
+        final cached = _AttachmentFacts(
+          contentType: contentType.isEmpty ? null : contentType,
+          name: name.isEmpty ? null : name,
+          size: file.size > 0 ? file.size : null,
+        );
+        facts[file.id] = facts[file.id]?.fill(cached) ?? cached;
       }
     }
   } catch (_) {}
 
-  return contentTypes;
+  return facts;
 }
 
 String _contentTypeFromFileInfo(Map<dynamic, dynamic> fileInfo) {
@@ -929,25 +967,47 @@ String _contentTypeFromFileInfo(Map<dynamic, dynamic> fileInfo) {
   return contentType?.toString().trim() ?? '';
 }
 
+/// What Open WebUI's record of a file (`GET /api/v1/files/{id}`) says of it:
+/// the original name under `meta.name` (`filename` on older servers), and
+/// its type and size.
+_AttachmentFacts _attachmentFactsFromFileInfo(Map<dynamic, dynamic> fileInfo) {
+  final meta = fileInfo['meta'] ?? fileInfo['metadata'];
+  final contentType = _contentTypeFromFileInfo(fileInfo);
+  final name =
+      ((meta is Map ? meta['name'] : null) ??
+              fileInfo['filename'] ??
+              fileInfo['name'])
+          ?.toString()
+          .trim();
+  final size = (meta is Map ? meta['size'] : null) ?? fileInfo['size'];
+  return _AttachmentFacts(
+    contentType: contentType.isEmpty ? null : contentType,
+    name: (name?.isEmpty ?? true) ? null : name,
+    size: size is num && size > 0 ? size.toInt() : null,
+  );
+}
+
 List<Map<String, dynamic>> _durableFilesFor(
   List<String> attachments, {
-  _AttachmentTypeMap contentTypes = const {},
+  _AttachmentFactsMap facts = const {},
 }) {
   return [
     for (final id in attachments)
       if (id.startsWith('data:image/'))
         <String, dynamic>{'type': 'image', 'url': id}
       else
-        _durableFileFor(id, contentType: contentTypes[id]),
+        _durableFileFor(id, facts[id] ?? const _AttachmentFacts()),
   ];
 }
 
-Map<String, dynamic> _durableFileFor(String id, {String? contentType}) {
-  final normalizedContentType = contentType?.trim() ?? '';
+Map<String, dynamic> _durableFileFor(String id, _AttachmentFacts facts) {
+  final normalizedContentType = facts.contentType?.trim() ?? '';
   final file = <String, dynamic>{
     'type': normalizedContentType.startsWith('image/') ? 'image' : 'file',
     'id': id,
     'url': id,
+    'name': ?facts.name,
+    'size': ?facts.size,
   };
   if (normalizedContentType.isNotEmpty) {
     file['content_type'] = normalizedContentType;
@@ -959,9 +1019,30 @@ Map<String, dynamic> _durableFileFor(String id, {String? contentType}) {
 List<Map<String, dynamic>> buildDurableFilesForTest(
   List<String> attachments, {
   Map<String, String> contentTypes = const {},
+  Map<String, String> names = const {},
+  Map<String, int> sizes = const {},
 }) {
-  return _durableFilesFor(attachments, contentTypes: contentTypes);
+  return _durableFilesFor(
+    attachments,
+    facts: {
+      for (final id in {...contentTypes.keys, ...names.keys, ...sizes.keys})
+        id: _AttachmentFacts(
+          contentType: contentTypes[id],
+          name: names[id],
+          size: sizes[id],
+        ),
+    },
+  );
 }
+
+/// [_resolveDurableFilesFor] over the composer's state in [ref] and the
+/// files API of [sourceApi].
+@visibleForTesting
+Future<List<Map<String, dynamic>>> resolveDurableFilesForTest(
+  dynamic ref,
+  List<String> attachments, {
+  required Object? sourceApi,
+}) => _resolveDurableFilesFor(ref, attachments, sourceApi: sourceApi);
 
 String _titleFromText(String text) {
   final trimmed = text.trim();

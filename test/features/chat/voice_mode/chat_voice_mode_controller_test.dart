@@ -4,6 +4,9 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind, annotateConversationStorage;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -12,6 +15,10 @@ import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
+import 'package:conduit/features/chat/voice_mode/voice_mode_error_text.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -87,6 +94,136 @@ void main() {
 
     check(container.read(selectedModelProvider)).identicalTo(_fallbackModel);
     check(controller.admittedModels.single).identicalTo(_model);
+    check(controller.startedByStartNewConversation.single).isTrue();
+  });
+
+  test('launcher refuses a LibreChat chat\'s call in the app\'s words, not '
+      'with a request to sign in', () async {
+    final libreChatModel = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model'],
+      },
+    ).single;
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.needsLogin,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(libreChatModel),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    final l10n = lookupAppLocalizations(const Locale('de'));
+
+    Object? refusal;
+    try {
+      await container
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false);
+    } catch (error) {
+      refusal = error;
+    }
+
+    check(refusal).isA<VoiceCallStartException>();
+    final error = refusal! as VoiceCallStartException;
+    check(voiceModeErrorText(l10n, kind: error.kind, message: error.message))
+        .equals(l10n.voiceCallLibreChatUnavailable);
+  });
+
+  test('launcher refuses a call in an open LibreChat chat whose selection '
+      'still holds another model', () async {
+    // Reopened after its saved model went away, the chat keeps the model
+    // chosen before: here an Open WebUI one, signed in.
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(_model),
+        socketServiceProvider.overrideWithValue(null),
+        activeConversationProvider.overrideWith(_OpenLibreChatChat.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    final l10n = lookupAppLocalizations(const Locale('de'));
+
+    Object? refusal;
+    try {
+      await container
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false);
+    } catch (error) {
+      refusal = error;
+    }
+
+    check(refusal).isA<VoiceCallStartException>();
+    final error = refusal! as VoiceCallStartException;
+    check(voiceModeErrorText(l10n, kind: error.kind, message: error.message))
+        .equals(l10n.voiceCallLibreChatUnavailable);
+  });
+
+  test('launcher refuses a call when a LibreChat chat opens while it '
+      'waits', () async {
+    // The socket's connection is read after the eligibility wait, before
+    // navigation: the open chat changes there.
+    final controller = _RecordingVoiceStartController();
+    late ProviderContainer container;
+    final socket = _SelectionChangingSocketService(() {
+      container.read(activeConversationProvider.notifier).set(_libreChatChat());
+    });
+    container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        socketServiceProvider.overrideWithValue(socket),
+        chatVoiceModeControllerProvider.overrideWith(() => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(socket.dispose);
+
+    await expectLater(
+      container
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false),
+      throwsA(isA<VoiceCallStartException>()),
+    );
+    check(controller.startedByStartNewConversation).isEmpty();
+  });
+
+  test('a call that starts a new chat is not refused for the LibreChat chat '
+      'left open', () async {
+    // Quick actions, the home widget, Siri and the Android assistant start
+    // a new chat on the selected model.
+    final controller = _RecordingVoiceStartController();
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        socketServiceProvider.overrideWithValue(null),
+        activeConversationProvider.overrideWith(_OpenLibreChatChat.new),
+        chatVoiceModeControllerProvider.overrideWith(() => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(voiceCallLauncherProvider)
+        .launch(startNewConversation: true);
+
     check(controller.startedByStartNewConversation.single).isTrue();
   });
 
@@ -241,3 +378,19 @@ class _FakeAudioSession extends NoVoiceAudioSession {
     listeningCalls += 1;
   }
 }
+
+/// A LibreChat chat is the one open.
+final class _OpenLibreChatChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => _libreChatChat();
+}
+
+Conversation _libreChatChat() => annotateConversationStorage(
+  Conversation(
+    id: 'librechat-chat',
+    title: 'Seed order',
+    createdAt: DateTime(2026),
+    updatedAt: DateTime(2026),
+  ),
+  ChatStorageKind.libreChat,
+);

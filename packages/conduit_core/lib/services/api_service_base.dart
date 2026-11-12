@@ -1898,6 +1898,126 @@ abstract class _ApiServiceBase {
         normalized.contains('not permitted');
   }
 
+  /// Reply [messageId] of saved chat [chatId] as the server holds it, or null
+  /// when the chat does not hold it.
+  Future<Map<String, dynamic>?> _readSavedReply(
+    String chatId,
+    String messageId,
+  ) async {
+    final chat = await getChatRaw(chatId);
+    final history = chat?['chat'] is Map ? chat!['chat']['history'] : null;
+    final messages = history is Map ? history['messages'] : null;
+    final candidate = messages is Map ? messages[messageId] : null;
+    return candidate is Map ? Map<String, dynamic>.from(candidate) : null;
+  }
+
+  /// Whether the server has finished [reply], with an answer or an error.
+  static bool _savedReplyFinished(Map<String, dynamic>? reply) =>
+      reply != null && (reply['done'] == true || reply['error'] != null);
+
+  /// Reads of a saved chat that may find a held reply missing before the wait
+  /// for it ends: the server records a turn before it runs it, so one that is
+  /// still missing was never taken.
+  static const int _heldReplyMissingReads = 3;
+
+  /// The session for a held completion request that ran out of time while the
+  /// server was still running its reply (see
+  /// [ApiService.heldCompletionReceiveTimeout]).
+  ///
+  /// Its byte stream carries nothing and ends once the saved reply has
+  /// finished, read again and again with a growing pause, so the turn stays
+  /// running until then; how a stream ends without `[DONE]` then reads the
+  /// finished reply, as for a JSON null answer. When the saved chat does not
+  /// hold the reply, or [ApiService.heldReplyWaitLimit] passes first, it ends
+  /// with [HeldReplyUnresolved] instead. Cancelling the stream or aborting the
+  /// session (the user stopped the reply, or a caller gave up) stops the wait.
+  /// The request is never sent again.
+  ChatCompletionSession _awaitHeldReply({
+    required String chatId,
+    required String messageId,
+    String? sessionId,
+    required Future<void> Function() abort,
+  }) {
+    var cancelled = false;
+    Timer? pause;
+    Completer<void>? paused;
+    late final StreamController<List<int>> body;
+
+    Future<void> sleep(Duration delay) {
+      final wake = paused = Completer<void>();
+      pause = Timer(delay, () {
+        if (!wake.isCompleted) wake.complete();
+      });
+      return wake.future;
+    }
+
+    Future<void> wait() async {
+      final elapsed = Stopwatch()..start();
+      var missing = 0;
+      var finished = false;
+      for (var read = 0; ; read++) {
+        if (read > 0) await sleep(_heldReplyPollDelay(read));
+        if (cancelled) return;
+        try {
+          final reply = await _readSavedReply(chatId, messageId);
+          if (cancelled) return;
+          if (_savedReplyFinished(reply)) {
+            finished = true;
+            break;
+          }
+          missing = reply == null ? missing + 1 : 0;
+          if (missing >= _heldReplyMissingReads) break;
+        } catch (error) {
+          DebugLogger.warning(
+            'held-reply-read-failed',
+            scope: 'api/chat',
+            data: {'chatId': chatId, 'error': error.toString()},
+          );
+        }
+        if (elapsed.elapsed >= ApiService.heldReplyWaitLimit) break;
+      }
+      if (cancelled) return;
+      if (!finished) body.addError(const HeldReplyUnresolved());
+      unawaited(body.close());
+    }
+
+    void stopWaiting() {
+      cancelled = true;
+      pause?.cancel();
+      final wake = paused;
+      if (wake != null && !wake.isCompleted) wake.complete();
+    }
+
+    body = StreamController<List<int>>(
+      onListen: () => unawaited(wait()),
+      onCancel: stopWaiting,
+    );
+    DebugLogger.warning(
+      'held-completion-awaiting-saved-reply',
+      scope: 'api/chat',
+      data: {'chatId': chatId, 'messageId': messageId},
+    );
+    return ChatCompletionSession.httpStream(
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: chatId,
+      byteStream: body.stream,
+      // A caller that gives up aborts without cancelling the stream it was
+      // draining, so aborting stops the wait too. Not awaited: a stream that
+      // was never listened to would not finish closing.
+      abort: () async {
+        stopWaiting();
+        unawaited(body.close());
+        await abort();
+      },
+    );
+  }
+
+  /// The pause before read [read] of a held reply: 1, 2, 4 and 8 seconds,
+  /// then every 15.
+  static Duration _heldReplyPollDelay(int read) =>
+      Duration(seconds: read >= 5 ? 15 : 1 << (read - 1));
+
   ChatCompletionSession _recoverJsonNullChatCompletion({
     required String messageId,
     String? sessionId,
@@ -1949,11 +2069,7 @@ abstract class _ApiServiceBase {
     if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
       Map<String, dynamic>? reply;
       try {
-        final chat = await getChatRaw(chatId);
-        final history = chat?['chat'] is Map ? chat!['chat']['history'] : null;
-        final messages = history is Map ? history['messages'] : null;
-        final candidate = messages is Map ? messages[messageId] : null;
-        if (candidate is Map) reply = Map<String, dynamic>.from(candidate);
+        reply = await _readSavedReply(chatId, messageId);
       } catch (e) {
         DebugLogger.warning(
           'error-status-reply-read-failed',
@@ -1964,9 +2080,7 @@ abstract class _ApiServiceBase {
       // Only a finished reply: one still running (a 409 can find it so)
       // would be read once, mid-answer, and closed as if complete. The
       // queued retry tries again instead, and finds it finished.
-      final replyFinished =
-          reply != null && (reply['done'] == true || reply['error'] != null);
-      if (replyFinished) {
+      if (_savedReplyFinished(reply)) {
         DebugLogger.warning(
           'error-status-recovery',
           scope: 'api/chat',

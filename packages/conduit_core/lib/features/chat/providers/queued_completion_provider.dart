@@ -61,6 +61,7 @@ class QueuedCompletionInfo {
     this.nextAttemptAt,
     this.frozenReasoningEffort,
     this.frozenPickedReasoningEffort,
+    this.blockedBySeq,
   }) : _databaseOwner = databaseOwner,
        _ownership = null;
 
@@ -76,12 +77,17 @@ class QueuedCompletionInfo {
     this.nextAttemptAt,
     this.frozenReasoningEffort,
     this.frozenPickedReasoningEffort,
+    this.blockedBySeq,
   }) : _databaseOwner = ownership.session.database!,
        _ownership = ownership;
 
   final Object _databaseOwner;
   final _QueuedCompletionOwnership? _ownership;
   final int seq;
+
+  /// The earlier op of the same chat that holds this answer up, when that is
+  /// why it shows: a Retry re-arms it too, or the answer stays behind it.
+  final int? blockedBySeq;
   final String chatId;
   final String scopedChatId;
   final String assistantMessageId;
@@ -128,7 +134,8 @@ class QueuedCompletionInfo {
           lastError == other.lastError &&
           nextAttemptAt == other.nextAttemptAt &&
           frozenReasoningEffort == other.frozenReasoningEffort &&
-          frozenPickedReasoningEffort == other.frozenPickedReasoningEffort;
+          frozenPickedReasoningEffort == other.frozenPickedReasoningEffort &&
+          blockedBySeq == other.blockedBySeq;
 
   @override
   int get hashCode => Object.hash(
@@ -144,6 +151,7 @@ class QueuedCompletionInfo {
     nextAttemptAt,
     frozenReasoningEffort,
     frozenPickedReasoningEffort,
+    blockedBySeq,
   );
 }
 
@@ -239,58 +247,169 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
     scopedChatId: scopedChatId,
   );
 
-  return db.outboxDao.watchQueuedCompletionsForChat(chatId).map((ops) {
+  return db.outboxDao.watchChatQueuesWithCompletions(chatId: chatId).map((ops) {
     final infos = <String, QueuedCompletionInfo>{};
-    for (final op in ops) {
-      final id = _assistantMessageIdFromPayload(op.payload);
-      if (id == null || infos.containsKey(id)) {
-        continue;
-      }
-
-      final phase = op.status == OutboxStatus.failed
-          ? QueuedCompletionPhase.failed
-          : QueuedCompletionPhase.pending;
-      final offline = op.lastError == 'offline' || !isOnline;
-
-      // Only surface a PENDING completion when it genuinely needs the user's
-      // attention — never for a transient auto-retry. A normal send (and
-      // especially the FIRST send of a session, which can race a cold
-      // network/socket connection) often fails once and is retried with a
-      // ~1s backoff; showing the retry/cancel banner for that single attempt
-      // makes it flash on screen. Surface a pending op only when:
-      //   • it is offline-deferred (queued until connectivity returns), or
-      //   • it has stalled across multiple attempts (the drainer has retried
-      //     it `>= _queuedCompletionStallAttempts` times without success).
-      // A `failed` (parked) op always surfaces for manual retry. This is
-      // independent of `isOnline`, which can be transiently not-online while
-      // connectivity is still resolving at startup.
-      if (phase == QueuedCompletionPhase.pending) {
-        final offlineDeferred = op.lastError == 'offline';
-        final stalled = op.attempts >= _queuedCompletionStallAttempts;
-        if (!offlineDeferred && !stalled) {
-          continue;
-        }
-      }
-
-      final frozen = phase == QueuedCompletionPhase.failed
-          ? _frozenReasoningEffortsFromPayload(op.payload)
-          : null;
-      infos[id] = QueuedCompletionInfo._owned(
+    for (final (:op, :shown, :blocker) in _queuedCompletionDisplayEntries(
+      ops,
+      isOnline: isOnline,
+    )) {
+      if (infos.containsKey(shown.assistantMessageId)) continue;
+      infos[shown.assistantMessageId] = QueuedCompletionInfo._owned(
         ownership: ownership,
         seq: op.seq,
+        blockedBySeq: blocker?.seq,
         chatId: chatId,
         scopedChatId: scopedChatId,
-        assistantMessageId: id,
-        phase: phase,
-        isOffline: offline,
-        lastError: op.lastError,
+        assistantMessageId: shown.assistantMessageId,
+        phase: shown.phase,
+        isOffline: shown.isOffline,
+        lastError: shown.lastError,
         nextAttemptAt: op.nextAttemptAt,
-        frozenReasoningEffort: frozen?.chat ?? frozen?.picked,
-        frozenPickedReasoningEffort: frozen?.picked,
+        frozenReasoningEffort: shown.frozenReasoningEffort,
+        frozenPickedReasoningEffort: shown.frozenPickedReasoningEffort,
       );
     }
     return Map<String, QueuedCompletionInfo>.unmodifiable(infos);
   });
+}
+
+/// What a queued request-completion [op] shows on its answer, or null when
+/// it shows nothing (yet).
+///
+/// A failed (parked) op always shows, for a manual retry. A pending one
+/// shows only when it genuinely needs the user's attention, never for a
+/// transient auto-retry: a normal send (especially the first of a session,
+/// which can race a cold connection) often fails once and is retried after
+/// about a second, and a banner for that one attempt flashes on screen. So
+/// a pending op shows when it is offline-deferred (queued until the
+/// connection returns) or has stalled across
+/// [_queuedCompletionStallAttempts] attempts. This is independent of
+/// [isOnline], which can be briefly false while connectivity resolves at
+/// startup; [isOnline] only says whether it waits for the connection.
+///
+/// [blockedBy] is an earlier op of the same chat that is stuck the same way
+/// (see [queuedCompletionDisplaysOf]): a pending op behind it shows too, as
+/// waiting for what holds it up.
+QueuedCompletionDisplay? queuedCompletionDisplayOf(
+  OutboxOp op, {
+  required bool isOnline,
+  OutboxOp? blockedBy,
+}) {
+  final id = _assistantMessageIdFromPayload(op.payload);
+  if (id == null) return null;
+  final phase = op.status == OutboxStatus.failed
+      ? QueuedCompletionPhase.failed
+      : QueuedCompletionPhase.pending;
+  if (phase == QueuedCompletionPhase.pending &&
+      !_queuedOpIsStuck(op) &&
+      blockedBy == null) {
+    return null;
+  }
+  final frozen = phase == QueuedCompletionPhase.failed
+      ? _frozenReasoningEffortsFromPayload(op.payload)
+      : null;
+  final lastError = phase == QueuedCompletionPhase.pending
+      ? (op.lastError ?? blockedBy?.lastError)
+      : op.lastError;
+  return QueuedCompletionDisplay(
+    assistantMessageId: id,
+    phase: phase,
+    isOffline: lastError == 'offline' || !isOnline,
+    lastError: lastError,
+    frozenReasoningEffort: frozen?.chat ?? frozen?.picked,
+    frozenPickedReasoningEffort: frozen?.picked,
+  );
+}
+
+/// What each queued request-completion in [ops] shows, by its answer's
+/// message id; [ops] are the live outbox ops of one or more chats, seq
+/// ascending (`OutboxDao.watchChatQueuesWithCompletions`).
+///
+/// As [queuedCompletionDisplayOf], and more: a chat's ops run in order, so
+/// an answer whose request waits behind an earlier op of its chat (the
+/// chat's create or update, sent first) has not been tried itself, and on
+/// its own would never show. Once that op is offline-deferred, has stalled,
+/// or is parked, the answer is just as stuck, and shows as waiting.
+Map<String, QueuedCompletionDisplay> queuedCompletionDisplaysOf(
+  Iterable<OutboxOp> ops, {
+  required bool isOnline,
+}) {
+  final displays = <String, QueuedCompletionDisplay>{};
+  for (final (op: _, :shown, blocker: _) in _queuedCompletionDisplayEntries(
+    ops,
+    isOnline: isOnline,
+  )) {
+    displays.putIfAbsent(shown.assistantMessageId, () => shown);
+  }
+  return displays;
+}
+
+/// Each request-completion in [ops] that shows, with what it shows and the
+/// earlier op of its chat that holds it up, if any, in order
+/// ([queuedCompletionDisplaysOf]).
+Iterable<({OutboxOp op, QueuedCompletionDisplay shown, OutboxOp? blocker})>
+_queuedCompletionDisplayEntries(
+  Iterable<OutboxOp> ops, {
+  required bool isOnline,
+}) sync* {
+  final stuck = <String, OutboxOp>{};
+  for (final op in ops) {
+    final chatId = op.chatId;
+    final blocker = chatId == null ? null : stuck[chatId];
+    if (op.kind == OutboxKind.requestCompletion.name) {
+      final shown = queuedCompletionDisplayOf(
+        op,
+        isOnline: isOnline,
+        blockedBy: blocker,
+      );
+      if (shown != null) yield (op: op, shown: shown, blocker: blocker);
+    }
+    // Only the chat's own ops hold its answers up: a note or folder op that
+    // shares the id runs in its own domain.
+    final kind = OutboxKind.fromName(op.kind);
+    final chatDomain = kind != null && !kind.isFolderKind && !kind.isNoteKind;
+    if (chatId != null &&
+        chatDomain &&
+        !stuck.containsKey(chatId) &&
+        op.status != OutboxStatus.inFlight &&
+        (op.status == OutboxStatus.failed || _queuedOpIsStuck(op))) {
+      stuck[chatId] = op;
+    }
+  }
+}
+
+/// A pending op that genuinely waits: offline-deferred, or stalled across
+/// [_queuedCompletionStallAttempts] attempts. One being sent right now is
+/// not waiting, whatever its history: Retry and Cancel only reach a pending
+/// op, so it is not shown as queued.
+bool _queuedOpIsStuck(OutboxOp op) =>
+    op.status == OutboxStatus.pending &&
+    (op.lastError == 'offline' ||
+        op.attempts >= _queuedCompletionStallAttempts);
+
+/// What one queued completion shows ([queuedCompletionDisplayOf]).
+final class QueuedCompletionDisplay {
+  const QueuedCompletionDisplay({
+    required this.assistantMessageId,
+    required this.phase,
+    required this.isOffline,
+    this.lastError,
+    this.frozenReasoningEffort,
+    this.frozenPickedReasoningEffort,
+  });
+
+  final String assistantMessageId;
+  final QueuedCompletionPhase phase;
+  final bool isOffline;
+  final String? lastError;
+
+  /// As [QueuedCompletionInfo.frozenReasoningEffort].
+  final String? frozenReasoningEffort;
+
+  /// As [QueuedCompletionInfo.frozenPickedReasoningEffort].
+  final String? frozenPickedReasoningEffort;
+
+  bool get isFailed => phase == QueuedCompletionPhase.failed;
 }
 
 /// Per-row compatibility selector backed by one chat-scoped Drift watcher.
@@ -343,6 +462,12 @@ class QueuedCompletionActions {
       database: db,
       mutation: () async {
         final now = _ref.read(syncClockProvider).nowEpochSeconds();
+        // The op that holds the answer up goes first, or the answer stays
+        // behind it. Each re-arm touches the op only in the state it names.
+        if (info.blockedBySeq case final blocker?) {
+          await db.outboxDao.requeueParked(blocker, nowEpochSeconds: now);
+          await db.outboxDao.retryPendingNow(blocker, nowEpochSeconds: now);
+        }
         if (info.phase == QueuedCompletionPhase.failed) {
           await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
         } else {
@@ -381,6 +506,12 @@ class QueuedCompletionActions {
           return false;
         }
         final now = _ref.read(syncClockProvider).nowEpochSeconds();
+        // The op that holds the answer up goes first, or the answer stays
+        // behind it. Each re-arm touches the op only in the state it names.
+        if (info.blockedBySeq case final blocker?) {
+          await db.outboxDao.requeueParked(blocker, nowEpochSeconds: now);
+          await db.outboxDao.retryPendingNow(blocker, nowEpochSeconds: now);
+        }
         if (info.phase == QueuedCompletionPhase.failed) {
           await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
         } else {

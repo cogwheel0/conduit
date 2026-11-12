@@ -32,7 +32,11 @@ _AgentChat? _agentChatOf(Conversation? conversation) {
 /// account's models once the chat has that terminal selected. Only the
 /// server's own terminals can run one, never a terminal the user added by
 /// address, and only in a saved chat, so a temporary chat offers none.
-final terminalAgentScopeProvider = Provider<TerminalAgentScope?>((ref) {
+final terminalAgentScopeProvider = Provider<TerminalAgentScope?>(
+  _terminalAgentScope,
+);
+
+TerminalAgentScope? _terminalAgentScope(Ref ref) {
   if (ref.watch(reviewerModeProvider)) return null;
   if (!ref.watch(openWebUiAccountAvailableProvider)) return null;
   if (!ref.watch(terminalAgentsSupportedProvider)) return null;
@@ -51,13 +55,17 @@ final terminalAgentScopeProvider = Provider<TerminalAgentScope?>((ref) {
     terminalName: server.displayName,
     chatId: chat?.id,
   );
-});
+}
 
 /// The coding agents the selected terminal offers the active chat, named
 /// for the picker. Empty when [terminalAgentScopeProvider] offers none, or
 /// when the terminal could not be asked: the picker then lists the account's
 /// models alone.
-final terminalAgentModelsProvider = FutureProvider<List<Model>>((ref) async {
+final terminalAgentModelsProvider = FutureProvider<List<Model>>(
+  _terminalAgentModels,
+);
+
+Future<List<Model>> _terminalAgentModels(Ref ref) async {
   final scope = ref.watch(terminalAgentScopeProvider);
   final api = ref.watch(apiServiceProvider);
   if (scope == null || api == null) return const <Model>[];
@@ -76,7 +84,7 @@ final terminalAgentModelsProvider = FutureProvider<List<Model>>((ref) async {
     );
     return const <Model>[];
   }
-});
+}
 
 /// The coding agents for a picker that is opening: the list already loaded,
 /// or the one that arrives within [timeout]. A slow terminal leaves them out
@@ -134,7 +142,11 @@ Future<Model?> resolveTerminalAgentModel(
 /// counts as gone only once the server's own list is read without it: the
 /// combined list also arrives without them when that read fails, and a list
 /// that is loading or could not be read changes nothing.
-final terminalAgentSelectionGuardProvider = Provider<void>((ref) {
+final terminalAgentSelectionGuardProvider = Provider<void>(
+  _terminalAgentSelectionGuard,
+);
+
+void _terminalAgentSelectionGuard(Ref ref) {
   ref.listen<AsyncValue<List<TerminalServerInfo>>>(
     terminalAvailableServersProvider,
     (previous, next) {
@@ -171,7 +183,7 @@ final terminalAgentSelectionGuardProvider = Provider<void>((ref) {
       unawaited(restoreDefaultModel(ref));
     });
   });
-});
+}
 
 /// Asks the server for its terminals and restores the default model when
 /// [agentTerminal] is not among those this chat may use. A read that fails
@@ -221,7 +233,11 @@ String? terminalIdForModelRequest(
 /// Open WebUI answers an agent only with a new message at the end of the
 /// chat, as the agent keeps the conversation itself: a reply cannot be
 /// regenerated, and a sent message cannot be edited and sent again.
-final activeChatUsesTerminalAgentProvider = Provider<bool>((ref) {
+final activeChatUsesTerminalAgentProvider = Provider<bool>(
+  _activeChatUsesTerminalAgent,
+);
+
+bool _activeChatUsesTerminalAgent(Ref ref) {
   if (ref.watch(selectedModelProvider.select(isTerminalAgentModel))) {
     return true;
   }
@@ -230,4 +246,4 @@ final activeChatUsesTerminalAgentProvider = Provider<bool>((ref) {
       (conversation) => isTerminalAgentModelId(conversation?.model),
     ),
   );
-});
+}

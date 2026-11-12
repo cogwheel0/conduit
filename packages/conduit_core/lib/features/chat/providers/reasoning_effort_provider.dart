@@ -238,7 +238,11 @@ String? _localEffortKey(Ref ref) {
   return localReasoningEffortKeyForModel(ref.watch, model);
 }
 
-final configuredReasoningEffortProvider = Provider<String?>((ref) {
+final configuredReasoningEffortProvider = Provider<String?>(
+  _configuredReasoningEffort,
+);
+
+String? _configuredReasoningEffort(Ref ref) {
   final model = ref.watch(selectedModelProvider);
   if (model == null) return null;
   final binding = ref.watch(directModelRegistryProvider).resolve(model);
@@ -301,21 +305,39 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
     ).effectiveConfiguredEffort(configured);
   }
   return null;
-});
+}
 
-final reasoningEffortProvider = Provider<String>(
-  (ref) =>
-      ref.watch(configuredReasoningEffortProvider) ?? kAutomaticReasoningEffort,
+final reasoningEffortProvider = Provider<String>(_reasoningEffort);
+
+String _reasoningEffort(Ref ref) =>
+    ref.watch(configuredReasoningEffortProvider) ?? kAutomaticReasoningEffort;
+
+final reasoningEffortPolicyProvider = Provider<ReasoningEffortPolicy>(
+  _reasoningEffortPolicy,
 );
 
-final reasoningEffortPolicyProvider = Provider<ReasoningEffortPolicy>((ref) {
-  final model = ref.watch(selectedModelProvider);
-  return reasoningEffortPolicyForModel(ref.watch, model);
-});
+ReasoningEffortPolicy _reasoningEffortPolicy(Ref ref) =>
+    reasoningEffortPolicyForModel(ref.watch, ref.watch(selectedModelProvider));
 
-final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
-  return ref.watch(reasoningEffortPolicyProvider).allowsCustom;
-});
+final reasoningEffortAllowsCustomProvider = Provider<bool>(
+  _reasoningEffortAllowsCustom,
+);
+
+bool _reasoningEffortAllowsCustom(Ref ref) =>
+    ref.watch(reasoningEffortPolicyProvider).allowsCustom;
+
+/// This library's share of a chat session scope (`ChatSessionScope` in the
+/// chat library): the reasoning effort the composer would send follows the
+/// scope's own selected model. The per-model picks themselves
+/// ([localReasoningEffortsProvider]) are a saved preference and stay shared.
+List<Override> chatSessionScopedReasoningOverrides() => <Override>[
+  configuredReasoningEffortProvider.overrideWith(_configuredReasoningEffort),
+  reasoningEffortProvider.overrideWith(_reasoningEffort),
+  reasoningEffortPolicyProvider.overrideWith(_reasoningEffortPolicy),
+  reasoningEffortAllowsCustomProvider.overrideWith(
+    _reasoningEffortAllowsCustom,
+  ),
+];
 
 typedef ReasoningEffortReader = T Function<T>(ProviderListenable<T> provider);
 

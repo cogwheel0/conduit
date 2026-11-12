@@ -12,11 +12,14 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart'
+    show answeredWithWebPage;
 
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/auth/token_validator.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
+import 'package:conduit_core/auth/sign_in_failure.dart';
 
 import 'package:conduit_core/auth/auth_cache_manager.dart';
 
@@ -2569,7 +2572,7 @@ class AuthStateManager extends _$AuthStateManager {
             error.type == DioExceptionType.sendTimeout ||
             error.type == DioExceptionType.receiveTimeout);
     if (timedOut || text.contains('timeout')) {
-      return 'Sign-in request timed out';
+      return signInTimedOutMessage;
     }
 
     final connectionFailed =
@@ -2579,7 +2582,7 @@ class AuthStateManager extends _$AuthStateManager {
     if (connectionFailed ||
         text.contains('socketexception') ||
         text.contains('connection')) {
-      return 'Unable to connect to server';
+      return signInUnreachableMessage;
     }
     return 'Sign-in failed. Please try again.';
   }
@@ -3426,6 +3429,83 @@ class AuthStateManager extends _$AuthStateManager {
       return false;
     }
     _connectionIssueRechecked = true;
+    final (:accepted, :error) = await _checkKeptSession(token, user);
+    if (accepted) {
+      DebugLogger.auth('session-rechecked-on-new-route', scope: 'auth/state');
+    } else if (error != null) {
+      _logAuthenticationFailure('session-recheck-on-new-route-failed', error);
+    }
+    return accepted;
+  }
+
+  /// The connection issue's Retry, for a session the issue kept: the server
+  /// is asked about it before it is shown signed in again.
+  ///
+  /// [refresh] trusts a stored token at once and checks it in the
+  /// background, as a launch should. On a Retry that showed the session
+  /// signed in while the server, or a proxy in front of it, still turned it
+  /// away, until the check came back. Here the server taking the session
+  /// as the same user signs back in, and Open WebUI's own 401 or 403 ends
+  /// the session as any refused token does. Any other answer leaves the
+  /// issue shown with the session kept: a proxy's sign-in page, even one
+  /// sent with a 401 or 403, refuses the route and not the token, as the
+  /// API client reads it everywhere else; so does a dropped connection or
+  /// an answer that never finished. Only a connection that could not be
+  /// opened at all (refused, unreachable, or timed out while connecting:
+  /// offline) is refreshed as before, as on launch, and so is an issue with
+  /// no session kept.
+  Future<void> retryConnectionIssue() async {
+    final kept = _current;
+    final token = kept.token;
+    final user = kept.user;
+    if (kept.status != AuthStatus.error ||
+        token == null ||
+        token.isEmpty ||
+        user == null) {
+      await refresh();
+      return;
+    }
+    final attemptRevision = _authAttemptRevision;
+    final safetyEpoch = _sessionSafetyEpoch;
+    final (:accepted, :error) = await _checkKeptSession(token, user);
+    if (accepted || error == null) return;
+    // A newer sign-in attempt may have started while the answer came back
+    // (a refresh keeps the token while it runs): the answer is then this
+    // Retry's alone, and the newer attempt is left to finish.
+    if (!ref.mounted ||
+        _authAttemptRevision != attemptRevision ||
+        _sessionSafetyEpoch != safetyEpoch ||
+        _current.status != AuthStatus.error ||
+        _current.token != token) {
+      return;
+    }
+    final proxyPage = error is DioException &&
+        error.response != null &&
+        answeredWithWebPage(error.response!.headers);
+    if (!proxyPage && _isConfirmedAuthFailure(error)) {
+      await onTokenInvalidated();
+      return;
+    }
+    if (error is DioException &&
+        error.response == null &&
+        (error.type == DioExceptionType.connectionError ||
+            error.type == DioExceptionType.connectionTimeout)) {
+      // No connection could be opened (a network that drops the packets
+      // times out connecting): offline, refreshed as on launch.
+      await refresh();
+      return;
+    }
+    _logAuthenticationFailure('connection-issue-retry-refused', error);
+  }
+
+  /// Asks the server whether it takes [token] as [user], kept by the
+  /// connection issue shown now; signs back in when it does. [error] is the
+  /// server's refusal, when the check got that far; neither is set when the
+  /// session or the client changed meanwhile.
+  Future<({bool accepted, Object? error})> _checkKeptSession(
+    String token,
+    User user,
+  ) async {
     final attemptRevision = _authAttemptRevision;
     final safetyEpoch = _sessionSafetyEpoch;
     bool stillKept() =>
@@ -3434,12 +3514,15 @@ class AuthStateManager extends _$AuthStateManager {
         _sessionSafetyEpoch == safetyEpoch &&
         _current.status == AuthStatus.error &&
         _current.token == token;
+    const notAsked = (accepted: false, error: null);
+    Object? asked;
     try {
       // The client follows the address moved to once this settles.
       await ref.read(activeServerProvider.future);
-      if (!stillKept()) return false;
+      if (!stillKept()) return notAsked;
       final api = ref.read(apiServiceProvider);
-      if (api == null || api.authToken != token) return false;
+      if (api == null || api.authToken != token) return notAsked;
+      asked = api;
       final accepted = await api.getCurrentUser(
         suppressAuthFailureNotification: true,
         authSnapshot: api.captureAuthSnapshot(),
@@ -3449,7 +3532,7 @@ class AuthStateManager extends _$AuthStateManager {
       if (!stillKept() ||
           !identical(ref.read(apiServiceProvider), api) ||
           accepted.id != user.id) {
-        return false;
+        return notAsked;
       }
       _recordValidatedIdentity(token, accepted);
       _update(
@@ -3461,11 +3544,15 @@ class AuthStateManager extends _$AuthStateManager {
         ),
         cache: true,
       );
-      DebugLogger.auth('session-rechecked-on-new-route', scope: 'auth/state');
-      return true;
+      return (accepted: true, error: null);
     } catch (error) {
-      _logAuthenticationFailure('session-recheck-on-new-route-failed', error);
-      return false;
+      // As with an acceptance, a refusal speaks only for the client that
+      // got it: an address moved to meanwhile has not been asked.
+      if (!stillKept() ||
+          (asked != null && !identical(ref.read(apiServiceProvider), asked))) {
+        return notAsked;
+      }
+      return (accepted: false, error: error);
     }
   }
 

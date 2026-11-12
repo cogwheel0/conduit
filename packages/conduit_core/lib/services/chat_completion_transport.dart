@@ -15,6 +15,16 @@ final class ChatCompletionHttpException implements Exception {
   /// 401 or 403 through, so only the session endpoint can tell them apart.
   bool get mayRejectSession => statusCode == 401 || statusCode == 403;
 
+  /// Whether a later attempt may well be answered: a timeout, a rate limit,
+  /// or a gateway in front of the server that could not reach it. A queued
+  /// completion is sent again for these rather than settled as refused.
+  bool get mayPassLater =>
+      statusCode == 408 ||
+      statusCode == 429 ||
+      statusCode == 502 ||
+      statusCode == 503 ||
+      statusCode == 504;
+
   @override
   String toString() => 'Chat completion failed ($statusCode): $detail';
 }
@@ -168,3 +178,24 @@ final class ChatCompletionSession {
   /// Abort handle to cancel the active HTTP request.
   final Future<void> Function()? abort;
 }
+
+/// Ends the byte stream of a held completion whose saved reply was still not
+/// finished when Conduit stopped waiting for it: the server may still be
+/// writing it. The turn shows [kHeldReplyUnresolvedMessage] instead of closing
+/// as an empty answer, and is not sent again.
+final class HeldReplyUnresolved implements Exception {
+  const HeldReplyUnresolved();
+
+  @override
+  String toString() => kHeldReplyUnresolvedMessage;
+}
+
+/// Stored as the reply's error for [HeldReplyUnresolved]; the app shows it in
+/// the user's language.
+const String kHeldReplyUnresolvedMessage =
+    'The server is still working on this reply. Open this chat again later '
+    'to see it.';
+
+/// Whether a stored reply error is [kHeldReplyUnresolvedMessage].
+bool isHeldReplyUnresolvedError(String? message) =>
+    message?.trim() == kHeldReplyUnresolvedMessage;

@@ -3485,6 +3485,7 @@
   "directImagesPerRequestSaveFailed": "요청당 이미지 수를 저장하지 못했습니다. 다시 시도하세요.",
   "directModelTooManyImages": "이 모델은 이 채팅이 보낸 것보다 적은 수의 이미지만 요청당 받습니다. 직접 연결 설정에서 요청당 이미지 수를 낮춘 후 다시 시도하세요. 이 메시지 하나에 모델이 받는 것보다 많은 이미지가 있다면 이미지를 줄여 다시 보내세요.",
   "directToolLoopNoAnswer": "모델이 답변하지 않고 도구를 계속 사용했습니다. 다시 시도하거나 웹 검색과 도구를 끄세요.",
+  "heldReplyStillRunning": "서버가 아직 이 답변을 작성하고 있습니다. 나중에 이 채팅을 다시 열어 확인하세요.",
   "directContextLimitOllamaNote": "직접 운영하는 서버의 Ollama 모델에서는 여기서 선택한 한도가 Ollama가 모델을 불러올 때의 컨텍스트 창 크기도 됩니다. 창이 클수록 메모리를 더 많이 사용합니다.",
   "directContextCompactionModelCount": "{count, plural, other{모델 {count}개}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
@@ -4695,6 +4696,7 @@
     }
   },
   "hermesShowScheduledRunsAction": "표시",
+  "voiceCallLibreChatUnavailable": "LibreChat 채팅에서는 음성 통화를 사용할 수 없습니다.",
   "messageHintTextForModel": "{modelName}에게 물어보기",
   "@messageHintTextForModel": {
     "placeholders": {

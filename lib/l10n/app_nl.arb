@@ -3707,6 +3707,7 @@
   "directImagesPerRequestSaveFailed": "Afbeeldingen per verzoek kon niet worden opgeslagen. Probeer het opnieuw.",
   "directModelTooManyImages": "Dit model accepteert minder afbeeldingen per verzoek dan deze chat heeft verstuurd. Verlaag Afbeeldingen per verzoek in de instellingen voor Directe verbindingen en probeer het opnieuw. Als dit bericht alleen al meer afbeeldingen heeft dan het model accepteert, verstuur het dan opnieuw met minder afbeeldingen.",
   "directToolLoopNoAnswer": "Het model bleef hulpmiddelen gebruiken zonder antwoord te geven. Probeer het opnieuw of zet webzoeken en hulpmiddelen uit.",
+  "heldReplyStillRunning": "De server werkt nog aan dit antwoord. Open deze chat later opnieuw om het te zien.",
   "directContextLimitOllamaNote": "Voor Ollama-modellen op je eigen server is een hier gekozen limiet ook het contextvenster waarmee Ollama het model laadt. Een groter venster gebruikt meer geheugen.",
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} modellen}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
@@ -4923,6 +4924,7 @@
     }
   },
   "hermesShowScheduledRunsAction": "Tonen",
+  "voiceCallLibreChatUnavailable": "Spraakoproepen zijn niet beschikbaar in LibreChat-chats.",
   "messageHintTextForModel": "Vraag {modelName}",
   "@messageHintTextForModel": {
     "placeholders": {

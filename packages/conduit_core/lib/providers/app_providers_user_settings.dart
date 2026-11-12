@@ -363,6 +363,15 @@ class PersonalizationSettings extends _$PersonalizationSettings {
             ref.read(activeServerProvider).asData?.value?.id;
         if (landsUnder != accountId) return;
         await ref.read(appSettingsProvider.notifier).setPinnedModels(modelIds);
+      }).catchError((Object error, StackTrace stackTrace) {
+        // The local copy is a cache: a write refused while signing out
+        // leaves the server's pins in charge, as before.
+        DebugLogger.error(
+          'pins-cache-failed',
+          scope: 'settings/pins',
+          error: error,
+          stackTrace: stackTrace,
+        );
       }),
     );
   }

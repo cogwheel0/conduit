@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -28,23 +29,25 @@ final terminalServiceProvider = Provider<TerminalService?>((ref) {
 });
 
 final terminalAvailableServersProvider =
-    FutureProvider<List<TerminalServerInfo>>((ref) {
-      final service = ref.watch(terminalServiceProvider);
-      final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
-      if (service == null) {
-        // No API/service yet (startup, auth/active-server rebuild). There is no
-        // real probe to report: stay UNRESOLVED (loading) rather than resolving
-        // to an empty list, so consumers fall back to their cached/last-known
-        // state (e.g. terminalTabVisibleProvider keeps the cached flag) instead
-        // of treating "no service" as "terminal disabled" — which would poison
-        // the cache and hide the tab offline for a terminal-enabled server. The
-        // future is abandoned (replaced) as soon as the service becomes
-        // available and this provider recomputes.
-        return Completer<List<TerminalServerInfo>>().future;
-      }
+    FutureProvider<List<TerminalServerInfo>>(_terminalAvailableServers);
 
-      return _probeTerminalServers(ref, service, sessionScopeId);
-    });
+Future<List<TerminalServerInfo>> _terminalAvailableServers(Ref ref) {
+  final service = ref.watch(terminalServiceProvider);
+  final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
+  if (service == null) {
+    // No API/service yet (startup, auth/active-server rebuild). There is no
+    // real probe to report: stay UNRESOLVED (loading) rather than resolving
+    // to an empty list, so consumers fall back to their cached/last-known
+    // state (e.g. terminalTabVisibleProvider keeps the cached flag) instead
+    // of treating "no service" as "terminal disabled" — which would poison
+    // the cache and hide the tab offline for a terminal-enabled server. The
+    // future is abandoned (replaced) as soon as the service becomes
+    // available and this provider recomputes.
+    return Completer<List<TerminalServerInfo>>().future;
+  }
+
+  return _probeTerminalServers(ref, service, sessionScopeId);
+}
 
 Future<List<TerminalServerInfo>> _probeTerminalServers(
   Ref ref,
@@ -124,15 +127,34 @@ final terminalTabVisibleProvider = Provider<bool>((ref) {
   );
 });
 
-final terminalSelectedServerProvider = FutureProvider<TerminalServerInfo?>((
-  ref,
-) async {
+final terminalSelectedServerProvider = FutureProvider<TerminalServerInfo?>(
+  _terminalSelectedServer,
+);
+
+Future<TerminalServerInfo?> _terminalSelectedServer(Ref ref) async {
   final servers = await ref.watch(terminalAvailableServersProvider.future);
   final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
   return resolveSelectedTerminalServerForTest(servers, selectedTerminalId);
-});
+}
 
-final terminalSessionScopeIdProvider = Provider<String>((ref) {
+final terminalSessionScopeIdProvider = Provider<String>(
+  _terminalSessionScopeId,
+);
+
+/// This library's share of a chat session scope (`ChatSessionScope` in the
+/// chat library): the terminal session a chat uses is its own, keyed by the
+/// scope's conversation, and so are the terminals the server offers that
+/// chat (a saved chat may use some a new one may not) and the server its
+/// selected terminal names.
+List<Override> chatSessionScopedTerminalOverrides() => <Override>[
+  terminalSessionScopeIdProvider.overrideWith(_terminalSessionScopeId),
+  terminalAvailableServersProvider.overrideWith(_terminalAvailableServers),
+  terminalSelectedServerProvider.overrideWith(_terminalSelectedServer),
+  // A file a chat's terminal tool asked to show belongs to that chat.
+  terminalDisplayFileProvider.overrideWith(TerminalDisplayFileNotifier.new),
+];
+
+String _terminalSessionScopeId(Ref ref) {
   final activeConversation = ref.watch(activeConversationProvider);
   final conversationId = activeConversation?.id.trim();
   if (conversationId != null && conversationId.isNotEmpty) {
@@ -140,7 +162,7 @@ final terminalSessionScopeIdProvider = Provider<String>((ref) {
   }
 
   return 'sidebar-terminal';
-});
+}
 
 final terminalCurrentPathProvider =
     NotifierProvider<TerminalCurrentPathNotifier, String>(

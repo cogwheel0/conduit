@@ -61,6 +61,8 @@ import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
+import '../../../services/fake_engine_io_server.dart';
+
 class _SeededActive extends ActiveConversationNotifier {
   _SeededActive(this.initial);
 
@@ -1573,12 +1575,115 @@ void main() {
           ),
         ),
       ).equals(TemporaryChatUnavailable.userMessage);
-      // Any other 404 is still a missing model.
+      // Any other refusal is shown in the server's words, as Open WebUI's
+      // own client shows them.
       check(
         chatErrorContentForException(
           const ChatCompletionHttpException(404, 'Model not found'),
         ),
+      ).equals('Model not found');
+      // A body that is not words (a proxy's error page, a validation error's
+      // field list) or no body at all falls back to what the status means.
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(
+            502,
+            '<html><body>Bad Gateway</body></html>',
+          ),
+        ),
+      ).not((it) => it.contains('<'));
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(400, '[{"loc": ["body"]}]'),
+        ),
+      ).contains('message format');
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(404, '  '),
+        ),
       ).contains('model');
+    });
+  });
+
+  group('a saved chat names only a socket session that is live', () {
+    // Issue #848: Open WebUI streams a saved chat's reply to the socket
+    // session its request names, and to nobody when it names none.
+
+    // The account's own server, at the fake socket server's address.
+    ServerConfig serverAt(FakeEngineIoServer server) => ServerConfig(
+      id: 'transport-ownership',
+      name: 'Transport ownership',
+      url: server.url,
+    );
+
+    Future<_GatedCompletionApi> runCompletion(SocketService socket) async {
+      const chatId = 'socket-session-chat';
+      const assistantId = 'socket-session-assistant';
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>()..complete());
+      final messages = <ChatMessage>[
+        _user('socket-session-user', 'hello'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        socket: socket,
+      );
+      addTearDown(container.dispose);
+      final runnerProvider = Provider<RequestCompletionRunner>(
+        (ref) => ChatRequestCompletionRunner(ref),
+      );
+      await container
+          .read(runnerProvider)
+          .run(
+            chatId: chatId,
+            payload: const RequestCompletionPayload(
+              assistantMessageId: assistantId,
+              model: 'model-1',
+            ).toJson(),
+          );
+      return api;
+    }
+
+    test('on a server that allows only polling, the polling session', () async {
+      final server = await FakeEngineIoServer.start();
+      addTearDown(server.close);
+      final socket = SocketService(
+        serverConfig: serverAt(server),
+        allowWebsocketUpgrade: false,
+      );
+      addTearDown(socket.dispose);
+      check(
+        await socket.ensureConnected(timeout: const Duration(seconds: 5)),
+      ).isTrue();
+
+      final api = await runCompletion(socket);
+
+      check(api.submittedSessionId).equals(server.socketIoSid);
+      check(server.upgradeRequests).isEmpty();
+    });
+
+    test('none for a socket the server accepted without a handshake', () async {
+      final server = await FakeEngineIoServer.start(
+        webSocketUpgrade: FakeWebSocketUpgrade.acceptThenDrop,
+        allowPolling: false,
+      );
+      addTearDown(server.close);
+      final socket = SocketService(
+        serverConfig: serverAt(server),
+        websocketOnly: true,
+      );
+      addTearDown(socket.dispose);
+
+      final api = await runCompletion(socket);
+
+      check(server.upgradeRequests).isNotEmpty();
+      check(api.completionCalls).equals(1);
+      check(api.submittedSessionId).isNull();
     });
   });
 
@@ -2299,6 +2404,186 @@ void main() {
     // The session endpoint is asked once; its refusal, not this one, would
     // end the session through the auth interceptor.
     check(api.sessionChecks).equals(1);
+  });
+
+  group('a queued completion the server refuses', () {
+    // Open WebUI refuses a completion request outright for a model it does
+    // not have (400 "Model not found"), and passes a provider's own error
+    // status through when it answers inline. Nothing reached a model, so
+    // there is nothing to pull: the answer ends with the server's words, and
+    // the op parks instead of sending the same refused request again.
+    const chatId = 'refused-queued-chat';
+    const assistantId = 'refused-queued-assistant';
+
+    Future<Map<String, dynamic>> storedAnswer() async {
+      final row = await db.messagesDao.getMessage(chatId, assistantId);
+      return jsonDecode(row!.payload) as Map<String, dynamic>;
+    }
+
+    test('ends the open answer with the server\'s words', () async {
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () =>
+            throw const ChatCompletionHttpException(400, 'Model not found');
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final messages = <ChatMessage>[
+        _user('refused-user', 'Ask a model the server lacks'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+
+      await check(
+        runQueuedCompletion(
+          container,
+          chatId: chatId,
+          assistantMessageId: assistantId,
+          model: 'model-1',
+        ),
+      ).throws<SyncTerminalException>();
+
+      check(api.completionCalls).equals(1);
+      final answer = container.read(chatMessagesProvider).last;
+      check(answer.id).equals(assistantId);
+      check(answer.isStreaming).isFalse();
+      check(answer.error?.content).equals('Model not found');
+      final stored = await storedAnswer();
+      check(stored['isStreaming']).equals(false);
+      check((stored['error'] as Map<String, dynamic>)['content'])
+          .equals('Model not found');
+      check(syncEngine.pulls).equals(0);
+      check(api.sessionChecks).equals(0);
+    });
+
+    test('ends a chat that is not open in its stored copy', () async {
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHttpException(
+          500,
+          'The model failed on purpose.',
+        );
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final onScreen = <ChatMessage>[_user('other-user', 'Another chat')];
+      final container = _container(
+        db: db,
+        active: _conversation(
+          'another-chat',
+          onScreen,
+          ChatStorageKind.openWebUi,
+        ),
+        messages: onScreen,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+      final history = <ChatMessage>[
+        _user('refused-user', 'Ask a failing model'),
+        _streamingAssistant(assistantId, ''),
+      ];
+
+      await check(
+        runHeadlessCompletion(
+          container,
+          chatId: chatId,
+          assistantMessageId: assistantId,
+          messages: history,
+          conversation: _conversation(
+            chatId,
+            history,
+            ChatStorageKind.openWebUi,
+          ),
+          model: 'model-1',
+        ),
+      ).throws<SyncTerminalException>();
+
+      final stored = await storedAnswer();
+      check(stored['isStreaming']).equals(false);
+      check((stored['error'] as Map<String, dynamic>)['content'])
+          .equals('The model failed on purpose.');
+      // The chat on screen is someone else's business.
+      check(_snapshot(container.read(chatMessagesProvider)))
+          .equals(_snapshot(onScreen));
+    });
+
+    test('leaves a gateway\'s failure to the next attempt', () async {
+      // A proxy in front of the server answers 502-504 while the server is
+      // out of reach, and the same request may pass a moment later: the
+      // outbox sends it again, as before, and the answer stays open.
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () =>
+            throw const ChatCompletionHttpException(503, 'Service Unavailable');
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final messages = <ChatMessage>[
+        _user('refused-user', 'Ask while the proxy is down'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+
+      await check(
+        runQueuedCompletion(
+          container,
+          chatId: chatId,
+          assistantMessageId: assistantId,
+          model: 'model-1',
+        ),
+      ).throws<ChatCompletionHttpException>();
+
+      final answer = container.read(chatMessagesProvider).last;
+      check(answer.isStreaming).isTrue();
+      check(answer.error).isNull();
+      final stored = await storedAnswer();
+      check(stored['error']).isNull();
+    });
+
+    test('checks the session when the refusal may be the session\'s', () async {
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHttpException(
+          401,
+          'Incorrect API key provided',
+        );
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final messages = <ChatMessage>[
+        _user('refused-user', 'Ask with a bad provider key'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+
+      await check(
+        runQueuedCompletion(
+          container,
+          chatId: chatId,
+          assistantMessageId: assistantId,
+          model: 'model-1',
+        ),
+      ).throws<SyncTerminalException>();
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(chatMessagesProvider).last.error?.content)
+          .equals('Incorrect API key provided');
+      check(api.sessionChecks).equals(1);
+    });
   });
 
   test('inline POST navigation continues A headlessly without touching colliding B', () async {

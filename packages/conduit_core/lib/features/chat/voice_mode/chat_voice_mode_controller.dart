@@ -283,7 +283,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       // The voice's microphone and connection end with the provider; the
       // host skips the chat writes a disposed provider can no longer make.
       unawaited(realtimeSub?.cancel());
-      unawaited(realtime?.end());
+      _inBackground(realtime?.end(), 'realtime-end');
       _activeCallId = null;
       _usesOpenWebUiTransport = false;
       selectedModelSub?.close();
@@ -690,7 +690,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final callId = state.activeCallId;
     if (_isCurrent(token) && !_markedCallConnected && callId != null) {
       _markedCallConnected = true;
-      unawaited(_callKit!.markCallConnected(callId));
+      _inBackground(_callKit!.markCallConnected(callId), 'mark-connected');
     }
   }
 
@@ -875,6 +875,26 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       await _startListening(token);
     });
+  }
+
+  /// Runs [work] without waiting for it. These start from host events
+  /// (speech, transcription, CallKit, timers) where nothing awaits them, so
+  /// a host call that fails is logged instead of escaping.
+  void _inBackground(Future<Object?>? work, String what) {
+    if (work == null) return;
+    unawaited(
+      work.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          DebugLogger.error(
+            '$what-failed',
+            scope: 'voice-mode',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        },
+      ),
+    );
   }
 
   Future<void> toggleMute() {
@@ -1096,7 +1116,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         }
       case VoiceCallKitMuteToggled(callId: final mutedCallId, :final isMuted):
         if (mutedCallId == callId && isMuted != state.isMuted) {
-          unawaited(toggleMute());
+          _inBackground(toggleMute(), 'toggle-mute');
         }
     }
   }
@@ -1117,7 +1137,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           }
         case TtsCompleted():
           if (_assistantFinalized && _awaitingAssistant) {
-            unawaited(_resumeAfterAssistantSpeech(token));
+            _inBackground(_resumeAfterAssistantSpeech(token), 'resume');
           }
         case TtsCancelled():
           break;
@@ -1131,7 +1151,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           // mode active with no way to accept the next utterance.
           if (_awaitingAssistant) {
             _assistantFinalized = true;
-            unawaited(_resumeAfterAssistantSpeech(token));
+            _inBackground(_resumeAfterAssistantSpeech(token), 'resume');
           }
         case TtsPaused():
         case TtsResumed():
@@ -1240,7 +1260,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         _backgroundKeepAliveTimer = null;
         return;
       }
-      unawaited(background.keepAlive());
+      _inBackground(background.keepAlive(), 'keep-alive');
     });
   }
 
@@ -1323,7 +1343,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         return;
       }
       _transcriptSub = null;
-      unawaited(_handleListeningDone(token));
+      _inBackground(_handleListeningDone(token), 'listening-done');
     }
 
     if (_transcriptSub == null || !input.isListening) {
@@ -1351,7 +1371,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final callId = state.activeCallId;
     if (!_markedCallConnected && callId != null) {
       _markedCallConnected = true;
-      unawaited(_callKit!.markCallConnected(callId));
+      _inBackground(_callKit!.markCallConnected(callId), 'mark-connected');
     }
 
     if (_transcriptSub == null || !input.isListening) {
@@ -1405,7 +1425,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     bufferedEvents.clear();
     if (bufferedDone && _isCurrent(token)) {
       _transcriptSub = null;
-      unawaited(_handleListeningDone(token));
+      _inBackground(_handleListeningDone(token), 'listening-done');
     }
   }
 
@@ -1418,7 +1438,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     if (event.isFinal) {
-      unawaited(_handleFinalTranscript(event.text, token));
+      _inBackground(
+        _handleFinalTranscript(event.text, token),
+        'final-transcript',
+      );
     }
   }
 
@@ -1694,7 +1717,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     _lastFedAssistantText = text;
-    unawaited(_textToSpeech!.feedStreamingText(text));
+    _inBackground(_textToSpeech!.feedStreamingText(text), 'feed-tts');
   }
 
   void _handleChatMessagesChanged(List<ChatMessage> messages) {
@@ -1732,7 +1755,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
-    unawaited(_finishAssistantResponse(_token));
+    _inBackground(_finishAssistantResponse(_token), 'finish-response');
   }
 
   Future<void> _finishAssistantResponse(int token) async {

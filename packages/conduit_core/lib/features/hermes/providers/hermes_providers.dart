@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -2314,24 +2315,26 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
 /// Authoritative Desktop turn state. Responses mode remains on its existing
 /// dispatcher and therefore always exposes the neutral idle state here.
 final hermesDesktopTurnStateProvider =
-    StreamProvider.autoDispose<HermesDesktopTurnState>((ref) async* {
-      final service = ref.watch(hermesApiServiceProvider);
-      if (service is! HermesDesktopApiService) {
-        yield HermesDesktopTurnState.idle;
-        return;
-      }
-      final conversation = ref.watch(activeConversationProvider);
-      if (!isNativeHermesConversation(conversation)) {
-        yield HermesDesktopTurnState.idle;
-        return;
-      }
-      final storedId = conversation?.metadata['hermesSessionId']?.toString();
-      if (storedId == null || storedId.isEmpty) {
-        yield HermesDesktopTurnState.idle;
-        return;
-      }
-      yield* service.turnStatesFor(storedId);
-    });
+    StreamProvider.autoDispose<HermesDesktopTurnState>(_hermesDesktopTurnState);
+
+Stream<HermesDesktopTurnState> _hermesDesktopTurnState(Ref ref) async* {
+  final service = ref.watch(hermesApiServiceProvider);
+  if (service is! HermesDesktopApiService) {
+    yield HermesDesktopTurnState.idle;
+    return;
+  }
+  final conversation = ref.watch(activeConversationProvider);
+  if (!isNativeHermesConversation(conversation)) {
+    yield HermesDesktopTurnState.idle;
+    return;
+  }
+  final storedId = conversation?.metadata['hermesSessionId']?.toString();
+  if (storedId == null || storedId.isEmpty) {
+    yield HermesDesktopTurnState.idle;
+    return;
+  }
+  yield* service.turnStatesFor(storedId);
+}
 
 /// One change to a Desktop chat's stored transcript, by its stored id.
 /// Each change is its own event (no value equality): a provider drops a
@@ -2545,6 +2548,19 @@ final hermesSessionNavigationEpochProvider =
     NotifierProvider<HermesSessionNavigationEpoch, int>(
       HermesSessionNavigationEpoch.new,
     );
+
+/// This library's share of a chat session scope (`ChatSessionScope` in the
+/// chat library): the Hermes state that belongs to the chat on screen rather
+/// than to the connection. The connection, its service, sessions list and
+/// run registry stay shared.
+List<Override> chatSessionScopedHermesOverrides() => <Override>[
+  hermesSessionNavigationEpochProvider.overrideWith(
+    HermesSessionNavigationEpoch.new,
+  ),
+  hermesActiveSessionProvider.overrideWith(HermesActiveSession.new),
+  hermesFastTierSelectionProvider.overrideWith(HermesFastTierSelection.new),
+  hermesDesktopTurnStateProvider.overrideWith(_hermesDesktopTurnState),
+];
 
 /// Aligns a fork's freshly inserted rows with its source history. Any shape,
 /// order, role, content, or identity mismatch rejects the entire mapping so

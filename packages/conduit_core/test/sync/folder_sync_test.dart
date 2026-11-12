@@ -335,6 +335,41 @@ void main() {
       check(await db.foldersDao.getFolder('local:f')).isNull();
       check(await db.outboxDao.pendingForChat('local:f')).isEmpty();
     });
+
+    test('a folder deleted while a create that reached the server waits to '
+        'run again is deleted on the server too', () async {
+      await folderLocks.runExclusive('local:fsent', () async {
+        await db.foldersDao.upsertFolderWithOutbox(
+          id: 'local:fsent',
+          name: 'Seed trays',
+          createIfAbsent: true,
+        );
+      });
+      final create = (await db.outboxDao.pendingForChat('local:fsent')).single;
+      // The create reaches the server and the folder takes its server id,
+      // but the create's done mark is lost...
+      await push.pushFolderUpsert(
+        jsonDecode(create.payload) as Map<String, dynamic>,
+      );
+      final serverId =
+          server.getFolders().singleWhere((f) => f['name'] == 'Seed trays')['id']
+              as String;
+      check(await db.foldersDao.getFolder(serverId)).isNotNull();
+      // ...and the folder is deleted before the create runs again.
+      await folderLocks.runExclusive(
+        serverId,
+        () => db.foldersDao.tombstoneFolderWithOutbox(serverId),
+      );
+
+      final pending = await db.outboxDao.pendingForChat(serverId);
+      check(
+        pending.map((op) => op.kind),
+      ).deepEquals([OutboxKind.folderDelete.name]);
+      await push.pushFolderDelete(serverId);
+      await db.outboxDao.markDone(pending.single.seq);
+
+      check(server.getFolders().where((f) => f['id'] == serverId)).isEmpty();
+    });
   });
 
   group('pushFolderDelete uses delete_contents=false (§7.6 BINDING)', () {

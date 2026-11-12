@@ -3707,6 +3707,7 @@
   "directImagesPerRequestSaveFailed": "Impossible d'enregistrer Images par requête. Réessayez.",
   "directModelTooManyImages": "Ce modèle accepte moins d'images par requête que cette discussion n'en a envoyé. Réduisez Images par requête dans les réglages Connexions directes, puis réessayez. Si ce message contient à lui seul plus d'images que le modèle n'en accepte, renvoyez-le avec moins d'images.",
   "directToolLoopNoAnswer": "Le modèle a continué d'utiliser des outils sans donner de réponse. Réessayez ou désactivez la recherche Web et les outils.",
+  "heldReplyStillRunning": "Le serveur travaille encore sur cette réponse. Rouvrez ce chat plus tard pour la voir.",
   "directContextLimitOllamaNote": "Pour les modèles Ollama de votre propre serveur, la limite choisie ici est aussi la fenêtre de contexte avec laquelle Ollama charge le modèle. Une fenêtre plus grande utilise plus de mémoire.",
   "directContextCompactionModelCount": "{count, plural, =1{1 modèle} other{{count} modèles}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
@@ -4923,6 +4924,7 @@
     }
   },
   "hermesShowScheduledRunsAction": "Afficher",
+  "voiceCallLibreChatUnavailable": "Les appels vocaux ne sont pas disponibles dans les discussions LibreChat.",
   "messageHintTextForModel": "Demander à {modelName}",
   "@messageHintTextForModel": {
     "placeholders": {

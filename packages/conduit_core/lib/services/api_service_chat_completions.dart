@@ -140,6 +140,15 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         (sessionIdOverride != null && sessionIdOverride.isNotEmpty)
         ? sessionIdOverride
         : null;
+    // Open WebUI 0.9+ runs a saved chat's reply on the server even without a
+    // socket session, and answers that request only once the reply has
+    // finished. The wait for its headers is then the whole reply, so it gets
+    // the reply's time rather than the client's 30 seconds.
+    final savedChatId = conversationId?.trim() ?? '';
+    final heldUntilReplyEnds =
+        sessionId == null &&
+        savedChatId.isNotEmpty &&
+        !savedChatId.startsWith('local:');
     CancelToken? activeCancelToken;
     Future<void> abort() async {
       final cancelToken = activeCancelToken;
@@ -219,17 +228,52 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           responseType: ResponseType.stream,
           // Accept all non-5xx so we can inspect error bodies ourselves.
           validateStatus: (status) => status != null && status < 600,
+          receiveTimeout: heldUntilReplyEnds
+              ? ApiService.heldCompletionReceiveTimeout
+              : null,
         ),
         cancelToken: cancelToken,
       );
     }
+
+    // A held answer that outlives even that wait still belongs to a turn the
+    // server took and may still be running: its saved reply is waited for,
+    // and the turn is never sent again (a queued retry would POST it once
+    // more).
+    Future<Response<ResponseBody>?> post(
+      _ChatRequestMetadataFormat metadataFormat,
+    ) async {
+      try {
+        return await postWithMetadataFormat(metadataFormat);
+      } on DioException catch (error) {
+        if (!heldUntilReplyEnds ||
+            error.type != DioExceptionType.receiveTimeout) {
+          rethrow;
+        }
+        DebugLogger.warning(
+          'held-completion-timeout',
+          scope: 'api/chat',
+          data: {'chatId': savedChatId, 'messageId': messageId},
+        );
+        return null;
+      }
+    }
+
+    ChatCompletionSession readSavedReply() => _awaitHeldReply(
+      chatId: savedChatId,
+      messageId: messageId,
+      sessionId: sessionId,
+      abort: abort,
+    );
 
     var metadataFormat =
         _chatRequestMetadataFormat ?? _ChatRequestMetadataFormat.modernV09;
     if (metadataFormat == _ChatRequestMetadataFormat.legacyPreV09) {
       await ensureLegacyPendingTurnPersisted();
     }
-    var resp = await postWithMetadataFormat(metadataFormat);
+    final firstResponse = await post(metadataFormat);
+    if (firstResponse == null) return readSavedReply();
+    var resp = firstResponse;
     var status = resp.statusCode ?? 0;
 
     // Surface structured errors before transport binding.
@@ -258,7 +302,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
       _chatRequestMetadataFormat = metadataFormat;
       await ensureLegacyPendingTurnPersisted();
-      resp = await postWithMetadataFormat(metadataFormat);
+      final retryResponse = await post(metadataFormat);
+      if (retryResponse == null) return readSavedReply();
+      resp = retryResponse;
       status = resp.statusCode ?? 0;
 
       if (status < 200 || status >= 300) {
