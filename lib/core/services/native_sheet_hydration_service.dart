@@ -1133,10 +1133,11 @@ class NativeSheetHydrationService {
       l10n,
       passwordChangeEnabled: allowed,
     );
-    await _applyNativeDetail(page);
-    // The Flutter pages take it whole, Done and all: a patch keeps the bar
-    // actions a page had, and one opened from a link had none.
-    _ref.read(settingsPagesProvider.notifier).register([page]);
+    // Sent whole, Done and all, to the native sheet and the Flutter pages:
+    // a patch keeps the bar actions a page had, so the page a server that
+    // refuses changes draws would keep the form's Done, and one opened from
+    // a link would never get it.
+    await _surface.applyDetail(page);
   }
 
   /// Whether the Flutter pages hold the Change Password page without its

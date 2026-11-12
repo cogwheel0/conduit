@@ -566,6 +566,11 @@ void main() {
 
       check(rig.profile.passwordChanges).isEmpty();
       check(rig.page('password')!.subtitle).equals(_l10n.passwordsDoNotMatch);
+      // Refused, the form stays for another try, Done and all.
+      check(rig.page('password')!.confirmActionId)
+          .equals(nativePasswordSaveActionId);
+      check(rig.rows('password').map((row) => row.id))
+          .contains('current-password');
     });
 
     testWidgets('a password typed on an earlier visit is not used', (
