@@ -8,8 +8,10 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/ports/log_sink.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:drift/drift.dart' show Value;
@@ -337,6 +339,32 @@ void main() {
     check(rows).isEmpty();
   });
 
+  // Dropped unsent, the answer would show as running with nothing behind
+  // it: a log kept at warning level must still say which exit it took.
+  test('a request dropped for want of its placeholder is logged as a '
+      'warning', () async {
+    const chatId = 'chat-missing-placeholder-warning';
+    await seedChat(chatId);
+    final (:container, :runner) = makeRunner(
+      isStreaming: false,
+      active: conv('a-different-chat'),
+    );
+    container;
+    final records = <(LogLevel, String)>[];
+    DebugLogger.sink = _RecordingLogSink(records);
+    addTearDown(() => DebugLogger.sink = const NullLogSink());
+
+    await runner.run(chatId: chatId, payload: payload('missing-asst'));
+
+    check(
+      records.where(
+        (record) =>
+            record.$1 == LogLevel.warning &&
+            record.$2.contains('completion-placeholder-absent'),
+      ),
+    ).isNotEmpty();
+  });
+
   test(
     'same-database auth-session switch defers after an awaited read',
     () async {
@@ -524,4 +552,23 @@ class _TestMessagesNotifier extends ChatMessagesNotifier {
   void setMessages(List<ChatMessage> messages) {
     state = List<ChatMessage>.from(messages);
   }
+}
+
+/// Keeps each record's level and message.
+final class _RecordingLogSink implements LogSink {
+  _RecordingLogSink(this.records);
+
+  final List<(LogLevel, String)> records;
+
+  @override
+  bool get isVerbose => true;
+
+  @override
+  void write(
+    LogLevel level,
+    String message, {
+    String? scope,
+    Object? error,
+    StackTrace? stackTrace,
+  }) => records.add((level, message));
 }
