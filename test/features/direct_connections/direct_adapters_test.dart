@@ -921,6 +921,94 @@ void main() {
     },
   );
 
+  for (final (:label, :baseUrl, :withTools, :keepsEffort) in [
+    (
+      label: 'OpenAI drops it beside tools',
+      baseUrl: 'https://api.openai.com/v1',
+      withTools: true,
+      keepsEffort: false,
+    ),
+    (
+      label: 'OpenAI keeps it without tools',
+      baseUrl: 'https://api.openai.com/v1',
+      withTools: false,
+      keepsEffort: true,
+    ),
+    (
+      label: 'a compatible server keeps it beside tools',
+      baseUrl: 'https://api.test/v1',
+      withTools: true,
+      keepsEffort: true,
+    ),
+  ]) {
+    test('Chat Completions reasoning_effort: $label', () async {
+      final http = _QueuedAdapter([_Reply.json(_chatAnswerPayload('ok'))]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = adapter.startCompletion(
+        _openAiProfile(baseUrl: baseUrl),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          tools: withTools ? _localToolRuntime() : null,
+          parameters: const {'reasoning_effort': 'high'},
+        ),
+      );
+      final events = await run.events.toList();
+      await run.done;
+
+      check(events.whereType<DirectStreamError>()).isEmpty();
+      final body = http.requests.single.data as Map;
+      check(body.containsKey('tools')).equals(withTools);
+      check(body.containsKey('reasoning_effort')).equals(keepsEffort);
+      if (keepsEffort) check(body['reasoning_effort']).equals('high');
+      check(body.containsKey('reasoning')).isFalse();
+    });
+  }
+
+  for (final withTools in [false, true]) {
+    final tools = withTools ? 'beside tools' : 'without tools';
+    test('OpenAI Responses sends reasoning.effort $tools', () async {
+      final http = _QueuedAdapter([
+        _Reply.json(
+          _responsesPayload(
+            id: 'resp_effort',
+            output: [_responsesMessage('msg-effort', 'ok')],
+          ),
+        ),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = adapter.startCompletion(
+        _openAiProfile(
+          baseUrl: 'https://api.openai.com/v1',
+          openAiApiMode: DirectOpenAiApiMode.responses,
+        ),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          tools: withTools ? _localToolRuntime() : null,
+          parameters: const {'reasoning_effort': 'high'},
+        ),
+      );
+      final events = await run.events.toList();
+      await run.done;
+
+      check(events.whereType<DirectStreamError>()).isEmpty();
+      check(http.requests.single.path).endsWith('responses');
+      final body = http.requests.single.data as Map;
+      check(body.containsKey('tools')).equals(withTools);
+      check(body.containsKey('reasoning_effort')).isFalse();
+      check(body['reasoning']).isA<Map>().deepEquals({'effort': 'high'});
+    });
+  }
+
   test(
     'OpenRouter automatic reasoning omits every reasoning override',
     () async {

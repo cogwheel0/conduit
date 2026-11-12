@@ -1664,6 +1664,15 @@ Map<String, dynamic> _chatRequestBody(
       ]
       ..['parallel_tool_calls'] = false;
     if (profile.isOpenRouter) body['max_tool_calls'] = kDirectMaxToolCalls;
+    // OpenAI's Chat Completions refuses `reasoning_effort` next to function
+    // tools for its newer reasoning models (issue #1031). The tool turn runs
+    // at the model's default effort; Responses mode keeps the picked one.
+    if (profile.isOpenAiPlatform && body.remove('reasoning_effort') != null) {
+      DebugLogger.info(
+        'reasoning-effort-omitted-with-tools',
+        scope: 'direct-connections/openai',
+      );
+    }
   }
   return body;
 }
@@ -1875,6 +1884,8 @@ Map<String, dynamic> _responsesRequestBody(
   }
   if (profile.isOpenRouter) {
     _normalizeOpenRouterReasoning(body);
+  } else {
+    _nestResponsesReasoningEffort(body);
   }
   if (!profile.isOpenRouter &&
       (request.enableWebSearch || request.enableImageGeneration)) {
@@ -1883,6 +1894,19 @@ Map<String, dynamic> _responsesRequestBody(
     );
   }
   return body;
+}
+
+/// The Responses API takes the effort as `reasoning.effort`; the top-level
+/// `reasoning_effort` shorthand belongs to Chat Completions.
+void _nestResponsesReasoningEffort(Map<String, dynamic> body) {
+  final effort = body.remove('reasoning_effort');
+  if (effort == null) return;
+  final existing = body['reasoning'];
+  body['reasoning'] = <String, dynamic>{
+    if (existing is Map)
+      for (final entry in existing.entries) entry.key.toString(): entry.value,
+    'effort': effort,
+  };
 }
 
 void _normalizeOpenRouterReasoning(Map<String, dynamic> body) {
