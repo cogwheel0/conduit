@@ -100,6 +100,33 @@ void main() {
     check(container.read(accountProfileProvider).value?.id).equals('grace');
   });
 
+  test('a refresh answered after a newer one is dropped', () async {
+    final home = _ProfileApi(server: 'home', user: 'ada');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWithValue(home)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+    final profile = container.read(accountProfileProvider.notifier);
+
+    final gate = home.readGate = Completer<void>();
+    home.nextName = 'Ada Before';
+    final first = profile.refresh();
+    await Future<void>.delayed(Duration.zero);
+    home
+      ..readGate = null
+      ..nextName = 'Ada After';
+    await profile.refresh();
+    gate.complete();
+    await first;
+
+    check(container.read(accountProfileProvider).value?.name)
+        .equals('Ada After');
+  });
+
   test("a refresh that lands after another server's profile was read is "
       'dropped', () async {
     final home = _ProfileApi(server: 'home', user: 'ada');
@@ -226,6 +253,9 @@ final class _ProfileApi extends ApiService {
   Completer<void>? readGate;
   bool fails = false;
 
+  /// The name the next read answers with, taken as the read is sent.
+  String? nextName;
+
   AccountMetadata _profile(String name) => AccountMetadata(
     id: user,
     email: '$user@example.test',
@@ -236,9 +266,10 @@ final class _ProfileApi extends ApiService {
 
   @override
   Future<AccountMetadata> getAccountMetadata() async {
+    final name = nextName ?? user;
     await readGate?.future;
     if (fails) throw StateError('offline');
-    return _profile(user);
+    return _profile(name);
   }
 
   @override

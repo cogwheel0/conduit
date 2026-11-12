@@ -710,13 +710,19 @@ class AccountProfile extends _$AccountProfile {
     return state.value;
   }
 
+  /// Counts refreshes, so one answered after a newer one is dropped.
+  int _refreshes = 0;
+
   Future<void> refresh() async {
     final api = ref.read(apiServiceProvider);
+    final refresh = ++_refreshes;
     state = const AsyncLoading();
     final next = await AsyncValue.guard(() => _loadProfile(api));
     // Another server, or session, took over while it was read: the profile
     // read is the last one's, and the provider has the new one's already.
     if (!ref.mounted || !identical(ref.read(apiServiceProvider), api)) return;
+    // A newer refresh began meanwhile: its answer is the one kept.
+    if (refresh != _refreshes) return;
     if (next.hasValue && api != null) _serverId = api.serverConfig.id;
     state = next;
   }

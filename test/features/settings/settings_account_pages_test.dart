@@ -343,6 +343,36 @@ void main() {
         .isTrue();
   });
 
+  testWidgets("a model's prompt read for the last account is not put on "
+      "the next one's page", (tester) async {
+    final rig = await _pump(tester);
+    final api = rig.container.read(apiServiceProvider)! as _Api;
+    final answer = Completer<Map<String, dynamic>?>();
+    when(() => api.getModelDetails(any())).thenAnswer((_) => answer.future);
+    const page = 'model-prompt:m1';
+    final loading = buildNativeLoadingDetail(l10n: _l10n, id: page, title: '');
+    rig.pages.register([loading]);
+    final reading = rig.container
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(page);
+    await tester.pump();
+
+    // Another account signs in, and opens the same page, before the first
+    // one's server answers.
+    rig.signIn(_user('b'));
+    await tester.pump();
+    final next = buildNativeLoadingDetail(l10n: _l10n, id: page, title: '');
+    rig.pages.register([next]);
+    answer.complete({
+      'write_access': true,
+      'params': {'system': 'Private prompt'},
+    });
+    await reading;
+    await tester.pumpAndSettle();
+
+    check(rig.page(page)).identicalTo(next);
+  });
+
   group('Change Password', () {
     testWidgets('nothing is sent until Done, and Done sends it once', (
       tester,

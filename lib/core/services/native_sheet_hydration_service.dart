@@ -1090,6 +1090,10 @@ class NativeSheetHydrationService {
   /// profile has been read from the server again; when that fails, the copy
   /// the app holds is shown, and with none the page says so. (The native
   /// sheet fills its own Profile page as it opens.)
+  /// Counts the Profile page's fills, so one finishing after a newer one
+  /// puts nothing over it.
+  int _profileVisits = 0;
+
   Future<void> hydrateFlutterProfileDetail(AppLocalizations l10n) async {
     const pageId = NativeSheetRoutes.profile;
     final user = _ref.read(currentUserProvider2);
@@ -1106,6 +1110,7 @@ class NativeSheetHydrationService {
               .read(accountProfileProvider.notifier)
               .profileOn(api.serverConfig.id);
     final cached = held?.id == user.id ? held : null;
+    final visit = ++_profileVisits;
     var refreshed = true;
     try {
       await _ref
@@ -1120,8 +1125,10 @@ class NativeSheetHydrationService {
         data: {'error': error.toString()},
       );
     }
-    // Another account took over meanwhile: the page is for it now.
-    if (!identical(_ref.read(apiServiceProvider), api) ||
+    // Another account took over meanwhile, or the page opened again: the
+    // page is the newer visit's to fill.
+    if (visit != _profileVisits ||
+        !identical(_ref.read(apiServiceProvider), api) ||
         _ref.read(currentUserProvider2)?.id != user.id) {
       return;
     }
@@ -2465,8 +2472,15 @@ class NativeSheetHydrationService {
       return;
     }
 
+    final userId = _ref.read(currentUserProvider2)?.id;
     final detail = await api.getModelDetails(modelId);
-    if (!context.mounted) return;
+    // Read for an account since gone: its prompt is not put on the page
+    // another account opens by the same id, which a save would send.
+    if (!context.mounted ||
+        !identical(_ref.read(apiServiceProvider), api) ||
+        _ref.read(currentUserProvider2)?.id != userId) {
+      return;
+    }
     if (detail == null) {
       await _surface.applyDetailPatch(
         detailId: detailId,
