@@ -4910,5 +4910,14 @@
   "pushHermesCommandLatest": "Esto instala la versión publicada más reciente del plugin.",
   "hermesJobCreatedNotifyFailed": "Tarea creada, pero no se pudieron activar sus notificaciones.",
   "hermesJobUpdatedNotifyFailed": "Tarea guardada, pero no se pudieron cambiar sus notificaciones.",
-  "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto."
+  "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto.",
+  "messageHintTextForModel": "Pregunta a {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  }
 }

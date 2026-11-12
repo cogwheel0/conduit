@@ -4910,5 +4910,14 @@
   "pushHermesCommandLatest": "這會安裝外掛最新發佈的版本。",
   "hermesJobCreatedNotifyFailed": "排程工作已建立，但無法為其開啟通知。",
   "hermesJobUpdatedNotifyFailed": "排程工作已儲存，但無法變更其通知。",
-  "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。"
+  "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。",
+  "messageHintTextForModel": "問 {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  }
 }

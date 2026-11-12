@@ -6527,5 +6527,14 @@
   "pushHermesCommandLatest": "プラグインの最新の公開バージョンをインストールします。",
   "hermesJobCreatedNotifyFailed": "ジョブは作成されましたが、通知をオンにできませんでした。",
   "hermesJobUpdatedNotifyFailed": "ジョブは保存されましたが、通知を変更できませんでした。",
-  "hermesJobNotifyNeedsScheduled": "使うには、通知で「スケジュールされたタスク」をオンにしてください。"
+  "hermesJobNotifyNeedsScheduled": "使うには、通知で「スケジュールされたタスク」をオンにしてください。",
+  "messageHintTextForModel": "{modelName} に質問",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  }
 }

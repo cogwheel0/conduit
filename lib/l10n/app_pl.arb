@@ -9286,5 +9286,15 @@
   "pushHermesCommandLatest": "To polecenie instaluje najnowszą opublikowaną wersję wtyczki.",
   "hermesJobCreatedNotifyFailed": "Utworzono zadanie, ale nie udało się włączyć dla niego powiadomień.",
   "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
-  "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach."
+  "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach.",
+  "messageHintTextForModel": "Zapytaj {modelName}",
+  "@messageHintTextForModel": {
+    "description": "Placeholder in the chat message input naming the chat's selected model (its display name, cut short with an ellipsis after 24 characters). Falls back to messageHintText when no model is chosen.",
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  }
 }
