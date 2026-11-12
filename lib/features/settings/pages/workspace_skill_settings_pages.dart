@@ -713,13 +713,16 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     AppLocalizations l10n,
     WorkspaceSkillEditor editor,
   ) async {
-    if (editor.summary == null || editor.readOnly) return;
+    final summary = editor.summary;
+    if (summary == null || editor.readOnly) return;
     final base = editor.id.trim();
     final description = editor.description.trim();
+    final id = base.isEmpty ? 'skill_clone' : '${base}_clone';
+    final name = '${editor.name.trim()} ${l10n.workspaceSkillCloneSuffix}';
     // Clones never take the source skill's sharing grants.
     final form = WorkspaceSkillForm(
-      id: base.isEmpty ? 'skill_clone' : '${base}_clone',
-      name: '${editor.name.trim()} ${l10n.workspaceSkillCloneSuffix}',
+      id: id,
+      name: name,
       description: description.isEmpty ? null : description,
       content: editor.content,
       // Its supporting files go with it, beside a SKILL.md of the content
@@ -729,7 +732,18 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       meta: editor.meta,
       isActive: editor.summary?.isActive ?? true,
     );
-    final ok = await _operate(l10n, editor, () => _notifier.create(form));
+    final ok = await _operate(l10n, editor, () async {
+      try {
+        // The server's own duplicate copies every file of the package; the
+        // skill as read here has none on Open WebUI 0.13.
+        await _notifier.clone(summary.id, newId: id, name: name);
+      } on DioException catch (error) {
+        // A server without it makes the copy from what was read.
+        final status = error.response?.statusCode;
+        if (status != 404 && status != 405) rethrow;
+        await _notifier.create(form);
+      }
+    });
     if (!ok) return;
     _say(editor, l10n.workspaceSkillSaved, error: false);
     await _applyEditor(l10n, editor, withPages: false);

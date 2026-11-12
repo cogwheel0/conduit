@@ -219,10 +219,24 @@ final class _Skills extends WorkspaceSkills {
   final updated = <WorkspaceSkillForm>[];
   final toggled = <String>[];
   final deleted = <String>[];
+  final cloned = <(String, String)>[];
+  Object? cloneError;
 
   @override
   Future<WorkspaceCollectionState<WorkspaceSkillSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
+
+  @override
+  Future<WorkspaceSkillDetail> clone(
+    String id, {
+    required String newId,
+    required String name,
+  }) async {
+    final error = cloneError;
+    if (error != null) throw error;
+    cloned.add((id, newId));
+    return WorkspaceSkillSummary(id: newId, name: name, userId: 'owner');
+  }
 
   Object? createError;
 
@@ -1028,10 +1042,9 @@ void main() {
       await rig.open(_skill1);
 
       await rig.change(_skillRow('clone', _skillKey));
-      check(skills.created.single.id).equals('skill-1_clone');
-      // Its SKILL.md alone: the content makes it, as it always did.
-      check(skills.created.single.files).isNull();
-      check(skills.created.single.accessGrants).isNotNull().isEmpty();
+      // The server's own duplicate, which copies every file of the skill.
+      check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
+      check(skills.created).isEmpty();
 
       await rig.change(_skillRow('active', _skillKey));
       check(skills.toggled).deepEquals(['skill-1']);
@@ -1088,6 +1101,24 @@ void main() {
       await rig.open(_skill1);
       check(rig.row(_skill1, _skillRow('name', _skillKey))!.value)
           .not((it) => it.equals('Private Trail'));
+    });
+
+    testWidgets('a server without its own duplicate gets a copy made from '
+        'the skill as read', (tester) async {
+      final skills = _Skills()
+        ..cloneError = DioException(
+          requestOptions: RequestOptions(),
+          response: Response(requestOptions: RequestOptions(), statusCode: 404),
+        );
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.created.single.id).equals('skill-1_clone');
+      // Its SKILL.md alone: the content makes it, as it always did.
+      check(skills.created.single.files).isNull();
+      check(skills.created.single.accessGrants).isNotNull().isEmpty();
     });
 
     testWidgets('a skill the account may only view offers no changes', (

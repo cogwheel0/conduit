@@ -57,6 +57,25 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
         : null;
   }
 
+  /// Copies skill [id] -- its saved instructions and every file of its
+  /// package -- as [newId] named [name], with no one else's access. Open
+  /// WebUI 0.13's own duplicate; an older server answers 404 or 405.
+  Future<WorkspaceSkillDetail?> cloneWorkspaceSkill(
+    String id, {
+    required String newId,
+    required String name,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/skills/id/${Uri.encodeComponent(id)}/clone',
+      data: {'id': newId, 'name': name},
+    );
+    return response.data is Map
+        ? WorkspaceSkillSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
   Future<WorkspaceSkillDetail?> updateWorkspaceSkill(
     String id,
     WorkspaceSkillForm form,

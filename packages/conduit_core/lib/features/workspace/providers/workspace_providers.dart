@@ -1262,6 +1262,16 @@ class WorkspaceSkills extends _$WorkspaceSkills {
   Future<WorkspaceSkillDetail> create(WorkspaceSkillForm form) =>
       _mutate((api) => api.createWorkspaceSkill(form), id: form.id);
 
+  /// The server's own duplicate of skill [id], files and all.
+  Future<WorkspaceSkillDetail> clone(
+    String id, {
+    required String newId,
+    required String name,
+  }) => _mutate(
+    (api) => api.cloneWorkspaceSkill(id, newId: newId, name: name),
+    id: newId,
+  );
+
   Future<WorkspaceSkillDetail> updateItem(String id, WorkspaceSkillForm form) =>
       _mutate((api) => api.updateWorkspaceSkill(id, form), id: id);
 
