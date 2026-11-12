@@ -1087,7 +1087,11 @@ class NativeSheetHydrationService {
     final api = _ref.read(apiServiceProvider);
     // The copy kept from before an earlier refresh that failed counts too,
     // but never one left from another account.
-    final held = _ref.read(accountProfileProvider).value;
+    final held = api == null
+        ? _ref.read(accountProfileProvider).value
+        : _ref
+              .read(accountProfileProvider.notifier)
+              .profileOn(api.serverConfig.id);
     final cached = held?.id == user.id ? held : null;
     var refreshed = true;
     try {

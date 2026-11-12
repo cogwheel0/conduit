@@ -75,6 +75,53 @@ void main() {
     ) as _LogoutSpyAuthStateManager;
     check(auth.logoutCalls).equals(0);
   });
+  test('a profile saved for a session since replaced is not kept as the '
+      "new one's", () async {
+    final saving = _ProfileApi(server: 'home', user: 'ada')
+      ..saveGate = Completer<void>();
+    ApiService current = saving;
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWith((ref) => current)],
+    );
+    addTearDown(container.dispose);
+    await container.read(accountProfileProvider.future);
+
+    final save = container
+        .read(accountProfileProvider.notifier)
+        .save(name: 'Ada Saved', profileImageUrl: '');
+    await Future<void>.delayed(Duration.zero);
+    current = _ProfileApi(server: 'work', user: 'grace');
+    container.invalidate(apiServiceProvider);
+    await container.read(accountProfileProvider.future);
+    saving.saveGate!.complete();
+    await save;
+
+    check(container.read(accountProfileProvider).value?.id).equals('grace');
+  });
+
+  test("a profile kept through a failed read of another server's is not "
+      "that server's", () async {
+    ApiService current = _ProfileApi(server: 'home', user: 'ada');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWith((ref) => current)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+
+    // The same user id on another server, which cannot be read.
+    current = _ProfileApi(server: 'work', user: 'ada')..fails = true;
+    container.invalidate(apiServiceProvider);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    final profile = container.read(accountProfileProvider.notifier);
+    check(profile.profileOn('work')).isNull();
+    check(profile.profileOn('home')?.id).equals('ada');
+  });
 }
 
 ProviderContainer _container(_PasswordApi api) => ProviderContainer(
@@ -130,5 +177,48 @@ final class _PasswordApi extends ApiService {
     if (error != null) throw error;
     await updateGate?.future;
     updates.add((password: password, newPassword: newPassword));
+  }
+}
+
+final class _ProfileApi extends ApiService {
+  _ProfileApi({required String server, required this.user})
+    : super(
+        serverConfig: ServerConfig(
+          id: server,
+          name: server,
+          url: 'https://$server.example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final String user;
+  Completer<void>? saveGate;
+  bool fails = false;
+
+  AccountMetadata _profile(String name) => AccountMetadata(
+    id: user,
+    email: '$user@example.test',
+    name: name,
+    role: 'user',
+    isActive: true,
+  );
+
+  @override
+  Future<AccountMetadata> getAccountMetadata() async {
+    if (fails) throw StateError('offline');
+    return _profile(user);
+  }
+
+  @override
+  Future<AccountMetadata> updateAccountMetadata({
+    required String name,
+    required String profileImageUrl,
+    String? bio,
+    String? gender,
+    String? dateOfBirth,
+    String? timezone,
+  }) async {
+    await saveGate?.future;
+    return _profile(name);
   }
 }

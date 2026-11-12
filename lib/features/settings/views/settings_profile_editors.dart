@@ -134,7 +134,9 @@ final class _ProfileAccount {
   /// The profile the app holds for this account. The copy kept from before a
   /// refresh counts, but never one left from another account.
   AccountMetadata? profileIn(WidgetRef ref) {
-    final profile = ref.read(accountProfileProvider).value;
+    final profile = ref
+        .read(accountProfileProvider.notifier)
+        .profileOn(serverId);
     return profile?.id == userId ? profile : null;
   }
 

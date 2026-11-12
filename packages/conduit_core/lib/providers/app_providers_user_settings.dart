@@ -682,13 +682,28 @@ class UserMemories extends _$UserMemories {
 
 @Riverpod(keepAlive: true)
 class AccountProfile extends _$AccountProfile {
+  /// The server the profile held was read from. A copy kept through a
+  /// reload or a failed read may be another server's.
+  String? _serverId;
+
   @override
   Future<AccountMetadata?> build() async {
     final api = ref.watch(apiServiceProvider);
     if (api == null) {
       return null;
     }
-    return api.getAccountMetadata();
+    final profile = await api.getAccountMetadata();
+    if (ref.mounted) _serverId = api.serverConfig.id;
+    return profile;
+  }
+
+  /// The profile held, the copy kept from before a refresh included, when
+  /// it was read from server [serverId]: null when it is another server's,
+  /// as after a switch whose read failed.
+  AccountMetadata? profileOn(String serverId) {
+    final server = _serverId;
+    if (server != null && server != serverId) return null;
+    return state.value;
   }
 
   Future<void> refresh() async {
@@ -717,10 +732,16 @@ class AccountProfile extends _$AccountProfile {
       dateOfBirth: dateOfBirth,
       timezone: timezone,
     );
-    if (!ref.mounted) {
+    // Another session, or another account's profile read meanwhile: the
+    // saved one is not put over it.
+    final held = state.value;
+    if (!ref.mounted ||
+        !identical(api, ref.read(apiServiceProvider)) ||
+        (held != null && held.id != updated.id)) {
       return updated;
     }
 
+    _serverId = api.serverConfig.id;
     state = AsyncData(updated);
     await ref.read(authActionsProvider).refresh();
     ref.invalidate(currentUserProvider);
@@ -753,7 +774,9 @@ class AccountProfile extends _$AccountProfile {
     if (api == null) {
       return null;
     }
-    return api.getAccountMetadata();
+    final profile = await api.getAccountMetadata();
+    if (ref.mounted) _serverId = api.serverConfig.id;
+    return profile;
   }
 }
 
