@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
@@ -177,6 +178,101 @@ void main() {
     final container = makeContainer(online: false, chatId: chatId);
     check(await firstInfo(container, assistantId)).isNull();
   });
+
+  // A chat's ops go out in order: an answer sent while its chat's update
+  // has not gone out waits behind it, never tried itself, so on its own it
+  // would show as still being written.
+  test('an answer waiting behind its chat\'s unsent update shows as queued, '
+      'not as being written', () async {
+    const chatId = 'c1';
+    const assistantId = 'a1';
+    final update = await db.transaction(
+      () => db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
+    );
+    await enqueueCompletion(chatId, assistantId);
+    // The drainer tried the update and found the device offline.
+    await db.outboxDao.markOfflineDeferred(update, nextAttemptAt: 0);
+
+    final container = makeContainer(online: false, chatId: chatId);
+    final info = await firstInfo(container, assistantId);
+    check(info).isNotNull()
+      ..has((i) => i.phase, 'phase').equals(QueuedCompletionPhase.pending)
+      ..has((i) => i.isOffline, 'isOffline').isTrue();
+  });
+
+  test('an answer behind an update that stalled shows as queued, with the '
+      'update\'s error', () async {
+    const chatId = 'c1';
+    const assistantId = 'a1';
+    final update = await db.transaction(
+      () => db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
+    );
+    await enqueueCompletion(chatId, assistantId);
+    for (var i = 0; i < 2; i++) {
+      await db.outboxDao.markFailedRetryable(
+        update,
+        error: 'Connection closed',
+        nextAttemptAt: 1,
+      );
+    }
+
+    final container = makeContainer(online: true, chatId: chatId);
+    final info = await firstInfo(container, assistantId);
+    check(info).isNotNull()
+      ..has((i) => i.isOffline, 'isOffline').isFalse()
+      ..has((i) => i.lastError, 'lastError').equals('Connection closed');
+  });
+
+  test('Retry on an answer held up by a parked update re-arms the update '
+      'too', () async {
+    const chatId = 'c1';
+    const assistantId = 'a1';
+    final update = await db.transaction(
+      () => db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
+    );
+    await enqueueCompletion(chatId, assistantId);
+    await db.outboxDao.markParked(update, error: 'Bad request');
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        isOnlineProvider.overrideWith((ref) => true),
+        syncEngineProvider.overrideWith(_NoopSyncEngine.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(activeConversationProvider.notifier).set(conv(chatId));
+
+    final info = await firstInfo(container, assistantId);
+    check(info).isNotNull().has((i) => i.blockedBySeq, 'blockedBySeq')
+        .equals(update);
+
+    await container.read(queuedCompletionActionsProvider).retry(info!);
+
+    // Re-armed, the update can go out, and the answer after it.
+    check(
+      (await db.outboxDao.pendingForChat(chatId)).map((op) => op.seq),
+    ).contains(update);
+  });
+
+  test(
+    'an answer behind an update tried only once shows nothing yet',
+    () async {
+      const chatId = 'c1';
+      const assistantId = 'a1';
+      final update = await db.transaction(
+        () => db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
+      );
+      await enqueueCompletion(chatId, assistantId);
+      await db.outboxDao.markFailedRetryable(
+        update,
+        error: 'Connection closed',
+        nextAttemptAt: 1,
+      );
+
+      final container = makeContainer(online: true, chatId: chatId);
+      check(await firstInfo(container, assistantId)).isNull();
+    },
+  );
 
   test('an offline-deferred completion surfaces the banner', () async {
     const chatId = 'c1';
@@ -812,6 +908,118 @@ void main() {
           .isNotNull()
           .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
           .isNull();
+    });
+  });
+
+  test('an info held up by another op differs from one that is not', () {
+    // A row is rebuilt only when its info changes: which op holds it up
+    // is part of that, or Retry would act on a stale blocker.
+    final owner = Object();
+    QueuedCompletionInfo info({int? blockedBySeq}) => QueuedCompletionInfo(
+      databaseOwner: owner,
+      seq: 2,
+      chatId: 'c1',
+      scopedChatId: 'c1',
+      assistantMessageId: 'a1',
+      phase: QueuedCompletionPhase.pending,
+      isOffline: false,
+      blockedBySeq: blockedBySeq,
+    );
+
+    check(info(blockedBySeq: 1)).not((it) => it.equals(info()));
+    check(info(blockedBySeq: 1)).equals(info(blockedBySeq: 1));
+    check(info(blockedBySeq: 1).hashCode)
+        .equals(info(blockedBySeq: 1).hashCode);
+  });
+
+  group('queuedCompletionDisplaysOf', () {
+    var seq = 0;
+    OutboxOp op(
+      OutboxKind kind, {
+      String chatId = 'c1',
+      String? answer,
+      String status = OutboxStatus.pending,
+      int attempts = 0,
+      String? lastError,
+    }) => OutboxOp(
+      seq: ++seq,
+      kind: kind.name,
+      chatId: chatId,
+      payload: answer == null
+          ? '{}'
+          : jsonEncode(
+              RequestCompletionPayload(
+                assistantMessageId: answer,
+                model: 'gpt',
+              ).toJson(),
+            ),
+      status: status,
+      attempts: attempts,
+      lastError: lastError,
+    );
+
+    test('an op sending now holds nothing up; a parked one holds up the '
+        'answers after it in its chat only', () {
+      final shown = queuedCompletionDisplaysOf([
+        op(
+          OutboxKind.updateChat,
+          status: OutboxStatus.inFlight,
+          attempts: 3,
+          lastError: 'boom',
+        ),
+        op(OutboxKind.requestCompletion, answer: 'a1'),
+        op(
+          OutboxKind.requestCompletion,
+          chatId: 'c2',
+          answer: 'a2',
+          status: OutboxStatus.failed,
+          attempts: 5,
+          lastError: 'nope',
+        ),
+        op(OutboxKind.requestCompletion, chatId: 'c2', answer: 'a3'),
+        op(OutboxKind.requestCompletion, chatId: 'c3', answer: 'a4'),
+      ], isOnline: true);
+
+      check(shown.keys.toSet()).deepEquals({'a2', 'a3'});
+      check(shown['a2']!.isFailed).isTrue();
+      check(shown['a3']!)
+        ..has((d) => d.isFailed, 'isFailed').isFalse()
+        ..has((d) => d.lastError, 'lastError').equals('nope');
+    });
+
+    test('a stuck note or folder op sharing a chat\'s id holds none of its '
+        'answers up', () {
+      // Notes and folders run in their own domains; their ids are not kept
+      // apart from chats' in the outbox.
+      final shown = queuedCompletionDisplaysOf([
+        op(
+          OutboxKind.noteUpdate,
+          status: OutboxStatus.failed,
+          attempts: 5,
+          lastError: 'nope',
+        ),
+        op(OutboxKind.folderUpsert, attempts: 3, lastError: 'boom'),
+        op(OutboxKind.requestCompletion, answer: 'a1'),
+      ], isOnline: true);
+
+      check(shown).isEmpty();
+    });
+
+    test('an answer whose request is being sent now is not shown as queued, '
+        'however it fared before', () {
+      // Retry and Cancel only reach a pending op: shown, they would do
+      // nothing while this one is sent.
+      final shown = queuedCompletionDisplaysOf([
+        op(
+          OutboxKind.requestCompletion,
+          answer: 'a1',
+          status: OutboxStatus.inFlight,
+          attempts: 3,
+          lastError: 'offline',
+        ),
+      ], isOnline: true);
+
+      check(shown).isEmpty();
     });
   });
 }

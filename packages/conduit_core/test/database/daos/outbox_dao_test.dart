@@ -448,6 +448,41 @@ void main() {
             .deepEquals({OutboxKind.requestCompletion.name});
       },
     );
+
+    test('watchChatQueuesWithCompletions returns the live ops of chats with a '
+        'queued completion', () async {
+      final update = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+      final completion = await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: const RequestCompletionPayload(
+          assistantMessageId: 'a1',
+          model: 'gpt',
+        ).toJson(),
+      );
+      final otherUpdate = await enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c2',
+      );
+      final otherCompletion = await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c2',
+        payload: const RequestCompletionPayload(
+          assistantMessageId: 'a2',
+          model: 'gpt',
+        ).toJson(),
+      );
+      // No completion waits in c3: its update is not part of any queue.
+      await enqueue(kind: OutboxKind.updateChat, chatId: 'c3');
+      await dao.markParked(otherCompletion, error: 'boom');
+
+      final all = await dao.watchChatQueuesWithCompletions().first;
+      final one = await dao.watchChatQueuesWithCompletions(chatId: 'c1').first;
+
+      check(all.map((op) => op.seq).toList())
+          .deepEquals([update, completion, otherUpdate, otherCompletion]);
+      check(one.map((op) => op.seq).toList()).deepEquals([update, completion]);
+    });
   });
 
   group('coalescing (A3)', () {
