@@ -1899,6 +1899,7 @@ class PlatformNativeSheetRowAction {
     this.sfSymbol,
     required this.destructive,
     this.confirmMessage,
+    this.detailId,
   });
 
   String id;
@@ -1912,8 +1913,18 @@ class PlatformNativeSheetRowAction {
   /// Asked before it acts; the label confirms.
   String? confirmMessage;
 
+  /// The page it opens instead of sending its id.
+  String? detailId;
+
   List<Object?> _toList() {
-    return <Object?>[id, label, sfSymbol, destructive, confirmMessage];
+    return <Object?>[
+      id,
+      label,
+      sfSymbol,
+      destructive,
+      confirmMessage,
+      detailId,
+    ];
   }
 
   Object encode() {
@@ -1928,6 +1939,7 @@ class PlatformNativeSheetRowAction {
       sfSymbol: result[2] as String?,
       destructive: result[3]! as bool,
       confirmMessage: result[4] as String?,
+      detailId: result[5] as String?,
     );
   }
 
@@ -1945,7 +1957,8 @@ class PlatformNativeSheetRowAction {
         _deepEquals(label, other.label) &&
         _deepEquals(sfSymbol, other.sfSymbol) &&
         _deepEquals(destructive, other.destructive) &&
-        _deepEquals(confirmMessage, other.confirmMessage);
+        _deepEquals(confirmMessage, other.confirmMessage) &&
+        _deepEquals(detailId, other.detailId);
   }
 
   @override
@@ -1954,7 +1967,7 @@ class PlatformNativeSheetRowAction {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetRowAction(id: $id, label: $label, sfSymbol: $sfSymbol, destructive: $destructive, confirmMessage: $confirmMessage)';
+    return 'PlatformNativeSheetRowAction(id: $id, label: $label, sfSymbol: $sfSymbol, destructive: $destructive, confirmMessage: $confirmMessage, detailId: $detailId)';
   }
 }
 

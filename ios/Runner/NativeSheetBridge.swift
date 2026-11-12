@@ -355,6 +355,8 @@ private struct NativeSheetRowAction {
     let destructive: Bool
     /// Asked before it acts; the label confirms.
     let confirmMessage: String?
+    /// The page it opens, as a row leading to that page does.
+    let detailId: String?
 
     init?(_ payload: [String: Any]) {
         guard let id = payload["id"] as? String, !id.isEmpty,
@@ -365,11 +367,16 @@ private struct NativeSheetRowAction {
         sfSymbol = payload["sfSymbol"] as? String
         destructive = payload["destructive"] as? Bool ?? false
         confirmMessage = payload["confirmMessage"] as? String
+        detailId = (payload["detailId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The action as a row of its own, for the sheet to act on as it acts on
-    /// a tapped row: asking first when it has a question, then sending it.
+    /// a tapped row: asking first when it has a question, then sending it,
+    /// or pushing the page it names.
     var asItem: NativeSheetItem? {
+        if let detailId {
+            return NativeSheetItem(["id": detailId, "title": label])
+        }
         var payload: [String: Any] = [
             "id": id,
             "title": label,
@@ -1305,6 +1312,7 @@ private extension PlatformNativeSheetItem {
             ]
             entry["sfSymbol"] = action.sfSymbol
             entry["confirmMessage"] = action.confirmMessage
+            entry["detailId"] = action.detailId
             return entry
         }
         return payload

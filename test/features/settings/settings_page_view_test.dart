@@ -190,6 +190,37 @@ void main() {
     check(controller.changes).isEmpty();
   });
 
+  testWidgets("a row menu item naming a page opens it, as a row leading to "
+      'it would, and sends nothing', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'account',
+          title: 'Ada',
+          rowActions: [
+            NativeSheetRowAction(
+              id: 'push-settings',
+              label: 'Push Settings',
+              detailId: 'push-target-page:x',
+            ),
+          ],
+        ),
+      ]),
+      known: [NativeSheetDetailConfig(id: 'push-target-page:x', title: 'Push')],
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-row-actions-account')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Push Settings').last);
+    await tester.pumpAndSettle();
+
+    check(find.text('page push-target-page:x').evaluate()).isNotEmpty();
+    check(controller.changes).isEmpty();
+  });
+
   testWidgets("a bar button naming a page pushes it, as a row leading to it "
       'would, and sends nothing', (tester) async {
     final controller = await _pumpPage(

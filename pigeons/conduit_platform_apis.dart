@@ -508,6 +508,7 @@ class PlatformNativeSheetRowAction {
     this.sfSymbol,
     required this.destructive,
     this.confirmMessage,
+    this.detailId,
   });
 
   String id;
@@ -517,6 +518,9 @@ class PlatformNativeSheetRowAction {
 
   /// Asked before it acts; the label confirms.
   String? confirmMessage;
+
+  /// The page it opens instead of sending its id.
+  String? detailId;
 }
 
 class PlatformNativeSheetLink {
