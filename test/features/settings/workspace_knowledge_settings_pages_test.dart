@@ -153,7 +153,15 @@ final class _Files extends WorkspaceKnowledgeFiles {
     this.folders = const [_folder],
     this.files = const [_file],
     this.inside = const {},
+    this.more = false,
   });
+
+  /// Whether the server holds more files than the first page.
+  final bool more;
+  int loadedMore = 0;
+
+  /// Thrown by the first read while set.
+  Object? buildError;
 
   final List<WorkspaceKnowledgeDirectory> folders;
   final List<WorkspaceKnowledgeFile> files;
@@ -177,13 +185,19 @@ final class _Files extends WorkspaceKnowledgeFiles {
       directories: directoryId.isEmpty ? folders : const [],
       files: listed,
       breadcrumbs: directoryId.isEmpty ? const [] : const [_folder],
-      total: listed.length,
+      total: more ? listed.length + 1 : listed.length,
     );
   }
 
   @override
-  Future<WorkspaceKnowledgeBrowserState> build(String knowledgeId) async =>
-      _at('');
+  Future<WorkspaceKnowledgeBrowserState> build(String knowledgeId) async {
+    final error = buildError;
+    if (error != null) throw error;
+    return _at('');
+  }
+
+  @override
+  Future<void> loadMore() async => loadedMore++;
 
   @override
   Future<void> openDirectory(String directoryId) async {
@@ -237,6 +251,16 @@ final class _Files extends WorkspaceKnowledgeFiles {
   Future<void> refreshPending() async {}
 }
 
+/// Who is signed in, when a test switches to another account.
+final class _SignedIn extends Notifier<User?> {
+  @override
+  User? build() => null;
+
+  void use(User user) => state = user;
+}
+
+final _signedInProvider = NotifierProvider<_SignedIn, User?>(_SignedIn.new);
+
 final class _UserFiles extends UserFiles {
   _UserFiles(this.files);
 
@@ -252,6 +276,19 @@ final class _Surface extends SettingsSurface {
 
   final asked = <List<String>>[];
   String? answer;
+
+  /// Holds each page update, when a test sets it.
+  Completer<void>? gate;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final applied = await super.applyDetail(detail, detailSheets: detailSheets);
+    await gate?.future;
+    return applied;
+  }
 
   @override
   Future<String?> ask({
@@ -387,7 +424,9 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         reviewerModeProvider.overrideWithValue(false),
-        currentUserProvider2.overrideWithValue(user ?? _user()),
+        currentUserProvider2.overrideWith(
+          (ref) => ref.watch(_signedInProvider) ?? user ?? _user(),
+        ),
         apiServiceProvider.overrideWithValue(api),
         authTokenProvider3.overrideWithValue('token-a'),
         activeServerProvider.overrideWith((ref) async => _server),
@@ -466,6 +505,41 @@ void main() {
 
       await rig.change(workspaceRowId('list-delete', 'knowledge', 'kb-1'));
       check(knowledge.deleted).deepEquals(['kb-1']);
+    });
+
+    testWidgets('a delete is not sent once another account signed in while '
+        'its row was drawn busy', (tester) async {
+      final knowledge = _Knowledge([_summary()]);
+      final rig = await pump(tester, knowledge: knowledge);
+      await rig.open(list);
+      final gate = rig.surface.gate = Completer<void>();
+
+      final deleting = rig.container
+          .read(settingsPageModulesProvider)
+          .whereType<WorkspaceSettingsPages>()
+          .single
+          .handleChange(
+            workspaceRowId('list-delete', 'knowledge', 'kb-1'),
+            true,
+            _l10n,
+          );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.surface.gate = null;
+      gate.complete();
+      await rig.settle(deleting);
+
+      check(knowledge.deleted).isEmpty();
     });
   });
 
@@ -615,7 +689,8 @@ void main() {
 
       await rig.change(_row('export', _key));
 
-      check(rig.export.shared).deepEquals(['Trail Notes']);
+      // A ZIP, as Open WebUI exports a base.
+      check(rig.export.shared).deepEquals(['Trail Notes.zip']);
     });
 
     testWidgets('a connected base reads without fields or file changes', (
@@ -826,6 +901,13 @@ void main() {
         'file-1',
       );
       check(rig.row(form, name)!.value).equals('route.txt');
+      // Untouched, the name it opened with is no change to ask about.
+      check(rig.page(form).edited).isFalse();
+
+      // Typed into, it keeps the text through the folder drawn again.
+      await rig.change(name, 'trail.txt');
+      await rig.open(_root);
+      check(rig.row(form, name)!.value).equals('trail.txt');
 
       await rig.change(name, 'trail.txt');
       await rig.change(
@@ -833,6 +915,32 @@ void main() {
       );
 
       check(browser.renamed).deepEquals([('file-1', 'trail.txt')]);
+    });
+
+    testWidgets('a connected base pages through its files too', (tester) async {
+      final browser = _Files(more: true);
+      final rig = await pump(
+        tester,
+        base: _summary(external: true),
+        files: browser,
+      );
+      await rig.open(_base1);
+      await rig.open(_root);
+
+      await rig.change(_row('files-more', _key, ''));
+
+      check(browser.loadedMore).equals(1);
+    });
+
+    testWidgets('Retry reads a folder that failed once', (tester) async {
+      final browser = _Files()..buildError = StateError('offline');
+      final rig = await files(tester, browser: browser);
+      check(rig.row(_root, _row('files-retry', _key, ''))).isNotNull();
+
+      browser.buildError = null;
+      await rig.change(_row('files-retry', _key, ''), true);
+
+      check(rig.row(_root, '$_root-file-file-1')).isNotNull();
     });
 
     testWidgets('a file moves to the folder picked', (tester) async {

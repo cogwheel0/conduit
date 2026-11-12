@@ -51,8 +51,12 @@ final class WorkspaceKnowledgeFormDraft {
   bool busy = false;
   String? notice;
 
+  /// The name the form opened with: a rename's current name.
+  String openedName = '';
+
   /// Whether anything was typed, so leaving asks first.
-  bool get edited => name.trim().isNotEmpty || content.trim().isNotEmpty;
+  bool get edited =>
+      name.trim() != openedName.trim() || content.trim().isNotEmpty;
 }
 
 /// A knowledge base's editor while its page is open.
@@ -1009,6 +1013,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
         editor.folderNames[folder.id] = folder.name;
       }
     }
+    final known = _ref.read(settingsPagesProvider);
     return _surface.applyDetail(
       buildWorkspaceKnowledgeFolderPage(
         l10n,
@@ -1017,58 +1022,66 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
         browser: browser,
       ),
       detailSheets: [
-        if (showing) ...[
-          for (final folder in browser.directories) ...[
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: workspaceKnowledgeFolderPageId(key, folder.id),
-              title: folder.name,
-            ),
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: workspaceKnowledgeFormPageId(
-                WorkspaceKnowledgeForms.renameFolder,
-                key,
-                folder.id,
+        for (final page in <NativeSheetDetailConfig>[
+          if (showing) ...[
+            for (final folder in browser.directories) ...[
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: workspaceKnowledgeFolderPageId(key, folder.id),
+                title: folder.name,
               ),
-              title: l10n.workspaceKnowledgeRenameFolder,
-            ),
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: workspaceKnowledgeFormPageId(
+                  WorkspaceKnowledgeForms.renameFolder,
+                  key,
+                  folder.id,
+                ),
+                title: l10n.workspaceKnowledgeRenameFolder,
+              ),
+            ],
+            for (final file in browser.files) ...[
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: workspaceKnowledgeFormPageId(
+                  WorkspaceKnowledgeForms.renameFile,
+                  key,
+                  file.id,
+                ),
+                title: l10n.workspaceKnowledgeFileRename,
+              ),
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: workspaceKnowledgeFormPageId(
+                  WorkspaceKnowledgeForms.move,
+                  key,
+                  file.id,
+                ),
+                title: l10n.workspaceKnowledgeMoveTitle,
+              ),
+            ],
+            // A page with no title is not one the native sheet opens.
+            for (final (kind, title) in [
+              (
+                WorkspaceKnowledgeForms.attach,
+                l10n.workspaceKnowledgeAttachExisting,
+              ),
+              (WorkspaceKnowledgeForms.text, l10n.workspaceKnowledgeAddText),
+              (
+                WorkspaceKnowledgeForms.folder,
+                l10n.workspaceKnowledgeNewFolder,
+              ),
+            ])
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: workspaceKnowledgeFormPageId(kind, key, directoryId),
+                title: title,
+              ),
           ],
-          for (final file in browser.files) ...[
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: workspaceKnowledgeFormPageId(
-                WorkspaceKnowledgeForms.renameFile,
-                key,
-                file.id,
-              ),
-              title: l10n.workspaceKnowledgeFileRename,
-            ),
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: workspaceKnowledgeFormPageId(
-                WorkspaceKnowledgeForms.move,
-                key,
-                file.id,
-              ),
-              title: l10n.workspaceKnowledgeMoveTitle,
-            ),
-          ],
-          // A page with no title is not one the native sheet opens.
-          for (final (kind, title) in [
-            (
-              WorkspaceKnowledgeForms.attach,
-              l10n.workspaceKnowledgeAttachExisting,
-            ),
-            (WorkspaceKnowledgeForms.text, l10n.workspaceKnowledgeAddText),
-            (WorkspaceKnowledgeForms.folder, l10n.workspaceKnowledgeNewFolder),
-          ])
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: workspaceKnowledgeFormPageId(kind, key, directoryId),
-              title: title,
-            ),
-        ],
+        ])
+          // Stand-ins only for pages not drawn yet: a form open above this
+          // folder keeps what was typed through the folder's redraws.
+          if (!known.contains(page.id)) page,
       ],
     );
   }
@@ -1241,6 +1254,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       } else if (kind == WorkspaceKnowledgeForms.renameFolder) {
         draft.name = editor.folderNames[target] ?? '';
       }
+      draft.openedName = draft.name;
     }
     await _applyForm(l10n, editor, kind, target);
     if (kind == WorkspaceKnowledgeForms.attach) {
@@ -1340,13 +1354,18 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       case 'delete':
         await _delete(l10n, editor);
       case 'files-retry' when row.extra != null:
+        // Kept alive, a failed read stays the answer until it is dropped.
+        final files = _filesOf(editor);
+        if (files != null && _ref.read(files).hasError) _ref.invalidate(files);
         await _readFolder(editor, row.extra!, refresh: true);
       case 'files-more':
+        // A read: a view-only account pages through the files too.
         await _fileAction(
           l10n,
           editor,
           (files) => files.loadMore(),
           failure: l10n.workspaceKnowledgeFilesLoadFailed,
+          read: true,
         );
       case 'upload':
         await _upload(l10n, editor);
@@ -1597,9 +1616,11 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       await _ref
           .read(workspaceExportControllerProvider)
           .shareBytes(
-            filename: summary.name.isEmpty ? 'knowledge' : summary.name,
+            // Open WebUI exports a base as a ZIP archive.
+            filename:
+                '${summary.name.isEmpty ? 'knowledge' : summary.name}.zip',
             bytes: exported,
-            mimeType: 'application/json',
+            mimeType: 'application/zip',
             sharePositionOrigin: _shareOrigin(),
           );
     } catch (error, stackTrace) {
@@ -1663,10 +1684,11 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     Future<void> Function(WorkspaceKnowledgeFiles files) action, {
     required String failure,
     String? success,
+    bool read = false,
   }) async {
     final provider = _filesOf(editor);
     final folder = editor.foldersShown.lastOrNull;
-    if (provider == null || folder == null || editor.filesReadOnly) {
+    if (provider == null || folder == null || (editor.filesReadOnly && !read)) {
       return false;
     }
     editor.folderNotices.remove(folder);
