@@ -41,7 +41,7 @@ void main() {
     await tester.pumpWidget(
       const ProviderScope(
         child: MaterialApp(
-          home: MacDesktopShortcuts(child: Focus(child: Text('Content'))),
+          home: AppKeyboardShortcuts(child: Focus(child: Text('Content'))),
         ),
       ),
     );
@@ -64,8 +64,14 @@ void main() {
         const SingleActivator(LogicalKeyboardKey.digit4, meta: true),
         const SingleActivator(LogicalKeyboardKey.digit5, meta: true),
         const SingleActivator(LogicalKeyboardKey.comma, meta: true),
-        const SingleActivator(LogicalKeyboardKey.escape),
       ]),
+    );
+    expect(
+      bindings.keys.where(
+        (activator) =>
+            activator.triggers?.contains(LogicalKeyboardKey.escape) ?? false,
+      ),
+      hasLength(1),
     );
   });
 
@@ -78,7 +84,7 @@ void main() {
     await tester.pumpWidget(
       const ProviderScope(
         child: MaterialApp(
-          home: MacDesktopShortcuts(child: Focus(child: Text('Content'))),
+          home: AppKeyboardShortcuts(child: Focus(child: Text('Content'))),
         ),
       ),
     );
@@ -123,7 +129,7 @@ void main() {
     await tester.pumpWidget(
       const ProviderScope(
         child: MaterialApp(
-          home: MacDesktopShortcuts(
+          home: AppKeyboardShortcuts(
             child: Consumer(builder: _searchShortcutTestChild),
           ),
         ),
@@ -162,7 +168,7 @@ void main() {
             for (final path in [Routes.chat, Routes.notes])
               GoRoute(
                 path: path,
-                builder: (context, state) => const MacDesktopShortcuts(
+                builder: (context, state) => const AppKeyboardShortcuts(
                   child: Focus(autofocus: true, child: Text('Content')),
                 ),
               ),
@@ -770,17 +776,105 @@ void main() {
     });
   }
 
-  testWidgets('non-Mac iOS does not install desktop shortcuts', (tester) async {
+  testWidgets('iPad and iPhone get the shortcuts as the Mac app does', (
+    tester,
+  ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSAppOnMacOverride = false;
 
     await tester.pumpWidget(
       const ProviderScope(
-        child: MaterialApp(home: MacDesktopShortcuts(child: Text('Content'))),
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Consumer(builder: _searchShortcutTestChild),
+          ),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Content')),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pump();
+
+    expect(container.read(sidebarHeaderSearchExpandedProvider), true);
+  });
+
+  testWidgets('Android does not install the shortcuts', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: AppKeyboardShortcuts(child: Text('Content'))),
       ),
     );
 
     expect(find.byType(CallbackShortcuts), findsNothing);
+  });
+
+  testWidgets('a field keeps its editing keys, and Escape while an input '
+      'method composes', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: AppKeyboardShortcuts(
+            child: Material(
+              child: TextField(controller: controller, focusNode: focusNode),
+            ),
+          ),
+        ),
+      ),
+    );
+    final bindings = tester
+        .widget<CallbackShortcuts>(find.byType(CallbackShortcuts))
+        .bindings;
+    // Nothing the shell binds is a text editing key: Command with a letter
+    // that edits text (select all, copy, cut, paste, undo), or a key
+    // without Command other than Escape.
+    for (final activator in bindings.keys) {
+      final triggers = activator.triggers ?? const <LogicalKeyboardKey>[];
+      expect(triggers, isNot(contains(LogicalKeyboardKey.keyA)));
+      expect(triggers, isNot(contains(LogicalKeyboardKey.keyC)));
+      expect(triggers, isNot(contains(LogicalKeyboardKey.keyV)));
+      expect(triggers, isNot(contains(LogicalKeyboardKey.keyX)));
+      expect(triggers, isNot(contains(LogicalKeyboardKey.keyZ)));
+      if (activator is SingleActivator) expect(activator.meta, isTrue);
+    }
+
+    await tester.showKeyboard(find.byType(TextField));
+    // Kana still being composed by an input method.
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'かな',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      ),
+    );
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(focusNode.hasFocus, isTrue);
+
+    // Once the text is committed, Escape leaves the field.
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'かな',
+        selection: TextSelection.collapsed(offset: 2),
+      ),
+    );
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(focusNode.hasFocus, isFalse);
   });
 }
 

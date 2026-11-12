@@ -89,7 +89,7 @@ class DrawerShellPage extends ConsumerWidget {
       },
       drawer: const SidebarPage(),
       layoutBuilder: (layout) => SidebarOverlayDismissListener(
-        child: MacDesktopShortcuts(child: layout),
+        child: AppKeyboardShortcuts(child: layout),
       ),
       child: NestedNavigatorBackScope(child: child),
     );
@@ -174,14 +174,23 @@ class _SidebarOverlayDismissListenerState
   }
 }
 
-class MacDesktopShortcuts extends ConsumerWidget {
-  const MacDesktopShortcuts({super.key, required this.child});
+/// Hardware keyboard shortcuts: Command-N starts something new for the
+/// sidebar's backend or tab, Command-K searches, Command-1 to Command-5 pick
+/// a sidebar tab, Command-comma opens Settings, and Escape closes search,
+/// then an overlay sidebar, then leaves the focused field.
+///
+/// On every iOS device: an iPad or iPhone with a keyboard attached, and the
+/// iPad app on a Mac. None of these keys edits text, so a focused field
+/// keeps its own editing shortcuts, and an input method that is still
+/// composing text keeps Escape to cancel the composition.
+class AppKeyboardShortcuts extends ConsumerWidget {
+  const AppKeyboardShortcuts({super.key, required this.child});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (!PlatformInfo.isIOSAppOnMac) return child;
+    if (!PlatformInfo.isIOS) return child;
 
     void createForActiveTab() {
       final destination = ref.read(appSettingsProvider).slidingSidebarEnabled
@@ -197,7 +206,7 @@ class MacDesktopShortcuts extends ConsumerWidget {
       openSidebarSearch(ref);
     }
 
-    void dismissDesktopLayer() {
+    void dismissTopLayer() {
       if (ref.read(sidebarHeaderSearchExpandedProvider)) {
         closeSidebarSearch(ref);
         return;
@@ -240,9 +249,40 @@ class MacDesktopShortcuts extends ConsumerWidget {
             selectSidebarTab(context, ref, 4),
         const SingleActivator(LogicalKeyboardKey.comma, meta: true):
             openSettings,
-        const SingleActivator(LogicalKeyboardKey.escape): dismissDesktopLayer,
+        const _EscapeOutsideComposition(): dismissTopLayer,
       },
       child: child,
     );
   }
+}
+
+/// Escape, except while the focused text field holds text an input method
+/// is still composing: Escape then belongs to the input method, which
+/// cancels the composition with it.
+class _EscapeOutsideComposition extends ShortcutActivator {
+  const _EscapeOutsideComposition();
+
+  static const SingleActivator _escape = SingleActivator(
+    LogicalKeyboardKey.escape,
+  );
+
+  @override
+  Iterable<LogicalKeyboardKey> get triggers => _escape.triggers;
+
+  @override
+  bool accepts(KeyEvent event, HardwareKeyboard state) =>
+      _escape.accepts(event, state) && !_focusedFieldIsComposing();
+
+  @override
+  String debugDescribeKeys() => _escape.debugDescribeKeys();
+}
+
+bool _focusedFieldIsComposing() {
+  final context = FocusManager.instance.primaryFocus?.context;
+  if (context == null) return false;
+  final composing = context
+      .findAncestorStateOfType<EditableTextState>()
+      ?.textEditingValue
+      .composing;
+  return composing != null && composing.isValid && !composing.isCollapsed;
 }
