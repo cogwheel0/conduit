@@ -21,6 +21,7 @@ import '../../../core/utils/account_display.dart'
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../auth/services/server_address_service.dart';
+import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
 
@@ -478,10 +479,14 @@ NativeSheetDetailConfig buildServerAddressHeaderPage(
 /// One address editor while it is open: what it holds, what it held when
 /// it opened, and what it last said.
 final class _Editor {
-  _Editor(this.draft) : original = draft.contents;
+  _Editor(this.draft, this.since) : original = draft.contents;
 
   final ServerAddressDraft draft;
   final Object original;
+
+  /// The row changes queued when this editor opened: one queued before it,
+  /// made on an editor since left under the same key, is not this one's.
+  final int since;
 
   /// The id a new address is saved under: one per editor, so saving again
   /// after a save that stored the address and then failed edits it rather
@@ -512,6 +517,8 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   ServerAddressSettingsPages(this._ref);
 
   final Ref _ref;
+  int _queued() => _ref.read(settingsControllerProvider).controlsQueued;
+
   final Map<String, _Editor> _editors = {};
 
   /// Times each editor page was left, and Settings closed: a read of an
@@ -689,7 +696,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     if (parsed == null) return null;
     final endpointId = parsed.endpointId;
     if (endpointId == null) {
-      return _editors[key] = _Editor(ServerAddressDraft());
+      return _editors[key] = _Editor(ServerAddressDraft(), _queued());
     }
     final visit = (_leaves[key], _closings);
     try {
@@ -701,7 +708,10 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       // Its page went while the address was read: nobody waits for this
       // editor, and the next visit reads the address afresh.
       if (visit != (_leaves[key], _closings)) return null;
-      return _editors[key] ??= _Editor(ServerAddressDraft.of(endpoint));
+      return _editors[key] ??= _Editor(
+        ServerAddressDraft.of(endpoint),
+        _queued(),
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'server-address-load-failed',
@@ -838,6 +848,9 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     // nothing.
     final editor = _editors[key];
     if (editor == null || editor.busy) return true;
+    // Queued on an editor since left under the same key: not this one's.
+    final handled = _ref.read(settingsControllerProvider).controlHandled;
+    if (handled != null && handled <= editor.since) return true;
     final draft = editor.draft;
     switch (field) {
       case 'label' when value is String:

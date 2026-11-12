@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/settings/pages/server_address_settings_pages.dart';
+import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:conduit/features/settings/settings_page_module.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -196,6 +197,7 @@ void main() {
     bool replyInProgress = false,
     void Function()? onStopReplies,
     PushState? push,
+    SettingsController? controller,
   }) async {
     final shown = server ?? _home;
     stored = [...shown.endpoints];
@@ -265,6 +267,8 @@ void main() {
         ),
         settingsSurfaceProvider.overrideWith((ref) => surface = _Surface(ref)),
         pushStateIfUsedProvider.overrideWith((ref) => push),
+        if (controller != null)
+          settingsControllerProvider.overrideWithValue(controller),
       ],
     );
     addTearDown(container.dispose);
@@ -468,6 +472,34 @@ void main() {
   group('the address editor', () {
     String row(String field, String? endpointId) =>
         serverAddressRowId(field, serverAddressEditorKey('home', endpointId));
+
+    testWidgets('a change queued on an editor since left does not reach the '
+        'one opened in its place', (tester) async {
+      final queue = _Queue();
+      final rig = await pump(tester, controller: queue);
+      final editor = serverAddressPageId('home', 'lan');
+      await rig.open(editor);
+      // A URL typed there waits its turn behind a slower change.
+      queue.queued = 1;
+
+      // Left, and opened again, before that turn came.
+      rig.container
+          .read(settingsPageModulesProvider)
+          .whereType<ServerAddressSettingsPages>()
+          .single
+          .pageLeft(editor);
+      await rig.open(editor);
+      queue.handling = 1;
+      await rig.change(row('url', 'lan'), 'http://10.0.0.9:3000');
+      queue.handling = null;
+      // Drawn again, the editor shows its own draft.
+      await rig.open(editor);
+
+      expect(
+        rig.rows(editor).singleWhere((r) => r.id == row('url', 'lan')).value,
+        'http://10.0.0.2:3000',
+      );
+    });
 
     testWidgets('opens on the address as saved, and counts it edited once '
         'it changes', (tester) async {
@@ -737,3 +769,16 @@ void main() {
 }
 
 class _RealHttpOverrides extends HttpOverrides {}
+
+/// A controller whose queue a test sets: how many changes were queued, and
+/// which one is being handled.
+final class _Queue extends SettingsController {
+  int queued = 0;
+  int? handling;
+
+  @override
+  int get controlsQueued => queued;
+
+  @override
+  int? get controlHandled => handling;
+}

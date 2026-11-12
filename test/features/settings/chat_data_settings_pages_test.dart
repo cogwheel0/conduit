@@ -346,11 +346,13 @@ final class _Session {
 
   /// Taps the row of [action] and lets it run until it ends or asks.
   Future<void> tap(String action) async {
-    final running = _running = module.handleChange(
-      chatDataRowId(action),
-      true,
-      _l10n,
-    );
+    final pages = module as ChatDataSettingsPages;
+    final before = pages.work;
+    final changed = module.handleChange(chatDataRowId(action), true, _l10n);
+    await _settle(() => _done(changed) || surface.asking);
+    // Long work runs on its own; the tap waits for the one it started.
+    final work = pages.work;
+    final running = _running = identical(work, before) ? changed : work!;
     await _settle(() => _done(running) || surface.asking);
   }
 
@@ -931,16 +933,23 @@ void main() {
         ..library = [_line('a'), _line('b')]
         ..libraryGate = Completer<void>();
 
-      final running = session._running = session.module.handleChange(
+      final tapped = session.module.handleChange(
         chatDataRowId('export'),
         true,
         _l10n,
       );
+      session._done(tapped);
+      final running = session._running =
+          (session.module as ChatDataSettingsPages).work!;
       await session._settle(
         () =>
             session._done(running) ||
             session.row('export')?.subtitle == 'Exporting… chats read: 1',
       );
+      // The tap is done while the export runs on, so Settings's next
+      // change, Cancel among them, does not wait behind it.
+      expect(session._done(tapped), isTrue);
+      expect(session._done(running), isFalse);
       // The progress sits in the row that started it, with Cancel by it;
       // every other row waits.
       final export = session.row('export')!;

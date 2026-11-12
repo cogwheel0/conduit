@@ -110,6 +110,19 @@ class SettingsController {
 
   SettingsSurface get _surface => ref.read(settingsSurfaceProvider);
 
+  /// Numbers each row change as it joins the queue.
+  int _controlsQueued = 0;
+  int? _controlHandled;
+
+  /// How many row changes have joined the queue so far. A page recording
+  /// this as it appears can tell a change made on an earlier visit, still
+  /// waiting its turn, from one made on its own.
+  int get controlsQueued => _controlsQueued;
+
+  /// The number of the queued row change being handled now; null when none
+  /// is (a change handled straight away, outside the queue).
+  int? get controlHandled => _controlHandled;
+
   /// The account a row change belongs to: the user signed in, on the server
   /// they are signed in to (both null with none).
   (String?, String?) _controlOwner() => (
@@ -188,13 +201,19 @@ class SettingsController {
         // last one, is dropped rather than sent to the new one.
         final owner = _controlOwner();
         final draft = _newMemoryDraftVisit;
-        _nativeSheetControlQueue = _nativeSheetControlQueue.then((_) {
-          if (owner != _controlOwner()) return null;
-          return _handleNativeSheetControlChanged(
-            event,
-            source,
-            newMemoryDraftVisit: draft,
-          );
+        final sequence = ++_controlsQueued;
+        _nativeSheetControlQueue = _nativeSheetControlQueue.then((_) async {
+          if (owner != _controlOwner()) return;
+          _controlHandled = sequence;
+          try {
+            await _handleNativeSheetControlChanged(
+              event,
+              source,
+              newMemoryDraftVisit: draft,
+            );
+          } finally {
+            _controlHandled = null;
+          }
         });
       case NativeSheetDetailAppeared(:final detailId):
         // A password typed on an earlier visit is not combined with this one.

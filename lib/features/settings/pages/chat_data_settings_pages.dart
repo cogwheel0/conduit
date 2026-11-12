@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/services/chat_backup.dart';
 import 'package:conduit_core/features/chat/services/chat_data_controls.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:dio/dio.dart' show CancelToken, DioException;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -384,7 +385,8 @@ class ChatDataSettingsPages extends SettingsPageModule {
 
   ProviderContainer get _container => _ref.container;
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
-  bool get _busy => _activity != ChatDataActivity.idle || _importSending;
+  bool get _busy =>
+      _activity != ChatDataActivity.idle || _importSending || _picking;
 
   /// Whether an import is with the server. It outlives its visit: a page
   /// opened again waits for it rather than send the same chats twice.
@@ -663,23 +665,47 @@ class ChatDataSettingsPages extends SettingsPageModule {
         // page is drawn again without it. (The server checks as well.)
         await _apply();
         return true;
+      // Long work runs on its own: Settings's other changes, Cancel among
+      // them, do not wait behind it, and a second tap finds it running.
       case 'sync':
-        await _sync(owner);
+        _start(_sync(owner));
       case 'export':
-        await _export(l10n, owner);
+        _start(_export(l10n, owner));
       case 'import' || 'choose-another':
-        await _import(l10n, owner);
+        _picking = true;
+        _start(_import(l10n, owner));
       case 'archive':
-        await _change(l10n, owner, _Bulk.archive);
+        _start(_change(l10n, owner, _Bulk.archive));
       case 'unarchive':
-        await _change(l10n, owner, _Bulk.unarchive);
+        _start(_change(l10n, owner, _Bulk.unarchive));
       case 'unshare':
-        await _change(l10n, owner, _Bulk.unshare);
+        _start(_change(l10n, owner, _Bulk.unshare));
       case 'delete':
-        await _change(l10n, owner, _Bulk.delete);
+        _start(_change(l10n, owner, _Bulk.delete));
     }
     return true;
   }
+
+  /// The action running now, if one is.
+  Future<void>? _work;
+
+  @visibleForTesting
+  Future<void>? get work => _work;
+
+  void _start(Future<void> work) {
+    final running = _work = work.catchError((Object error, StackTrace stack) {
+      DebugLogger.error(
+        'chat-data-action-failed',
+        scope: 'settings/chat-data',
+        error: error,
+        stackTrace: stack,
+      );
+    });
+    unawaited(running);
+  }
+
+  /// Import's file picker is open: a second tap meanwhile does nothing.
+  bool _picking = false;
 
   Future<void> _sync(ChatDataControlsOwner owner) async {
     _activity = ChatDataActivity.syncing;
@@ -791,7 +817,12 @@ class ChatDataSettingsPages extends SettingsPageModule {
   ) async {
     final files = _ref.read(chatBackupFilesProvider);
     // Over the Settings sheet, as a picker opened from one of its rows.
-    final picked = await files.pickImportFile();
+    final PickedChatFile? picked;
+    try {
+      picked = await files.pickImportFile();
+    } finally {
+      _picking = false;
+    }
     if (picked == null || !_openFor(owner)) return;
     _picked = picked;
     _importError = null;
