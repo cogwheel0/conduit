@@ -9397,6 +9397,10 @@
   "hermesJobCreatedNotifyFailed": "Utworzono zadanie, ale nie udało się włączyć dla niego powiadomień.",
   "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
   "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach.",
+  "pushSettingsMenuAction": "Ustawienia push",
+  "@pushSettingsMenuAction": {
+    "description": "Item in an account's or connection's row menu in Settings, shown while its push notifications need attention; opens that account's push settings page."
+  },
   "workspaceSkillCloneSaveFirst": "Zapisz lub odrzuć zmiany, zanim zduplikujesz umiejętność.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

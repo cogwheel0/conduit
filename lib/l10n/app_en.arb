@@ -11571,6 +11571,10 @@
   "@hermesJobNotifyNeedsScheduled": {
     "description": "Hint under the disabled \"Notify me\" switch in the Hermes job editor while the \"Scheduled tasks\" notification kind is turned off in the Notifications settings."
   },
+  "pushSettingsMenuAction": "Push Settings",
+  "@pushSettingsMenuAction": {
+    "description": "Item in an account's or connection's row menu in Settings, shown while its push notifications need attention; opens that account's push settings page."
+  },
   "workspaceSkillCloneSaveFirst": "Save or discard your changes before duplicating the skill.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

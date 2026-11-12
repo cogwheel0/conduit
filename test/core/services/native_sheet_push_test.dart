@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/features/settings/pages/push_page_ids.dart';
 import 'package:conduit/main.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
@@ -35,7 +36,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_ui/material_ui.dart' show Navigator, Scaffold;
+import 'package:material_ui/material_ui.dart' show Scaffold;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -306,7 +307,13 @@ void main() {
     final toggle = items.singleWhere((item) => item.id == 'push-enabled');
     expect(toggle.kind, PlatformNativeSheetItemKind.toggle);
     expect(toggle.value, isFalse);
-    expect(native.patches.last.detailSheets ?? const [], isEmpty);
+    // The privacy explainer is a page of Settings, there with push off too.
+    final privacy = items.singleWhere((item) => item.id == pushPrivacyPageId);
+    expect(privacy.dismissOnSelect, isNot(isTrue));
+    expect([
+      for (final detail in native.patches.last.detailSheets ?? const [])
+        detail.id,
+    ], [pushPrivacyPageId]);
   });
 
   testWidgets('with push on it lists every target with its status', (
@@ -334,19 +341,28 @@ void main() {
         .singleWhere((item) => item.id == NativeSheetRoutes.pushTargets);
     expect(row.title, 'Accounts');
     expect(row.subtitle, 'Push needs attention');
-    final detail = native.patches.last.detailSheets!.single;
-    expect(detail.id, NativeSheetRoutes.pushTargets);
+    final sheets = native.patches.last.detailSheets!;
+    final detail = sheets.singleWhere(
+      (detail) => detail.id == NativeSheetRoutes.pushTargets,
+    );
     expect(detail.title, 'Accounts');
     final rows = [for (final s in detail.sections) ...s.items];
+    // Each opens its page of Settings, which the sheet has been given.
     final owui = rows.singleWhere(
-      (item) => item.id == 'push-target:${pushOwuiTarget.scope}',
+      (item) => item.id == pushTargetPageId(pushOwuiTarget.scope),
     );
     expect(owui.subtitle, 'On');
-    expect(owui.dismissOnSelect, isTrue);
-    expect(owui.actionId, 'push-target');
-    expect(owui.actionValue, pushOwuiTarget.scope);
+    expect(owui.dismissOnSelect, isNot(isTrue));
+    expect(owui.actionId, isNull);
+    expect(
+      sheets.map((detail) => detail.id),
+      containsAll([
+        pushTargetPageId(pushOwuiTarget.scope),
+        pushTargetPageId(pushHermesApiTarget.scope),
+      ]),
+    );
     final hermes = rows.singleWhere(
-      (item) => item.id == 'push-target:${pushHermesApiTarget.scope}',
+      (item) => item.id == pushTargetPageId(pushHermesApiTarget.scope),
     );
     expect(hermes.title, 'Home Hermes');
     expect(hermes.subtitle, 'Needs the Conduit plugin in Hermes');
@@ -372,8 +388,8 @@ void main() {
     expect(row.value, isTrue);
   });
 
-  testWidgets('a target row opens its detail sheet over the Notifications '
-      'page', (tester) async {
+  testWidgets("a target's page is filled in inside the sheet, closing "
+      'nothing', (tester) async {
     final state = pushStateWith([
       const PushTargetState(
         target: pushOwuiTarget,
@@ -387,52 +403,18 @@ void main() {
       coordinator: FakePushCoordinator(state),
     );
 
-    await native.control('push-target', pushOwuiTarget.scope);
+    final pageId = pushTargetPageId(pushOwuiTarget.scope);
+    await native.detailAppeared(pageId);
 
-    expect(native.pushed.single.path, Routes.notificationSettings);
-    expect(native.pushed.single.extra, isA<NativeSheetNavigationOrigin>());
-    expect(find.byKey(const Key('push-detail-status')), findsOneWidget);
-    expect(find.text('Needs your admin to set up'), findsOneWidget);
+    expect(native.items(pageId).first.title, 'Needs your admin to set up');
+    expect(
+      native.items(pageId).map((item) => item.title),
+      contains('Ask Your Admin'),
+    );
+    expect(native.pushed, isEmpty);
   });
 
-  testWidgets('a fix made in the sheet shows on the pages under it', (
-    tester,
-  ) async {
-    final state = pushStateWith([
-      const PushTargetState(
-        target: pushOwuiTarget,
-        status: PushStatus.needsAdminSetup,
-      ),
-    ]);
-    final fake = FakePushCoordinator(state);
-    final native = await _pumpApp(
-      tester,
-      advanced: false,
-      push: state,
-      coordinator: fake,
-    );
-    await native.control('push-target', pushOwuiTarget.scope);
-
-    // Set up meanwhile, then the sheet is closed.
-    fake.emit(
-      pushStateWith([
-        const PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
-      ]),
-    );
-    await tester.pumpAndSettle();
-    Navigator.of(tester.element(find.byKey(const Key('push-detail-status'))))
-        .pop();
-    await tester.pumpAndSettle();
-
-    final row = native
-        .items(NativeSheetRoutes.pushTargets)
-        .singleWhere(
-          (item) => item.id == 'push-target:${pushOwuiTarget.scope}',
-        );
-    expect(row.subtitle, 'On');
-  });
-
-  testWidgets('a row for a target removed since opens the page alone', (
+  testWidgets('a page for a target removed since is not filled in', (
     tester,
   ) async {
     final state = pushStateWith([
@@ -445,11 +427,11 @@ void main() {
       coordinator: FakePushCoordinator(state),
     );
 
-    await native.control('push-target', pushHermesApiTarget.scope);
+    final pageId = pushTargetPageId(pushHermesApiTarget.scope);
+    await native.detailAppeared(pageId);
 
-    expect(native.pushed.single.path, Routes.notificationSettings);
-    expect(find.byKey(const Key('push-detail-diagnostics')), findsNothing);
-    expect(find.text('Push Notifications'), findsNothing);
+    expect(native.patches.where((patch) => patch.detailId == pageId), isEmpty);
+    expect(native.pushed, isEmpty);
   });
 
   testWidgets('push that can no longer work here can still be turned off', (

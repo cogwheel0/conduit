@@ -43,6 +43,9 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     readNativeAccountSignOutDetail(read, l10n),
     readNativeAddAccountDetail(read, l10n),
     ...buildHermesAccountsDetails(l10n),
+    // The push pages the Accounts rows' menus open while push needs the
+    // user.
+    ...readNativePushAttentionPages(read, l10n),
     if (hasOpenWebUiUser && profilePending)
       buildNativeLoadingDetail(
         l10n: l10n,

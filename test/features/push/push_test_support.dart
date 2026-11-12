@@ -90,9 +90,14 @@ final class FakePushCoordinator extends PushCoordinator {
     return true;
   }
 
+  /// Holds [sendTest] until completed, when set.
+  Completer<void>? testGate;
+
   @override
   Future<bool> sendTest(String scope) async {
     calls.add('sendTest $scope');
+    final gate = testGate;
+    if (gate != null) await gate.future;
     return testArrives;
   }
 

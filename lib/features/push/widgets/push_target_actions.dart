@@ -1,28 +1,14 @@
 import 'dart:async';
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
-import 'package:conduit_core/features/push/services/openwebui_push_backend.dart'
-    show kConduitPushFunctionId;
 import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
     show kConduitHermesPluginRepo;
-import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
-    show OpenWebUiAccountChangeResult;
-import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../profile/widgets/account_actions.dart';
-import '../../profile/widgets/account_sheet.dart';
-import 'push_install_sheet.dart';
 
 /// Where the Open WebUI function's source is published.
 const String kConduitPushFunctionSourceUrl =
@@ -200,131 +186,6 @@ String pushTargetTitle(
   return name == server ? name : '$name · $server';
 }
 
-/// The saved Open WebUI accounts by id, for [pushTargetTitle].
-Map<String, OpenWebUiAccountEntry> pushAccountEntries(WidgetRef ref) => {
-  for (final entry
-      in ref.watch(openWebUiAccountsProvider).asData?.value ??
-          const <OpenWebUiAccountEntry>[])
-    entry.id: entry,
-};
-
-/// Runs [action] for [target], asking first where it installs code on a
-/// server. Long-running work continues after this returns; the target's
-/// state shows how it goes.
-Future<void> runPushTargetAction(
-  BuildContext context,
-  WidgetRef ref,
-  PushTargetState target,
-  PushTargetAction action,
-) async {
-  final l10n = AppLocalizations.of(context)!;
-  final coordinator = ref.read(pushCoordinatorProvider.notifier);
-  final scope = target.scope;
-  switch (action) {
-    case PushTargetAction.setUp || PushTargetAction.update:
-      final update = action == PushTargetAction.update;
-      final confirmed = await confirmPushInstall(
-        context,
-        title: update
-            ? l10n.pushUpdateOpenWebUiTitle
-            : l10n.pushInstallOpenWebUiTitle,
-        message: update
-            ? l10n.pushUpdateOpenWebUiMessage
-            : l10n.pushInstallOpenWebUiMessage,
-        sourceUrl: kConduitPushFunctionSourceUrl,
-        confirmLabel: update ? l10n.pushActionUpdate : l10n.pushActionInstall,
-      );
-      if (!confirmed) return;
-      _fireAndForget(coordinator.installOpenWebUiFunction(scope));
-    case PushTargetAction.installHermes:
-      final confirmed = await confirmPushInstall(
-        context,
-        title: l10n.pushInstallHermesTitle,
-        message: l10n.pushInstallHermesMessage,
-        sourceUrl: kConduitHermesPluginSourceUrl,
-        confirmLabel: l10n.pushActionInstall,
-      );
-      if (!confirmed) return;
-      _fireAndForget(coordinator.installHermesPlugin(scope));
-    case PushTargetAction.askAdmin:
-      await SharePlus.instance.share(
-        ShareParams(
-          text: l10n.pushAskAdminMessage(
-            kConduitPushFunctionRawUrl,
-            kConduitPushFunctionId,
-            kConduitPushAdminGuideUrl,
-          ),
-          sharePositionOrigin: _origin(context),
-        ),
-      );
-    case PushTargetAction.copyCommand:
-      final command = target.hermesInstallCommand;
-      if (command == null) return;
-      await Clipboard.setData(ClipboardData(text: command));
-      if (!context.mounted) return;
-      AdaptiveSnackBar.show(
-        context,
-        message: l10n.copiedToClipboard,
-        type: AdaptiveSnackBarType.success,
-        duration: const Duration(seconds: 2),
-      );
-    case PushTargetAction.signIn:
-      switch (target.target) {
-        case OpenWebUiPushTarget(:final accountId):
-          // Read now: the page may not outlast the switch.
-          final container = ProviderScope.containerOf(context, listen: false);
-          final router = GoRouter.of(context);
-          final result = await switchToSavedAccount(context, ref, accountId);
-          if (result != OpenWebUiAccountChangeResult.alreadyActive) return;
-          // The account in use, which the app still takes for signed in
-          // while its server refused push: its session is checked, and an
-          // expired one goes through the app's own sign-in-again flow.
-          if (await recheckActiveAccountSession(container)) {
-            _fireAndForget(
-              container.read(pushCoordinatorProvider.notifier).retry(scope),
-            );
-          } else if (container
-                  .read(authStateManagerProvider)
-                  .asData
-                  ?.value
-                  .isAuthenticated !=
-              true) {
-            openActiveAccountSignIn(router);
-          }
-        case HermesPushTarget(:final connectionId):
-          await showAccountSheet(
-            context,
-            EditHermesConnectionRequest(connectionId),
-          );
-      }
-    case PushTargetAction.retry:
-      _fireAndForget(coordinator.retry(scope));
-  }
-}
-
-/// Turns push on or off from a switch. Setup goes on after this returns; a
-/// failure is logged once, and [onFailed] tells the user.
-void setPushEnabledFromSwitch(
-  PushCoordinator coordinator,
-  bool value, {
-  void Function()? onFailed,
-}) {
-  unawaited(
-    coordinator.setEnabled(value).then<void>(
-      (_) {},
-      onError: (Object error, StackTrace stackTrace) {
-        DebugLogger.error(
-          'push-toggle-failed',
-          scope: 'push/settings',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        onFailed?.call();
-      },
-    ),
-  );
-}
-
 /// Turns push on or off from the native iOS sheet's switch. [refresh]
 /// rebuilds the sheet's rows: once the switch has flipped (or after half a
 /// second), and again once setup has finished, which goes on after this
@@ -360,24 +221,4 @@ Future<void> setPushEnabledFromNativeSheet({
   }
   await refreshReporting();
   unawaited(setup.then((_) => refreshReporting()));
-}
-
-void _fireAndForget(Future<Object?> work) {
-  unawaited(
-    work.then<void>(
-      (_) {},
-      onError: (Object error, StackTrace stackTrace) => DebugLogger.error(
-        'push-action-failed',
-        scope: 'push/settings',
-        error: error,
-        stackTrace: stackTrace,
-      ),
-    ),
-  );
-}
-
-Rect? _origin(BuildContext context) {
-  final box = context.findRenderObject();
-  if (box is! RenderBox || !box.hasSize) return null;
-  return box.localToGlobal(Offset.zero) & box.size;
 }

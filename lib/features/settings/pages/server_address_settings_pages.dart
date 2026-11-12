@@ -24,6 +24,7 @@ import '../../auth/services/server_address_service.dart';
 import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
+import 'push_page_ids.dart';
 
 /// Prefix of the page of one saved Open WebUI server: its accounts and the
 /// addresses it is reached at. The server's URI-encoded id follows.
@@ -127,6 +128,11 @@ NativeSheetDetailConfig buildServerAddressesPage(
                 accountSubtitle(entry, l10n),
               ),
               rowActions: [
+                if (pushAttention.contains(PushTarget.openWebUiScope(entry.id)))
+                  pushSettingsRowAction(
+                    l10n,
+                    PushTarget.openWebUiScope(entry.id),
+                  ),
                 NativeSheetRowAction(
                   id: '$nativeAccountSignOutOfActionId:${entry.id}',
                   label: l10n.signOut,
@@ -671,6 +677,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       await _surface.closeDetail(serverAddressesPageId(serverId));
     }
     final route = _ref.read(openWebUiRouteResolverProvider);
+    final pushAttention = readNativePushAttention(_ref.read);
     await _surface.applyDetail(
       buildServerAddressesPage(
         l10n,
@@ -679,9 +686,16 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         accounts: accounts,
         addressInUse: route.serverId == serverId ? route.endpointId : null,
         notice: _notices.remove(serverId),
-        pushAttention: readNativePushAttention(_ref.read),
+        pushAttention: pushAttention,
       ),
       detailSheets: [
+        // The push page of an account whose push needs the user, which its
+        // row menu opens.
+        for (final scope in pushAttention)
+          if (accounts.any(
+            (entry) => PushTarget.openWebUiScope(entry.id) == scope,
+          ))
+            buildPushTargetLoadingPage(l10n, scope),
         // An editor kept open (through a reorder) keeps the page it shows.
         if (server != null) ...[
           for (final endpoint in server.endpoints)

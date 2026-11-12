@@ -5019,6 +5019,7 @@
   "hermesJobCreatedNotifyFailed": "定时任务已创建，但无法为其开启通知。",
   "hermesJobUpdatedNotifyFailed": "定时任务已保存，但无法更改其通知。",
   "hermesJobNotifyNeedsScheduled": "要使用此功能，请在“通知”中开启“计划任务”。",
+  "pushSettingsMenuAction": "推送设置",
   "workspaceSkillCloneSaveFirst": "请先保存或放弃更改，再复制该技能。",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

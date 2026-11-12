@@ -4791,6 +4791,7 @@
   "hermesJobCreatedNotifyFailed": "작업을 만들었지만 알림을 켜지 못했습니다.",
   "hermesJobUpdatedNotifyFailed": "작업을 저장했지만 알림을 변경하지 못했습니다.",
   "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요.",
+  "pushSettingsMenuAction": "푸시 설정",
   "workspaceSkillCloneSaveFirst": "스킬을 복제하기 전에 변경 사항을 저장하거나 취소하세요.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

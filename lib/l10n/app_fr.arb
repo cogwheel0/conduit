@@ -5019,6 +5019,7 @@
   "hermesJobCreatedNotifyFailed": "Tâche créée, mais ses notifications n'ont pas pu être activées.",
   "hermesJobUpdatedNotifyFailed": "Tâche enregistrée, mais ses notifications n'ont pas pu être modifiées.",
   "hermesJobNotifyNeedsScheduled": "Activez Tâches planifiées dans Notifications pour l'utiliser.",
+  "pushSettingsMenuAction": "Réglages du push",
   "workspaceSkillCloneSaveFirst": "Enregistrez ou abandonnez vos modifications avant de dupliquer la compétence.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
