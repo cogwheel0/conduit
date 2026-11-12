@@ -1419,7 +1419,9 @@ class NativeSheetItemConfig {
   final List<NativeSheetLinkConfig> links;
   final bool? pending;
 
-  /// Inclusive bounds for [NativeSheetItemKind.slider] (e.g. STT silence ms, TTS rate).
+  /// Inclusive bounds for [NativeSheetItemKind.slider] (e.g. STT silence ms, TTS rate),
+  /// or the first and last days of a [NativeSheetItemKind.date] row, as
+  /// milliseconds since the epoch.
   final double? min;
   final double? max;
 
@@ -1575,7 +1577,30 @@ enum NativeSheetItemKind {
   /// Preview tiles for a few looks (System, Light, Dark), each painted from
   /// its option's swatches, with a label and a selection mark under it.
   appearanceTiles,
+
+  /// A day, as a compact date control at the row's trailing edge: the
+  /// system's date pill on iOS, and on Android the day, which opens the
+  /// date picker. [NativeSheetItemConfig.value] is the local date and time
+  /// as ISO 8601 without a zone (see [nativeSheetDateValue]); a change sends
+  /// one back the same way. [NativeSheetItemConfig.min] and
+  /// [NativeSheetItemConfig.max], when given, are the first and last days
+  /// allowed, as milliseconds since the epoch.
+  date,
+
+  /// A time of day, drawn and sent as [date] is; only its hour and minute
+  /// count.
+  time,
 }
+
+/// [value] as a [NativeSheetItemKind.date] or [NativeSheetItemKind.time]
+/// row holds it: local wall-clock time, ISO 8601 without a zone.
+String nativeSheetDateValue(DateTime value) => DateTime(
+  value.year,
+  value.month,
+  value.day,
+  value.hour,
+  value.minute,
+).toIso8601String();
 
 class NativeSheetOptionConfig {
   const NativeSheetOptionConfig({
@@ -1946,6 +1971,8 @@ extension on NativeSheetItemKind {
         PlatformNativeSheetItemKind.statusUpdate,
       NativeSheetItemKind.appearanceTiles =>
         PlatformNativeSheetItemKind.appearanceTiles,
+      NativeSheetItemKind.date => PlatformNativeSheetItemKind.date,
+      NativeSheetItemKind.time => PlatformNativeSheetItemKind.time,
     };
   }
 }

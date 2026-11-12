@@ -237,6 +237,51 @@ void main() {
         });
   });
 
+  test(
+    'a date or time row goes to the sheet as one, with its bounds',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      PlatformNativeSheetApplyDetailPatchRequest? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+            message,
+          ) async {
+            received =
+                (message! as List<Object?>).single!
+                    as PlatformNativeSheetApplyDetailPatchRequest;
+            return <Object?>[true];
+          });
+
+      await NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'task',
+        items: [
+          NativeSheetItemConfig(
+            id: 'day',
+            title: 'Date',
+            kind: NativeSheetItemKind.date,
+            value: nativeSheetDateValue(DateTime(2026, 3, 10, 9, 30)),
+            min: 1,
+            max: 2,
+          ),
+          NativeSheetItemConfig(
+            id: 'time',
+            title: 'Time',
+            kind: NativeSheetItemKind.time,
+            value: nativeSheetDateValue(DateTime(2000, 1, 1, 17, 5)),
+          ),
+        ],
+      );
+
+      final [day, time] = received!.items;
+      check(day.kind).equals(PlatformNativeSheetItemKind.date);
+      check(day.value).equals('2026-03-10T09:30:00.000');
+      check(day.min).equals(1);
+      check(day.max).equals(2);
+      check(time.kind).equals(PlatformNativeSheetItemKind.time);
+      check(time.value).equals('2000-01-01T17:05:00.000');
+    },
+  );
+
   group('NativeSheetBridge.updateProfile', () {
     const channel = MethodChannel(NativeSheetBridge.nativeSheetChannelName);
     const profile = NativeProfileSheetUser(

@@ -200,3 +200,26 @@ Future<T?> _showCupertinoPickerSheet<T>(
     },
   );
 }
+
+/// [initial]'s time of day, picked again with [showAdaptiveTimePicker]: the
+/// day of [initial] at the hour and minute chosen, or null when the picker
+/// was dismissed.
+Future<DateTime?> showAdaptiveTimeOfDayPicker(
+  BuildContext context, {
+  required DateTime initial,
+  String? title,
+}) async {
+  final picked = await showAdaptiveTimePicker(
+    context,
+    initial: TimeOfDay(hour: initial.hour, minute: initial.minute),
+    title: title,
+  );
+  if (picked == null) return null;
+  return DateTime(
+    initial.year,
+    initial.month,
+    initial.day,
+    picked.hour,
+    picked.minute,
+  );
+}

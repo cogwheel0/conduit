@@ -300,7 +300,14 @@ enum class PlatformNativeSheetItemKind(val raw: Int) {
    * Each option's swatches paint its preview; one with dark swatches too
    * previews both halves.
    */
-  APPEARANCE_TILES(13);
+  APPEARANCE_TILES(13),
+  /**
+   * A day as a compact date control: value is local ISO 8601 without a
+   * zone; min and max are the first and last days, in epoch milliseconds.
+   */
+  DATE(14),
+  /** A time of day as a compact time control; value as for [date]. */
+  TIME(15);
 
   companion object {
     fun ofRaw(raw: Int): PlatformNativeSheetItemKind? {

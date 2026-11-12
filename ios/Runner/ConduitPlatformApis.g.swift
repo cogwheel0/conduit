@@ -250,6 +250,11 @@ enum PlatformNativeSheetItemKind: Int, CaseIterable {
   /// Each option's swatches paint its preview; one with dark swatches too
   /// previews both halves.
   case appearanceTiles = 13
+  /// A day as a compact date control: value is local ISO 8601 without a
+  /// zone; min and max are the first and last days, in epoch milliseconds.
+  case date = 14
+  /// A time of day as a compact time control; value as for [date].
+  case time = 15
 }
 
 /// Whether a keyboard attachment row turns an option on and off, or runs a

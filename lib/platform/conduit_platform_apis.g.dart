@@ -150,6 +150,13 @@ enum PlatformNativeSheetItemKind {
   /// Each option's swatches paint its preview; one with dark swatches too
   /// previews both halves.
   appearanceTiles,
+
+  /// A day as a compact date control: value is local ISO 8601 without a
+  /// zone; min and max are the first and last days, in epoch milliseconds.
+  date,
+
+  /// A time of day as a compact time control; value as for [date].
+  time,
 }
 
 /// Whether a keyboard attachment row turns an option on and off, or runs a

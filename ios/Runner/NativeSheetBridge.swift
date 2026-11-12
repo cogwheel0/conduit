@@ -785,6 +785,8 @@ private struct NativeResultSheetConfiguration {
             return item.value as? Bool ?? false
         case "slider":
             return item.sliderNumericValue
+        case "date", "time":
+            return item.value as? String
         default:
             return nil
         }
@@ -1165,6 +1167,8 @@ private extension PlatformNativeSheetItemKind {
         case .source: "source"
         case .statusUpdate: "statusUpdate"
         case .appearanceTiles: "appearanceTiles"
+        case .date: "date"
+        case .time: "time"
         }
     }
 }
@@ -5013,6 +5017,30 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
     }
 }
 
+/// The value of a date or time row: local wall-clock time as ISO 8601
+/// without a zone, so a set time reads the same in Dart and here.
+private enum NativeSheetDateValue {
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+
+    static func date(from value: Any?) -> Date? {
+        guard let text = value as? String else { return nil }
+        // Fractional seconds are no part of a wall-clock setting.
+        let whole = text.split(separator: ".").first.map(String.init) ?? text
+        return formatter.date(from: whole)
+    }
+
+    static func string(from date: Date) -> String {
+        formatter.string(from: date)
+    }
+}
+
 private final class NativeSheetSliderTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetSliderTableViewCell"
 
@@ -6115,7 +6143,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
              "appearanceTiles", "multilineTextField", "slider", "readOnlyText",
-             "statusUpdate":
+             "statusUpdate", "date", "time":
             break
         case "source":
             guard item.url != nil || canNavigate(item) else { break }
@@ -6167,6 +6195,30 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
         case "searchablePicker":
             configureNavigationCell(cell, item: item, showsDisclosure: true)
+
+        case "date", "time":
+            // The system's compact pill, as a form's date and time rows have.
+            configureNavigationCell(cell, item: item, showsDisclosure: false)
+            let picker = UIDatePicker()
+            picker.preferredDatePickerStyle = .compact
+            picker.datePickerMode = item.kind == "time" ? .time : .date
+            picker.minimumDate = item.sliderMin.map {
+                Date(timeIntervalSince1970: $0 / 1000)
+            }
+            picker.maximumDate = item.sliderMax.map {
+                Date(timeIntervalSince1970: $0 / 1000)
+            }
+            picker.date = NativeSheetDateValue.date(from: item.value) ?? Date()
+            picker.isEnabled = !item.disabled && !detail.busy
+            picker.accessibilityLabel = item.title
+            picker.addAction(UIAction { [weak self, weak picker] _ in
+                guard let picker else { return }
+                self?.onControlChanged(item, NativeSheetDateValue.string(from: picker.date))
+            }, for: .valueChanged)
+            picker.sizeToFit()
+            cell.accessoryView = picker
+            cell.editingAccessoryView = picker
+            cell.selectionStyle = .none
 
         default:
             // Rows that close the sheet to open a page get a chevron, as on

@@ -245,6 +245,51 @@ void main() {
     ).isNotEmpty();
   });
 
+  testWidgets('a date row shows its day and sends the day picked, at the time '
+      'it held; a time row shows its time', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        NativeSheetItemConfig(
+          id: 'run-day',
+          title: 'Date',
+          kind: NativeSheetItemKind.date,
+          value: nativeSheetDateValue(DateTime(2026, 3, 10, 9, 30)),
+          min: DateTime(2026, 3, 1).millisecondsSinceEpoch.toDouble(),
+          max: DateTime(2026, 3, 31).millisecondsSinceEpoch.toDouble(),
+        ),
+        NativeSheetItemConfig(
+          id: 'run-time',
+          title: 'Time',
+          kind: NativeSheetItemKind.time,
+          value: nativeSheetDateValue(DateTime(2000, 1, 1, 17, 5)),
+        ),
+      ]),
+    );
+    check(
+      find
+          .descendant(of: _row('run-day'), matching: find.text('Mar 10, 2026'))
+          .evaluate(),
+    ).isNotEmpty();
+    check(
+      find
+          .descendant(
+            of: _row('run-time'),
+            matching: find.textContaining('5:05'),
+          )
+          .evaluate(),
+    ).isNotEmpty();
+
+    await tester.tap(_row('run-day'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15'));
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    check(controller.changes)
+        .deepEquals([('run-day', '2026-03-15T09:30:00.000')]);
+  });
+
   testWidgets('text stays a draft until Done sends it', (tester) async {
     final controller = await _pumpPage(
       tester,
