@@ -62,8 +62,14 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
     if (columns == null || ids.isEmpty) return;
     _selected = columns.selectedId ?? _selected;
     columns.prepareToMove();
+    final move = ref.read(settingsColumnMoveProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted) {
+        // No page opens again: what was carried for them goes, so a later
+        // visit to a page by the same id does not take it.
+        move.carry(const []);
+        return;
+      }
       for (final id in ids) {
         unawaited(
           context.pushNamed<void>(

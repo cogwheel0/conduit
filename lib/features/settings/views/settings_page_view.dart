@@ -106,13 +106,16 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     _controller = ref.read(settingsControllerProvider);
     _modules = ref.read(settingsPageModulesProvider);
     _move = ref.read(settingsColumnMoveProvider);
-    // Opened again where a move put it, the page was already showing: it
-    // does not describe itself again.
+    // Opened again where a move put it: the page on top was already
+    // showing, and does not describe itself again; one under it describes
+    // itself once it is uncovered, as it would have without the move.
     final arrived = _move.arrives(widget.detailId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || arrived) return;
+      if (!mounted) return;
       final route = ModalRoute.of(context);
-      if (!widget.reopened || route == null || route.isCurrent) {
+      final covered = route != null && !route.isCurrent;
+      if (arrived && !covered) return;
+      if (!(widget.reopened || arrived) || route == null || route.isCurrent) {
         _appeared();
         return;
       }

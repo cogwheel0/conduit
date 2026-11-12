@@ -457,9 +457,10 @@ void main() {
     // a form's draft over.
     check(rig.controller.appeared).isEmpty();
 
+    // The page under it, covered as it moved, describes itself once shown.
     rig.router.pop();
     await tester.pumpAndSettle();
-    check(rig.controller.appeared).isEmpty();
+    check(rig.controller.appeared).deepEquals(['test-list']);
     check(rig.controller.closed).contains('test-form');
   });
 
