@@ -190,6 +190,12 @@ final class DirectConnectionProfile {
       adapterKey == kOpenAiCompatibleAdapterKey &&
       isOpenRouterApiBaseUrl(baseUrl);
 
+  /// The OpenAI platform itself (`api.openai.com` or a regional
+  /// `*.api.openai.com` host), as opposed to a compatible server.
+  bool get isOpenAiPlatform =>
+      adapterKey == kOpenAiCompatibleAdapterKey &&
+      isOpenAiPlatformBaseUrl(baseUrl);
+
   bool get supportsOpenRouterWebSearch =>
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
   bool get supportsOpenRouterImageGeneration => isOpenRouter;
@@ -572,6 +578,20 @@ bool isOpenRouterApiBaseUrl(String value) {
     return false;
   }
   return uri.path == '/api/v1' || uri.path == '/api/v1/';
+}
+
+bool isOpenAiPlatformBaseUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      (uri.hasPort && uri.port != 443) ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    return false;
+  }
+  final host = uri.host.toLowerCase();
+  return host == 'api.openai.com' || host.endsWith('.api.openai.com');
 }
 
 /// Versioned envelope used for the single secure-storage profile document.

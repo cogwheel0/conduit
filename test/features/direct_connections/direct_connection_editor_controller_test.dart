@@ -37,6 +37,61 @@ void main() {
     check(result.profile!.adapterKey).equals(kOllamaAdapterKey);
   });
 
+  test(
+    'a new OpenAI connection starts on Responses until a mode is picked',
+    () {
+      final editor = _EditorHarness();
+      addTearDown(editor.dispose);
+      final form = editor.form;
+      form.hydrate(null);
+      form.apiKey.text = 'sk-test';
+
+      check(form.openAiApiMode).equals(DirectOpenAiApiMode.responses);
+      final result = form.buildDraft(
+        validateFields: true,
+        openWebUiFallbackName: 'Open WebUI connection',
+      );
+      check(result.profile?.openAiApiMode)
+          .equals(DirectOpenAiApiMode.responses);
+
+      form.baseUrl.text = 'http://localhost:1234/v1';
+      check(form.openAiApiMode).equals(DirectOpenAiApiMode.chatCompletions);
+      form.baseUrl.text = 'https://api.openai.com/v1';
+      check(form.openAiApiMode).equals(DirectOpenAiApiMode.responses);
+
+      void preset(String value) => form.selectProviderPreset(
+        value,
+        ollamaDefaultName: 'Ollama Cloud',
+        openRouterDefaultName: 'OpenRouter',
+      );
+      preset(kOpenRouterProviderPreset);
+      check(form.openAiApiMode).equals(DirectOpenAiApiMode.chatCompletions);
+      preset(kOpenAiCompatibleAdapterKey);
+      check(form.openAiApiMode).equals(DirectOpenAiApiMode.responses);
+
+      form.setOpenAiApiMode(DirectOpenAiApiMode.chatCompletions);
+      form.baseUrl.text = 'https://eu.api.openai.com/v1';
+      check(form.openAiApiMode).equals(DirectOpenAiApiMode.chatCompletions);
+    },
+  );
+
+  test('a saved OpenAI connection keeps its API mode', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'OpenAI',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://api.openai.com/v1',
+      ),
+    );
+    editor.form.baseUrl.text = 'https://eu.api.openai.com/v1';
+
+    check(editor.form.openAiApiMode)
+        .equals(DirectOpenAiApiMode.chatCompletions);
+  });
+
   test('draft validation returns typed field issues', () {
     final editor = _EditorHarness();
     addTearDown(editor.dispose);
