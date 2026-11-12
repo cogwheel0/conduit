@@ -384,7 +384,11 @@ class ChatDataSettingsPages extends SettingsPageModule {
 
   ProviderContainer get _container => _ref.container;
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
-  bool get _busy => _activity != ChatDataActivity.idle;
+  bool get _busy => _activity != ChatDataActivity.idle || _importSending;
+
+  /// Whether an import is with the server. It outlives its visit: a page
+  /// opened again waits for it rather than send the same chats twice.
+  bool _importSending = false;
 
   @override
   bool ownsPage(String detailId) => detailId == chatDataControlsPageId;
@@ -493,20 +497,25 @@ class ChatDataSettingsPages extends SettingsPageModule {
   Future<void> _apply() async {
     final l10n = _l10n;
     if (l10n == null) return;
-    // The actions' permissions read on first use; listened to meanwhile.
-    for (final action in const ['export', 'import', 'delete']) {
-      final listening = _ref.listen(
-        openWebUiChatActionAllowedProvider(action),
-        (_, _) {},
-      );
-      try {
-        await _ref
-            .read(openWebUiChatActionAllowedProvider(action).future)
-            .timeout(const Duration(seconds: 5));
-      } catch (_) {
-        // Unread, the action is not offered.
-      } finally {
-        listening.close();
+    // The actions' permissions read on first use, all at once, so one slow
+    // read holds the page no longer than its own wait; listened to
+    // meanwhile.
+    const actions = ['export', 'import', 'delete'];
+    final listening = [
+      for (final action in actions)
+        _ref.listen(openWebUiChatActionAllowedProvider(action), (_, _) {}),
+    ];
+    try {
+      await Future.wait([
+        for (final action in actions)
+          _ref
+              .read(openWebUiChatActionAllowedProvider(action).future)
+              .timeout(const Duration(seconds: 5))
+              .then<Object?>((value) => value, onError: (_) => null),
+      ]);
+    } finally {
+      for (final subscription in listening) {
+        subscription.close();
       }
     }
     await _surface.applyDetail(buildChatDataPage(l10n, state));
@@ -839,6 +848,7 @@ class ChatDataSettingsPages extends SettingsPageModule {
       await _settle(owner);
       return;
     }
+    _importSending = true;
     try {
       final result = await _service(owner).importChats(preview);
       // The chats are on the server whether or not the page is still up;
@@ -868,6 +878,9 @@ class ChatDataSettingsPages extends SettingsPageModule {
         error: true,
       );
     } finally {
+      _importSending = false;
+      // A page opened again meanwhile can import once more.
+      if (!_openFor(owner) && _owner != null) unawaited(_apply());
       await _settle(owner);
       unawaited(_refreshScope());
     }

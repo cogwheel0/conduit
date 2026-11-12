@@ -69,6 +69,7 @@ final class _Wire implements HttpClientAdapter {
   int libraryStatus = 200;
   List<Map<String, dynamic>> importAnswer = [];
   DioException? importFailure;
+  Completer<void>? importGate;
   bool bulkAnswer = true;
 
   Iterable<RequestOptions> to(String method, String path) =>
@@ -102,6 +103,7 @@ final class _Wire implements HttpClientAdapter {
       );
     }
     if (path == '/api/v1/chats/import') {
+      await importGate?.future;
       final failure = importFailure;
       if (failure != null) throw failure;
       return _json(importAnswer);
@@ -1102,6 +1104,34 @@ void main() {
       expect(stored?.bodySynced, isTrue);
     });
 
+    testWidgets('a page opened again while an import is with the server '
+        'does not send it again', (tester) async {
+      final session = await open(tester);
+      final gate = session.wire.importGate = Completer<void>();
+      session.files.nextPick = PickedChatFile(
+        name: 'chats.json',
+        read: () async => fileBytes,
+      );
+      await session.tap('import');
+      await session.confirm();
+      expect(session.wire.to('POST', '/api/v1/chats/import'), hasLength(1));
+
+      // Left and opened again while the server works on it.
+      session.module.pageLeft(chatDataControlsPageId);
+      await session.appear();
+      final asked = session.surface.asked.length;
+      session.files.nextPick = PickedChatFile(
+        name: 'chats.json',
+        read: () async => fileBytes,
+      );
+      await session.tap('import');
+
+      expect(session.surface.asked, hasLength(asked));
+      gate.complete();
+      await session.settle();
+      expect(session.wire.to('POST', '/api/v1/chats/import'), hasLength(1));
+    });
+
     testWidgets('declining the confirmation sends nothing', (tester) async {
       final session = await open(tester);
       session.files.nextPick = PickedChatFile(
@@ -1323,6 +1353,8 @@ void main() {
       final gate = session.surface.drawGate = Completer<void>();
       session.surface.answer('go');
       await tester.pump();
+      // The busy draw has taken the gate and waits on it.
+      expect(session.surface.drawGate, isNull);
       session.module.pageLeft(chatDataControlsPageId);
       gate.complete();
       await session.settle();
