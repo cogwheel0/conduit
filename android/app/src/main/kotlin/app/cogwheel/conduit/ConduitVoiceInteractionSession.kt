@@ -137,7 +137,10 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
             // Save screenshot to cache and pass URI
             capturedScreenshot?.let { bitmap ->
                 try {
-                    val file = java.io.File(context.cacheDir, "assistant_screenshot_${System.currentTimeMillis()}.png")
+                    val file = java.io.File(
+                        context.cacheDir,
+                        "${AssistantLaunchAction.SCREENSHOT_FILE_PREFIX}${System.currentTimeMillis()}.png"
+                    )
                     val outputStream = java.io.FileOutputStream(file)
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
                     outputStream.flush()
