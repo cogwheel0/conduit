@@ -1927,10 +1927,11 @@ abstract class _ApiServiceBase {
   /// Its byte stream carries nothing and ends once the saved reply has
   /// finished, read again and again with a growing pause, so the turn stays
   /// running until then; how a stream ends without `[DONE]` then reads the
-  /// finished reply, as for a JSON null answer. The wait also ends when the
-  /// stream is cancelled (the user stopped the reply), when the saved chat
-  /// does not hold the reply, or after [ApiService.heldReplyWaitLimit]. The
-  /// request is never sent again.
+  /// finished reply, as for a JSON null answer. When the saved chat does not
+  /// hold the reply, or [ApiService.heldReplyWaitLimit] passes first, it ends
+  /// with [HeldReplyUnresolved] instead. Cancelling the stream or aborting the
+  /// session (the user stopped the reply, or a caller gave up) stops the wait.
+  /// The request is never sent again.
   ChatCompletionSession _awaitHeldReply({
     required String chatId,
     required String messageId,
@@ -1953,13 +1954,17 @@ abstract class _ApiServiceBase {
     Future<void> wait() async {
       final elapsed = Stopwatch()..start();
       var missing = 0;
+      var finished = false;
       for (var read = 0; ; read++) {
         if (read > 0) await sleep(_heldReplyPollDelay(read));
         if (cancelled) return;
         try {
           final reply = await _readSavedReply(chatId, messageId);
           if (cancelled) return;
-          if (_savedReplyFinished(reply)) break;
+          if (_savedReplyFinished(reply)) {
+            finished = true;
+            break;
+          }
           missing = reply == null ? missing + 1 : 0;
           if (missing >= _heldReplyMissingReads) break;
         } catch (error) {
@@ -1971,17 +1976,21 @@ abstract class _ApiServiceBase {
         }
         if (elapsed.elapsed >= ApiService.heldReplyWaitLimit) break;
       }
-      if (!cancelled) unawaited(body.close());
+      if (cancelled) return;
+      if (!finished) body.addError(const HeldReplyUnresolved());
+      unawaited(body.close());
+    }
+
+    void stopWaiting() {
+      cancelled = true;
+      pause?.cancel();
+      final wake = paused;
+      if (wake != null && !wake.isCompleted) wake.complete();
     }
 
     body = StreamController<List<int>>(
       onListen: () => unawaited(wait()),
-      onCancel: () {
-        cancelled = true;
-        pause?.cancel();
-        final wake = paused;
-        if (wake != null && !wake.isCompleted) wake.complete();
-      },
+      onCancel: stopWaiting,
     );
     DebugLogger.warning(
       'held-completion-awaiting-saved-reply',
@@ -1993,7 +2002,14 @@ abstract class _ApiServiceBase {
       sessionId: sessionId,
       conversationId: chatId,
       byteStream: body.stream,
-      abort: abort,
+      // A caller that gives up aborts without cancelling the stream it was
+      // draining, so aborting stops the wait too. Not awaited: a stream that
+      // was never listened to would not finish closing.
+      abort: () async {
+        stopWaiting();
+        unawaited(body.close());
+        await abort();
+      },
     );
   }
 

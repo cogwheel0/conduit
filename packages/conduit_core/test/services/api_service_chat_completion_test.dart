@@ -909,7 +909,7 @@ void main() {
         check(adapter.requests).length.equals(2);
       });
 
-      test('stops waiting when the saved chat does not hold the reply',
+      test('ends unresolved when the saved chat does not hold the reply',
           () async {
         final adapter = _QueuedFakeAdapter([
           _TimeoutResponse(),
@@ -917,12 +917,33 @@ void main() {
         ]);
         final session = await send(adapter);
 
-        check(
-          await session.byteStream!.toList().timeout(
-            const Duration(seconds: 10),
-          ),
-        ).isEmpty();
+        // Not a clean end, which would close the turn as an empty answer.
+        await check(
+          session.byteStream!.toList().timeout(const Duration(seconds: 10)),
+        ).throws<HeldReplyUnresolved>();
         check(adapter.requests).length.equals(4);
+      });
+
+      test('stops waiting when the session is aborted while its stream is '
+          'still drained', () async {
+        // A headless caller that gives up aborts the session, but its drain
+        // keeps listening.
+        final adapter = _QueuedFakeAdapter([
+          _TimeoutResponse(),
+          for (var i = 0; i < 5; i++)
+            _FakeAdapter.json(savedChat(reply('Hel', done: false))),
+        ]);
+        final session = await send(adapter);
+
+        final drained = session.byteStream!.drain<void>();
+        while (adapter.requests.length < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await session.abort!();
+        await drained.timeout(const Duration(seconds: 5));
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        check(adapter.requests).length.equals(2);
       });
     });
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
@@ -61,6 +62,27 @@ class _TrackingApiService extends ApiService {
     chatCompletedCalls += 1;
     return const <String, dynamic>{};
   }
+}
+
+/// Records every request's path, then lets [_inner] answer it.
+class _PathRecordingAdapter implements HttpClientAdapter {
+  _PathRecordingAdapter(this._inner);
+
+  final HttpClientAdapter _inner;
+  final paths = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) {
+    paths.add(options.path);
+    return _inner.fetch(options, requestStream, cancelOnError);
+  }
+
+  @override
+  void close({bool force = false}) => _inner.close(force: force);
 }
 
 /// Adapter that optionally returns a canned poll response.
@@ -559,6 +581,38 @@ void main() {
 
       check(log.appendedChunks).deepEquals(['Hello', ' world']);
       check(log.finishCount).equals(1);
+    });
+
+    test('a held reply never recovered ends the turn as unresolved, not as an '
+        'empty answer, and nothing is sent again', () async {
+      // Issue #848: a held completion whose saved reply the server never
+      // finished while Conduit waited for it.
+      final log = _CallbackLog();
+      final api = _buildFakeApi();
+      final requests = _PathRecordingAdapter(api.dio.httpClientAdapter);
+      api.dio.httpClientAdapter = requests;
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          byteStream: Stream<List<int>>.error(const HeldReplyUnresolved()),
+          abort: () async {},
+        ),
+        log: log,
+        api: api,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      final reply = log.messages.single;
+      check(reply.isStreaming).isFalse();
+      check(reply.error?.content).equals(kHeldReplyUnresolvedMessage);
+      check(isHeldReplyUnresolvedError(reply.error?.content)).isTrue();
+      check(log.finishCount).equals(1);
+      check(requests.paths).not((it) => it.contains('/api/chat/completions'));
     });
 
     test('taskSocket completion calls chatCompleted exactly once', () async {

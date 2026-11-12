@@ -48,6 +48,7 @@ final class FakeEngineIoServer {
     required this.answerSocketIoConnect,
     required this.handshakeCookies,
     required this.pingIntervalMs,
+    required this.pingTimeoutMs,
     required this.maxPayload,
     required this.stallHandshakeBody,
   }) {
@@ -60,6 +61,7 @@ final class FakeEngineIoServer {
     bool answerSocketIoConnect = true,
     List<Cookie> handshakeCookies = const [],
     int pingIntervalMs = 25000,
+    int pingTimeoutMs = 20000,
     int maxPayload = 1000000,
     bool stallHandshakeBody = false,
   }) async {
@@ -71,6 +73,7 @@ final class FakeEngineIoServer {
       answerSocketIoConnect: answerSocketIoConnect,
       handshakeCookies: handshakeCookies,
       pingIntervalMs: pingIntervalMs,
+      pingTimeoutMs: pingTimeoutMs,
       maxPayload: maxPayload,
       stallHandshakeBody: stallHandshakeBody,
     );
@@ -92,6 +95,7 @@ final class FakeEngineIoServer {
   final bool answerSocketIoConnect;
   final List<Cookie> handshakeCookies;
   final int pingIntervalMs;
+  final int pingTimeoutMs;
 
   /// The largest POST body in bytes; a larger one is refused with a 400 and
   /// ends the session, as python-engineio's `max_http_buffer_size` does.
@@ -308,7 +312,7 @@ final class FakeEngineIoServer {
   }
 
   String _openPacket(String sid) =>
-      '0${jsonEncode({'sid': sid, 'upgrades': <String>[], 'pingInterval': pingIntervalMs, 'pingTimeout': 20000, 'maxPayload': maxPayload})}';
+      '0${jsonEncode({'sid': sid, 'upgrades': <String>[], 'pingInterval': pingIntervalMs, 'pingTimeout': pingTimeoutMs, 'maxPayload': maxPayload})}';
 
   Future<void> _reply(HttpRequest request, int status, String body) async {
     request.response

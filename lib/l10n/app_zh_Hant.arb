@@ -3707,6 +3707,7 @@
   "directImagesPerRequestSaveFailed": "無法儲存「每次請求的圖片數」。請再試一次。",
   "directModelTooManyImages": "此模型每次請求接受的圖片少於此聊天傳送的數量。請在「直接連線」設定中調低「每次請求的圖片數」，然後再試一次。如果這則訊息本身包含的圖片就超過模型可接受的數量，請減少圖片後重新傳送。",
   "directToolLoopNoAnswer": "模型一直在使用工具，沒有給出回答。請再試一次，或關閉網頁搜尋和工具。",
+  "heldReplyStillRunning": "伺服器仍在處理此回覆。請稍後重新開啟此對話查看。",
   "directContextLimitOllamaNote": "對於你自己伺服器上的 Ollama 模型，在此選擇的上限也是 Ollama 載入模型時使用的上下文視窗。視窗越大，佔用的記憶體越多。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 個模型}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},

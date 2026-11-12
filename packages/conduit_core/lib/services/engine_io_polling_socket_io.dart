@@ -54,10 +54,11 @@ final class EngineIoPollingSocket implements ws.WebSocket {
   /// How long one POST of client packets may take.
   static const Duration sendTimeout = Duration(seconds: 30);
 
-  /// The longest the HTTP client may take to open a connection, shorter than
-  /// any request's own time. A request that gives up while its connection is
-  /// still being opened cannot stop that attempt (dart:io gives no handle to
-  /// it), so the client's own connection timeout must end it.
+  /// The longest the HTTP client may take to open a connection, and less when
+  /// one of the session's requests may take less (see [connect]). A request
+  /// that gives up while its connection is still being opened cannot stop that
+  /// attempt (dart:io gives no handle to it), so the client's own connection
+  /// timeout must end it.
   static const Duration connectTimeout = Duration(seconds: 15);
 
   /// The most packets one POST carries. python-engineio refuses a payload of
@@ -96,8 +97,10 @@ final class EngineIoPollingSocket implements ws.WebSocket {
   /// Opens a polling session at [url], the `ws`/`wss` address socket_io_client
   /// asks for, by performing the Engine.IO handshake over HTTP.
   ///
-  /// Lowers [client]'s `connectionTimeout` to [connectTimeout] when it has a
-  /// longer one or none.
+  /// Lowers [client]'s `connectionTimeout` to the shortest time any of the
+  /// session's requests may take, [connectTimeout] at most, when it has a
+  /// longer one or none: [timeout] for the handshake, then the session's poll
+  /// and send times, which the server's ping values decide.
   ///
   /// Throws [ws.WebSocketException] when the server does not answer with an
   /// Engine.IO open packet, and passes on network and timeout errors.
@@ -107,10 +110,7 @@ final class EngineIoPollingSocket implements ws.WebSocket {
     Map<String, String>? headers,
     Duration timeout = handshakeTimeout,
   }) async {
-    final opening = client.connectionTimeout;
-    if (opening == null || opening > connectTimeout) {
-      client.connectionTimeout = connectTimeout;
-    }
+    _limitConnectionTimeout(client, [connectTimeout, timeout]);
     final endpoint = url.replace(
       scheme: switch (url.scheme) {
         'wss' => 'https',
@@ -157,17 +157,33 @@ final class EngineIoPollingSocket implements ws.WebSocket {
       handshake['pingTimeout'],
       _defaultPingTimeoutMs,
     );
+    final pollTimeout =
+        Duration(milliseconds: pingInterval + pingTimeout) + _pollMargin;
+    _limitConnectionTimeout(client, [pollTimeout, sendTimeout]);
     return EngineIoPollingSocket._(
       client: client,
       endpoint: endpoint,
       headers: requestHeaders,
       cookies: cookies,
       sid: sid,
-      pollTimeout:
-          Duration(milliseconds: pingInterval + pingTimeout) + _pollMargin,
+      pollTimeout: pollTimeout,
       maxPayload: _positive(handshake['maxPayload'], _defaultMaxPayload),
       handshakePackets: packets,
     );
+  }
+
+  // A request cannot stop its connection attempt, so the client's own limit
+  // must be no longer than any request's. The client may be shared, so it is
+  // only ever lowered.
+  static void _limitConnectionTimeout(
+    HttpClient client,
+    List<Duration> limits,
+  ) {
+    final shortest = limits.reduce((a, b) => a < b ? a : b);
+    final current = client.connectionTimeout;
+    if (current == null || current > shortest) {
+      client.connectionTimeout = shortest;
+    }
   }
 
   @override

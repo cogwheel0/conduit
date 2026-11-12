@@ -288,6 +288,39 @@ void main() {
     check(quicker.connectionTimeout).equals(const Duration(seconds: 3));
   });
 
+  group('the connection limit follows a request time shorter than it', () {
+    test('a short handshake timeout', () async {
+      final fresh = HttpClient();
+      addTearDown(() => fresh.close(force: true));
+      final socket = await EngineIoPollingSocket.connect(
+        pollingUrl(),
+        client: fresh,
+        timeout: const Duration(seconds: 2),
+      );
+      await socket.close();
+
+      check(fresh.connectionTimeout).equals(const Duration(seconds: 2));
+    });
+
+    test('short ping values, which shorten each poll', () async {
+      await server.close();
+      // A poll may then take 1 s + 1 s + the 10 s margin.
+      server = await FakeEngineIoServer.start(
+        pingIntervalMs: 1000,
+        pingTimeoutMs: 1000,
+      );
+      final fresh = HttpClient();
+      addTearDown(() => fresh.close(force: true));
+      final socket = await EngineIoPollingSocket.connect(
+        pollingUrl(),
+        client: fresh,
+      );
+      await socket.close();
+
+      check(fresh.connectionTimeout).equals(const Duration(seconds: 12));
+    });
+  });
+
   group('a redirect to another origin is never followed', () {
     // What reaches the other origin, with the custom header it carried.
     late HttpServer elsewhere;
