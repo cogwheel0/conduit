@@ -2,6 +2,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
@@ -80,6 +81,12 @@ void main() {
   // to a provider nobody listens to, until that provider is read again. What
   // a scope's transcript follows -- the account's sign-in, its API client
   // and socket -- must stay current between a host's reads.
+  //
+  // Here the root's session epoch has one listener that keeps it awake: the
+  // scope's transcript. The weak listener below does not count, so the epoch
+  // rebuilds on sign-in only while the scope holds its transcript; without
+  // that hold, the transcript's listener is switched off after the read
+  // above and the count stays at zero.
   test('a scope follows the account between its host\'s reads', () async {
     final signedIn = NotifierProvider<_Flag, bool>(_Flag.new);
     final parent = ProviderContainer(
@@ -257,6 +264,32 @@ void main() {
     expect(a.container.read(selectedTerminalIdProvider), 'terminal-a');
     expect(b.container.read(selectedTerminalIdProvider), isNull);
     expect(parent.read(selectedTerminalIdProvider), isNull);
+  });
+
+  // Regenerating an answer of a multi-model turn uses the model picked in
+  // that chat since; a pick in another chat must not replace it.
+  test('a model picked in one scope stays that chat\'s pick', () {
+    final parent = root();
+    final a = open(parent);
+    final b = open(parent);
+    a.container
+        .read(chatModelPickProvider.notifier)
+        .record(
+          chatId: 'chat-a',
+          modelId: 'model-a',
+          promptIds: const {'question-chat-a'},
+        );
+    b.container
+        .read(chatModelPickProvider.notifier)
+        .record(
+          chatId: 'chat-b',
+          modelId: 'model-b',
+          promptIds: const {'question-chat-b'},
+        );
+
+    expect(a.container.read(chatModelPickProvider)?.modelId, 'model-a');
+    expect(b.container.read(chatModelPickProvider)?.modelId, 'model-b');
+    expect(parent.read(chatModelPickProvider), isNull);
   });
 
   test('a coding agent and its controls are the scope\'s own', () {

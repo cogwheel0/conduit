@@ -125,6 +125,7 @@ final chatSessionRegistryProvider = Provider<ChatSessionRegistry>(
 ///   [isLoadingConversationProvider], [streamingContentProvider] and the
 ///   streaming flags derived from them;
 /// * the composer: [selectedModelProvider] and whether it was chosen by hand,
+///   the model last picked in the chat ([chatModelPickProvider]),
 ///   web search, image generation and the code interpreter (with what makes
 ///   them available), tools, filters, terminal, attachments, the chat's
 ///   pending settings and folder, temporary chat;
@@ -152,6 +153,9 @@ List<Override> chatSessionScopeOverrides() => <Override>[
     _shouldProtectLocalStreamingState,
   ),
   chatPicksSessionProvider.overrideWith(ChatPicksSession.new),
+  // The model last picked in the chat, which regenerating an answer of an
+  // earlier multi-model turn uses.
+  chatModelPickProvider.overrideWith(ChatModelPickNotifier.new),
   prefilledInputTextProvider.overrideWith(PrefilledInputText.new),
   availableToolsProvider.overrideWith(AvailableToolsNotifier.new),
   webSearchEnabledProvider.overrideWith(WebSearchEnabledNotifier.new),
