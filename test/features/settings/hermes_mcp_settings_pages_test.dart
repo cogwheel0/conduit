@@ -624,6 +624,45 @@ void main() {
     check(calls.last.toString()).not((it) => it.contains('synthetic-mcp-key'));
     await hermes.dispose();
   });
+
+  testWidgets('a key typed for one connection is not sent to another', (
+    tester,
+  ) async {
+    final hermes = _Hermes();
+    final active = NotifierProvider<_Active, String?>(_Active.new);
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(hermes.service),
+        hermesActiveConnectionIdProvider.overrideWith(
+          (ref) => ref.watch(active),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesActiveConnectionIdProvider, (_, _) {});
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    await rig.open(hermesMcpAddPageId);
+    await rig.change(hermesMcpRowId('add-name'), 'tide-notes');
+    await rig.change(hermesMcpRowId('add-key'), 'synthetic-mcp-key');
+
+    // A notification puts another connection in use before Add.
+    container.read(active.notifier).use('work');
+    await rig.change(hermesMcpRowId('add'));
+
+    check(hermes.calls('mcp.servers.add')).isEmpty();
+    // The secret is in no page that outlives the form.
+    final add = container.read(settingsPagesProvider)[hermesMcpAddPageId]!;
+    check([
+      for (final item in [
+        ...add.items,
+        for (final section in add.sections) ...section.items,
+      ])
+        item.value,
+    ]).not((it) => it.contains('synthetic-mcp-key'));
+    await hermes.dispose();
+  });
 }
 
 /// The Hermes connection in use, switched by a test.

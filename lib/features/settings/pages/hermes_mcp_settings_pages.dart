@@ -357,7 +357,6 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
   String url = '',
   String command = '',
   String arguments = '',
-  String key = '',
   String? notice,
   bool busy = false,
 }) {
@@ -418,8 +417,6 @@ NativeSheetDetailConfig buildHermesMcpAddPage(
             title: l10n.hermesMcpApiKeyOptional,
             sfSymbol: 'key',
             kind: NativeSheetItemKind.secureTextField,
-            // What a retry sends, so the field shows it is still there.
-            value: key,
           ),
         ],
       ),
@@ -499,7 +496,6 @@ NativeSheetDetailConfig buildHermesMcpCatalogPage(
 NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
   AppLocalizations l10n,
   HermesMcpCatalogEntry entry, {
-  Map<String, String> credentials = const {},
   String? notice,
   bool busy = false,
 }) {
@@ -549,7 +545,6 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
                     : l10n.hermesMcpValueOptional(credential.name),
                 sfSymbol: 'key',
                 kind: NativeSheetItemKind.secureTextField,
-                value: credentials[credential.name] ?? '',
               ),
           ],
         ),
@@ -562,7 +557,6 @@ NativeSheetDetailConfig buildHermesMcpCatalogEntryPage(
 NativeSheetDetailConfig buildHermesMcpKeyPage(
   AppLocalizations l10n,
   String name, {
-  String key = '',
   String? notice,
   bool busy = false,
 }) {
@@ -587,7 +581,6 @@ NativeSheetDetailConfig buildHermesMcpKeyPage(
         title: l10n.hermesApiKeyTitle,
         sfSymbol: 'key',
         kind: NativeSheetItemKind.secureTextField,
-        value: key,
       ),
     ],
   );
@@ -616,6 +609,13 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   /// Counts visits to the Add, catalog entry and key forms: a request's
   /// answer arriving after its form was left belongs to no form shown.
   int _formVisit = 0;
+
+  /// The connection a form opened on: its secrets go to that one or
+  /// nowhere.
+  String? _formConnection;
+
+  bool get _formOnOtherConnection =>
+      _ref.read(hermesActiveConnectionIdProvider) != _formConnection;
 
   // The forms, as typed.
   final Map<String, String> _add = {};
@@ -686,6 +686,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       );
     } else if (detailId == hermesMcpAddPageId) {
       _formVisit++;
+      _formConnection = _ref.read(hermesActiveConnectionIdProvider);
       _add.clear();
       _addNotice = null;
       await _surface.applyDetail(buildHermesMcpAddPage(l10n));
@@ -699,11 +700,13 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       );
       if (entry == null) return;
       _formVisit++;
+      _formConnection = _ref.read(hermesActiveConnectionIdProvider);
       _credentials.clear();
       _catalogNotice = null;
       await _surface.applyDetail(buildHermesMcpCatalogEntryPage(l10n, entry));
     } else if (detailId.startsWith(hermesMcpKeyPagePrefix)) {
       _formVisit++;
+      _formConnection = _ref.read(hermesActiveConnectionIdProvider);
       _key = '';
       _keyNotice = null;
       await _surface.applyDetail(
@@ -751,11 +754,13 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       buildHermesMcpPage(l10n, state),
       detailSheets: [
         buildHermesMcpAddPage(l10n),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: hermesMcpCatalogPageId,
-          title: l10n.hermesMcpAddFromCatalog,
-        ),
+        // A catalog already drawn keeps what it shows.
+        if (!_ref.read(settingsPagesProvider).contains(hermesMcpCatalogPageId))
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: hermesMcpCatalogPageId,
+            title: l10n.hermesMcpAddFromCatalog,
+          ),
         for (final server in state.servers ?? const <HermesMcpServer>[])
           buildHermesMcpServerPage(l10n, state, server.name),
       ],
@@ -958,6 +963,14 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _addNotice = null;
     await _applyAdd(l10n);
     final visit = _formVisit;
+    // Checked with nothing awaited before the request: a key typed for one
+    // connection is never sent to another.
+    if (_formOnOtherConnection || !identical(service, _service)) {
+      _adding = false;
+      _add.remove('key');
+      _addNotice = l10n.hermesMcpActionFailed;
+      return _applyAdd(l10n);
+    }
     try {
       await service.addMcpServer(
         name: name,
@@ -989,6 +1002,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       _adding = false;
       if (visit != _formVisit) return;
       _addNotice = l10n.hermesMcpActionFailed;
+      // Its field is drawn empty again: the key goes with it, so a retry
+      // never sends one that is no longer shown.
+      _add.remove('key');
       await _applyAdd(l10n);
     }
   }
@@ -1000,7 +1016,6 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       url: _add['url'] ?? '',
       command: _add['command'] ?? '',
       arguments: _add['arguments'] ?? '',
-      key: _add['key'] ?? '',
       notice: _addNotice,
       busy: _adding,
     ),
@@ -1014,7 +1029,6 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       buildHermesMcpCatalogEntryPage(
         l10n,
         entry,
-        credentials: _credentials,
         notice: _catalogNotice,
         busy: _catalogAdding,
       ),
@@ -1028,6 +1042,12 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _catalogNotice = null;
     await applyEntry();
     final visit = _formVisit;
+    if (_formOnOtherConnection || !identical(service, _service)) {
+      _catalogAdding = false;
+      _credentials.clear();
+      _catalogNotice = l10n.hermesMcpActionFailed;
+      return applyEntry();
+    }
     bool stillInstalling;
     try {
       stillInstalling = await service.addMcpCatalogEntry(
@@ -1046,6 +1066,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       await _load(l10n);
       if (visit != _formVisit) return;
       _catalogNotice = l10n.hermesMcpActionFailed;
+      _credentials.clear();
       return applyEntry();
     }
     _catalogAdding = false;
@@ -1092,6 +1113,15 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _keyNotice = null;
     await _surface.applyDetail(buildHermesMcpKeyPage(l10n, name, busy: true));
     final visit = _formVisit;
+    if (_formOnOtherConnection || !identical(service, _service)) {
+      _keySaving = false;
+      _key = '';
+      _keyNotice = l10n.hermesMcpActionFailed;
+      await _surface.applyDetail(
+        buildHermesMcpKeyPage(l10n, name, notice: _keyNotice),
+      );
+      return;
+    }
     try {
       await service.setMcpApiKey(name, _key);
       _keySaving = false;
@@ -1112,8 +1142,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       _keySaving = false;
       if (visit != _formVisit) return;
       _keyNotice = l10n.hermesMcpActionFailed;
+      _key = '';
       await _surface.applyDetail(
-        buildHermesMcpKeyPage(l10n, name, key: _key, notice: _keyNotice),
+        buildHermesMcpKeyPage(l10n, name, notice: _keyNotice),
       );
     }
   }

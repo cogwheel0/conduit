@@ -1358,6 +1358,11 @@ class HermesJobSettingsPages extends SettingsPageModule {
       // its rows are not this one's to mark.
       if (visit != _connectionVisit) {
         if (!editing) _creating = false;
+        // The editor, still open, is no longer waiting on anything.
+        draft.saving = false;
+        if (identical(_drafts[key], draft)) {
+          await _applyEditor(l10n, key, draft, withPages: false);
+        }
         return;
       }
       _notice = changesNotify
@@ -1377,6 +1382,9 @@ class HermesJobSettingsPages extends SettingsPageModule {
         // Said apart from the save, which has happened: a failure here must
         // not read as one to try again, which would make the job twice. The
         // job's rows wait meanwhile, since this step rewrites its delivery.
+        // A switch while the editor closed: this connection's rows are not
+        // this save's to mark.
+        if (visit != _connectionVisit) return;
         if (jobId != null) _busy.add(jobId);
         await _applyShown();
         final changed =
@@ -1534,9 +1542,12 @@ class HermesJobSettingsPages extends SettingsPageModule {
         ?.where((candidate) => candidate.id == runId)
         .firstOrNull;
     if (run == null) return;
+    final visit = _connectionVisit;
     // The chat opens over the app, so Settings closes first.
     final bridge = NativeSheetBridge.instance;
     if (bridge.settingsSheetOpen) await bridge.dismiss();
+    // Another connection in use since: the run is not its to open.
+    if (visit != _connectionVisit) return;
     final context = NavigationService.context;
     if (context == null || !context.mounted) return;
     await openHermesSessionReading(

@@ -971,6 +971,8 @@ void main() {
 
       check(jobs.created).length.equals(1);
       check(rig.notice).not((it) => it.equals(_l10n.hermesJobCreated));
+      // Its editor, still open, no longer waits.
+      check(rig.page(editor).busy).isFalse();
       rig.leave();
     });
 
