@@ -859,7 +859,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       case OutboxKind.deleteChat:
         // Annihilates EVERY earlier pending op for this chat.
         final priorDelete = newestOfKind(OutboxKind.deleteChat);
-        if (pendingKinds.contains(OutboxKind.createChat)) {
+        // A create whose chat already has its server id reached the server
+        // (its done mark was lost, and run again it sends nothing): the
+        // server copy must be deleted too, or the next pull brings it back.
+        if (chatId.startsWith('local:') &&
+            pendingKinds.contains(OutboxKind.createChat)) {
           // Never reached the server ⇒ pure local drop: delete all pending,
           // emit no deleteChat op.
           return _CoalesceDecision(
