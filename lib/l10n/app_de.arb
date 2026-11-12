@@ -2092,7 +2092,7 @@
   "workspaceSkills": "Skills",
   "workspaceCreate": "Erstellen",
   "workspaceEmpty": "Noch keine Einträge.",
-  "workspaceDenied": "Du hast keine Berechtigung, diesen Bereich des Arbeitsbereichs zu verwalten.",
+  "workspaceDenied": "Du hast keine Berechtigung, diesen Teil des Arbeitsbereichs zu verwalten.",
   "workspaceUnsupported": "Dieser Server unterstützt die Verwaltung des Arbeitsbereichs nicht.",
   "workspaceLoadFailed": "Der Arbeitsbereich konnte nicht geladen werden.",
   "workspaceRetry": "Erneut versuchen",
@@ -2153,7 +2153,7 @@
   "@workspaceModelBaseModel": {
     "description": "Label for the base-model selector."
   },
-  "workspaceModelBaseModelNone": "Keins (benutzerdefiniert)",
+  "workspaceModelBaseModelNone": "Keines (benutzerdefiniert)",
   "workspaceModelBaseModelRequired": "Wähle ein Basismodell.",
   "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
   "@workspaceModelBaseModelNone": {

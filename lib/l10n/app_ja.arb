@@ -4854,7 +4854,7 @@
   "directApiBaseUrl": "ベース URL",
   "directOpenRouterUrlInvalid": "OpenRouter の HTTPS /api/v1 ルート（グローバルまたは EU）を使用してください。",
   "directOpenRouterBaseUrlDescription": "OpenRouter の API キーで接続します。",
-  "directOpenRouterChatCompletionsDescription": "Chat Completions は、ネイティブのウェブ検索、画像生成、PDF の解析、再利用可能な PDF 注釈に使用されます。",
+  "directOpenRouterChatCompletionsDescription": "Chat Completions は、ネイティブの Web 検索、画像生成、PDF の解析、再利用可能な PDF 注釈に使用されます。",
   "directCompletionApi": "API の種類",
   "directChatCompletions": "Chat Completions",
   "directResponses": "Responses",
