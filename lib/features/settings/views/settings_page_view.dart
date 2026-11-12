@@ -651,26 +651,33 @@ class _SettingsSearchFieldState extends State<SettingsSearchField> {
   late final _controller = TextEditingController(text: widget.search.value);
   Timer? _debounce;
 
-  /// The query this field last sent.
-  String? _sent;
+  /// The queries this field sent that the page has not echoed yet, oldest
+  /// first, trimmed as the page echoes them.
+  final List<String> _unechoed = [];
 
   @override
   void didUpdateWidget(covariant SettingsSearchField oldWidget) {
     super.didUpdateWidget(oldWidget);
     final value = widget.search.value;
-    // The page echoes a query trimmed; what is typed (a trailing space
-    // included) stays. Only a query from elsewhere -- Show All -- replaces
-    // it, and the send still waiting for the typing to pause is dropped.
-    if (value != oldWidget.search.value &&
-        value.trim() != (_sent ?? '').trim() &&
-        value.trim() != _controller.text.trim()) {
+    if (value == oldWidget.search.value) return;
+    // An echo of a query this field sent -- the last one or an earlier one
+    // answered late -- leaves what is typed (a trailing space included).
+    final echo = _unechoed.indexOf(value.trim());
+    if (echo >= 0) {
+      _unechoed.removeRange(0, echo + 1);
+      return;
+    }
+    // A query from elsewhere -- Show All -- replaces the text, and the send
+    // still waiting for the typing to pause is dropped.
+    if (value.trim() != _controller.text.trim()) {
       _debounce?.cancel();
+      _unechoed.clear();
       _controller.text = value;
     }
   }
 
   void _send(String query) {
-    _sent = query;
+    _unechoed.add(query.trim());
     widget.onQuery(query);
   }
 

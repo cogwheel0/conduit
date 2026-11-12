@@ -361,16 +361,26 @@ void main() {
     check(controller.changes.skip(before).toList())
         .deepEquals([('tasks.search', 'weekly ')]);
 
+    // An earlier query answered after a later one leaves what is typed.
+    await tester.enterText(field, 'a');
+    await tester.pump(settingsSearchDebounce);
+    await tester.enterText(field, 'ab');
+    await tester.pump(settingsSearchDebounce);
+    await tester.enterText(field, 'abc');
+    await show(page('a'));
+    check(text()).equals('abc');
+    await show(page('ab'));
+    check(text()).equals('abc');
+    await tester.pump(settingsSearchDebounce);
+
     // Emptied by hand, the query goes at once.
     final emptied = controller.changes.length;
     await tester.enterText(field, 'tide');
     await tester.pump(settingsSearchDebounce);
     await tester.enterText(field, '');
     await tester.pump();
-    check(controller.changes.skip(emptied).toList()).deepEquals([
-      ('tasks.search', 'tide'),
-      ('tasks.search', ''),
-    ]);
+    check(controller.changes.skip(emptied).toList())
+        .deepEquals([('tasks.search', 'tide'), ('tasks.search', '')]);
   });
 
   testWidgets('text typed on a page with no discard question is kept as '

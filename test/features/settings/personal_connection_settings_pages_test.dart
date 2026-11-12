@@ -263,6 +263,18 @@ void main() {
       expect(rig.server.log, hasLength(reads));
     });
 
+    testWidgets('Advanced off keeps an editor closed too, opened by a link '
+        'included', (tester) async {
+      final rig = await pump(tester, advanced: false);
+
+      await rig.open(_alpha);
+
+      expect(
+        rig.titles(_alpha).single,
+        _l10n.advancedRequiredMessage(_l10n.personalConnectionsTitle),
+      );
+    });
+
     testWidgets('an account without permission is told why', (tester) async {
       final rig = await pump(
         tester,

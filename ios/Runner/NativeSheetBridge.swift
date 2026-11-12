@@ -5638,7 +5638,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     private var shownSearchValue: String?
     /// The query the search bar last sent; Dart echoing it back leaves the
     /// text typed since alone.
-    private var sentSearchQuery: String?
+    /// Queries sent that the page has not echoed yet, oldest first,
+    /// trimmed as the page echoes them.
+    private var unechoedSearchQueries: [String] = []
     private var searchDebounce: Timer?
 
     var detailId: String { detail.id }
@@ -5761,7 +5763,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                 searchController = nil
                 shownSearchValue = nil
                 // A search bar made again shows the query it is given.
-                sentSearchQuery = nil
+                unechoedSearchQueries.removeAll()
                 searchDebounce?.invalidate()
                 searchDebounce = nil
             }
@@ -5789,10 +5791,14 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             let trimmed = { (text: String?) in
                 (text ?? "").trimmingCharacters(in: .whitespaces)
             }
-            if trimmed(search.value) != trimmed(sentSearchQuery),
-               trimmed(controller.searchBar.text) != trimmed(search.value) {
+            // An echo of a query sent -- the last or an earlier one answered
+            // late -- leaves what is typed alone.
+            if let echo = unechoedSearchQueries.firstIndex(of: trimmed(search.value)) {
+                unechoedSearchQueries.removeFirst(echo + 1)
+            } else if trimmed(controller.searchBar.text) != trimmed(search.value) {
                 searchDebounce?.invalidate()
                 searchDebounce = nil
+                unechoedSearchQueries.removeAll()
                 controller.searchBar.text = search.value
             }
         }
@@ -5809,7 +5815,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                   "kind": "search",
               ])
         else { return }
-        sentSearchQuery = query
+        unechoedSearchQueries.append(
+            query.trimmingCharacters(in: .whitespaces)
+        )
         sendControlChange(item, query)
     }
 

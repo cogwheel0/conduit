@@ -465,8 +465,12 @@ final class _ConnectionEditor {
       ? toolDraft().toNewEntry(id: stampKey)
       : terminalDraft().toNewEntry();
 
+  /// Counts edits: a Test answered after one is about other values.
+  int revision = 0;
+
   /// Any edit makes an earlier test result and message out of date.
   void changed() {
+    revision++;
     test = _TestState.idle;
     testText = null;
     message = null;
@@ -523,6 +527,7 @@ NativeSheetDetailConfig _buildEditorPage(
   required bool loading,
   required bool failed,
   required PersonalConnectionsBlock? block,
+  bool advanced = true,
 }) {
   final pageId = '$personalConnectionEditorPagePrefix${editor.key}';
   final key = editor.key;
@@ -535,6 +540,17 @@ NativeSheetDetailConfig _buildEditorPage(
             : l10n.personalConnectionsEditTerminal);
   NativeSheetDetailConfig only(List<NativeSheetItemConfig> items) =>
       NativeSheetDetailConfig(id: pageId, title: title, items: items);
+  // Advanced off, the form is closed as the list is, opened by a link
+  // included.
+  if (!advanced) {
+    return only([
+      _note(
+        '$pageId-advanced',
+        l10n.advancedRequiredMessage(l10n.personalConnectionsTitle),
+        'slider.horizontal.3',
+      ),
+    ]);
+  }
   final ownerChanged = editor.ownerChanged;
   if (ownerChanged && !editor.initialized) {
     // The account changed before the list arrived: nothing of theirs to keep,
@@ -850,6 +866,10 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
   final Ref _ref;
   AppLocalizations? _l10n;
   bool _listShown = false;
+
+  /// The account the list was last drawn for: its switches act for it.
+  PersonalConnectionsSession? _drawnFor;
+
   final Map<String, bool> _pending = {};
   String? _notice;
   bool _noticeIsError = false;
@@ -967,6 +987,7 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       notice: _notice,
       noticeIsError: _noticeIsError,
     );
+    _drawnFor = snapshot?.session;
     await _surface.applyDetail(
       buildPersonalConnectionsPage(l10n, state),
       detailSheets: [
@@ -1011,9 +1032,12 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         loading: connections.isLoading || snapshot == null,
         failed: connections.hasError && snapshot == null,
         block: _ref.read(personalConnectionsAccessProvider).block,
+        advanced: _advanced,
       ),
     );
   }
+
+  bool get _advanced => _ref.read(appSettingsProvider).advancedFeaturesEnabled;
 
   Future<void> _setEnabledFromList(
     AppLocalizations l10n,
@@ -1027,7 +1051,8 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     }
     // The row belongs to the list it was drawn from; a switch drawn for an
     // account that has since gone is refused, not applied to the new one.
-    final owner = snapshot.session;
+    final owner = _drawnFor;
+    if (owner == null) return;
     _pending[key] = value;
     _notice = null;
     await _applyList(l10n);
@@ -1138,6 +1163,7 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       ..testText = l10n.connecting
       ..message = null;
     await _applyEditor(l10n, editor);
+    final revision = editor.revision;
     try {
       final result = await _controller.testConnection(
         owner,
@@ -1145,6 +1171,8 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         entry,
       );
       if (!identical(_editors[editor.key], editor)) return;
+      // Edited while it was tested: the answer is about other values.
+      if (editor.revision != revision) return;
       final error = result.error;
       editor
         ..test = error != null ? _TestState.failed : _TestState.passed
@@ -1154,7 +1182,10 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
             ? l10n.personalConnectionsTestOk(result.operationCount!)
             : l10n.personalConnectionsTestOkTerminal;
     } catch (error) {
-      if (!identical(_editors[editor.key], editor)) return;
+      if (!identical(_editors[editor.key], editor) ||
+          editor.revision != revision) {
+        return;
+      }
       // Categorized, so nothing from the host or the stored key is shown.
       editor
         ..test = _TestState.failed
