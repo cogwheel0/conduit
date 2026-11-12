@@ -1545,7 +1545,13 @@ class NativeSheetHydrationService {
     ];
     return [
       masterSection,
-      buildNativePushSection(l10n, _ref.read(pushStateIfUsedProvider)),
+      ...buildNativePushSections(
+        l10n,
+        _ref.read(pushStateIfUsedProvider),
+        android: defaultTargetPlatform == TargetPlatform.android,
+        advanced: s.advancedFeaturesEnabled,
+        distributors: _pushDistributors,
+      ),
       NativeSheetSectionConfig(items: deliveryItems),
       NativeSheetSectionConfig(items: soundItems),
       NativeSheetSectionConfig(items: contentItems),
@@ -1566,6 +1572,17 @@ class NativeSheetHydrationService {
         ),
         detailSheets: _nativePushDetailSheets(l10n),
       );
+      if (await _readPushDistributors() &&
+          _notificationsHydration.isActive(generation)) {
+        await _applyNativeDetail(
+          NativeSheetDetailConfig(
+            id: NativeSheetRoutes.notificationSettings,
+            title: l10n.notificationsTitle,
+            sections: _nativeNotificationToggleSections(l10n),
+          ),
+          detailSheets: _nativePushDetailSheets(l10n),
+        );
+      }
       if (!await _showNativeNotificationTargets()) return;
       final count = await _nativeNotificationTargetsCount();
       // A newer opening of this page, or another account, owns it now.
@@ -1606,6 +1623,38 @@ class NativeSheetHydrationService {
       );
     }
   }
+
+  /// The UnifiedPush distributors on this device, once read: Android's
+  /// Advanced delivery options list them.
+  List<String>? _pushDistributors;
+
+  /// Reads the distributors where Android's Advanced delivery options show
+  /// them and they have not been read. Returns whether it read them.
+  Future<bool> _readPushDistributors() async {
+    if (_pushDistributors != null ||
+        defaultTargetPlatform != TargetPlatform.android ||
+        !_ref.read(appSettingsProvider).advancedFeaturesEnabled ||
+        !(_ref.read(pushStateIfUsedProvider)?.enabled ?? false)) {
+      return false;
+    }
+    try {
+      _pushDistributors = await _ref
+          .read(pushCoordinatorProvider.notifier)
+          .distributors();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'push-distributors-read-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _pushDistributors = const [];
+    }
+    return true;
+  }
+
+  /// The distributors as last read, for a delivery change to choose from.
+  List<String>? get pushDistributors => _pushDistributors;
 
   /// The push targets detail the Notifications sheet's push row opens.
   List<NativeSheetDetailConfig> _nativePushDetailSheets(

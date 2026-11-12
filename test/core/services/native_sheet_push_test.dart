@@ -26,6 +26,8 @@ import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/ports/push_platform_port.dart' show PushTransport;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -486,6 +488,228 @@ void main() {
     expect(
       PreferencesStore.getBool(PreferenceKeys.notificationScheduledEnabled),
       isFalse,
+    );
+  });
+
+  PlatformNativeSheetItem item(_NativeSettings native, String id) =>
+      native.items(_detail).singleWhere((item) => item.id == id);
+
+  Future<void> onPlatform(
+    Future<void> Function() body, {
+    TargetPlatform platform = TargetPlatform.android,
+  }) async {
+    debugDefaultTargetPlatformOverride = platform;
+    try {
+      await body();
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }
+
+  testWidgets('without a relay iOS says why, and the switch stays off', (
+    tester,
+  ) async {
+    await onPlatform(platform: TargetPlatform.iOS, () async {
+      final fake = FakePushCoordinator(
+        pushStateWith(const [], enabled: false, relayConfigured: false),
+      );
+      final native = await _pumpApp(
+        tester,
+        advanced: false,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+
+      final row = item(native, 'push-enabled');
+      expect(row.subtitle, 'Not available in this build');
+      expect(row.kind, PlatformNativeSheetItemKind.info);
+      expect(
+        _ids(native.items(_detail)),
+        isNot(contains('push-get-distributor')),
+      );
+    });
+  });
+
+  testWidgets('Android without a relay points at UnifiedPush', (tester) async {
+    await onPlatform(() async {
+      final fake = FakePushCoordinator(
+        pushStateWith(
+          const [],
+          enabled: false,
+          relayConfigured: false,
+          transports: const [PushTransport.fcm],
+        ),
+      );
+      final native = await _pumpApp(
+        tester,
+        advanced: false,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+
+      expect(
+        item(native, 'push-enabled').subtitle,
+        'Not available in this build without a UnifiedPush distributor',
+      );
+      expect(
+        item(native, 'push-get-distributor').url,
+        'https://unifiedpush.org/users/distributors/',
+      );
+    });
+  });
+
+  testWidgets('blocked notifications offer the system settings', (
+    tester,
+  ) async {
+    final state = pushStateWith([
+      const PushTargetState(
+        target: pushOwuiTarget,
+        status: PushStatus.permissionDenied,
+      ),
+    ], permissionDenied: true);
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: state,
+      coordinator: FakePushCoordinator(state),
+    );
+    await native.detailAppeared(_detail);
+
+    final row = item(native, 'push-permission-denied');
+    expect(row.subtitle, 'Allow notifications for Conduit in system settings.');
+    expect(row.showsDisclosure, isTrue);
+  });
+
+  testWidgets('with Advanced on, Android picks its delivery service and '
+      'distributor', (tester) async {
+    await onPlatform(() async {
+      final fake = FakePushCoordinator(
+        pushStateWith(
+          const [
+            PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+          ],
+          transports: const [PushTransport.fcm, PushTransport.unifiedPush],
+        ),
+        distributorList: const [
+          'io.heckel.ntfy',
+          'org.unifiedpush.distributor',
+        ],
+      );
+      final native = await _pumpApp(
+        tester,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+      expect(item(native, 'push-delivery:auto').checked, isTrue);
+      expect(_ids(native.items(_detail)), contains('push-delivery:fcm'));
+
+      await native.control('push-delivery:unifiedPush', true);
+      expect(fake.calls, ['setAndroidTransport unifiedPush io.heckel.ntfy']);
+      expect(item(native, 'push-delivery:unifiedPush').checked, isTrue);
+
+      await native.control(
+        'push-distributor:org.unifiedpush.distributor',
+        true,
+      );
+      expect(
+        fake.calls.last,
+        'setAndroidTransport unifiedPush org.unifiedpush.distributor',
+      );
+    });
+  });
+
+  testWidgets('with no distributor, Android says where to get one', (
+    tester,
+  ) async {
+    await onPlatform(() async {
+      final fake = FakePushCoordinator(
+        pushStateWith(
+          const [
+            PushTargetState(target: pushOwuiTarget, status: PushStatus.failed),
+          ],
+          transports: const [PushTransport.fcm],
+          androidTransport: PushAndroidTransport.unifiedPush,
+        ),
+      );
+      final native = await _pumpApp(
+        tester,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+
+      expect(
+        item(native, 'push-no-distributor').title,
+        'No UnifiedPush distributor is installed.',
+      );
+      expect(_ids(native.items(_detail)), contains('push-distributor-get'));
+    });
+  });
+
+  testWidgets('resetting the keys asks first, and is only under Advanced', (
+    tester,
+  ) async {
+    await onPlatform(platform: TargetPlatform.iOS, () async {
+      final state = pushStateWith(const [
+        PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+      ]);
+      final fake = FakePushCoordinator(state);
+      final native = await _pumpApp(tester, push: state, coordinator: fake);
+      await native.detailAppeared(_detail);
+
+      final reset = item(native, 'push-reset-keys');
+      expect(reset.destructive, isTrue);
+      expect(reset.confirmMessage, isNotEmpty);
+      await native.control('push-reset-keys', true);
+      expect(fake.calls, ['resetKeys']);
+      // Android's delivery choice is not iOS's.
+      expect(
+        _ids(native.items(_detail)),
+        isNot(contains('push-delivery:auto')),
+      );
+    });
+  });
+
+  testWidgets('without Advanced there is no delivery choice or reset', (
+    tester,
+  ) async {
+    await onPlatform(() async {
+      final state = pushStateWith(const [
+        PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+      ]);
+      final native = await _pumpApp(
+        tester,
+        advanced: false,
+        push: state,
+        coordinator: FakePushCoordinator(state),
+      );
+      await native.detailAppeared(_detail);
+
+      final ids = _ids(native.items(_detail));
+      expect(ids, isNot(contains('push-delivery:auto')));
+      expect(ids, isNot(contains('push-reset-keys')));
+    });
+  });
+
+  testWidgets('a push switch that fails says so', (tester) async {
+    final fake = FakePushCoordinator(pushStateWith(const [], enabled: false))
+      ..setEnabledError = StateError('platform');
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: fake.initial,
+      coordinator: fake,
+    );
+    await native.detailAppeared(_detail);
+
+    await native.control('push-enabled', true);
+
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
     );
   });
 }

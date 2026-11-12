@@ -27,8 +27,13 @@ import '../../features/hermes/widgets/hermes_connection_switcher.dart'
     show hermesConnectionSummary;
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
+import 'package:conduit_core/ports/push_platform_port.dart' show PushTransport;
 import '../../features/push/widgets/push_target_actions.dart'
-    show pushStatusText, pushTargetBusy, pushTargetNeedsAttention;
+    show
+        kUnifiedPushDistributorsUrl,
+        pushStatusText,
+        pushTargetBusy,
+        pushTargetNeedsAttention;
 import 'account_display.dart';
 import 'message_action_settings.dart';
 import 'tts_voice_utils.dart';
@@ -1877,13 +1882,34 @@ const nativePushTargetActionId = 'push-target';
 /// Control id the native "How push stays private" row sends.
 const nativePushPrivacyActionId = 'push-privacy';
 
-/// The Push notifications group of the native Notifications sheet: the
-/// switch, and while push is on, a row into the per-target detail. [push] is
-/// null where push was never turned on.
-NativeSheetSectionConfig buildNativePushSection(
+/// Control id of the push row shown while notifications are blocked: it
+/// opens the system settings where they are allowed.
+const nativePushPermissionId = 'push-permission-denied';
+
+/// Control id prefix of an Android delivery row: `push-delivery:auto`,
+/// `push-delivery:fcm` or `push-delivery:unifiedPush`.
+const nativePushDeliveryPrefix = 'push-delivery:';
+
+/// Control id prefix of a UnifiedPush distributor row, with its name.
+const nativePushDistributorPrefix = 'push-distributor:';
+
+/// Control id of Reset Encryption Keys, under Advanced.
+const nativePushResetKeysId = 'push-reset-keys';
+
+/// The push groups of the Notifications page, on iOS and Android alike: the
+/// switch, and while push is on, a row into the per-target list and the
+/// privacy explainer. Android without a relay points at UnifiedPush; with
+/// notifications blocked a row opens the system settings. With Advanced on,
+/// Android chooses its delivery service and distributor, and either
+/// platform may reset its keys. [push] is null where push was never turned
+/// on; [distributors] is null until read.
+List<NativeSheetSectionConfig> buildNativePushSections(
   AppLocalizations l10n,
-  PushState? push,
-) {
+  PushState? push, {
+  bool android = false,
+  bool advanced = false,
+  List<String>? distributors,
+}) {
   final available = push?.available ?? true;
   final enabled = push?.enabled ?? false;
   // On while push can no longer work here, the switch still turns it off.
@@ -1892,42 +1918,143 @@ NativeSheetSectionConfig buildNativePushSection(
     for (final target in push?.targets.values ?? const <PushTargetState>[])
       if (pushTargetNeedsAttention(target)) target,
   ];
-  return NativeSheetSectionConfig(
-    title: l10n.pushSectionTitle,
-    items: [
-      NativeSheetItemConfig(
-        id: nativePushEnabledId,
-        title: l10n.pushEnabledTitle,
-        subtitle: available
-            ? l10n.pushEnabledDescription
-            : l10n.pushUnavailableBuild,
-        sfSymbol: 'bell.badge',
-        kind: switchable
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
-        value: enabled,
-      ),
-      if (enabled && push != null)
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.pushTargets,
-          // Each account and connection, with its push status.
-          title: l10n.accountsTitle,
-          subtitle: attention.isEmpty
-              ? null
-              : l10n.pushAttentionChip,
-          sfSymbol: attention.isEmpty
-              ? 'checkmark.circle'
-              : 'exclamationmark.triangle',
-        ),
-      NativeSheetItemConfig(
-        id: nativePushPrivacyActionId,
-        title: l10n.pushPrivacyTitle,
-        sfSymbol: 'lock.shield',
-        dismissOnSelect: true,
-        actionId: nativePushPrivacyActionId,
-      ),
-    ],
+  NativeSheetItemConfig getDistributor(String id) => NativeSheetItemConfig(
+    id: id,
+    title: l10n.pushGetDistributor,
+    sfSymbol: 'arrow.up.right.square',
+    url: kUnifiedPushDistributorsUrl,
+    showsDisclosure: false,
   );
+  final sections = <NativeSheetSectionConfig>[
+    NativeSheetSectionConfig(
+      title: l10n.pushSectionTitle,
+      items: [
+        NativeSheetItemConfig(
+          id: nativePushEnabledId,
+          title: l10n.pushEnabledTitle,
+          subtitle: available
+              ? l10n.pushEnabledDescription
+              : android
+              ? l10n.pushUnavailableAndroid
+              : l10n.pushUnavailableBuild,
+          sfSymbol: 'bell.badge',
+          kind: switchable
+              ? NativeSheetItemKind.toggle
+              : NativeSheetItemKind.info,
+          value: enabled,
+        ),
+        if (!available && android) getDistributor('push-get-distributor'),
+        if (enabled && (push?.permissionDenied ?? false))
+          NativeSheetItemConfig(
+            id: nativePushPermissionId,
+            title: l10n.pushStatusPermissionDenied,
+            subtitle: l10n.pushExplainPermissionDenied,
+            sfSymbol: 'bell.slash',
+            showsDisclosure: true,
+          ),
+        if (enabled && push != null)
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.pushTargets,
+            // Each account and connection, with its push status.
+            title: l10n.accountsTitle,
+            subtitle: attention.isEmpty ? null : l10n.pushAttentionChip,
+            sfSymbol: attention.isEmpty
+                ? 'checkmark.circle'
+                : 'exclamationmark.triangle',
+          ),
+        NativeSheetItemConfig(
+          id: nativePushPrivacyActionId,
+          title: l10n.pushPrivacyTitle,
+          sfSymbol: 'lock.shield',
+          dismissOnSelect: true,
+          actionId: nativePushPrivacyActionId,
+        ),
+      ],
+    ),
+  ];
+  if (!advanced || !enabled || push == null) return sections;
+  if (android) {
+    final fcm =
+        push.relayConfigured &&
+        push.availableTransports.contains(PushTransport.fcm);
+    final choice = push.androidTransport;
+    final selectedDistributor = push.distributor ?? distributors?.firstOrNull;
+    NativeSheetItemConfig option(String name, String title, bool chosen) =>
+        NativeSheetItemConfig(
+          id: '$nativePushDeliveryPrefix$name',
+          title: title,
+          checked: chosen,
+          kind: chosen
+              ? NativeSheetItemKind.info
+              : NativeSheetItemKind.navigation,
+          showsDisclosure: false,
+        );
+    sections.add(
+      NativeSheetSectionConfig(
+        title: l10n.pushDeliveryTitle,
+        items: [
+          option('auto', l10n.pushDeliveryAutomatic, choice == null),
+          if (fcm)
+            option(
+              PushAndroidTransport.fcm.name,
+              l10n.pushDeliveryFcm,
+              choice == PushAndroidTransport.fcm,
+            ),
+          option(
+            PushAndroidTransport.unifiedPush.name,
+            l10n.pushDeliveryUnifiedPush,
+            choice == PushAndroidTransport.unifiedPush,
+          ),
+        ],
+      ),
+    );
+    if (choice == PushAndroidTransport.unifiedPush ||
+        (choice == null && !fcm)) {
+      sections.add(
+        NativeSheetSectionConfig(
+          title: l10n.pushDistributorTitle,
+          items: [
+            if (distributors == null)
+              buildNativeLoadingItem(l10n, id: 'push-distributors-loading')
+            else if (distributors.isEmpty) ...[
+              NativeSheetItemConfig(
+                id: 'push-no-distributor',
+                title: l10n.pushNoDistributor,
+                kind: NativeSheetItemKind.info,
+              ),
+              getDistributor('push-distributor-get'),
+            ] else
+              for (final distributor in distributors)
+                NativeSheetItemConfig(
+                  id: '$nativePushDistributorPrefix$distributor',
+                  title: distributor,
+                  checked: distributor == selectedDistributor,
+                  kind: distributor == selectedDistributor
+                      ? NativeSheetItemKind.info
+                      : NativeSheetItemKind.navigation,
+                  showsDisclosure: false,
+                ),
+          ],
+        ),
+      );
+    }
+  }
+  sections.add(
+    NativeSheetSectionConfig(
+      items: [
+        NativeSheetItemConfig(
+          id: nativePushResetKeysId,
+          title: l10n.pushResetKeys,
+          subtitle: l10n.pushResetKeysDescription,
+          sfSymbol: 'key',
+          destructive: true,
+          showsDisclosure: false,
+          confirmMessage: l10n.pushResetKeysConfirmMessage,
+        ),
+      ],
+    ),
+  );
+  return sections;
 }
 
 /// The native list of push targets: each row says its status and opens the

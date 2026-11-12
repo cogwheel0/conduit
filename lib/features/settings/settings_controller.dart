@@ -12,6 +12,8 @@ import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_s
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/push/models/push_status.dart'
+    show PushAndroidTransport;
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/server_memory.dart';
@@ -499,6 +501,8 @@ class SettingsController {
         await _setPushEnabled(value);
         return;
       }
+
+      if (await _handlePushOption(event.id)) return;
 
       if (await _handleMemoryEditorChange(event.id, value)) return;
 
@@ -1294,13 +1298,82 @@ class SettingsController {
         await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
         await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
       },
-      onError: (message, error, stackTrace) => DebugLogger.error(
-        message,
+      onError: (message, error, stackTrace) {
+        DebugLogger.error(
+          message,
+          scope: 'native-sheet',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        // As the Flutter switch did: a switch that did not go through says
+        // so.
+        if (message == 'native-push-toggle-failed') {
+          _showMessage((l10n) => l10n.errorMessage);
+        }
+      },
+    );
+  }
+
+  /// Push's other rows on the Notifications page: the system settings while
+  /// notifications are blocked, and with Advanced on, Android's delivery
+  /// service and distributor, and resetting the keys. Returns whether [id]
+  /// was one of them.
+  Future<bool> _handlePushOption(String id) async {
+    final coordinator = ref.read(pushCoordinatorProvider.notifier);
+    final hydration = ref.read(nativeSheetHydrationServiceProvider);
+    if (id == nativePushPermissionId) {
+      final opened = await ref
+          .read(localNotificationServiceProvider)
+          .openSystemSettings();
+      if (!opened) {
+        _showMessage((l10n) => l10n.notificationSystemSettingsOpenFailed);
+      }
+      return true;
+    }
+    if (id == nativePushResetKeysId) {
+      unawaited(
+        coordinator.resetKeys().catchError((Object error, StackTrace stack) {
+          DebugLogger.error(
+            'push-reset-keys-failed',
+            scope: 'native-sheet',
+            error: error,
+            stackTrace: stack,
+          );
+        }),
+      );
+      return true;
+    }
+    final push = ref.read(pushCoordinatorProvider);
+    final PushAndroidTransport? transport;
+    final String? distributor;
+    if (id.startsWith(nativePushDeliveryPrefix)) {
+      transport = PushAndroidTransport.tryParse(
+        id.substring(nativePushDeliveryPrefix.length),
+      );
+      distributor = transport == PushAndroidTransport.unifiedPush
+          ? push.distributor ?? hydration.pushDistributors?.firstOrNull
+          : push.distributor;
+    } else if (id.startsWith(nativePushDistributorPrefix)) {
+      transport = push.androidTransport;
+      distributor = id.substring(nativePushDistributorPrefix.length);
+    } else {
+      return false;
+    }
+    try {
+      await coordinator.setAndroidTransport(
+        transport,
+        distributor: distributor,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'push-delivery-change-failed',
         scope: 'native-sheet',
         error: error,
         stackTrace: stackTrace,
-      ),
-    );
+      );
+    }
+    await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
+    return true;
   }
 
   /// Opens one push target's detail sheet, with its one-tap fixes. From the
