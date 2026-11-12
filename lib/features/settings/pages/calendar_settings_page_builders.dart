@@ -987,11 +987,19 @@ NativeSheetDetailConfig buildCalendarPeoplePage(
 /// What the calendars page shows.
 @immutable
 class CalendarCalendarsState {
-  const CalendarCalendarsState({this.data, this.busy = false, this.error});
+  const CalendarCalendarsState({
+    this.data,
+    this.busy = false,
+    this.error,
+    this.failure,
+  });
 
   final CalendarAgendaData? data;
   final bool busy;
   final String? error;
+
+  /// Why the agenda, and with it the calendars, could not be read.
+  final String? failure;
 }
 
 /// The calendars the agenda shows: all of them when the filter is empty.
@@ -1026,8 +1034,25 @@ buildCalendarCalendarsPage(
   const pageId = calendarCalendarsPageId;
   final data = state.data;
   if (data == null) {
+    final failure = state.failure;
     return (
-      page: _loading(l10n, pageId, l10n.calendarCalendarsTitle),
+      // Not read: the page says why, with Retry, as the month does.
+      page: failure == null
+          ? _loading(l10n, pageId, l10n.calendarCalendarsTitle)
+          : NativeSheetDetailConfig(
+              id: pageId,
+              title: l10n.calendarCalendarsTitle,
+              items: [
+                _warning('$pageId-failure', failure),
+                NativeSheetItemConfig(
+                  id: calendarRetryRowId,
+                  title: l10n.retry,
+                  sfSymbol: 'arrow.clockwise',
+                  accent: true,
+                  showsDisclosure: false,
+                ),
+              ],
+            ),
       leadsTo: const <NativeSheetDetailConfig>[],
     );
   }
@@ -1057,7 +1082,6 @@ buildCalendarCalendarsPage(
                 access,
                 filterable: filterable,
                 shown: visible.contains(calendar.id),
-                onlyShown: visible.length == 1 && visible.contains(calendar.id),
                 busy: state.busy,
               ),
           ],
@@ -1087,7 +1111,6 @@ NativeSheetItemConfig _calendarRow(
   CalendarAccess? access, {
   required bool filterable,
   required bool shown,
-  required bool onlyShown,
   required bool busy,
 }) {
   final badges = _badges(l10n, calendar, access);

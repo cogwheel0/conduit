@@ -20,6 +20,7 @@ import '../../calendar/calendar_text.dart';
 import '../../calendar/views/calendar_format.dart' show calendarErrorText;
 import '../../navigation/providers/conversation_selection_provider.dart';
 import '../../workspace/widgets/workspace_access_grants.dart';
+import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
 import 'calendar_page_ids.dart';
@@ -41,9 +42,13 @@ final class _EventView {
 
 /// An event editor as it stands.
 final class _Editor {
-  _Editor(this.key);
+  _Editor(this.key, this.since);
 
   final String key;
+
+  /// The row changes already queued as this visit began: any of them was
+  /// made on an earlier editor under the same key.
+  final int since;
   CalendarEventDraft? draft;
 
   /// The draft as the editor opened, which a new event is compared with to
@@ -242,9 +247,33 @@ class CalendarSettingsPages extends SettingsPageModule {
     if (_following != null) return;
     _following = _ref.listen<AsyncValue<CalendarAgendaData>>(
       calendarAgendaProvider,
-      (_, _) => _queueRedraw(),
+      (_, next) {
+        _rereadIfOtherMonth(next);
+        _queueRedraw();
+      },
     );
   }
+
+  /// The agenda's first read can land after the month's own and replace it
+  /// with its default range: the month is read again, once.
+  void _rereadIfOtherMonth(AsyncValue<CalendarAgendaData> next) {
+    final data = next.value;
+    final month = _month;
+    final l10n = _l10n;
+    if (data == null ||
+        month == null ||
+        l10n == null ||
+        _owner == null ||
+        next.isLoading ||
+        data.range.firstDay.sameDate(month) ||
+        (_rereadFor?.sameDate(month) ?? false)) {
+      return;
+    }
+    _rereadFor = month;
+    unawaited(_load(l10n));
+  }
+
+  CalendarWallTime? _rereadFor;
 
   void _queueRedraw() {
     if (_redrawQueued) return;
@@ -259,6 +288,14 @@ class CalendarSettingsPages extends SettingsPageModule {
         await _drawEvent(l10n, view);
       }
     });
+  }
+
+  /// The agenda read, when it is the shown month's.
+  CalendarAgendaData? get _monthData {
+    final data = _data;
+    final month = _month;
+    if (data == null || month == null) return data;
+    return data.range.firstDay.sameDate(month) ? data : null;
   }
 
   /// Reads the month the grid shows for the visit's account.
@@ -308,8 +345,9 @@ class CalendarSettingsPages extends SettingsPageModule {
         month: _month ?? calendarMonthOf(today),
         selectedDay: _selectedDay ?? today,
         today: today,
-        // Another account's agenda is never shown on this visit's page.
-        data: _current(_owner) ? _data : null,
+        // Another account's agenda is never shown on this visit's page, nor
+        // another month's: until the month is read, the page loads.
+        data: _current(_owner) ? _monthData : null,
         failure: _failure,
         scheduledTasksOpen: _ref.read(automationsAvailableProvider),
       ),
@@ -563,6 +601,14 @@ class CalendarSettingsPages extends SettingsPageModule {
 
   // -- The event editor ----------------------------------------------------
 
+  /// Whether the row change being handled was queued before [editor]'s
+  /// visit began: made on an editor since discarded under the same key,
+  /// and not this one's to apply.
+  bool _queuedBefore(_Editor editor) {
+    final handled = _ref.read(settingsControllerProvider).controlHandled;
+    return handled != null && handled <= editor.since;
+  }
+
   Future<void> _openEditor(AppLocalizations l10n, String key) async {
     final open = _editors[key];
     if (open != null) {
@@ -570,7 +616,10 @@ class CalendarSettingsPages extends SettingsPageModule {
       await _drawEditor(l10n, open);
       return;
     }
-    final editor = _editors[key] = _Editor(key);
+    final editor = _editors[key] = _Editor(
+      key,
+      _ref.read(settingsControllerProvider).controlsQueued,
+    );
     if (key == calendarNewEventKey) {
       final draft = CalendarEventDraft.create(
         calendarId: _defaultCalendarId() ?? '',
@@ -713,7 +762,7 @@ class CalendarSettingsPages extends SettingsPageModule {
     Object? value,
   ) async {
     final editor = _editors[key];
-    if (editor == null) return;
+    if (editor == null || _queuedBefore(editor)) return;
     if (field == 'retry') {
       if (editor.draft == null) {
         await _drawEditor(l10n, editor);
@@ -785,7 +834,12 @@ class CalendarSettingsPages extends SettingsPageModule {
   ) async {
     final editor = _editors[key];
     final draft = editor?.draft;
-    if (editor == null || draft == null || editor.saving) return;
+    if (editor == null ||
+        draft == null ||
+        editor.saving ||
+        _queuedBefore(editor)) {
+      return;
+    }
     editor.draft = draft.copyWith(
       attendees: [
         for (final person in draft.attendees)
@@ -937,7 +991,7 @@ class CalendarSettingsPages extends SettingsPageModule {
         ?.where((p) => p.id == userId)
         .firstOrNull;
     if (editor == null || draft == null || person == null) return;
-    if (!_current(_owner)) return;
+    if (!_current(_owner) || _queuedBefore(editor)) return;
     if (!draft.attendees.any((a) => a.userId == userId)) {
       editor.names[userId] = person.name;
       editor.draft = draft.copyWith(
@@ -961,6 +1015,7 @@ class CalendarSettingsPages extends SettingsPageModule {
         data: _current(_owner) ? _data : null,
         busy: _calendarsBusy,
         error: _calendarsError,
+        failure: _failure,
       ),
     );
     await _surface.applyDetail(built.page, detailSheets: built.leadsTo);
@@ -979,6 +1034,17 @@ class CalendarSettingsPages extends SettingsPageModule {
     if (next.isEmpty) return;
     final filter = next.containsAll(all) ? <String>{} : next;
     await _notifier.refresh(owner: owner, filter: filter);
+    // Read again for another filter and failed: the pages say so, with
+    // Retry, rather than load forever.
+    final state = _ref.read(calendarAgendaProvider);
+    if (_current(owner) && state.hasError && !state.hasValue) {
+      _failure = calendarErrorText(
+        l10n,
+        state.error!,
+        fallback: l10n.calendarLoadFailed,
+      );
+      _queueRedraw();
+    }
   }
 
   Future<void> _makeDefault(AppLocalizations l10n, String id) async {

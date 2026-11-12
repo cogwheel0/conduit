@@ -10,6 +10,7 @@ import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:flutter/widgets.dart';
+import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,16 +81,34 @@ final class _Rig {
   }
 }
 
+/// The Settings row queue as far as a page reads it: how many changes have
+/// joined it, and which one is handled now.
+final class _Queue extends SettingsController {
+  int queued = 0;
+  int? handling;
+
+  @override
+  int get controlsQueued => queued;
+
+  @override
+  int? get controlHandled => handling;
+}
+
 Future<_Rig> _open(
   WidgetTester tester, {
   void Function(CalendarWire wire)? configureWire,
   bool serverEnabled = true,
+  SettingsController? controller,
 }) async {
   final session = await pumpCalendar(
     tester,
     location: Routes.chat,
     serverEnabled: serverEnabled,
     configureWire: configureWire,
+    overrides: [
+      if (controller != null)
+        settingsControllerProvider.overrideWithValue(controller),
+    ],
   );
   final rig = _Rig(tester, session);
   rig.container.read(settingsPagesProvider.notifier).register([
@@ -169,6 +188,22 @@ void main() {
       expect(rig.titles(calendarMonthPageId), contains('Planning'));
     });
 
+    testWidgets('a month paged to shows loading until it is read, not the '
+        "last month's day as empty", (tester) async {
+      final rig = await _open(tester);
+
+      final paging = rig.module.handleChange(
+        '$calendarGridId:month',
+        '2026-11-01',
+        _l10n,
+      );
+      expect(
+        rig.rows(calendarMonthPageId).map((row) => row.id),
+        contains('$calendarMonthPageId-loading'),
+      );
+      await rig._settle(paging);
+    });
+
     testWidgets('paging to another month chooses its first day and reads it', (
       tester,
     ) async {
@@ -232,6 +267,22 @@ void main() {
         isNot(contains(calendarRetryRowId)),
       );
       expect(rig.titles(calendarMonthPageId), contains('Planning'));
+    });
+
+    testWidgets('Calendars says the agenda could not be read, with Retry', (
+      tester,
+    ) async {
+      final rig = await _open(
+        tester,
+        configureWire: (wire) => wire.failAgenda = true,
+      );
+
+      await rig.open(calendarCalendarsPageId);
+
+      expect(
+        rig.rows(calendarCalendarsPageId).map((row) => row.id),
+        contains(calendarRetryRowId),
+      );
     });
 
     testWidgets('a server without the calendar says it is unavailable', (
@@ -419,6 +470,30 @@ void main() {
       expect(rig.closed, contains(people));
       expect(rig.titles(newEditor), contains('Grace Hopper'));
       expect(rig.page(newEditor).edited, isTrue);
+    });
+
+    testWidgets('a change queued on an editor since left does not reach '
+        'the one opened in its place', (tester) async {
+      final queue = _Queue();
+      final rig = await _open(tester, controller: queue);
+      final page = calendarEditorPageId(calendarNewEventKey);
+      String row(String field) =>
+          calendarEditorRowId(field, calendarNewEventKey);
+      await rig.open(page);
+      // A title typed there waits its turn behind a slower change.
+      queue.queued = 1;
+
+      // Left, and New Event opened again, before that turn came.
+      rig.module.pageLeft(page);
+      await rig.open(page);
+      queue.handling = 1;
+      await rig.change(row('title'), 'Old title');
+      queue.handling = null;
+
+      expect(
+        rig.rows(page).singleWhere((r) => r.id == row('title')).value,
+        isNot('Old title'),
+      );
     });
 
     testWidgets('an editor left keeps nothing of its draft', (tester) async {
