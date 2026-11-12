@@ -4719,7 +4719,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     double modelWidth() {
       if (PlatformInfo.isIOS) {
         final room =
-            MediaQuery.sizeOf(context).width -
+            conduitAdaptiveToolbarWidthOf(context) -
             2 * Spacing.inputPadding -
             controlExtent -
             trailingWidth() -

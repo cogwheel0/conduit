@@ -439,7 +439,7 @@ class _WorkspaceSectionMenu extends StatelessWidget {
     final controlScale = conduitSystemControlScaleOf(context);
     final iconSize = conduitScaledIconExtent(context, IconSize.small);
     final availableWidth =
-        MediaQuery.sizeOf(context).width -
+        conduitAdaptiveToolbarWidthOf(context) -
         (conduitScaledControlExtent(context) + Spacing.md) * 2;
     final maxPillWidth = availableWidth.clamp(80.0, 260.0);
     final targetWidth = resolveConduitAdaptiveTextPillWidth(

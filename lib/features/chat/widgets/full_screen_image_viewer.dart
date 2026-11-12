@@ -585,10 +585,12 @@ class _FullScreenImageViewerState extends ConsumerState<FullScreenImageViewer>
               ),
             ),
           ),
+          // Clear of a side safe area too, so Save and Close are never
+          // under a landscape notch or iPhone Duo's status bar strip.
           Positioned(
             top: MediaQuery.paddingOf(context).top + 16,
-            left: 16,
-            right: 16,
+            left: MediaQuery.paddingOf(context).left + 16,
+            right: MediaQuery.paddingOf(context).right + 16,
             child: IgnorePointer(
               ignoring: !showChrome,
               child: AnimatedOpacity(
