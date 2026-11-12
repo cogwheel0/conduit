@@ -671,6 +671,55 @@ void main() {
     await hermes.dispose();
   });
 
+  testWidgets('a list read overtaken by a failed one leaves the page saying '
+      'so', (tester) async {
+    final hermes = _Hermes();
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    // The first read waits; a second, after an addition, fails.
+    final gate = hermes.gates['mcp.servers.list'] = Completer<void>();
+    container.read(settingsPagesProvider.notifier).register([
+      NativeSheetDetailConfig(id: hermesMcpPageId, title: ''),
+    ]);
+    final opening = rig.module.hydrate(hermesMcpPageId, _l10n);
+    await tester.pump();
+    await rig.open(hermesMcpAddPageId);
+    await rig.change(hermesMcpRowId('add-name'), 'tide-notes');
+    await rig.change(hermesMcpRowId('add-url'), 'https://tides.example/mcp');
+    hermes.failListOnceAdded = true;
+    await rig.change(hermesMcpRowId('add'));
+
+    gate.complete();
+    await rig.settle(opening);
+
+    check(rig.rows(hermesMcpPageId).map((row) => row.id))
+        .not((ids) => ids.contains('$hermesMcpPageId-loading'));
+    await hermes.dispose();
+  });
+
+  testWidgets("a catalog read again keeps an entry's form already drawn", (
+    tester,
+  ) async {
+    final hermes = _Hermes(
+      gatewayCatalog: [
+        {'name': 'tide-tables', 'installed': false, 'requires': <String>[]},
+      ],
+    );
+    final rig = await openCatalog(tester, hermes);
+    final entry = _entryPage('tide-tables');
+    final drawn = NativeSheetDetailConfig(id: entry, title: 'tide-tables');
+    rig.container.read(settingsPagesProvider.notifier).register([drawn]);
+
+    await rig.open(hermesMcpCatalogPageId);
+
+    check(rig.container.read(settingsPagesProvider)[entry]).identicalTo(drawn);
+    await hermes.dispose();
+  });
+
   testWidgets('a test answered after another connection took over says '
       'nothing there', (tester) async {
     final hermes = _Hermes();

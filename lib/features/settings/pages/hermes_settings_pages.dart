@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -161,11 +162,21 @@ NativeSheetDetailConfig buildHermesSettingsPage(
       if (state.enabled && state.usable)
         NativeSheetSectionConfig(
           title: l10n.hermesConversationsTitle,
+          footer: l10n.hermesShowScheduledRunsDescription,
           items: [
             NativeSheetItemConfig(
               id: hermesHiddenChatsPageId,
               title: l10n.hermesHiddenChatsTitle,
               sfSymbol: 'eye.slash',
+            ),
+            // The chats scheduled agents start, one per run, in the Hermes
+            // chat list.
+            NativeSheetItemConfig(
+              id: hermesSettingsRowId('show-scheduled-runs'),
+              title: l10n.hermesShowScheduledRuns,
+              sfSymbol: 'clock',
+              kind: NativeSheetItemKind.toggle,
+              value: state.showScheduledRuns,
             ),
           ],
         ),
@@ -187,6 +198,7 @@ final class HermesSettingsPageState {
     this.secretsLoading = false,
     this.switching,
     this.notice,
+    this.showScheduledRuns = true,
   });
 
   final bool enabled;
@@ -202,6 +214,9 @@ final class HermesSettingsPageState {
   /// The connection being switched to, while that runs.
   final String? switching;
   final String? notice;
+
+  /// Whether the Hermes chat list shows the chats scheduled agents start.
+  final bool showScheduledRuns;
 }
 
 /// What a connection's editor shows, as a snapshot of its draft.
@@ -1236,6 +1251,9 @@ class HermesSettingsPages extends SettingsPageModule {
       secretsLoading: _ref.read(hermesSecretsLoadingProvider),
       switching: _switching,
       notice: _rootNotice,
+      showScheduledRuns: _ref
+          .read(appSettingsProvider)
+          .hermesShowScheduledSessions,
     );
   }
 
@@ -2582,6 +2600,11 @@ class HermesSettingsPages extends SettingsPageModule {
       case 'retry-secrets':
         await _ref.read(hermesConfigProvider.notifier).retrySecrets();
         await _applyRoot(l10n);
+      case 'show-scheduled-runs' when value is bool:
+        await _ref
+            .read(appSettingsProvider.notifier)
+            .setHermesShowScheduledSessions(value);
+        await _applyRoot(l10n, keepKnownPages: true);
     }
   }
 }

@@ -24,6 +24,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 const _home = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const _work = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -204,6 +205,21 @@ void main() {
     // Off, with nothing else in use, the backend chooser comes back.
     check(rig.container.read(preferredBackendProvider))
         .equals(PreferredBackend.unset);
+  });
+
+  testWidgets("Hermes's chats leave out scheduled agents' runs when its "
+      'switch is off', (tester) async {
+    _store(preferred: PreferredBackend.hermes);
+    final rig = await _pump(tester, secrets: secrets);
+    await rig.open(hermesSettingsPageId);
+    final show = hermesSettingsRowId('show-scheduled-runs');
+    check(rig.row(hermesSettingsPageId, show)!.value).equals(true);
+
+    await rig.change(show, false);
+
+    check(rig.container.read(appSettingsProvider).hermesShowScheduledSessions)
+        .isFalse();
+    check(rig.row(hermesSettingsPageId, show)!.value).equals(false);
   });
 
   testWidgets('edits an inactive connection without switching to it', (

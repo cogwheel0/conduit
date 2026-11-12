@@ -1368,6 +1368,11 @@ class HermesJobSettingsPages extends SettingsPageModule {
       // its rows are not this one's to mark.
       if (visit != _connectionVisit) {
         if (!editing) _creating = false;
+        // The save happened: its notifications, set on the connection it was
+        // made for, are part of it, whatever this one's pages show.
+        if (changesNotify && jobId != null) {
+          unawaited(_trySetJobNotify(notifyConnection, jobId, notify: notify));
+        }
         // The editor, still open, is no longer waiting on anything.
         draft.saving = false;
         if (!identical(_drafts[key], draft)) return;

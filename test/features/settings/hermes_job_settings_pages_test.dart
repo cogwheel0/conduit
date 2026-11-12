@@ -895,6 +895,27 @@ void main() {
       rig.leave();
     });
 
+    testWidgets('a job made as another connection takes over still gets its '
+        'notifications', (tester) async {
+      final jobs = _Jobs([])..createGate = Completer<void>();
+      final state = push(PushStatus.on);
+      final fake = FakePushCoordinator(state);
+      final rig = await _pump(tester, jobs, push: state, pushCoordinator: fake);
+      await rig.open(editor);
+      await fill(rig);
+
+      rig.start(field('save'));
+      await rig.frames();
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+      jobs.createGate!.complete();
+      await rig.frames();
+
+      check(jobs.created).length.equals(1);
+      check(fake.calls).deepEquals(['setHermesJobNotify home job-new true']);
+      rig.leave();
+    });
+
     testWidgets('none until push works for the connection, or while it is '
         'off', (tester) async {
       for (final state in [

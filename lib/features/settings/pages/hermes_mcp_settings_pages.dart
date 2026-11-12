@@ -789,14 +789,15 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   /// replace what the later one read (the list after an addition, say).
   int _listReads = 0;
 
-  Future<void> _readServers(HermesDesktopApiService service) async {
+  /// Reads the servers; answers whether the list read is the one kept.
+  Future<bool> _readServers(HermesDesktopApiService service) async {
     final read = ++_listReads;
     final servers = await service.mcpServers();
     // Kept only as the newest read, through the connection in use now: a
     // read through the last one's service never fills this one's list.
-    if (read == _listReads && identical(service, _service)) {
-      _servers = servers;
-    }
+    if (read != _listReads || !identical(service, _service)) return false;
+    _servers = servers;
+    return true;
   }
 
   /// Reads the servers again; answers whether that worked.
@@ -808,8 +809,10 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       return false;
     }
     var read = false;
+    final mine = _listReads + 1;
     try {
-      await _readServers(service);
+      // A read a newer one overtook says nothing of how loading went.
+      if (!await _readServers(service)) return false;
       _failed = false;
       read = true;
     } catch (error) {
@@ -818,6 +821,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         scope: 'settings/hermes-mcp',
         data: {'errorType': error.runtimeType.toString()},
       );
+      if (mine != _listReads) return false;
       _failed = _servers == null;
     }
     await _applyList(l10n);
@@ -853,8 +857,16 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         failed: _catalogFailed,
       ),
       detailSheets: [
+        // An entry's form already drawn -- open, perhaps, with its values
+        // typed -- keeps what it shows.
         for (final entry in _catalog ?? const <HermesMcpCatalogEntry>[])
-          buildHermesMcpCatalogEntryPage(l10n, entry),
+          if (!_ref
+              .read(settingsPagesProvider)
+              .contains(
+                '$hermesMcpCatalogEntryPagePrefix'
+                '${Uri.encodeComponent(entry.name)}',
+              ))
+            buildHermesMcpCatalogEntryPage(l10n, entry),
       ],
     );
   }
