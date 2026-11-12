@@ -2093,8 +2093,6 @@
   "workspaceUnsupported": "Deze server ondersteunt geen werkruimtebeheer.",
   "workspaceLoadFailed": "Kan de werkruimte niet laden.",
   "workspaceRetry": "Opnieuw proberen",
-  "workspaceSelectItem": "Selecteer een item om de details te bekijken.",
-  "workspaceEditorComingSoon": "Deze editor komt beschikbaar in de volgende mijlpaal van de werkruimte.",
   "workspaceSearchHint": "Bronnen in de werkruimte zoeken",
   "workspaceLoadMore": "Meer laden",
   "workspaceAccessPublicDisabled": "Je hebt geen toestemming om dit openbaar te delen.",
@@ -2123,8 +2121,6 @@
   "workspaceEditorDiscardMessage": "Je niet-opgeslagen wijzigingen gaan verloren.",
   "workspaceEditorDiscardConfirm": "Weggooien",
   "workspaceEditorKeepEditing": "Verder bewerken",
-  "workspaceEditorSaveTooltip": "Wijzigingen opslaan",
-  "workspaceEditorSaving": "Opslaan…",
   "workspaceEditorMoreActions": "Meer acties",
   "workspaceImportChooseFile": "JSON-bestand kiezen",
   "workspaceImportPasteLabel": "Of plak JSON",
@@ -2896,18 +2892,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Schrijven",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Voorvertoning",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Nog niets om te tonen.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Toegang beheren",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2940,10 +2924,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Vaardigheid verwijderen?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "„{name}” wordt definitief verwijderd.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2964,10 +2944,6 @@
   "workspaceSkillImportMarkdown": "Markdown importeren",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "JSON importeren",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown geladen. Controleer het en sla op om de vaardigheid te maken.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3007,10 +2983,8 @@
   "workspaceToolClone": "Dupliceren",
   "workspaceToolCloneSuffix": "(kopie)",
   "workspaceToolDelete": "Verwijderen",
-  "workspaceToolDeleteConfirmTitle": "Tool verwijderen?",
   "workspaceToolDeleteConfirmMessage": "„{name}” wordt definitief verwijderd.",
   "workspaceToolImport": "Tools importeren",
-  "workspaceToolImportJson": "JSON importeren",
   "workspaceToolImportUrl": "Importeren via URL",
   "workspaceToolImportUrlTitle": "Tool importeren via URL",
   "workspaceToolImportUrlHint": "Voer een GitHub-URL naar het Python-bestand van een tool in",
@@ -3025,7 +2999,6 @@
   "workspaceToolManifestRequiredVersion": "Vereist Open WebUI {version}",
   "workspaceToolManifestFunding": "Financiering: {url}",
   "workspaceToolSpecs": "Gegenereerde specificaties",
-  "workspaceToolDetails": "Tooldetails",
   "workspaceToolFunctionCount": "{count, plural, =1{1 functie} other{{count} functies}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "Er zijn geen specificaties voor deze tool gegenereerd.",

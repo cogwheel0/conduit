@@ -1,4 +1,5 @@
-import 'package:conduit_core/utils/profile_avatar.dart' show extractAvatarInitials;
+import 'package:conduit_core/utils/profile_avatar.dart'
+    show extractAvatarInitials;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +9,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/adaptive_date_time_picker.dart';
+import '../../../shared/widgets/markdown/renderer/code_syntax_theme.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
@@ -201,7 +203,8 @@ class SettingsRow extends StatelessWidget {
       ),
       NativeSheetItemKind.textField ||
       NativeSheetItemKind.secureTextField ||
-      NativeSheetItemKind.multilineTextField => _SettingsTextRow(
+      NativeSheetItemKind.multilineTextField ||
+      NativeSheetItemKind.code => _SettingsTextRow(
         item: item,
         value: textValue ?? (item.value is String ? item.value as String : ''),
         onChanged: onTextChanged,
@@ -653,8 +656,19 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
     final theme = context.conduitTheme;
     final item = widget.item;
     final secure = item.kind == NativeSheetItemKind.secureTextField;
-    final multiline = item.kind == NativeSheetItemKind.multilineTextField;
+    final code = item.kind == NativeSheetItemKind.code;
+    final multiline =
+        code || item.kind == NativeSheetItemKind.multilineTextField;
     final keyboard = item.keyboard;
+    // Code fills the room the page has above the keyboard, a line at a time.
+    final codeLines = code
+        ? ((MediaQuery.sizeOf(context).height -
+                      MediaQuery.viewInsetsOf(context).bottom -
+                      220) /
+                  CodeSyntaxTheme.lineHeight)
+              .floor()
+              .clamp(8, 400)
+        : 0;
     return Padding(
       key: ValueKey<String>('settings-row-${item.id}'),
       padding: const EdgeInsets.symmetric(
@@ -678,8 +692,9 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
             controller: _controller,
             placeholder: item.placeholder ?? item.title,
             obscureText: secure && _obscured,
-            autocorrect: !secure && keyboard == null,
-            enableSuggestions: !secure && keyboard == null,
+            // Code is typed as is.
+            autocorrect: !code && !secure && keyboard == null,
+            enableSuggestions: !code && !secure && keyboard == null,
             // The account's own password is AutoFill's to fill and save;
             // any other secret (a key, a token) is kept out of it, and an
             // ordinary field is left for the platform to judge.
@@ -691,8 +706,28 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
               null when secure => null,
               null => const <String>[],
             },
-            minLines: multiline ? 3 : 1,
-            maxLines: multiline ? 12 : 1,
+            readOnly: code && item.disabled,
+            style: code
+                ? CodeSyntaxTheme.monospace(
+                    AppTypography.bodyMediumStyle.copyWith(
+                      fontSize: CodeSyntaxTheme.fontSize,
+                      height:
+                          CodeSyntaxTheme.lineHeight / CodeSyntaxTheme.fontSize,
+                      color: theme.textPrimary,
+                    ),
+                    Theme.of(context).platform,
+                  )
+                : null,
+            minLines: code
+                ? codeLines
+                : multiline
+                ? 3
+                : 1,
+            maxLines: code
+                ? null
+                : multiline
+                ? 12
+                : 1,
             keyboardType: multiline
                 ? TextInputType.multiline
                 : switch (keyboard) {

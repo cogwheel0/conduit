@@ -1330,6 +1330,7 @@ private extension PlatformNativeSheetItemKind {
         case .date: "date"
         case .time: "time"
         case .diffLine: "diffLine"
+        case .code: "code"
         }
     }
 }
@@ -5192,6 +5193,134 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
 /// One line of a comparison between two texts: monospaced, a − or + glyph
 /// in front, and a tinted band for a line removed or added. VoiceOver reads
 /// the row's subtitle, which says what happened to the line.
+/// A row of source code filling its page: monospaced, edited as is, with a
+/// Tab key above the keyboard. Long lines wrap.
+private final class NativeSheetCodeTableViewCell: UITableViewCell, UITextViewDelegate {
+    static let reuseId = "NativeSheetCodeTableViewCell"
+
+    private let textView = UITextView()
+    private var onChange: ((String) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        textView.tintColor = NativeSheetTheme.shared.accent
+        textView.backgroundColor = .clear
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 12, right: 8)
+        // Code is typed as is.
+        textView.autocorrectionType = .no
+        textView.autocapitalizationType = .none
+        textView.spellCheckingType = .no
+        textView.smartQuotesType = .no
+        textView.smartDashesType = .no
+        textView.smartInsertDeleteType = .no
+        textView.keyboardType = .asciiCapable
+        textView.alwaysBounceVertical = true
+        setCode("")
+        textView.delegate = self
+        textView.inputAccessoryView = makeKeyBar()
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            textView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            textView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            textView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    /// Tab, which the keyboard lacks, and a key putting the keyboard away.
+    private func makeKeyBar() -> UIToolbar {
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+        let tab = UIBarButtonItem(
+            title: nativeLocalized("native.sheet.code.tab", "Tab"),
+            primaryAction: UIAction { [weak self] _ in self?.insertTab() }
+        )
+        tab.accessibilityLabel = nativeLocalized("native.sheet.code.tab", "Tab")
+        let done = UIBarButtonItem(
+            systemItem: .done,
+            primaryAction: UIAction { [weak self] _ in
+                self?.textView.resignFirstResponder()
+            }
+        )
+        bar.items = [tab, .flexibleSpace(), done]
+        bar.sizeToFit()
+        return bar
+    }
+
+    private func insertTab() {
+        guard textView.isEditable else { return }
+        textView.insertText("    ")
+    }
+
+    /// Long lines wrap; what a line wraps onto starts two columns in, so it
+    /// reads as the same line rather than a new one.
+    private func codeAttributes() -> [NSAttributedString.Key: Any] {
+        // Scaled here rather than by the text view, so the indent follows a
+        // new text size with it.
+        let font = UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: UIFont.monospacedSystemFont(ofSize: 15, weight: .regular),
+            compatibleWith: traitCollection
+        )
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.headIndent = ("  " as NSString).size(withAttributes: [.font: font]).width
+        return [
+            .font: font,
+            .foregroundColor: NativeSheetTheme.shared.foreground,
+            .paragraphStyle: paragraph,
+        ]
+    }
+
+    private func setCode(_ value: String) {
+        let selection = textView.selectedRange
+        let attributes = codeAttributes()
+        textView.attributedText = NSAttributedString(string: value, attributes: attributes)
+        textView.typingAttributes = attributes
+        let length = (value as NSString).length
+        if selection.location <= length {
+            textView.selectedRange = NSRange(
+                location: selection.location,
+                length: min(selection.length, length - selection.location)
+            )
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        // A new text size moves the wrapped lines' indent with it.
+        if previousTraitCollection?.preferredContentSizeCategory
+            != traitCollection.preferredContentSizeCategory {
+            setCode(textView.text ?? "")
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onChange = nil
+        setCode("")
+    }
+
+    func configure(
+        item: NativeSheetItem,
+        value: String,
+        onTextChanged: @escaping (String) -> Void
+    ) {
+        if textView.text != value { setCode(value) }
+        textView.isEditable = !item.disabled
+        textView.accessibilityLabel = item.title
+        onChange = onTextChanged
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        onChange?(textView.text ?? "")
+    }
+}
+
 private final class NativeSheetDiffLineTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetDiffLineTableViewCell"
 
@@ -6252,6 +6381,73 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutCalendarHeader()
+        refreshCodeRowHeight()
+    }
+
+    // -- A page of code ---------------------------------------------------------
+
+    /// Whether the page is one row of code, which fills it.
+    private var isCodePage: Bool {
+        let items = detail.allItems
+        return items.count == 1 && items[0].kind == "code"
+    }
+
+    /// How much of the table the keyboard covers.
+    private var keyboardOverlap: CGFloat = 0
+    private var codeRowHeight: CGFloat = 0
+    private var codeKeyboardObserver: NSObjectProtocol?
+
+    /// A page of code does not scroll: its row fills what the keyboard
+    /// leaves, and the code scrolls inside it.
+    private func configureCodePage() {
+        tableView.isScrollEnabled = !isCodePage
+        guard isCodePage, codeKeyboardObserver == nil else { return }
+        codeKeyboardObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
+                      as? NSValue)?.cgRectValue,
+                  let window = self.tableView.window
+            else { return }
+            let table = self.tableView.convert(self.tableView.bounds, to: window)
+            let keyboard = window.convert(end, from: window.screen.coordinateSpace)
+            self.keyboardOverlap = max(0, table.maxY - keyboard.minY)
+            self.refreshCodeRowHeight()
+        }
+    }
+
+    private func codeRowHeightNow() -> CGFloat {
+        let top = tableView.adjustedContentInset.top
+        let bottom = max(keyboardOverlap, tableView.safeAreaInsets.bottom)
+        return max(160, tableView.bounds.height - top - bottom - 32)
+    }
+
+    /// Fits the row of code to the room there is, as the page or the
+    /// keyboard changes size.
+    private func refreshCodeRowHeight() {
+        guard isCodePage else { return }
+        let height = codeRowHeightNow()
+        guard abs(height - codeRowHeight) > 0.5 else { return }
+        codeRowHeight = height
+        UIView.performWithoutAnimation {
+            tableView.performBatchUpdates(nil)
+        }
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
+            animated: false
+        )
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        heightForRowAt indexPath: IndexPath
+    ) -> CGFloat {
+        guard isCodePage else { return UITableView.automaticDimension }
+        if codeRowHeight <= 0 { codeRowHeight = codeRowHeightNow() }
+        return codeRowHeight
     }
 
     override func traitCollectionDidChange(
@@ -6346,6 +6542,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         detail = newDetail
         configureSearch()
         configureCalendar(previous: previousCalendar)
+        configureCodePage()
         if let announcement = newDetail.announcement, !announcement.isEmpty,
            announcement != previousAnnouncement {
             UIAccessibility.post(notification: .announcement, argument: announcement)
@@ -6427,6 +6624,11 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             NativeSheetDiffLineTableViewCell.self,
             forCellReuseIdentifier: NativeSheetDiffLineTableViewCell.reuseId
         )
+        tableView.register(
+            NativeSheetCodeTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetCodeTableViewCell.reuseId
+        )
+        configureCodePage()
         tableView.register(
             NativeSheetSliderTableViewCell.self,
             forCellReuseIdentifier: NativeSheetSliderTableViewCell.reuseId
@@ -6738,6 +6940,15 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             ) as! NativeSheetDiffLineTableViewCell
             cell.configure(item: item)
             return cell
+        case "code":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetCodeTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetCodeTableViewCell
+            cell.configure(item: item, value: currentTextValue(for: item)) { [weak self] text in
+                self?.trackTextValueChanged(for: item, value: text)
+            }
+            return cell
         case "source":
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NativeSheetSourceTableViewCell.reuseId,
@@ -6786,7 +6997,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
              "appearanceTiles", "multilineTextField", "slider", "readOnlyText",
-             "statusUpdate", "date", "time", "diffLine":
+             "statusUpdate", "date", "time", "diffLine", "code":
             break
         case "source":
             guard item.url != nil || canNavigate(item) else { break }
@@ -6994,6 +7205,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         guard item.kind == "textField"
             || item.kind == "secureTextField"
             || item.kind == "multilineTextField"
+            || item.kind == "code"
         else {
             return
         }

@@ -2107,8 +2107,6 @@
   "workspaceUnsupported": "Этот сервер не поддерживает управление рабочей областью.",
   "workspaceLoadFailed": "Не удалось загрузить рабочую область.",
   "workspaceRetry": "Повторить",
-  "workspaceSelectItem": "Выберите элемент для просмотра сведений.",
-  "workspaceEditorComingSoon": "Этот редактор появится в следующем обновлении рабочей области.",
   "workspaceSearchHint": "Поиск по ресурсам рабочей области",
   "workspaceLoadMore": "Загрузить еще",
   "workspaceAccessPublicDisabled": "У вас нет разрешения делать этот ресурс общедоступным.",
@@ -2137,8 +2135,6 @@
   "workspaceEditorDiscardMessage": "Все несохраненные изменения будут потеряны.",
   "workspaceEditorDiscardConfirm": "Сбросить",
   "workspaceEditorKeepEditing": "Продолжить редактирование",
-  "workspaceEditorSaveTooltip": "Сохранить изменения",
-  "workspaceEditorSaving": "Сохранение…",
   "workspaceEditorMoreActions": "Дополнительные действия",
   "workspaceImportChooseFile": "Выбрать JSON-файл",
   "workspaceImportPasteLabel": "Или вставьте JSON",
@@ -2910,18 +2906,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Редактор",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Предпросмотр",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Пока нечего показать.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Управление доступом",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2954,10 +2938,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Удалить навык?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "Навык «{name}» будет удалён без возможности восстановления.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2978,10 +2958,6 @@
   "workspaceSkillImportMarkdown": "Импортировать Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "Импортировать JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown загружен. Проверьте его и сохраните, чтобы создать навык.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3021,10 +2997,8 @@
   "workspaceToolClone": "Дублировать",
   "workspaceToolCloneSuffix": "(копия)",
   "workspaceToolDelete": "Удалить",
-  "workspaceToolDeleteConfirmTitle": "Удалить инструмент?",
   "workspaceToolDeleteConfirmMessage": "Удалить инструмент «{name}»? Это действие нельзя отменить.",
   "workspaceToolImport": "Импортировать инструменты",
-  "workspaceToolImportJson": "Импортировать JSON",
   "workspaceToolImportUrl": "Импортировать по URL",
   "workspaceToolImportUrlTitle": "Импорт инструмента по URL",
   "workspaceToolImportUrlHint": "Введите URL файла Python инструмента на GitHub",
@@ -3039,7 +3013,6 @@
   "workspaceToolManifestRequiredVersion": "Требуется Open WebUI {version}",
   "workspaceToolManifestFunding": "Финансирование: {url}",
   "workspaceToolSpecs": "Сгенерированные спецификации",
-  "workspaceToolDetails": "Сведения об инструменте",
   "workspaceToolFunctionCount": "{count, plural, one{# функция} few{# функции} many{# функций} other{# функции}}",
   "@workspaceToolFunctionCount": {
     "placeholders": {

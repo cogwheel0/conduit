@@ -161,6 +161,10 @@ enum PlatformNativeSheetItemKind {
   /// One read-only line of a comparison: title is the line; value is
   /// `added`, `removed` or `context`; subtitle is what VoiceOver reads.
   diffLine,
+
+  /// Source code, monospaced, filling the page it is the only row of; value
+  /// is the code, sent back as a text row's is; disabled reads only.
+  code,
 }
 
 /// Whether a keyboard attachment row turns an option on and off, or runs a

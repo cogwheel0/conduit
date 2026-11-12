@@ -2093,8 +2093,6 @@
   "workspaceUnsupported": "此伺服器不支援工作區管理。",
   "workspaceLoadFailed": "無法載入工作區。",
   "workspaceRetry": "重試",
-  "workspaceSelectItem": "選擇項目以檢視詳細資料。",
-  "workspaceEditorComingSoon": "此編輯器將在工作區的下一個階段推出。",
   "workspaceSearchHint": "搜尋工作區資源",
   "workspaceLoadMore": "載入更多",
   "workspaceAccessPublicDisabled": "您沒有權限公開分享此項目。",
@@ -2123,8 +2121,6 @@
   "workspaceEditorDiscardMessage": "未儲存的變更將會遺失。",
   "workspaceEditorDiscardConfirm": "捨棄",
   "workspaceEditorKeepEditing": "繼續編輯",
-  "workspaceEditorSaveTooltip": "儲存變更",
-  "workspaceEditorSaving": "正在儲存…",
   "workspaceEditorMoreActions": "更多動作",
   "workspaceImportChooseFile": "選擇 JSON 檔案",
   "workspaceImportPasteLabel": "或貼上 JSON",
@@ -2896,18 +2892,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "編輯",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "預覽",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "尚無可預覽的內容。",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "管理存取權",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2940,10 +2924,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "要刪除技能嗎？",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "「{name}」將被永久刪除。",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2964,10 +2944,6 @@
   "workspaceSkillImportMarkdown": "匯入 Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "匯入 JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "已載入 Markdown。請檢查後儲存以建立技能。",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3007,10 +2983,8 @@
   "workspaceToolClone": "複製",
   "workspaceToolCloneSuffix": "（副本）",
   "workspaceToolDelete": "刪除",
-  "workspaceToolDeleteConfirmTitle": "要刪除工具嗎？",
   "workspaceToolDeleteConfirmMessage": "「{name}」將被永久刪除。",
   "workspaceToolImport": "匯入工具",
-  "workspaceToolImportJson": "匯入 JSON",
   "workspaceToolImportUrl": "從網址匯入",
   "workspaceToolImportUrlTitle": "從網址匯入工具",
   "workspaceToolImportUrlHint": "輸入工具 Python 檔案的 GitHub 網址",
@@ -3025,7 +2999,6 @@
   "workspaceToolManifestRequiredVersion": "需要 Open WebUI {version}",
   "workspaceToolManifestFunding": "贊助：{url}",
   "workspaceToolSpecs": "產生的規格",
-  "workspaceToolDetails": "工具詳細資料",
   "workspaceToolFunctionCount": "{count} 個函式",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "未為此工具產生任何規格。",

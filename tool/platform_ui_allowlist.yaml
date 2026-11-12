@@ -1172,48 +1172,6 @@ exceptions:
     owner: terminal
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/workspace/views/skills/workspace_skill_editor.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/tools/workspace_tool_editor.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/tools/workspace_tool_editor_sections.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/workspace_collection_views.dart
-    symbol: "LinearProgressIndicator"
-    count: 2
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/workspace_page.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/workspace_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/workspace_page.dart
-    symbol: "AppBar"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/workspace/widgets/resource_sharing_sheet.dart
     package: "package:flutter/material.dart"
     count: 1
@@ -1250,49 +1208,7 @@ exceptions:
     owner: workspace
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_editor_mutation_coordinator.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_editor_scaffold.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_editor_scaffold.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/workspace/widgets/workspace_import_sheet.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_read_only_badge.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_resource_editor_host.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_resource_presentation.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_status_pill.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
     owner: workspace
@@ -1312,18 +1228,6 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/workspace/widgets/workspace_tiles.dart
     symbol: "CupertinoButton"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_tool_url_import_sheet.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/widgets/workspace_tool_valves_sheet.dart
-    package: "package:material_ui/material_ui.dart"
     count: 1
     owner: workspace
     reason: "Existing use awaiting migration to the platform UI seam"

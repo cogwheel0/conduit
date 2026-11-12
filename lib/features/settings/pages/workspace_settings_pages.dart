@@ -22,10 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/utils/native_sheet_utils.dart';
-import '../../../shared/services/navigation_service.dart';
 import '../../workspace/widgets/workspace_export_controller.dart';
-import '../../workspace/workspace_navigation.dart'
-    show workspaceSectionsInFlutter, workspaceSectionsInSettings;
 import '../../workspace/widgets/workspace_import_sheet.dart'
     show runWorkspaceImport, WorkspaceImportReport;
 import '../settings_page_module.dart';
@@ -56,8 +53,8 @@ String workspaceEditorPageId(WorkspaceSection section, String? id) =>
       WorkspaceSection.models => workspaceModelPageId(id),
       WorkspaceSection.knowledge => workspaceKnowledgePageId(id),
       WorkspaceSection.prompts => workspacePromptPageId(id),
-      // Still opened over the app; never a page of Settings yet.
-      WorkspaceSection.tools || WorkspaceSection.skills => '',
+      WorkspaceSection.tools => workspaceToolPageId(id),
+      WorkspaceSection.skills => workspaceSkillPageId(id),
     };
 
 /// The title of the editor making a new resource of [section].
@@ -66,7 +63,8 @@ String workspaceNewTitle(AppLocalizations l10n, WorkspaceSection section) =>
       WorkspaceSection.models => l10n.workspaceModelNewTitle,
       WorkspaceSection.knowledge => l10n.workspaceKnowledgeCreateTitle,
       WorkspaceSection.prompts => l10n.workspacePromptCreateTitle,
-      WorkspaceSection.tools || WorkspaceSection.skills => l10n.workspaceCreate,
+      WorkspaceSection.tools => l10n.workspaceToolCreateTitle,
+      WorkspaceSection.skills => l10n.workspaceSkillCreateTitle,
     };
 
 WorkspaceSectionCapabilities workspaceSectionCapabilities(
@@ -159,8 +157,7 @@ List<NativeSheetItemConfig> _gateRows(
 };
 
 /// The Workspace's page of Settings: a row per section the account may
-/// manage. Models and Prompts open pages of Settings's own; the others
-/// open the Workspace's pages over the app.
+/// manage, each opening its list.
 @visibleForTesting
 NativeSheetDetailConfig buildWorkspaceHubPage(
   AppLocalizations l10n,
@@ -179,20 +176,11 @@ NativeSheetDetailConfig buildWorkspaceHubPage(
         NativeSheetSectionConfig(
           items: [
             for (final section in state.permitted)
-              if (workspaceSectionsInSettings.contains(section))
-                NativeSheetItemConfig(
-                  id: workspaceSectionPageId(section),
-                  title: workspaceSectionTitle(l10n, section),
-                  sfSymbol: workspaceSectionSymbol(section),
-                )
-              else
-                NativeSheetItemConfig(
-                  id: workspaceRowId('open', 'hub', section.name),
-                  title: workspaceSectionTitle(l10n, section),
-                  sfSymbol: workspaceSectionSymbol(section),
-                  // Opens over the app, as Settings closes.
-                  showsDisclosure: true,
-                ),
+              NativeSheetItemConfig(
+                id: workspaceSectionPageId(section),
+                title: workspaceSectionTitle(l10n, section),
+                sfSymbol: workspaceSectionSymbol(section),
+              ),
           ],
         ),
     ],
@@ -214,6 +202,7 @@ final class WorkspaceListItem {
     this.avatarBytes,
     this.toggleable = true,
     this.external = false,
+    this.functionCount,
   });
 
   final String id;
@@ -228,6 +217,9 @@ final class WorkspaceListItem {
 
   /// A knowledge base another service keeps, which this app only reads.
   final bool external;
+
+  /// The functions a tool offers, which its row names while it is on.
+  final int? functionCount;
 
   factory WorkspaceListItem.model(WorkspaceModelSummary model) {
     final row = workspaceCollectionRowText(model);
@@ -253,6 +245,31 @@ final class WorkspaceListItem {
         toggleable: false,
         external: base.isExternal,
       );
+
+  factory WorkspaceListItem.tool(WorkspaceToolSummary tool) {
+    final description = tool.meta['description']?.toString().trim() ?? '';
+    return WorkspaceListItem(
+      id: tool.id,
+      title: tool.name.trim().isEmpty ? tool.id : tool.name,
+      subtitle: description.isEmpty ? null : description,
+      isActive: tool.isActive ?? true,
+      writeAccess: tool.writeAccess,
+      // Only a server that reports the switch (Open WebUI 0.13) has one.
+      toggleable: tool.isActive != null,
+      functionCount: tool.specs.length,
+    );
+  }
+
+  factory WorkspaceListItem.skill(WorkspaceSkillSummary skill) {
+    final description = skill.description?.trim() ?? '';
+    return WorkspaceListItem(
+      id: skill.id,
+      title: skill.name.trim().isEmpty ? skill.id : skill.name,
+      subtitle: description.isEmpty ? null : description,
+      isActive: skill.isActive,
+      writeAccess: skill.writeAccess,
+    );
+  }
 
   factory WorkspaceListItem.prompt(WorkspacePromptSummary prompt) =>
       WorkspaceListItem(
@@ -335,9 +352,8 @@ NativeSheetDetailConfig buildWorkspaceListPage(
   final caps = state.capabilities;
   final editorPageId = workspaceEditorPageId(section, null);
   final running = state.running;
-  // Import and export of a whole section are for models and prompts.
-  final transfers =
-      section == WorkspaceSection.models || section == WorkspaceSection.prompts;
+  // Import and export of a whole section are for all but Knowledge.
+  final transfers = section != WorkspaceSection.knowledge;
   return NativeSheetDetailConfig(
     id: pageId,
     title: title,
@@ -456,9 +472,12 @@ NativeSheetDetailConfig buildWorkspaceListPage(
             if (transfers && caps.importItems)
               NativeSheetItemConfig(
                 id: workspaceRowId('list-import', key),
-                title: section == WorkspaceSection.models
-                    ? l10n.workspaceModelImport
-                    : l10n.workspacePromptImport,
+                title: switch (section) {
+                  WorkspaceSection.models => l10n.workspaceModelImport,
+                  WorkspaceSection.tools => l10n.workspaceToolImport,
+                  WorkspaceSection.skills => l10n.workspaceSkillImport,
+                  _ => l10n.workspacePromptImport,
+                },
                 sfSymbol: 'square.and.arrow.down',
                 showsDisclosure: false,
                 pending: running == 'import' ? true : null,
@@ -467,9 +486,12 @@ NativeSheetDetailConfig buildWorkspaceListPage(
             if (transfers && caps.exportItems)
               NativeSheetItemConfig(
                 id: workspaceRowId('list-export', key),
-                title: section == WorkspaceSection.models
-                    ? l10n.workspaceModelExportAll
-                    : l10n.workspacePromptExport,
+                title: switch (section) {
+                  WorkspaceSection.models => l10n.workspaceModelExportAll,
+                  WorkspaceSection.tools => l10n.workspaceToolExport,
+                  WorkspaceSection.skills => l10n.workspaceSkillExport,
+                  _ => l10n.workspacePromptExport,
+                },
                 sfSymbol: 'square.and.arrow.up',
                 showsDisclosure: false,
                 pending: running == 'export' ? true : null,
@@ -488,7 +510,6 @@ NativeSheetItemConfig _listRow(
   required bool busy,
 }) {
   final key = section.name;
-  final models = section == WorkspaceSection.models;
   final knowledge = section == WorkspaceSection.knowledge;
   return NativeSheetItemConfig(
     id: workspaceEditorPageId(section, item.id),
@@ -500,6 +521,8 @@ NativeSheetItemConfig _listRow(
         item.external
             ? l10n.workspaceKnowledgeExternalBadge
             : l10n.workspaceKnowledgeSourceLocal
+      else if (item.functionCount != null && item.isActive)
+        l10n.workspaceToolFunctionCount(item.functionCount!)
       else
         item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
       if (!item.writeAccess) l10n.workspaceReadOnlyBadge,
@@ -516,29 +539,47 @@ NativeSheetItemConfig _listRow(
         NativeSheetRowAction(
           id: workspaceRowId('list-active', key, item.id),
           label: item.isActive
-              ? (models
-                    ? l10n.workspaceModelDeactivate
-                    : l10n.workspacePromptDeactivate)
-              : (models
-                    ? l10n.workspaceModelActivate
-                    : l10n.workspacePromptActivate),
+              ? switch (section) {
+                  WorkspaceSection.models => l10n.workspaceModelDeactivate,
+                  WorkspaceSection.tools => l10n.workspaceToolDeactivate,
+                  WorkspaceSection.skills => l10n.workspaceSkillDeactivate,
+                  _ => l10n.workspacePromptDeactivate,
+                }
+              : switch (section) {
+                  WorkspaceSection.models => l10n.workspaceModelActivate,
+                  WorkspaceSection.tools => l10n.workspaceToolActivate,
+                  WorkspaceSection.skills => l10n.workspaceSkillActivate,
+                  _ => l10n.workspacePromptActivate,
+                },
           sfSymbol: item.isActive ? 'pause.circle' : 'play.circle',
         ),
       if (item.writeAccess && !item.external && !busy)
         NativeSheetRowAction(
           id: workspaceRowId('list-delete', key, item.id),
-          label: models
-              ? l10n.workspaceModelDelete
-              : knowledge
-              ? l10n.workspaceKnowledgeDelete
-              : l10n.workspacePromptDelete,
+          label: switch (section) {
+            WorkspaceSection.models => l10n.workspaceModelDelete,
+            WorkspaceSection.knowledge => l10n.workspaceKnowledgeDelete,
+            WorkspaceSection.tools => l10n.workspaceToolDelete,
+            WorkspaceSection.skills => l10n.workspaceSkillDelete,
+            WorkspaceSection.prompts => l10n.workspacePromptDelete,
+          },
           sfSymbol: 'trash',
           destructive: true,
-          confirmMessage: models
-              ? l10n.workspaceModelDeleteConfirmMessage(item.title)
-              : knowledge
-              ? l10n.workspaceKnowledgeDeleteConfirmMessage(item.title)
-              : l10n.workspacePromptDeleteConfirmMessage(item.title),
+          confirmMessage: switch (section) {
+            WorkspaceSection.models => l10n.workspaceModelDeleteConfirmMessage(
+              item.title,
+            ),
+            WorkspaceSection.knowledge =>
+              l10n.workspaceKnowledgeDeleteConfirmMessage(item.title),
+            WorkspaceSection.tools => l10n.workspaceToolDeleteConfirmMessage(
+              item.title,
+            ),
+            WorkspaceSection.skills => l10n.workspaceSkillDeleteConfirmMessage(
+              item.title,
+            ),
+            WorkspaceSection.prompts =>
+              l10n.workspacePromptDeleteConfirmMessage(item.title),
+          },
         ),
     ],
   );
@@ -578,9 +619,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     final section = workspaceSectionNamed(
       detailId.substring(workspaceSectionPagePrefix.length),
     );
-    if (section == null || !workspaceSectionsInSettings.contains(section)) {
-      return;
-    }
+    if (section == null) return;
     // Opened again, the list says nothing about an earlier visit.
     if (!_listsShown.contains(section)) _notices.remove(section);
     final reopened = _listsShown.contains(section) || _listExists(section);
@@ -626,6 +665,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       _ref.listen(workspaceModelsProvider, redraw),
       _ref.listen(workspaceKnowledgeProvider, redraw),
       _ref.listen(workspacePromptsProvider, redraw),
+      _ref.listen(workspaceToolsProvider, redraw),
+      _ref.listen(workspaceSkillsProvider, redraw),
     ]);
   }
 
@@ -661,28 +702,13 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       buildWorkspaceHubPage(l10n, state),
       detailSheets: [
         for (final section in state.permitted)
-          if (workspaceSectionsInSettings.contains(section) &&
-              !known.contains(workspaceSectionPageId(section)))
+          if (!known.contains(workspaceSectionPageId(section)))
             buildNativeLoadingDetail(
               l10n: l10n,
               id: workspaceSectionPageId(section),
               title: workspaceSectionTitle(l10n, section),
             ),
       ],
-    );
-  }
-
-  /// Opens [section]'s Workspace pages over the app. Settings closes first
-  /// when it is the native sheet; the Flutter Settings pages stay under it.
-  Future<void> _openInFlutter(WorkspaceSection section) async {
-    final bridge = NativeSheetBridge.instance;
-    final fromSheet = bridge.settingsSheetOpen;
-    if (fromSheet) await bridge.dismiss();
-    unawaited(
-      NavigationService.router.push<void>(
-        section.path,
-        extra: fromSheet ? const NativeSheetNavigationOrigin() : null,
-      ),
     );
   }
 
@@ -698,7 +724,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     WorkspaceSection.models => _ref.read(workspaceModelsProvider.exists),
     WorkspaceSection.knowledge => _ref.read(workspaceKnowledgeProvider.exists),
     WorkspaceSection.prompts => _ref.read(workspacePromptsProvider.exists),
-    _ => false,
+    WorkspaceSection.tools => _ref.read(workspaceToolsProvider.exists),
+    WorkspaceSection.skills => _ref.read(workspaceSkillsProvider.exists),
   };
 
   WorkspaceListState _listState(WorkspaceSection section) {
@@ -768,8 +795,32 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           hasMore: data?.hasMore ?? false,
           loadingMore: data?.isLoadingMore ?? false,
         );
-      default:
-        return WorkspaceListState(section: section, gate: gate);
+      case WorkspaceSection.tools:
+        final value = _ref.read(workspaceToolsProvider);
+        final data = value.value;
+        list = (
+          items: data?.items.map(WorkspaceListItem.tool).toList(),
+          loading: value.isLoading || (data?.isLoading ?? false),
+          failed: value.hasError || data?.error != null,
+          query: data?.query ?? '',
+          view: '',
+          source: '',
+          hasMore: data?.hasMore ?? false,
+          loadingMore: data?.isLoadingMore ?? false,
+        );
+      case WorkspaceSection.skills:
+        final value = _ref.read(workspaceSkillsProvider);
+        final data = value.value;
+        list = (
+          items: data?.items.map(WorkspaceListItem.skill).toList(),
+          loading: value.isLoading || (data?.isLoading ?? false),
+          failed: value.hasError || data?.error != null,
+          query: data?.query ?? '',
+          view: '',
+          source: '',
+          hasMore: data?.hasMore ?? false,
+          loadingMore: data?.isLoadingMore ?? false,
+        );
     }
     return WorkspaceListState(
       section: section,
@@ -827,8 +878,10 @@ class WorkspaceSettingsPages extends SettingsPageModule {
         _ref.read(workspaceKnowledgeProvider);
       case WorkspaceSection.prompts:
         _ref.read(workspacePromptsProvider);
-      default:
-        break;
+      case WorkspaceSection.tools:
+        _ref.read(workspaceToolsProvider);
+      case WorkspaceSection.skills:
+        _ref.read(workspaceSkillsProvider);
     }
   }
 
@@ -854,7 +907,10 @@ class WorkspaceSettingsPages extends SettingsPageModule {
         _ref.read(workspaceKnowledgeProvider.notifier).refresh(),
       WorkspaceSection.prompts =>
         _ref.read(workspacePromptsProvider.notifier).refresh(),
-      _ => Future<void>.value(),
+      WorkspaceSection.tools =>
+        _ref.read(workspaceToolsProvider.notifier).refresh(),
+      WorkspaceSection.skills =>
+        _ref.read(workspaceSkillsProvider.notifier).refresh(),
     },
   );
 
@@ -869,12 +925,6 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     _l10n = l10n;
     if (row.key == 'hub') {
       switch (row.field) {
-        case 'open':
-          final section = workspaceSectionNamed(row.extra ?? '');
-          if (section != null && workspaceSectionsInFlutter.contains(section)) {
-            await _openInFlutter(section);
-          }
-          return true;
         case 'gate-retry':
           _ref.invalidate(workspaceCapabilitiesProvider);
           return true;
@@ -883,9 +933,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     }
     if (!row.field.startsWith('list-')) return false;
     final section = workspaceSectionNamed(row.key);
-    if (section == null || !workspaceSectionsInSettings.contains(section)) {
-      return false;
-    }
+    if (section == null) return false;
     switch (row.field) {
       case 'list-search' when value is String:
         await _listAction(
@@ -894,6 +942,10 @@ class WorkspaceSettingsPages extends SettingsPageModule {
               _ref.read(workspaceModelsProvider.notifier).setQuery(value),
             WorkspaceSection.knowledge =>
               _ref.read(workspaceKnowledgeProvider.notifier).setQuery(value),
+            WorkspaceSection.tools =>
+              _ref.read(workspaceToolsProvider.notifier).setQuery(value),
+            WorkspaceSection.skills =>
+              _ref.read(workspaceSkillsProvider.notifier).setQuery(value),
             _ => _ref.read(workspacePromptsProvider.notifier).setQuery(value),
           },
         );
@@ -904,6 +956,10 @@ class WorkspaceSettingsPages extends SettingsPageModule {
               _ref.read(workspaceModelsProvider.notifier).loadMore(),
             WorkspaceSection.knowledge =>
               _ref.read(workspaceKnowledgeProvider.notifier).loadMore(),
+            WorkspaceSection.tools =>
+              _ref.read(workspaceToolsProvider.notifier).loadMore(),
+            WorkspaceSection.skills =>
+              _ref.read(workspaceSkillsProvider.notifier).loadMore(),
             _ => _ref.read(workspacePromptsProvider.notifier).loadMore(),
           },
         );
@@ -973,55 +1029,58 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     AppLocalizations l10n,
     WorkspaceSection section,
     String itemId,
-  ) => _withBusy(
-    l10n,
-    section,
-    itemId,
-    () async {
+  ) => _withBusy(l10n, section, itemId, () async {
+    switch (section) {
+      case WorkspaceSection.models:
+        await _ref.read(workspaceModelsProvider.notifier).toggle(itemId);
+        _ref.invalidate(workspaceModelDetailProvider(itemId));
+      case WorkspaceSection.tools:
+        await _ref.read(workspaceToolsProvider.notifier).toggle(itemId);
+        _ref.invalidate(workspaceToolDetailProvider(itemId));
+      case WorkspaceSection.skills:
+        await _ref.read(workspaceSkillsProvider.notifier).toggle(itemId);
+        _ref.invalidate(workspaceSkillDetailProvider(itemId));
+      default:
+        await _ref.read(workspacePromptsProvider.notifier).toggle(itemId);
+        _ref.invalidate(workspacePromptDetailProvider(itemId));
+    }
+  }, failure: _saveFailed(l10n, section));
+
+  String _saveFailed(AppLocalizations l10n, WorkspaceSection section) =>
       switch (section) {
-        case WorkspaceSection.models:
-          await _ref.read(workspaceModelsProvider.notifier).toggle(itemId);
-          _ref.invalidate(workspaceModelDetailProvider(itemId));
-        default:
-          await _ref.read(workspacePromptsProvider.notifier).toggle(itemId);
-          _ref.invalidate(workspacePromptDetailProvider(itemId));
-      }
-    },
-    failure: section == WorkspaceSection.models
-        ? l10n.workspaceModelSaveFailed
-        : l10n.workspacePromptSaveFailed,
-  );
+        WorkspaceSection.models => l10n.workspaceModelSaveFailed,
+        WorkspaceSection.knowledge => l10n.workspaceKnowledgeSaveFailed,
+        WorkspaceSection.tools => l10n.workspaceToolSaveFailed,
+        WorkspaceSection.skills => l10n.workspaceSkillSaveFailed,
+        WorkspaceSection.prompts => l10n.workspacePromptSaveFailed,
+      };
 
   Future<void> _delete(
     AppLocalizations l10n,
     WorkspaceSection section,
     String itemId,
-  ) => _withBusy(
-    l10n,
-    section,
-    itemId,
-    () async {
-      switch (section) {
-        case WorkspaceSection.models:
-          await _ref.read(workspaceModelsProvider.notifier).delete(itemId);
-          _notices[section] = (text: l10n.workspaceModelDeleted, error: false);
-        case WorkspaceSection.knowledge:
-          await _ref.read(workspaceKnowledgeProvider.notifier).delete(itemId);
-          _notices[section] = (
-            text: l10n.workspaceKnowledgeDeleted,
-            error: false,
-          );
-        default:
-          await _ref.read(workspacePromptsProvider.notifier).delete(itemId);
-          _notices[section] = (text: l10n.workspacePromptDeleted, error: false);
-      }
-    },
-    failure: switch (section) {
-      WorkspaceSection.models => l10n.workspaceModelSaveFailed,
-      WorkspaceSection.knowledge => l10n.workspaceKnowledgeSaveFailed,
-      _ => l10n.workspacePromptSaveFailed,
-    },
-  );
+  ) => _withBusy(l10n, section, itemId, () async {
+    switch (section) {
+      case WorkspaceSection.models:
+        await _ref.read(workspaceModelsProvider.notifier).delete(itemId);
+        _notices[section] = (text: l10n.workspaceModelDeleted, error: false);
+      case WorkspaceSection.knowledge:
+        await _ref.read(workspaceKnowledgeProvider.notifier).delete(itemId);
+        _notices[section] = (
+          text: l10n.workspaceKnowledgeDeleted,
+          error: false,
+        );
+      case WorkspaceSection.tools:
+        await _ref.read(workspaceToolsProvider.notifier).delete(itemId);
+        _notices[section] = (text: l10n.workspaceToolDeleted, error: false);
+      case WorkspaceSection.skills:
+        await _ref.read(workspaceSkillsProvider.notifier).delete(itemId);
+        _notices[section] = (text: l10n.workspaceSkillDeleted, error: false);
+      default:
+        await _ref.read(workspacePromptsProvider.notifier).delete(itemId);
+        _notices[section] = (text: l10n.workspacePromptDeleted, error: false);
+    }
+  }, failure: _saveFailed(l10n, section));
 
   /// Where the share sheet opens from: the middle of the screen, as iPad
   /// asks for an origin.
@@ -1059,6 +1118,17 @@ class WorkspaceSettingsPages extends SettingsPageModule {
               .exportAll();
           payload = models.map(workspaceModelExportMap).toList();
           filename = 'models';
+        case WorkspaceSection.tools:
+          payload = await _ref
+              .read(workspaceToolsProvider.notifier)
+              .exportAll();
+          filename = 'tools';
+        case WorkspaceSection.skills:
+          final skills = await _ref
+              .read(workspaceSkillsProvider.notifier)
+              .exportAll();
+          payload = skills.map(workspaceSkillExportMap).toList();
+          filename = 'skills';
         default:
           final prompts = await _ref
               .read(workspacePromptsProvider.notifier)
@@ -1085,9 +1155,12 @@ class WorkspaceSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
       _notices[section] = (
-        text: section == WorkspaceSection.models
-            ? l10n.workspaceModelExportFailed
-            : l10n.workspacePromptExportFailed,
+        text: switch (section) {
+          WorkspaceSection.models => l10n.workspaceModelExportFailed,
+          WorkspaceSection.tools => l10n.workspaceToolExportFailed,
+          WorkspaceSection.skills => l10n.workspaceSkillExportFailed,
+          _ => l10n.workspacePromptExportFailed,
+        },
         error: true,
       );
     } finally {
@@ -1168,15 +1241,23 @@ class WorkspaceSettingsPages extends SettingsPageModule {
                   .read(workspaceModelsProvider.notifier)
                   .importItems([item]);
               if (!ok) throw StateError('import rejected');
+            case WorkspaceSection.tools:
+              await _ref
+                  .read(workspaceToolsProvider.notifier)
+                  .importTool(workspaceToolFormFromImport(item));
+            case WorkspaceSection.skills:
+              await _ref
+                  .read(workspaceSkillsProvider.notifier)
+                  .importSkill(workspaceSkillFormFromImport(item));
             default:
               await _ref
                   .read(workspacePromptsProvider.notifier)
                   .importPrompt(workspacePromptFormFromImport(item));
           }
         },
-        labelOf: (item) => section == WorkspaceSection.models
-            ? item['name']?.toString() ?? item['id']?.toString() ?? ''
-            : item['name']?.toString() ?? item['command']?.toString() ?? '',
+        labelOf: (item) => section == WorkspaceSection.prompts
+            ? item['name']?.toString() ?? item['command']?.toString() ?? ''
+            : item['name']?.toString() ?? item['id']?.toString() ?? '',
       );
     } catch (error, stackTrace) {
       DebugLogger.error(

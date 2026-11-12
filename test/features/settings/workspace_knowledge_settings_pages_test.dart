@@ -542,6 +542,8 @@ void main() {
 
       final view = rig.row(list, workspaceRowId('list-view', 'knowledge'))!;
       check(view.kind).equals(NativeSheetItemKind.segment);
+      // The list starts on every base, which the menu names as its first.
+      check(view.value).equals('');
       check(view.options.map((option) => option.id))
           .deepEquals(['', 'created', 'shared']);
       // Every base, as the provider's 'all' means, until another is picked.

@@ -41,7 +41,6 @@ import '../../features/settings/views/settings_page_view.dart';
 import '../../features/settings/views/settings_root_page.dart';
 import '../services/native_sheet_bridge.dart' show NativeSheetRoutes;
 import '../utils/native_sheet_utils.dart' show nativeAccountsDetailId;
-import '../../features/workspace/views/workspace_page.dart';
 import '../../features/workspace/workspace_navigation.dart';
 
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
@@ -728,28 +727,6 @@ List<GoRoute> _workspaceRoutes() {
     ),
   );
 
-  GoRoute route({
-    required String path,
-    required String name,
-    required WorkspaceSection? section,
-    WorkspaceRouteMode mode = WorkspaceRouteMode.collection,
-  }) {
-    return GoRoute(
-      path: path,
-      name: name,
-      pageBuilder: (context, state) => _buildPlatformPage(
-        state: state,
-        noTransition: usesNoTransitionForWorkspaceRoute(mode, state.extra),
-        child: WorkspacePage(
-          section: section,
-          mode: mode,
-          resourceId: state.pathParameters['id'],
-          openedFromNativeSheet: state.extra is NativeSheetNavigationOrigin,
-        ),
-      ),
-    );
-  }
-
   String editorPage(WorkspaceSection section, String? id) =>
       workspaceEditorPageId(section, id);
 
@@ -759,59 +736,31 @@ List<GoRoute> _workspaceRoutes() {
       name: RouteNames.workspace,
       detailId: (_) => workspaceHubPageId,
     ),
-    // The sections drawn as pages of Settings's own: each of their routes
-    // opens the matching page.
-    for (final descriptor in workspaceRouteDescriptors)
-      if (workspaceSectionsInSettings.contains(descriptor.section)) ...[
-        settingsRoute(
-          path: descriptor.collectionPath,
-          name: descriptor.collectionName,
-          detailId: (_) => workspaceSectionPageId(descriptor.section),
-        ),
-        settingsRoute(
-          path: descriptor.createPattern,
-          name: descriptor.createName,
-          detailId: (_) => editorPage(descriptor.section, null),
-        ),
-        settingsRoute(
-          path: descriptor.detailPattern,
-          name: descriptor.detailName,
-          detailId: (state) =>
-              editorPage(descriptor.section, state.pathParameters['id']),
-        ),
-        settingsRoute(
-          path: descriptor.editPattern,
-          name: descriptor.editName,
-          detailId: (state) =>
-              editorPage(descriptor.section, state.pathParameters['id']),
-        ),
-      ],
-    for (final descriptor in workspaceRouteDescriptors)
-      if (!workspaceSectionsInSettings.contains(descriptor.section)) ...[
-        route(
-          path: descriptor.collectionPath,
-          name: descriptor.collectionName,
-          section: descriptor.section,
-        ),
-        route(
-          path: descriptor.createPattern,
-          name: descriptor.createName,
-          section: descriptor.section,
-          mode: WorkspaceRouteMode.create,
-        ),
-        route(
-          path: descriptor.detailPattern,
-          name: descriptor.detailName,
-          section: descriptor.section,
-          mode: WorkspaceRouteMode.detail,
-        ),
-        route(
-          path: descriptor.editPattern,
-          name: descriptor.editName,
-          section: descriptor.section,
-          mode: WorkspaceRouteMode.edit,
-        ),
-      ],
+    // Each section's routes open the matching page of Settings.
+    for (final descriptor in workspaceRouteDescriptors) ...[
+      settingsRoute(
+        path: descriptor.collectionPath,
+        name: descriptor.collectionName,
+        detailId: (_) => workspaceSectionPageId(descriptor.section),
+      ),
+      settingsRoute(
+        path: descriptor.createPattern,
+        name: descriptor.createName,
+        detailId: (_) => editorPage(descriptor.section, null),
+      ),
+      settingsRoute(
+        path: descriptor.detailPattern,
+        name: descriptor.detailName,
+        detailId: (state) =>
+            editorPage(descriptor.section, state.pathParameters['id']),
+      ),
+      settingsRoute(
+        path: descriptor.editPattern,
+        name: descriptor.editName,
+        detailId: (state) =>
+            editorPage(descriptor.section, state.pathParameters['id']),
+      ),
+    ],
   ];
 }
 
@@ -899,14 +848,3 @@ Page<void> _buildPlatformPage({
 @visibleForTesting
 bool usesNoTransitionForNativeSheet(Object? extra) =>
     extra is NativeSheetNavigationOrigin;
-
-/// Only a Workspace collection is entered from native Settings. Resource
-/// pages are pushed over it in Flutter and keep the native-sheet origin for
-/// their back target, but need a real transition so the edge swipe pops them.
-@visibleForTesting
-bool usesNoTransitionForWorkspaceRoute(
-  WorkspaceRouteMode mode,
-  Object? extra,
-) =>
-    mode == WorkspaceRouteMode.collection &&
-    usesNoTransitionForNativeSheet(extra);

@@ -2095,8 +2095,6 @@
   "workspaceUnsupported": "Dieser Server unterstützt die Verwaltung des Arbeitsbereichs nicht.",
   "workspaceLoadFailed": "Der Arbeitsbereich konnte nicht geladen werden.",
   "workspaceRetry": "Erneut versuchen",
-  "workspaceSelectItem": "Wähle einen Eintrag aus, um die Details zu sehen.",
-  "workspaceEditorComingSoon": "Dieser Editor ist ab dem nächsten Meilenstein des Arbeitsbereichs verfügbar.",
   "workspaceSearchHint": "Ressourcen im Arbeitsbereich suchen",
   "workspaceLoadMore": "Mehr laden",
   "workspaceAccessPublicDisabled": "Du hast keine Berechtigung, dies öffentlich zu teilen.",
@@ -2125,8 +2123,6 @@
   "workspaceEditorDiscardMessage": "Deine nicht gespeicherten Änderungen gehen verloren.",
   "workspaceEditorDiscardConfirm": "Verwerfen",
   "workspaceEditorKeepEditing": "Weiter bearbeiten",
-  "workspaceEditorSaveTooltip": "Änderungen speichern",
-  "workspaceEditorSaving": "Wird gespeichert…",
   "workspaceEditorMoreActions": "Weitere Aktionen",
   "workspaceImportChooseFile": "JSON-Datei auswählen",
   "workspaceImportPasteLabel": "Oder JSON einfügen",
@@ -2898,18 +2894,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Schreiben",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Vorschau",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Noch nichts für die Vorschau.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Zugriff verwalten",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2942,10 +2926,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Skill löschen?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "„{name}“ wird dauerhaft gelöscht.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2966,10 +2946,6 @@
   "workspaceSkillImportMarkdown": "Markdown importieren",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "JSON importieren",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown geladen. Prüfe den Inhalt und speichere, um den Skill zu erstellen.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3009,10 +2985,8 @@
   "workspaceToolClone": "Duplizieren",
   "workspaceToolCloneSuffix": "(Kopie)",
   "workspaceToolDelete": "Löschen",
-  "workspaceToolDeleteConfirmTitle": "Werkzeug löschen?",
   "workspaceToolDeleteConfirmMessage": "„{name}“ wird dauerhaft gelöscht.",
   "workspaceToolImport": "Werkzeuge importieren",
-  "workspaceToolImportJson": "JSON importieren",
   "workspaceToolImportUrl": "Von URL importieren",
   "workspaceToolImportUrlTitle": "Werkzeug von URL importieren",
   "workspaceToolImportUrlHint": "GitHub-URL zur Python-Datei eines Werkzeugs eingeben",
@@ -3027,7 +3001,6 @@
   "workspaceToolManifestRequiredVersion": "Erfordert Open WebUI {version}",
   "workspaceToolManifestFunding": "Finanzierung: {url}",
   "workspaceToolSpecs": "Generierte Spezifikationen",
-  "workspaceToolDetails": "Tool-Details",
   "workspaceToolFunctionCount": "{count, plural, =1{1 Funktion} other{{count} Funktionen}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "Für dieses Werkzeug wurden keine Spezifikationen generiert.",

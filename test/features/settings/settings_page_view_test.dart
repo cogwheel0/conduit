@@ -352,6 +352,44 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('a row of code is typed as is, in a monospaced font, and goes '
+      'back as a text row does', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'source',
+          title: 'Python Source',
+          kind: NativeSheetItemKind.code,
+          value: 'class Tools:',
+        ),
+      ]),
+    );
+
+    final field = tester.widget<AdaptiveTextField>(
+      find.descendant(
+        of: _row('source'),
+        matching: find.byType(AdaptiveTextField),
+      ),
+    );
+    check(field.autocorrect).isFalse();
+    check(field.enableSuggestions).isFalse();
+    check(field.maxLines).isNull();
+    check(field.style?.fontFamily).isNotNull();
+
+    await tester.enterText(find.byType(EditableText), 'class Tools:\n    pass');
+    await tester.pump();
+    check(controller.changes).isEmpty();
+    // Done, which typed text brings up, sends it.
+    await tester.tap(
+      find.bySemanticsLabel(lookupAppLocalizations(const Locale('en')).done),
+    );
+    await tester.pumpAndSettle();
+
+    check(controller.changes)
+        .deepEquals([('source', 'class Tools:\n    pass')]);
+  });
+
   testWidgets("a page's search sends what is typed once typing pauses, and "
       'keeps it when the page is described again', (tester) async {
     final controller = _RecordingController();

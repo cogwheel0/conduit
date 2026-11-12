@@ -4581,14 +4581,6 @@
   "@workspaceRetry": {
     "description": "Retry button label on the Workspace error state."
   },
-  "workspaceSelectItem": "Wybierz element, aby wyświetlić jego szczegóły.",
-  "@workspaceSelectItem": {
-    "description": "Placeholder prompting the user to select a resource to view its details."
-  },
-  "workspaceEditorComingSoon": "Ten edytor będzie dostępny w kolejnym etapie obszaru roboczego.",
-  "@workspaceEditorComingSoon": {
-    "description": "Placeholder shown for workspace section editors that are not yet implemented."
-  },
   "workspaceSearchHint": "Szukaj zasobów obszaru roboczego",
   "@workspaceSearchHint": {
     "description": "Hint text for the workspace resource search field."
@@ -4691,14 +4683,6 @@
   "workspaceEditorKeepEditing": "Kontynuuj edycję",
   "@workspaceEditorKeepEditing": {
     "description": "Cancel button label on the discard-changes dialog."
-  },
-  "workspaceEditorSaveTooltip": "Zapisz zmiany",
-  "@workspaceEditorSaveTooltip": {
-    "description": "Tooltip for the workspace editor save button."
-  },
-  "workspaceEditorSaving": "Zapisywanie…",
-  "@workspaceEditorSaving": {
-    "description": "Label shown on the editor save button while a save is in progress."
   },
   "workspaceEditorMoreActions": "Więcej czynności",
   "@workspaceEditorMoreActions": {
@@ -5518,18 +5502,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Pisanie",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Podgląd",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Nie ma jeszcze czego podglądać.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Zarządzaj dostępem",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -5562,10 +5534,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Usunąć umiejętność?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "„{name}” zostanie trwale usunięta.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -5586,10 +5554,6 @@
   "workspaceSkillImportMarkdown": "Importuj Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "Importuj JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Wczytano Markdown. Przejrzyj i zapisz, aby utworzyć umiejętność.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -5695,10 +5659,6 @@
   "@workspaceToolDelete": {
     "description": "Overflow action that deletes a tool."
   },
-  "workspaceToolDeleteConfirmTitle": "Usunąć narzędzie?",
-  "@workspaceToolDeleteConfirmTitle": {
-    "description": "Title of the tool delete confirmation dialog."
-  },
   "workspaceToolDeleteConfirmMessage": "„{name}” zostanie trwale usunięte.",
   "@workspaceToolDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a tool.",
@@ -5711,10 +5671,6 @@
   "workspaceToolImport": "Importuj narzędzia",
   "@workspaceToolImport": {
     "description": "Title of the tool JSON import sheet."
-  },
-  "workspaceToolImportJson": "Importuj JSON",
-  "@workspaceToolImportJson": {
-    "description": "Overflow action that imports tools from a JSON file."
   },
   "workspaceToolImportUrl": "Importuj z adresu URL",
   "@workspaceToolImportUrl": {
@@ -5790,10 +5746,6 @@
   "workspaceToolSpecs": "Wygenerowane specyfikacje",
   "@workspaceToolSpecs": {
     "description": "Heading for the read-only server-generated tool function specifications."
-  },
-  "workspaceToolDetails": "Szczegóły narzędzia",
-  "@workspaceToolDetails": {
-    "description": "Disclosure title for secondary tool manifest and function metadata."
   },
   "workspaceToolFunctionCount": "{count, plural, one{1 funkcja} few{{count} funkcje} many{{count} funkcji} other{{count} funkcji}}",
   "@workspaceToolFunctionCount": {

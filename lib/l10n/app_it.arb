@@ -2093,8 +2093,6 @@
   "workspaceUnsupported": "Questo server non supporta la gestione dell'area di lavoro.",
   "workspaceLoadFailed": "Impossibile caricare l'area di lavoro.",
   "workspaceRetry": "Riprova",
-  "workspaceSelectItem": "Seleziona un elemento per vederne i dettagli.",
-  "workspaceEditorComingSoon": "Questo editor sarà disponibile nella prossima fase dell'area di lavoro.",
   "workspaceSearchHint": "Cerca nelle risorse dell'area di lavoro",
   "workspaceLoadMore": "Carica altro",
   "workspaceAccessPublicDisabled": "Non hai il permesso di condividerlo pubblicamente.",
@@ -2123,8 +2121,6 @@
   "workspaceEditorDiscardMessage": "Le modifiche non salvate andranno perse.",
   "workspaceEditorDiscardConfirm": "Scarta modifiche",
   "workspaceEditorKeepEditing": "Continua a modificare",
-  "workspaceEditorSaveTooltip": "Salva modifiche",
-  "workspaceEditorSaving": "Salvataggio…",
   "workspaceEditorMoreActions": "Altre azioni",
   "workspaceImportChooseFile": "Scegli file JSON",
   "workspaceImportPasteLabel": "Oppure incolla JSON",
@@ -2896,18 +2892,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Scrivi",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Anteprima",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Ancora niente da mostrare nell'anteprima.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Gestisci l'accesso",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2940,10 +2924,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Eliminare la skill?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "«{name}» verrà eliminata definitivamente.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2964,10 +2944,6 @@
   "workspaceSkillImportMarkdown": "Importa Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "Importa JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown caricato. Controllalo e salva per creare la skill.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3007,10 +2983,8 @@
   "workspaceToolClone": "Duplica",
   "workspaceToolCloneSuffix": "(copia)",
   "workspaceToolDelete": "Elimina",
-  "workspaceToolDeleteConfirmTitle": "Eliminare lo strumento?",
   "workspaceToolDeleteConfirmMessage": "«{name}» verrà eliminato definitivamente.",
   "workspaceToolImport": "Importa strumenti",
-  "workspaceToolImportJson": "Importa JSON",
   "workspaceToolImportUrl": "Importa da URL",
   "workspaceToolImportUrlTitle": "Importa strumento da URL",
   "workspaceToolImportUrlHint": "Inserisci l'URL GitHub del file Python di uno strumento",
@@ -3025,7 +2999,6 @@
   "workspaceToolManifestRequiredVersion": "Richiede Open WebUI {version}",
   "workspaceToolManifestFunding": "Finanziamento: {url}",
   "workspaceToolSpecs": "Specifiche generate",
-  "workspaceToolDetails": "Dettagli dello strumento",
   "workspaceToolFunctionCount": "{count, plural, =1{1 funzione} other{{count} funzioni}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "Non sono state generate specifiche per questo strumento.",

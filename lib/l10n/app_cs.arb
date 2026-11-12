@@ -4013,8 +4013,6 @@
   "workspaceUnsupported": "Tento server nepodporuje správu pracovního prostoru.",
   "workspaceLoadFailed": "Pracovní prostor se nepodařilo načíst.",
   "workspaceRetry": "Zkusit znovu",
-  "workspaceSelectItem": "Vyberte položku a zobrazte její podrobnosti.",
-  "workspaceEditorComingSoon": "Tento editor bude k dispozici v další etapě pracovního prostoru.",
   "workspaceSearchHint": "Hledat v prostředcích pracovního prostoru",
   "workspaceLoadMore": "Načíst další",
   "workspaceAccessPublicDisabled": "Nemáte oprávnění tuto položku sdílet veřejně.",
@@ -4043,8 +4041,6 @@
   "workspaceEditorDiscardMessage": "Neuložené změny budou ztraceny.",
   "workspaceEditorDiscardConfirm": "Zahodit",
   "workspaceEditorKeepEditing": "Pokračovat v úpravách",
-  "workspaceEditorSaveTooltip": "Uložit změny",
-  "workspaceEditorSaving": "Ukládání…",
   "workspaceEditorMoreActions": "Další akce",
   "workspaceImportChooseFile": "Vybrat soubor JSON",
   "workspaceImportPasteLabel": "Nebo vložte JSON",
@@ -4816,18 +4812,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Psát",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Náhled",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Zatím není co zobrazit.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Spravovat přístup",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -4860,10 +4844,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Smazat dovednost?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "„{name}“ bude trvale smazána.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -4884,10 +4864,6 @@
   "workspaceSkillImportMarkdown": "Importovat Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "Importovat JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown byl načten. Zkontrolujte ho a uložením vytvořte dovednost.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -4927,10 +4903,8 @@
   "workspaceToolClone": "Duplikovat",
   "workspaceToolCloneSuffix": "(kopie)",
   "workspaceToolDelete": "Smazat",
-  "workspaceToolDeleteConfirmTitle": "Smazat nástroj?",
   "workspaceToolDeleteConfirmMessage": "„{name}“ bude trvale smazán.",
   "workspaceToolImport": "Importovat nástroje",
-  "workspaceToolImportJson": "Importovat JSON",
   "workspaceToolImportUrl": "Importovat z URL",
   "workspaceToolImportUrlTitle": "Importovat nástroj z URL",
   "workspaceToolImportUrlHint": "Zadejte URL na GitHubu k souboru Python nástroje",
@@ -4945,7 +4919,6 @@
   "workspaceToolManifestRequiredVersion": "Vyžaduje Open WebUI {version}",
   "workspaceToolManifestFunding": "Financování: {url}",
   "workspaceToolSpecs": "Vygenerované specifikace",
-  "workspaceToolDetails": "Podrobnosti nástroje",
   "workspaceToolFunctionCount": "Počet funkcí: {count}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "Pro tento nástroj nebyly vygenerovány žádné specifikace.",
