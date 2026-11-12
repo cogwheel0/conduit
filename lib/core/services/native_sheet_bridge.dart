@@ -1693,6 +1693,9 @@ class NativeSheetRowAction {
   );
 }
 
+/// What a [NativeSheetItemKind.diffLine] row's line is, as its value.
+enum NativeSheetDiffLine { added, removed, context }
+
 enum NativeSheetItemKind {
   navigation,
   textField,
@@ -1728,6 +1731,13 @@ enum NativeSheetItemKind {
   /// A time of day, drawn and sent as [date] is; only its hour and minute
   /// count.
   time,
+
+  /// One line of a comparison between two texts, read only: [title] is the
+  /// line, and [NativeSheetItemConfig.value] says what happened to it,
+  /// `added`, `removed` or `context` (unchanged); see [NativeSheetDiffLine].
+  /// [NativeSheetItemConfig.subtitle] is what assistive technology reads for
+  /// it ("Removed: …"), so the change is said, not only shown.
+  diffLine,
 }
 
 /// [value] as a [NativeSheetItemKind.date] or [NativeSheetItemKind.time]
@@ -2137,6 +2147,7 @@ extension on NativeSheetItemKind {
         PlatformNativeSheetItemKind.appearanceTiles,
       NativeSheetItemKind.date => PlatformNativeSheetItemKind.date,
       NativeSheetItemKind.time => PlatformNativeSheetItemKind.time,
+      NativeSheetItemKind.diffLine => PlatformNativeSheetItemKind.diffLine,
     };
   }
 }

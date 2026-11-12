@@ -307,7 +307,12 @@ enum class PlatformNativeSheetItemKind(val raw: Int) {
    */
   DATE(14),
   /** A time of day as a compact time control; value as for [date]. */
-  TIME(15);
+  TIME(15),
+  /**
+   * One read-only line of a comparison: title is the line; value is
+   * `added`, `removed` or `context`; subtitle is what VoiceOver reads.
+   */
+  DIFF_LINE(16);
 
   companion object {
     fun ofRaw(raw: Int): PlatformNativeSheetItemKind? {

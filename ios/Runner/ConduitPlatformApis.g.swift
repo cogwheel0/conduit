@@ -255,6 +255,9 @@ enum PlatformNativeSheetItemKind: Int, CaseIterable {
   case date = 14
   /// A time of day as a compact time control; value as for [date].
   case time = 15
+  /// One read-only line of a comparison: title is the line; value is
+  /// `added`, `removed` or `context`; subtitle is what VoiceOver reads.
+  case diffLine = 16
 }
 
 /// Whether a keyboard attachment row turns an option on and off, or runs a

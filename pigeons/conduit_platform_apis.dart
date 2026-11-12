@@ -57,6 +57,10 @@ enum PlatformNativeSheetItemKind {
 
   /// A time of day as a compact time control; value as for [date].
   time,
+
+  /// One read-only line of a comparison: title is the line; value is
+  /// `added`, `removed` or `context`; subtitle is what VoiceOver reads.
+  diffLine,
 }
 
 class PlatformBackgroundStreamLease {

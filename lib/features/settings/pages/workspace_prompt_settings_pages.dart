@@ -57,6 +57,9 @@ final class WorkspacePromptEditor {
   bool noticeIsError = true;
   bool shownEdited = false;
 
+  /// Comparisons of versions with the live one, by version id.
+  final Map<String, WorkspacePromptComparison> comparisons = {};
+
   /// The version history, as its page last read it.
   List<WorkspacePromptHistoryEntry>? history;
   int historyPage = 0;
@@ -444,6 +447,12 @@ NativeSheetDetailConfig buildWorkspacePromptVersionPage(
             ? l10n.workspacePromptHistoryDeleteProduction
             : null,
         items: [
+          if (!live && editor.versionId != null)
+            NativeSheetItemConfig(
+              id: workspacePromptDiffPageId(key, entry.id),
+              title: l10n.workspacePromptHistoryDiff,
+              sfSymbol: 'arrow.left.arrow.right',
+            ),
           if (!editor.readOnly)
             NativeSheetItemConfig(
               id: workspaceRowId('prompt-version-restore', key, entry.id),
@@ -473,6 +482,150 @@ NativeSheetDetailConfig buildWorkspacePromptVersionPage(
             ),
         ],
       ),
+    ],
+  );
+}
+
+/// A version compared with the live one, as its page shows it.
+final class WorkspacePromptComparison {
+  /// The comparison's lines, unified-diff style, or null until read.
+  List<String>? lines;
+  bool nameChanged = false;
+  bool loading = false;
+  bool failed = false;
+  bool tooLarge = false;
+}
+
+String workspacePromptDiffPageId(String key, String versionId) =>
+    '$workspacePromptDiffPagePrefix$key:${Uri.encodeComponent(versionId)}';
+
+/// The rows of a comparison: each line of [lines] (unified-diff style) as a
+/// diff row, added, removed or unchanged, read out as such. The file
+/// headers are left out, and a gap between two runs of lines is a line of
+/// its own.
+@visibleForTesting
+List<NativeSheetItemConfig> workspacePromptDiffRows(
+  AppLocalizations l10n,
+  String pageId,
+  List<String> lines,
+) {
+  final rows = <NativeSheetItemConfig>[];
+  var hunks = 0;
+  for (final (index, line) in lines.indexed) {
+    if (line.startsWith('--- ') ||
+        line.startsWith('+++ ') ||
+        line == '---' ||
+        line == '+++') {
+      continue;
+    }
+    if (line.startsWith('@@')) {
+      if (hunks++ > 0) {
+        rows.add(
+          NativeSheetItemConfig(
+            id: '$pageId-gap-$index',
+            title: '\u2026',
+            kind: NativeSheetItemKind.diffLine,
+            value: NativeSheetDiffLine.context.name,
+          ),
+        );
+      }
+      continue;
+    }
+    final (change, text) = switch (line.isEmpty ? ' ' : line[0]) {
+      '+' => (NativeSheetDiffLine.added, line.substring(1)),
+      '-' => (NativeSheetDiffLine.removed, line.substring(1)),
+      ' ' => (
+        NativeSheetDiffLine.context,
+        line.isEmpty ? '' : line.substring(1),
+      ),
+      _ => (NativeSheetDiffLine.context, line),
+    };
+    // A blank line keeps its row: an empty title is dropped by the sheet.
+    final shown = text.isEmpty ? ' ' : text;
+    rows.add(
+      NativeSheetItemConfig(
+        id: '$pageId-line-$index',
+        title: shown,
+        subtitle: switch (change) {
+          NativeSheetDiffLine.added => l10n.workspacePromptHistoryDiffAddedLine(
+            text,
+          ),
+          NativeSheetDiffLine.removed =>
+            l10n.workspacePromptHistoryDiffRemovedLine(text),
+          NativeSheetDiffLine.context => shown,
+        },
+        kind: NativeSheetItemKind.diffLine,
+        value: change.name,
+      ),
+    );
+  }
+  return rows;
+}
+
+/// A version of a prompt compared with its live one: what was removed and
+/// added, line by line, read only.
+@visibleForTesting
+NativeSheetDetailConfig buildWorkspacePromptDiffPage(
+  AppLocalizations l10n, {
+  required WorkspacePromptEditor editor,
+  required String versionId,
+  required WorkspacePromptComparison? comparison,
+}) {
+  final key = editor.key;
+  final pageId = workspacePromptDiffPageId(key, versionId);
+  final lines = comparison?.lines;
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: l10n.workspacePromptHistoryDiffTitle,
+    sections: [
+      if (comparison == null || (lines == null && comparison.loading))
+        NativeSheetSectionConfig(
+          items: [buildNativeLoadingItem(l10n, id: '$pageId-loading')],
+        )
+      else if (comparison.tooLarge)
+        NativeSheetSectionConfig(
+          items: [
+            workspaceWarning(
+              '$pageId-too-large',
+              l10n.workspacePromptHistoryDiffTooLarge,
+            ),
+          ],
+        )
+      else if (lines == null)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: workspaceRowId('prompt-diff-retry', key, versionId),
+              title: l10n.workspacePromptHistoryDiffFailed,
+              subtitle: l10n.workspaceRetry,
+              sfSymbol: 'exclamationmark.triangle',
+              showsDisclosure: false,
+            ),
+          ],
+        )
+      else ...[
+        if (comparison.nameChanged)
+          NativeSheetSectionConfig(
+            items: [
+              workspaceNote(
+                '$pageId-name',
+                l10n.workspacePromptHistoryDiffNameChanged,
+                'textformat',
+              ),
+            ],
+          ),
+        NativeSheetSectionConfig(
+          items: lines.isEmpty
+              ? [
+                  workspaceNote(
+                    '$pageId-same',
+                    l10n.workspacePromptHistoryDiffEmpty,
+                    'equal.circle',
+                  ),
+                ]
+              : workspacePromptDiffRows(l10n, pageId, lines),
+        ),
+      ],
     ],
   );
 }
@@ -519,6 +672,7 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       detailId.startsWith(workspacePromptPagePrefix) ||
       detailId.startsWith(workspacePromptHistoryPagePrefix) ||
       detailId.startsWith(workspacePromptVersionPagePrefix) ||
+      detailId.startsWith(workspacePromptDiffPagePrefix) ||
       _access.ownsPage(detailId);
 
   WorkspaceSessionIdentity? _session() {
@@ -574,6 +728,18 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       }
       return;
     }
+    if (detailId.startsWith(workspacePromptDiffPagePrefix)) {
+      final rest = detailId.substring(workspacePromptDiffPagePrefix.length);
+      final colon = rest.indexOf(':');
+      if (colon < 0) return;
+      final editor = _editors[rest.substring(0, colon)];
+      if (editor == null) return;
+      final versionId = Uri.decodeComponent(rest.substring(colon + 1));
+      final comparison = editor.comparisons[versionId];
+      await _applyDiff(l10n, editor, versionId);
+      if (comparison?.lines == null) await _loadDiff(editor, versionId);
+      return;
+    }
     if (detailId.startsWith(workspacePromptVersionPagePrefix)) {
       final version = _versionOf(detailId);
       final editor = version == null ? null : _editors[version.key];
@@ -581,9 +747,7 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
           ?.where((candidate) => candidate.id == version!.versionId)
           .firstOrNull;
       if (editor == null || entry == null) return;
-      await _surface.applyDetail(
-        buildWorkspacePromptVersionPage(l10n, editor: editor, entry: entry),
-      );
+      await _applyVersion(l10n, editor, entry);
       return;
     }
     final key = detailId.substring(workspacePromptPagePrefix.length);
@@ -832,6 +996,10 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
         await _loadHistory(editor, reset: true);
       case 'history-more':
         await _loadHistory(editor, reset: false);
+      case 'diff-retry' when row.extra != null:
+        editor.comparisons.remove(row.extra);
+        await _applyDiff(l10n, editor, row.extra!);
+        await _loadDiff(editor, row.extra!);
       case 'version-restore' when row.extra != null:
         await _restore(l10n, editor, row.extra!);
       case 'version-live' when row.extra != null:
@@ -1129,6 +1297,8 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     editor.busy = false;
     if (failed == null) {
       editor.versionId = updated?.versionId ?? versionId;
+      // Compared with the old live version, the comparisons are stale.
+      editor.comparisons.clear();
       if (updated != null) editor.summary = updated;
       _say(editor, l10n.workspacePromptHistoryProductionSet, error: false);
     } else {
@@ -1189,7 +1359,80 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     WorkspacePromptHistoryEntry entry,
   ) => _surface.applyDetail(
     buildWorkspacePromptVersionPage(l10n, editor: editor, entry: entry),
+    detailSheets: [
+      if (entry.id != editor.versionId)
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: workspacePromptDiffPageId(editor.key, entry.id),
+          title: l10n.workspacePromptHistoryDiffTitle,
+        ),
+    ],
   );
+
+  Future<void> _applyDiff(
+    AppLocalizations l10n,
+    WorkspacePromptEditor editor,
+    String versionId,
+  ) => _surface.applyDetail(
+    buildWorkspacePromptDiffPage(
+      l10n,
+      editor: editor,
+      versionId: versionId,
+      comparison: editor.comparisons[versionId] ??= WorkspacePromptComparison(),
+    ),
+  );
+
+  /// Compares version [versionId] with the live one, as the server does.
+  Future<void> _loadDiff(WorkspacePromptEditor editor, String versionId) async {
+    final l10n = _l10n;
+    final summary = editor.summary;
+    final live = editor.versionId;
+    final comparison = editor.comparisons[versionId] ??=
+        WorkspacePromptComparison();
+    if (l10n == null || summary == null || live == null || comparison.loading) {
+      return;
+    }
+    comparison
+      ..loading = true
+      ..failed = false
+      ..tooLarge = false;
+    await _applyDiff(l10n, editor, versionId);
+    Map<String, dynamic>? diff;
+    var tooLarge = false;
+    try {
+      diff = await _notifier.historyDiff(
+        summary.id,
+        fromId: versionId,
+        toId: live,
+      );
+    } on WorkspacePromptDiffTooLargeException {
+      tooLarge = true;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'workspace-prompt-diff-failed',
+        scope: 'settings/workspace',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    // Left meanwhile, or another account signed in: nothing to show it on.
+    if (!_current(editor) ||
+        !identical(editor.comparisons[versionId], comparison)) {
+      return;
+    }
+    comparison
+      ..loading = false
+      ..tooLarge = tooLarge
+      ..failed = diff == null && !tooLarge
+      ..lines = diff == null
+          ? null
+          : [
+              for (final line in diff['content_diff'] as List? ?? const [])
+                line.toString(),
+            ]
+      ..nameChanged = diff?['name_changed'] == true;
+    await _applyDiff(l10n, editor, versionId);
+  }
 
   // -- Access ----------------------------------------------------------------------
 

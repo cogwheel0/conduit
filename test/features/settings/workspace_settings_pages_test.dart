@@ -214,6 +214,31 @@ final class _Prompts extends WorkspacePrompts {
     return _prompt(versionId: versionId);
   }
 
+  final diffs = <(String, String)>[];
+  Object? diffError;
+
+  @override
+  Future<Map<String, dynamic>> historyDiff(
+    String id, {
+    required String fromId,
+    required String toId,
+  }) async {
+    diffs.add((fromId, toId));
+    final error = diffError;
+    if (error != null) throw error;
+    return {
+      'content_diff': [
+        '--- v$fromId',
+        '+++ v$toId',
+        '@@ -1,2 +1,2 @@',
+        ' Packing list',
+        '-Pack a towel.',
+        '+Pack a hat.',
+      ],
+      'name_changed': true,
+    };
+  }
+
   @override
   Future<List<WorkspacePromptHistoryEntry>> history(
     String id, {
@@ -761,6 +786,26 @@ void main() {
       check(rig.page(_model1).edited).isTrue();
     });
 
+    testWidgets('capabilities read by name, and a new one by its key', (
+      tester,
+    ) async {
+      check(workspaceModelCapabilityLabel(_l10n, 'file_upload'))
+          .equals(_l10n.workspaceModelCapabilityFileUpload);
+      check(workspaceModelCapabilityLabel(_l10n, 'web_search'))
+          .equals(_l10n.webSearch);
+      check(workspaceModelCapabilityLabel(_l10n, 'time_travel'))
+          .equals('time_travel');
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      await rig.open(_model1);
+      final advanced = '$workspaceModelAdvancedPagePrefix$_model1Key';
+      await rig.open(advanced);
+      check(rig.titles(advanced))
+          .contains(_l10n.workspaceModelCapabilityVision);
+    });
+
     testWidgets('a save that lands after the editor was left closes nothing', (
       tester,
     ) async {
@@ -1024,6 +1069,25 @@ void main() {
       check(rig.closed).deepEquals([_prompt1]);
     });
 
+    test('the rows of a comparison leave out its headers and mark gaps', () {
+      final rows = workspacePromptDiffRows(_l10n, 'page', const [
+        '--- va',
+        '+++ vb',
+        '@@ -1,2 +1,2 @@',
+        ' Same',
+        '-',
+        '+New',
+        '@@ -9 +9 @@',
+        ' Later',
+      ]);
+      check(rows.map((row) => row.title))
+          .deepEquals(['Same', ' ', 'New', '\u2026', 'Later']);
+      check(rows.map((row) => row.value))
+          .deepEquals(['context', 'removed', 'added', 'context', 'context']);
+      check(rows[2].subtitle)
+          .equals(_l10n.workspacePromptHistoryDiffAddedLine('New'));
+    });
+
     group('its history', () {
       final history = '$workspacePromptHistoryPagePrefix$_prompt1Key';
       const versions = [
@@ -1095,6 +1159,65 @@ void main() {
         check(rig.titles(_prompt1)).not((it) => it.contains('travel'));
         check(rig.page(_prompt1).edited).isTrue();
         check(rig.closed).deepEquals([history]);
+      });
+
+      testWidgets('compares a version with the live one, line by line', (
+        tester,
+      ) async {
+        final prompts = _Prompts()..versions = versions;
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+        final version = workspacePromptVersionPageId(_prompt1Key, 'v1');
+        await rig.open(version);
+        final compare = workspacePromptDiffPageId(_prompt1Key, 'v1');
+        check(rig.row(version, compare)!.title)
+            .equals(_l10n.workspacePromptHistoryDiff);
+        // The live version has nothing to compare with itself.
+        final live = workspacePromptVersionPageId(_prompt1Key, 'v2');
+        await rig.open(live);
+        check(rig.row(live, workspacePromptDiffPageId(_prompt1Key, 'v2')))
+            .isNull();
+
+        await rig.open(compare);
+
+        check(prompts.diffs).deepEquals([('v1', 'v2')]);
+        final lines = rig
+            .rows(compare)
+            .where((row) => row.kind == NativeSheetItemKind.diffLine)
+            .toList();
+        check(lines.map((row) => row.title))
+            .deepEquals(['Packing list', 'Pack a towel.', 'Pack a hat.']);
+        check(lines.map((row) => row.value))
+            .deepEquals(['context', 'removed', 'added']);
+        check(
+          lines[1].subtitle,
+        ).equals(_l10n.workspacePromptHistoryDiffRemovedLine('Pack a towel.'));
+        check(rig.titles(compare))
+            .contains(_l10n.workspacePromptHistoryDiffNameChanged);
+      });
+
+      testWidgets('versions too long to compare say so', (tester) async {
+        final prompts = _Prompts()
+          ..versions = versions
+          ..diffError = const WorkspacePromptDiffTooLargeException();
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+        await rig.open(workspacePromptVersionPageId(_prompt1Key, 'v1'));
+        final compare = workspacePromptDiffPageId(_prompt1Key, 'v1');
+        await rig.open(compare);
+
+        check(rig.titles(compare))
+            .deepEquals([_l10n.workspacePromptHistoryDiffTooLarge]);
       });
     });
   });

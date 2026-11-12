@@ -209,6 +209,7 @@ class SettingsRow extends StatelessWidget {
       ),
       NativeSheetItemKind.info => _buildInfo(context),
       NativeSheetItemKind.readOnlyText => _buildReadOnlyText(context),
+      NativeSheetItemKind.diffLine => _buildDiffLine(context),
       NativeSheetItemKind.appearanceTiles => _SettingsAppearanceTiles(
         item: item,
         selectedId: _value is String ? _value as String : null,
@@ -413,6 +414,58 @@ class SettingsRow extends StatelessWidget {
       subtitleMaxLines: 6,
       showChevron: item.kind == NativeSheetItemKind.searchablePicker,
       onTap: item.options.isEmpty ? null : () => onSelected(item),
+    );
+  }
+
+  /// One line of a comparison: monospaced, a − or + in front, and a tinted
+  /// band for a line removed or added. Screen readers read the row's
+  /// subtitle, which says what happened to the line.
+  Widget _buildDiffLine(BuildContext context) {
+    final theme = context.conduitTheme;
+    final change = item.value;
+    final Color? tint = switch (change) {
+      'added' => theme.success,
+      'removed' => theme.error,
+      _ => null,
+    };
+    final glyph = switch (change) {
+      'added' => '+',
+      'removed' => '\u2212',
+      _ => ' ',
+    };
+    final style = (theme.code ?? AppTypography.bodyMediumStyle).copyWith(
+      color: change == 'context' ? theme.textSecondary : theme.textPrimary,
+    );
+    return Semantics(
+      key: ValueKey<String>('settings-row-${item.id}'),
+      container: true,
+      label: item.subtitle ?? item.title,
+      excludeSemantics: true,
+      child: ColoredBox(
+        color: tint?.withValues(alpha: 0.14) ?? const Color(0x00000000),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.xs,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                glyph,
+                style: style.copyWith(color: tint ?? theme.textSecondary),
+              ),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Text(
+                  item.title.isEmpty ? ' ' : item.title,
+                  style: style,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

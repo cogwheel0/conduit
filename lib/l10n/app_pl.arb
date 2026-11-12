@@ -4959,10 +4959,6 @@
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Usunąć model?",
-  "@workspaceModelDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a model."
-  },
   "workspaceModelDeleteConfirmMessage": "Spowoduje to trwałe usunięcie modelu {name}.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
@@ -5007,10 +5003,6 @@
   "workspaceModelDeleted": "Model usunięty.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
-  },
-  "workspaceModelAddAction": "Dodaj",
-  "@workspaceModelAddAction": {
-    "description": "Confirm button in a small add-text dialog."
   },
   "workspaceKnowledgeCreateTitle": "Nowa baza wiedzy",
   "@workspaceKnowledgeCreateTitle": {
@@ -5337,18 +5329,6 @@
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Pisanie",
-  "@workspacePromptWriteTab": {
-    "description": "Toggle label for the editable prompt content view."
-  },
-  "workspacePromptPreviewTab": "Podgląd",
-  "@workspacePromptPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the prompt content."
-  },
-  "workspacePromptPreviewEmpty": "Nie ma jeszcze czego podglądać.",
-  "@workspacePromptPreviewEmpty": {
-    "description": "Empty-state text shown in the prompt preview when there is no content."
-  },
   "workspacePromptTags": "Tagi",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
@@ -5408,10 +5388,6 @@
   "workspacePromptDelete": "Usuń prompt",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
-  },
-  "workspacePromptDeleteConfirmTitle": "Usunąć prompt?",
-  "@workspacePromptDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt."
   },
   "workspacePromptDeleteConfirmMessage": "„{name}” zostanie trwale usunięty.",
   "@workspacePromptDeleteConfirmMessage": {
@@ -5505,10 +5481,6 @@
   "workspacePromptHistoryDelete": "Usuń wersję",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
-  },
-  "workspacePromptHistoryDeleteConfirmTitle": "Usunąć wersję?",
-  "@workspacePromptHistoryDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt version."
   },
   "workspacePromptHistoryDeleteConfirmMessage": "Ta wersja zostanie usunięta. Tej operacji nie można cofnąć.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
@@ -9321,6 +9293,40 @@
   "calendarDayEmpty": "Brak wydarzeń",
   "@calendarDayEmpty": {
     "description": "Row on the calendar's month page in Settings when the chosen day holds no events."
+  },
+  "workspaceModelCapabilityVision": "Rozpoznawanie obrazów",
+  "@workspaceModelCapabilityVision": {
+    "description": "Model capability: understands images it is given."
+  },
+  "workspaceModelCapabilityFileUpload": "Przesyłanie plików",
+  "@workspaceModelCapabilityFileUpload": {
+    "description": "Model capability: accepts uploaded files."
+  },
+  "workspaceModelCapabilityCitations": "Cytowania",
+  "@workspaceModelCapabilityCitations": {
+    "description": "Model capability: cites its sources."
+  },
+  "workspaceModelCapabilityUsage": "Użycie",
+  "@workspaceModelCapabilityUsage": {
+    "description": "Model capability: reports token usage."
+  },
+  "workspacePromptHistoryDiffRemovedLine": "Usunięto: {line}",
+  "@workspacePromptHistoryDiffRemovedLine": {
+    "description": "What a screen reader says for a line removed in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
+  "workspacePromptHistoryDiffAddedLine": "Dodano: {line}",
+  "@workspacePromptHistoryDiffAddedLine": {
+    "description": "What a screen reader says for a line added in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
   },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nowe powiadomienie",

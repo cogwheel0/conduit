@@ -1329,6 +1329,7 @@ private extension PlatformNativeSheetItemKind {
         case .appearanceTiles: "appearanceTiles"
         case .date: "date"
         case .time: "time"
+        case .diffLine: "diffLine"
         }
     }
 }
@@ -5188,6 +5189,86 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
     }
 }
 
+/// One line of a comparison between two texts: monospaced, a − or + glyph
+/// in front, and a tinted band for a line removed or added. VoiceOver reads
+/// the row's subtitle, which says what happened to the line.
+private final class NativeSheetDiffLineTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetDiffLineTableViewCell"
+
+    private let band = UIView()
+    private let glyphLabel = UILabel()
+    private let lineLabel = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        let font = UIFontMetrics(forTextStyle: .callout).scaledFont(
+            for: .monospacedSystemFont(ofSize: 15, weight: .regular)
+        )
+        band.translatesAutoresizingMaskIntoConstraints = false
+        glyphLabel.translatesAutoresizingMaskIntoConstraints = false
+        lineLabel.translatesAutoresizingMaskIntoConstraints = false
+        glyphLabel.font = font
+        glyphLabel.adjustsFontForContentSizeCategory = true
+        glyphLabel.setContentHuggingPriority(.required, for: .horizontal)
+        glyphLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        lineLabel.font = font
+        lineLabel.adjustsFontForContentSizeCategory = true
+        lineLabel.numberOfLines = 0
+        lineLabel.lineBreakMode = .byCharWrapping
+        contentView.addSubview(band)
+        contentView.addSubview(glyphLabel)
+        contentView.addSubview(lineLabel)
+        NSLayoutConstraint.activate([
+            band.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            band.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            band.topAnchor.constraint(equalTo: contentView.topAnchor),
+            band.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            glyphLabel.leadingAnchor.constraint(
+                equalTo: contentView.layoutMarginsGuide.leadingAnchor
+            ),
+            glyphLabel.firstBaselineAnchor.constraint(equalTo: lineLabel.firstBaselineAnchor),
+            lineLabel.leadingAnchor.constraint(equalTo: glyphLabel.trailingAnchor, constant: 8),
+            lineLabel.trailingAnchor.constraint(
+                equalTo: contentView.layoutMarginsGuide.trailingAnchor
+            ),
+            lineLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            lineLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+        ])
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(item: NativeSheetItem) {
+        // Styled on each use, so a row drawn again after the theme changed
+        // takes the new colours with its text.
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        let change = item.value as? String
+        let tint: UIColor? = switch change {
+        case "added": .systemGreen
+        case "removed": .systemRed
+        default: nil
+        }
+        glyphLabel.text = switch change {
+        case "added": "+"
+        case "removed": "\u{2212}"
+        default: " "
+        }
+        glyphLabel.textColor = tint ?? NativeSheetTheme.shared.secondaryForeground
+        // An empty line keeps its height.
+        lineLabel.text = item.title.isEmpty ? " " : item.title
+        lineLabel.textColor = change == "context"
+            ? NativeSheetTheme.shared.secondaryForeground
+            : NativeSheetTheme.shared.foreground
+        band.backgroundColor = tint?.withAlphaComponent(0.14) ?? .clear
+        accessibilityLabel = item.subtitle ?? item.title
+    }
+}
+
 /// The value of a date or time row: local wall-clock time as ISO 8601
 /// without a zone, so a set time reads the same in Dart and here.
 private enum NativeSheetDateValue {
@@ -6343,6 +6424,10 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             forCellReuseIdentifier: NativeSheetReadOnlyTextTableViewCell.reuseId
         )
         tableView.register(
+            NativeSheetDiffLineTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetDiffLineTableViewCell.reuseId
+        )
+        tableView.register(
             NativeSheetSliderTableViewCell.self,
             forCellReuseIdentifier: NativeSheetSliderTableViewCell.reuseId
         )
@@ -6646,6 +6731,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             ) as! NativeSheetReadOnlyTextTableViewCell
             cell.configure(item: item)
             return cell
+        case "diffLine":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetDiffLineTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetDiffLineTableViewCell
+            cell.configure(item: item)
+            return cell
         case "source":
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NativeSheetSourceTableViewCell.reuseId,
@@ -6694,7 +6786,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
              "appearanceTiles", "multilineTextField", "slider", "readOnlyText",
-             "statusUpdate", "date", "time":
+             "statusUpdate", "date", "time", "diffLine":
             break
         case "source":
             guard item.url != nil || canNavigate(item) else { break }

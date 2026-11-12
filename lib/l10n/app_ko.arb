@@ -2115,10 +2115,6 @@
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "모델을 삭제하시겠습니까?",
-  "@workspaceModelDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a model."
-  },
   "workspaceModelDeleteConfirmMessage": "{name}이(가) 영구적으로 삭제됩니다.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
@@ -2163,10 +2159,6 @@
   "workspaceModelDeleted": "모델을 삭제했습니다.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
-  },
-  "workspaceModelAddAction": "추가",
-  "@workspaceModelAddAction": {
-    "description": "Confirm button in a small add-text dialog."
   },
   "workspaceKnowledgeCreateTitle": "새 지식 베이스",
   "@workspaceKnowledgeCreateTitle": {
@@ -2493,18 +2485,6 @@
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "작성",
-  "@workspacePromptWriteTab": {
-    "description": "Toggle label for the editable prompt content view."
-  },
-  "workspacePromptPreviewTab": "미리 보기",
-  "@workspacePromptPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the prompt content."
-  },
-  "workspacePromptPreviewEmpty": "아직 미리 볼 내용이 없습니다.",
-  "@workspacePromptPreviewEmpty": {
-    "description": "Empty-state text shown in the prompt preview when there is no content."
-  },
   "workspacePromptTags": "태그",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
@@ -2564,10 +2544,6 @@
   "workspacePromptDelete": "프롬프트 삭제",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
-  },
-  "workspacePromptDeleteConfirmTitle": "프롬프트를 삭제하시겠습니까?",
-  "@workspacePromptDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt."
   },
   "workspacePromptDeleteConfirmMessage": "\"{name}\"이(가) 영구적으로 삭제됩니다.",
   "@workspacePromptDeleteConfirmMessage": {
@@ -2661,10 +2637,6 @@
   "workspacePromptHistoryDelete": "버전 삭제",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
-  },
-  "workspacePromptHistoryDeleteConfirmTitle": "버전을 삭제하시겠습니까?",
-  "@workspacePromptHistoryDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt version."
   },
   "workspacePromptHistoryDeleteConfirmMessage": "이 버전 스냅샷이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
@@ -4711,6 +4683,40 @@
   "personalConnectionsTurnOn": "켜기",
   "personalConnectionsTurnOff": "끄기",
   "calendarDayEmpty": "일정 없음",
+  "workspaceModelCapabilityVision": "비전",
+  "@workspaceModelCapabilityVision": {
+    "description": "Model capability: understands images it is given."
+  },
+  "workspaceModelCapabilityFileUpload": "파일 업로드",
+  "@workspaceModelCapabilityFileUpload": {
+    "description": "Model capability: accepts uploaded files."
+  },
+  "workspaceModelCapabilityCitations": "인용",
+  "@workspaceModelCapabilityCitations": {
+    "description": "Model capability: cites its sources."
+  },
+  "workspaceModelCapabilityUsage": "사용량",
+  "@workspaceModelCapabilityUsage": {
+    "description": "Model capability: reports token usage."
+  },
+  "workspacePromptHistoryDiffRemovedLine": "삭제됨: {line}",
+  "@workspacePromptHistoryDiffRemovedLine": {
+    "description": "What a screen reader says for a line removed in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
+  "workspacePromptHistoryDiffAddedLine": "추가됨: {line}",
+  "@workspacePromptHistoryDiffAddedLine": {
+    "description": "What a screen reader says for a line added in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "새 알림",
   "pushReplyTitle": "새 응답",

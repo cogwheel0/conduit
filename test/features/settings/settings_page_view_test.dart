@@ -316,6 +316,42 @@ void main() {
         .deepEquals([('run-day', '2026-03-15T09:30:00.000')]);
   });
 
+  testWidgets('a diff line shows its glyph and line, and is read with what '
+      'happened to it', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _pumpPage(
+      tester,
+      _detail([
+        NativeSheetItemConfig(
+          id: 'gone',
+          title: 'Pack a towel.',
+          subtitle: 'Removed: Pack a towel.',
+          kind: NativeSheetItemKind.diffLine,
+          value: NativeSheetDiffLine.removed.name,
+        ),
+        NativeSheetItemConfig(
+          id: 'new',
+          title: 'Pack a hat.',
+          subtitle: 'Added: Pack a hat.',
+          kind: NativeSheetItemKind.diffLine,
+          value: NativeSheetDiffLine.added.name,
+        ),
+      ]),
+    );
+
+    check(
+      find
+          .descendant(of: _row('gone'), matching: find.text('\u2212'))
+          .evaluate(),
+    ).isNotEmpty();
+    check(find.descendant(of: _row('new'), matching: find.text('+')).evaluate())
+        .isNotEmpty();
+    check(find.bySemanticsLabel('Removed: Pack a towel.').evaluate())
+        .isNotEmpty();
+    check(find.bySemanticsLabel('Added: Pack a hat.').evaluate()).isNotEmpty();
+    semantics.dispose();
+  });
+
   testWidgets("a page's search sends what is typed once typing pauses, and "
       'keeps it when the page is described again', (tester) async {
     final controller = _RecordingController();

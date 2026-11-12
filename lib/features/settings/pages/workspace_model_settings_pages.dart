@@ -95,6 +95,20 @@ WorkspaceModelFieldText _withText(
   builtinTools: field == 'builtin' ? value : text.builtinTools,
 );
 
+/// What model capability [key] is called. A capability a newer server adds
+/// reads as its key.
+String workspaceModelCapabilityLabel(AppLocalizations l10n, String key) =>
+    switch (key) {
+      'vision' => l10n.workspaceModelCapabilityVision,
+      'file_upload' => l10n.workspaceModelCapabilityFileUpload,
+      'web_search' => l10n.webSearch,
+      'image_generation' => l10n.imageGeneration,
+      'code_interpreter' => l10n.codeInterpreter,
+      'citations' => l10n.workspaceModelCapabilityCitations,
+      'usage' => l10n.workspaceModelCapabilityUsage,
+      _ => key,
+    };
+
 String _relationshipTitle(
   AppLocalizations l10n,
   WorkspaceModelRelationshipKind kind,
@@ -533,7 +547,7 @@ NativeSheetDetailConfig buildWorkspaceModelAdvancedPage(
           for (final entry in state.draft.capabilities.entries)
             NativeSheetItemConfig(
               id: workspaceRowId('model-capability', key, entry.key),
-              title: entry.key,
+              title: workspaceModelCapabilityLabel(l10n, entry.key),
               sfSymbol: 'checkmark.seal',
               kind: NativeSheetItemKind.toggle,
               value: entry.value,

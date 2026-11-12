@@ -3951,10 +3951,6 @@
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "モデルを削除しますか？",
-  "@workspaceModelDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a model."
-  },
   "workspaceModelDeleteConfirmMessage": "{name} を完全に削除します。",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
@@ -3999,10 +3995,6 @@
   "workspaceModelDeleted": "モデルを削除しました。",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
-  },
-  "workspaceModelAddAction": "追加",
-  "@workspaceModelAddAction": {
-    "description": "Confirm button in a small add-text dialog."
   },
   "workspaceKnowledgeCreateTitle": "新しいナレッジベース",
   "@workspaceKnowledgeCreateTitle": {
@@ -4329,18 +4321,6 @@
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "編集",
-  "@workspacePromptWriteTab": {
-    "description": "Toggle label for the editable prompt content view."
-  },
-  "workspacePromptPreviewTab": "プレビュー",
-  "@workspacePromptPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the prompt content."
-  },
-  "workspacePromptPreviewEmpty": "プレビューする内容はまだありません。",
-  "@workspacePromptPreviewEmpty": {
-    "description": "Empty-state text shown in the prompt preview when there is no content."
-  },
   "workspacePromptTags": "タグ",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
@@ -4400,10 +4380,6 @@
   "workspacePromptDelete": "プロンプトを削除",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
-  },
-  "workspacePromptDeleteConfirmTitle": "プロンプトを削除しますか？",
-  "@workspacePromptDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt."
   },
   "workspacePromptDeleteConfirmMessage": "「{name}」を完全に削除します。",
   "@workspacePromptDeleteConfirmMessage": {
@@ -4497,10 +4473,6 @@
   "workspacePromptHistoryDelete": "バージョンを削除",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
-  },
-  "workspacePromptHistoryDeleteConfirmTitle": "バージョンを削除しますか？",
-  "@workspacePromptHistoryDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt version."
   },
   "workspacePromptHistoryDeleteConfirmMessage": "このバージョンのスナップショットを削除します。この操作は取り消せません。",
   "@workspacePromptHistoryDeleteConfirmMessage": {
@@ -6553,6 +6525,40 @@
   "personalConnectionsTurnOn": "オンにする",
   "personalConnectionsTurnOff": "オフにする",
   "calendarDayEmpty": "予定はありません",
+  "workspaceModelCapabilityVision": "画像認識",
+  "@workspaceModelCapabilityVision": {
+    "description": "Model capability: understands images it is given."
+  },
+  "workspaceModelCapabilityFileUpload": "ファイルのアップロード",
+  "@workspaceModelCapabilityFileUpload": {
+    "description": "Model capability: accepts uploaded files."
+  },
+  "workspaceModelCapabilityCitations": "引用",
+  "@workspaceModelCapabilityCitations": {
+    "description": "Model capability: cites its sources."
+  },
+  "workspaceModelCapabilityUsage": "使用状況",
+  "@workspaceModelCapabilityUsage": {
+    "description": "Model capability: reports token usage."
+  },
+  "workspacePromptHistoryDiffRemovedLine": "削除: {line}",
+  "@workspacePromptHistoryDiffRemovedLine": {
+    "description": "What a screen reader says for a line removed in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
+  "workspacePromptHistoryDiffAddedLine": "追加: {line}",
+  "@workspacePromptHistoryDiffAddedLine": {
+    "description": "What a screen reader says for a line added in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新しい通知",
   "pushReplyTitle": "新しい返信",

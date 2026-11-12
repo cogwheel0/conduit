@@ -4257,10 +4257,6 @@
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "Smazat model?",
-  "@workspaceModelDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a model."
-  },
   "workspaceModelDeleteConfirmMessage": "Model {name} bude trvale odstraněn.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
@@ -4305,10 +4301,6 @@
   "workspaceModelDeleted": "Model byl smazán.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
-  },
-  "workspaceModelAddAction": "Přidat",
-  "@workspaceModelAddAction": {
-    "description": "Confirm button in a small add-text dialog."
   },
   "workspaceKnowledgeCreateTitle": "Nová znalostní báze",
   "@workspaceKnowledgeCreateTitle": {
@@ -4635,18 +4627,6 @@
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Psát",
-  "@workspacePromptWriteTab": {
-    "description": "Toggle label for the editable prompt content view."
-  },
-  "workspacePromptPreviewTab": "Náhled",
-  "@workspacePromptPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the prompt content."
-  },
-  "workspacePromptPreviewEmpty": "Zatím není co zobrazit.",
-  "@workspacePromptPreviewEmpty": {
-    "description": "Empty-state text shown in the prompt preview when there is no content."
-  },
   "workspacePromptTags": "Štítky",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
@@ -4706,10 +4686,6 @@
   "workspacePromptDelete": "Smazat prompt",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
-  },
-  "workspacePromptDeleteConfirmTitle": "Smazat prompt?",
-  "@workspacePromptDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt."
   },
   "workspacePromptDeleteConfirmMessage": "„{name}“ bude trvale smazán.",
   "@workspacePromptDeleteConfirmMessage": {
@@ -4803,10 +4779,6 @@
   "workspacePromptHistoryDelete": "Smazat verzi",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
-  },
-  "workspacePromptHistoryDeleteConfirmTitle": "Smazat verzi?",
-  "@workspacePromptHistoryDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt version."
   },
   "workspacePromptHistoryDeleteConfirmMessage": "Tento snímek verze bude odstraněn. Tuto akci nelze vrátit zpět.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
@@ -6859,6 +6831,40 @@
   "personalConnectionsTurnOn": "Zapnout",
   "personalConnectionsTurnOff": "Vypnout",
   "calendarDayEmpty": "Žádné události",
+  "workspaceModelCapabilityVision": "Vidění",
+  "@workspaceModelCapabilityVision": {
+    "description": "Model capability: understands images it is given."
+  },
+  "workspaceModelCapabilityFileUpload": "Nahrávání souborů",
+  "@workspaceModelCapabilityFileUpload": {
+    "description": "Model capability: accepts uploaded files."
+  },
+  "workspaceModelCapabilityCitations": "Citace",
+  "@workspaceModelCapabilityCitations": {
+    "description": "Model capability: cites its sources."
+  },
+  "workspaceModelCapabilityUsage": "Využití",
+  "@workspaceModelCapabilityUsage": {
+    "description": "Model capability: reports token usage."
+  },
+  "workspacePromptHistoryDiffRemovedLine": "Odebráno: {line}",
+  "@workspacePromptHistoryDiffRemovedLine": {
+    "description": "What a screen reader says for a line removed in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
+  "workspacePromptHistoryDiffAddedLine": "Přidáno: {line}",
+  "@workspacePromptHistoryDiffAddedLine": {
+    "description": "What a screen reader says for a line added in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nové oznámení",
   "pushReplyTitle": "Nová odpověď",

@@ -379,6 +379,49 @@ void main() {
     },
   );
 
+  test(
+    'a diff line reaches the sheet with its change and spoken label',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      addTearDown(() => NativeSheetBridge.instance.debugIsIOSOverride = null);
+      PlatformNativeSheetApplyDetailPatchRequest? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+            message,
+          ) async {
+            received =
+                (message! as List<Object?>).single!
+                    as PlatformNativeSheetApplyDetailPatchRequest;
+            return <Object?>[true];
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(
+              _applyDetailPatchChannel,
+              null,
+            ),
+      );
+
+      await NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'diff',
+        items: [
+          NativeSheetItemConfig(
+            id: 'line',
+            title: 'Pack a towel.',
+            subtitle: 'Removed: Pack a towel.',
+            kind: NativeSheetItemKind.diffLine,
+            value: NativeSheetDiffLine.removed.name,
+          ),
+        ],
+      );
+
+      final [line] = received!.items;
+      check(line.kind).equals(PlatformNativeSheetItemKind.diffLine);
+      check(line.value).equals('removed');
+      check(line.subtitle).equals('Removed: Pack a towel.');
+    },
+  );
+
   group('NativeSheetBridge.updateProfile', () {
     const channel = MethodChannel(NativeSheetBridge.nativeSheetChannelName);
     const profile = NativeProfileSheetUser(

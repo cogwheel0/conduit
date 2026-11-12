@@ -31,6 +31,10 @@ const workspacePromptHistoryPagePrefix = 'workspace-prompt-history:';
 /// URI-encoded version id.
 const workspacePromptVersionPagePrefix = 'workspace-prompt-version:';
 
+/// Prefix of the comparison of one version of a prompt with its live one:
+/// the editor key, `:`, then the URI-encoded version id.
+const workspacePromptDiffPagePrefix = 'workspace-prompt-diff:';
+
 /// Prefix of a resource's Access page: the section's name, `:`, then the
 /// editor key.
 const workspaceAccessPagePrefix = 'workspace-access:';
