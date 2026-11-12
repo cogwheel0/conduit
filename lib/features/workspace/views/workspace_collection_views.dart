@@ -47,7 +47,6 @@ R _withCollectionBinding<R>(
           onLoadMore: ref.read(workspaceKnowledgeProvider.notifier).loadMore,
           onSearch: ref.read(workspaceKnowledgeProvider.notifier).setQuery,
           presentationOf: presentWorkspaceKnowledge,
-          filterBar: const _KnowledgeFilterBar(),
         ),
       );
     case WorkspaceSection.prompts:

@@ -51,6 +51,8 @@ import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../features/settings/pages/personal_connection_settings_pages.dart';
 import '../../features/settings/pages/scheduled_task_settings_pages.dart';
 import '../../features/settings/pages/workspace_page_ids.dart';
+import '../../features/settings/pages/workspace_settings_pages.dart'
+    show workspaceEditorPageId;
 import '../../features/calendar/views/calendar_page.dart';
 
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -749,9 +751,7 @@ List<GoRoute> _workspaceRoutes() {
   }
 
   String editorPage(WorkspaceSection section, String? id) =>
-      section == WorkspaceSection.models
-      ? workspaceModelPageId(id)
-      : workspacePromptPageId(id);
+      workspaceEditorPageId(section, id);
 
   return [
     settingsRoute(
@@ -759,7 +759,7 @@ List<GoRoute> _workspaceRoutes() {
       name: RouteNames.workspace,
       detailId: (_) => workspaceHubPageId,
     ),
-    // Models and Prompts are pages of Settings's own; each of their routes
+    // The sections drawn as pages of Settings's own: each of their routes
     // opens the matching page.
     for (final descriptor in workspaceRouteDescriptors)
       if (workspaceSectionsInSettings.contains(descriptor.section)) ...[

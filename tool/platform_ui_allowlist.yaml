@@ -1172,24 +1172,6 @@ exceptions:
     owner: terminal
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/workspace/views/knowledge/workspace_knowledge_editor.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart
-    symbol: "LinearProgressIndicator"
-    count: 2
-    owner: workspace
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/workspace/views/skills/workspace_skill_editor.dart
     package: "package:material_ui/material_ui.dart"
     count: 1

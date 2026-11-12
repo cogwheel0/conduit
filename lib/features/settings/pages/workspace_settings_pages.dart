@@ -7,6 +7,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_collection_view.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit_core/features/workspace/models/workspace_prompt_command.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
@@ -47,6 +48,26 @@ String workspaceSectionSymbol(WorkspaceSection section) => switch (section) {
   WorkspaceSection.tools => 'wrench.and.screwdriver',
   WorkspaceSection.skills => 'graduationcap',
 };
+
+/// The editor page of resource [id] of [section], or of a new one when [id]
+/// is null.
+String workspaceEditorPageId(WorkspaceSection section, String? id) =>
+    switch (section) {
+      WorkspaceSection.models => workspaceModelPageId(id),
+      WorkspaceSection.knowledge => workspaceKnowledgePageId(id),
+      WorkspaceSection.prompts => workspacePromptPageId(id),
+      // Still opened over the app; never a page of Settings yet.
+      WorkspaceSection.tools || WorkspaceSection.skills => '',
+    };
+
+/// The title of the editor making a new resource of [section].
+String workspaceNewTitle(AppLocalizations l10n, WorkspaceSection section) =>
+    switch (section) {
+      WorkspaceSection.models => l10n.workspaceModelNewTitle,
+      WorkspaceSection.knowledge => l10n.workspaceKnowledgeCreateTitle,
+      WorkspaceSection.prompts => l10n.workspacePromptCreateTitle,
+      WorkspaceSection.tools || WorkspaceSection.skills => l10n.workspaceCreate,
+    };
 
 WorkspaceSectionCapabilities workspaceSectionCapabilities(
   WorkspaceCapabilities? capabilities,
@@ -191,6 +212,8 @@ final class WorkspaceListItem {
     required this.isActive,
     required this.writeAccess,
     this.avatarBytes,
+    this.toggleable = true,
+    this.external = false,
   });
 
   final String id;
@@ -199,6 +222,12 @@ final class WorkspaceListItem {
   final bool isActive;
   final bool writeAccess;
   final Uint8List? avatarBytes;
+
+  /// Whether it can be switched on and off; a knowledge base cannot.
+  final bool toggleable;
+
+  /// A knowledge base another service keeps, which this app only reads.
+  final bool external;
 
   factory WorkspaceListItem.model(WorkspaceModelSummary model) {
     final row = workspaceCollectionRowText(model);
@@ -213,6 +242,17 @@ final class WorkspaceListItem {
       ),
     );
   }
+
+  factory WorkspaceListItem.knowledge(WorkspaceKnowledgeSummary base) =>
+      WorkspaceListItem(
+        id: base.id,
+        title: base.name.trim().isEmpty ? base.id : base.name,
+        subtitle: base.description.trim().isEmpty ? null : base.description,
+        isActive: true,
+        writeAccess: base.writeAccess,
+        toggleable: false,
+        external: base.isExternal,
+      );
 
   factory WorkspaceListItem.prompt(WorkspacePromptSummary prompt) =>
       WorkspaceListItem(
@@ -239,6 +279,8 @@ final class WorkspaceListState {
     this.loading = false,
     this.loadFailed = false,
     this.query = '',
+    this.view = '',
+    this.source = '',
     this.hasMore = false,
     this.loadingMore = false,
     this.capabilities = WorkspaceSectionCapabilities.none,
@@ -256,6 +298,11 @@ final class WorkspaceListState {
   final bool loading;
   final bool loadFailed;
   final String query;
+
+  /// Knowledge's filters: whose bases (`''`, `created`, `shared`) and from
+  /// where (`''`, `local`, `external`).
+  final String view;
+  final String source;
   final bool hasMore;
   final bool loadingMore;
   final WorkspaceSectionCapabilities capabilities;
@@ -286,10 +333,11 @@ NativeSheetDetailConfig buildWorkspaceListPage(
   }
   final items = state.items;
   final caps = state.capabilities;
-  final editorPageId = section == WorkspaceSection.models
-      ? workspaceModelPageId(null)
-      : workspacePromptPageId(null);
+  final editorPageId = workspaceEditorPageId(section, null);
   final running = state.running;
+  // Import and export of a whole section are for models and prompts.
+  final transfers =
+      section == WorkspaceSection.models || section == WorkspaceSection.prompts;
   return NativeSheetDetailConfig(
     id: pageId,
     title: title,
@@ -310,6 +358,53 @@ NativeSheetDetailConfig buildWorkspaceListPage(
                     state.notice!,
                     'checkmark.circle',
                   ),
+          ],
+        ),
+      if (section == WorkspaceSection.knowledge)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: workspaceRowId('list-view', key),
+              title: l10n.scheduledTasksFilterLabel,
+              sfSymbol: 'person.2',
+              kind: NativeSheetItemKind.segment,
+              value: state.view,
+              options: [
+                NativeSheetOptionConfig(
+                  id: '',
+                  label: l10n.workspaceKnowledgeViewAll,
+                ),
+                NativeSheetOptionConfig(
+                  id: 'created',
+                  label: l10n.workspaceKnowledgeViewCreated,
+                ),
+                NativeSheetOptionConfig(
+                  id: 'shared',
+                  label: l10n.workspaceKnowledgeViewShared,
+                ),
+              ],
+            ),
+            NativeSheetItemConfig(
+              id: workspaceRowId('list-source', key),
+              title: l10n.workspaceKnowledgeSourceLabel,
+              sfSymbol: 'externaldrive',
+              kind: NativeSheetItemKind.segment,
+              value: state.source,
+              options: [
+                NativeSheetOptionConfig(
+                  id: '',
+                  label: l10n.workspaceKnowledgeSourceAll,
+                ),
+                NativeSheetOptionConfig(
+                  id: 'local',
+                  label: l10n.workspaceKnowledgeSourceLocal,
+                ),
+                NativeSheetOptionConfig(
+                  id: 'external',
+                  label: l10n.workspaceKnowledgeSourceExternal,
+                ),
+              ],
+            ),
           ],
         ),
       NativeSheetSectionConfig(
@@ -348,7 +443,7 @@ NativeSheetDetailConfig buildWorkspaceListPage(
             workspaceWarning('$pageId-failed', l10n.workspaceLoadFailed),
         ],
       ),
-      if (caps.manage || caps.importItems || caps.exportItems)
+      if (caps.manage || (transfers && (caps.importItems || caps.exportItems)))
         NativeSheetSectionConfig(
           items: [
             if (caps.manage)
@@ -358,7 +453,7 @@ NativeSheetDetailConfig buildWorkspaceListPage(
                 sfSymbol: 'plus.circle',
                 accent: true,
               ),
-            if (caps.importItems)
+            if (transfers && caps.importItems)
               NativeSheetItemConfig(
                 id: workspaceRowId('list-import', key),
                 title: section == WorkspaceSection.models
@@ -369,7 +464,7 @@ NativeSheetDetailConfig buildWorkspaceListPage(
                 pending: running == 'import' ? true : null,
                 disabled: running != null,
               ),
-            if (caps.exportItems)
+            if (transfers && caps.exportItems)
               NativeSheetItemConfig(
                 id: workspaceRowId('list-export', key),
                 title: section == WorkspaceSection.models
@@ -394,20 +489,30 @@ NativeSheetItemConfig _listRow(
 }) {
   final key = section.name;
   final models = section == WorkspaceSection.models;
+  final knowledge = section == WorkspaceSection.knowledge;
   return NativeSheetItemConfig(
-    id: models ? workspaceModelPageId(item.id) : workspacePromptPageId(item.id),
+    id: workspaceEditorPageId(section, item.id),
     title: item.title,
     subtitle: [
       if (item.subtitle != null && item.subtitle!.trim().isNotEmpty)
         item.subtitle!,
-      item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
+      if (knowledge)
+        item.external
+            ? l10n.workspaceKnowledgeExternalBadge
+            : l10n.workspaceKnowledgeSourceLocal
+      else
+        item.isActive ? l10n.activeStatus : l10n.inactiveStatus,
       if (!item.writeAccess) l10n.workspaceReadOnlyBadge,
     ].join(' · '),
-    sfSymbol: item.isActive ? workspaceSectionSymbol(section) : 'pause.circle',
+    sfSymbol: knowledge && item.external
+        ? 'link'
+        : item.isActive
+        ? workspaceSectionSymbol(section)
+        : 'pause.circle',
     avatarBytes: item.avatarBytes,
     pending: busy ? true : null,
     rowActions: [
-      if (item.writeAccess && !busy)
+      if (item.writeAccess && item.toggleable && !busy)
         NativeSheetRowAction(
           id: workspaceRowId('list-active', key, item.id),
           label: item.isActive
@@ -419,16 +524,20 @@ NativeSheetItemConfig _listRow(
                     : l10n.workspacePromptActivate),
           sfSymbol: item.isActive ? 'pause.circle' : 'play.circle',
         ),
-      if (item.writeAccess && !busy)
+      if (item.writeAccess && !item.external && !busy)
         NativeSheetRowAction(
           id: workspaceRowId('list-delete', key, item.id),
           label: models
               ? l10n.workspaceModelDelete
+              : knowledge
+              ? l10n.workspaceKnowledgeDelete
               : l10n.workspacePromptDelete,
           sfSymbol: 'trash',
           destructive: true,
           confirmMessage: models
               ? l10n.workspaceModelDeleteConfirmMessage(item.title)
+              : knowledge
+              ? l10n.workspaceKnowledgeDeleteConfirmMessage(item.title)
               : l10n.workspacePromptDeleteConfirmMessage(item.title),
         ),
     ],
@@ -515,6 +624,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       _ref.listen(workspaceCapabilitiesProvider, redraw),
       _ref.listen(reviewerModeProvider, redraw),
       _ref.listen(workspaceModelsProvider, redraw),
+      _ref.listen(workspaceKnowledgeProvider, redraw),
       _ref.listen(workspacePromptsProvider, redraw),
     ]);
   }
@@ -586,6 +696,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
 
   bool _listExists(WorkspaceSection section) => switch (section) {
     WorkspaceSection.models => _ref.read(workspaceModelsProvider.exists),
+    WorkspaceSection.knowledge => _ref.read(workspaceKnowledgeProvider.exists),
     WorkspaceSection.prompts => _ref.read(workspacePromptsProvider.exists),
     _ => false,
   };
@@ -610,6 +721,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       bool loading,
       bool failed,
       String query,
+      String view,
+      String source,
       bool hasMore,
       bool loadingMore,
     })
@@ -623,6 +736,21 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           loading: value.isLoading || (data?.isLoading ?? false),
           failed: value.hasError || data?.error != null,
           query: data?.query ?? '',
+          view: '',
+          source: '',
+          hasMore: data?.hasMore ?? false,
+          loadingMore: data?.isLoadingMore ?? false,
+        );
+      case WorkspaceSection.knowledge:
+        final value = _ref.read(workspaceKnowledgeProvider);
+        final data = value.value;
+        list = (
+          items: data?.items.map(WorkspaceListItem.knowledge).toList(),
+          loading: value.isLoading || (data?.isLoading ?? false),
+          failed: value.hasError || data?.error != null,
+          query: data?.query ?? '',
+          view: data?.view ?? '',
+          source: data?.source ?? '',
           hasMore: data?.hasMore ?? false,
           loadingMore: data?.isLoadingMore ?? false,
         );
@@ -634,6 +762,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           loading: value.isLoading || (data?.isLoading ?? false),
           failed: value.hasError || data?.error != null,
           query: data?.query ?? '',
+          view: '',
+          source: '',
           hasMore: data?.hasMore ?? false,
           loadingMore: data?.isLoadingMore ?? false,
         );
@@ -646,6 +776,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       loading: list.loading,
       loadFailed: list.failed,
       query: list.query,
+      view: list.view,
+      source: list.source,
       hasMore: list.hasMore,
       loadingMore: list.loadingMore,
       capabilities: capabilities,
@@ -662,9 +794,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       // The first read: reading the provider below is what loads it.
       _readList(section);
     }
-    String editorId(String? id) => section == WorkspaceSection.models
-        ? workspaceModelPageId(id)
-        : workspacePromptPageId(id);
+    String editorId(String? id) => workspaceEditorPageId(section, id);
     // Stand-ins only for editors not drawn yet: one open over the list
     // keeps its rows through the list's redraws.
     final known = _ref.read(settingsPagesProvider);
@@ -682,9 +812,7 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           buildNativeLoadingDetail(
             l10n: l10n,
             id: editorId(null),
-            title: section == WorkspaceSection.models
-                ? l10n.workspaceModelNewTitle
-                : l10n.workspacePromptCreateTitle,
+            title: workspaceNewTitle(l10n, section),
           ),
       ],
     );
@@ -694,6 +822,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     switch (section) {
       case WorkspaceSection.models:
         _ref.read(workspaceModelsProvider);
+      case WorkspaceSection.knowledge:
+        _ref.read(workspaceKnowledgeProvider);
       case WorkspaceSection.prompts:
         _ref.read(workspacePromptsProvider);
       default:
@@ -719,6 +849,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     () => switch (section) {
       WorkspaceSection.models =>
         _ref.read(workspaceModelsProvider.notifier).refresh(),
+      WorkspaceSection.knowledge =>
+        _ref.read(workspaceKnowledgeProvider.notifier).refresh(),
       WorkspaceSection.prompts =>
         _ref.read(workspacePromptsProvider.notifier).refresh(),
       _ => Future<void>.value(),
@@ -759,6 +891,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           () => switch (section) {
             WorkspaceSection.models =>
               _ref.read(workspaceModelsProvider.notifier).setQuery(value),
+            WorkspaceSection.knowledge =>
+              _ref.read(workspaceKnowledgeProvider.notifier).setQuery(value),
             _ => _ref.read(workspacePromptsProvider.notifier).setQuery(value),
           },
         );
@@ -767,8 +901,20 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           () => switch (section) {
             WorkspaceSection.models =>
               _ref.read(workspaceModelsProvider.notifier).loadMore(),
+            WorkspaceSection.knowledge =>
+              _ref.read(workspaceKnowledgeProvider.notifier).loadMore(),
             _ => _ref.read(workspacePromptsProvider.notifier).loadMore(),
           },
+        );
+      case 'list-view'
+          when value is String && section == WorkspaceSection.knowledge:
+        await _listAction(
+          () => _ref.read(workspaceKnowledgeProvider.notifier).setView(value),
+        );
+      case 'list-source'
+          when value is String && section == WorkspaceSection.knowledge:
+        await _listAction(
+          () => _ref.read(workspaceKnowledgeProvider.notifier).setSource(value),
         );
       case 'list-retry':
         await _refresh(section);
@@ -858,14 +1004,22 @@ class WorkspaceSettingsPages extends SettingsPageModule {
         case WorkspaceSection.models:
           await _ref.read(workspaceModelsProvider.notifier).delete(itemId);
           _notices[section] = (text: l10n.workspaceModelDeleted, error: false);
+        case WorkspaceSection.knowledge:
+          await _ref.read(workspaceKnowledgeProvider.notifier).delete(itemId);
+          _notices[section] = (
+            text: l10n.workspaceKnowledgeDeleted,
+            error: false,
+          );
         default:
           await _ref.read(workspacePromptsProvider.notifier).delete(itemId);
           _notices[section] = (text: l10n.workspacePromptDeleted, error: false);
       }
     },
-    failure: section == WorkspaceSection.models
-        ? l10n.workspaceModelSaveFailed
-        : l10n.workspacePromptSaveFailed,
+    failure: switch (section) {
+      WorkspaceSection.models => l10n.workspaceModelSaveFailed,
+      WorkspaceSection.knowledge => l10n.workspaceKnowledgeSaveFailed,
+      _ => l10n.workspacePromptSaveFailed,
+    },
   );
 
   /// Where the share sheet opens from: the middle of the screen, as iPad

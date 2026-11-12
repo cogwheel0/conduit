@@ -12,6 +12,7 @@ import 'pages/personal_connection_settings_pages.dart';
 import 'pages/scheduled_task_settings_pages.dart';
 import 'pages/server_address_settings_pages.dart';
 import 'pages/webhook_settings_pages.dart';
+import 'pages/workspace_knowledge_settings_pages.dart';
 import 'pages/workspace_model_settings_pages.dart';
 import 'pages/workspace_prompt_settings_pages.dart';
 import 'pages/workspace_settings_pages.dart';
@@ -56,6 +57,7 @@ final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
     CalendarSettingsPages(ref),
     WorkspaceSettingsPages(ref),
     WorkspaceModelSettingsPages(ref),
+    WorkspaceKnowledgeSettingsPages(ref),
     WorkspacePromptSettingsPages(ref),
   ],
 );
