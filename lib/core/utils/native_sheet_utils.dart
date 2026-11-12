@@ -388,7 +388,9 @@ const nativeLibreChatPersonalizationActionId = 'librechat-personalization';
 /// page, adds any.
 ///
 /// [accounts] and [directProfiles] are null when they could not be read in
-/// time; [hermesInUseId] is null while Hermes is off.
+/// time; [hermesInUseId] is null while Hermes is off. An account or
+/// connection whose push scope is in [pushAttention] says its push setup
+/// needs the user.
 NativeSheetDetailConfig buildNativeAccountsDetail(
   AppLocalizations l10n, {
   required List<OpenWebUiAccountEntry>? accounts,
@@ -401,7 +403,12 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
   List<LibreChatAccount> libreChatAccounts = const [],
   String? libreChatInChargeId,
   bool libreChatInChargeSignedIn = true,
+  Set<String> pushAttention = const {},
 }) {
+  String? withAttention(String scope, String? subtitle) =>
+      pushAttention.contains(scope)
+      ? [l10n.pushAttentionChip, ?subtitle].join(' · ')
+      : subtitle;
   final byServer = <String, List<OpenWebUiAccountEntry>>{};
   for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
     byServer.putIfAbsent(entry.server.id, () => []).add(entry);
@@ -456,7 +463,15 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
                 actionId: nativeAccountServerActionId,
                 actionValue: group.first.server.id,
               ),
-              for (final entry in group) _nativeAccountItem(entry, l10n),
+              for (final entry in group)
+                _nativeAccountItem(
+                  entry,
+                  l10n,
+                  subtitle: withAttention(
+                    PushTarget.openWebUiScope(entry.id),
+                    accountSubtitle(entry, l10n),
+                  ),
+                ),
             ],
           ),
       if (libreChatEnabled || libreChatAccounts.isNotEmpty)
@@ -527,7 +542,10 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             _nativeSwitchItem(
               id: '$nativeHermesUseActionId:${connection.id}',
               title: connection.name,
-              subtitle: hermesConnectionSummary(connection, l10n),
+              subtitle: withAttention(
+                PushTarget.hermesScope(connection.id),
+                hermesConnectionSummary(connection, l10n),
+              ),
               sfSymbol: connection.mode == HermesBackendMode.desktopGateway
                   ? 'desktopcomputer'
                   : 'cloud',
@@ -686,13 +704,14 @@ NativeSheetDetailConfig buildNativeAccountSignOutDetail(
 /// the one in use, signed in, stays put.
 NativeSheetItemConfig _nativeAccountItem(
   OpenWebUiAccountEntry entry,
-  AppLocalizations l10n,
-) {
+  AppLocalizations l10n, {
+  String? subtitle,
+}) {
   final name = accountDisplayName(entry, l10n);
   return _nativeSwitchItem(
     id: '$nativeAccountSwitchActionId:${entry.id}',
     title: name,
-    subtitle: accountSubtitle(entry, l10n),
+    subtitle: subtitle ?? accountSubtitle(entry, l10n),
     avatarName: name,
     avatarBytes: _dataUrlBytes(entry.summary.profileImage),
     checked: entry.isActive,

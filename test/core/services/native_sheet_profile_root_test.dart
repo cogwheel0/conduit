@@ -355,12 +355,14 @@ void main() {
       List<HermesConnectionProfile> hermes = const [],
       String? hermesInUseId,
       List<DirectConnectionProfile>? direct = const [],
+      Set<String> pushAttention = const {},
     }) => buildNativeAccountsDetail(
       _l10n,
       accounts: accounts,
       hermesConnections: hermes,
       hermesInUseId: hermesInUseId,
       directProfiles: direct,
+      pushAttention: pushAttention,
     );
 
     test('a card for each server, its accounts under it, the active one '
@@ -506,6 +508,28 @@ void main() {
       expect(
         _item(page.sections, 'accounts-hermes').actionId,
         NativeSheetRoutes.hermes,
+      );
+    });
+
+    test('an account or connection whose push needs the user says so', () {
+      final page = accountsPage(
+        accounts: [_entry('alex-home', _home, name: 'Alex', isActive: true)],
+        hermes: const [_homeAgent, _laptop],
+        pushAttention: {'owui:alex-home', 'hermes:hermes-laptop'},
+      );
+
+      expect(
+        _item(page.sections, '$nativeAccountSwitchActionId:alex-home').subtitle,
+        startsWith(_l10n.pushAttentionChip),
+      );
+      expect(
+        _item(page.sections, '$nativeHermesUseActionId:hermes-laptop').subtitle,
+        '${_l10n.pushAttentionChip} · Desktop Gateway · 10.0.0.6 · '
+        'Not encrypted',
+      );
+      expect(
+        _item(page.sections, '$nativeHermesUseActionId:hermes-home').subtitle,
+        isNot(contains(_l10n.pushAttentionChip)),
       );
     });
 

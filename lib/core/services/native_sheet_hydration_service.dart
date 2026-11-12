@@ -66,7 +66,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import '../../features/push/widgets/push_target_actions.dart'
-    show pushTargetTitle;
+    show pushTargetNeedsAttention, pushTargetTitle;
 
 import '../utils/model_icon_utils.dart';
 import '../utils/model_logos.dart';
@@ -238,6 +238,7 @@ NativeSheetDetailConfig readNativeAccountsDetail(
   // are they rows.
   final apple = read(applePccPlatformSupportedProvider);
   final libreChatSession = read(libreChatSessionProvider).value;
+  final push = read(pushStateIfUsedProvider);
   return buildNativeAccountsDetail(
     l10n,
     libreChatEnabled: read(libreChatBackendEnabledProvider),
@@ -258,6 +259,13 @@ NativeSheetDetailConfig readNativeAccountsDetail(
     directProfiles: read(directConnectionProfilesProvider).value,
     appleOnDevice: apple && read(appleOnDeviceEnabledProvider),
     applePcc: apple && read(applePccEnabledProvider),
+    // As the Flutter Accounts page marked them: where push is on and an
+    // account or connection's setup needs the user.
+    pushAttention: {
+      if (push != null && push.enabled)
+        for (final target in push.targets.values)
+          if (pushTargetNeedsAttention(target)) target.scope,
+    },
   );
 }
 
