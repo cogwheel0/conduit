@@ -52,30 +52,45 @@ void main() {
     isStreaming: true,
   );
 
-  Future<void> storeQuestionOnly(String chatId) => db.chatsDao.upsertServerChat(
-    rows: ChatBlobMapper.blobToRows(
-      chatId: chatId,
-      blob: {
-        'title': 'New Chat',
-        'history': {
-          'currentId': 'q1',
-          'messages': {
-            'q1': {
-              'id': 'q1',
-              'parentId': null,
-              'childrenIds': <String>[],
-              'role': 'user',
-              'content': 'hello',
-              'timestamp': 1,
+  /// Stores chat [chatId] as the server has it: the question, and [answer]
+  /// after it when given.
+  Future<void> storeChat(String chatId, {String? answer, int updatedAt = 1}) =>
+      db.chatsDao.upsertServerChat(
+        rows: ChatBlobMapper.blobToRows(
+          chatId: chatId,
+          blob: {
+            'title': 'New Chat',
+            'history': {
+              'currentId': answer == null ? 'q1' : 'a1',
+              'messages': {
+                'q1': {
+                  'id': 'q1',
+                  'parentId': null,
+                  'childrenIds': <String>[if (answer != null) 'a1'],
+                  'role': 'user',
+                  'content': 'hello',
+                  'timestamp': 1,
+                },
+                if (answer != null)
+                  'a1': {
+                    'id': 'a1',
+                    'parentId': 'q1',
+                    'childrenIds': <String>[],
+                    'role': 'assistant',
+                    'content': answer,
+                    'timestamp': 2,
+                    'done': true,
+                  },
+              },
             },
           },
-        },
-      },
-      title: 'New Chat',
-      createdAt: 1,
-      updatedAt: 1,
-    ),
-  );
+          title: 'New Chat',
+          createdAt: 1,
+          updatedAt: updatedAt,
+        ),
+      );
+
+  Future<void> storeQuestionOnly(String chatId) => storeChat(chatId);
 
   Future<void> settle() =>
       Future<void>.delayed(const Duration(milliseconds: 50));
@@ -105,7 +120,54 @@ void main() {
     },
   );
 
-  test('only an empty, streaming placeholder the rows lack is held', () {
+  test(
+    'a regeneration that gives up before its answer takes stored copies again',
+    () async {
+      final c = container();
+      final answer = ChatMessage(
+        id: 'a1',
+        role: 'assistant',
+        content: 'Hello',
+        timestamp: now,
+      );
+      await storeChat('server-chat', answer: 'Hello');
+      c
+          .read(activeConversationProvider.notifier)
+          .set(
+            withChatStorageProvenance(
+              Conversation(
+                id: 'server-chat',
+                title: 'New Chat',
+                createdAt: now,
+                updatedAt: now,
+                messages: [question('q1'), answer],
+              ),
+              ChatStorageKind.openWebUi,
+            ),
+          );
+      await settle();
+
+      // No server to send to: the regeneration archives the answer, then
+      // gives up before it has one to replace it.
+      try {
+        await c.read(regenerateLastMessageProvider)();
+      } catch (_) {}
+      expect(
+        c.read(chatMessagesProvider).last.metadata?['archivedVariant'],
+        isTrue,
+      );
+
+      // Another device answered again meanwhile.
+      await storeChat('server-chat', answer: 'Hello again', updatedAt: 2);
+      await settle();
+
+      final last = c.read(chatMessagesProvider).last;
+      expect(last.content, 'Hello again');
+      expect(last.metadata?['archivedVariant'], isNot(true));
+    },
+  );
+
+  test('only an empty, streaming placeholder the rows lack is held', () async {
     final c = container();
     final notifier = c.read(chatMessagesProvider.notifier);
     final stored = [question('q1')];
@@ -133,9 +195,16 @@ void main() {
     );
     final storedAnswer = archived.copyWith(metadata: const {});
     notifier.setMessages([question('q1'), archived]);
+    await notifier.whileRegenerationPrepares(() async {
+      expect(
+        notifier.debugAwaitsUnstoredPlaceholder([...stored, storedAnswer]),
+        isTrue,
+      );
+    });
+    // Once no regeneration prepares, a marker left behind holds nothing.
     expect(
       notifier.debugAwaitsUnstoredPlaceholder([...stored, storedAnswer]),
-      isTrue,
+      isFalse,
     );
     notifier.setMessages([question('q1'), archived, placeholder('a2')]);
     expect(

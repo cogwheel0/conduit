@@ -722,7 +722,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   ///   a regeneration is preparing to replace it, and holds its claim on the
   ///   transcript only while that marker stands. Any emission for the chat
   ///   meanwhile -- a sync cycle, a post-turn pull -- would otherwise end the
-  ///   regeneration without a word;
+  ///   regeneration without a word. Held only while a regeneration prepares
+  ///   ([whileRegenerationPrepares]): one that gave up before its answer
+  ///   left the marker, and the stored copy then puts the answer back;
   /// * an empty, streaming answer placeholder the stored rows do not have
   ///   yet, for the question (or the archived answer) before it: a send or a
   ///   regeneration whose transport has not attached. Once any text arrives
@@ -735,6 +737,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final tail = state.last;
     if (tail.role != 'assistant') return false;
     if (tail.metadata?['archivedVariant'] == true) {
+      if (_regenerationsPreparing == 0) return false;
       final storedTail = stored.where((m) => m.id == tail.id).firstOrNull;
       return storedTail?.metadata?['archivedVariant'] != true;
     }
@@ -750,6 +753,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   @visibleForTesting
   bool debugAwaitsUnstoredPlaceholder(List<ChatMessage> stored) =>
       _awaitsUnstoredPlaceholder(stored);
+
+  int _regenerationsPreparing = 0;
+
+  /// Runs [prepare], a regeneration that has marked the answer it replaces
+  /// as an archived variant, while stored copies of the chat leave that
+  /// local marker alone. Once [prepare] ends, by succeeding or giving up,
+  /// stored copies are taken as before.
+  Future<T> whileRegenerationPrepares<T>(Future<T> Function() prepare) async {
+    _regenerationsPreparing += 1;
+    try {
+      return await prepare();
+    } finally {
+      _regenerationsPreparing -= 1;
+    }
+  }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
     if (serverMessages.isEmpty && state.isNotEmpty) {

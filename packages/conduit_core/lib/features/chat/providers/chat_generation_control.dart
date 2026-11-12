@@ -40,37 +40,38 @@ Future<void> Function() _regenerateLastMessage(Ref ref) {
 
     if (lastUserMessage == null) return;
 
-    // Mark previous assistant as an archived variant so UI can hide it
+    final question = lastUserMessage;
     final notifier = ref.read(chatMessagesProvider.notifier);
-    if (lastAssistantMessage != null) {
-      notifier.updateLastMessageWithFunction((m) {
-        final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-        meta['archivedVariant'] = true;
-        // Keep content/files intact for server persistence
-        return m.copyWith(metadata: meta, isStreaming: false);
-      });
-    }
+    // The marker below holds stored copies of the chat off only while the
+    // regeneration prepares; one that gives up leaves the answer to them.
+    await notifier.whileRegenerationPrepares(() async {
+      // Mark previous assistant as an archived variant so UI can hide it
+      if (lastAssistantMessage != null) {
+        notifier.updateLastMessageWithFunction((m) {
+          final meta = Map<String, dynamic>.from(m.metadata ?? const {});
+          meta['archivedVariant'] = true;
+          // Keep content/files intact for server persistence
+          return m.copyWith(metadata: meta, isStreaming: false);
+        });
+      }
 
-    // If previous assistant was image-only or had images, regenerate images instead of text
-    if (lastAssistantHadImages) {
-      // This is a request property, not a user preference. Keeping the force
-      // flag local prevents replay from writing settings or racing a user's
-      // toggle change while provider preflight is in flight.
-      await regenerateMessage(
-        ref,
-        lastUserMessage.content,
-        lastUserMessage.attachmentIds,
-        forceImageGeneration: true,
-      );
-      return;
-    }
+      // If previous assistant was image-only or had images, regenerate images instead of text
+      if (lastAssistantHadImages) {
+        // This is a request property, not a user preference. Keeping the force
+        // flag local prevents replay from writing settings or racing a user's
+        // toggle change while provider preflight is in flight.
+        await regenerateMessage(
+          ref,
+          question.content,
+          question.attachmentIds,
+          forceImageGeneration: true,
+        );
+        return;
+      }
 
-    // Text regeneration without duplicating user message
-    await regenerateMessage(
-      ref,
-      lastUserMessage.content,
-      lastUserMessage.attachmentIds,
-    );
+      // Text regeneration without duplicating user message
+      await regenerateMessage(ref, question.content, question.attachmentIds);
+    });
   };
 }
 
