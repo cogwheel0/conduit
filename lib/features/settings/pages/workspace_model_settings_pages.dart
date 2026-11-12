@@ -901,14 +901,18 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     if (_baseModels != null || _baseModelsLoading) return;
     _baseModelsLoading = true;
     _baseModelsFailed = false;
+    var stale = false;
     try {
       final listening = _ref.listen(workspaceBaseModelsProvider, (_, _) {});
       try {
         final models = await _ref.read(workspaceBaseModelsProvider.future);
         // Read for an account since gone: not this one's list.
-        if (session == null || !session.isCurrent(_ref)) return;
-        _baseModels = models;
-        _baseModelsSession = session;
+        if (session == null || !session.isCurrent(_ref)) {
+          stale = true;
+        } else {
+          _baseModels = models;
+          _baseModelsSession = session;
+        }
       } finally {
         listening.close();
       }
@@ -922,6 +926,14 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       );
     } finally {
       _baseModelsLoading = false;
+    }
+    if (stale) {
+      // An editor the account signed in since opened waited on this read:
+      // it reads its own list now.
+      if (_session() != null && _editors.isNotEmpty) {
+        unawaited(_loadBaseModels());
+      }
+      return;
     }
     final l10n = _l10n;
     if (l10n == null) return;

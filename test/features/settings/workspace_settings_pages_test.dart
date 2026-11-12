@@ -104,6 +104,7 @@ final class _Models extends WorkspaceModels {
   final accessSaves = <List<WorkspaceAccessGrantInput>>[];
   final queries = <String>[];
   final imported = <Map<String, dynamic>>[];
+  Completer<void>? importGate;
   bool failAccess = false;
   Completer<void>? saveGate;
 
@@ -155,6 +156,9 @@ final class _Models extends WorkspaceModels {
   @override
   Future<bool> importItems(List<Map<String, dynamic>> items) async {
     imported.addAll(items);
+    final gate = importGate;
+    importGate = null;
+    await gate?.future;
     return true;
   }
 
@@ -260,14 +264,24 @@ final class _Prompts extends WorkspacePrompts {
     };
   }
 
+  Object? historyError;
+  Completer<void>? historyGate;
+
   @override
   Future<List<WorkspacePromptHistoryEntry>> history(
     String id, {
     int page = 0,
-  }) async => versions
-      .skip(page * workspacePromptHistoryPageSize)
-      .take(workspacePromptHistoryPageSize)
-      .toList();
+  }) async {
+    final gate = historyGate;
+    historyGate = null;
+    await gate?.future;
+    final error = historyError;
+    if (error != null) throw error;
+    return versions
+        .skip(page * workspacePromptHistoryPageSize)
+        .take(workspacePromptHistoryPageSize)
+        .toList();
+  }
 
   @override
   Future<void> deleteHistoryEntry(String id, String historyId) async {
@@ -757,6 +771,50 @@ void main() {
       check(models.imported).isEmpty();
     });
 
+    testWidgets('an import stops for good once another account signed in '
+        'during it', (tester) async {
+      final models = _Models();
+      final rig = await pump(
+        tester,
+        models: models,
+        importFile: jsonEncode([
+          {'id': 'imported-1', 'name': 'Imported One'},
+          {'id': 'imported-2', 'name': 'Imported Two'},
+          {'id': 'imported-3', 'name': 'Imported Three'},
+        ]),
+      );
+      final signedIn = rig.container.read(_signedInProvider.notifier);
+      await rig.open(modelsPage);
+      final gate = models.importGate = Completer<void>();
+      final importing = rig.module<WorkspaceSettingsPages>().handleChange(
+        workspaceRowId('list-import', 'models'),
+        true,
+        _l10n,
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      check(models.imported).length.equals(1);
+
+      // Another account signs in while the first item imports, then the
+      // first account again.
+      signedIn.use(
+        const User(
+          id: 'user-2',
+          username: 'grace',
+          email: 'grace@example.com',
+          role: 'user',
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      signedIn.use(_user());
+      await tester.pump(const Duration(milliseconds: 20));
+      gate.complete();
+      await rig.settle(importing);
+
+      check(models.imported.map((item) => item['id']))
+          .deepEquals(['imported-1']);
+      check(rig.page(modelsPage).announcement).isNull();
+    });
+
     testWidgets('a file that is not JSON imports nothing and says so', (
       tester,
     ) async {
@@ -1007,6 +1065,43 @@ void main() {
       await rig.open(_newModel);
 
       check(reads).equals(2);
+    });
+
+    testWidgets('an editor opened while an earlier account still reads '
+        'its base models gets its own', (tester) async {
+      var reads = 0;
+      final firstRead = Completer<void>();
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+        baseModels: () async {
+          if (++reads == 1) await firstRead.future;
+          return const [
+            WorkspaceRelationshipOption(id: 'base-1', label: 'One'),
+          ];
+        },
+      );
+      await rig.open(_newModel);
+      check(reads).equals(1);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      rig.leave(_newModel);
+      await rig.open(_newModel);
+      firstRead.complete();
+      await rig.settle(Future<void>.value());
+
+      check(reads).equals(2);
+      check(rig.row(_newModel, _modelRow('base', workspaceNewKey))!.disabled)
+          .isFalse();
     });
 
     testWidgets('base models that could not be read offer Retry', (
@@ -1648,6 +1743,75 @@ void main() {
         check(rig.titles(history))
           ..not((it) => it.contains('Change 5'))
           ..contains(last);
+      });
+
+      testWidgets('a deleted version is read again over a Load More '
+          'still running', (tester) async {
+        final prompts = _Prompts()
+          ..versions = [
+            for (var i = 0; i <= workspacePromptHistoryPageSize; i++)
+              WorkspacePromptHistoryEntry(
+                id: i == 0 ? 'v2' : 'old-$i',
+                promptId: 'prompt-1',
+                snapshot: {'content': 'Text $i'},
+                userId: 'u',
+                createdAt: 100 - i,
+                commitMessage: 'Change $i',
+              ),
+          ];
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+        final gate = prompts.historyGate = Completer<void>();
+        final more = rig.module<WorkspacePromptSettingsPages>().handleChange(
+          _promptRow('history-more', _prompt1Key),
+          true,
+          _l10n,
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+
+        await rig.change(_promptRow('version-delete', _prompt1Key, 'old-5'));
+        gate.complete();
+        await rig.settle(more);
+
+        check(rig.titles(history))
+          ..not((it) => it.contains('Change 5'))
+          ..contains('Change $workspacePromptHistoryPageSize');
+      });
+
+      testWidgets('a deleted version whose list could not be read again '
+          'offers Retry', (tester) async {
+        final prompts = _Prompts()
+          ..versions = [
+            for (var i = 0; i <= workspacePromptHistoryPageSize; i++)
+              WorkspacePromptHistoryEntry(
+                id: i == 0 ? 'v2' : 'old-$i',
+                promptId: 'prompt-1',
+                snapshot: {'content': 'Text $i'},
+                userId: 'u',
+                createdAt: 100 - i,
+                commitMessage: 'Change $i',
+              ),
+          ];
+        final rig = await pump(
+          tester,
+          prompts: prompts,
+          promptDetails: {'prompt-1': _prompt()},
+        );
+        await rig.open(_prompt1);
+        await rig.open(history);
+
+        prompts.historyError = StateError('offline');
+        await rig.change(_promptRow('version-delete', _prompt1Key, 'old-5'));
+
+        check(rig.row(history, _promptRow('history-retry', _prompt1Key)))
+            .isNotNull();
+        check(rig.row(history, _promptRow('history-more', _prompt1Key)))
+            .isNull();
       });
 
       test('a comparison not read yet is loading, not failed', () {

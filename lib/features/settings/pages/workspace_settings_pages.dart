@@ -976,12 +976,26 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     _running[section] = 'import';
     _notices.remove(section);
     await _applyList(l10n, section);
+    // Once another account signs in, the rest of the batch is not this
+    // account's to import, even if it signs in again before the end.
+    var cancelled = false;
+    void follow() {
+      if (_account() != account) cancelled = true;
+    }
+
+    final following = [
+      _ref.listen(activeServerProvider, (_, _) => follow()),
+      _ref.listen(currentUserProvider2, (_, _) => follow()),
+    ];
     WorkspaceImportReport? report;
     try {
       report = await runWorkspaceImport(
         items,
         importItem: (item) async {
-          if (_account() != account) throw StateError('account changed');
+          if (cancelled || _account() != account) {
+            cancelled = true;
+            throw StateError('account changed');
+          }
           switch (section) {
             case WorkspaceSection.models:
               final ok = await _ref
@@ -1006,9 +1020,12 @@ class WorkspaceSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     } finally {
+      for (final subscription in following) {
+        subscription.close();
+      }
       _running.remove(section);
     }
-    if (_account() != account) return;
+    if (cancelled || _account() != account) return;
     _notices[section] = report == null
         ? (text: l10n.workspaceImportBatchFailed, error: true)
         : (

@@ -839,13 +839,17 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor);
   }
 
+  /// Reads [editor]'s next page of history, or its first with [reset].
+  /// With [restart], a read already running is overtaken and not shown.
   Future<void> _loadHistory(
     WorkspacePromptEditor editor, {
     required bool reset,
+    bool restart = false,
   }) async {
     final l10n = _l10n;
     final id = workspaceIdOfKey(editor.key);
-    if (l10n == null || id == null || editor.historyLoading) return;
+    if (l10n == null || id == null) return;
+    if (editor.historyLoading && !restart) return;
     final read = ++editor.historyRead;
     final page = reset ? 0 : editor.historyPage + 1;
     editor
@@ -867,7 +871,13 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     if (!_current(editor) || editor.historyRead != read) return;
     editor.historyLoading = false;
     if (entries == null) {
-      if (reset) editor.historyFailed = true;
+      // A first page that could not be read leaves no later page to load:
+      // the list offers Retry instead.
+      if (reset) {
+        editor
+          ..history = null
+          ..historyFailed = true;
+      }
     } else {
       editor
         ..history = [if (!reset) ...?editor.history, ...entries]
@@ -1408,7 +1418,9 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     await _applyHistory(l10n, editor);
     // The server's pages moved up by one: read them again from the first,
     // so Load More does not skip the version that moved into it.
-    if (editor.historyHasMore) unawaited(_loadHistory(editor, reset: true));
+    if (editor.historyHasMore) {
+      unawaited(_loadHistory(editor, reset: true, restart: true));
+    }
     await _applyEditor(l10n, editor, withPages: false);
     await _surface.closeDetail(
       workspacePromptVersionPageId(editor.key, versionId),
