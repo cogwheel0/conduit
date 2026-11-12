@@ -92,6 +92,11 @@ class SettingsController {
   /// page still open describes itself again for the new one.
   void attach(WidgetRef ref) {
     _widgetRef = ref;
+    // The pages' modules follow providers through their provider's Ref. A
+    // provider no one listens to goes inactive after each read -- and every
+    // row change reads it -- which pauses those subscriptions, so a module
+    // would miss the changes it follows. Listened to here, it stays active.
+    ref.listenManual(settingsPageModulesProvider, (_, _) {});
     ref.listenManual(
       currentUserProvider2.select((user) => user?.id),
       (previous, next) => _forgetPages(),
