@@ -49,6 +49,9 @@ final class FakePushCoordinator extends PushCoordinator {
   /// Thrown by [resetKeys].
   Object? resetKeysError;
 
+  /// Thrown by [setAndroidTransport].
+  Object? transportError;
+
   final PushState initial;
   List<String> distributorList;
   final calls = <String>[];
@@ -133,6 +136,8 @@ final class FakePushCoordinator extends PushCoordinator {
     String? distributor,
   }) async {
     calls.add('setAndroidTransport ${transport?.name} $distributor');
+    final error = transportError;
+    if (error != null) throw error;
     state = state.copyWith(
       androidTransport: transport,
       clearAndroidTransport: transport == null,

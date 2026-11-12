@@ -781,4 +781,30 @@ void main() {
       contains(_detail),
     );
   });
+
+  testWidgets('a delivery change that fails says so', (tester) async {
+    await onPlatform(() async {
+      final fake = FakePushCoordinator(
+        pushStateWith(
+          const [
+            PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+          ],
+          transports: const [PushTransport.fcm, PushTransport.unifiedPush],
+        ),
+      )..transportError = StateError('storage');
+      final native = await _pumpApp(
+        tester,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+
+      await native.control('push-delivery:fcm', true);
+
+      expect(
+        find.text('Something went wrong. Please try again.'),
+        findsOneWidget,
+      );
+    });
+  });
 }

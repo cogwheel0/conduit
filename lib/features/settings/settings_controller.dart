@@ -1404,6 +1404,9 @@ class SettingsController {
         error: error,
         stackTrace: stackTrace,
       );
+      // The page is drawn again with whatever choice stands; it says the
+      // one asked for did not go through.
+      _showMessage((l10n) => l10n.errorMessage);
     }
     await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
     return true;
