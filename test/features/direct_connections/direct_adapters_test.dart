@@ -1033,99 +1033,109 @@ void main() {
     },
   );
 
-  test(
-    'a routed OpenAI tool turn replays encrypted reasoning without storage',
-    () async {
-      final reasoning = <String, dynamic>{
-        'type': 'reasoning',
-        'id': 'rs-1',
-        'summary': [
-          {'type': 'summary_text', 'text': 'Need weather.'},
-        ],
-        'encrypted_content': 'opaque-reasoning',
-      };
-      final http = _QueuedAdapter([
-        _responsesStream([
-          {
-            'type': 'response.reasoning_summary_text.delta',
-            'output_index': 0,
-            'summary_index': 0,
-            'delta': 'Need weather.',
-          },
-          _responsesCompleted(
-            _responsesPayload(
-              id: 'resp-tool',
-              output: [
-                reasoning,
-                _responsesFunctionCall(id: 'fc-1', callId: 'call-1'),
-              ],
+  for (final apiMode in DirectOpenAiApiMode.values) {
+    test(
+      'an OpenAI ${apiMode.storageValue} tool loop replays encrypted reasoning '
+      'without storage',
+      () async {
+        final reasoning = <String, dynamic>{
+          'type': 'reasoning',
+          'id': 'rs-1',
+          'summary': [
+            {'type': 'summary_text', 'text': 'Need weather.'},
+          ],
+          'encrypted_content': 'opaque-reasoning',
+        };
+        final http = _QueuedAdapter([
+          _responsesStream([
+            {
+              'type': 'response.reasoning_summary_text.delta',
+              'output_index': 0,
+              'summary_index': 0,
+              'delta': 'Need weather.',
+            },
+            _responsesCompleted(
+              _responsesPayload(
+                id: 'resp-tool',
+                output: [
+                  reasoning,
+                  _responsesFunctionCall(id: 'fc-1', callId: 'call-1'),
+                ],
+              ),
             ),
-          ),
-        ]),
-        _responsesStream([
-          {
-            'type': 'response.output_text.delta',
-            'output_index': 0,
-            'content_index': 0,
-            'delta': 'It is sunny.',
-          },
-          _responsesCompleted(
-            _responsesPayload(
-              id: 'resp-final',
-              output: [_responsesMessage('msg-final', 'It is sunny.')],
+          ]),
+          _responsesStream([
+            {
+              'type': 'response.output_text.delta',
+              'output_index': 0,
+              'content_index': 0,
+              'delta': 'It is sunny.',
+            },
+            _responsesCompleted(
+              _responsesPayload(
+                id: 'resp-final',
+                output: [_responsesMessage('msg-final', 'It is sunny.')],
+              ),
             ),
-          ),
-        ]),
-      ]);
+          ]),
+        ]);
 
-      final events =
-          await OpenAiCompatibleAdapter(
-                dioFactory: (_) => _dio(http),
-                closeClients: false,
-              )
-              .startCompletion(
-                _openAiProfile(baseUrl: 'https://api.openai.com/v1'),
-                DirectCompletionRequest(
-                  remoteModelId: 'model',
-                  messages: [
-                    DirectChatMessage.text(role: 'user', text: 'weather'),
-                  ],
-                  tools: _localToolRuntime(
-                    decision: DirectToolApprovalDecision.allowAlways,
-                    requiresUserDecision: false,
+        final events =
+            await OpenAiCompatibleAdapter(
+                  dioFactory: (_) => _dio(http),
+                  closeClients: false,
+                )
+                .startCompletion(
+                  _openAiProfile(
+                    baseUrl: 'https://api.openai.com/v1',
+                    openAiApiMode: apiMode,
                   ),
-                  parameters: const {'reasoning_effort': 'medium'},
-                ),
-              )
-              .events
-              .toList();
+                  DirectCompletionRequest(
+                    remoteModelId: 'model',
+                    messages: [
+                      DirectChatMessage.text(role: 'user', text: 'weather'),
+                    ],
+                    tools: _localToolRuntime(
+                      decision: DirectToolApprovalDecision.allowAlways,
+                      requiresUserDecision: false,
+                    ),
+                    parameters: const {'reasoning_effort': 'medium'},
+                  ),
+                )
+                .events
+                .toList();
 
-      check(events.whereType<DirectStreamError>()).isEmpty();
-      check(events.whereType<DirectReasoningDelta>().single.content)
-          .equals('Need weather.');
-      check(events.whereType<DirectToolCallCompleted>()).length.equals(1);
-      check(
-        events.whereType<DirectContentDelta>().map((event) => event.content),
-      ).deepEquals(['It is sunny.']);
-      check(events.whereType<DirectStreamDone>()).length.equals(1);
+        check(events.whereType<DirectStreamError>()).isEmpty();
+        check(events.whereType<DirectReasoningDelta>().single.content)
+            .equals('Need weather.');
+        check(events.whereType<DirectToolCallCompleted>()).length.equals(1);
+        check(
+          events.whereType<DirectContentDelta>().map((event) => event.content),
+        ).deepEquals(['It is sunny.']);
+        check(events.whereType<DirectStreamDone>()).length.equals(1);
 
-      check(http.requests).length.equals(2);
-      for (final request in http.requests) {
-        check(request.path).equals('responses');
-        final body = request.data as Map;
-        check(body['store']).equals(false);
-        check(body['reasoning']).isA<Map>().deepEquals({'effort': 'medium'});
-      }
-      final replay = (http.requests.last.data as Map)['input'] as List;
-      check(replay.map((item) => (item as Map)['type'])).deepEquals([
-        'message',
-        'reasoning',
-        'function_call',
-        'function_call_output',
-      ]);
-      check((replay[1] as Map)['encrypted_content']).equals('opaque-reasoning');
-    },
-  );
+        check(http.requests).length.equals(2);
+        for (final request in http.requests) {
+          check(request.path).equals('responses');
+          final body = request.data as Map;
+          check(body['store']).equals(false);
+          check(body['include'])
+              .isA<List>()
+              .deepEquals(['reasoning.encrypted_content']);
+          check(body['reasoning']).isA<Map>().deepEquals({'effort': 'medium'});
+        }
+        final replay = (http.requests.last.data as Map)['input'] as List;
+        check(replay.map((item) => (item as Map)['type'])).deepEquals([
+          'message',
+          'reasoning',
+          'function_call',
+          'function_call_output',
+        ]);
+        check((replay[1] as Map)['encrypted_content'])
+            .equals('opaque-reasoning');
+      },
+    );
+  }
 
   test('an OpenAI conversation can switch protocol between turns', () async {
     final http = _QueuedAdapter([
@@ -1238,10 +1248,42 @@ void main() {
       check(body.containsKey('tools')).equals(withTools);
       check(body.containsKey('reasoning_effort')).isFalse();
       check(body['reasoning']).isA<Map>().deepEquals({'effort': 'high'});
-      // Responses mode keeps the provider's default storage.
-      check(body.containsKey('store')).isFalse();
+      check(body['store']).equals(false);
+      check(body['include'])
+          .isA<List>()
+          .deepEquals(['reasoning.encrypted_content']);
     });
   }
+
+  test('a compatible Responses server gets no storage fields', () async {
+    final http = _QueuedAdapter([
+      _Reply.json(
+        _responsesPayload(
+          id: 'resp_compatible',
+          output: [_responsesMessage('msg-compatible', 'ok')],
+        ),
+      ),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final run = adapter.startCompletion(
+      _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+        tools: _localToolRuntime(),
+      ),
+    );
+    await run.events.toList();
+    await run.done;
+
+    final body = http.requests.single.data as Map;
+    check(body.containsKey('store')).isFalse();
+    check(body.containsKey('include')).isFalse();
+  });
 
   test(
     'OpenRouter automatic reasoning omits every reasoning override',

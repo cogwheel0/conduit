@@ -392,7 +392,6 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               cancelToken: transportCancelToken,
               runCancelToken: cancelToken,
               emitter: emitter,
-              stateless: toolTurnOverResponses,
             );
             transportCompletedCleanly = emitter.completedSuccessfully;
           } else if (request.tools != null) {
@@ -1061,14 +1060,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     required CancelToken cancelToken,
     required CancelToken runCancelToken,
     required _DirectEmitter emitter,
-    bool stateless = false,
   }) async {
     final runtime = request.tools;
-    final requestBody = _responsesRequestBody(
-      request,
-      profile,
-      stateless: stateless,
-    );
+    final requestBody = _responsesRequestBody(request, profile);
     final rawInput = requestBody['input'];
     if (rawInput is! List) {
       throw const FormatException('Responses API input is invalid.');
@@ -1844,14 +1838,17 @@ bool _sendsToolTurnOverResponses(
   return normalized.isNotEmpty && normalized != 'none';
 }
 
-/// The Responses request body. A [stateless] turn, a Chat Completions turn
-/// routed here, asks OpenAI to store nothing (`store: false`), so the tool
-/// loop replays reasoning from its encrypted content rather than by id.
+/// The Responses request body. Every request resends the whole conversation
+/// and the tool loop's items rather than chaining by `previous_response_id`,
+/// so on the OpenAI platform it asks for nothing to be stored
+/// (`store: false`), as Chat Completions does by default. The tool loop then
+/// replays reasoning from its encrypted content rather than by id. Other
+/// Responses servers get the body they always did.
 Map<String, dynamic> _responsesRequestBody(
   DirectCompletionRequest request,
-  DirectConnectionProfile profile, {
-  bool stateless = false,
-}) {
+  DirectConnectionProfile profile,
+) {
+  final stateless = profile.isOpenAiPlatform;
   final messages = requireSerializableDirectMessages(request.messages);
   if (messages.any((message) => message.annotations.isNotEmpty)) {
     throw const DirectProviderException(
