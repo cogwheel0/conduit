@@ -1917,12 +1917,16 @@ const nativePushResetKeysId = 'push-reset-keys';
 /// Android chooses its delivery service and distributor, and either
 /// platform may reset its keys. [push] is null where push was never turned
 /// on; [distributors] is null until read.
+/// Reads the UnifiedPush distributors again after a read that failed.
+const nativePushDistributorsRetryId = 'push-distributors-retry';
+
 List<NativeSheetSectionConfig> buildNativePushSections(
   AppLocalizations l10n,
   PushState? push, {
   bool android = false,
   bool advanced = false,
   List<String>? distributors,
+  bool distributorsFailed = false,
 }) {
   final available = push?.available ?? true;
   final enabled = push?.enabled ?? false;
@@ -2028,7 +2032,22 @@ List<NativeSheetSectionConfig> buildNativePushSections(
         NativeSheetSectionConfig(
           title: l10n.pushDistributorTitle,
           items: [
-            if (distributors == null)
+            if (distributors == null && distributorsFailed) ...[
+              // Not read, with none read before: said, with another try.
+              NativeSheetItemConfig(
+                id: 'push-distributors-failed',
+                title: l10n.errorMessage,
+                sfSymbol: 'exclamationmark.triangle',
+                kind: NativeSheetItemKind.info,
+              ),
+              NativeSheetItemConfig(
+                id: nativePushDistributorsRetryId,
+                title: l10n.retry,
+                sfSymbol: 'arrow.clockwise',
+                accent: true,
+                showsDisclosure: false,
+              ),
+            ] else if (distributors == null)
               buildNativeLoadingItem(l10n, id: 'push-distributors-loading')
             else if (distributors.isEmpty) ...[
               NativeSheetItemConfig(

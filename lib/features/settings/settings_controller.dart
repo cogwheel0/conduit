@@ -1354,6 +1354,11 @@ class SettingsController {
       }
       return true;
     }
+    if (id == nativePushDistributorsRetryId) {
+      // The page asks again as it is drawn again.
+      await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
+      return true;
+    }
     if (id == nativePushResetKeysId) {
       // Subscriptions are released and set up again: the pages show how
       // that went once it has, and say so if it did not.

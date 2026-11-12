@@ -1,3 +1,5 @@
+import 'package:conduit/core/utils/native_sheet_utils.dart';
+
 import 'dart:async';
 
 import 'package:conduit/core/providers/app_startup_providers.dart';
@@ -730,6 +732,35 @@ void main() {
     final ids = _ids(native.items(_detail));
     expect(ids, contains('push-enabled'));
     expect(ids, isNot(contains('notification-in-app-banner')));
+  });
+
+  testWidgets('distributors that cannot be read say so, and are read again '
+      'on Retry', (tester) async {
+    await onPlatform(() async {
+      final fake = FakePushCoordinator(
+        pushStateWith(
+          const [
+            PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+          ],
+          transports: const [PushTransport.fcm],
+          androidTransport: PushAndroidTransport.unifiedPush,
+        ),
+      )..distributorsError = StateError('offline');
+      final native = await _pumpApp(
+        tester,
+        push: fake.initial,
+        coordinator: fake,
+      );
+      await native.detailAppeared(_detail);
+      final ids = _ids(native.items(_detail));
+      expect(ids, contains(nativePushDistributorsRetryId));
+      expect(ids, isNot(contains('push-distributors-loading')));
+
+      fake.distributorsError = null;
+      await native.control(nativePushDistributorsRetryId, true);
+
+      expect(_ids(native.items(_detail)), contains('push-no-distributor'));
+    });
   });
 
   testWidgets('a distributor installed since shows when the page opens '

@@ -145,8 +145,15 @@ final class FakePushCoordinator extends PushCoordinator {
     );
   }
 
+  /// Thrown by [distributors], when set.
+  Object? distributorsError;
+
   @override
-  Future<List<String>> distributors() async => distributorList;
+  Future<List<String>> distributors() async {
+    final error = distributorsError;
+    if (error != null) throw error;
+    return distributorList;
+  }
 
   /// Thrown by [setHermesJobNotify].
   Object? jobNotifyError;

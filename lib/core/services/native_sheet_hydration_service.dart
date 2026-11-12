@@ -917,7 +917,7 @@ class NativeSheetHydrationService {
     }
 
     if (detailId.startsWith(nativeLicensePagePrefix)) {
-      await _hydrateNativeLicenseDetail(detailId);
+      await _hydrateNativeLicenseDetail(l10n, detailId);
       return;
     }
 
@@ -1478,6 +1478,7 @@ class NativeSheetHydrationService {
       android: defaultTargetPlatform == TargetPlatform.android,
       advanced: s.advancedFeaturesEnabled,
       distributors: _pushDistributors,
+      distributorsFailed: _pushDistributorsFailed,
     );
     // With notifications off the rest cannot do anything, so it is not
     // shown, as Settings hides an app's alert options until they are
@@ -1632,6 +1633,10 @@ class NativeSheetHydrationService {
   /// Advanced delivery options list them.
   List<String>? _pushDistributors;
 
+  /// Whether the last read of the distributors failed with none read
+  /// before, so the page says so rather than waiting.
+  bool _pushDistributorsFailed = false;
+
   /// Reads the distributors where Android's Advanced delivery options show
   /// them. Returns whether it read them.
   Future<bool> _readPushDistributors() async {
@@ -1646,6 +1651,7 @@ class NativeSheetHydrationService {
       _pushDistributors = await _ref
           .read(pushCoordinatorProvider.notifier)
           .distributors();
+      _pushDistributorsFailed = false;
     } catch (error, stackTrace) {
       DebugLogger.error(
         'push-distributors-read-failed',
@@ -1653,7 +1659,10 @@ class NativeSheetHydrationService {
         error: error,
         stackTrace: stackTrace,
       );
-      return false;
+      // With a list read before, the page keeps it; with none, the page
+      // stops waiting and says the read failed.
+      _pushDistributorsFailed = _pushDistributors == null;
+      return _pushDistributorsFailed;
     }
     return true;
   }
@@ -2716,8 +2725,32 @@ class NativeSheetHydrationService {
     return byPackage;
   }
 
+  /// The licenses, read once; null when they could not be read, which a
+  /// later visit tries again.
+  Future<Map<String, List<String>>?> _readLicensesOnce() async {
+    try {
+      return await (_licenses ??= _readLicenses());
+    } catch (error, stackTrace) {
+      _licenses = null;
+      DebugLogger.error(
+        'licenses-read-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
   Future<void> _hydrateNativeLicensesDetail(AppLocalizations l10n) async {
-    final licenses = await (_licenses ??= _readLicenses());
+    final licenses = await _readLicensesOnce();
+    if (licenses == null) {
+      await _patchNativeDetailError(
+        NativeSheetRoutes.openSourceLicenses,
+        l10n.errorMessage,
+      );
+      return;
+    }
     await _applyNativeDetail(
       buildNativeLicensesDetail(l10n, {
         for (final MapEntry(:key, :value) in licenses.entries)
@@ -2734,11 +2767,18 @@ class NativeSheetHydrationService {
     );
   }
 
-  Future<void> _hydrateNativeLicenseDetail(String detailId) async {
+  Future<void> _hydrateNativeLicenseDetail(
+    AppLocalizations l10n,
+    String detailId,
+  ) async {
     final package = Uri.decodeComponent(
       detailId.substring(nativeLicensePagePrefix.length),
     );
-    final licenses = await (_licenses ??= _readLicenses());
+    final licenses = await _readLicensesOnce();
+    if (licenses == null) {
+      await _patchNativeDetailError(detailId, l10n.errorMessage);
+      return;
+    }
     await _applyNativeDetail(
       buildNativeLicenseDetail(package, licenses[package] ?? const []),
     );

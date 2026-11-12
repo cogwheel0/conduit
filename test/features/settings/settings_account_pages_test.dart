@@ -31,6 +31,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter/foundation.dart' show LicenseRegistry;
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -415,6 +416,35 @@ void main() {
       'github',
       NativeSheetRoutes.openSourceLicenses,
     ]);
+  });
+
+  testWidgets('licenses that cannot be read say so, and are read again on '
+      'the next visit', (tester) async {
+    LicenseRegistry.addLicense(() => Stream.error(StateError('unreadable')));
+    addTearDown(LicenseRegistry.reset);
+    final rig = await _pump(tester);
+    rig.pages.register([
+      buildNativeLoadingDetail(
+        l10n: _l10n,
+        id: NativeSheetRoutes.openSourceLicenses,
+        title: '',
+      ),
+    ]);
+    final hydration = rig.container.read(nativeSheetHydrationServiceProvider);
+
+    await tester.runAsync(
+      () => hydration.hydrateDetail(NativeSheetRoutes.openSourceLicenses),
+    );
+    check(rig.rows(NativeSheetRoutes.openSourceLicenses).single.title)
+        .equals(_l10n.errorMessage);
+
+    LicenseRegistry.reset();
+    await tester.runAsync(
+      () => hydration.hydrateDetail(NativeSheetRoutes.openSourceLicenses),
+    );
+    check(
+      rig.rows(NativeSheetRoutes.openSourceLicenses).map((row) => row.title),
+    ).not((titles) => titles.contains(_l10n.errorMessage));
   });
 
   group('Change Password', () {
