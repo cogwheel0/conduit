@@ -28,6 +28,16 @@ class VoiceCallLauncher {
   final Ref _ref;
 
   Future<void> launch({required bool startNewConversation}) async {
+    // A call in the open chat cannot run in a LibreChat chat, whatever the
+    // selection holds: one reopened after its saved model went away keeps
+    // the model chosen before. A call that starts a new chat is not in it.
+    if (!startNewConversation &&
+        isLibreChatConversation(_ref.read(activeConversationProvider))) {
+      throw const VoiceCallStartException(
+        kind: ChatVoiceModeError.message,
+        message: voiceCallLibreChatRefusal,
+      );
+    }
     final eligibility = await resolveVoiceCallEligibility(_ref);
     if (!eligibility.canStart) {
       // Why the call can't start is meant for the user; the host words it

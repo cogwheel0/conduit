@@ -4,6 +4,9 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind, annotateConversationStorage;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -131,6 +134,65 @@ void main() {
     final error = refusal! as VoiceCallStartException;
     check(voiceModeErrorText(l10n, kind: error.kind, message: error.message))
         .equals(l10n.voiceCallLibreChatUnavailable);
+  });
+
+  test('launcher refuses a call in an open LibreChat chat whose selection '
+      'still holds another model', () async {
+    // Reopened after its saved model went away, the chat keeps the model
+    // chosen before: here an Open WebUI one, signed in.
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(_model),
+        socketServiceProvider.overrideWithValue(null),
+        activeConversationProvider.overrideWith(_OpenLibreChatChat.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    final l10n = lookupAppLocalizations(const Locale('de'));
+
+    Object? refusal;
+    try {
+      await container
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false);
+    } catch (error) {
+      refusal = error;
+    }
+
+    check(refusal).isA<VoiceCallStartException>();
+    final error = refusal! as VoiceCallStartException;
+    check(voiceModeErrorText(l10n, kind: error.kind, message: error.message))
+        .equals(l10n.voiceCallLibreChatUnavailable);
+  });
+
+  test('a call that starts a new chat is not refused for the LibreChat chat '
+      'left open', () async {
+    // Quick actions, the home widget, Siri and the Android assistant start
+    // a new chat on the selected model.
+    final controller = _RecordingVoiceStartController();
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        reviewerModeProvider.overrideWithValue(true),
+        selectedModelProvider.overrideWithValue(_model),
+        socketServiceProvider.overrideWithValue(null),
+        activeConversationProvider.overrideWith(_OpenLibreChatChat.new),
+        chatVoiceModeControllerProvider.overrideWith(() => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(voiceCallLauncherProvider)
+        .launch(startNewConversation: true);
+
+    check(controller.startedByStartNewConversation.single).isTrue();
   });
 
   test('launcher propagates controller-side start failure', () async {
@@ -283,4 +345,18 @@ class _FakeAudioSession extends NoVoiceAudioSession {
   Future<void> configureForListening() async {
     listeningCalls += 1;
   }
+}
+
+/// A LibreChat chat is the one open.
+final class _OpenLibreChatChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => annotateConversationStorage(
+    Conversation(
+      id: 'librechat-chat',
+      title: 'Seed order',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    ),
+    ChatStorageKind.libreChat,
+  );
 }
