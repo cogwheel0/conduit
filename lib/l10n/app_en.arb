@@ -10810,6 +10810,10 @@
   "@scheduledTaskAgentsLoading": {
     "description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."
   },
+  "personalizationMemoryGone": "This memory is no longer on the server. Go back to see your memories.",
+  "@personalizationMemoryGone": {
+    "description": "Shown on a memory's page when that memory is no longer on the server (cleared or deleted meanwhile), so a change to it cannot be saved."
+  },
   "pushFallbackTitle": "Conduit",
   "@pushFallbackTitle": {
     "description": "Title of a push notification that could not be decrypted on this device, or that has no title. Usually the app name."

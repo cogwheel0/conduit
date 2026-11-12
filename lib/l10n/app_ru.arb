@@ -4825,6 +4825,7 @@
   "scheduledTaskTerminalRequired": "Выберите терминал, на котором работает этот агент.",
   "scheduledTaskAgentNeedsChat": "Результаты агента отправляются в новый чат.",
   "scheduledTaskAgentsLoading": "Загрузка агентов этого терминала…",
+  "personalizationMemoryGone": "Этого воспоминания больше нет на сервере. Вернитесь назад, чтобы увидеть свои воспоминания.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Новое уведомление",
   "pushReplyTitle": "Новый ответ",

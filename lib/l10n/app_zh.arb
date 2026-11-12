@@ -4787,6 +4787,7 @@
   "scheduledTaskTerminalRequired": "请选择运行此智能体的终端。",
   "scheduledTaskAgentNeedsChat": "智能体的结果会发送到新聊天。",
   "scheduledTaskAgentsLoading": "正在加载此终端的智能体…",
+  "personalizationMemoryGone": "此记忆已不在服务器上。请返回查看您的记忆。",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新通知",
   "pushReplyTitle": "新回复",

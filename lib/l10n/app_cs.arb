@@ -6710,6 +6710,7 @@
   "scheduledTaskTerminalRequired": "Vyberte terminál, na kterém tento agent poběží.",
   "scheduledTaskAgentNeedsChat": "Výsledky agenta se ukládají do nového chatu.",
   "scheduledTaskAgentsLoading": "Načítání agentů tohoto terminálu…",
+  "personalizationMemoryGone": "Tato paměť už na serveru není. Vraťte se zpět a zobrazte své paměti.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nové oznámení",
   "pushReplyTitle": "Nová odpověď",

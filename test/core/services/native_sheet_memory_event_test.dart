@@ -107,6 +107,9 @@ final class _MemoriesApi extends ApiService {
 
   /// How many writes the server refuses before it takes one.
   int failingWrites = 0;
+
+  /// Holds each write back until completed, when set.
+  Completer<void>? writeGate;
   final adds = <_Write>[];
   final updates = <_Write>[];
   final deleted = <String>[];
@@ -128,7 +131,7 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    _refuseIfFailing();
+    await _refuseIfFailing();
     adds.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
   }
@@ -141,12 +144,13 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    _refuseIfFailing();
+    await _refuseIfFailing();
     updates.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
   }
 
-  void _refuseIfFailing() {
+  Future<void> _refuseIfFailing() async {
+    await writeGate?.future;
     if (failingWrites > 0) {
       failingWrites--;
       throw StateError('server unavailable');
@@ -395,6 +399,60 @@ void main() {
       expect(
         native.items('memory-edit:m1').map((row) => row.id),
         isNot(contains('memory-save-retry:m1')),
+      );
+    });
+
+    testWidgets('an outcome that lands after the memory list was opened again '
+        'stays off the pages opened since', (tester) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api
+        ..failingWrites = 1
+        ..writeGate = Completer<void>();
+      final drawn = native.patches.length;
+      await native.control('memory-add-content', 'I prefer metric units');
+
+      // Back on the list, and Add Memory opened again, before it fails.
+      await native.detailAppeared('memory-manage');
+      final listed = native.patches.length;
+      native.api.writeGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(listed, greaterThan(drawn));
+      expect(
+        native.patches.skip(listed).map((patch) => patch.detailId),
+        isNot(contains('memory-add')),
+      );
+    });
+
+    testWidgets("a memory's failed text and its Retry stay after its type is "
+        'saved', (tester) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+      await native.control('memory-save:m1', 'Prefers metric units always');
+
+      await native.control('memory-type:m1', 'user');
+
+      expect(native.api.updates.map((write) => write.type), ['user']);
+      expect(
+        native.items('memory-edit:m1').map((row) => row.id),
+        contains('memory-save-retry:m1'),
+      );
+    });
+
+    testWidgets("a change to a memory no longer on the server says so", (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+
+      await native.control('memory-type:gone', 'user');
+
+      expect(native.api.updates, isEmpty);
+      expect(
+        native.items('memory-edit:gone').single.title,
+        AppLocalizationsEn().personalizationMemoryGone,
       );
     });
 
