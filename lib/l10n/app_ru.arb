@@ -425,7 +425,7 @@
   "sttSilenceDuration": "Длительность тишины",
   "sttSilenceDurationDescription": "Время ожидания после тишины перед автоматической остановкой записи",
   "sttTranscriptionLanguage": "Язык транскрипции",
-  "sttTranscriptionLanguageDescription": "Авто использует язык этого устройства; либо введите код, например en.",
+  "sttTranscriptionLanguageDescription": "Авто: сервер сам определит язык речи; либо введите код, например en.",
   "sttTranscriptionLanguageAuto": "Авто",
   "sttTranscriptionLanguageCustom": "Пользовательский код языка",
   "sttTranscriptionLanguagePlaceholder": "Код ISO-639-1, например en",
@@ -2491,7 +2491,7 @@
   "@workspaceKnowledgeViewCreated": {
     "description": "Knowledge collection filter showing bases the user created."
   },
-  "workspaceKnowledgeViewShared": "Доступные вам",
+  "workspaceKnowledgeViewShared": "Общие с вами",
   "@workspaceKnowledgeViewShared": {
     "description": "Knowledge collection filter showing bases shared with the user."
   },

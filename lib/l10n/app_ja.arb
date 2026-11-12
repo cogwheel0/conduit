@@ -1637,7 +1637,7 @@
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Auto ではこのデバイスの言語を使用します。必要に応じて en などのコードを入力してください。",
+  "sttTranscriptionLanguageDescription": "自動検出では、サーバーが話されている言語を推定します。必要に応じて en などのコードを入力してください。",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },

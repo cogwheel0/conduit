@@ -419,7 +419,7 @@
   "sttSilenceDuration": "Duración del silencio",
   "sttSilenceDurationDescription": "Tiempo de espera después del silencio antes de detener automáticamente la grabación",
   "sttTranscriptionLanguage": "Idioma de transcripción",
-  "sttTranscriptionLanguageDescription": "Usa Auto para seguir el idioma de este dispositivo, o introduce un código como en.",
+  "sttTranscriptionLanguageDescription": "Usa Detección automática para que el servidor deduzca el idioma hablado, o introduce un código como en.",
   "sttTranscriptionLanguageAuto": "Detección automática",
   "sttTranscriptionLanguageCustom": "Código de idioma personalizado",
   "sttTranscriptionLanguagePlaceholder": "Código ISO-639-1, p. ej. en",

@@ -419,7 +419,7 @@
   "sttSilenceDuration": "静音持续时间",
   "sttSilenceDurationDescription": "检测到静音后等待多久自动停止录音",
   "sttTranscriptionLanguage": "转写语言",
-  "sttTranscriptionLanguageDescription": "使用“自动”跟随此设备的语言，或输入 en 等代码。",
+  "sttTranscriptionLanguageDescription": "使用“自动”让服务器推断所说的语言，或输入 en 等代码。",
   "sttTranscriptionLanguageAuto": "自动",
   "sttTranscriptionLanguageCustom": "自定义语言代码",
   "sttTranscriptionLanguagePlaceholder": "ISO-639-1 代码，例如 en",

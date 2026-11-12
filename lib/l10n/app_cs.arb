@@ -1637,7 +1637,7 @@
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Použijte Automaticky pro jazyk tohoto zařízení, nebo zadejte kód, například en.",
+  "sttTranscriptionLanguageDescription": "Použijte Automaticky, aby server rozpoznal mluvený jazyk, nebo zadejte kód, například en.",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },
