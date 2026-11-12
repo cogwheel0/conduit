@@ -166,6 +166,31 @@ void main() {
     expect(titles, isNot(contains('work')));
   });
 
+  testWidgets('a save answered after its page was left and opened again '
+      'leaves the new visit alone', (tester) async {
+    final rig = await _open(tester, {'work': 'Engineer'});
+    const page = libreChatMemoryNewPageId;
+    await rig.openPage(page);
+    await rig.change(libreChatMemoryRowId('key', page), 'tone');
+    await rig.change(libreChatMemoryRowId('value', page), 'Concise');
+    final gate = rig.memories.saveGate = Completer<void>();
+    final saving = rig.module.handleChange(
+      libreChatMemoryRowId('save', page),
+      true,
+      _l10n,
+    );
+    await tester.pump();
+
+    // Back on the list, then Add Memory again, before the save is answered.
+    await rig.openPage(libreChatMemoriesPageId);
+    await rig.openPage(page);
+    gate.complete();
+    await rig._settle(saving);
+
+    expect(rig.memories.saves, hasLength(1));
+    expect(rig.closed, isEmpty);
+  });
+
   testWidgets('delete asks first, then deletes and goes back', (tester) async {
     final rig = await _open(tester, {'work': 'Engineer'});
     await rig.openPage(_work);
@@ -240,6 +265,9 @@ final class _FakeMemories extends LibreChatMemoriesController {
   final Map<String, String> saved;
   final String? refusal;
   final List<({String? originalKey, String key, String value})> saves = [];
+
+  /// Holds a save back until completed, when set.
+  Completer<void>? saveGate;
   final List<String> deleted = [];
 
   /// How many reads fail before one succeeds.
@@ -277,6 +305,7 @@ final class _FakeMemories extends LibreChatMemoriesController {
     required String value,
   }) async {
     saves.add((originalKey: originalKey, key: key, value: value));
+    await saveGate?.future;
     final refusal = this.refusal;
     if (refusal != null) throw LibreChatApiException(message: refusal);
     saved

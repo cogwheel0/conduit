@@ -267,6 +267,10 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
         .firstOrNull;
   }
 
+  /// Counts the times the list was drawn afresh: a memory page's answer
+  /// arriving after that belongs to a visit since left.
+  int _session = 0;
+
   /// Whether the account the list was read for is still the one in charge:
   /// still LibreChat's active account, with LibreChat, not Open WebUI, the
   /// primary account.
@@ -298,6 +302,7 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
   Future<void> _hydrateList(AppLocalizations l10n) async {
     _drafts.clear();
     _notices.clear();
+    _session++;
     // Open WebUI in charge since the row was drawn: LibreChat's memories
     // are not read, nor shown, for it.
     if (_ref.read(primaryAccountKindProvider) != PrimaryAccountKind.libreChat) {
@@ -492,15 +497,20 @@ class LibreChatMemorySettingsPages implements SettingsPageModule {
       await _applyPage(l10n, pageId, memory, draft);
       return;
     }
+    // Back on the list, and the page opened again, before it was answered:
+    // the answer is not the new visit's to show or close.
+    final session = _session;
     try {
       await action();
     } catch (error) {
+      if (session != _session) return;
       _notices[pageId] = error is LibreChatApiException
           ? error.message
           : l10n.errorMessage;
       await _applyPage(l10n, pageId, memory, draft);
       return;
     }
+    if (session != _session) return;
     _drafts.remove(pageId);
     _notices.remove(pageId);
     // The list reads the memories again as it appears.
