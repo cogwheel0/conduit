@@ -15,6 +15,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 
 enum VoiceCallEligibilityReason {
   eligible,
@@ -22,7 +23,15 @@ enum VoiceCallEligibilityReason {
   backendInitializing,
   authenticationRequired,
   backendUnavailable,
+
+  /// The model's backend has no voice calls (LibreChat's chats).
+  backendUnsupported,
 }
+
+/// Why a LibreChat model's call is refused, in English. A host that words
+/// refusals itself can recognise it by this text.
+const String voiceCallLibreChatRefusal =
+    "Voice calls aren't available in LibreChat chats.";
 
 @immutable
 class VoiceCallEligibility {
@@ -103,6 +112,17 @@ final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>((ref) {
     if (binding.source == DirectModelSource.device) {
       return VoiceCallEligibility.eligible(model);
     }
+  }
+
+  // Calls run with Open WebUI, Hermes and Direct models; LibreChat's chats
+  // offer none. Say that, rather than ask for an Open WebUI sign-in, which
+  // a LibreChat chat does not use.
+  if (isLibreChatModel(model)) {
+    return VoiceCallEligibility.blocked(
+      reason: VoiceCallEligibilityReason.backendUnsupported,
+      model: model,
+      errorMessage: voiceCallLibreChatRefusal,
+    );
   }
 
   if (ref.watch(authNavigationStateProvider) ==
