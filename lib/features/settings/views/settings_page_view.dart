@@ -684,6 +684,11 @@ class _SettingsSearchFieldState extends State<SettingsSearchField> {
   void _changed(String query) {
     setState(() {});
     _debounce?.cancel();
+    // Emptied: the whole list comes back at once, as the field shows it.
+    if (query.isEmpty) {
+      _send('');
+      return;
+    }
     _debounce = Timer(settingsSearchDebounce, () => _send(query));
   }
 
