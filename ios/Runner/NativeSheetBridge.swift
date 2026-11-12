@@ -832,12 +832,21 @@ private struct NativeSheetMonthCalendar: Equatable {
         self.marks = marks
     }
 
-    /// `yyyy-MM-dd` as a day in the current calendar.
+    /// The calendar Dart's `yyyy-MM-dd` days are in: Gregorian, whatever
+    /// the device's own calendar, so the grid's days are the rows' days.
+    static let gregorian: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = .autoupdatingCurrent
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }()
+
+    /// `yyyy-MM-dd` as a Gregorian day.
     static func components(_ text: String) -> DateComponents? {
         let parts = text.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         return DateComponents(
-            calendar: Calendar.current,
+            calendar: gregorian,
             year: parts[0],
             month: parts[1],
             day: parts[2]
@@ -6035,7 +6044,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             grid = existing
         } else {
             grid = UICalendarView()
-            grid.calendar = Calendar.current
+            grid.calendar = NativeSheetMonthCalendar.gregorian
             grid.locale = Locale.current
             grid.fontDesign = .default
             grid.backgroundColor = .clear
@@ -9927,9 +9936,17 @@ extension NativeDetailTableViewController: UICalendarViewDelegate,
         _ selection: UICalendarSelectionSingleDate,
         didSelectDate dateComponents: DateComponents?
     ) {
-        guard let dateComponents,
-              let key = NativeSheetMonthCalendar.key(dateComponents)
-        else { return }
+        guard let dateComponents else {
+            // The chosen day tapped again deselects it; the page still
+            // shows that day, so the grid keeps it chosen.
+            if let day = detail.calendar?.selectedDay {
+                selection.setSelected(day, animated: false)
+            }
+            return
+        }
+        guard let key = NativeSheetMonthCalendar.key(dateComponents) else {
+            return
+        }
         sendCalendarChange(":day", key)
     }
 }

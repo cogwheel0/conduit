@@ -272,6 +272,24 @@ void main() {
       expect(rig.closed, contains(page));
     });
 
+    testWidgets('a change whose re-read fails says the month may be out of '
+        'date, with Retry', (tester) async {
+      final rig = await _open(tester);
+      final page = eventPage(rig);
+      await rig.open(page);
+      final delete = rig
+          .rows(page)
+          .singleWhere((row) => row.id.startsWith('calendar.event.delete:'));
+
+      rig.wire.failAgenda = true;
+      await rig.change(delete.id, true);
+      await rig.open(calendarMonthPageId);
+
+      final ids = rig.rows(calendarMonthPageId).map((row) => row.id);
+      expect(rig.titles(calendarMonthPageId), contains(_l10n.calendarStale));
+      expect(ids, contains(calendarRetryRowId));
+    });
+
     testWidgets('a delete that lands after Settings closed leaves the next '
         'visit alone', (tester) async {
       final rig = await _open(tester);
@@ -436,6 +454,26 @@ void main() {
         unorderedEquals(['cal-mine', 'cal-ro']),
       );
       expect(rig.row(calendarCalendarsPageId, team.id).checked, isFalse);
+    });
+
+    testWidgets('the last calendar shown stays shown, and keeps its menu', (
+      tester,
+    ) async {
+      final rig = await _open(tester);
+      await rig.open(calendarCalendarsPageId);
+      await rig.change(calendarToggleRowId('cal-rw'), true);
+      await rig.change(calendarToggleRowId('cal-ro'), true);
+
+      final last = rig.row(
+        calendarCalendarsPageId,
+        calendarToggleRowId('cal-mine'),
+      );
+      expect(last.checked, isTrue);
+      expect(last.disabled, isFalse);
+      final reads = rig.wire.agendaRequests.length;
+      await rig.change(last.id, true);
+      expect(rig.wire.agendaRequests, hasLength(reads));
+      expect(rig.row(calendarCalendarsPageId, last.id).checked, isTrue);
     });
 
     testWidgets('a new calendar is made from its form', (tester) async {

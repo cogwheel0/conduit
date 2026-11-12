@@ -247,7 +247,17 @@ buildCalendarMonthPage(
           )
         else if (data?.stale ?? false)
           NativeSheetSectionConfig(
-            items: [_note('$pageId-stale', l10n.calendarStale)],
+            items: [
+              _note('$pageId-stale', l10n.calendarStale),
+              // Read again from here, as the failure above offers.
+              NativeSheetItemConfig(
+                id: calendarRetryRowId,
+                title: l10n.retry,
+                sfSymbol: 'arrow.clockwise',
+                accent: true,
+                showsDisclosure: false,
+              ),
+            ],
           ),
         NativeSheetSectionConfig(
           title: calendarDayHeadingText(
@@ -1099,8 +1109,9 @@ NativeSheetItemConfig _calendarRow(
         : NativeSheetItemKind.info,
     showsDisclosure: false,
     checked: filterable && shown,
-    // The last calendar shown stays shown.
-    disabled: busy || (filterable && onlyShown),
+    // The last calendar shown stays shown: tapping it does nothing (see
+    // the module), while its menu, Make Default, stays reachable.
+    disabled: busy,
     rowActions: [
       if (canMakeDefault)
         NativeSheetRowAction(

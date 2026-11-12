@@ -483,7 +483,9 @@ class CalendarSettingsPages extends SettingsPageModule {
       };
       if (status == 403 || status == 404) unawaited(_load(l10n));
     } catch (_) {
-      if (!identical(_events[view.event.key], view)) return;
+      if (!_current(owner) || !identical(_events[view.event.key], view)) {
+        return;
+      }
       // The account changed or the calendar became unavailable: nothing
       // here may be shown as fresh, and the actions refuse on their own.
       view.detail = CalendarEventDetail.failed;
@@ -906,7 +908,8 @@ class CalendarSettingsPages extends SettingsPageModule {
         ]
         ..failed = false;
     } catch (error, stackTrace) {
-      if (!identical(_people[people.key], people) ||
+      if (!_current(owner) ||
+          !identical(_people[people.key], people) ||
           search != people.searches) {
         return;
       }
