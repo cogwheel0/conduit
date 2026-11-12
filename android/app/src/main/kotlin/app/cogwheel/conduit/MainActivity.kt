@@ -1788,7 +1788,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun handleIntent(intent: Intent) {
         Log.d("MainActivity", "handleIntent called")
 
-        val action = AssistantLaunchAction.take(intent)
+        val action = AssistantLaunchAction.take(intent, cacheDir)
         if (action == null) {
             Log.d("MainActivity", "No assistant request found")
             return
