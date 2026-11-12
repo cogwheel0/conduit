@@ -89,7 +89,7 @@ class DrawerShellPage extends ConsumerWidget {
       },
       drawer: const SidebarPage(),
       layoutBuilder: (layout) => SidebarOverlayDismissListener(
-        child: MacDesktopShortcuts(child: layout),
+        child: AppKeyboardShortcuts(child: layout),
       ),
       child: NestedNavigatorBackScope(child: child),
     );
@@ -174,50 +174,81 @@ class _SidebarOverlayDismissListenerState
   }
 }
 
-class MacDesktopShortcuts extends ConsumerWidget {
-  const MacDesktopShortcuts({super.key, required this.child});
+/// Hardware keyboard shortcuts: Command-N starts something new for the
+/// sidebar's backend or tab, Command-K searches, Command-1 to Command-5 pick
+/// a sidebar tab, Command-comma opens Settings, and Escape closes search,
+/// then an overlay sidebar, then leaves the focused field.
+///
+/// On every iOS device: an iPad or iPhone with a keyboard attached, and the
+/// iPad app on a Mac. None of these keys edits text, so a focused field
+/// keeps its own editing shortcuts. Escape is left to whatever in front
+/// owns it: an input method still composing text cancels the composition,
+/// and a dialog, sheet or menu dismisses itself.
+class AppKeyboardShortcuts extends ConsumerStatefulWidget {
+  const AppKeyboardShortcuts({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!PlatformInfo.isIOSAppOnMac) return child;
+  ConsumerState<AppKeyboardShortcuts> createState() =>
+      _AppKeyboardShortcutsState();
+}
 
-    void createForActiveTab() {
-      final destination = ref.read(appSettingsProvider).slidingSidebarEnabled
-          ? ref.read(sidebarSelectedHistoryTabProvider)
-          : ref.read(sidebarNavigationSnapshotProvider).selectedTab;
-      final action = sidebarTabDescriptor(destination).createAction;
-      if (action != null) unawaited(action.run(context, ref));
-    }
+class _AppKeyboardShortcutsState extends ConsumerState<AppKeyboardShortcuts> {
+  /// Where Escape leaves focus when it takes it from a field: inside these
+  /// bindings, so the next shortcut still reaches them. Unfocusing instead
+  /// hands focus to the enclosing scope, which can sit above them, where
+  /// Command-K and the rest would never see a key.
+  final FocusNode _restingFocus = FocusNode(
+    debugLabel: 'AppKeyboardShortcuts',
+    skipTraversal: true,
+  );
 
-    void focusSidebarSearch() {
-      final drawer = SidebarDrawerControllerScope.maybeOf(context);
-      if (drawer?.isOpen == false) drawer?.open();
-      openSidebarSearch(ref);
-    }
+  @override
+  void dispose() {
+    _restingFocus.dispose();
+    super.dispose();
+  }
 
-    void dismissDesktopLayer() {
-      if (ref.read(sidebarHeaderSearchExpandedProvider)) {
-        closeSidebarSearch(ref);
-        return;
-      }
-      final drawer = SidebarDrawerControllerScope.maybeOf(context);
-      if (!usesPersistentTabletSidebar(context) && drawer?.isOpen == true) {
-        drawer?.close();
-        return;
-      }
-      FocusManager.instance.primaryFocus?.unfocus();
-    }
+  void _createForActiveTab() {
+    final destination = ref.read(appSettingsProvider).slidingSidebarEnabled
+        ? ref.read(sidebarSelectedHistoryTabProvider)
+        : ref.read(sidebarNavigationSnapshotProvider).selectedTab;
+    final action = sidebarTabDescriptor(destination).createAction;
+    if (action != null) unawaited(action.run(context, ref));
+  }
 
-    void openSettings() {
-      final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
-      if (path == Routes.profile ||
-          path?.startsWith('${Routes.profile}/') == true) {
-        return;
-      }
-      unawaited(NavigationService.pushTo(Routes.profile));
+  void _focusSidebarSearch() {
+    final drawer = SidebarDrawerControllerScope.maybeOf(context);
+    if (drawer?.isOpen == false) drawer?.open();
+    openSidebarSearch(ref);
+  }
+
+  void _dismissTopLayer() {
+    if (ref.read(sidebarHeaderSearchExpandedProvider)) {
+      closeSidebarSearch(ref);
+      return;
     }
+    final drawer = SidebarDrawerControllerScope.maybeOf(context);
+    if (!usesPersistentTabletSidebar(context) && drawer?.isOpen == true) {
+      drawer?.close();
+      return;
+    }
+    _restingFocus.requestFocus();
+  }
+
+  void _openSettings() {
+    final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
+    if (path == Routes.profile ||
+        path?.startsWith('${Routes.profile}/') == true) {
+      return;
+    }
+    unawaited(NavigationService.pushTo(Routes.profile));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!PlatformInfo.isIOS) return widget.child;
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
@@ -225,9 +256,9 @@ class MacDesktopShortcuts extends ConsumerWidget {
           LogicalKeyboardKey.keyN,
           meta: true,
           includeRepeats: false,
-        ): createForActiveTab,
+        ): _createForActiveTab,
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
-            focusSidebarSearch,
+            _focusSidebarSearch,
         const SingleActivator(LogicalKeyboardKey.digit1, meta: true): () =>
             selectSidebarTab(context, ref, 0),
         const SingleActivator(LogicalKeyboardKey.digit2, meta: true): () =>
@@ -239,10 +270,53 @@ class MacDesktopShortcuts extends ConsumerWidget {
         const SingleActivator(LogicalKeyboardKey.digit5, meta: true): () =>
             selectSidebarTab(context, ref, 4),
         const SingleActivator(LogicalKeyboardKey.comma, meta: true):
-            openSettings,
-        const SingleActivator(LogicalKeyboardKey.escape): dismissDesktopLayer,
+            _openSettings,
+        const _ShellEscape(): _dismissTopLayer,
       },
-      child: child,
+      child: Focus(focusNode: _restingFocus, child: widget.child),
     );
   }
+}
+
+/// Escape, unless what has focus owns it. The refused key then reaches the
+/// app's default Escape (`DismissIntent`), as it would without the shell.
+class _ShellEscape extends ShortcutActivator {
+  const _ShellEscape();
+
+  static const SingleActivator _escape = SingleActivator(
+    LogicalKeyboardKey.escape,
+  );
+
+  @override
+  Iterable<LogicalKeyboardKey> get triggers => _escape.triggers;
+
+  @override
+  bool accepts(KeyEvent event, HardwareKeyboard state) =>
+      _escape.accepts(event, state) && !_focusOwnsEscape();
+
+  @override
+  String debugDescribeKeys() => _escape.debugDescribeKeys();
+}
+
+/// Whether Escape belongs to what has focus rather than to the shell:
+/// - a field whose input method is still composing text, which Escape
+///   cancels;
+/// - anything that dismisses on Escape, such as a dismissible sheet,
+///   dialog or menu;
+/// - a dialog, sheet or menu in front that does not, which keeps the layers
+///   behind it out of reach.
+bool _focusOwnsEscape() {
+  final context = FocusManager.instance.primaryFocus?.context;
+  if (context == null) return false;
+  final field = context.findAncestorStateOfType<EditableTextState>();
+  final composing = field?.textEditingValue.composing;
+  if (composing != null && composing.isValid && !composing.isCollapsed) {
+    return true;
+  }
+  // A text field answers DismissIntent itself, then passes it on to what
+  // encloses it, so whether Escape dismisses anything is decided above it.
+  final dismissFrom = field?.context ?? context;
+  return Actions.handler<DismissIntent>(dismissFrom, const DismissIntent()) !=
+          null ||
+      ModalRoute.of(context) is PopupRoute;
 }

@@ -21,6 +21,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -761,6 +762,49 @@ void main() {
       ),
       isSemantics(hasToggledState: true, isToggled: true),
     );
+  });
+
+  testWidgets('a switch shows or leaves out scheduled runs, on by default', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [secureStorageProvider.overrideWithValue(secrets)],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HermesConnectionsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HermesConnectionsPage)),
+    );
+    final row = find.byKey(
+      const ValueKey<String>('hermes-show-scheduled-runs-row'),
+    );
+
+    expect(row, findsOneWidget);
+    check(
+      container.read(appSettingsProvider).hermesShowScheduledSessions,
+    ).isTrue();
+    expect(
+      tester.getSemantics(row),
+      isSemantics(hasToggledState: true, isToggled: true),
+    );
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    check(
+      container.read(appSettingsProvider).hermesShowScheduledSessions,
+    ).isFalse();
+    check(
+      PreferencesStore.getBool(PreferenceKeys.hermesShowScheduledSessions),
+    ).equals(false);
   });
 
   test('initials come from the first two words of a name', () {

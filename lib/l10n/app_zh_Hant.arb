@@ -4911,6 +4911,18 @@
   "hermesJobCreatedNotifyFailed": "排程工作已建立，但無法為其開啟通知。",
   "hermesJobUpdatedNotifyFailed": "排程工作已儲存，但無法變更其通知。",
   "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。",
+  "hermesShowScheduledRuns": "顯示排程執行",
+  "hermesShowScheduledRunsDescription": "排程代理程式每次執行都會建立一個新聊天。關閉後，這些聊天不會顯示在 Hermes 列表中。已置頂的仍會保留。",
+  "hermesScheduledRunsHidden": "{count, plural, other{已隱藏 {count} 個排程執行}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "顯示",
   "messageHintTextForModel": "問 {modelName}",
   "@messageHintTextForModel": {
     "placeholders": {

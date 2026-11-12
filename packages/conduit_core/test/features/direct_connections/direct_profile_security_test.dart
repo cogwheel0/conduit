@@ -30,6 +30,25 @@ void main() {
         .isFalse();
   });
 
+  test('OpenAI platform identity is bound to its HTTPS API hosts', () {
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com/v1')).isTrue();
+    check(isOpenAiPlatformBaseUrl('https://eu.api.openai.com/v1')).isTrue();
+    check(isOpenAiPlatformBaseUrl('http://api.openai.com/v1')).isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com.evil.test/v1'))
+        .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://notapi.openai.com/v1')).isFalse();
+    check(isOpenAiPlatformBaseUrl('https://example.openai.azure.com/openai'))
+        .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com:443/v1')).isTrue();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com:8443/v1')).isFalse();
+    check(isOpenAiPlatformBaseUrl('https://user:pass@api.openai.com/v1'))
+        .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com/v1?key=leak'))
+        .isFalse();
+    check(isOpenAiPlatformBaseUrl('https://api.openai.com/v1#fragment'))
+        .isFalse();
+  });
+
   group('DirectConnectionProfile security', () {
     test('versioned document round-trips secrets without redaction loss', () {
       final profile = _profile(

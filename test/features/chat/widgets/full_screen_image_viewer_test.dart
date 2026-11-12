@@ -41,6 +41,7 @@ void main() {
   Future<void> pumpBubble(
     WidgetTester tester, {
     List<String> urls = const [_first, _second],
+    EdgeInsets? safePadding,
   }) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -59,6 +60,14 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
+          builder: safePadding == null
+              ? null
+              : (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(padding: safePadding, viewPadding: safePadding),
+                  child: child!,
+                ),
           home: Scaffold(
             body: Align(
               alignment: Alignment.topRight,
@@ -100,6 +109,28 @@ void main() {
     await tester.fling(find.byType(PageView), const Offset(400, 0), 1000);
     await settle(tester);
     expect(find.text('1 of 2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the position, Save, Share and Close row keeps clear of side '
+      'insets', (tester) async {
+    // A notch on the left, and iPhone Duo's status bar strip on the right.
+    const inset = EdgeInsets.only(top: 24, left: 30, right: 54);
+    await pumpBubble(tester, safePadding: inset);
+    await tester.tap(find.byType(EnhancedImageAttachment).first);
+    await settle(tester);
+
+    final row = tester.getRect(
+      find.ancestor(of: find.text('1 of 2'), matching: find.byType(Row)).first,
+    );
+    expect(row.left, inset.left + 16);
+    expect(row.right, 400 - inset.right - 16);
+    expect(row.top, inset.top + 16);
+    // Close is the row's last control, so nothing sits under the strip.
+    expect(
+      tester.getRect(find.byIcon(Icons.close)).right,
+      lessThanOrEqualTo(row.right),
+    );
     expect(tester.takeException(), isNull);
   });
 

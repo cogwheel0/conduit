@@ -4911,6 +4911,18 @@
   "hermesJobCreatedNotifyFailed": "Tarea creada, pero no se pudieron activar sus notificaciones.",
   "hermesJobUpdatedNotifyFailed": "Tarea guardada, pero no se pudieron cambiar sus notificaciones.",
   "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto.",
+  "hermesShowScheduledRuns": "Mostrar ejecuciones programadas",
+  "hermesShowScheduledRunsDescription": "Cada ejecución de un agente programado inicia su propio chat. Desactiva esto para dejar esos chats fuera de la lista de Hermes. Los anclados se mantienen.",
+  "hermesScheduledRunsHidden": "{count, plural, =1{1 ejecución programada oculta} other{{count} ejecuciones programadas ocultas}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Mostrar",
   "messageHintTextForModel": "Pregunta a {modelName}",
   "@messageHintTextForModel": {
     "placeholders": {

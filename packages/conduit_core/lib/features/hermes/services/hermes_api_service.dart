@@ -46,6 +46,9 @@ const Duration kHermesSessionHistoryTimeout = Duration(seconds: 60);
 const int kMaxHermesJsonResponseBytes = 4 * 1024 * 1024;
 const int kMaxHermesJsonResponseCharacters = 2 * 1024 * 1024;
 const int kMaxHermesJsonCollectionItems = 10000;
+
+/// The most sessions the Hermes API server lists in one page.
+const int kHermesApiServerMaxSessionPage = 200;
 const int kMaxHermesMutationResponseBytes = 64 * 1024;
 const int kMaxHermesMutationResponseCharacters = 32 * 1024;
 const Duration kHermesJsonResponseTimeout = Duration(seconds: 60);
@@ -1681,9 +1684,21 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
   }
 
   /// Lists sessions (`GET /api/sessions`).
+  ///
+  /// The API server cannot leave a source out, so with
+  /// [excludeScheduledRuns] it is asked for its largest page instead of its
+  /// default 50, and the runs crowd out fewer chats.
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async {
-    final data = await _requestBoundedJson('GET', '$_root/api/sessions');
+  Future<List<Map<String, dynamic>>> listSessions({
+    bool excludeScheduledRuns = false,
+  }) async {
+    final data = await _requestBoundedJson(
+      'GET',
+      '$_root/api/sessions',
+      queryParameters: excludeScheduledRuns
+          ? const <String, dynamic>{'limit': kHermesApiServerMaxSessionPage}
+          : null,
+    );
     return _boundedHermesMapList(
       data,
       envelopeKeys: const <String>['sessions', 'data', 'items'],

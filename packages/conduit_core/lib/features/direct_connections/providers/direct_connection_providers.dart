@@ -21,10 +21,14 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart'
+    show appleOnDeviceOfferedProvider, appleOnDeviceStatusProvider;
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit_core/features/direct_connections/models/openwebui_direct_connection.dart';
+import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart'
+    show PlatformPccAvailability;
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_connection_profile_store.dart';
@@ -273,6 +277,22 @@ class AppleOnDeviceEnabledController extends _QueuedBoolPreferenceController {
 
   @override
   bool get defaultValue => true;
+
+  /// Turning it back on asks the model again before it can be offered: its
+  /// model may have finished downloading, or stopped answering, while it was
+  /// off, and the answer kept from before would otherwise decide the offer.
+  @override
+  Future<void> _persist(bool enabled) async {
+    if (enabled && !state && ref.read(applePccPlatformSupportedProvider)) {
+      ref.invalidate(appleOnDeviceStatusProvider);
+      try {
+        await ref.read(appleOnDeviceStatusProvider.future);
+      } catch (_) {
+        // An unanswered model is simply not offered.
+      }
+    }
+    await super._persist(enabled);
+  }
 }
 
 final appleOnDeviceEnabledProvider =
@@ -1835,10 +1855,19 @@ bool _isOpenWebUiDirectTerminalPayload(Object? value) =>
 /// device-only connections unavailable.
 final effectiveDirectConnectionProfilesProvider =
     Provider<AsyncValue<List<DirectConnectionProfile>>>((ref) {
-      final onDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+      final onDeviceOffered = ref.watch(appleOnDeviceOfferedProvider);
+      final onDeviceEnabled = onDeviceOffered ?? false;
       final pccEnabled = ref.watch(applePccEnabledProvider);
       final pccSupported = ref.watch(applePccPlatformSupportedProvider);
       final local = ref.watch(directConnectionProfilesProvider);
+      // While Apple On-Device's model has not yet said whether it answers,
+      // connections that can already chat go ahead without it; a list with
+      // none waits for that answer, so nothing routes on a guess.
+      AsyncValue<List<DirectConnectionProfile>> settled(
+        List<DirectConnectionProfile> profiles,
+      ) => onDeviceOffered == null && !profiles.any((p) => p.isUsable)
+          ? const AsyncLoading<List<DirectConnectionProfile>>()
+          : AsyncData(profiles);
       // Device profile storage remains the required source. Preserve its
       // loading/error gates even when Riverpod carries a previous value.
       if (local.isLoading) {
@@ -1853,7 +1882,7 @@ final effectiveDirectConnectionProfilesProvider =
 
       final localProfiles = local.requireValue;
       if (!ref.watch(openWebUiDirectConnectionsAvailableProvider)) {
-        return AsyncData(
+        return settled(
           _withAppleProfiles(
             localProfiles,
             onDeviceEnabled: onDeviceEnabled,
@@ -1873,10 +1902,10 @@ final effectiveDirectConnectionProfilesProvider =
         );
         return availableLocal.isEmpty
             ? const AsyncLoading<List<DirectConnectionProfile>>()
-            : AsyncData(availableLocal);
+            : settled(availableLocal);
       }
       if (remote.hasError) {
-        return AsyncData(
+        return settled(
           _withAppleProfiles(
             localProfiles,
             onDeviceEnabled: onDeviceEnabled,
@@ -1888,7 +1917,7 @@ final effectiveDirectConnectionProfilesProvider =
       final remoteProfiles = remote.value?.compatibleProfiles;
 
       final localIds = localProfiles.map((profile) => profile.id).toSet();
-      return AsyncData(
+      return settled(
         _withAppleProfiles(
           <DirectConnectionProfile>[
             ...localProfiles,
@@ -1906,7 +1935,7 @@ final effectiveDirectConnectionProfilesProvider =
 /// Awaitable companion that stays reactive to data-to-data profile updates.
 final effectiveDirectConnectionProfilesFutureProvider =
     FutureProvider<List<DirectConnectionProfile>>((ref) async {
-      final onDeviceEnabled = ref.watch(appleOnDeviceEnabledProvider);
+      final onDeviceOffered = ref.watch(appleOnDeviceOfferedProvider);
       final pccEnabled = ref.watch(applePccEnabledProvider);
       final pccSupported = ref.watch(applePccPlatformSupportedProvider);
       final effective = ref.watch(effectiveDirectConnectionProfilesProvider);
@@ -1925,7 +1954,18 @@ final effectiveDirectConnectionProfilesFutureProvider =
       final remoteFuture = remoteAvailable
           ? ref.watch(openWebUiDirectConnectionsProvider.future)
           : Future<OpenWebUiDirectConnectionsSnapshot?>.value(null);
+      // Waited for only while Apple On-Device's model has not yet answered.
+      final onDeviceAnswer = onDeviceOffered != null
+          ? null
+          : ref
+                .watch(appleOnDeviceStatusProvider.future)
+                .then(
+                  (status) =>
+                      status.availability == PlatformPccAvailability.available,
+                  onError: (Object _) => false,
+                );
       final local = await localFuture;
+      final onDeviceEnabled = onDeviceOffered ?? await onDeviceAnswer!;
       if (!remoteAvailable) {
         return _withAppleProfiles(
           local,
@@ -2070,10 +2110,26 @@ class DirectModelDiscoveryController
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;
 
+    // Apple On-Device is offered only while its model answers, and a model
+    // can finish downloading (or be turned off) at any time: ask it again.
+    // The pass below discovers the profiles that answer decides, so it waits
+    // for it; the last answer stays shown meanwhile.
+    Future<void>? onDeviceAnswer;
+    if (ref.read(applePccPlatformSupportedProvider) &&
+        ref.read(appleOnDeviceEnabledProvider)) {
+      ref.invalidate(appleOnDeviceStatusProvider);
+      onDeviceAnswer = ref
+          .read(appleOnDeviceStatusProvider.future)
+          .then<void>((_) {}, onError: (Object _) {});
+    }
+
     // Defer the first pass by one event turn so bursts of UI/system refresh
     // requests collapse into one provider discovery. Requests arriving while
     // that pass is active schedule at most one superseding pass.
-    final operation = Future<void>(() => _runRefreshLoop());
+    final operation = Future<void>(() async {
+      await onDeviceAnswer;
+      await _runRefreshLoop();
+    });
     _refreshInFlight = operation;
     return operation;
   }

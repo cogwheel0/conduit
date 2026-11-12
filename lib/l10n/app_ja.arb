@@ -6528,6 +6528,18 @@
   "hermesJobCreatedNotifyFailed": "ジョブは作成されましたが、通知をオンにできませんでした。",
   "hermesJobUpdatedNotifyFailed": "ジョブは保存されましたが、通知を変更できませんでした。",
   "hermesJobNotifyNeedsScheduled": "使うには、通知で「スケジュールされたタスク」をオンにしてください。",
+  "hermesShowScheduledRuns": "スケジュール実行を表示",
+  "hermesShowScheduledRunsDescription": "スケジュールされたエージェントは実行のたびに新しいチャットを作成します。オフにすると、それらのチャットを Hermes の一覧に表示しません。ピン留めしたものは残ります。",
+  "hermesScheduledRunsHidden": "{count, plural, other{{count} 件のスケジュール実行を非表示}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "表示",
   "messageHintTextForModel": "{modelName} に質問",
   "@messageHintTextForModel": {
     "placeholders": {

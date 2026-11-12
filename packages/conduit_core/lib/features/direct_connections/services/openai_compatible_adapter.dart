@@ -359,6 +359,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final responsesMode =
               profile.openAiApiMode == DirectOpenAiApiMode.responses;
+          final toolTurnOverResponses =
+              !responsesMode && _sendsToolTurnOverResponses(profile, request);
           final useOpenRouterImageApi =
               profile.supportsOpenRouterImageGeneration &&
               request.enableImageGeneration;
@@ -376,7 +378,13 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               useResponsesApi: responsesMode,
             );
             transportCompletedCleanly = emitter.completedSuccessfully;
-          } else if (responsesMode) {
+          } else if (responsesMode || toolTurnOverResponses) {
+            if (toolTurnOverResponses) {
+              DebugLogger.info(
+                'chat-completions-tools-routed-to-responses',
+                scope: 'direct-connections/openai',
+              );
+            }
             await _runResponsesRounds(
               dio: dio,
               profile: profile,
@@ -1083,7 +1091,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         }),
       );
       final response = await dio.post<ResponseBody>(
-        _completionEndpoint(profile),
+        // Also the endpoint for a Chat Completions profile's routed tool turn.
+        'responses',
         cancelToken: roundCancelToken,
         data: <String, dynamic>{
           ...requestBody,
@@ -1814,10 +1823,32 @@ Map<String, dynamic> _rawChatMessage(DirectChatMessage message) {
   };
 }
 
+/// Whether a Chat Completions turn goes over Responses instead. OpenAI's Chat
+/// Completions refuses `reasoning_effort` beside function tools for its newer
+/// reasoning models, except `none` (#1031), so an OpenAI turn with tools and
+/// any other effort is sent over Responses, which accepts the pair.
+bool _sendsToolTurnOverResponses(
+  DirectConnectionProfile profile,
+  DirectCompletionRequest request,
+) {
+  if (!profile.isOpenAiPlatform || request.tools == null) return false;
+  final effort = request.parameters['reasoning_effort'];
+  if (effort is! String) return false;
+  final normalized = effort.trim().toLowerCase();
+  return normalized.isNotEmpty && normalized != 'none';
+}
+
+/// The Responses request body. Every request resends the whole conversation
+/// and the tool loop's items rather than chaining by `previous_response_id`,
+/// so on the OpenAI platform it asks for nothing to be stored
+/// (`store: false`), as Chat Completions does by default. The tool loop then
+/// replays reasoning from its encrypted content rather than by id. Other
+/// Responses servers get the body they always did.
 Map<String, dynamic> _responsesRequestBody(
   DirectCompletionRequest request,
   DirectConnectionProfile profile,
 ) {
+  final stateless = profile.isOpenAiPlatform;
   final messages = requireSerializableDirectMessages(request.messages);
   if (messages.any((message) => message.annotations.isNotEmpty)) {
     throw const DirectProviderException(
@@ -1839,6 +1870,7 @@ Map<String, dynamic> _responsesRequestBody(
     input: openai.ResponseInput.items([
       for (final message in messages) _responseMessage(message),
     ]),
+    store: stateless ? false : null,
   );
   final input = core['input'];
   if (input is List && input.length == messages.length) {
@@ -1856,6 +1888,7 @@ Map<String, dynamic> _responsesRequestBody(
     ...request.parameters,
     ...core,
     'stream': true,
+    if (stateless) 'include': const ['reasoning.encrypted_content'],
   };
   final runtime = request.tools;
   if (runtime != null) {
@@ -1875,6 +1908,8 @@ Map<String, dynamic> _responsesRequestBody(
   }
   if (profile.isOpenRouter) {
     _normalizeOpenRouterReasoning(body);
+  } else {
+    _nestResponsesReasoningEffort(body);
   }
   if (!profile.isOpenRouter &&
       (request.enableWebSearch || request.enableImageGeneration)) {
@@ -1883,6 +1918,19 @@ Map<String, dynamic> _responsesRequestBody(
     );
   }
   return body;
+}
+
+/// The Responses API takes the effort as `reasoning.effort`; the top-level
+/// `reasoning_effort` shorthand belongs to Chat Completions.
+void _nestResponsesReasoningEffort(Map<String, dynamic> body) {
+  final effort = body.remove('reasoning_effort');
+  if (effort == null) return;
+  final existing = body['reasoning'];
+  body['reasoning'] = <String, dynamic>{
+    if (existing is Map)
+      for (final entry in existing.entries) entry.key.toString(): entry.value,
+    'effort': effort,
+  };
 }
 
 void _normalizeOpenRouterReasoning(Map<String, dynamic> body) {

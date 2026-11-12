@@ -4911,6 +4911,18 @@
   "hermesJobCreatedNotifyFailed": "定时任务已创建，但无法为其开启通知。",
   "hermesJobUpdatedNotifyFailed": "定时任务已保存，但无法更改其通知。",
   "hermesJobNotifyNeedsScheduled": "要使用此功能，请在“通知”中开启“计划任务”。",
+  "hermesShowScheduledRuns": "显示定时运行",
+  "hermesShowScheduledRunsDescription": "定时智能体每次运行都会新建一个聊天。关闭后，这些聊天不会显示在 Hermes 列表中。已置顶的仍会保留。",
+  "hermesScheduledRunsHidden": "{count, plural, other{已隐藏 {count} 个定时运行}}",
+  "@hermesScheduledRunsHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "显示",
   "messageHintTextForModel": "问 {modelName}",
   "@messageHintTextForModel": {
     "placeholders": {

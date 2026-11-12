@@ -18,6 +18,28 @@ bool isForeignHermesSessionSource(String? source) {
       !kHermesApiOwnedSessionSources.contains(normalized);
 }
 
+/// The source Hermes gives the session a scheduled job (cron) starts each
+/// time it runs.
+const String kHermesScheduledSessionSource = 'cron';
+
+/// Whether a session is the run of a scheduled job.
+bool isHermesScheduledSessionSource(String? source) =>
+    source?.trim().toLowerCase() == kHermesScheduledSessionSource;
+
+/// [sessions] as the chat list shows them: without the runs of scheduled
+/// jobs unless [showScheduled]. A run the user pinned stays.
+List<HermesSessionSummary> hermesListedSessions(
+  List<HermesSessionSummary> sessions, {
+  required bool showScheduled,
+}) {
+  if (showScheduled) return sessions;
+  return [
+    for (final session in sessions)
+      if (session.pinned || !isHermesScheduledSessionSource(session.source))
+        session,
+  ];
+}
+
 /// Lightweight summary of a Hermes server-side session, for the sessions list.
 class HermesSessionSummary {
   const HermesSessionSummary({

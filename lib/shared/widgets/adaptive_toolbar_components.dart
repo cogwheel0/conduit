@@ -83,6 +83,17 @@ double conduitAdaptiveToolbarHeightOf(BuildContext context) {
   return base * conduitSystemControlScaleOf(context);
 }
 
+/// The width a route's top bar lays its controls out in: the route's width
+/// less the side safe area the bar keeps clear (a notch in landscape, or the
+/// status bar strip down iPhone Duo's front display). Material's app bar
+/// and [ConduitAdaptiveCupertinoNavigationBar] both inset by it.
+double conduitAdaptiveToolbarWidthOf(BuildContext context) {
+  final width =
+      MediaQuery.sizeOf(context).width -
+      MediaQuery.paddingOf(context).horizontal;
+  return math.max(0.0, width);
+}
+
 /// Icon glyph that follows the platform Bold Text accessibility setting.
 ///
 /// Flutter applies [MediaQueryData.boldText] to [Text] and [EditableText]
@@ -181,14 +192,17 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
 
   @override
   Widget build(BuildContext context) {
-    final topPadding = MediaQuery.paddingOf(context).top;
+    final safePadding = MediaQuery.paddingOf(context);
     Widget bar = SizedBox(
-      height: topPadding + preferredSize.height,
+      height: safePadding.top + preferredSize.height,
       child: Padding(
+        // The controls keep clear of a side safe area as well as the top
+        // one: a notch in landscape, or the status bar strip down the edge
+        // of iPhone Duo's front display.
         padding: EdgeInsets.only(
-          top: topPadding,
-          left: Spacing.inputPadding,
-          right: Spacing.inputPadding,
+          top: safePadding.top,
+          left: safePadding.left + Spacing.inputPadding,
+          right: safePadding.right + Spacing.inputPadding,
         ),
         child: ConduitSystemTextScaling(
           textScaler: textScaler,
@@ -682,7 +696,7 @@ double resolveConduitAdaptiveLeadingPillWidth(
             Spacing.inputPadding
       : Spacing.inputPadding;
   final availableWidth =
-      MediaQuery.sizeOf(context).width -
+      conduitAdaptiveToolbarWidthOf(context) -
       controlExtent -
       leadingGap -
       trailingWidth -

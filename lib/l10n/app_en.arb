@@ -11322,6 +11322,28 @@
   "@hermesJobNotifyNeedsScheduled": {
     "description": "Hint under the disabled \"Notify me\" switch in the Hermes job editor while the \"Scheduled tasks\" notification kind is turned off in the Notifications settings."
   },
+  "hermesShowScheduledRuns": "Show Scheduled Runs",
+  "@hermesShowScheduledRuns": {
+    "description": "Switch in Hermes settings, in the Conversations group, that shows or leaves out the chats a scheduled agent (cron job) starts each time it runs."
+  },
+  "hermesShowScheduledRunsDescription": "Each run of a scheduled agent starts its own chat. Turn this off to leave those chats out of the Hermes list. Pinned ones stay.",
+  "@hermesShowScheduledRunsDescription": {
+    "description": "Explains the Show Scheduled Runs switch in Hermes settings: scheduled agents start a new chat per run, and pinned chats stay listed when it is off."
+  },
+  "hermesScheduledRunsHidden": "{count, plural, =1{1 scheduled run hidden} other{{count} scheduled runs hidden}}",
+  "@hermesScheduledRunsHidden": {
+    "description": "Row in the Hermes chat list, shown while Show Scheduled Runs is off, saying how many chats that scheduled agents started were left out of the list.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Show",
+  "@hermesShowScheduledRunsAction": {
+    "description": "Button on the row that says scheduled runs are hidden from the Hermes chat list; turns Show Scheduled Runs back on."
+  },
   "messageHintTextForModel": "Ask {modelName}",
   "@messageHintTextForModel": {
     "description": "Placeholder in the chat message input naming the chat's selected model (its display name, cut short with an ellipsis after 24 characters). Falls back to messageHintText when no model is chosen.",

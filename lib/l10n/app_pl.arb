@@ -9287,6 +9287,19 @@
   "hermesJobCreatedNotifyFailed": "Utworzono zadanie, ale nie udało się włączyć dla niego powiadomień.",
   "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
   "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach.",
+  "hermesShowScheduledRuns": "Pokazuj zaplanowane uruchomienia",
+  "hermesShowScheduledRunsDescription": "Każde uruchomienie zaplanowanego agenta tworzy osobny czat. Wyłącz to, aby pominąć te czaty na liście Hermes. Przypięte pozostaną.",
+  "hermesScheduledRunsHidden": "{count, plural, one{Ukryto 1 zaplanowane uruchomienie} few{Ukryto {count} zaplanowane uruchomienia} many{Ukryto {count} zaplanowanych uruchomień} other{Ukryto {count} zaplanowanego uruchomienia}}",
+  "@hermesScheduledRunsHidden": {
+    "description": "Row in the Hermes chat list, shown while Show Scheduled Runs is off, saying how many chats that scheduled agents started were left out of the list.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "hermesShowScheduledRunsAction": "Pokaż",
   "messageHintTextForModel": "Zapytaj {modelName}",
   "@messageHintTextForModel": {
     "description": "Placeholder in the chat message input naming the chat's selected model (its display name, cut short with an ellipsis after 24 characters). Falls back to messageHintText when no model is chosen.",

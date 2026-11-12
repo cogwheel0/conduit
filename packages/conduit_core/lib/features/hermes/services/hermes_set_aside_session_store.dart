@@ -20,6 +20,7 @@ final class HermesSetAsideSession {
     required this.title,
     required this.kind,
     this.archived = false,
+    this.source,
   });
 
   /// The saved connection (or, before saved connections, the endpoint).
@@ -32,9 +33,15 @@ final class HermesSetAsideSession {
   /// archive, also when its flags cannot be read.
   final bool archived;
 
+  /// Where the chat came from (`cron` for a scheduled run), so the summary
+  /// shown while the chat cannot be read is filtered as the chat is. Null
+  /// for records kept before it was saved.
+  final String? source;
+
   HermesSessionSummary toSummary() => HermesSessionSummary(
     id: sessionId,
     title: title,
+    source: source,
     hidden: kind == HermesSetAsideKind.hidden,
     archived: kind == HermesSetAsideKind.archived || archived,
   );
@@ -45,6 +52,7 @@ final class HermesSetAsideSession {
     'title': title,
     'kind': kind.name,
     if (archived) 'archived': true,
+    'source': ?source,
   });
 
   static HermesSetAsideSession? fromStorage(String source) {
@@ -75,6 +83,10 @@ final class HermesSetAsideSession {
         title: title,
         kind: kind,
         archived: value['archived'] == true,
+        source: validateHermesBoundedString(
+          value['source'],
+          maxCharacters: kMaxHermesSessionSourceCharacters,
+        ),
       );
     } catch (_) {
       return null;
