@@ -1395,6 +1395,18 @@ void main() {
     check(timedOut.status).equals(AuthStatus.error);
     check(timedOut.token).equals(token);
 
+    // A connection that could not even be opened in time is offline (a
+    // network that drops the packets): refreshed as on launch, which reads
+    // the stored session again.
+    api.currentUserFailure = DioException(
+      requestOptions: request,
+      type: DioExceptionType.connectionTimeout,
+    );
+    clearInteractions(storage);
+    await notifier.retryConnectionIssue();
+    await pumpEventQueue();
+    verify(() => storage.getAuthTokenStrict()).called(greaterThanOrEqualTo(1));
+
     // The proxy lets the session through again.
     api.currentUserFailure = null;
     await notifier.retryConnectionIssue();

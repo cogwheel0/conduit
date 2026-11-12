@@ -3449,9 +3449,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// issue shown with the session kept: a proxy's sign-in page, even one
   /// sent with a 401 or 403, refuses the route and not the token, as the
   /// API client reads it everywhere else; so does a dropped connection or
-  /// a timeout. Only a connection that could not be made at all (offline)
-  /// is refreshed as before, as on launch, and so is an issue with no
-  /// session kept.
+  /// an answer that never finished. Only a connection that could not be
+  /// opened at all (refused, unreachable, or timed out while connecting:
+  /// offline) is refreshed as before, as on launch, and so is an issue with
+  /// no session kept.
   Future<void> retryConnectionIssue() async {
     final kept = _current;
     final token = kept.token;
@@ -3486,8 +3487,10 @@ class AuthStateManager extends _$AuthStateManager {
     }
     if (error is DioException &&
         error.response == null &&
-        error.type == DioExceptionType.connectionError) {
-      // No connection could be made: offline, refreshed as on launch.
+        (error.type == DioExceptionType.connectionError ||
+            error.type == DioExceptionType.connectionTimeout)) {
+      // No connection could be opened (a network that drops the packets
+      // times out connecting): offline, refreshed as on launch.
       await refresh();
       return;
     }
