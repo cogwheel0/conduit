@@ -238,6 +238,9 @@ class CalendarSettingsPages extends SettingsPageModule {
       await _drawMonth(l10n);
       return;
     }
+    // Another account signed in while the page was open: that visit ends,
+    // and the page starts over for this one.
+    if (_owner != null && !_current(_owner)) _end();
     if (_owner == null) {
       // A new visit: today, for the account signed in now.
       _owner = _notifier.captureOwner();
@@ -295,6 +298,8 @@ class CalendarSettingsPages extends SettingsPageModule {
       if (l10n == null || _owner == null) return;
       await _drawMonth(l10n);
       if (_calendarsShown) await _drawCalendars(l10n);
+      // Events read for another account are not drawn again for this one.
+      if (!_current(_owner)) return;
       for (final view in _events.values.toList()) {
         await _drawEvent(l10n, view);
       }
@@ -363,7 +368,19 @@ class CalendarSettingsPages extends SettingsPageModule {
         scheduledTasksOpen: _ref.read(automationsAvailableProvider),
       ),
     );
-    await _surface.applyDetail(built.page, detailSheets: built.leadsTo);
+    await _surface.applyDetail(
+      built.page,
+      detailSheets: _unknown(built.leadsTo),
+    );
+  }
+
+  /// [pages] not drawn yet: an editor or form open on top keeps its rows.
+  List<NativeSheetDetailConfig> _unknown(List<NativeSheetDetailConfig> pages) {
+    final known = _ref.read(settingsPagesProvider);
+    return [
+      for (final page in pages)
+        if (!known.contains(page.id)) page,
+    ];
   }
 
   /// Shows [day], paging the grid to its month when it is in another.
@@ -403,7 +420,8 @@ class CalendarSettingsPages extends SettingsPageModule {
     final chatId = entry.resultChatId;
     if (channelId == null && chatId == null) return;
     final bridge = NativeSheetBridge.instance;
-    if (bridge.settingsSheetOpen) await bridge.dismiss();
+    // Settings that did not close stays where it is, with nothing behind it.
+    if (bridge.settingsSheetOpen && !await bridge.dismiss()) return;
     if (!_notifier.isCurrentOwner(owner!)) return;
     if (channelId != null) {
       NavigationService.router.goNamed(
@@ -754,11 +772,14 @@ class CalendarSettingsPages extends SettingsPageModule {
           : currentEnd.compareTo(wall) < 0;
       if (before) {
         final length = draft.allDay
-            ? Duration.zero
+            ? currentEnd.dateOnly.fields
+                  .difference(draft.start.dateOnly.fields)
+                  .abs()
             : currentEnd.fields.difference(draft.start.fields).abs();
         next = next.copyWith(
           end: draft.allDay
-              ? wall.dateOnly
+              // Its days, from the new first one.
+              ? wall.dateOnly.addDays(length.inDays)
               : CalendarWallTime.fromFields(wall.fields.add(length)),
         );
       }
@@ -1029,7 +1050,10 @@ class CalendarSettingsPages extends SettingsPageModule {
         failure: _failure,
       ),
     );
-    await _surface.applyDetail(built.page, detailSheets: built.leadsTo);
+    await _surface.applyDetail(
+      built.page,
+      detailSheets: _unknown(built.leadsTo),
+    );
   }
 
   /// Shows or hides calendar [id]'s events. At least one calendar stays

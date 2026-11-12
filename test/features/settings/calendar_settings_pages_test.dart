@@ -454,6 +454,33 @@ void main() {
       );
     });
 
+    testWidgets('an all-day span moved past its end keeps its days', (
+      tester,
+    ) async {
+      final rig = await _open(tester);
+      await rig.open(newEditor);
+      await rig.change(row('all-day'), true);
+      await rig.change(row('end-date'), '2026-10-08T00:00:00.000');
+
+      await rig.change(row('start-date'), '2026-10-10T00:00:00.000');
+
+      expect(
+        rig.row(newEditor, row('end-date')).value,
+        startsWith('2026-10-12'),
+      );
+    });
+
+    testWidgets('an editor open over the month keeps its rows as the month '
+        'is drawn again', (tester) async {
+      final rig = await _open(tester);
+      await rig.open(newEditor);
+      await rig.change(row('title'), 'Standup');
+
+      await rig.open(calendarMonthPageId);
+
+      expect(rig.row(newEditor, row('title')).value, 'Standup');
+    });
+
     testWidgets('a person found is added, which marks the editor edited', (
       tester,
     ) async {
