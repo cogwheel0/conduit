@@ -154,9 +154,11 @@ bool _messagesAreStreaming(List<ChatMessage> messages) {
 /// Used by router to avoid showing connection issues during active streaming.
 /// Uses select() to only rebuild when the streaming state actually changes,
 /// not on every content update to the message list.
-final isChatStreamingProvider = Provider<bool>((ref) {
+final isChatStreamingProvider = Provider<bool>(_isChatStreaming);
+
+bool _isChatStreaming(Ref ref) {
   return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
-});
+}
 
 /// Whether the newest reply streaming at the end of [messages], the one Stop
 /// stops, is someone other than [userId]'s, in a chat [ownerId] owns.
@@ -197,7 +199,9 @@ bool _runsAnswerOf(ChatMessage message, String? userId, String? ownerId) {
 /// offers to stop. In a chat shared with Allow replies another person's reply
 /// can be running; it streams here too, but only they can stop it, so
 /// Open WebUI's web client shows no Stop for it, and neither does Conduit.
-final isOwnChatStreamingProvider = Provider<bool>((ref) {
+final isOwnChatStreamingProvider = Provider<bool>(_isOwnChatStreaming);
+
+bool _isOwnChatStreaming(Ref ref) {
   if (!ref.watch(isChatStreamingProvider)) return false;
   final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
   final ownerId = ref.watch(
@@ -208,7 +212,7 @@ final isOwnChatStreamingProvider = Provider<bool>((ref) {
       (messages) => _onlyOthersAreStreaming(messages, userId, ownerId),
     ),
   );
-});
+}
 
 /// Platform hook used by [chatWakelockCoordinatorProvider]; tests swap it to
 /// observe toggles without a platform channel.
@@ -310,7 +314,11 @@ final chatWakelockCoordinatorProvider = Provider<void>((ref) {
   ref.onDispose(() => apply(false));
 });
 
-final shouldProtectLocalStreamingStateProvider = Provider<bool>((ref) {
+final shouldProtectLocalStreamingStateProvider = Provider<bool>(
+  _shouldProtectLocalStreamingState,
+);
+
+bool _shouldProtectLocalStreamingState(Ref ref) {
   final isStreaming = ref.watch(isChatStreamingProvider);
   if (isStreaming) {
     return true;
@@ -321,7 +329,7 @@ final shouldProtectLocalStreamingStateProvider = Provider<bool>((ref) {
       (content) => content != null && content.isNotEmpty,
     ),
   );
-});
+}
 
 String? _connectedSocketSessionId(SocketService? socketService) {
   if (socketService?.isConnected != true) {

@@ -117,7 +117,11 @@ resolveChatFeatureDefaultsForTest({
   );
 }
 
-final _chatFeatureDefaultsProvider = Provider<_ChatFeatureDefaults>((ref) {
+final _chatFeatureDefaultsProvider = Provider<_ChatFeatureDefaults>(
+  _chatFeatureDefaults,
+);
+
+_ChatFeatureDefaults _chatFeatureDefaults(Ref ref) {
   final appSettings = ref.watch(appSettingsProvider);
   final selectedModel = ref.watch(selectedModelProvider);
   final directBinding = selectedModel == null
@@ -133,4 +137,4 @@ final _chatFeatureDefaultsProvider = Provider<_ChatFeatureDefaults>((ref) {
     userSettings: userSettings,
     model: selectedModel,
   );
-});
+}

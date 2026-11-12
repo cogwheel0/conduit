@@ -126,6 +126,7 @@ export 'package:conduit_core/providers/storage_providers.dart';
 part 'app_providers_active_chats_sync.dart';
 part 'app_providers_active_conversation.dart';
 part 'app_providers_api_service.dart';
+part 'app_providers_chat_session.dart';
 part 'app_providers_conversation_identity.dart';
 part 'app_providers_conversations.dart';
 part 'app_providers_current_user.dart';

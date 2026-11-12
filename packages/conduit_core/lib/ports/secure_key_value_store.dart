@@ -3,7 +3,7 @@
 /// Server tokens, API keys and the cookie jar live here, never in the
 /// ordinary preferences store. The backing store differs sharply by host:
 /// Keychain and the Android keystore on mobile, an AES-256-GCM file on
-/// desktop whose key comes from Electron's `safeStorage`.
+/// other hosts whose key the host keeps in the system's own secure store.
 ///
 /// The named-parameter shape mirrors how every existing call site already
 /// reads, so adopting the port is a change of declared type rather than a

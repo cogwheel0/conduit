@@ -500,7 +500,19 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
         approval: false,
       ),
     );
-    await _media.close();
+    // Ending is started from listeners and timers that drop its future, so
+    // a host port that fails to close is logged here, and the call still
+    // ends.
+    try {
+      await _media.close();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'media-close-failed',
+        scope: 'realtime/gpt-live',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
     await _states.close();
   }
 }

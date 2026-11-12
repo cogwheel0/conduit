@@ -11,7 +11,7 @@ import '../features/hermes/services/hermes_dashboard_cookie_store.dart';
 /// claiming generation-checked clear requirements and coordinating with the
 /// durable incomplete-logout fence is WebView bookkeeping, not business
 /// logic. The port is the seam; the helper is this host's implementation of
-/// it, and Electron will have a very different one.
+/// it, and another host has a very different one.
 class FlutterCookieJar implements CookieJarPort {
   const FlutterCookieJar();
 

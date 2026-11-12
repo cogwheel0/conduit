@@ -213,31 +213,43 @@ Future<void> runQueuedCompletion(
       messageId: assistantMessageId,
       admitted: admittedToolServers,
     );
-    final session = await api.sendMessageSession(
-      messages: requestMessages,
-      model: effectiveModelId,
-      conversationId: owner.chatId,
-      terminalId: terminalId,
-      toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
-      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
-      enableWebSearch: enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-      enableCodeInterpreter: enableCodeInterpreter,
-      isVoiceMode: isVoiceMode,
-      modelItem: modelItem,
-      sessionIdOverride: socketSessionId,
-      toolServers: toolServers,
-      backgroundTasks: bgTasks,
-      responseMessageId: assistantMessageId,
-      userSettings: userSettingsData,
-      globalParams: turnSettings.baseline?.globalParams,
-      chatParams: turnSettings.chatParams,
-      reasoningEffort: turnSettings.reasoningEffort,
-      parentId: parentMsgMap?['parentId']?.toString(),
-      userMessage: parentMsgMap,
-      variables: promptVars2,
-      files: _extractTopLevelRequestFiles(parentMsgMap),
-    );
+    final ChatCompletionSession session;
+    try {
+      session = await api.sendMessageSession(
+        messages: requestMessages,
+        model: effectiveModelId,
+        conversationId: owner.chatId,
+        terminalId: terminalId,
+        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+        filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+        enableWebSearch: enableWebSearch,
+        enableImageGeneration: enableImageGeneration,
+        enableCodeInterpreter: enableCodeInterpreter,
+        isVoiceMode: isVoiceMode,
+        modelItem: modelItem,
+        sessionIdOverride: socketSessionId,
+        toolServers: toolServers,
+        backgroundTasks: bgTasks,
+        responseMessageId: assistantMessageId,
+        userSettings: userSettingsData,
+        globalParams: turnSettings.baseline?.globalParams,
+        chatParams: turnSettings.chatParams,
+        reasoningEffort: turnSettings.reasoningEffort,
+        parentId: parentMsgMap?['parentId']?.toString(),
+        userMessage: parentMsgMap,
+        variables: promptVars2,
+        files: _extractTopLevelRequestFiles(parentMsgMap),
+      );
+    } on ChatCompletionHttpException catch (refusal) {
+      if (refusal.mayPassLater) rethrow;
+      await _settleRefusedOpenWebUiCompletion(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        refusal: refusal,
+        live: true,
+      );
+    }
     await _markAcceptedOpenWebUiCompletionOrAbort(
       ref,
       session: session,
@@ -505,31 +517,43 @@ Future<void> runHeadlessCompletion(
     messageId: assistantMessageId,
     admitted: admittedToolServers,
   );
-  final session = await api.sendMessageSession(
-    messages: requestMessages,
-    model: effectiveModelId,
-    conversationId: owner.chatId,
-    terminalId: terminalId,
-    toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
-    filterIds: filterIds.isNotEmpty ? filterIds : null,
-    enableWebSearch: enableWebSearch,
-    enableImageGeneration: enableImageGeneration,
-    enableCodeInterpreter: enableCodeInterpreter,
-    isVoiceMode: isVoiceMode,
-    modelItem: modelItem,
-    sessionIdOverride: socketSessionId,
-    toolServers: toolServers,
-    backgroundTasks: bgTasks,
-    responseMessageId: assistantMessageId,
-    userSettings: userSettingsData,
-    globalParams: turnSettings.baseline?.globalParams,
-    chatParams: turnSettings.chatParams,
-    reasoningEffort: turnSettings.reasoningEffort,
-    parentId: parentMsgMap?['parentId']?.toString(),
-    userMessage: parentMsgMap,
-    variables: promptVars,
-    files: _extractTopLevelRequestFiles(parentMsgMap),
-  );
+  final ChatCompletionSession session;
+  try {
+    session = await api.sendMessageSession(
+      messages: requestMessages,
+      model: effectiveModelId,
+      conversationId: owner.chatId,
+      terminalId: terminalId,
+      toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+      filterIds: filterIds.isNotEmpty ? filterIds : null,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
+      enableCodeInterpreter: enableCodeInterpreter,
+      isVoiceMode: isVoiceMode,
+      modelItem: modelItem,
+      sessionIdOverride: socketSessionId,
+      toolServers: toolServers,
+      backgroundTasks: bgTasks,
+      responseMessageId: assistantMessageId,
+      userSettings: userSettingsData,
+      globalParams: turnSettings.baseline?.globalParams,
+      chatParams: turnSettings.chatParams,
+      reasoningEffort: turnSettings.reasoningEffort,
+      parentId: parentMsgMap?['parentId']?.toString(),
+      userMessage: parentMsgMap,
+      variables: promptVars,
+      files: _extractTopLevelRequestFiles(parentMsgMap),
+    );
+  } on ChatCompletionHttpException catch (refusal) {
+    if (refusal.mayPassLater) rethrow;
+    await _settleRefusedOpenWebUiCompletion(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+      refusal: refusal,
+      live: false,
+    );
+  }
   await _markAcceptedOpenWebUiCompletionOrAbort(
     ref,
     session: session,
@@ -543,6 +567,70 @@ Future<void> runHeadlessCompletion(
     owner: owner,
     assistantMessageId: assistantMessageId,
     submissionAlreadyMarked: true,
+  );
+}
+
+/// Settles a queued Open WebUI turn whose completion request the server
+/// refused with an error status, as the inline send settles the chat on
+/// screen: the answer shows the server's words, its stored row is marked
+/// refused, and [SyncTerminalException] parks the op.
+///
+/// Without this a refusal went back to the outbox as a transient failure:
+/// the answer streamed on with nothing behind it while the drainer sent the
+/// same refused request four more times, then parked it with the answer
+/// still open. Nothing reached a model, so there is nothing to pull; a saved
+/// answer the server finished despite the status was already recovered by
+/// the API before the refusal was thrown. A status a later attempt may pass
+/// ([ChatCompletionHttpException.mayPassLater]) still goes back to the outbox
+/// to be sent again.
+Future<Never> _settleRefusedOpenWebUiCompletion(
+  dynamic ref, {
+  required OpenWebUiCompletionOwner owner,
+  required String assistantMessageId,
+  required ChatCompletionHttpException refusal,
+  required bool live,
+}) async {
+  DebugLogger.log(
+    'queued-completion-refused',
+    scope: 'chat/completion',
+    data: {
+      'chatId': owner.chatId,
+      'assistantMessageId': assistantMessageId,
+      'status': refusal.statusCode,
+    },
+  );
+  // Only while the chat is still the one this scope shows: the user may
+  // have opened another while the request was out.
+  if (live && activeOpenWebUiChatIdForMutation(ref, owner) != null) {
+    (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+        .failLastStreamingAssistant(
+          refusal,
+          assistantMessageId: assistantMessageId,
+        );
+  }
+  try {
+    // Under the chat lock, queued behind the live failure's own echo write,
+    // so that echo cannot replace the marker.
+    final locks = ref.read(chatLocksProvider) as ChatLocks;
+    await locks.runExclusive(owner.chatId, () async {
+      await owner.database?.messagesDao.markAssistantCompletionRefused(
+        chatId: owner.chatId,
+        messageId: assistantMessageId,
+        error: chatErrorContentForException(refusal),
+      );
+    });
+  } catch (cause, stackTrace) {
+    DebugLogger.error(
+      'refused-completion-marker-failed',
+      scope: 'chat/completion',
+      error: cause,
+      stackTrace: stackTrace,
+    );
+  }
+  _checkSessionAfterRefusedCompletion(ref, refusal);
+  throw SyncTerminalException(
+    statusCode: refusal.statusCode,
+    message: refusal.toString(),
   );
 }
 

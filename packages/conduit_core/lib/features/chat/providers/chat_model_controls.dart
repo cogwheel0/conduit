@@ -142,13 +142,15 @@ ModelControlChoices _withChoice(
 
 /// The selected model's controls, each with the option that applies now.
 /// Empty while the picks are loading or the model has no controls.
-final selectedModelControlStatesProvider = Provider<List<ModelControlState>>((
-  ref,
-) {
+final selectedModelControlStatesProvider = Provider<List<ModelControlState>>(
+  _selectedModelControlStates,
+);
+
+List<ModelControlState> _selectedModelControlStates(Ref ref) {
   final model = ref.watch(selectedModelProvider);
   if (modelControlsOf(model).isEmpty) return const <ModelControlState>[];
   final choices =
       ref.watch(modelControlChoicesProvider).asData?.value ??
       const <String, Map<String, String>>{};
   return modelControlStates(model, choices);
-});
+}

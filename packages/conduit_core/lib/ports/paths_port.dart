@@ -2,8 +2,8 @@ import 'dart:io';
 
 /// Where the core may write.
 ///
-/// The Flutter app asks `path_provider`; the daemon is handed Electron's
-/// `userData` and lays out subdirectories beneath it. Neither answer belongs
+/// The Flutter app asks `path_provider`; another host can hand the core a data
+/// directory and lay out subdirectories beneath it. Neither answer belongs
 /// in a cache manager or a log rotator.
 abstract interface class PathsPort {
   /// Durable, user-private storage. Backed up on mobile; the database and the

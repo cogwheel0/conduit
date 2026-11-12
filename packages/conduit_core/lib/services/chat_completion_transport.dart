@@ -15,6 +15,16 @@ final class ChatCompletionHttpException implements Exception {
   /// 401 or 403 through, so only the session endpoint can tell them apart.
   bool get mayRejectSession => statusCode == 401 || statusCode == 403;
 
+  /// Whether a later attempt may well be answered: a timeout, a rate limit,
+  /// or a gateway in front of the server that could not reach it. A queued
+  /// completion is sent again for these rather than settled as refused.
+  bool get mayPassLater =>
+      statusCode == 408 ||
+      statusCode == 429 ||
+      statusCode == 502 ||
+      statusCode == 503 ||
+      statusCode == 504;
+
   @override
   String toString() => 'Chat completion failed ($statusCode): $detail';
 }

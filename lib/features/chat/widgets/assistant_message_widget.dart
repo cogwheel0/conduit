@@ -20,6 +20,8 @@ import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
     show installedModelLogoCatalog;
 import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart'
+    show markStandaloneBase64Images, stripAssistantContentPlaceholders;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart'
     show isHermesInlineDiffItem;
@@ -114,11 +116,6 @@ import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
 
-// Wrap only standalone base64 image lines so <details> attributes stay intact.
-final _standaloneBase64ImagePattern = RegExp(
-  r'(^|\n)([ \t]*)(data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+)(?=(?:[ \t]*\n|$))',
-  multiLine: true,
-);
 final _ttsDetailsPattern = RegExp(
   r'<details[^>]*>[\s\S]*?<\/details>',
   caseSensitive: false,
@@ -512,16 +509,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : (streamingContent ?? overrideContent ?? widget.message.content ?? '');
 
     // Strip any leftover placeholders from content before parsing
-    const ti = '[TYPING_INDICATOR]';
-    const searchBanner = '🔍 Searching the web...';
-    String raw = raw0;
-    if (raw.startsWith(ti)) {
-      raw = raw.substring(ti.length);
-    }
-    if (raw.startsWith(searchBanner)) {
-      raw = raw.substring(searchBanner.length);
-    }
-    return raw;
+    return stripAssistantContentPlaceholders(raw0);
   }
 
   void _queueDisplayedContentRefresh([String? overrideContent]) {
@@ -2082,18 +2070,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return widget.message.usage;
   }
 
-  String _processContentForImages(String content) {
-    if (!content.contains('data:image/')) {
-      return content;
-    }
-
-    return content.replaceAllMapped(_standaloneBase64ImagePattern, (match) {
-      final linePrefix = match.group(1) ?? '';
-      final indentation = match.group(2) ?? '';
-      final imageData = match.group(3)!;
-      return '$linePrefix$indentation![Generated Image]($imageData)';
-    });
-  }
+  String _processContentForImages(String content) =>
+      markStandaloneBase64Images(content);
 
   Widget _buildAttachmentItems() {
     if (widget.message.attachmentIds == null ||

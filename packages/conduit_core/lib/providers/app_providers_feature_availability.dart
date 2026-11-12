@@ -205,7 +205,11 @@ bool _modelSupportsFeature(Model? model, String featureKey) {
   return true;
 }
 
-final imageGenerationAvailableProvider = Provider<bool>((ref) {
+final imageGenerationAvailableProvider = Provider<bool>(
+  _imageGenerationAvailable,
+);
+
+bool _imageGenerationAvailable(Ref ref) {
   final selectedModel = ref.watch(selectedModelProvider);
   // LibreChat turns carry no Open WebUI feature toggles; its own tools are
   // offered by the LibreChat tool selection.
@@ -236,13 +240,15 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
     // Permissions unavailable (loading, error, older server) — assume available.
     orElse: () => true,
   );
-});
+}
 
 /// How the selected Direct model would search the web, or `null` when the
 /// selected model is not a Direct model.
-final selectedDirectWebSearchModeProvider = Provider<DirectWebSearchMode?>((
-  ref,
-) {
+final selectedDirectWebSearchModeProvider = Provider<DirectWebSearchMode?>(
+  _selectedDirectWebSearchMode,
+);
+
+DirectWebSearchMode? _selectedDirectWebSearchMode(Ref ref) {
   final selectedModel = ref.watch(selectedModelProvider);
   if (selectedModel == null || !hasReservedDirectIdentity(selectedModel)) {
     return null;
@@ -250,9 +256,11 @@ final selectedDirectWebSearchModeProvider = Provider<DirectWebSearchMode?>((
   final binding = ref.watch(directModelRegistryProvider).resolve(selectedModel);
   if (binding == null) return DirectWebSearchMode.unavailable;
   return directWebSearchModeFor(binding: binding, model: selectedModel);
-});
+}
 
-final webSearchAvailableProvider = Provider<bool>((ref) {
+final webSearchAvailableProvider = Provider<bool>(_webSearchAvailable);
+
+bool _webSearchAvailable(Ref ref) {
   final selectedModel = ref.watch(selectedModelProvider);
   if (selectedModel != null && isLibreChatModel(selectedModel)) return false;
   final directMode = ref.watch(selectedDirectWebSearchModeProvider);
@@ -275,7 +283,7 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
     return false;
   }
   return _openWebUiAllowsWebSearch(ref);
-});
+}
 
 /// The Open WebUI server's web search switch and the user's permission.
 bool _openWebUiAllowsWebSearch(Ref ref) {

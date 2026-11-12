@@ -376,7 +376,20 @@ final libreChatDatabaseManagerProvider = Provider<DatabaseManager>((ref) {
       }),
     );
   }
-  ref.onDispose(() => unawaited(manager.closeActive()));
+  // On dispose nobody can wait for the close: a failed one is logged, not
+  // left to escape.
+  ref.onDispose(
+    () => unawaited(
+      manager.closeActive().catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'close-active-failed',
+          scope: 'librechat/accounts',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    ),
+  );
   return manager;
 });
 

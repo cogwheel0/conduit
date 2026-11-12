@@ -7,8 +7,8 @@ import 'package:drift/drift.dart';
 /// The core owns the schema, the migrations and the FTS DDL, but it must not
 /// know whether it is running inside a Flutter app or the `conduitd` sidecar.
 /// Those two answer "where does this file go" very differently — `drift_flutter`
-/// plus `path_provider` on mobile, an Electron-supplied `userData` directory on
-/// desktop — and only this port sees the difference.
+/// plus `path_provider` on mobile, a data directory the sidecar's host hands
+/// it — and only this port sees the difference.
 ///
 /// Implementations live outside the core: `lib/platform/` for the Flutter app
 /// and `apps/daemon` for the desktop sidecar.

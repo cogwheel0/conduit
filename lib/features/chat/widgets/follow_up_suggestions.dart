@@ -1,4 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart'
+    show visibleFollowUps;
 import 'package:flutter/widgets.dart';
 
 import '../../../core/services/haptic_service.dart';
@@ -31,11 +33,7 @@ class FollowUpSuggestionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final trimmedSuggestions = suggestions
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .take(3)
-        .toList(growable: false);
+    final trimmedSuggestions = visibleFollowUps(suggestions);
 
     if (trimmedSuggestions.isEmpty) {
       return const SizedBox.shrink();

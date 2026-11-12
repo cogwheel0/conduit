@@ -4,8 +4,9 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
+import 'package:conduit_core/features/chat/views/chat_status_display.dart';
 import 'package:conduit_core/models/chat_message.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/services/raster_media_policy.dart';
 import '../../../l10n/app_localizations.dart';
@@ -14,25 +15,8 @@ import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
 
-List<ChatStatusUpdate> filterVisibleStatusUpdates(
-  List<ChatStatusUpdate> updates, {
-  required bool isStreaming,
-}) {
-  final visible = updates
-      .where((u) => u.hidden != true)
-      .toList(growable: false);
-  if (isStreaming) {
-    return visible;
-  }
-  final settled = visible.where((u) => u.done != false).toList(growable: false);
-  if (settled.isEmpty && visible.isNotEmpty) {
-    // A turn whose only status updates never reported done would drop the
-    // whole status row at settle — a visible layout jump — and lose the best
-    // description of what the turn did. Keep the last update instead.
-    return [visible.last];
-  }
-  return settled;
-}
+export 'package:conduit_core/features/chat/views/chat_status_display.dart'
+    show filterVisibleStatusUpdates;
 
 /// A minimal, unobtrusive streaming status widget inspired by OpenWebUI.
 /// Displays live status updates during AI response generation without
@@ -554,7 +538,7 @@ class _MinimalQueryChips extends StatelessWidget {
 class _MinimalSourceLinks extends StatelessWidget {
   const _MinimalSourceLinks({required this.links});
 
-  final List<_LinkData> links;
+  final List<StatusLink> links;
 
   @override
   Widget build(BuildContext context) {
@@ -575,7 +559,7 @@ class _MinimalSourceLinks extends StatelessWidget {
         ...displayLinks.asMap().entries.map((entry) {
           final index = entry.key;
           final link = entry.value;
-          final domain = _extractDomain(link.url);
+          final domain = statusLinkDomain(link.url);
 
           return GestureDetector(
             onTap: () => launchExternalLink(link.url, scope: 'status'),
@@ -642,14 +626,6 @@ class _MinimalSourceLinks extends StatelessWidget {
       ],
     );
   }
-
-  String _extractDomain(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null || uri.host.isEmpty) return url;
-    var host = uri.host;
-    if (host.startsWith('www.')) host = host.substring(4);
-    return host;
-  }
 }
 
 Widget _statusItemEntrance(
@@ -663,156 +639,34 @@ Widget _statusItemEntrance(
   return child.animate().fadeIn(duration: 150.ms, delay: (30 * index).ms);
 }
 
-// Helper classes and functions
+// The status rules live in core (chat_status_display.dart), shared with
+// every other client; these keep this file's call sites short.
 
-class _LinkData {
-  const _LinkData({required this.url, this.title});
-  final String url;
-  final String? title;
-}
+List<String> _collectQueries(ChatStatusUpdate update) =>
+    collectStatusQueries(update);
 
-List<String> _collectQueries(ChatStatusUpdate update) {
-  final merged = <String>[];
-  for (final query in update.queries) {
-    final trimmed = query.trim();
-    if (trimmed.isNotEmpty && !merged.contains(trimmed)) {
-      merged.add(trimmed);
-    }
-  }
-  final single = update.query?.trim();
-  if (single != null && single.isNotEmpty && !merged.contains(single)) {
-    merged.add(single);
-  }
-  return merged;
-}
+List<ChatStatusItem> _collectDetailItems(ChatStatusUpdate update) =>
+    collectStatusDetailItems(update);
 
-List<ChatStatusItem> _collectDetailItems(ChatStatusUpdate update) => update
-    .items
-    .where((item) => item.presentation == ChatStatusItemPresentation.detail)
-    .where((item) => item.title?.isNotEmpty == true && item.snippet != null)
-    // An edit's diff shows as the reply's changed-files card instead.
-    .where((item) => !isHermesInlineDiffItem(item))
-    .take(4)
-    .toList(growable: false);
+List<StatusLink> _collectLinks(ChatStatusUpdate update) =>
+    collectStatusLinks(update);
 
-List<_LinkData> _collectLinks(ChatStatusUpdate update) {
-  final links = <_LinkData>[];
-
-  for (final item in update.items) {
-    final url = item.link;
-    if (url != null && url.isNotEmpty) {
-      links.add(_LinkData(url: url, title: item.title));
-    }
-  }
-
-  for (final url in update.urls) {
-    if (url.isNotEmpty && !links.any((l) => l.url == url)) {
-      links.add(_LinkData(url: url));
-    }
-  }
-
-  return links;
-}
-
-bool _isHermesToolUpdate(ChatStatusUpdate update) =>
-    update.action?.startsWith('hermes_tool_') ?? false;
+bool _isHermesToolUpdate(ChatStatusUpdate update) => isHermesToolStatus(update);
 
 String _buildHermesToolGroupTitle(
   BuildContext context,
   List<ChatStatusUpdate> updates,
   bool isStreaming,
 ) {
-  final counts = <String, int>{};
-  for (final update in updates) {
-    final action = update.action!;
-    final actionName = action.substring('hermes_tool_'.length);
-    final description = update.description?.trim();
-    final name = actionName.startsWith('opaque')
-        ? description?.split(RegExp(r'\s(?:·|failed)')).first.trim() ??
-              AppLocalizations.of(context)!.markdownDetailsGroupUnnamedTool
-        : actionName;
-    counts[name] = (counts[name] ?? 0) + 1;
-  }
-
-  final summary = counts.entries
-      .map(
-        (entry) =>
-            entry.value > 1 ? '${entry.key} (${entry.value})' : entry.key,
-      )
-      .join(', ');
   final l10n = AppLocalizations.of(context)!;
+  final summary = hermesToolGroupSummary(
+    updates,
+    unnamedTool: l10n.markdownDetailsGroupUnnamedTool,
+  );
   return isStreaming && updates.any((update) => update.done != true)
       ? l10n.markdownDetailsGroupPendingTitle(summary)
       : l10n.markdownDetailsGroupCompleteTitle(summary);
 }
 
-String _resolveStatusDescription(ChatStatusUpdate update) {
-  final description = update.description?.trim();
-  final action = update.action?.trim();
-
-  if (action == 'knowledge_search' && update.query?.isNotEmpty == true) {
-    return 'Searching Knowledge for "${update.query}"';
-  }
-
-  if (action == 'web_search_queries_generated' && update.queries.isNotEmpty) {
-    return 'Searching';
-  }
-
-  if (action == 'queries_generated' && update.queries.isNotEmpty) {
-    return 'Querying';
-  }
-
-  if (action == 'sources_retrieved' && update.count != null) {
-    final count = update.count!;
-    if (count == 0) return 'No sources found';
-    if (count == 1) return 'Retrieved 1 source';
-    return 'Retrieved $count sources';
-  }
-
-  if (description != null && description.isNotEmpty) {
-    if (description == 'Generating search query') {
-      return 'Generating search query';
-    }
-    if (description == 'No search query generated') {
-      return 'No search query generated';
-    }
-    if (description == 'Searching the web') {
-      return 'Searching the web';
-    }
-    return _replaceStatusPlaceholders(description, update);
-  }
-
-  if (action != null && action.isNotEmpty) {
-    return action.replaceAll('_', ' ').capitalize();
-  }
-
-  return 'Processing';
-}
-
-String _replaceStatusPlaceholders(String template, ChatStatusUpdate update) {
-  var result = template;
-
-  if (result.contains('{{count}}')) {
-    final count = update.count ?? update.urls.length + update.items.length;
-    result = result.replaceAll(
-      '{{count}}',
-      count > 0 ? count.toString() : 'multiple',
-    );
-  }
-
-  if (result.contains('{{searchQuery}}')) {
-    final query = update.query?.trim();
-    if (query != null && query.isNotEmpty) {
-      result = result.replaceAll('{{searchQuery}}', query);
-    }
-  }
-
-  return result;
-}
-
-extension _StringExtension on String {
-  String capitalize() {
-    if (isEmpty) return this;
-    return '${this[0].toUpperCase()}${substring(1)}';
-  }
-}
+String _resolveStatusDescription(ChatStatusUpdate update) =>
+    resolveStatusDescription(update);

@@ -30,7 +30,11 @@ final codeInterpreterEnabledProvider =
 
 /// Whether the interpreter may run for the selected model right now, or why
 /// not. Null means it may.
-final codeInterpreterBlockProvider = Provider<CodeInterpreterBlock?>((ref) {
+final codeInterpreterBlockProvider = Provider<CodeInterpreterBlock?>(
+  _codeInterpreterBlock,
+);
+
+CodeInterpreterBlock? _codeInterpreterBlock(Ref ref) {
   final api = ref.watch(apiServiceProvider);
   final model = ref.watch(selectedModelProvider);
   if (api == null ||
@@ -49,7 +53,7 @@ final codeInterpreterBlockProvider = Provider<CodeInterpreterBlock?>((ref) {
     model: model,
     terminalId: ref.watch(selectedTerminalIdProvider),
   );
-});
+}
 
 /// What the composer shows for the interpreter, or null for nothing.
 ///
@@ -60,7 +64,11 @@ final codeInterpreterBlockProvider = Provider<CodeInterpreterBlock?>((ref) {
 /// reach an Open WebUI server get no offer.
 typedef CodeInterpreterOffer = ({bool selected, CodeInterpreterBlock? block});
 
-final codeInterpreterOfferProvider = Provider<CodeInterpreterOffer?>((ref) {
+final codeInterpreterOfferProvider = Provider<CodeInterpreterOffer?>(
+  _codeInterpreterOffer,
+);
+
+CodeInterpreterOffer? _codeInterpreterOffer(Ref ref) {
   final selected = ref.watch(codeInterpreterEnabledProvider);
   final block = ref.watch(codeInterpreterBlockProvider);
   if (block == CodeInterpreterBlock.notOpenWebUi) return null;
@@ -70,7 +78,7 @@ final codeInterpreterOfferProvider = Provider<CodeInterpreterOffer?>((ref) {
     appSettingsProvider.select((settings) => settings.advancedFeaturesEnabled),
   );
   return advanced ? (selected: false, block: block) : null;
-});
+}
 
 /// Why Open WebUI's code interpreter cannot run a turn.
 enum CodeInterpreterBlock {

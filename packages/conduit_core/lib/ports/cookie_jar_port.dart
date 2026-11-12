@@ -2,7 +2,7 @@
 ///
 /// Proxy auth (oauth2-proxy, Authelia, Authentik, Cloudflare Tunnel) and SSO
 /// finish somewhere the core does not own: an in-app WebView on mobile, a
-/// separate Electron window on desktop. Both leave cookies the API client
+/// separate sign-in window on other hosts. Both leave cookies the API client
 /// must replay, and both need purging on sign-out.
 ///
 /// Every method returns whether it *succeeded*, not just that it ran. A

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/voice/voice_session.dart';
 
 import 'bridge_call_host.dart';
@@ -876,8 +877,20 @@ final class BridgeCallEngine implements RealtimeCallEngine {
         outputLevel: 0,
       ),
     );
-    await _transport.close();
-    await _audio.stop();
+    // Ending is started from listeners and timers that drop its future, so
+    // a transport or host port that fails to close is logged here, and the
+    // call still ends.
+    try {
+      await _transport.close();
+      await _audio.stop();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'close-failed',
+        scope: 'realtime/bridge',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
     await _writes.timeout(const Duration(seconds: 10), onTimeout: () {});
     await _states.close();
   }

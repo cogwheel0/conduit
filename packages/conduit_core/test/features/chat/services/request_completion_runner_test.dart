@@ -19,6 +19,8 @@ import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
+import 'package:conduit_core/testing.dart';
+
 /// Targeted guards for [ChatRequestCompletionRunner] (Wiring D / R3 / R5).
 ///
 /// These cover the no-stream control paths the runner takes BEFORE re-entering
@@ -531,6 +533,98 @@ void main() {
     ).equals(bSnapshot);
     check(chatStorageKindOf(container.read(activeConversationProvider)))
         .equals(ChatStorageKind.directLocal);
+  });
+
+  group('with a chat open in a chat session scope', () {
+    /// A root whose own open chat is another one, so only a scope can stream
+    /// [chatId] live.
+    ({ChatSessionScope scope, RequestCompletionRunner runner}) scoped(
+      String chatId,
+    ) {
+      final runnerProvider = Provider<RequestCompletionRunner>(
+        (ref) => ChatRequestCompletionRunner(ref),
+      );
+      final root = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(database: db),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(root.dispose);
+      root.read(activeConversationProvider.notifier).set(conv('root-chat'));
+      final scope = ChatSessionScope.open(root);
+      addTearDown(scope.dispose);
+      scope.container
+          .read(activeConversationProvider.notifier)
+          .set(conv(chatId));
+      return (scope: scope, runner: root.read(runnerProvider));
+    }
+
+    test('drives the scope live instead of running headless', () async {
+      const chatId = 'chat-in-scope';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-scope', '');
+      final (:scope, :runner) = scoped(chatId);
+      scope.container.read(chatMessagesProvider.notifier).setMessages([
+        ChatMessage(
+          id: 'user-scope',
+          role: 'user',
+          content: 'hello',
+          timestamp: DateTime.now(),
+        ),
+        ChatMessage(
+          id: 'asst-scope',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+        ),
+      ]);
+
+      // With no API in this harness the live drive stops at its own guard,
+      // which names it: the headless path's guard names itself instead.
+      await check(runner.run(chatId: chatId, payload: payload('asst-scope')))
+          .throws<StateError>(
+            (it) => it
+                .has((error) => error.message, 'message')
+                .contains('runQueuedCompletion'),
+          );
+    });
+
+    test('defers while the scope streams another answer', () async {
+      const chatId = 'chat-scope-busy';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-queued', '');
+      final (:scope, :runner) = scoped(chatId);
+      scope.container.read(chatMessagesProvider.notifier).setMessages([
+        ChatMessage(
+          id: 'asst-running',
+          role: 'assistant',
+          content: 'still answering',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+        ),
+      ]);
+
+      await check(runner.run(chatId: chatId, payload: payload('asst-queued')))
+          .throws<CompletionBusyException>();
+    });
+
+    test('runs headless once the scope is disposed', () async {
+      const chatId = 'chat-scope-gone';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-gone', '');
+      final (:scope, :runner) = scoped(chatId);
+      scope.dispose();
+
+      await check(runner.run(chatId: chatId, payload: payload('asst-gone')))
+          .throws<StateError>(
+            (it) => it
+                .has((error) => error.message, 'message')
+                .contains('runHeadlessCompletion'),
+          );
+    });
   });
 }
 
