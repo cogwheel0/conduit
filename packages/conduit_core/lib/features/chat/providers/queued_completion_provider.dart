@@ -363,9 +363,13 @@ _queuedCompletionDisplayEntries(
 }
 
 /// A pending op that genuinely waits: offline-deferred, or stalled across
-/// [_queuedCompletionStallAttempts] attempts.
+/// [_queuedCompletionStallAttempts] attempts. One being sent right now is
+/// not waiting, whatever its history: Retry and Cancel only reach a pending
+/// op, so it is not shown as queued.
 bool _queuedOpIsStuck(OutboxOp op) =>
-    op.lastError == 'offline' || op.attempts >= _queuedCompletionStallAttempts;
+    op.status == OutboxStatus.pending &&
+    (op.lastError == 'offline' ||
+        op.attempts >= _queuedCompletionStallAttempts);
 
 /// What one queued completion shows ([queuedCompletionDisplayOf]).
 final class QueuedCompletionDisplay {

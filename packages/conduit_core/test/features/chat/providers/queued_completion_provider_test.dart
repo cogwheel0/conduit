@@ -934,5 +934,22 @@ void main() {
         ..has((d) => d.isFailed, 'isFailed').isFalse()
         ..has((d) => d.lastError, 'lastError').equals('nope');
     });
+
+    test('an answer whose request is being sent now is not shown as queued, '
+        'however it fared before', () {
+      // Retry and Cancel only reach a pending op: shown, they would do
+      // nothing while this one is sent.
+      final shown = queuedCompletionDisplaysOf([
+        op(
+          OutboxKind.requestCompletion,
+          answer: 'a1',
+          status: OutboxStatus.inFlight,
+          attempts: 3,
+          lastError: 'offline',
+        ),
+      ], isOnline: true);
+
+      check(shown).isEmpty();
+    });
   });
 }
