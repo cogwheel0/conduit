@@ -86,6 +86,9 @@ Future<void> editSettingsProfileField(
               : change.dateOfBirth ?? latest.dateOfBirth,
           timezone: latest.timezone,
         );
+    // Another account took over while it was sent: its Profile page is not
+    // this one's.
+    if (account != _ProfileAccount.read(ref)) return;
     await ref
         .read(settingsSurfaceProvider)
         .applyDetail(

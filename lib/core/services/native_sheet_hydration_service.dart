@@ -1033,6 +1033,10 @@ class NativeSheetHydrationService {
     BuildContext context,
     AppLocalizations l10n,
   ) async {
+    // The answer is for the account signed in as the page asked; another
+    // account's page is filled in by its own visit.
+    final api = _ref.read(apiServiceProvider);
+    final userId = _ref.read(currentUserProvider2)?.id;
     var allowed = true;
     try {
       final about = await _ref.read(serverAboutInfoProvider.future);
@@ -1046,7 +1050,12 @@ class NativeSheetHydrationService {
         stackTrace: stackTrace,
       );
     }
-    if (!context.mounted || (allowed && !_passwordPageIsLoading())) return;
+    if (!context.mounted ||
+        !identical(_ref.read(apiServiceProvider), api) ||
+        _ref.read(currentUserProvider2)?.id != userId) {
+      return;
+    }
+    if (allowed && !_passwordPageIsLoading()) return;
     await _applyNativeDetail(
       buildNativePasswordDetail(l10n, passwordChangeEnabled: allowed),
     );

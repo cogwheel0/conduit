@@ -108,6 +108,13 @@ class SettingsController {
 
   SettingsSurface get _surface => ref.read(settingsSurfaceProvider);
 
+  /// The account a row change belongs to: the user signed in, on the server
+  /// they are signed in to (both null with none).
+  (String?, String?) _controlOwner() => (
+    ref.read(currentUserProvider2)?.id,
+    ref.read(apiServiceProvider)?.serverConfig.id,
+  );
+
   void _forgetPages() {
     _nativeSheetDraftValues.clear();
     _passwordVisit++;
@@ -149,9 +156,14 @@ class SettingsController {
           ),
         );
       case NativeSheetControlChanged():
-        _nativeSheetControlQueue = _nativeSheetControlQueue.then(
-          (_) => _handleNativeSheetControlChanged(event, source),
-        );
+        // A change waits its turn behind the ones before it; by then another
+        // account may have taken over, and the change, made on a page of the
+        // last one, is dropped rather than sent to the new one.
+        final owner = _controlOwner();
+        _nativeSheetControlQueue = _nativeSheetControlQueue.then((_) {
+          if (owner != _controlOwner()) return null;
+          return _handleNativeSheetControlChanged(event, source);
+        });
       case NativeSheetDetailAppeared(:final detailId):
         // A password typed on an earlier visit is not combined with this one.
         if (detailId == 'password') _startPasswordVisit();

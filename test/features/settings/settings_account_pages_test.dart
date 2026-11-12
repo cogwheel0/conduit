@@ -14,6 +14,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'dart:async';
 
 import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/server_about_info.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -76,6 +77,9 @@ final class _Profile extends AccountProfile {
   /// Holds a password change back until completed, when set.
   Completer<void>? passwordGate;
 
+  /// Holds a profile save back until completed, when set.
+  Completer<void>? saveGate;
+
   @override
   Future<AccountMetadata?> build() async => cached;
 
@@ -106,6 +110,7 @@ final class _Profile extends AccountProfile {
     String? timezone,
   }) async {
     savedNames.add(name);
+    await saveGate?.future;
     return _profile(bio ?? '', name: name);
   }
 }
@@ -169,6 +174,7 @@ Future<_Rig> _pump(
   User? user,
   AccountMetadata? cached,
   AccountMetadata? fresh,
+  Future<ServerAboutInfo?> Function()? serverAbout,
 }) async {
   final signedIn = NotifierProvider<_SignedIn, User?>(
     () => _SignedIn(user ?? _user('a')),
@@ -180,7 +186,10 @@ Future<_Rig> _pump(
       apiServiceProvider.overrideWithValue(_Api()),
       accountProfileProvider.overrideWith(() => profile),
       // The server allows a password change.
-      serverAboutInfoProvider.overrideWith((ref) async => null),
+      // By default the server allows a password change.
+      serverAboutInfoProvider.overrideWith(
+        (ref) => (serverAbout ?? () async => null)(),
+      ),
     ],
   );
   addTearDown(container.dispose);
@@ -382,6 +391,72 @@ void main() {
       check(rig.page('password')!.subtitle).isNull();
     });
 
+    testWidgets("the last account's answer about password changes is not "
+        "put on the next one's page", (tester) async {
+      final answer = Completer<ServerAboutInfo?>();
+      final rig = await _pump(tester, serverAbout: () => answer.future);
+      final form = buildNativePasswordDetail(
+        _l10n,
+        passwordChangeEnabled: true,
+      );
+      rig.pages.register([form]);
+      final asking = rig.container
+          .read(nativeSheetHydrationServiceProvider)
+          .hydrateDetail('password');
+      await tester.pump();
+
+      // Another account signs in and its page is described before the
+      // last account's server answers.
+      rig.signIn(_user('b'));
+      await tester.pump();
+      rig.pages.register([form]);
+      answer.complete(
+        const ServerAboutInfo(
+          name: 'Server',
+          version: '1.0',
+          enablePasswordChangeForm: false,
+        ),
+      );
+      await asking;
+      await tester.pumpAndSettle();
+
+      check(rig.rows('password').map((row) => row.id))
+          .contains('current-password');
+    });
+
+    testWidgets("a change typed on the last account's page is not sent once "
+        'another takes over', (tester) async {
+      final rig = await _pump(tester);
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+      final gate = rig.profile.passwordGate = Completer<void>();
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+
+      // Typed again while the first change is on its way, then another
+      // account signs in before those wait their turn.
+      for (final (id, value) in [
+        ('current-password', 'next'),
+        ('new-password', 'later'),
+        ('confirm-password', 'later'),
+      ]) {
+        rig.container
+            .read(settingsControllerProvider)
+            .handle(
+              NativeSheetControlChanged(id: id, value: value),
+              source: SettingsEventSource.flutter,
+            );
+      }
+      rig.signIn(_user('b'));
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      check(rig.profile.passwordChanges)
+          .deepEquals([(password: 'old', newPassword: 'next')]);
+    });
+
     testWidgets('a page left open as another account takes over gets its '
         'form back', (tester) async {
       final rig = await _pump(
@@ -444,6 +519,32 @@ void main() {
       await save(tester);
 
       check(rig.profile.savedNames).deepEquals(['Grace']);
+    });
+
+    testWidgets("a save that lands after another account took over is not "
+        "put on that account's page", (tester) async {
+      final rig = await open(tester);
+      final gate = rig.profile.saveGate = Completer<void>();
+      await rename(tester, 'Grace');
+      await tester.tap(find.text(_l10n.save));
+      await tester.pumpAndSettle();
+      check(rig.profile.savedNames).deepEquals(['Grace']);
+
+      rig.signIn(_user('b'));
+      await tester.pump();
+      rig.pages.register([
+        buildNativeLoadingDetail(
+          l10n: _l10n,
+          id: NativeSheetRoutes.profile,
+          title: '',
+        ),
+      ]);
+      gate.complete();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+
+      check(rig.rows(NativeSheetRoutes.profile).map((row) => row.id))
+          .not((ids) => ids.contains('profile-name'));
     });
 
     testWidgets('save nothing once another account took over', (tester) async {
