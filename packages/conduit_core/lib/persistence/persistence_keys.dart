@@ -10,6 +10,7 @@ final class PreferenceKeys {
   static const String highContrast = 'high_contrast';
   static const String computerEnabled = 'computer_enabled';
   static const String showComposerNotesButton = 'show_composer_notes_button';
+  static const String showModelNameInComposer = 'show_model_name_in_composer';
 
   /// Device-wide: whether the Hermes chat list shows scheduled job runs.
   static const String hermesShowScheduledSessions =

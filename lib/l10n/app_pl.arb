@@ -9301,5 +9301,23 @@
     }
   },
   "hermesShowScheduledRunsAction": "Pokaż",
-  "voiceCallLibreChatUnavailable": "Połączenia głosowe nie są dostępne w czatach LibreChat."
+  "voiceCallLibreChatUnavailable": "Połączenia głosowe nie są dostępne w czatach LibreChat.",
+  "messageHintTextForModel": "Zapytaj {modelName}",
+  "@messageHintTextForModel": {
+    "description": "Placeholder in the chat message input naming the chat's selected model (its display name, cut short with an ellipsis after 24 characters). Falls back to messageHintText when no model is chosen.",
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "Pokazuj nazwę modelu w polu wiadomości",
+  "@showModelNameInComposer": {
+    "description": "Switch in Settings > Chat, with the message box settings: whether the empty message box names the selected model instead of Conduit."
+  },
+  "showModelNameInComposerDescription": "Puste pole wiadomości podaje nazwę wybranego modelu zamiast Conduit.",
+  "@showModelNameInComposerDescription": {
+    "description": "Explains the Show Model Name in Message Box switch in Settings > Chat."
+  }
 }

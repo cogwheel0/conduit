@@ -553,6 +553,28 @@ class AppCustomizationPage extends ConsumerWidget {
         CustomizationTile(
           leading: _buildIconBadge(
             context,
+            Icons.short_text,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.showModelNameInComposer,
+          subtitle: l10n.showModelNameInComposerDescription,
+          toggled: settings.showModelNameInComposer,
+          trailing: AdaptiveSwitch(
+            key: const Key('chat-composer-model-name-toggle'),
+            value: settings.showModelNameInComposer,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setShowModelNameInComposer(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setShowModelNameInComposer(!settings.showModelNameInComposer),
+        ),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
             Icons.history_toggle_off,
             color: theme.buttonPrimary,
           ),

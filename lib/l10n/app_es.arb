@@ -4924,5 +4924,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "Mostrar",
-  "voiceCallLibreChatUnavailable": "Las llamadas de voz no están disponibles en los chats de LibreChat."
+  "voiceCallLibreChatUnavailable": "Las llamadas de voz no están disponibles en los chats de LibreChat.",
+  "messageHintTextForModel": "Pregunta a {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "Mostrar el nombre del modelo en el cuadro de mensaje",
+  "showModelNameInComposerDescription": "El cuadro de mensaje vacío muestra el nombre del modelo seleccionado en lugar de Conduit."
 }

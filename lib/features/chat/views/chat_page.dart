@@ -36,6 +36,7 @@ import 'package:conduit_core/services/performance_profiler.dart';
 
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
 
@@ -4279,7 +4280,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       source: readOnlyHermesSource,
                     );
                   }
+                  final selectedModelName = composerRef.watch(
+                    selectedModelProvider.select(
+                      (model) =>
+                          model == null ? null : displayNameForModel(model),
+                    ),
+                  );
+                  final hermesBot = chatHermesBotPresentation(
+                    activeConversation,
+                  );
+                  final showModelName = composerRef.watch(
+                    appSettingsProvider.select(
+                      (settings) => settings.showModelNameInComposer,
+                    ),
+                  );
                   return ModernChatInput(
+                    placeholder: showModelName
+                        ? chatComposerPlaceholder(
+                            AppLocalizations.of(context)!,
+                            modelName: hermesBot?.title ?? selectedModelName,
+                          )
+                        : null,
                     onSendMessage: _handleMessageSend,
                     onSendDraft: _handleDraftSend,
                     onCompareSend: _handleCompareSend,
@@ -5426,6 +5447,31 @@ String _formatChatModelDisplayName(String name) =>
 @visibleForTesting
 String temporaryChatToolbarSymbol({required bool isTemporary}) =>
     isTemporary ? 'circle.dashed.inset.filled' : 'circle.dashed';
+
+/// The most characters of a model's name the composer's placeholder shows.
+/// A longer name ends in an ellipsis; the header's model pill shows it
+/// whole.
+@visibleForTesting
+const int kChatComposerPlaceholderMaxNameLength = 24;
+
+/// The composer's placeholder for a chat: "Ask" and the name of the model
+/// (or Hermes bot) it talks to, on one line and cut short past
+/// [kChatComposerPlaceholderMaxNameLength] characters. Null when there is
+/// no name, so the composer keeps its own "Ask Conduit".
+@visibleForTesting
+String? chatComposerPlaceholder(
+  AppLocalizations l10n, {
+  required String? modelName,
+}) {
+  final name = modelName?.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (name == null || name.isEmpty) return null;
+  final characters = name.characters;
+  const maxLength = kChatComposerPlaceholderMaxNameLength;
+  final shown = characters.length <= maxLength
+      ? name
+      : '${characters.take(maxLength - 1).toString().trimRight()}\u2026';
+  return l10n.messageHintTextForModel(shown);
+}
 
 /// The chat title the header shows once the transcript scrolls under it,
 /// or `null` while the chat has no real title yet.

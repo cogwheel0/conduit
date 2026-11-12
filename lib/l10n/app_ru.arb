@@ -4962,5 +4962,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "Показать",
-  "voiceCallLibreChatUnavailable": "Голосовые звонки недоступны в чатах LibreChat."
+  "voiceCallLibreChatUnavailable": "Голосовые звонки недоступны в чатах LibreChat.",
+  "messageHintTextForModel": "Спросите {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "Показывать название модели в поле сообщения",
+  "showModelNameInComposerDescription": "В пустом поле сообщения указывается выбранная модель вместо Conduit."
 }

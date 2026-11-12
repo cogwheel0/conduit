@@ -4924,5 +4924,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "Zeigen",
-  "voiceCallLibreChatUnavailable": "Sprachanrufe sind in LibreChat-Chats nicht verfügbar."
+  "voiceCallLibreChatUnavailable": "Sprachanrufe sind in LibreChat-Chats nicht verfügbar.",
+  "messageHintTextForModel": "Frag {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "Modellnamen im Nachrichtenfeld zeigen",
+  "showModelNameInComposerDescription": "Das leere Nachrichtenfeld nennt das ausgewählte Modell statt Conduit."
 }

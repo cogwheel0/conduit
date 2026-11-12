@@ -1861,6 +1861,14 @@ class NativeSheetHydrationService {
             kind: NativeSheetItemKind.toggle,
             value: appSettings.showComposerNotesButton,
           ),
+          NativeSheetItemConfig(
+            id: 'composer-model-name',
+            title: l10n.showModelNameInComposer,
+            subtitle: l10n.showModelNameInComposerDescription,
+            sfSymbol: 'text.cursor',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.showModelNameInComposer,
+          ),
         ],
       ),
       NativeSheetSectionConfig(

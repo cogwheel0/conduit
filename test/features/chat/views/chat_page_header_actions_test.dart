@@ -1,6 +1,7 @@
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/live_connection_button.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -18,11 +19,15 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -424,6 +429,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(container.read(temporaryChatEnabledProvider), isFalse);
     expect(find.text("This chat won't appear in history"), findsNothing);
+    await _tearDown(tester);
+  });
+
+  test('the composer asks the chat\'s model, or Conduit without one', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(
+      chatComposerPlaceholder(l10n, modelName: 'GPT-5 mini'),
+      'Ask GPT-5 mini',
+    );
+    // A name split over lines still reads as one.
+    expect(
+      chatComposerPlaceholder(l10n, modelName: ' Research\n Assistant '),
+      'Ask Research Assistant',
+    );
+    // A long name is cut short; the header's pill shows it whole.
+    final long = chatComposerPlaceholder(
+      l10n,
+      modelName: 'research-assistant-with-a-long-name-v2-instruct',
+    );
+    expect(long, 'Ask research-assistant-with\u2026');
+    expect(
+      long!.substring('Ask '.length).characters.length,
+      kChatComposerPlaceholderMaxNameLength,
+    );
+    // Whole characters only: an emoji is never split.
+    expect(
+      chatComposerPlaceholder(
+        l10n,
+        modelName: '\u{1F469}\u200D\u{1F52C} ${'a' * 30}',
+      ),
+      'Ask \u{1F469}\u200D\u{1F52C} ${'a' * 21}\u2026',
+    );
+    // No name: the composer keeps "Ask Conduit".
+    expect(chatComposerPlaceholder(l10n, modelName: null), isNull);
+    expect(chatComposerPlaceholder(l10n, modelName: '  '), isNull);
+  });
+
+  testWidgets('the composer names the selected model only once the setting '
+      'is on', (tester) async {
+    PreferencesStore.debugOverride(InMemoryKeyValueStore());
+    addTearDown(PreferencesStore.debugReset);
+    final container = await _pumpChatPage(tester);
+    String? placeholder() => tester
+        .widget<ModernChatInput>(find.byType(ModernChatInput))
+        .placeholder;
+
+    // Off by default: the composer keeps its own "Ask Conduit".
+    expect(container.read(appSettingsProvider).showModelNameInComposer, false);
+    expect(placeholder(), isNull);
+    expect(
+      tester
+          .widget<CupertinoTextField>(find.byType(CupertinoTextField))
+          .placeholder,
+      contains('Ask Conduit'),
+    );
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setShowModelNameInComposer(true);
+    await tester.pump();
+    expect(placeholder(), 'Ask Fixture model');
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setShowModelNameInComposer(false);
+    await tester.pump();
+    expect(placeholder(), isNull);
     await _tearDown(tester);
   });
 }

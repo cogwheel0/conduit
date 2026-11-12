@@ -4924,5 +4924,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "显示",
-  "voiceCallLibreChatUnavailable": "LibreChat 聊天不支持语音通话。"
+  "voiceCallLibreChatUnavailable": "LibreChat 聊天不支持语音通话。",
+  "messageHintTextForModel": "问 {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "在消息框中显示模型名称",
+  "showModelNameInComposerDescription": "空消息框将显示所选模型的名称，而不是 Conduit。"
 }

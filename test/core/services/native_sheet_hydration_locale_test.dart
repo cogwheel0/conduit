@@ -568,7 +568,11 @@ void main() {
             .firstWhere((s) => s.items.any((r) => r.id == 'send-on-enter'))
             .items
             .map((r) => r.id),
-      ).deepEquals(['send-on-enter', 'composer-notes-button']);
+      ).deepEquals([
+        'send-on-enter',
+        'composer-notes-button',
+        'composer-model-name',
+      ]);
       check(
         chats.sections
             .firstWhere(
@@ -586,6 +590,11 @@ void main() {
           .singleWhere((r) => r.id == 'composer-notes-button');
       check(notes.title).equals(l10n.showComposerNotesButton);
       check(notes.kind).equals(PlatformNativeSheetItemKind.toggle);
+      final modelName = rows(
+        chats,
+      ).singleWhere((r) => r.id == 'composer-model-name');
+      check(modelName.title).equals(l10n.showModelNameInComposer);
+      check(modelName.kind).equals(PlatformNativeSheetItemKind.toggle);
     });
 
     testWidgets('stays available when the models request fails', (

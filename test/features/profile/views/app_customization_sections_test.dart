@@ -224,6 +224,49 @@ void main() {
       }
     });
 
+    testWidgets('Chat saves the model name in the message box on '
+        '${platform.name}', (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      addTearDown(PreferencesStore.debugReset);
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      });
+      await tester.pumpWidget(
+        _sectionHarness(
+          AppCustomizationSection.chat,
+          persistSettings: true,
+          platform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('chat-composer-model-name-toggle'));
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.ensureVisible(toggle);
+        // Off by default.
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.showModelNameInComposer),
+          isTrue,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.showModelNameInComposer),
+          isFalse,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets('Chat saves Notes button visibility on ${platform.name}', (
       tester,
     ) async {

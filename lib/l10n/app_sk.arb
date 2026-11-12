@@ -6847,5 +6847,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "Zobraziť",
-  "voiceCallLibreChatUnavailable": "Hlasové hovory nie sú v chatoch LibreChat k dispozícii."
+  "voiceCallLibreChatUnavailable": "Hlasové hovory nie sú v chatoch LibreChat k dispozícii.",
+  "messageHintTextForModel": "Opýtať sa modelu {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "Zobrazovať názov modelu v poli správy",
+  "showModelNameInComposerDescription": "Prázdne pole správy uvádza názov vybraného modelu namiesto Conduitu."
 }

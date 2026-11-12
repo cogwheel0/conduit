@@ -4924,5 +4924,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "Tonen",
-  "voiceCallLibreChatUnavailable": "Spraakoproepen zijn niet beschikbaar in LibreChat-chats."
+  "voiceCallLibreChatUnavailable": "Spraakoproepen zijn niet beschikbaar in LibreChat-chats.",
+  "messageHintTextForModel": "Vraag {modelName}",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "Modelnaam in berichtveld tonen",
+  "showModelNameInComposerDescription": "Het lege berichtveld noemt het gekozen model in plaats van Conduit."
 }

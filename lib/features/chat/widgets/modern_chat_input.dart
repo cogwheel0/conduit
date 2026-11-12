@@ -996,6 +996,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         }
       });
     }
+    // An empty field is laid out for its placeholder, and the chat's is
+    // its model's name: another model's may wrap where the last one fit, or
+    // fit where it wrapped. The field's measured width has not changed, so
+    // nothing else re-derives the line state.
+    if (widget.placeholder != oldWidget.placeholder &&
+        _controller.text.isEmpty) {
+      _recomputeComposerLineState();
+    }
   }
 
   /// Whether the typed message would be queued behind the running response
@@ -5901,6 +5909,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       useSafeArea: true,
       builder: (modalContext) => ExpandedTextEditorSheet(
         controller: modalController,
+        hint: widget.placeholder,
         onClose: () {
           FocusScope.of(modalContext).unfocus();
           Navigator.of(modalContext).pop(false);

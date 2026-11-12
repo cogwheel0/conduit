@@ -6541,5 +6541,16 @@
     }
   },
   "hermesShowScheduledRunsAction": "表示",
-  "voiceCallLibreChatUnavailable": "LibreChat のチャットでは音声通話を利用できません。"
+  "voiceCallLibreChatUnavailable": "LibreChat のチャットでは音声通話を利用できません。",
+  "messageHintTextForModel": "{modelName} に質問",
+  "@messageHintTextForModel": {
+    "placeholders": {
+      "modelName": {
+        "type": "String",
+        "example": "Research Assistant"
+      }
+    }
+  },
+  "showModelNameInComposer": "メッセージ欄にモデル名を表示",
+  "showModelNameInComposerDescription": "空のメッセージ欄に、Conduit の代わりに選択中のモデル名を表示します。"
 }
