@@ -837,6 +837,12 @@ class SettingsController {
                 .read(appSettingsProvider.notifier)
                 .setShowComposerNotesButton(value);
           }
+        case 'composer-model-name':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setShowModelNameInComposer(value);
+          }
         case 'send-on-enter':
           if (value is bool) {
             await ref.read(appSettingsProvider.notifier).setSendOnEnter(value);

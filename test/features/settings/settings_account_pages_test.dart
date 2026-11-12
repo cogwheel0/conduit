@@ -24,6 +24,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart' show MaterialApp, Scaffold;
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -320,6 +324,23 @@ void main() {
       check(rig.rows(NativeSheetRoutes.profile).single.title)
           .equals(_l10n.unableToLoadProfile);
     });
+  });
+
+  testWidgets("Chat's model-name switch sets whether the message box names "
+      'its model', (tester) async {
+    await tester.runAsync(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+    addTearDown(PreferencesStore.debugReset);
+    final rig = await _pump(tester);
+    check(rig.container.read(appSettingsProvider).showModelNameInComposer)
+        .isFalse();
+
+    await rig.change('composer-model-name', true);
+
+    check(rig.container.read(appSettingsProvider).showModelNameInComposer)
+        .isTrue();
   });
 
   group('Change Password', () {

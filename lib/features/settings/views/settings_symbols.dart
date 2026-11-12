@@ -78,6 +78,8 @@ const Map<String, IconData> _icons = {
   'doc.text': Icons.description_outlined,
   'text.alignleft': Icons.notes_outlined,
   'textformat': Icons.text_fields,
+  // The model's name in the message box, as the Flutter page drew it.
+  'text.cursor': Icons.short_text,
   'number': Icons.numbers,
   'puzzlepiece.extension': Icons.extension_outlined,
   'rectangle.stack': Icons.layers_outlined,
