@@ -718,6 +718,8 @@ class ChatDataSettingsPages extends SettingsPageModule {
       if (!_openFor(owner) || cancel.isCancelled || !_advanced) return;
       _activity = ChatDataActivity.exporting;
       await _apply();
+      // Closed, or Advanced turned off, while the page was drawn busy.
+      if (!_openFor(owner) || cancel.isCancelled || !_advanced) return;
       file = await files.create(libraryBackupFileName(DateTime.now()));
       final result = await service.exportLibrary(
         _CountingSink(file, (count) {
@@ -832,6 +834,11 @@ class ChatDataSettingsPages extends SettingsPageModule {
     _activity = ChatDataActivity.importing;
     _importing = preview.chats;
     await _apply();
+    // Closed, or Advanced turned off, while the page was drawn busy.
+    if (!_openFor(owner) || !_advanced) {
+      await _settle(owner);
+      return;
+    }
     try {
       final result = await _service(owner).importChats(preview);
       // The chats are on the server whether or not the page is still up;
@@ -925,6 +932,8 @@ class ChatDataSettingsPages extends SettingsPageModule {
 
       _activity = ChatDataActivity.changing;
       await _apply();
+      // Closed, or Advanced turned off, while the page was drawn busy.
+      if (!_openFor(owner) || !_advanced) return;
       final ChatBulkOutcome outcome;
       final ChatBulkChange change;
       switch (kind) {

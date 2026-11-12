@@ -260,6 +260,22 @@ final class _Surface extends SettingsSurface {
 
   void answer(String? id) => _open!.complete(id);
 
+  /// Holds the next page drawn until completed, when set.
+  Completer<void>? drawGate;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final gate = drawGate;
+    if (gate != null) {
+      drawGate = null;
+      await gate.future;
+    }
+    return super.applyDetail(detail, detailSheets: detailSheets);
+  }
+
   @override
   Future<String?> ask({
     required String title,
@@ -1293,6 +1309,25 @@ void main() {
       final asked = session.surface.asked.length;
       await session.tap('unarchive');
       expect(session.surface.asked, hasLength(asked));
+    });
+
+    testWidgets('a change whose page closes while it is drawn busy is not '
+        'made', (tester) async {
+      final session = await open(
+        tester,
+        seed: (db) => seedServerChat(db, 's1'),
+      );
+      await session.tap('archive');
+
+      // Agreed to; the page closes while it is drawn as working.
+      final gate = session.surface.drawGate = Completer<void>();
+      session.surface.answer('go');
+      await tester.pump();
+      session.module.pageLeft(chatDataControlsPageId);
+      gate.complete();
+      await session.settle();
+
+      expect(session.wire.to('POST', '/api/v1/chats/archive/all'), isEmpty);
     });
 
     testWidgets('a change agreed to after its page closed is not made', (

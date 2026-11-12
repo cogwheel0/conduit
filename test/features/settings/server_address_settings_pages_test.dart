@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -219,6 +220,22 @@ void main() {
       return registry;
     });
     when(() => storage.sessionRevocationRevision).thenReturn(0);
+    when(storage.getEffectiveActiveServerId).thenAnswer((_) async => 'home');
+    when(storage.accountIdsWithSession).thenAnswer((_) async => {'a'});
+    when(() => storage.vaultedTokenFor(any())).thenAnswer((_) async => null);
+    when(
+      () => storage.editServerEndpointsWithSession(
+        any(),
+        any(),
+        accountId: any(named: 'accountId'),
+        routeId: any(named: 'routeId'),
+        headers: any(named: 'headers'),
+        sessionRevision: any(named: 'sessionRevision'),
+      ),
+    ).thenAnswer((invocation) async {
+      await land(invocation.positionalArguments[1] as _Edit);
+      return true;
+    });
     when(() => storage.editServerEndpoints(any(), any()))
         .thenAnswer((invocation) async {
           if (refuseEdits) throw StateError('Keychain locked');
@@ -485,6 +502,53 @@ void main() {
       expect(rig.page(editor).edited, isFalse);
     });
 
+    testWidgets('an address that answers is saved, and its editor closes', (
+      tester,
+    ) async {
+      final previousOverrides = HttpOverrides.current;
+      HttpOverrides.global = _RealHttpOverrides();
+      addTearDown(() => HttpOverrides.global = previousOverrides);
+      // An Open WebUI server on this machine.
+      final origin = (await tester.runAsync(() async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        server.listen((request) {
+          final body = switch (request.uri.path) {
+            '/health' => '{"status":true}',
+            '/api/config' =>
+              '{"status":true,"version":"0.6.0","name":"Open WebUI",'
+                  '"features":{}}',
+            _ => null,
+          };
+          request.response
+            ..statusCode = body == null ? HttpStatus.notFound : HttpStatus.ok
+            ..headers.contentType = ContentType.json
+            ..write(body ?? '{}');
+          unawaited(request.response.close());
+        });
+        return 'http://127.0.0.1:${server.port}';
+      }))!;
+      final rig = await pump(tester);
+      rig.surface.answer = 'check';
+      final editor = serverAddressPageId('home', null);
+      await rig.open(editor);
+      await rig.change(row('url', null), origin);
+
+      final saving = rig.module.handleChange(row('save', null), true, _l10n);
+      var done = false;
+      unawaited(saving.whenComplete(() => done = true));
+      for (var i = 0; i < 200 && !done; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await saving;
+
+      expect(saved.last, hasLength(3));
+      expect(rig.closed, contains(editor));
+    });
+
     testWidgets('an address read for an editor since left is not kept for '
         'the next visit', (tester) async {
       final rig = await pump(tester);
@@ -671,3 +735,5 @@ void main() {
     });
   });
 }
+
+class _RealHttpOverrides extends HttpOverrides {}
