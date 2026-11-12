@@ -380,6 +380,9 @@ class NativeSheetHydrationService {
     final sheetEvents = NativeSheetBridge.instance.events.listen((event) {
       if (event is NativeSheetDismissed) {
         _appearanceDetailPresented = false;
+        // A Notifications load still on its way has no page left to fill,
+        // and the pages it would hand over were forgotten with the sheet.
+        _notificationsHydration.begin();
         stopFollowing(nativeSocketHealthDetailId);
       }
     });
