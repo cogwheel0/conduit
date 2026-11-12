@@ -25,6 +25,7 @@ import '../../../shared/widgets/utility_components.dart';
 import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
+import 'settings_columns.dart';
 import 'settings_option_picker.dart';
 import 'settings_profile_editors.dart';
 import 'settings_rows.dart';
@@ -38,9 +39,19 @@ const _sectionGap = SizedBox(height: Spacing.lg);
 /// It asks for its rows when it appears and again whenever a page opened
 /// from it closes, as the native sheet fills a page in each time it shows.
 class SettingsDetailPage extends ConsumerStatefulWidget {
-  const SettingsDetailPage({super.key, required this.detailId});
+  const SettingsDetailPage({
+    super.key,
+    required this.detailId,
+    this.reopened = false,
+  });
 
   final String detailId;
+
+  /// Opened again as the window narrowed past two columns. Under a page
+  /// opened with it, the page waits to describe itself until it shows:
+  /// describing itself also describes the pages it leads to, and would put
+  /// a loading page over the one open above it.
+  final bool reopened;
 
   @override
   ConsumerState<SettingsDetailPage> createState() => _SettingsDetailPageState();
@@ -53,10 +64,23 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   late final SettingsController _controller;
   late final List<SettingsPageModule> _modules;
 
+  /// The page column the page is in, on a wide window.
+  SettingsColumnController? _column;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _column = SettingsPageColumn.maybeOf(context);
+  }
+
   @override
   void dispose() {
     _hydration.stopFollowing(widget.detailId);
-    _controller.pageClosed(widget.detailId, modules: _modules);
+    // Moving to one column as the window narrows, the page opens again
+    // there: it has not been left, and keeps its draft.
+    if (!(_column?.isMoving ?? false)) {
+      _controller.pageClosed(widget.detailId, modules: _modules);
+    }
     super.dispose();
   }
 
@@ -69,7 +93,25 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     _controller = ref.read(settingsControllerProvider);
     _modules = ref.read(settingsPageModulesProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _appeared();
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (!widget.reopened || route == null || route.isCurrent) {
+        _appeared();
+        return;
+      }
+      // Covered: the page describes itself once the page above it closes.
+      final above = route.secondaryAnimation;
+      if (above == null) {
+        _appeared();
+        return;
+      }
+      void shown(AnimationStatus status) {
+        if (status != AnimationStatus.dismissed) return;
+        above.removeStatusListener(shown);
+        if (mounted) _appeared();
+      }
+
+      above.addStatusListener(shown);
     });
   }
 
@@ -150,9 +192,19 @@ class SettingsPageView extends ConsumerStatefulWidget {
     this.onReturned,
     this.leading = const [],
     this.leadingFor,
+    this.selectedId,
+    this.onOpenPage,
   });
 
   final NativeSheetDetailConfig detail;
+
+  /// The row whose page shows beside this list, kept selected: the root
+  /// list in two columns.
+  final String? selectedId;
+
+  /// Opens a row's page instead of pushing it: the root list in two
+  /// columns opens it beside itself.
+  final Future<void> Function(String id)? onOpenPage;
 
   /// A row's own leading picture, when the page has one its definition
   /// cannot carry; null keeps the row's glyph.
@@ -168,8 +220,37 @@ class SettingsPageView extends ConsumerStatefulWidget {
   ConsumerState<SettingsPageView> createState() => _SettingsPageViewState();
 }
 
-class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
+class _SettingsPageViewState extends ConsumerState<SettingsPageView>
+    implements SettingsColumnMember {
   final Map<String, String> _pendingText = {};
+
+  /// The page column this page is in, on a wide window.
+  SettingsColumnController? _column;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final column = SettingsPageColumn.maybeOf(context);
+    if (column == _column) return;
+    _column?.unregister(this);
+    _column = column?..register(this);
+  }
+
+  @override
+  void dispose() {
+    _column?.unregister(this);
+    super.dispose();
+  }
+
+  @override
+  bool get holdsUnsavedChanges => _hasUnsavedChanges;
+
+  @override
+  NativeSheetDiscardPrompt? get discardPrompt => widget.detail.discardPrompt;
+
+  @override
+  void commitPendingText() => _commitPendingText();
+
   final Map<String, String> _committedText = {};
   final Map<String, Object?> _chosen = {};
   final Map<String, List<String>> _order = {};
@@ -422,10 +503,23 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     }
 
     if (_navigable(item)) {
-      await context.pushNamed<void>(
-        RouteNames.settingsPage,
-        pathParameters: {'id': item.id},
-      );
+      // In two columns the root list opens a page beside itself, and a page
+      // beside it opens the next on top of itself; otherwise each page is
+      // pushed over the last.
+      final openRootPage = widget.onOpenPage;
+      if (openRootPage != null) {
+        await openRootPage(item.id);
+        return;
+      }
+      final column = SettingsPageColumn.maybeOf(context);
+      if (column != null) {
+        await column.open(item.id);
+      } else {
+        await context.pushNamed<void>(
+          RouteNames.settingsPage,
+          pathParameters: {'id': item.id},
+        );
+      }
       if (mounted) widget.onReturned?.call();
       return;
     }
@@ -502,6 +596,7 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
           : null,
       item: item,
       leading: widget.leadingFor?.call(item),
+      selected: item.id == widget.selectedId,
       navigable: _navigable(item),
       value: _chosen[item.id],
       textValue: text ? _currentText(item) : null,

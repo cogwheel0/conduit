@@ -4,18 +4,24 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/profile_avatar.dart';
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 import 'package:conduit_core/utils/user_display_name.dart';
+
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/utils/account_display.dart' show AccountCardKind;
 import '../../../core/utils/native_sheet_utils.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../settings_pages.dart';
 import '../settings_root.dart';
+import 'settings_columns.dart';
 import 'settings_page_view.dart';
 
 /// The Settings root as the Flutter Settings pages draw it: the same rows,
@@ -32,6 +38,52 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
   /// The account the root's pages were registered for, so they are
   /// registered again when another one takes over.
   Object? _registeredFor;
+
+  final _columns = GlobalKey<SettingsColumnsState>();
+
+  /// Whether the last frame showed two columns.
+  bool _wasWide = false;
+
+  /// Whether the window has room for the root list beside a page: wide
+  /// enough, and a tablet's -- a phone turned on its side keeps one column.
+  static bool _isWide(Size size) =>
+      size.width >= settingsTwoColumnMinWidth && size.shortestSide >= 600;
+
+  /// The window narrowed past two columns: the pages beside the list open
+  /// again pushed over it, as one column shows them, keeping what they hold.
+  void _moveToOneColumn() {
+    final columns = _columns.currentState;
+    final ids = columns?.openPageIds ?? const <String>[];
+    if (columns == null || ids.isEmpty) return;
+    columns.prepareToMove();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final id in ids) {
+        unawaited(
+          context.pushNamed<void>(
+            RouteNames.settingsPage,
+            pathParameters: {'id': id},
+            extra: const SettingsPageReopened(),
+          ),
+        );
+      }
+    });
+  }
+
+  /// The first root row that opens a page of Settings, shown beside the
+  /// list before another is chosen.
+  String? _firstPageId(List<NativeSheetSectionConfig> sections) {
+    final pages = ref.read(settingsPagesProvider);
+    for (final item in sections.expand((section) => section.items)) {
+      if (pages.contains(item.id) &&
+          !item.dismissOnSelect &&
+          item.url == null &&
+          item.kind != NativeSheetItemKind.searchablePicker) {
+        return item.id;
+      }
+    }
+    return null;
+  }
 
   /// Makes the root's pages known, built for the account signed in now. The
   /// Profile page stays loading until it appears and reads the profile the
@@ -89,12 +141,17 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
       appLanguageTag: readNativeAppLanguageTag(ref.watch),
       otherAccountCount: readNativeOtherAccountCount(ref.watch),
     );
-    return SettingsPageView(
+    Widget list(
+      String? selectedId,
+      Future<void> Function(String id)? openRootPage,
+    ) => SettingsPageView(
       detail: NativeSheetDetailConfig(
         id: NativeSheetRoutes.profileMenu,
         title: nativeSettingsTitle(l10n),
         sections: sections,
       ),
+      selectedId: selectedId,
+      onOpenPage: openRootPage,
       leadingFor: (item) => item.usesProfileAvatar
           ? _AccountCardPicture(
               kind: card.kind,
@@ -106,6 +163,17 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
                   : resolveUserAvatarUrlForUser(api, user),
             )
           : null,
+    );
+    // A tablet's window shows the root list beside the page it opened;
+    // narrower, each page is pushed over the last, as on a phone.
+    final wide = _isWide(MediaQuery.sizeOf(context));
+    if (_wasWide && !wide) _moveToOneColumn();
+    _wasWide = wide;
+    if (!wide) return list(null, null);
+    return SettingsColumns(
+      key: _columns,
+      buildList: list,
+      firstPageId: () => _firstPageId(sections),
     );
   }
 }
