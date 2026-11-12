@@ -709,6 +709,27 @@ void main() {
       );
     });
 
+    testWidgets('its key is a secret, not a password to save', (tester) async {
+      final rig = await _pump(
+        tester,
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => DirectTestStaticDirectProfiles(const []),
+          ),
+        ],
+      );
+      final key = _key(_local);
+      await rig.open(_editor(_local));
+      await rig.until(() => rig.rows(_editor(_local)).length > 1);
+
+      final apiKey = rig.row(
+        _editor(_local),
+        directConnectionRowId('api-key', key),
+      );
+      expect(apiKey.kind, NativeSheetItemKind.secureTextField);
+      expect(apiKey.passwordRole, isNull);
+    });
+
     testWidgets('a provider of an unknown kind keeps it, greyed', (
       tester,
     ) async {

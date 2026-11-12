@@ -1726,6 +1726,7 @@ NativeSheetDetailConfig buildNativePasswordDetail(
             sfSymbol: 'lock',
             kind: NativeSheetItemKind.secureTextField,
             placeholder: l10n.currentPassword,
+            passwordRole: NativeSheetPasswordRole.current,
           ),
           NativeSheetItemConfig(
             id: 'new-password',
@@ -1734,6 +1735,7 @@ NativeSheetDetailConfig buildNativePasswordDetail(
             sfSymbol: 'key',
             kind: NativeSheetItemKind.secureTextField,
             placeholder: l10n.newPassword,
+            passwordRole: NativeSheetPasswordRole.newPassword,
           ),
           NativeSheetItemConfig(
             id: 'confirm-password',
@@ -1742,6 +1744,7 @@ NativeSheetDetailConfig buildNativePasswordDetail(
             sfSymbol: 'checkmark.shield',
             kind: NativeSheetItemKind.secureTextField,
             placeholder: l10n.confirmNewPassword,
+            passwordRole: NativeSheetPasswordRole.newPassword,
           ),
         ]
       : [

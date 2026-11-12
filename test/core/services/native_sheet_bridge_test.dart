@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 
 final _setThemeChannel = BasicMessageChannel<Object?>(
@@ -194,6 +197,44 @@ void main() {
     check(received).isNotNull();
     check(received!.clearSubtitle).isTrue();
     check(received!.subtitle).isNull();
+  });
+
+  test('a secure row says which account password it holds, if any', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+
+    await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: 'password',
+      items: [
+        ...buildNativePasswordDetail(
+          lookupAppLocalizations(const Locale('en')),
+          passwordChangeEnabled: true,
+        ).items,
+        // Any other secret: no role, so it is never offered to be saved.
+        const NativeSheetItemConfig(
+          id: 'api-key',
+          title: 'API Key',
+          kind: NativeSheetItemKind.secureTextField,
+        ),
+      ],
+    );
+
+    check({for (final item in received!.items) item.id: item.passwordRole})
+        .deepEquals({
+          'current-password': 'current',
+          'new-password': 'newPassword',
+          'confirm-password': 'newPassword',
+          'api-key': null,
+        });
   });
 
   group('NativeSheetBridge.updateProfile', () {

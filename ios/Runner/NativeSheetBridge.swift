@@ -243,6 +243,9 @@ private struct NativeSheetItem {
     let disabled: Bool
     /// The keyboard a text row brings up: url, email, number; nil = default.
     let keyboard: String?
+    /// A secure row's password role: current, newPassword, or nil for any
+    /// other secret.
+    let passwordRole: String?
     /// What else the row can do: a long press lists them, and a swipe offers
     /// them where the page is not reordering. Each is sent as its own id.
     let rowActions: [NativeSheetRowAction]
@@ -308,6 +311,7 @@ private struct NativeSheetItem {
         usesProfileAvatar = payload["usesProfileAvatar"] as? Bool ?? false
         disabled = payload["disabled"] as? Bool ?? false
         keyboard = payload["keyboard"] as? String
+        passwordRole = payload["passwordRole"] as? String
         rowActions = (payload["rowActions"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetRowAction.init)
     }
@@ -1128,6 +1132,7 @@ private extension PlatformNativeSheetItem {
         payload["confirmMessage"] = confirmMessage
         payload["disabled"] = disabled
         payload["keyboard"] = keyboard
+        payload["passwordRole"] = passwordRole
         payload["rowActions"] = rowActions?.map { action -> [String: Any] in
             var entry: [String: Any] = [
                 "id": action.id,
@@ -4837,6 +4842,18 @@ private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
         textField.isSecureTextEntry = false
     }
 
+    /// What a secure field holds, for AutoFill. Only the account's own
+    /// password is one: the system offers to save it. Any other secret (an
+    /// API key, a token) is marked a one-time code, which it never offers to
+    /// save.
+    static func secureContentType(passwordRole: String?) -> UITextContentType {
+        switch passwordRole {
+        case "current": return .password
+        case "newPassword": return .newPassword
+        default: return .oneTimeCode
+        }
+    }
+
     func configure(
         item: NativeSheetItem,
         value: String,
@@ -4849,7 +4866,9 @@ private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
         textField.text = value
         textField.placeholder = item.placeholder
         textField.isSecureTextEntry = item.kind == "secureTextField"
-        textField.textContentType = item.kind == "secureTextField" ? .password : nil
+        textField.textContentType = item.kind == "secureTextField"
+            ? Self.secureContentType(passwordRole: item.passwordRole)
+            : nil
         textField.autocorrectionType = item.kind == "secureTextField" ? .no : .yes
         textField.autocapitalizationType = item.kind == "secureTextField" ? .none : .sentences
         textField.keyboardType = .default
