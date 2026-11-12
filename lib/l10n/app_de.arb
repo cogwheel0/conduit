@@ -2118,7 +2118,7 @@
   "workspacePrincipalGroupsTab": "Gruppen",
   "workspacePrincipalSearchHint": "Personen nach Name oder E-Mail suchen",
   "workspacePrincipalLoadFailed": "Ergebnisse konnten nicht geladen werden.",
-  "workspacePrincipalSearchPrompt": "Suche nach Personen, für die du freigeben möchtest.",
+  "workspacePrincipalSearchPrompt": "Suche nach Personen, mit denen du teilen möchtest.",
   "workspacePrincipalNoResults": "Keine Treffer.",
   "workspaceReadOnlyBadge": "Schreibgeschützt",
   "workspaceReadOnlyExplanation": "Du hast nur Lesezugriff auf diese Ressource.",
