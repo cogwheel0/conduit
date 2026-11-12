@@ -126,6 +126,15 @@ void main() {
         rig.rows(calendarMonthPageId).map((row) => row.id),
         isNot(contains(calendarTodayRowId)),
       );
+      // New Event is the bar's "+", pushing the editor, not a row.
+      final newEvent = calendarEditorPageId(calendarNewEventKey);
+      expect(rig.page(calendarMonthPageId).trailingActionDetailId, newEvent);
+      expect(rig.page(calendarMonthPageId).trailingActionSfSymbol, 'plus');
+      expect(
+        rig.rows(calendarMonthPageId).map((row) => row.id),
+        isNot(contains(newEvent)),
+      );
+      expect(rig.has(newEvent), isTrue);
     });
 
     testWidgets('choosing a day lists that day, and Today goes back', (

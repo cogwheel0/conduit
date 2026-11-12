@@ -164,8 +164,8 @@ class CalendarMonthState {
 }
 
 /// The calendar's month page: the system month grid over the chosen day's
-/// agenda, with the rows that add an event, go back to today and list the
-/// calendars. Returns the page and the pages its rows lead to.
+/// agenda, a "+" in the bar adding an event, and rows going back to today
+/// and listing the calendars. Returns the page and the pages it leads to.
 ({NativeSheetDetailConfig page, List<NativeSheetDetailConfig> leadsTo})
 buildCalendarMonthPage(
   AppLocalizations l10n,
@@ -220,6 +220,9 @@ buildCalendarMonthPage(
     page: NativeSheetDetailConfig(
       id: pageId,
       title: l10n.calendarTitle,
+      // New Event is the bar's "+", as in Calendar, pushing the editor.
+      trailingActionDetailId: writable ? newEventPage : null,
+      trailingActionSfSymbol: writable ? 'plus' : null,
       calendar: NativeSheetMonthCalendarConfig(
         id: calendarGridId,
         month: calendarDayKey(state.month),
@@ -258,13 +261,6 @@ buildCalendarMonthPage(
         NativeSheetSectionConfig(
           footer: l10n.calendarTimezoneNote,
           items: [
-            if (writable)
-              NativeSheetItemConfig(
-                id: newEventPage,
-                title: l10n.calendarAddEvent,
-                sfSymbol: 'plus.circle',
-                accent: true,
-              ),
             if (!atToday)
               NativeSheetItemConfig(
                 id: calendarTodayRowId,
