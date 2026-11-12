@@ -61,6 +61,7 @@ class QueuedCompletionInfo {
     this.nextAttemptAt,
     this.frozenReasoningEffort,
     this.frozenPickedReasoningEffort,
+    this.blockedBySeq,
   }) : _databaseOwner = databaseOwner,
        _ownership = null;
 
@@ -76,12 +77,17 @@ class QueuedCompletionInfo {
     this.nextAttemptAt,
     this.frozenReasoningEffort,
     this.frozenPickedReasoningEffort,
+    this.blockedBySeq,
   }) : _databaseOwner = ownership.session.database!,
        _ownership = ownership;
 
   final Object _databaseOwner;
   final _QueuedCompletionOwnership? _ownership;
   final int seq;
+
+  /// The earlier op of the same chat that holds this answer up, when that is
+  /// why it shows: a Retry re-arms it too, or the answer stays behind it.
+  final int? blockedBySeq;
   final String chatId;
   final String scopedChatId;
   final String assistantMessageId;
@@ -241,7 +247,7 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
 
   return db.outboxDao.watchChatQueuesWithCompletions(chatId: chatId).map((ops) {
     final infos = <String, QueuedCompletionInfo>{};
-    for (final (:op, :shown) in _queuedCompletionDisplayEntries(
+    for (final (:op, :shown, :blocker) in _queuedCompletionDisplayEntries(
       ops,
       isOnline: isOnline,
     )) {
@@ -249,6 +255,7 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
       infos[shown.assistantMessageId] = QueuedCompletionInfo._owned(
         ownership: ownership,
         seq: op.seq,
+        blockedBySeq: blocker?.seq,
         chatId: chatId,
         scopedChatId: scopedChatId,
         assistantMessageId: shown.assistantMessageId,
@@ -326,7 +333,7 @@ Map<String, QueuedCompletionDisplay> queuedCompletionDisplaysOf(
   required bool isOnline,
 }) {
   final displays = <String, QueuedCompletionDisplay>{};
-  for (final (op: _, :shown) in _queuedCompletionDisplayEntries(
+  for (final (op: _, :shown, blocker: _) in _queuedCompletionDisplayEntries(
     ops,
     isOnline: isOnline,
   )) {
@@ -335,9 +342,10 @@ Map<String, QueuedCompletionDisplay> queuedCompletionDisplaysOf(
   return displays;
 }
 
-/// Each request-completion in [ops] that shows, with what it shows, in
-/// order ([queuedCompletionDisplaysOf]).
-Iterable<({OutboxOp op, QueuedCompletionDisplay shown})>
+/// Each request-completion in [ops] that shows, with what it shows and the
+/// earlier op of its chat that holds it up, if any, in order
+/// ([queuedCompletionDisplaysOf]).
+Iterable<({OutboxOp op, QueuedCompletionDisplay shown, OutboxOp? blocker})>
 _queuedCompletionDisplayEntries(
   Iterable<OutboxOp> ops, {
   required bool isOnline,
@@ -345,15 +353,21 @@ _queuedCompletionDisplayEntries(
   final stuck = <String, OutboxOp>{};
   for (final op in ops) {
     final chatId = op.chatId;
+    final blocker = chatId == null ? null : stuck[chatId];
     if (op.kind == OutboxKind.requestCompletion.name) {
       final shown = queuedCompletionDisplayOf(
         op,
         isOnline: isOnline,
-        blockedBy: chatId == null ? null : stuck[chatId],
+        blockedBy: blocker,
       );
-      if (shown != null) yield (op: op, shown: shown);
+      if (shown != null) yield (op: op, shown: shown, blocker: blocker);
     }
+    // Only the chat's own ops hold its answers up: a note or folder op that
+    // shares the id runs in its own domain.
+    final kind = OutboxKind.fromName(op.kind);
+    final chatDomain = kind != null && !kind.isFolderKind && !kind.isNoteKind;
     if (chatId != null &&
+        chatDomain &&
         !stuck.containsKey(chatId) &&
         op.status != OutboxStatus.inFlight &&
         (op.status == OutboxStatus.failed || _queuedOpIsStuck(op))) {
@@ -446,6 +460,12 @@ class QueuedCompletionActions {
       database: db,
       mutation: () async {
         final now = _ref.read(syncClockProvider).nowEpochSeconds();
+        // The op that holds the answer up goes first, or the answer stays
+        // behind it. Each re-arm touches the op only in the state it names.
+        if (info.blockedBySeq case final blocker?) {
+          await db.outboxDao.requeueParked(blocker, nowEpochSeconds: now);
+          await db.outboxDao.retryPendingNow(blocker, nowEpochSeconds: now);
+        }
         if (info.phase == QueuedCompletionPhase.failed) {
           await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
         } else {
@@ -484,6 +504,12 @@ class QueuedCompletionActions {
           return false;
         }
         final now = _ref.read(syncClockProvider).nowEpochSeconds();
+        // The op that holds the answer up goes first, or the answer stays
+        // behind it. Each re-arm touches the op only in the state it names.
+        if (info.blockedBySeq case final blocker?) {
+          await db.outboxDao.requeueParked(blocker, nowEpochSeconds: now);
+          await db.outboxDao.retryPendingNow(blocker, nowEpochSeconds: now);
+        }
         if (info.phase == QueuedCompletionPhase.failed) {
           await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
         } else {

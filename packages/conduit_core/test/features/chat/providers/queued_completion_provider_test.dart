@@ -223,6 +223,37 @@ void main() {
       ..has((i) => i.lastError, 'lastError').equals('Connection closed');
   });
 
+  test('Retry on an answer held up by a parked update re-arms the update '
+      'too', () async {
+    const chatId = 'c1';
+    const assistantId = 'a1';
+    final update = await db.transaction(
+      () => db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
+    );
+    await enqueueCompletion(chatId, assistantId);
+    await db.outboxDao.markParked(update, error: 'Bad request');
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        isOnlineProvider.overrideWith((ref) => true),
+        syncEngineProvider.overrideWith(_NoopSyncEngine.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(activeConversationProvider.notifier).set(conv(chatId));
+
+    final info = await firstInfo(container, assistantId);
+    check(info).isNotNull().has((i) => i.blockedBySeq, 'blockedBySeq')
+        .equals(update);
+
+    await container.read(queuedCompletionActionsProvider).retry(info!);
+
+    // Re-armed, the update can go out, and the answer after it.
+    check(
+      (await db.outboxDao.pendingForChat(chatId)).map((op) => op.seq),
+    ).contains(update);
+  });
+
   test(
     'an answer behind an update tried only once shows nothing yet',
     () async {
@@ -933,6 +964,24 @@ void main() {
       check(shown['a3']!)
         ..has((d) => d.isFailed, 'isFailed').isFalse()
         ..has((d) => d.lastError, 'lastError').equals('nope');
+    });
+
+    test('a stuck note or folder op sharing a chat\'s id holds none of its '
+        'answers up', () {
+      // Notes and folders run in their own domains; their ids are not kept
+      // apart from chats' in the outbox.
+      final shown = queuedCompletionDisplaysOf([
+        op(
+          OutboxKind.noteUpdate,
+          status: OutboxStatus.failed,
+          attempts: 5,
+          lastError: 'nope',
+        ),
+        op(OutboxKind.folderUpsert, attempts: 3, lastError: 'boom'),
+        op(OutboxKind.requestCompletion, answer: 'a1'),
+      ], isOnline: true);
+
+      check(shown).isEmpty();
     });
 
     test('an answer whose request is being sent now is not shown as queued, '
