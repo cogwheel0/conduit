@@ -123,13 +123,13 @@ void main() {
       check(options['rememberUpgrade']).equals(false);
     });
 
-    test('are polling alone on a native platform even when the server could '
-        'upgrade, since the session cannot move', () {
+    test('start on a WebSocket in polling mode on a native platform when the '
+        'server allows one, since a polling session there cannot move', () {
       final options = optionsFor(
         websocketOnly: false,
         allowWebsocketUpgrade: true,
       );
-      check(options['transports'] as List).deepEquals(['polling']);
+      check(options['transports'] as List).deepEquals(['websocket']);
       check(options['upgrade']).equals(false);
     });
 
@@ -140,6 +140,46 @@ void main() {
       );
       check(options['transports'] as List).deepEquals(['websocket']);
     });
+  });
+
+  test(
+    'polling mode falls back to polling where a WebSocket is refused',
+    () async {
+      // A server that allows WebSockets, behind a proxy that blocks them.
+      final server = await FakeEngineIoServer.start();
+      addTearDown(server.close);
+      final service = SocketService(serverConfig: _config(server));
+      addTearDown(service.dispose);
+
+      check(await service.ensureConnected(timeout: const Duration(seconds: 5)))
+          .isTrue();
+      check(server.upgradeRequests).isNotEmpty();
+      check(service.sessionId).equals(server.socketIoSid);
+      check(service.currentTransport).equals('polling');
+    },
+  );
+
+  test('a later service for the same server is not handed the earlier '
+      "one's transports", () async {
+    // On a fresh install the first socket starts in WebSocket mode, before the
+    // server's policy (polling only) has loaded and the socket is replaced.
+    final server = await FakeEngineIoServer.start();
+    addTearDown(server.close);
+    final first = SocketService(
+      serverConfig: _config(server),
+      websocketOnly: true,
+    );
+    await first.connect();
+    first.dispose();
+
+    final second = SocketService(
+      serverConfig: _config(server),
+      allowWebsocketUpgrade: false,
+    );
+    addTearDown(second.dispose);
+    check(await second.ensureConnected(timeout: const Duration(seconds: 5)))
+        .isTrue();
+    check(second.currentTransport).equals('polling');
   });
 
   group('a socket the server never completed a handshake for', () {

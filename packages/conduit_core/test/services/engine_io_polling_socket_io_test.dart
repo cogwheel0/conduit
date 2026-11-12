@@ -148,16 +148,119 @@ void main() {
     await check(refused).throws<ws.WebSocketException>();
   });
 
-  test('cookies the server sets are sent back for the session', () async {
+  test('cookies the server sets are sent back for the session, in place of '
+      'configured ones of the same name', () async {
     await server.close();
     server = await FakeEngineIoServer.start(
       handshakeCookies: [Cookie('lb', 'node-2')],
     );
-    final socket = await open(headers: {'Cookie': 'proxy=configured'});
+    final socket = await open(
+      headers: {'Cookie': 'lb=stale; proxy=configured'},
+    );
     socket.sendText('40');
     await server.nextReceived((packet) => packet == '40');
 
     final post = server.requests.lastWhere((r) => r.method == 'POST');
     check(post.cookie).equals('proxy=configured; lb=node-2');
   });
+
+  group('each POST stays within what the server decodes', () {
+    test('at most 16 packets, the rest in order in later POSTs', () async {
+      final socket = await open();
+      final packets = [for (var i = 0; i < 40; i++) '42["n",$i]'];
+      packets.forEach(socket.sendText);
+      await server.nextReceived((packet) => packet == packets.last);
+
+      check(server.received).deepEquals(packets);
+      check(
+        server.postBodies.map(
+          (body) => body.split(FakeEngineIoServer.recordSeparator).length,
+        ),
+      ).deepEquals([16, 16, 8]);
+    });
+
+    test('no more bytes than the handshake allows', () async {
+      await server.close();
+      server = await FakeEngineIoServer.start(maxPayload: 50);
+      final socket = await open();
+      final packets = [for (var i = 0; i < 3; i++) '42["${'x' * 14}",$i]'];
+      packets.forEach(socket.sendText);
+      await server.nextReceived((packet) => packet == packets.last);
+
+      check(server.received).deepEquals(packets);
+      check(server.postBodies).length.equals(2);
+      check(
+        server.postBodies,
+      ).every((body) => body.has((b) => b.length, 'length').isLessOrEqual(50));
+    });
+  });
+
+  test('a POST counts as delivered only when the server says ok', () async {
+    final socket = await open();
+    final events = socket.events.toList();
+    server.postReplyBody = 'OK'; // As python-engineio answers.
+    socket.sendText('40');
+    await server.nextReceived((packet) => packet == '40');
+
+    server.postReplyBody = '<html>Sign in to the proxy</html>';
+    socket.sendText('42["after"]');
+
+    final received = await events.timeout(const Duration(seconds: 5));
+    final close = received.last as ws.CloseReceived;
+    check(close.code).equals(1006);
+    check(close.reason).contains('send');
+    check(server.received).deepEquals(['40', '42["after"]']);
+  });
+
+  test('a poll answered with no packets ends the session', () async {
+    server.answerNextPollEmpty = true;
+    final socket = await open();
+
+    final received = await socket.events.toList().timeout(
+      const Duration(seconds: 5),
+    );
+    final close = received.last as ws.CloseReceived;
+    check(close.code).equals(1006);
+    check(close.reason).contains('no packets');
+    // Not polled again: whatever answers so would otherwise be asked at once,
+    // over and over.
+    check(server.requests.where((r) => r.method == 'GET' && r.sid != null))
+        .length
+        .equals(1);
+  });
+
+  test('close completes only once what was being sent has gone', () async {
+    final socket = await open();
+    final hold = server.holdPosts = Completer<void>();
+    socket.sendText('41');
+    await server.nextReceived((packet) => packet == '41');
+
+    var closed = false;
+    final closing = socket.close().then((_) => closed = true);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    check(closed).isFalse();
+
+    hold.complete();
+    await closing.timeout(const Duration(seconds: 5));
+    check(server.received).deepEquals(['41', '1']);
+  });
+
+  test(
+    'a response whose body stalls is let go when its time runs out',
+    () async {
+      await server.close();
+      server = await FakeEngineIoServer.start(stallHandshakeBody: true);
+
+      final stalled = EngineIoPollingSocket.connect(
+        pollingUrl(),
+        client: client,
+        timeout: const Duration(milliseconds: 300),
+      );
+      await check(stalled).throws<TimeoutException>();
+
+      // Aborting the request alone would keep the connection until the client
+      // closes; cancelling the body releases it.
+      await server.stalledResponseReleased.timeout(const Duration(seconds: 3));
+    },
+  );
 }

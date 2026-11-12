@@ -130,6 +130,28 @@ class _HookedAdapter implements HttpClientAdapter {
   void close({bool force = false}) => inner.close(force: force);
 }
 
+/// Times out every request while waiting for the response, as Dio does when
+/// a server holds the answer longer than the request may wait.
+class _TimingOutAdapter implements HttpClientAdapter {
+  int requests = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    requests += 1;
+    throw DioException.receiveTimeout(
+      timeout: options.receiveTimeout ?? Duration.zero,
+      requestOptions: options,
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Builds an [ApiService] for testing whose Dio adapter is [adapter].
 ApiService _buildApiServiceForTest(HttpClientAdapter adapter) {
   final service = ApiService(
@@ -783,6 +805,38 @@ void main() {
         await receiveTimeoutFor(conversationId: 'local:temporary'),
       ).equals(usual);
       check(await receiveTimeoutFor()).equals(usual);
+    });
+
+    test('a held answer that outlives its wait is read from the saved chat, '
+        'not sent again', () async {
+      final adapter = _TimingOutAdapter();
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'reply-1',
+      );
+
+      check(adapter.requests).equals(1);
+      check(session.transport).equals(ChatCompletionTransport.httpStream);
+      check(session.messageId).equals('reply-1');
+      check(await session.byteStream!.toList()).isEmpty();
+    });
+
+    test('a request the server answers at once still fails when it times '
+        'out', () async {
+      final api = _buildApiServiceForTest(_TimingOutAdapter());
+
+      await check(
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          sessionIdOverride: 'sess-1',
+        ),
+      ).throws<DioException>();
     });
   });
 

@@ -577,6 +577,14 @@ class SocketService {
 
   String? get sessionId => _socket?.id;
 
+  /// Whether a connection starts on a WebSocket, falling back to polling when
+  /// that fails. In WebSocket mode it does; in polling mode, a session that
+  /// cannot upgrade (native platforms, see [socketPollingCanUpgrade]) does too
+  /// when the server allows WebSockets, which keeps that mode's promise of a
+  /// WebSocket when possible and polling when it is blocked.
+  bool get _triesWebsocketFirst =>
+      websocketOnly || (allowWebsocketUpgrade && !socketPollingCanUpgrade);
+
   /// How long the server's `execute:tool` call may wait for this client.
   static const Duration toolExecutionTimeout = Duration(seconds: 120);
 
@@ -826,7 +834,7 @@ class SocketService {
     final path = '/ws/socket.io';
 
     final usePollingFallback = _forcePollingFallback;
-    final effectiveWebsocketOnly = websocketOnly && !usePollingFallback;
+    final effectiveWebsocketOnly = _triesWebsocketFirst && !usePollingFallback;
     // On native platforms a polling session cannot move to a WebSocket (see
     // socketPollingCanUpgrade), so there polling means polling alone.
     final upgradeFromPolling =
@@ -840,6 +848,11 @@ class SocketService {
         : const ['polling'];
 
     final builder = io.OptionBuilder()
+        // socket_io_client keeps one Manager per host and hands it to the next
+        // socket for that host with the options it was first made with. Each
+        // connection here gets its own, or a change of transports (the polling
+        // fallback, or the server's policy arriving) would reuse the old ones.
+        .enableForceNew()
         // Transport selection switches between WebSocket-only and polling fallback
         .setTransports(transports)
         .setRememberUpgrade(upgradeFromPolling)
@@ -1426,7 +1439,7 @@ class SocketService {
 
     // If WebSocket-only handshake fails, retry once with polling+websocket
     // transports to avoid endless spinners (issue #172).
-    if (websocketOnly && !_forcePollingFallback) {
+    if (_triesWebsocketFirst && !_forcePollingFallback) {
       _forcePollingFallback = true;
       DebugLogger.warning(
         'WebSocket connect failed; retrying with polling fallback',

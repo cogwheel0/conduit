@@ -48,6 +48,8 @@ final class FakeEngineIoServer {
     required this.answerSocketIoConnect,
     required this.handshakeCookies,
     required this.pingIntervalMs,
+    required this.maxPayload,
+    required this.stallHandshakeBody,
   }) {
     _server.listen(_handle);
   }
@@ -58,6 +60,8 @@ final class FakeEngineIoServer {
     bool answerSocketIoConnect = true,
     List<Cookie> handshakeCookies = const [],
     int pingIntervalMs = 25000,
+    int maxPayload = 1000000,
+    bool stallHandshakeBody = false,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     return FakeEngineIoServer._(
@@ -67,8 +71,15 @@ final class FakeEngineIoServer {
       answerSocketIoConnect: answerSocketIoConnect,
       handshakeCookies: handshakeCookies,
       pingIntervalMs: pingIntervalMs,
+      maxPayload: maxPayload,
+      stallHandshakeBody: stallHandshakeBody,
     );
   }
+
+  /// The most packets python-engineio decodes from one POST
+  /// (`Payload.max_decode_packets`); it drops a larger payload whole and still
+  /// answers `OK`.
+  static const int maxDecodePackets = 16;
 
   static const String recordSeparator = '\x1e';
 
@@ -82,6 +93,14 @@ final class FakeEngineIoServer {
   final List<Cookie> handshakeCookies;
   final int pingIntervalMs;
 
+  /// The largest POST body in bytes; a larger one is refused with a 400 and
+  /// ends the session, as python-engineio's `max_http_buffer_size` does.
+  final int maxPayload;
+
+  /// Whether the handshake sends its headers and part of its body, then
+  /// nothing more.
+  final bool stallHandshakeBody;
+
   /// Every request, in the order it arrived.
   final List<FakeEngineIoRequest> requests = [];
 
@@ -93,6 +112,25 @@ final class FakeEngineIoServer {
 
   /// Status for the next session poll, instead of the session's packets.
   int? failNextPollWith;
+
+  /// Whether the next session poll is answered 200 with no packets.
+  bool answerNextPollEmpty = false;
+
+  /// What a POST is answered with, read when it arrives; python-engineio
+  /// says `OK`.
+  String postReplyBody = 'ok';
+
+  /// When set, each POST is answered only once this completes.
+  Completer<void>? holdPosts;
+
+  /// Completes once the client lets go of a stalled handshake's connection.
+  Future<void> get stalledResponseReleased => _stalledReleased.future;
+  final _stalledReleased = Completer<void>();
+  final List<Socket> _detached = [];
+
+  void _releaseStalled() {
+    if (!_stalledReleased.isCompleted) _stalledReleased.complete();
+  }
 
   final List<String> _outgoing = [];
   final _receivedController = StreamController<String>.broadcast();
@@ -136,6 +174,9 @@ final class FakeEngineIoServer {
     for (final socket in _webSockets) {
       unawaited(socket.close());
     }
+    for (final socket in _detached) {
+      socket.destroy();
+    }
     await _receivedController.close();
     await _server.close(force: true);
   }
@@ -160,23 +201,54 @@ final class FakeEngineIoServer {
       _sessionClosed = false;
       _outgoing.clear();
       request.response.cookies.addAll(handshakeCookies);
+      if (stallHandshakeBody) {
+        final open = _openPacket(_sid!);
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..contentLength = open.length + 100;
+        final socket = await request.response.detachSocket();
+        _detached.add(socket);
+        socket.write(open);
+        socket.listen(
+          (_) {},
+          onDone: _releaseStalled,
+          onError: (_) => _releaseStalled(),
+        );
+        return;
+      }
       return _reply(request, HttpStatus.ok, _openPacket(_sid!));
     }
     if (sid != _sid || _sessionClosed) {
       return _reply(request, HttpStatus.badRequest, 'Invalid session');
     }
     if (request.method == 'POST') {
-      final body = await utf8.decoder.bind(request).join();
-      postBodies.add(body);
-      for (final packet in body.split(recordSeparator)) {
-        _receive(packet);
+      final answer = postReplyBody;
+      final bytes = await request.fold<List<int>>(
+        [],
+        (all, c) => all..addAll(c),
+      );
+      if (bytes.length > maxPayload) {
+        _sessionClosed = true;
+        _wakePoll();
+        return _reply(request, HttpStatus.badRequest, 'Bad Request');
       }
-      return _reply(request, HttpStatus.ok, 'ok');
+      final body = utf8.decode(bytes);
+      postBodies.add(body);
+      final packets = body.split(recordSeparator);
+      if (packets.length <= maxDecodePackets) {
+        packets.forEach(_receive);
+      }
+      await holdPosts?.future;
+      return _reply(request, HttpStatus.ok, answer);
     }
     final failure = failNextPollWith;
     if (failure != null) {
       failNextPollWith = null;
       return _reply(request, failure, 'refused');
+    }
+    if (answerNextPollEmpty) {
+      answerNextPollEmpty = false;
+      return _reply(request, HttpStatus.ok, '');
     }
     while (_outgoing.isEmpty && !_sessionClosed) {
       await (_outgoingReady ??= Completer<void>()).future;
@@ -219,7 +291,7 @@ final class FakeEngineIoServer {
   }
 
   String _openPacket(String sid) =>
-      '0${jsonEncode({'sid': sid, 'upgrades': <String>[], 'pingInterval': pingIntervalMs, 'pingTimeout': 20000, 'maxPayload': 1000000})}';
+      '0${jsonEncode({'sid': sid, 'upgrades': <String>[], 'pingInterval': pingIntervalMs, 'pingTimeout': 20000, 'maxPayload': maxPayload})}';
 
   Future<void> _reply(HttpRequest request, int status, String body) async {
     request.response

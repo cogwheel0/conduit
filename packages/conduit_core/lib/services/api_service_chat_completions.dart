@@ -236,12 +236,43 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       );
     }
 
+    // A held answer that outlives even that wait still belongs to a turn the
+    // server took: its saved reply is read, as for a JSON null answer, and the
+    // turn is never sent again (a queued retry would POST it once more).
+    Future<Response<ResponseBody>?> post(
+      _ChatRequestMetadataFormat metadataFormat,
+    ) async {
+      try {
+        return await postWithMetadataFormat(metadataFormat);
+      } on DioException catch (error) {
+        if (!heldUntilReplyEnds ||
+            error.type != DioExceptionType.receiveTimeout) {
+          rethrow;
+        }
+        DebugLogger.warning(
+          'held-completion-timeout',
+          scope: 'api/chat',
+          data: {'chatId': savedChatId, 'messageId': messageId},
+        );
+        return null;
+      }
+    }
+
+    ChatCompletionSession readSavedReply() => _recoverJsonNullChatCompletion(
+      messageId: messageId,
+      sessionId: sessionId,
+      conversationId: conversationId,
+      abort: abort,
+    );
+
     var metadataFormat =
         _chatRequestMetadataFormat ?? _ChatRequestMetadataFormat.modernV09;
     if (metadataFormat == _ChatRequestMetadataFormat.legacyPreV09) {
       await ensureLegacyPendingTurnPersisted();
     }
-    var resp = await postWithMetadataFormat(metadataFormat);
+    final firstResponse = await post(metadataFormat);
+    if (firstResponse == null) return readSavedReply();
+    var resp = firstResponse;
     var status = resp.statusCode ?? 0;
 
     // Surface structured errors before transport binding.
@@ -270,7 +301,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
       _chatRequestMetadataFormat = metadataFormat;
       await ensureLegacyPendingTurnPersisted();
-      resp = await postWithMetadataFormat(metadataFormat);
+      final retryResponse = await post(metadataFormat);
+      if (retryResponse == null) return readSavedReply();
+      resp = retryResponse;
       status = resp.statusCode ?? 0;
 
       if (status < 200 || status >= 300) {
