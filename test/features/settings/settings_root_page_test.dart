@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/settings/settings_controller.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/features/settings/views/settings_root_page.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -110,7 +111,7 @@ Finder _row(String id) => find.byKey(ValueKey<String>('settings-row-$id'));
 
 void main() {
   testWidgets('the root offers Workspace to an account that may manage it, '
-      'and the row opens it', (tester) async {
+      'as a page of Settings', (tester) async {
     final controller = await _pumpRoot(
       tester,
       capabilities: const WorkspaceCapabilities(
@@ -119,10 +120,18 @@ void main() {
     );
 
     await tester.scrollUntilVisible(_row(NativeSheetRoutes.workspace), 300);
-    await tester.tap(_row(NativeSheetRoutes.workspace));
-    await tester.pumpAndSettle();
 
-    check(controller.changes).deepEquals([(NativeSheetRoutes.workspace, true)]);
+    // It opens the Workspace's page inside Settings, sending nothing that
+    // would close Settings.
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsRootPage)),
+    );
+    check(
+      container
+          .read(settingsPagesProvider)
+          .contains(NativeSheetRoutes.workspace),
+    ).isTrue();
+    check(controller.changes).isEmpty();
   });
 
   testWidgets('the root leaves Workspace out without access to it', (

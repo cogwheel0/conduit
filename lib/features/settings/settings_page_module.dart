@@ -12,6 +12,9 @@ import 'pages/personal_connection_settings_pages.dart';
 import 'pages/scheduled_task_settings_pages.dart';
 import 'pages/server_address_settings_pages.dart';
 import 'pages/webhook_settings_pages.dart';
+import 'pages/workspace_model_settings_pages.dart';
+import 'pages/workspace_prompt_settings_pages.dart';
+import 'pages/workspace_settings_pages.dart';
 
 /// A group of Settings pages kept together: which pages it draws, how it
 /// fills them in when they appear, and what their rows do.
@@ -51,5 +54,8 @@ final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
     ScheduledTaskSettingsPages(ref),
     PersonalConnectionSettingsPages(ref),
     CalendarSettingsPages(ref),
+    WorkspaceSettingsPages(ref),
+    WorkspaceModelSettingsPages(ref),
+    WorkspacePromptSettingsPages(ref),
   ],
 );

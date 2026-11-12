@@ -50,6 +50,7 @@ import '../../features/direct_connections/views/direct_connection_editor_page.da
 import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../features/settings/pages/personal_connection_settings_pages.dart';
 import '../../features/settings/pages/scheduled_task_settings_pages.dart';
+import '../../features/settings/pages/workspace_page_ids.dart';
 import '../../features/calendar/views/calendar_page.dart';
 
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -710,6 +711,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
 });
 
 List<GoRoute> _workspaceRoutes() {
+  /// A route of a section drawn as pages of Settings: the Settings page
+  /// [detailId] names.
+  GoRoute settingsRoute({
+    required String path,
+    required String name,
+    required String Function(GoRouterState state) detailId,
+  }) => GoRoute(
+    path: path,
+    name: name,
+    pageBuilder: (context, state) => _buildPlatformPage(
+      state: state,
+      child: SettingsDetailPage(detailId: detailId(state)),
+    ),
+  );
+
   GoRoute route({
     required String path,
     required String name,
@@ -732,33 +748,70 @@ List<GoRoute> _workspaceRoutes() {
     );
   }
 
+  String editorPage(WorkspaceSection section, String? id) =>
+      section == WorkspaceSection.models
+      ? workspaceModelPageId(id)
+      : workspacePromptPageId(id);
+
   return [
-    route(path: Routes.workspace, name: RouteNames.workspace, section: null),
-    for (final descriptor in workspaceRouteDescriptors) ...[
-      route(
-        path: descriptor.collectionPath,
-        name: descriptor.collectionName,
-        section: descriptor.section,
-      ),
-      route(
-        path: descriptor.createPattern,
-        name: descriptor.createName,
-        section: descriptor.section,
-        mode: WorkspaceRouteMode.create,
-      ),
-      route(
-        path: descriptor.detailPattern,
-        name: descriptor.detailName,
-        section: descriptor.section,
-        mode: WorkspaceRouteMode.detail,
-      ),
-      route(
-        path: descriptor.editPattern,
-        name: descriptor.editName,
-        section: descriptor.section,
-        mode: WorkspaceRouteMode.edit,
-      ),
-    ],
+    settingsRoute(
+      path: Routes.workspace,
+      name: RouteNames.workspace,
+      detailId: (_) => workspaceHubPageId,
+    ),
+    // Models and Prompts are pages of Settings's own; each of their routes
+    // opens the matching page.
+    for (final descriptor in workspaceRouteDescriptors)
+      if (workspaceSectionsInSettings.contains(descriptor.section)) ...[
+        settingsRoute(
+          path: descriptor.collectionPath,
+          name: descriptor.collectionName,
+          detailId: (_) => workspaceSectionPageId(descriptor.section),
+        ),
+        settingsRoute(
+          path: descriptor.createPattern,
+          name: descriptor.createName,
+          detailId: (_) => editorPage(descriptor.section, null),
+        ),
+        settingsRoute(
+          path: descriptor.detailPattern,
+          name: descriptor.detailName,
+          detailId: (state) =>
+              editorPage(descriptor.section, state.pathParameters['id']),
+        ),
+        settingsRoute(
+          path: descriptor.editPattern,
+          name: descriptor.editName,
+          detailId: (state) =>
+              editorPage(descriptor.section, state.pathParameters['id']),
+        ),
+      ],
+    for (final descriptor in workspaceRouteDescriptors)
+      if (!workspaceSectionsInSettings.contains(descriptor.section)) ...[
+        route(
+          path: descriptor.collectionPath,
+          name: descriptor.collectionName,
+          section: descriptor.section,
+        ),
+        route(
+          path: descriptor.createPattern,
+          name: descriptor.createName,
+          section: descriptor.section,
+          mode: WorkspaceRouteMode.create,
+        ),
+        route(
+          path: descriptor.detailPattern,
+          name: descriptor.detailName,
+          section: descriptor.section,
+          mode: WorkspaceRouteMode.detail,
+        ),
+        route(
+          path: descriptor.editPattern,
+          name: descriptor.editName,
+          section: descriptor.section,
+          mode: WorkspaceRouteMode.edit,
+        ),
+      ],
   ];
 }
 

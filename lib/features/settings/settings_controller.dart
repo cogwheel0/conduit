@@ -39,8 +39,6 @@ import '../profile/widgets/stt_language_picker.dart'
 import '../push/widgets/push_target_actions.dart'
     show setPushEnabledFromNativeSheet;
 import '../push/widgets/push_target_detail_sheet.dart';
-import '../workspace/providers/workspace_capabilities_provider.dart';
-import '../workspace/workspace_navigation.dart';
 import 'settings_page_module.dart';
 import 'pages/server_address_settings_pages.dart'
     show serverAddressesAddAccountActionId, serverAddressesPageId;
@@ -616,17 +614,6 @@ class SettingsController {
       }
 
       switch (event.id) {
-        case NativeSheetRoutes.workspace:
-          final capabilities = ref.read(workspaceCapabilitiesProvider).value;
-          final permitted = capabilities == null
-              ? const <WorkspaceSection>[]
-              : permittedWorkspaceSections(capabilities);
-          final destination = permitted.isEmpty
-              ? Routes.workspace
-              : permitted.first.path;
-          unawaited(
-            NavigationService.router.push<void>(destination, extra: origin),
-          );
         case 'default-model':
           if (value is String) {
             final modelId = value == 'auto-select' ? null : value;

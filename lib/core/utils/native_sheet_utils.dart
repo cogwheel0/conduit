@@ -409,8 +409,9 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         sfSymbol: 'calendar',
       ),
     if (visibility.canManageWorkspace)
-      _nativeRootPageItem(
-        NativeSheetRoutes.workspace,
+      // A page of Settings's own: it opens inside Settings.
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.workspace,
         title: l10n.workspaceTitle,
         sfSymbol: 'square.grid.2x2',
       ),
