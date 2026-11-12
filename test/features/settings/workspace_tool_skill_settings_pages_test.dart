@@ -25,6 +25,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -119,7 +120,13 @@ final class _Tools extends WorkspaceTools {
   @override
   Future<WorkspaceToolDetail> toggle(String id) async {
     toggled.add(id);
-    return _tool(isActive: false);
+    // As Open WebUI answers a toggle: no source, no write access.
+    return const WorkspaceToolSummary(
+      id: 'tool-1',
+      name: 'Star Chart',
+      userId: 'owner',
+      isActive: false,
+    );
   }
 
   @override
@@ -202,7 +209,13 @@ final class _Skills extends WorkspaceSkills {
   @override
   Future<WorkspaceSkillDetail> toggle(String id) async {
     toggled.add(id);
-    return _skill(isActive: false);
+    // As Open WebUI answers a toggle: no write access.
+    return const WorkspaceSkillSummary(
+      id: 'skill-1',
+      name: 'Trail Planner',
+      userId: 'owner',
+      isActive: false,
+    );
   }
 
   @override
@@ -217,13 +230,17 @@ final class _Surface extends SettingsSurface {
   _Surface(super.ref);
 
   String? answer;
+  final asked = <String>[];
 
   @override
   Future<String?> ask({
     required String title,
     String? message,
     required List<NativeSheetAlertAction> actions,
-  }) async => answer;
+  }) async {
+    asked.add(title);
+    return answer;
+  }
 }
 
 final class _Export extends WorkspaceExportController {
@@ -472,6 +489,27 @@ void main() {
           .equals(_l10n.workspaceToolIncompatible('0.11.0', '0.10.0'));
     });
 
+    testWidgets('a refusal that is not about the id is not said to be one', (
+      tester,
+    ) async {
+      final tools = _Tools()
+        ..createError = DioException(
+          requestOptions: RequestOptions(),
+          response: Response(
+            requestOptions: RequestOptions(),
+            statusCode: 400,
+            data: {'detail': 'Error loading tool: invalid syntax'},
+          ),
+        );
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_newTool);
+      await rig.change(_toolRow('name'), 'Moon Phase');
+      await rig.change(_toolRow('save'));
+
+      check(rig.page(_newTool).announcement)
+          .not((it) => it.equals(_l10n.workspaceToolIdTaken));
+    });
+
     testWidgets('an id that is not one, or already used, says why', (
       tester,
     ) async {
@@ -555,6 +593,11 @@ void main() {
       check(switching.toggled).deepEquals(['tool-1']);
       check(fresh.row(_tool1, _toolRow('active', _toolKey))!.title)
           .equals(_l10n.workspaceToolActivate);
+      // Still the account's own tool, its source kept.
+      check(fresh.page(_tool1).confirmActionId).isNotNull();
+      final code = '$workspaceToolCodePagePrefix$_toolKey';
+      await fresh.open(code);
+      check(fresh.rows(code).single.value).equals('class Tools:\n    pass\n');
 
       final older = await pump(tester, tool: _tool());
       await older.open(_tool1);
@@ -680,6 +723,44 @@ void main() {
             .equals(_l10n.workspaceToolValvesSaved);
       });
 
+      testWidgets('a scope with unsaved edits asks before the other is shown', (
+        tester,
+      ) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+        final scope = _toolRow('valves-scope', _toolKey);
+        final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+
+        surface.answer = 'keep';
+        await rig.change(scope, 'user');
+        check(surface.asked).deepEquals([_l10n.workspaceEditorDiscardTitle]);
+        check(rig.row(valves, _toolRow('valve-mode', _toolKey, 'units'))!.value)
+            .equals('custom');
+        check(rig.page(valves).edited).isTrue();
+
+        surface.answer = 'discard';
+        await rig.change(scope, 'user');
+        check(rig.page(valves).edited).isFalse();
+        check(tools.valveSaves).isEmpty();
+      });
+
+      testWidgets('text that is no number is not kept as one', (tester) async {
+        final rig = await pump(tester);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'limit'), 'custom');
+        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '12');
+
+        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '12x');
+
+        check(
+          rig.row(valves, _toolRow('valve-value', _toolKey, 'limit'))!.value,
+        ).equals('12');
+      });
+
       testWidgets('valves that cannot be read offer Retry', (tester) async {
         final tools = _Tools()..valvesError = StateError('offline');
         final rig = await pump(tester, tools: tools);
@@ -784,12 +865,14 @@ void main() {
 
       await rig.change(_skillRow('clone', _skillKey));
       check(skills.created.single.id).equals('skill-1_clone');
-      check(skills.created.single.accessGrants).isEmpty();
+      check(skills.created.single.accessGrants).isNotNull().isEmpty();
 
       await rig.change(_skillRow('active', _skillKey));
       check(skills.toggled).deepEquals(['skill-1']);
       check(rig.row(_skill1, _skillRow('active', _skillKey))!.title)
           .equals(_l10n.workspaceSkillActivate);
+      // Still the account's own skill.
+      check(rig.page(_skill1).confirmActionId).isNotNull();
 
       await rig.change(
         _skillRow('description', _skillKey),
@@ -797,6 +880,8 @@ void main() {
       );
       await rig.change(_skillRow('save', _skillKey));
       check(skills.updated.single.description).equals('Plans a long hike');
+      // Who may open it is the Access page's to save.
+      check(skills.updated.single.accessGrants).isNull();
       check(rig.closed).deepEquals([_skill1]);
 
       final removing = _Skills();

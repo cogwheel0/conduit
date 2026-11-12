@@ -992,7 +992,39 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       case 'valves-retry':
         await _loadValves(editor);
       case 'valves-scope' when value is String:
-        editor.valvesUser = value == 'user';
+        final user = value == 'user';
+        if (user == editor.valvesUser) return true;
+        // Each scope saves on its own: edits to this one are kept or
+        // dropped before the other is shown.
+        if (editor.valvesDirty) {
+          final answer = await _surface.ask(
+            title: l10n.workspaceEditorDiscardTitle,
+            message: l10n.workspaceEditorDiscardMessage,
+            actions: [
+              NativeSheetAlertAction(
+                'keep',
+                l10n.workspaceEditorKeepEditing,
+                style: NativeSheetAlertStyle.cancel,
+              ),
+              NativeSheetAlertAction(
+                'discard',
+                l10n.workspaceEditorDiscardConfirm,
+                style: NativeSheetAlertStyle.destructive,
+              ),
+            ],
+          );
+          if (!_current(editor)) return true;
+          if (answer != 'discard') {
+            await _applyValves(l10n, editor);
+            return true;
+          }
+          editor
+            ..valvesUser = user
+            ..valvesLoaded = false;
+          await _loadValves(editor);
+          return true;
+        }
+        editor.valvesUser = user;
         await _applyValves(l10n, editor);
       case 'valve-mode' when value is String && row.extra != null:
         await _setValveMode(
@@ -1021,12 +1053,21 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       ..noticeIsError = error;
   }
 
+  /// Whether the server refused the id as taken. Open WebUI answers 400
+  /// for other refusals too (source that does not load, a name in use), so
+  /// a 400 counts only when it says the id is the problem.
   static bool _isConflict(Object error) {
-    if (error is DioException) {
-      final status = error.response?.statusCode;
-      return status == 400 || status == 409;
-    }
-    return false;
+    if (error is! DioException) return false;
+    final status = error.response?.statusCode;
+    if (status == 409) return true;
+    if (status != 400) return false;
+    final data = error.response?.data;
+    final detail = (data is Map ? data['detail'] : data)
+        ?.toString()
+        .toLowerCase();
+    return detail != null &&
+        detail.contains('id') &&
+        (detail.contains('taken') || detail.contains('already'));
   }
 
   /// The id to save under, or null after saying on the page why there is
@@ -1191,7 +1232,22 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       () async => toggled = await _notifier.toggle(summary.id),
     );
     if (!ok) return;
-    if (toggled != null) editor.adopt(toggled!);
+    // The toggle answers less than the whole tool (no source, no write
+    // access): only whether it is on is taken from it.
+    editor.summary = WorkspaceToolSummary(
+      id: summary.id,
+      name: summary.name,
+      userId: summary.userId,
+      content: summary.content,
+      specs: summary.specs,
+      meta: summary.meta,
+      accessGrants: summary.accessGrants,
+      writeAccess: summary.writeAccess,
+      isActive: toggled?.isActive ?? !summary.isActive!,
+      owner: summary.owner,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+    );
     _say(editor, l10n.workspaceToolSaved, error: false);
     await _applyEditor(l10n, editor, withPages: false);
   }
@@ -1305,11 +1361,22 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     } else if (value is bool) {
       values[property] = value;
     } else if (value is String) {
+      final type = propertySpec['type']?.toString();
       values[property] = WorkspaceValveValues.coerceText(
-        propertySpec['type']?.toString(),
+        type,
         value,
         values[property],
       );
+      // Text that is no number is not kept: the field shows the value that
+      // will be saved, rather than one Save would quietly replace.
+      final numeric = type == 'number' || type == 'integer';
+      if (numeric &&
+          value.trim().isNotEmpty &&
+          values[property]?.toString() != value.trim()) {
+        editor.valvesDirty = true;
+        await _applyValves(l10n, editor);
+        return;
+      }
     } else {
       return;
     }

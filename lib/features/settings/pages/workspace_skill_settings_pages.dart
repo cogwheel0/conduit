@@ -529,12 +529,21 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       ..noticeIsError = error;
   }
 
+  /// Whether the server refused the id as taken. Open WebUI answers 400
+  /// for other refusals too (source that does not load, a name in use), so
+  /// a 400 counts only when it says the id is the problem.
   static bool _isConflict(Object error) {
-    if (error is DioException) {
-      final status = error.response?.statusCode;
-      return status == 400 || status == 409;
-    }
-    return false;
+    if (error is! DioException) return false;
+    final status = error.response?.statusCode;
+    if (status == 409) return true;
+    if (status != 400) return false;
+    final data = error.response?.data;
+    final detail = (data is Map ? data['detail'] : data)
+        ?.toString()
+        .toLowerCase();
+    return detail != null &&
+        detail.contains('id') &&
+        (detail.contains('taken') || detail.contains('already'));
   }
 
   String? _checked(AppLocalizations l10n, WorkspaceSkillEditor editor) {
@@ -577,7 +586,9 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       content: editor.content,
       meta: editor.meta,
       isActive: editor.summary?.isActive ?? true,
-      accessGrants: editor.grants,
+      // Who may open it is saved on its Access page; an update leaves it
+      // as it is, rather than putting back what was read on opening.
+      accessGrants: editor.isCreate ? editor.grants : null,
     );
     editor
       ..busy = true
@@ -662,7 +673,14 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       name: '${editor.name.trim()} ${l10n.workspaceSkillCloneSuffix}',
       description: description.isEmpty ? null : description,
       content: editor.content,
+      // Its supporting files go with it (SKILL.md is the content above),
+      // and it is on or off as the skill is.
+      files: [
+        for (final file in editor.summary?.files ?? const [])
+          if (file['path'] != 'SKILL.md') file,
+      ],
       meta: editor.meta,
+      isActive: editor.summary?.isActive ?? true,
     );
     final ok = await _operate(l10n, editor, () => _notifier.create(form));
     if (!ok) return;
@@ -685,17 +703,23 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     if (!ok) return;
     final next = toggled;
     if (next != null) {
-      // Switched, the skill keeps what was typed and not yet saved.
-      final wasDirty = editor.dirty;
-      final kept = (editor.name, editor.description, editor.content);
-      editor.adopt(next);
-      if (wasDirty) {
-        editor
-          ..name = kept.$1
-          ..description = kept.$2
-          ..content = kept.$3
-          ..dirty = true;
-      }
+      // The toggle answers less than the whole skill (no write access):
+      // only whether it is on is taken from it, and what was typed stays.
+      editor.summary = WorkspaceSkillSummary(
+        id: summary.id,
+        name: summary.name,
+        userId: summary.userId,
+        description: summary.description,
+        content: summary.content,
+        files: summary.files,
+        meta: summary.meta,
+        isActive: next.isActive,
+        accessGrants: summary.accessGrants,
+        writeAccess: summary.writeAccess,
+        owner: summary.owner,
+        createdAt: summary.createdAt,
+        updatedAt: summary.updatedAt,
+      );
     }
     _say(editor, l10n.workspaceSkillSaved, error: false);
     await _applyEditor(l10n, editor, withPages: false);

@@ -69,6 +69,22 @@ void main() {
       expect(items.single['id'], 'solo');
     });
 
+    test('a single object holding lists is still one item', () {
+      final skill = workspaceImportItemsFromJson({
+        'id': 'guide',
+        'name': 'Guide',
+        'files': <Object?>[],
+      });
+      expect(skill.single['id'], 'guide');
+      final tool = workspaceImportItemsFromJson({
+        'id': 'moon',
+        'specs': [
+          {'name': 'phase'},
+        ],
+      });
+      expect(tool.single['id'], 'moon');
+    });
+
     test('non-JSON scalars yield an empty list', () {
       expect(workspaceImportItemsFromJson('nope'), isEmpty);
     });

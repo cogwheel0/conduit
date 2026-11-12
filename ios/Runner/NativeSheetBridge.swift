@@ -5215,7 +5215,9 @@ private final class NativeSheetCodeTableViewCell: UITableViewCell, UITextViewDel
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
-        textView.keyboardType = .asciiCapable
+        // The person's own keyboard: a skill's instructions are prose, in
+        // any language, beside code.
+        textView.keyboardType = .default
         textView.alwaysBounceVertical = true
         setCode("")
         textView.delegate = self
@@ -6401,6 +6403,12 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// leaves, and the code scrolls inside it.
     private func configureCodePage() {
         tableView.isScrollEnabled = !isCodePage
+        // A page patched into one that is not code needs no keyboard watch.
+        if !isCodePage, let observer = codeKeyboardObserver {
+            NotificationCenter.default.removeObserver(observer)
+            codeKeyboardObserver = nil
+            keyboardOverlap = 0
+        }
         guard isCodePage, codeKeyboardObserver == nil else { return }
         codeKeyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification,
@@ -6422,7 +6430,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     private func codeRowHeightNow() -> CGFloat {
         let top = tableView.adjustedContentInset.top
         let bottom = max(keyboardOverlap, tableView.safeAreaInsets.bottom)
-        return max(160, tableView.bounds.height - top - bottom - 32)
+        let room = tableView.bounds.height - top - bottom - 32
+        // Above the keyboard, the row fits what is left, however little: the
+        // page does not scroll, so a taller row would hide its end.
+        return keyboardOverlap > 0 ? max(44, room) : max(160, room)
+    }
+
+    deinit {
+        if let observer = codeKeyboardObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     /// Fits the row of code to the room there is, as the page or the
@@ -6772,8 +6789,12 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         let cell = makeCell(tableView, at: indexPath)
         let item = item(at: indexPath)
         // A row waiting on another row's action, or on the page's Done,
-        // takes no taps; one disabled outright is dimmed as well.
-        cell.isUserInteractionEnabled = !(item.disabled || detail.busy)
+        // takes no taps; one disabled outright is dimmed as well. Read-only
+        // code still scrolls: its text view is not editable, and the page
+        // itself does not scroll.
+        let readOnlyCode = item.kind == "code" && item.disabled
+        cell.isUserInteractionEnabled =
+            readOnlyCode ? !detail.busy : !(item.disabled || detail.busy)
         cell.contentView.alpha = item.disabled ? 0.4 : 1
         cell.accessoryView?.alpha = item.disabled ? 0.4 : 1
         if item.disabled {

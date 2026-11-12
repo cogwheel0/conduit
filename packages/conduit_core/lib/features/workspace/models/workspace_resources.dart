@@ -435,7 +435,9 @@ class WorkspaceSkillForm {
   final List<Map<String, dynamic>>? files;
   final Map<String, dynamic> meta;
   final bool isActive;
-  final List<WorkspaceAccessGrantInput> accessGrants;
+
+  /// Null leaves who may open it as it is (an update).
+  final List<WorkspaceAccessGrantInput>? accessGrants;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id,
@@ -445,6 +447,7 @@ class WorkspaceSkillForm {
     if (files != null) 'files': files,
     'meta': meta,
     'is_active': isActive,
-    'access_grants': workspaceGrantInputs(accessGrants),
+    if (accessGrants case final grants?)
+      'access_grants': workspaceGrantInputs(grants),
   };
 }

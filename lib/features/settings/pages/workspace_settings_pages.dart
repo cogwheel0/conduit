@@ -28,6 +28,7 @@ import '../../workspace/widgets/workspace_import_sheet.dart'
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
 import 'workspace_page_ids.dart';
+import 'workspace_tool_settings_pages.dart' show workspaceToolIncompatibility;
 
 String workspaceSectionTitle(AppLocalizations l10n, WorkspaceSection section) =>
     switch (section) {
@@ -1242,9 +1243,17 @@ class WorkspaceSettingsPages extends SettingsPageModule {
                   .importItems([item]);
               if (!ok) throw StateError('import rejected');
             case WorkspaceSection.tools:
-              await _ref
-                  .read(workspaceToolsProvider.notifier)
-                  .importTool(workspaceToolFormFromImport(item));
+              final form = workspaceToolFormFromImport(item);
+              // As the editor's save: source that needs a newer server is
+              // not saved to this one.
+              if (workspaceToolIncompatibility(
+                    form.content,
+                    _ref.read(workspaceServerVersionProvider),
+                  ) !=
+                  null) {
+                throw StateError('tool needs a newer server');
+              }
+              await _ref.read(workspaceToolsProvider.notifier).importTool(form);
             case WorkspaceSection.skills:
               await _ref
                   .read(workspaceSkillsProvider.notifier)

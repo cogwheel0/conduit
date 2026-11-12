@@ -17,6 +17,9 @@ List<Map<String, dynamic>> workspaceImportItemsFromJson(dynamic decoded) {
   }
   if (decoded is Map) {
     final map = workspaceJsonMap(decoded);
+    // One resource, whatever lists it holds (a skill's files, a tool's
+    // specs): an envelope has no id or name of its own.
+    if (map.containsKey('id') || map.containsKey('name')) return [map];
     for (final value in map.values) {
       if (value is List) return workspaceJsonList(value);
     }
