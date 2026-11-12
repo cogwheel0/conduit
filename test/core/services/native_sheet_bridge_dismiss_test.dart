@@ -45,6 +45,19 @@ void main() {
     expect(bridge.settingsSheetOpen, isFalse);
   });
 
+  test('a sheet still leaving once the wait is over is not taken as '
+      'closed', () async {
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _dismissChannel,
+      (_) async => <Object?>[true],
+    );
+
+    expect(
+      await bridge.dismissSettings(patience: const Duration(milliseconds: 10)),
+      isFalse,
+    );
+  });
+
   test('a sheet that does not close says so', () async {
     messenger.setMockDecodedMessageHandler<Object?>(
       _dismissChannel,

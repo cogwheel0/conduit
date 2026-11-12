@@ -1061,25 +1061,31 @@ class ServerAddressSettingsPages extends SettingsPageModule {
             verified: config,
             sessionRevision: sessionRevision,
             l10n: l10n,
-            confirmSendingSession: (address) async =>
-                await _surface.ask(
-                  title: l10n.accountsAddressConfirmTitle,
-                  message: l10n.accountsAddressConfirmMessage(
-                    address.authority,
-                  ),
-                  actions: [
-                    NativeSheetAlertAction(
-                      'cancel',
-                      l10n.cancel,
-                      style: NativeSheetAlertStyle.cancel,
+            // Asked only while the editor is open, and agreed only if it
+            // still is: a left editor's session goes nowhere.
+            confirmSendingSession: (address) async {
+              if (!identical(_editors[key], editor)) return false;
+              final agreed =
+                  await _surface.ask(
+                    title: l10n.accountsAddressConfirmTitle,
+                    message: l10n.accountsAddressConfirmMessage(
+                      address.authority,
                     ),
-                    NativeSheetAlertAction(
-                      'check',
-                      l10n.accountsAddressConfirmAction,
-                    ),
-                  ],
-                ) ==
-                'check',
+                    actions: [
+                      NativeSheetAlertAction(
+                        'cancel',
+                        l10n.cancel,
+                        style: NativeSheetAlertStyle.cancel,
+                      ),
+                      NativeSheetAlertAction(
+                        'check',
+                        l10n.accountsAddressConfirmAction,
+                      ),
+                    ],
+                  ) ==
+                  'check';
+              return agreed && identical(_editors[key], editor);
+            },
             confirmChangingInUse: () => _mayChangeAddressInUse(l10n),
             // Left while the address was checked: the edit is abandoned,
             // and the address stays as it was.
