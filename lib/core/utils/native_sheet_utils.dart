@@ -1066,21 +1066,6 @@ List<NativeSheetItemConfig> buildNativeSupportItems(AppLocalizations l10n) => [
   ),
 ];
 
-/// A root row that closes the sheet and opens a Flutter page; it sends its
-/// own id as the control id.
-NativeSheetItemConfig _nativeRootPageItem(
-  String id, {
-  required String title,
-  required String sfSymbol,
-}) => NativeSheetItemConfig(
-  id: id,
-  title: title,
-  sfSymbol: sfSymbol,
-  dismissOnSelect: true,
-  actionId: id,
-  actionValue: true,
-);
-
 /// The sections of the native Profile page. [accountProfile] supplies the
 /// About text, gender and birthday; with none loaded the rows show them as
 /// not set.

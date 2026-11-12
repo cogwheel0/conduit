@@ -51,12 +51,7 @@ enum SettingsEventSource {
   nativeSheet,
 
   /// The Flutter Settings pages, which stay under any page opened from them.
-  flutter;
-
-  NativeSheetNavigationOrigin? get navigationOrigin => switch (this) {
-    nativeSheet => const NativeSheetNavigationOrigin(),
-    flutter => null,
-  };
+  flutter,
 }
 
 final settingsControllerProvider = Provider<SettingsController>(
@@ -411,10 +406,6 @@ class SettingsController {
     final event = isMemoryRetry ? _memoryRetryChange(sent.id) : sent;
     if (event == null) return;
     final value = event.value;
-    // A page opened from the native sheet arrives as it slides away, without
-    // a second transition; one opened from a Flutter Settings page pushes as
-    // any page does.
-    final origin = source.navigationOrigin;
     try {
       // Accountless (Hermes, Direct, Apple) "Connect to Open WebUI" row.
       // Dismiss the native sheet and route into the OWUI connect flow (the
