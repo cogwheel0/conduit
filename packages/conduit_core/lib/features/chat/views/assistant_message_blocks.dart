@@ -220,12 +220,17 @@ String assistantDisplayContent(String raw) =>
 /// still change since the last call; give the same one for every frame of
 /// one answer. The result is the same as without it.
 ///
+/// [unnamedTool] names a Hermes tool that reports no name in the status
+/// summary; a host passes the word in its user's language, as the mobile app
+/// passes its own.
+///
 /// Empty for anything but an assistant message.
 List<AssistantBlock> assistantMessageBlocks(
   ChatMessage message, {
   String? content,
   bool? streaming,
   StreamingContentBlocks? live,
+  String unnamedTool = 'tool',
 }) {
   if (message.role != 'assistant') return const <AssistantBlock>[];
   final isStreaming =
@@ -242,6 +247,7 @@ List<AssistantBlock> assistantMessageBlocks(
     codeExecutions: message.codeExecutions,
     sources: message.sources,
     followUps: message.followUps,
+    unnamedTool: unnamedTool,
   );
 }
 
@@ -261,6 +267,8 @@ List<AssistantBlock> assistantVersionBlocks(ChatMessageVersion version) =>
       codeExecutions: version.codeExecutions,
       sources: version.sources,
       followUps: version.followUps,
+      // A version keeps no status timeline, so names no tool.
+      unnamedTool: 'tool',
     );
 
 List<AssistantBlock> _assemble({
@@ -275,6 +283,7 @@ List<AssistantBlock> _assemble({
   required List<ChatCodeExecution> codeExecutions,
   required List<ChatSourceReference> sources,
   required List<String> followUps,
+  required String unnamedTool,
 }) {
   final blocks = <AssistantBlock>[];
 
@@ -311,7 +320,7 @@ List<AssistantBlock> _assemble({
                 ? hermesTools.any((update) => update.done != true)
                 : statuses.last.done != true),
         toolSummary: grouped
-            ? hermesToolGroupSummary(hermesTools, unnamedTool: 'tool')
+            ? hermesToolGroupSummary(hermesTools, unnamedTool: unnamedTool)
             : null,
       ),
     );

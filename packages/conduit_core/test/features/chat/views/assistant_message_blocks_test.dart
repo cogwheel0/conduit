@@ -290,6 +290,25 @@ void main() {
       expect(status.toolSummary, 'terminal (2), web_search');
       expect(status.pending, isTrue);
     });
+
+    test('names an unnamed Hermes tool in the host\'s words', () {
+      final message = ChatMessage(
+        id: 'msg-h',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2026, 11, 8),
+        isStreaming: true,
+        statusHistory: const <ChatStatusUpdate>[
+          ChatStatusUpdate(action: 'hermes_tool_terminal', done: true),
+          ChatStatusUpdate(action: 'hermes_tool_opaque', done: true),
+        ],
+      );
+      final status =
+          assistantMessageBlocks(message, unnamedTool: 'Werkzeug').single
+              as AssistantStatusBlock;
+      expect(status.toolSummary, contains('Werkzeug'));
+      expect(status.toolSummary, isNot(contains('tool')));
+    });
   });
 
   test('an earlier version shows its own parts and no status', () {
