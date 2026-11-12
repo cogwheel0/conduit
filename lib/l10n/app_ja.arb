@@ -6548,5 +6548,7 @@
         "example": "Research Assistant"
       }
     }
-  }
+  },
+  "showModelNameInComposer": "メッセージ欄にモデル名を表示",
+  "showModelNameInComposerDescription": "空のメッセージ欄に、Conduit の代わりに選択中のモデル名を表示します。"
 }

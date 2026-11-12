@@ -4931,5 +4931,7 @@
         "example": "Research Assistant"
       }
     }
-  }
+  },
+  "showModelNameInComposer": "Modelnaam in berichtveld tonen",
+  "showModelNameInComposerDescription": "Het lege berichtveld noemt het gekozen model in plaats van Conduit."
 }

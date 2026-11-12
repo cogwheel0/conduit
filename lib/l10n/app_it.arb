@@ -4931,5 +4931,7 @@
         "example": "Research Assistant"
       }
     }
-  }
+  },
+  "showModelNameInComposer": "Mostra il nome del modello nel campo messaggio",
+  "showModelNameInComposerDescription": "Il campo messaggio vuoto indica il modello selezionato invece di Conduit."
 }

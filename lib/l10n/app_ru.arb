@@ -4969,5 +4969,7 @@
         "example": "Research Assistant"
       }
     }
-  }
+  },
+  "showModelNameInComposer": "Показывать название модели в поле сообщения",
+  "showModelNameInComposerDescription": "В пустом поле сообщения указывается выбранная модель вместо Conduit."
 }

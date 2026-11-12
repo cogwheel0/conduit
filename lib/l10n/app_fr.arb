@@ -4931,5 +4931,7 @@
         "example": "Research Assistant"
       }
     }
-  }
+  },
+  "showModelNameInComposer": "Afficher le nom du modèle dans la zone de message",
+  "showModelNameInComposerDescription": "La zone de message vide indique le nom du modèle sélectionné au lieu de Conduit."
 }

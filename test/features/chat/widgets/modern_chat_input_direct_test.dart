@@ -1514,13 +1514,16 @@ void main() {
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(320, 800);
+    // Wide enough for "Ask Conduit" in the test font, which draws every
+    // character a full em wide.
+    tester.view.physicalSize = const Size(480, 800);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
 
-    // The chat's placeholder names its model, so switching models swaps it
-    // while the field stays empty and its width stays the same.
-    Future<void> show(String placeholder) async {
+    // With the setting on, the chat's placeholder names its model: turning
+    // the setting on or off, or switching models, swaps it while the field
+    // stays empty and its width stays the same. Null is the setting off.
+    Future<void> show(String? placeholder) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [apiServiceProvider.overrideWithValue(null)],
@@ -1543,67 +1546,79 @@ void main() {
     final compact = find.byKey(const ValueKey('compact-composer-shell'));
     final expanded = find.byKey(const ValueKey('expanded-composer-shell'));
 
-    await show('Ask Fox');
+    await show(null);
     expect(compact, findsOneWidget);
 
+    // Turned on, for a model whose name wraps.
     await show('Ask Conduit about a detailed multilingual question');
     expect(compact, findsNothing);
     expect(expanded, findsOneWidget);
 
+    // Another model, whose name fits.
     await show('Ask Fox');
+    expect(compact, findsOneWidget);
+
+    await show('Ask Conduit about a detailed multilingual question');
+    expect(expanded, findsOneWidget);
+
+    // Turned off again.
+    await show(null);
     expect(compact, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the expanded editor asks the chat\'s model too', (
-    tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(400, 800);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [apiServiceProvider.overrideWithValue(null)],
-        child: MaterialApp(
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: ModernChatInput(
-              onSendMessage: (_) {},
-              placeholder: 'Ask GPT-5 mini',
+  for (final placeholder in <String?>[null, 'Ask GPT-5 mini']) {
+    testWidgets('the expanded editor rests on the composer\'s placeholder '
+        '(${placeholder ?? 'setting off'})', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 800);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiServiceProvider.overrideWithValue(null)],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ModernChatInput(
+                onSendMessage: (_) {},
+                placeholder: placeholder,
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    // A long draft shows the expand button; the Flutter sheet opens.
-    await tester.enterText(
-      find.byType(EditableText),
-      'First line\nSecond line\nThird line\nFourth line',
-    );
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.byKey(const ValueKey('composer-expand-button')));
-    await tester.pumpAndSettle();
-    final sheet = find.byType(ExpandedTextEditorSheet);
-    expect(sheet, findsOneWidget);
+      // A long draft shows the expand button; the Flutter sheet opens.
+      await tester.enterText(
+        find.byType(EditableText),
+        'First line\nSecond line\nThird line\nFourth line',
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byKey(const ValueKey('composer-expand-button')));
+      await tester.pumpAndSettle();
+      final sheet = find.byType(ExpandedTextEditorSheet);
+      expect(sheet, findsOneWidget);
 
-    // Emptied, the editor rests on the chat's own placeholder.
-    final field = find.descendant(of: sheet, matching: find.byType(TextField));
-    await tester.enterText(field, '');
-    await tester.pump();
-    expect(
-      tester.widget<TextField>(field).decoration?.hintText,
-      'Ask GPT-5 mini',
-    );
-    expect(
-      find.descendant(of: sheet, matching: find.text('Ask GPT-5 mini')),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), isNull);
-  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+      // Emptied, the editor rests on the composer's placeholder: "Ask
+      // Conduit" with the setting off, the model's name with it on.
+      final hint = placeholder ?? 'Ask Conduit';
+      final field = find.descendant(
+        of: sheet,
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(field, '');
+      await tester.pump();
+      expect(tester.widget<TextField>(field).decoration?.hintText, hint);
+      expect(
+        find.descendant(of: sheet, matching: find.text(hint)),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+  }
 
   testWidgets('a visually wrapped second line expands the composer', (
     tester,

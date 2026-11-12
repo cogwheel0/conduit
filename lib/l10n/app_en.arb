@@ -11353,5 +11353,13 @@
         "example": "Research Assistant"
       }
     }
+  },
+  "showModelNameInComposer": "Show Model Name in Message Box",
+  "@showModelNameInComposer": {
+    "description": "Switch in Settings > Chat, with the message box settings: whether the empty message box names the selected model instead of Conduit."
+  },
+  "showModelNameInComposerDescription": "The empty message box names the selected model instead of Conduit.",
+  "@showModelNameInComposerDescription": {
+    "description": "Explains the Show Model Name in Message Box switch in Settings > Chat."
   }
 }

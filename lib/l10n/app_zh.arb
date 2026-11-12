@@ -4931,5 +4931,7 @@
         "example": "Research Assistant"
       }
     }
-  }
+  },
+  "showModelNameInComposer": "在消息框中显示模型名称",
+  "showModelNameInComposerDescription": "空消息框将显示所选模型的名称，而不是 Conduit。"
 }

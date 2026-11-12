@@ -19,11 +19,15 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -462,15 +466,36 @@ void main() {
     expect(chatComposerPlaceholder(l10n, modelName: '  '), isNull);
   });
 
-  testWidgets('the composer is labelled with the selected model', (
-    tester,
-  ) async {
-    await _pumpChatPage(tester);
-    // As the chat gives it; the composer fits it to its field.
+  testWidgets('the composer names the selected model only once the setting '
+      'is on', (tester) async {
+    PreferencesStore.debugOverride(InMemoryKeyValueStore());
+    addTearDown(PreferencesStore.debugReset);
+    final container = await _pumpChatPage(tester);
+    String? placeholder() => tester
+        .widget<ModernChatInput>(find.byType(ModernChatInput))
+        .placeholder;
+
+    // Off by default: the composer keeps its own "Ask Conduit".
+    expect(container.read(appSettingsProvider).showModelNameInComposer, false);
+    expect(placeholder(), isNull);
     expect(
-      tester.widget<ModernChatInput>(find.byType(ModernChatInput)).placeholder,
-      'Ask Fixture model',
+      tester
+          .widget<CupertinoTextField>(find.byType(CupertinoTextField))
+          .placeholder,
+      contains('Ask Conduit'),
     );
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setShowModelNameInComposer(true);
+    await tester.pump();
+    expect(placeholder(), 'Ask Fixture model');
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setShowModelNameInComposer(false);
+    await tester.pump();
+    expect(placeholder(), isNull);
     await _tearDown(tester);
   });
 }

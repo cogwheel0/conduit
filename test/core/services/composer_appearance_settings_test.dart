@@ -58,4 +58,40 @@ void main() {
       isFalse,
     );
   });
+
+  test('the model name in the message box is off by default', () {
+    const settings = AppSettings();
+    expect(settings.showModelNameInComposer, isFalse);
+    final on = settings.copyWith(showModelNameInComposer: true);
+    expect(on, isNot(settings));
+    expect(on.hashCode, isNot(settings.hashCode));
+    expect(on.copyWith(showModelNameInComposer: false), settings);
+  });
+
+  test('the model name choice survives a bulk save and resets off', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final settings = container.read(appSettingsProvider.notifier);
+    await settings.setShowModelNameInComposer(true);
+    expect(container.read(appSettingsProvider).showModelNameInComposer, true);
+
+    final restored = ProviderContainer();
+    addTearDown(restored.dispose);
+    expect(restored.read(appSettingsProvider).showModelNameInComposer, true);
+
+    await SettingsService.saveSettings(const AppSettings());
+    expect(
+      (await SettingsService.loadSettings()).showModelNameInComposer,
+      isTrue,
+    );
+    await settings.resetToDefaults();
+    expect(
+      (await SettingsService.loadSettings()).showModelNameInComposer,
+      isFalse,
+    );
+    expect(
+      PreferencesStore.containsKey(PreferenceKeys.showModelNameInComposer),
+      isFalse,
+    );
+  });
 }

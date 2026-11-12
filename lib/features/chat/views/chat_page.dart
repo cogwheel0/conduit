@@ -36,6 +36,7 @@ import 'package:conduit_core/services/performance_profiler.dart';
 
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
 
@@ -4288,11 +4289,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   final hermesBot = chatHermesBotPresentation(
                     activeConversation,
                   );
-                  return ModernChatInput(
-                    placeholder: chatComposerPlaceholder(
-                      AppLocalizations.of(context)!,
-                      modelName: hermesBot?.title ?? selectedModelName,
+                  final showModelName = composerRef.watch(
+                    appSettingsProvider.select(
+                      (settings) => settings.showModelNameInComposer,
                     ),
+                  );
+                  return ModernChatInput(
+                    placeholder: showModelName
+                        ? chatComposerPlaceholder(
+                            AppLocalizations.of(context)!,
+                            modelName: hermesBot?.title ?? selectedModelName,
+                          )
+                        : null,
                     onSendMessage: _handleMessageSend,
                     onSendDraft: _handleDraftSend,
                     onCompareSend: _handleCompareSend,
