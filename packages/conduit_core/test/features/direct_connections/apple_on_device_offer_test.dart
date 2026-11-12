@@ -120,6 +120,27 @@ void main() {
     },
   );
 
+  test('a model refresh asks a model that was not ready again', () async {
+    final container = await iPhone();
+    final subscription = container.listen(
+      effectiveDirectConnectionProfilesProvider,
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    check(await effective(container)).isEmpty();
+    final asked = host.onDeviceAsked;
+
+    // The model finishes downloading while the app runs.
+    host.onDevice = PlatformPccAvailability.available;
+    unawaited(container.read(directModelDiscoveryProvider.notifier).refresh());
+    await container.read(appleOnDeviceStatusProvider.future);
+
+    check(host.onDeviceAsked).isGreaterThan(asked);
+    check(
+      container.read(effectiveDirectConnectionProfilesProvider).requireValue,
+    ).any((it) => it.has((p) => p.isAppleOnDevice, 'isAppleOnDevice').isTrue());
+  });
+
   test('Private Cloud Compute is offered as before, whatever the on-device '
       'model says', () async {
     final container = await iPhone(pccEnabled: true);

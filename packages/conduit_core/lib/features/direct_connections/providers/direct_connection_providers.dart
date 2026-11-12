@@ -2094,6 +2094,14 @@ class DirectModelDiscoveryController
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;
 
+    // Apple On-Device is offered only while its model answers, and a model
+    // can finish downloading (or be turned off) at any time: ask it again.
+    // When the answer changes, the profiles change and discovery runs anew.
+    if (ref.read(applePccPlatformSupportedProvider) &&
+        ref.read(appleOnDeviceEnabledProvider)) {
+      ref.invalidate(appleOnDeviceStatusProvider);
+    }
+
     // Defer the first pass by one event turn so bursts of UI/system refresh
     // requests collapse into one provider discovery. Requests arriving while
     // that pass is active schedule at most one superseding pass.
