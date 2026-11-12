@@ -137,7 +137,11 @@ final class _Hermes implements HttpClientAdapter {
       if (sent == method) params,
   ];
 
-  late final service = HermesDesktopApiService(
+  late final service = rebuilt();
+
+  /// A client for this Hermes, as the app builds one again after its token
+  /// is refreshed.
+  HermesDesktopApiService rebuilt() => HermesDesktopApiService(
     config: HermesConfig(
       enabled: true,
       baseUrl: 'https://hermes.example',
@@ -621,6 +625,52 @@ void main() {
     await hermes.dispose();
   });
 
+  testWidgets('an install answered after the same connection rebuilt its '
+      'client goes on to sign in', (tester) async {
+    final hermes = _Hermes(
+      dashboardCatalog: [
+        {
+          'name': 'tide-calendar',
+          'installed': false,
+          'auth_type': 'oauth',
+          'required_env': <Object?>[],
+        },
+      ],
+    )..oauth.add('tide-calendar');
+    final client = NotifierProvider<_Client, HermesDesktopApiService?>(
+      () => _Client(hermes.service),
+    );
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        hermesApiServiceProvider.overrideWith((ref) => ref.watch(client)),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesApiServiceProvider, (_, _) {});
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    await rig.open(hermesMcpCatalogPageId);
+    await rig.open(_entryPage('tide-calendar'));
+    final gate = hermes.installGate = Completer<void>();
+    final adding = rig.module.handleChange(
+      hermesMcpRowId('catalog-add', 'tide-calendar'),
+      true,
+      _l10n,
+    );
+    await tester.pump();
+
+    // A token refresh builds the client again; the connection is the same.
+    container.read(client.notifier).use(hermes.rebuilt());
+    await tester.pump();
+    gate.complete();
+    await rig.settle(adding);
+
+    check(hermes.calls('mcp.servers.oauth.start').map((it) => it['name']))
+        .deepEquals(['tide-calendar']);
+    await hermes.dispose();
+  });
+
   testWidgets('a test answered after another connection took over says '
       'nothing there', (tester) async {
     final hermes = _Hermes();
@@ -774,6 +824,18 @@ void main() {
 }
 
 /// The Hermes connection in use, switched by a test.
+/// The client in use, rebuilt by a test as a token refresh does.
+final class _Client extends Notifier<HermesDesktopApiService?> {
+  _Client(this.first);
+
+  final HermesDesktopApiService first;
+
+  @override
+  HermesDesktopApiService? build() => first;
+
+  void use(HermesDesktopApiService service) => state = service;
+}
+
 final class _Active extends Notifier<String?> {
   @override
   String? build() => 'home';

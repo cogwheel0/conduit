@@ -1032,10 +1032,12 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     ),
   );
 
-  /// Whether another connection took over while [service] installed a
-  /// server: the form's values go, and nothing more is done there.
-  bool _installedOnOtherConnection(HermesDesktopApiService service) {
-    if (!_formOnOtherConnection && identical(service, _service)) return false;
+  /// Whether another connection took over while a server installed: the
+  /// form's values go, and nothing more is done there. A client rebuilt on
+  /// the same connection (a token refresh) reaches the same Hermes, and
+  /// the install goes on with it.
+  bool _installedOnOtherConnection() {
+    if (!_formOnOtherConnection) return false;
     _credentials.clear();
     return true;
   }
@@ -1080,7 +1082,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       _catalogAdding = false;
-      if (_installedOnOtherConnection(service)) return;
+      if (_installedOnOtherConnection()) return;
       // Shows what Hermes has even when a step after the install failed,
       // so the entry is not asked for again.
       await _load(l10n);
@@ -1092,7 +1094,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _catalogAdding = false;
     // Another connection in use since: what follows the install -- its
     // list, a notice, a sign-in -- is not that one's.
-    if (_installedOnOtherConnection(service)) return;
+    if (_installedOnOtherConnection()) return;
     // Left and opened again meanwhile: the new visit's form is its own.
     if (visit != _formVisit) {
       await _load(l10n);
