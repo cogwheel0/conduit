@@ -14,9 +14,15 @@ import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../push/push_test_support.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -101,8 +107,12 @@ final class _Jobs extends HermesJobsController {
     state = AsyncData(jobs);
   }
 
+  /// Whether a created job comes back with its id, as a server names it.
+  bool answersJob = true;
+  final edits = <String>[];
+
   @override
-  Future<void> create({
+  Future<HermesJob?> create({
     required String name,
     required String prompt,
     required String schedule,
@@ -110,6 +120,26 @@ final class _Jobs extends HermesJobsController {
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     created.add('$name|$prompt|$schedule|$deliver|${catchUp.name}');
+    return answersJob
+        ? HermesJob(
+            id: 'job-new',
+            name: name,
+            prompt: prompt,
+            schedule: schedule,
+          )
+        : null;
+  }
+
+  @override
+  Future<void> edit(
+    String id, {
+    String? name,
+    String? prompt,
+    String? schedule,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
+  }) async {
+    edits.add('$id|$name|$deliver');
   }
 
   /// A fresh list each time, as a real read is.
@@ -228,6 +258,9 @@ Future<_Rig> _pump(
   WidgetTester tester,
   _Jobs jobs, {
   bool desktop = true,
+  PushState? push,
+  FakePushCoordinator? pushCoordinator,
+  bool scheduledKind = true,
 }) async {
   final container = ProviderContainer(
     retry: (_, _) => null,
@@ -247,6 +280,14 @@ Future<_Rig> _pump(
       ),
       hermesJobDeliveryOptionsProvider.overrideWith((ref) async => _options),
       hermesJobRunsProvider.overrideWith((ref, jobId) async => const []),
+      appSettingsProvider.overrideWith(
+        () => FixedSettings(
+          AppSettings(notificationScheduledEnabled: scheduledKind),
+        ),
+      ),
+      pushStateIfUsedProvider.overrideWithValue(push),
+      if (pushCoordinator != null)
+        pushCoordinatorProvider.overrideWith(() => pushCoordinator),
     ],
   );
   addTearDown(container.dispose);
@@ -622,6 +663,174 @@ void main() {
 
       check(rig.row(deliver, hermesJobRowId('deliver', key, 'local'))!.disabled)
           .isTrue();
+      rig.leave();
+    });
+  });
+
+  group('Notify me', () {
+    const key = hermesNewJobKey;
+    final editor = hermesJobEditorPageId(null);
+    String field(String name, [String k = key]) => hermesJobRowId(name, k);
+
+    PushState push(PushStatus status, {bool enabled = true}) => PushState(
+      enabled: enabled,
+      relayConfigured: true,
+      targets: {
+        PushTarget.hermesScope('home'): PushTargetState(
+          target: const HermesPushTarget(
+            connectionId: 'home',
+            label: 'Home Hermes',
+            baseUrl: 'https://hermes-a.example',
+            mode: HermesBackendMode.desktopGateway,
+          ),
+          status: status,
+        ),
+      },
+    );
+
+    Future<void> fill(_Rig rig) async {
+      await rig.change(field('name'), 'Daily');
+      await rig.change(field('prompt'), 'Summarize');
+      await rig.change(field('schedule'), '0 7 * * *');
+    }
+
+    testWidgets('a new job notifies by default when push reaches the '
+        'connection', (tester) async {
+      final jobs = _Jobs([]);
+      final state = push(PushStatus.on);
+      final fake = FakePushCoordinator(state);
+      final rig = await _pump(tester, jobs, push: state, pushCoordinator: fake);
+      await rig.open(editor);
+      check(rig.row(editor, field('notify'))!.value).equals(true);
+
+      await fill(rig);
+      await rig.change(field('save'));
+
+      check(fake.calls).deepEquals(['setHermesJobNotify home job-new true']);
+      check(rig.notice).equals(_l10n.hermesJobCreated);
+      rig.leave();
+    });
+
+    testWidgets('none until push works for the connection, or while it is '
+        'off', (tester) async {
+      for (final state in [
+        push(PushStatus.needsHermesPlugin),
+        push(PushStatus.on, enabled: false),
+        null,
+      ]) {
+        final jobs = _Jobs([]);
+        final fake = FakePushCoordinator(state ?? const PushState());
+        final rig = await _pump(
+          tester,
+          jobs,
+          push: state,
+          pushCoordinator: fake,
+        );
+        await rig.open(editor);
+        check(rig.row(editor, field('notify'))).isNull();
+        await fill(rig);
+        await rig.change(field('save'));
+        check(fake.calls).isEmpty();
+        rig.leave();
+      }
+    });
+
+    testWidgets('with Scheduled tasks off it is off and says why', (
+      tester,
+    ) async {
+      final state = push(PushStatus.on);
+      final fake = FakePushCoordinator(state);
+      final rig = await _pump(
+        tester,
+        _Jobs([]),
+        push: state,
+        pushCoordinator: fake,
+        scheduledKind: false,
+      );
+      await rig.open(editor);
+
+      final row = rig.row(editor, field('notify'))!;
+      check(row.value).equals(false);
+      check(row.disabled).isTrue();
+      check(row.subtitle).equals(_l10n.hermesJobNotifyNeedsScheduled);
+      await fill(rig);
+      await rig.change(field('save'));
+      check(fake.calls).isEmpty();
+      rig.leave();
+    });
+
+    testWidgets('a created job the server did not name says notify failed', (
+      tester,
+    ) async {
+      final jobs = _Jobs([])..answersJob = false;
+      final state = push(PushStatus.on);
+      final rig = await _pump(
+        tester,
+        jobs,
+        push: state,
+        pushCoordinator: FakePushCoordinator(state),
+      );
+      await rig.open(editor);
+      await fill(rig);
+      await rig.change(field('save'));
+
+      check(jobs.created).length.equals(1);
+      check(rig.notice).equals(_l10n.hermesJobCreatedNotifyFailed);
+      rig.leave();
+    });
+
+    testWidgets('editing a job turns it on, and a failed step says the job '
+        'was saved', (tester) async {
+      final jobs = _Jobs([_job()]);
+      final state = push(PushStatus.on);
+      final fake = FakePushCoordinator(state)..jobNotifyError = StateError('x');
+      final rig = await _pump(tester, jobs, push: state, pushCoordinator: fake);
+      final edit = hermesJobEditorPageId('job-1');
+      final k = Uri.encodeComponent('job-1');
+      await rig.open(edit);
+      check(rig.row(edit, field('notify', k))!.value).equals(false);
+
+      await rig.change(field('notify', k), true);
+      await rig.change(field('save', k));
+
+      check(jobs.edits).length.equals(1);
+      check(fake.calls).deepEquals(['setHermesJobNotify home job-1 true']);
+      check(rig.notice).equals(_l10n.hermesJobUpdatedNotifyFailed);
+      rig.leave();
+    });
+
+    testWidgets("Deliver To leaves Conduit's target out and a save keeps it", (
+      tester,
+    ) async {
+      final jobs = _Jobs([_job(deliver: 'local,conduit')]);
+      final rig = await _pump(tester, jobs);
+      final k = Uri.encodeComponent('job-1');
+      await rig.open(hermesJobEditorPageId('job-1'));
+      final deliver = '$hermesJobDeliveryPagePrefix$k';
+      await rig.open(deliver);
+      check(rig.row(deliver, hermesJobRowId('deliver', k, 'conduit'))).isNull();
+
+      await rig.change(hermesJobRowId('deliver', k, 'telegram'), true);
+      await rig.change(field('save', k));
+
+      check(jobs.edits)
+          .deepEquals(['job-1|Morning digest|local,telegram,conduit']);
+      rig.leave();
+    });
+
+    testWidgets('a job is not made on a connection switched to meanwhile', (
+      tester,
+    ) async {
+      final jobs = _Jobs([]);
+      final rig = await _pump(tester, jobs);
+      await rig.open(editor);
+      await fill(rig);
+
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.change(field('save'));
+
+      check(jobs.created).isEmpty();
+      check(rig.page(editor).announcement).equals(_l10n.hermesJobCreateFailed);
       rig.leave();
     });
   });

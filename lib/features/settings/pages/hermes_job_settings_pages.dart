@@ -8,6 +8,16 @@ import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
+import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
+    show
+        hermesDeliverIncludesConduit,
+        hermesDeliverWithConduit,
+        kConduitHermesPluginName;
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -457,18 +467,50 @@ final class HermesJobDraft {
     this.schedule = '',
     String? deliver,
     this.catchUp = HermesJobCatchUp.hermesDefault,
-  }) : initialDeliver = deliver,
+    this.deliveryEditable = true,
+    this.connectionId,
+    this.notifyConnectionId,
+    this.notify,
+    this.notifyHint,
+  }) : deliversToConduit = hermesDeliverIncludesConduit(deliver),
+       initialNotify = notify,
        initialCatchUp = catchUp,
-       deliver = parseHermesDeliveryTargets(deliver).join(',');
+       // Conduit's own target is "Notify me", not a row of the checklist:
+       // a save keeps it as the job had it.
+       initialDeliver = hermesDeliverWithConduit(
+         parseHermesDeliveryTargets(deliver).join(','),
+         notify: false,
+       ),
+       deliver = hermesDeliverWithConduit(
+         parseHermesDeliveryTargets(deliver).join(','),
+         notify: false,
+       );
 
-  factory HermesJobDraft.of(HermesJob job) => HermesJobDraft(
-    jobId: job.id,
-    name: job.name ?? job.displayName,
-    prompt: job.prompt,
-    schedule: job.schedule,
-    deliver: job.deliveryTarget,
-    catchUp: job.catchUpChoice,
-  );
+  factory HermesJobDraft.of(
+    HermesJob job, {
+    String? connectionId,
+    String? notifyConnectionId,
+    String? notifyHint,
+  }) {
+    // A job whose targets could not be read offers neither: a save would
+    // write them back without the unread ones.
+    final pushConnection = job.deliveryKnown ? notifyConnectionId : null;
+    return HermesJobDraft(
+      jobId: job.id,
+      name: job.name ?? job.displayName,
+      prompt: job.prompt,
+      schedule: job.schedule,
+      deliver: job.deliveryTarget,
+      catchUp: job.catchUpChoice,
+      deliveryEditable: job.deliveryKnown,
+      connectionId: connectionId,
+      notifyConnectionId: pushConnection,
+      notify: pushConnection == null
+          ? null
+          : PushCoordinator.hermesJobNotifies(job.deliveryTarget),
+      notifyHint: pushConnection == null ? null : notifyHint,
+    );
+  }
 
   final String? jobId;
   String name;
@@ -478,6 +520,24 @@ final class HermesJobDraft {
   HermesJobCatchUp catchUp;
   final String? initialDeliver;
   final HermesJobCatchUp initialCatchUp;
+
+  /// Whether the job's targets were read, so its Deliver To can be edited.
+  final bool deliveryEditable;
+
+  /// Whether the job delivers to Conduit already, which a save keeps.
+  final bool deliversToConduit;
+
+  /// The connection in use as the editor opened: the job is that one's.
+  final String? connectionId;
+
+  /// The connection push reaches, where "Notify me" is offered.
+  final String? notifyConnectionId;
+
+  /// "Notify me", or null where it is not offered; [notifyHint] says why
+  /// it cannot be changed, when it cannot.
+  bool? notify;
+  final bool? initialNotify;
+  final String? notifyHint;
   bool edited = false;
   bool shownEdited = false;
   bool showErrors = false;
@@ -584,15 +644,31 @@ NativeSheetDetailConfig buildHermesJobEditorPage(
                   ),
               ],
             ),
-            NativeSheetItemConfig(
-              id: '$hermesJobDeliveryPagePrefix$key',
-              title: l10n.hermesJobDeliverLabel,
-              subtitle: describeHermesJobDelivery(
-                l10n,
-                draft.deliver,
-                options: deliveryOptions,
+            if (draft.deliveryEditable)
+              NativeSheetItemConfig(
+                id: '$hermesJobDeliveryPagePrefix$key',
+                title: l10n.hermesJobDeliverLabel,
+                subtitle: describeHermesJobDelivery(
+                  l10n,
+                  draft.deliver,
+                  options: deliveryOptions,
+                ),
+                sfSymbol: 'paperplane',
               ),
-              sfSymbol: 'paperplane',
+          ],
+        ),
+      if (draft.notifyHint != null || draft.notify != null)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: hermesJobRowId('notify', key),
+              title: l10n.hermesJobNotifyTitle,
+              // Shown but not changeable, with why.
+              subtitle: draft.notifyHint ?? l10n.hermesJobNotifyDescription,
+              sfSymbol: 'bell.badge',
+              kind: NativeSheetItemKind.toggle,
+              value: draft.notifyHint == null && (draft.notify ?? false),
+              disabled: draft.notifyHint != null || draft.saving,
             ),
           ],
         ),
@@ -611,9 +687,15 @@ NativeSheetDetailConfig buildHermesJobDeliveryPage(
   bool loading = false,
 }) {
   final selected = parseHermesDeliveryTargets(draft.deliver);
-  final all = (options ?? HermesDeliveryOptions.localOnly).withSelected(
-    selected,
-  );
+  // Conduit's own target is "Notify me", on the editor.
+  final all = HermesDeliveryOptions([
+    for (final option in (options ?? HermesDeliveryOptions.localOnly).options)
+      if (option.target != kConduitHermesPluginName) option,
+  ]).withSelected(selected);
+  // Room for `,conduit`, which saving or "Notify me" adds.
+  final reserved = draft.deliversToConduit || draft.initialNotify != null
+      ? kConduitHermesPluginName.length + 1
+      : 0;
   List<HermesDeliveryOption> ofKind(Set<HermesDeliveryKind> kinds) =>
       all.where((option) => kinds.contains(option.kind)).toList();
   NativeSheetItemConfig row(HermesDeliveryOption option) {
@@ -626,7 +708,7 @@ NativeSheetDetailConfig buildHermesJobDeliveryPage(
                     option.target,
                     selected: true,
                   ).length >
-                  kMaxHermesJobDeliverCharacters;
+                  kMaxHermesJobDeliverCharacters - reserved;
     return NativeSheetItemConfig(
       id: hermesJobRowId('deliver', key, option.target),
       title: hermesDeliveryOptionLabel(l10n, option),
@@ -1031,7 +1113,18 @@ class HermesJobSettingsPages extends SettingsPageModule {
   HermesJobDraft? _draft(String key) {
     final open = _drafts[key];
     if (open != null) return open;
-    if (key == hermesNewJobKey) return _drafts[key] = HermesJobDraft();
+    final connectionId = _ref.read(hermesActiveConnectionIdProvider);
+    final notifyConnection = _pushConnectionId();
+    final hint = _notifyUnavailableHint(notifyConnection);
+    if (key == hermesNewJobKey) {
+      // A new job notifies by default where push reaches this connection.
+      return _drafts[key] = HermesJobDraft(
+        connectionId: connectionId,
+        notifyConnectionId: notifyConnection,
+        notify: notifyConnection == null ? null : true,
+        notifyHint: hint,
+      );
+    }
     final jobId = Uri.decodeComponent(key);
     final job = _ref
         .read(hermesJobsProvider)
@@ -1039,7 +1132,66 @@ class HermesJobSettingsPages extends SettingsPageModule {
         ?.where((job) => job.id == jobId)
         .firstOrNull;
     if (job == null) return null;
-    return _drafts[key] = HermesJobDraft.of(job);
+    return _drafts[key] = HermesJobDraft.of(
+      job,
+      connectionId: connectionId,
+      notifyConnectionId: notifyConnection,
+      notifyHint: hint,
+    );
+  }
+
+  /// The connection in use when push works for it, so a job's "Notify me"
+  /// can reach this device; null otherwise.
+  String? _pushConnectionId() {
+    final connectionId = _ref.read(hermesActiveConnectionIdProvider);
+    final push = _ref.read(pushStateIfUsedProvider);
+    if (connectionId == null || push == null || !push.enabled) return null;
+    final target = push.targets[PushTarget.hermesScope(connectionId)];
+    return target?.status == PushStatus.on && !target!.optedOut
+        ? connectionId
+        : null;
+  }
+
+  /// Why "Notify me" can't be changed, or null when it can: with the
+  /// Scheduled tasks kind off on this device, a job's pushes would not be
+  /// shown, and the plugin is not even told to send them.
+  String? _notifyUnavailableHint(String? connectionId) {
+    final l10n = _l10n;
+    if (connectionId == null || l10n == null) return null;
+    final scheduled = _ref
+        .read(appSettingsProvider)
+        .notificationScheduledEnabled;
+    return scheduled ? null : l10n.hermesJobNotifyNeedsScheduled;
+  }
+
+  /// Turns job [jobId]'s "Notify me" on or off. Answers whether that
+  /// worked; a failure is logged here and said by the caller, apart from
+  /// the change to the job itself.
+  Future<bool> _trySetJobNotify(
+    String connectionId,
+    String jobId, {
+    required bool notify,
+  }) async {
+    try {
+      await _ref
+          .read(pushCoordinatorProvider.notifier)
+          .setHermesJobNotify(
+            connectionId: connectionId,
+            jobId: jobId,
+            notify: notify,
+          );
+      return true;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'hermes-job-notify-failed',
+        scope: 'settings/hermes',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    } finally {
+      if (_ref.mounted) _ref.invalidate(hermesJobsProvider);
+    }
   }
 
   Future<void> _applyEditor(
@@ -1108,7 +1260,22 @@ class HermesJobSettingsPages extends SettingsPageModule {
         !editing ||
         !hermesDeliveryTargetsMatch(draft.deliver, draft.initialDeliver);
     final catchUpChanged = !editing || draft.catchUp != draft.initialCatchUp;
-    if (_ref.read(hermesApiServiceProvider) == null) {
+    final deliver = scheduling && draft.deliveryEditable && deliverChanged
+        ? hermesDeliverWithConduit(
+            draft.deliver,
+            notify: draft.deliversToConduit,
+          )
+        : null;
+    final notifyConnection = draft.notifyConnectionId;
+    final notify = draft.notifyHint == null ? draft.notify : null;
+    final changesNotify =
+        notifyConnection != null &&
+        notify != null &&
+        (editing ? notify != draft.initialNotify : notify);
+    // Another connection became active while the editor was open (say, by
+    // opening a notification): the job was meant for the one before.
+    if (_ref.read(hermesApiServiceProvider) == null ||
+        _ref.read(hermesActiveConnectionIdProvider) != draft.connectionId) {
       draft.notice = editing
           ? l10n.hermesJobUpdateFailed
           : l10n.hermesJobCreateFailed;
@@ -1122,25 +1289,31 @@ class HermesJobSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, key, draft, withPages: false);
     final jobs = _ref.read(hermesJobsProvider.notifier);
     try {
+      String? jobId = draft.jobId;
       if (editing) {
         await jobs.edit(
           draft.jobId!,
           name: name,
           prompt: prompt,
           schedule: schedule,
-          deliver: scheduling && deliverChanged ? draft.deliver : null,
+          deliver: deliver,
           catchUp: scheduling && catchUpChanged ? draft.catchUp : null,
         );
       } else {
-        await jobs.create(
+        final job = await jobs.create(
           name: name,
           prompt: prompt,
           schedule: schedule,
-          deliver: scheduling ? draft.deliver : null,
+          deliver: deliver,
           catchUp: scheduling ? draft.catchUp : HermesJobCatchUp.hermesDefault,
         );
+        jobId = job?.id;
       }
-      _notice = editing ? l10n.hermesJobUpdated : l10n.hermesJobCreated;
+      _notice = changesNotify
+          ? null
+          : editing
+          ? l10n.hermesJobUpdated
+          : l10n.hermesJobCreated;
       // Saved; the editor closes unless it was left and opened again
       // meanwhile, when the new visit's work is not this one's to close.
       if (identical(_drafts[key], draft)) {
@@ -1149,6 +1322,23 @@ class HermesJobSettingsPages extends SettingsPageModule {
       }
       // New can be tapped again as the list is drawn.
       if (!editing) _creating = false;
+      if (changesNotify) {
+        // Said apart from the save, which has happened: a failure here must
+        // not read as one to try again, which would make the job twice. The
+        // job's rows wait meanwhile, since this step rewrites its delivery.
+        if (jobId != null) _busy.add(jobId);
+        await _applyShown();
+        final changed =
+            jobId != null &&
+            await _trySetJobNotify(notifyConnection, jobId, notify: notify);
+        if (jobId != null) _busy.remove(jobId);
+        _notice = switch ((editing, changed)) {
+          (true, true) => l10n.hermesJobUpdated,
+          (true, false) => l10n.hermesJobUpdatedNotifyFailed,
+          (false, true) => l10n.hermesJobCreated,
+          (false, false) => l10n.hermesJobCreatedNotifyFailed,
+        };
+      }
       await _applyShown();
     } catch (_) {
       draft
@@ -1371,6 +1561,13 @@ class HermesJobSettingsPages extends SettingsPageModule {
         if (draft.showErrors) {
           await _applyEditor(l10n, key, draft, withPages: false);
         }
+      case 'notify' when value is bool:
+        final draft = _drafts[key];
+        if (draft == null || draft.notifyHint != null) return true;
+        draft
+          ..notify = value
+          ..edited = true;
+        await _applyEditor(l10n, key, draft, withPages: false);
       case 'catch-up' when value is String:
         final draft = _drafts[key];
         final choice = HermesJobCatchUp.values.asNameMap()[value];
