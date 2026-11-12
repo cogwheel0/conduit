@@ -134,7 +134,8 @@ class QueuedCompletionInfo {
           lastError == other.lastError &&
           nextAttemptAt == other.nextAttemptAt &&
           frozenReasoningEffort == other.frozenReasoningEffort &&
-          frozenPickedReasoningEffort == other.frozenPickedReasoningEffort;
+          frozenPickedReasoningEffort == other.frozenPickedReasoningEffort &&
+          blockedBySeq == other.blockedBySeq;
 
   @override
   int get hashCode => Object.hash(
@@ -150,6 +151,7 @@ class QueuedCompletionInfo {
     nextAttemptAt,
     frozenReasoningEffort,
     frozenPickedReasoningEffort,
+    blockedBySeq,
   );
 }
 

@@ -911,6 +911,27 @@ void main() {
     });
   });
 
+  test('an info held up by another op differs from one that is not', () {
+    // A row is rebuilt only when its info changes: which op holds it up
+    // is part of that, or Retry would act on a stale blocker.
+    final owner = Object();
+    QueuedCompletionInfo info({int? blockedBySeq}) => QueuedCompletionInfo(
+      databaseOwner: owner,
+      seq: 2,
+      chatId: 'c1',
+      scopedChatId: 'c1',
+      assistantMessageId: 'a1',
+      phase: QueuedCompletionPhase.pending,
+      isOffline: false,
+      blockedBySeq: blockedBySeq,
+    );
+
+    check(info(blockedBySeq: 1)).not((it) => it.equals(info()));
+    check(info(blockedBySeq: 1)).equals(info(blockedBySeq: 1));
+    check(info(blockedBySeq: 1).hashCode)
+        .equals(info(blockedBySeq: 1).hashCode);
+  });
+
   group('queuedCompletionDisplaysOf', () {
     var seq = 0;
     OutboxOp op(
