@@ -3120,6 +3120,101 @@ class PlatformNativeSheetAlertRequest {
   }
 }
 
+/// A sign-in page shown in a web view over Settings.
+class PlatformWebSignInRequest {
+  PlatformWebSignInRequest({
+    required this.sessionId,
+    required this.title,
+    required this.url,
+    required this.checkScript,
+    required this.checkUrl,
+    required this.cancelLabel,
+    required this.reloadLabel,
+    required this.loadFailedMessage,
+  });
+
+  /// Names this sign-in in the questions the web view asks Dart.
+  String sessionId;
+
+  String title;
+
+  /// The page it opens on.
+  String url;
+
+  /// Body of an async JavaScript function (argument `url`) answering
+  /// whether the user is signed in; run on a page Dart agrees to.
+  String checkScript;
+
+  /// The `url` argument of [checkScript].
+  String checkUrl;
+
+  String cancelLabel;
+
+  String reloadLabel;
+
+  String loadFailedMessage;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      sessionId,
+      title,
+      url,
+      checkScript,
+      checkUrl,
+      cancelLabel,
+      reloadLabel,
+      loadFailedMessage,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformWebSignInRequest decode(Object result) {
+    result as List<Object?>;
+    return PlatformWebSignInRequest(
+      sessionId: result[0]! as String,
+      title: result[1]! as String,
+      url: result[2]! as String,
+      checkScript: result[3]! as String,
+      checkUrl: result[4]! as String,
+      cancelLabel: result[5]! as String,
+      reloadLabel: result[6]! as String,
+      loadFailedMessage: result[7]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformWebSignInRequest ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(sessionId, other.sessionId) &&
+        _deepEquals(title, other.title) &&
+        _deepEquals(url, other.url) &&
+        _deepEquals(checkScript, other.checkScript) &&
+        _deepEquals(checkUrl, other.checkUrl) &&
+        _deepEquals(cancelLabel, other.cancelLabel) &&
+        _deepEquals(reloadLabel, other.reloadLabel) &&
+        _deepEquals(loadFailedMessage, other.loadFailedMessage);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformWebSignInRequest(sessionId: $sessionId, title: $title, url: $url, checkScript: $checkScript, checkUrl: $checkUrl, cancelLabel: $cancelLabel, reloadLabel: $reloadLabel, loadFailedMessage: $loadFailedMessage)';
+  }
+}
+
 class PlatformNativeSheetDatePickerRequest {
   PlatformNativeSheetDatePickerRequest({
     required this.title,
@@ -4818,77 +4913,80 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is PlatformNativeSheetAlertRequest) {
       buffer.putUint8(175);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDatePickerRequest) {
+    } else if (value is PlatformWebSignInRequest) {
       buffer.putUint8(176);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTextEditorRequest) {
+    } else if (value is PlatformNativeSheetDatePickerRequest) {
       buffer.putUint8(177);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetResultRequest) {
+    } else if (value is PlatformNativeSheetTextEditorRequest) {
       buffer.putUint8(178);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
+    } else if (value is PlatformNativeSheetResultRequest) {
       buffer.putUint8(179);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetControlChangedEvent) {
+    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
+    } else if (value is PlatformNativeSheetControlChangedEvent) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
+    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
       buffer.putUint8(182);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
+    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
       buffer.putUint8(183);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelControlChangedEvent) {
+    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
       buffer.putUint8(184);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileCommittedEvent) {
+    } else if (value is PlatformNativeSheetModelControlChangedEvent) {
       buffer.putUint8(185);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetActionResult) {
+    } else if (value is PlatformNativeEditProfileCommittedEvent) {
       buffer.putUint8(186);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStatus) {
+    } else if (value is PlatformNativeSheetActionResult) {
       buffer.putUint8(187);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccImage) {
+    } else if (value is PlatformPccStatus) {
       buffer.putUint8(188);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccMessage) {
+    } else if (value is PlatformPccImage) {
       buffer.putUint8(189);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolDefinition) {
+    } else if (value is PlatformPccMessage) {
       buffer.putUint8(190);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolCall) {
+    } else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(191);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolResult) {
+    } else if (value is PlatformPccToolCall) {
       buffer.putUint8(192);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccCompletionRequest) {
+    } else if (value is PlatformPccToolResult) {
       buffer.putUint8(193);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStreamEvent) {
+    } else if (value is PlatformPccCompletionRequest) {
       buffer.putUint8(194);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushSubscription) {
+    } else if (value is PlatformPccStreamEvent) {
       buffer.putUint8(195);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushToken) {
+    } else if (value is PlatformPushSubscription) {
       buffer.putUint8(196);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushConfig) {
+    } else if (value is PlatformPushToken) {
       buffer.putUint8(197);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushMessage) {
+    } else if (value is PlatformPushConfig) {
       buffer.putUint8(198);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushTap) {
+    } else if (value is PlatformPushMessage) {
       buffer.putUint8(199);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushTap) {
+      buffer.putUint8(200);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -5016,66 +5114,68 @@ class _PigeonCodec extends StandardMessageCodec {
       case 175:
         return PlatformNativeSheetAlertRequest.decode(readValue(buffer)!);
       case 176:
-        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
+        return PlatformWebSignInRequest.decode(readValue(buffer)!);
       case 177:
-        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 178:
-        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
       case 179:
+        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+      case 180:
         return PlatformNativeSheetApplyDetailPatchRequest.decode(
           readValue(buffer)!,
         );
-      case 180:
+      case 181:
         return PlatformNativeSheetControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 181:
+      case 182:
         return PlatformNativeSheetDetailAppearedEvent.decode(
           readValue(buffer)!,
         );
-      case 182:
+      case 183:
         return PlatformNativeSheetModelPinToggledEvent.decode(
           readValue(buffer)!,
         );
-      case 183:
+      case 184:
         return PlatformNativeSheetReasoningEffortChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 184:
+      case 185:
         return PlatformNativeSheetModelControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 185:
+      case 186:
         return PlatformNativeEditProfileCommittedEvent.decode(
           readValue(buffer)!,
         );
-      case 186:
-        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 187:
-        return PlatformPccStatus.decode(readValue(buffer)!);
+        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 188:
-        return PlatformPccImage.decode(readValue(buffer)!);
+        return PlatformPccStatus.decode(readValue(buffer)!);
       case 189:
-        return PlatformPccMessage.decode(readValue(buffer)!);
+        return PlatformPccImage.decode(readValue(buffer)!);
       case 190:
-        return PlatformPccToolDefinition.decode(readValue(buffer)!);
+        return PlatformPccMessage.decode(readValue(buffer)!);
       case 191:
-        return PlatformPccToolCall.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 192:
-        return PlatformPccToolResult.decode(readValue(buffer)!);
+        return PlatformPccToolCall.decode(readValue(buffer)!);
       case 193:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolResult.decode(readValue(buffer)!);
       case 194:
-        return PlatformPccStreamEvent.decode(readValue(buffer)!);
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
       case 195:
-        return PlatformPushSubscription.decode(readValue(buffer)!);
+        return PlatformPccStreamEvent.decode(readValue(buffer)!);
       case 196:
-        return PlatformPushToken.decode(readValue(buffer)!);
+        return PlatformPushSubscription.decode(readValue(buffer)!);
       case 197:
-        return PlatformPushConfig.decode(readValue(buffer)!);
+        return PlatformPushToken.decode(readValue(buffer)!);
       case 198:
-        return PlatformPushMessage.decode(readValue(buffer)!);
+        return PlatformPushConfig.decode(readValue(buffer)!);
       case 199:
+        return PlatformPushMessage.decode(readValue(buffer)!);
+      case 200:
         return PlatformPushTap.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -6507,6 +6607,33 @@ class NativeSheetHostApi {
     );
     return pigeonVar_replyValue as String?;
   }
+
+  /// Opens [request]'s page in a web view over Settings, for the user to
+  /// sign in there. Each main-frame navigation is Dart's to allow
+  /// ([NativeSheetFlutterApi.webSignInAllowsNavigation]); on each page Dart
+  /// names ([NativeSheetFlutterApi.webSignInChecksPage]) the web view runs
+  /// the request's check. Answers true once the check says the user is
+  /// signed in, closing the web view; false when it is closed before.
+  Future<bool> presentWebSignIn(PlatformWebSignInRequest request) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentWebSignIn$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[request],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
 }
 
 abstract class NativeSheetFlutterApi {
@@ -6532,6 +6659,14 @@ abstract class NativeSheetFlutterApi {
   void onModelControlChanged(PlatformNativeSheetModelControlChangedEvent event);
 
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
+
+  /// Whether sign-in [sessionId]'s web view may load [url] in its main
+  /// frame.
+  Future<bool> webSignInAllowsNavigation(String sessionId, String url);
+
+  /// Whether sign-in [sessionId]'s web view, having loaded [url], should
+  /// run its check.
+  Future<bool> webSignInChecksPage(String sessionId, String url);
 
   static void setUp(
     NativeSheetFlutterApi? api, {
@@ -6759,6 +6894,64 @@ abstract class NativeSheetFlutterApi {
           try {
             api.commitEditProfile(arg_event);
             return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetFlutterApi.webSignInAllowsNavigation$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_sessionId = args[0]! as String;
+          final String arg_url = args[1]! as String;
+          try {
+            final bool output = await api.webSignInAllowsNavigation(
+              arg_sessionId,
+              arg_url,
+            );
+            return wrapResponse(result: output);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetFlutterApi.webSignInChecksPage$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_sessionId = args[0]! as String;
+          final String arg_url = args[1]! as String;
+          try {
+            final bool output = await api.webSignInChecksPage(
+              arg_sessionId,
+              arg_url,
+            );
+            return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
           } catch (e) {

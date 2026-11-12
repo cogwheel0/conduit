@@ -6,6 +6,7 @@ import SafariServices
 import StoreKit
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 
 func loadFlutterAssetImage(_ asset: String, bundle: Bundle = .main) -> UIImage? {
     let assetKey = FlutterDartProject.lookupKey(forAsset: asset)
@@ -1850,6 +1851,69 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 })
             }
             presenter.present(alert, animated: true)
+        }
+    }
+
+    func presentWebSignIn(
+        request: PlatformWebSignInRequest,
+        completion: @escaping (Result<Bool, Error>) -> Void
+    ) {
+        // Over the Settings sheet, as a page opened from one of its rows;
+        // Dart decides which pages the web view may load, and which it checks.
+        whenModalChainIdle { [weak self] in
+            guard let self,
+                  let presenter = self.topViewController(),
+                  let url = URL(string: request.url)
+            else {
+                completion(.success(false))
+                return
+            }
+            let api = self.flutterApi
+            let sessionId = request.sessionId
+            func ask(
+                _ question: @escaping (
+                    NativeSheetFlutterApi,
+                    @escaping (Result<Bool, PigeonError>) -> Void
+                ) -> Void,
+                _ answer: @escaping (Bool) -> Void
+            ) {
+                guard let api else {
+                    answer(false)
+                    return
+                }
+                question(api) { result in
+                    let value = (try? result.get()) ?? false
+                    DispatchQueue.main.async { answer(value) }
+                }
+            }
+            let signIn = NativeWebSignInViewController(
+                request: request,
+                startURL: url,
+                allowsNavigation: { target, answer in
+                    ask({ api, reply in
+                        api.webSignInAllowsNavigation(
+                            sessionId: sessionId,
+                            url: target,
+                            completion: reply
+                        )
+                    }, answer)
+                },
+                checksPage: { target, answer in
+                    ask({ api, reply in
+                        api.webSignInChecksPage(
+                            sessionId: sessionId,
+                            url: target,
+                            completion: reply
+                        )
+                    }, answer)
+                },
+                onFinish: { signedIn in completion(.success(signedIn)) }
+            )
+            let navigation = UINavigationController(rootViewController: signIn)
+            navigation.modalPresentationStyle = .pageSheet
+            NativeSheetTheme.shared.apply(to: navigation)
+            navigation.presentationController?.delegate = signIn
+            presenter.present(navigation, animated: true)
         }
     }
 
@@ -8919,5 +8983,225 @@ private final class NativeAvatarView: UIView {
                 initialsLabel: self.initialsLabel
             )
         }
+    }
+}
+
+
+/// A sign-in page in a web view over Settings: a dashboard's own sign-in,
+/// whose session stays in the web view's cookies. What it types never
+/// reaches Conduit. Each main-frame load is Dart's to allow; on the pages
+/// Dart names, the request's check runs, and once it says the user is
+/// signed in the page closes.
+final class NativeWebSignInViewController: UIViewController,
+    WKNavigationDelegate,
+    WKUIDelegate,
+    UIAdaptivePresentationControllerDelegate
+{
+    typealias Question = (String, @escaping (Bool) -> Void) -> Void
+
+    private let request: PlatformWebSignInRequest
+    private let startURL: URL
+    private let allowsNavigation: Question
+    private let checksPage: Question
+    private var onFinish: ((Bool) -> Void)?
+    private var webView: WKWebView?
+    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let failureLabel = UILabel()
+    private var checking = false
+
+    init(
+        request: PlatformWebSignInRequest,
+        startURL: URL,
+        allowsNavigation: @escaping Question,
+        checksPage: @escaping Question,
+        onFinish: @escaping (Bool) -> Void
+    ) {
+        self.request = request
+        self.startURL = startURL
+        self.allowsNavigation = allowsNavigation
+        self.checksPage = checksPage
+        self.onFinish = onFinish
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = request.title
+        view.backgroundColor = .systemBackground
+        // An opaque bar: the page under it brings its own colours, which a
+        // see-through bar would put behind the title.
+        let bar = UINavigationBarAppearance()
+        bar.configureWithOpaqueBackground()
+        navigationItem.standardAppearance = bar
+        navigationItem.scrollEdgeAppearance = bar
+        navigationItem.compactAppearance = bar
+        // The default store: the app reads the session's cookies there.
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(webView)
+        self.webView = webView
+
+        failureLabel.text = request.loadFailedMessage
+        failureLabel.textAlignment = .center
+        failureLabel.numberOfLines = 0
+        failureLabel.font = .preferredFont(forTextStyle: .body)
+        failureLabel.adjustsFontForContentSizeCategory = true
+        failureLabel.textColor = .secondaryLabel
+        failureLabel.isHidden = true
+        failureLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(failureLabel)
+
+        spinner.hidesWhenStopped = true
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(spinner)
+
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            failureLabel.leadingAnchor.constraint(
+                equalTo: view.layoutMarginsGuide.leadingAnchor
+            ),
+            failureLabel.trailingAnchor.constraint(
+                equalTo: view.layoutMarginsGuide.trailingAnchor
+            ),
+            failureLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: request.cancelLabel,
+            style: .plain,
+            target: self,
+            action: #selector(cancelTapped)
+        )
+        let reload = UIBarButtonItem(
+            barButtonSystemItem: .refresh,
+            target: self,
+            action: #selector(reloadTapped)
+        )
+        reload.accessibilityLabel = request.reloadLabel
+        navigationItem.rightBarButtonItem = reload
+        webView.load(URLRequest(url: startURL))
+    }
+
+    @objc private func cancelTapped() {
+        finish(false)
+        dismiss(animated: true)
+    }
+
+    @objc private func reloadTapped() {
+        failureLabel.isHidden = true
+        webView?.load(URLRequest(url: startURL))
+    }
+
+    private func finish(_ signedIn: Bool) {
+        let finish = onFinish
+        onFinish = nil
+        finish?(signedIn)
+    }
+
+    func presentationControllerDidDismiss(
+        _ presentationController: UIPresentationController
+    ) {
+        finish(false)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let frame = navigationAction.targetFrame else {
+            // A new window opens nothing.
+            decisionHandler(.cancel)
+            return
+        }
+        guard frame.isMainFrame else {
+            // Frames load as the page asks.
+            decisionHandler(.allow)
+            return
+        }
+        guard let target = navigationAction.request.url?.absoluteString else {
+            decisionHandler(.cancel)
+            return
+        }
+        allowsNavigation(target) { allowed in
+            decisionHandler(allowed ? .allow : .cancel)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didStartProvisionalNavigation navigation: WKNavigation!
+    ) {
+        failureLabel.isHidden = true
+        spinner.startAnimating()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        spinner.stopAnimating()
+        guard let loaded = webView.url?.absoluteString, !checking else { return }
+        checksPage(loaded) { [weak self] check in
+            guard check else { return }
+            self?.checkSignedIn()
+        }
+    }
+
+    private func checkSignedIn() {
+        guard let webView, !checking, onFinish != nil else { return }
+        checking = true
+        webView.callAsyncJavaScript(
+            request.checkScript,
+            arguments: ["url": request.checkUrl],
+            in: nil,
+            in: .page
+        ) { [weak self] result in
+            guard let self else { return }
+            self.checking = false
+            guard case .success(let value) = result,
+                  (value as? Bool) == true || (value as? NSNumber)?.boolValue == true
+            else { return }
+            self.finish(true)
+            self.dismiss(animated: true)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        showFailure(error)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        showFailure(error)
+    }
+
+    private func showFailure(_ error: Error) {
+        spinner.stopAnimating()
+        let nsError = error as NSError
+        // A load this page refused, or replaced with another, is no failure.
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 { return }
+        failureLabel.isHidden = false
     }
 }

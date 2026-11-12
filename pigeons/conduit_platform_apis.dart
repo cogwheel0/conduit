@@ -820,6 +820,37 @@ class PlatformNativeSheetAlertRequest {
   List<PlatformNativeSheetAlertAction> actions;
 }
 
+/// A sign-in page shown in a web view over Settings.
+class PlatformWebSignInRequest {
+  PlatformWebSignInRequest({
+    required this.sessionId,
+    required this.title,
+    required this.url,
+    required this.checkScript,
+    required this.checkUrl,
+    required this.cancelLabel,
+    required this.reloadLabel,
+    required this.loadFailedMessage,
+  });
+
+  /// Names this sign-in in the questions the web view asks Dart.
+  String sessionId;
+  String title;
+
+  /// The page it opens on.
+  String url;
+
+  /// Body of an async JavaScript function (argument `url`) answering
+  /// whether the user is signed in; run on a page Dart agrees to.
+  String checkScript;
+
+  /// The `url` argument of [checkScript].
+  String checkUrl;
+  String cancelLabel;
+  String reloadLabel;
+  String loadFailedMessage;
+}
+
 class PlatformNativeSheetDatePickerRequest {
   PlatformNativeSheetDatePickerRequest({
     required this.title,
@@ -1259,6 +1290,15 @@ abstract class NativeSheetHostApi {
   /// chosen, or null when nothing could be shown.
   @async
   String? presentAlert(PlatformNativeSheetAlertRequest request);
+
+  /// Opens [request]'s page in a web view over Settings, for the user to
+  /// sign in there. Each main-frame navigation is Dart's to allow
+  /// ([NativeSheetFlutterApi.webSignInAllowsNavigation]); on each page Dart
+  /// names ([NativeSheetFlutterApi.webSignInChecksPage]) the web view runs
+  /// the request's check. Answers true once the check says the user is
+  /// signed in, closing the web view; false when it is closed before.
+  @async
+  bool presentWebSignIn(PlatformWebSignInRequest request);
 }
 
 @FlutterApi()
@@ -1276,6 +1316,16 @@ abstract class NativeSheetFlutterApi {
   );
   void onModelControlChanged(PlatformNativeSheetModelControlChangedEvent event);
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
+
+  /// Whether sign-in [sessionId]'s web view may load [url] in its main
+  /// frame.
+  @async
+  bool webSignInAllowsNavigation(String sessionId, String url);
+
+  /// Whether sign-in [sessionId]'s web view, having loaded [url], should
+  /// run its check.
+  @async
+  bool webSignInChecksPage(String sessionId, String url);
 }
 
 @HostApi()

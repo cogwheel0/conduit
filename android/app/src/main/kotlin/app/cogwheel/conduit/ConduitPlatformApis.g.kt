@@ -2629,6 +2629,82 @@ data class PlatformNativeSheetAlertRequest (
   }
 }
 
+/**
+ * A sign-in page shown in a web view over Settings.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class PlatformWebSignInRequest (
+  /** Names this sign-in in the questions the web view asks Dart. */
+  val sessionId: String,
+  val title: String,
+  /** The page it opens on. */
+  val url: String,
+  /**
+   * Body of an async JavaScript function (argument `url`) answering
+   * whether the user is signed in; run on a page Dart agrees to.
+   */
+  val checkScript: String,
+  /** The `url` argument of [checkScript]. */
+  val checkUrl: String,
+  val cancelLabel: String,
+  val reloadLabel: String,
+  val loadFailedMessage: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformWebSignInRequest {
+      val sessionId = pigeonVar_list[0] as String
+      val title = pigeonVar_list[1] as String
+      val url = pigeonVar_list[2] as String
+      val checkScript = pigeonVar_list[3] as String
+      val checkUrl = pigeonVar_list[4] as String
+      val cancelLabel = pigeonVar_list[5] as String
+      val reloadLabel = pigeonVar_list[6] as String
+      val loadFailedMessage = pigeonVar_list[7] as String
+      return PlatformWebSignInRequest(sessionId, title, url, checkScript, checkUrl, cancelLabel, reloadLabel, loadFailedMessage)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      sessionId,
+      title,
+      url,
+      checkScript,
+      checkUrl,
+      cancelLabel,
+      reloadLabel,
+      loadFailedMessage,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformWebSignInRequest
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.sessionId, other.sessionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.url, other.url) && ConduitPlatformApisPigeonUtils.deepEquals(this.checkScript, other.checkScript) && ConduitPlatformApisPigeonUtils.deepEquals(this.checkUrl, other.checkUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.cancelLabel, other.cancelLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.reloadLabel, other.reloadLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.loadFailedMessage, other.loadFailedMessage)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.sessionId)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.title)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.url)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.checkScript)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.checkUrl)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.cancelLabel)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.reloadLabel)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.loadFailedMessage)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformWebSignInRequest(sessionId=$sessionId, title=$title, url=$url, checkScript=$checkScript, checkUrl=$checkUrl, cancelLabel=$cancelLabel, reloadLabel=$reloadLabel, loadFailedMessage=$loadFailedMessage)"
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformNativeSheetDatePickerRequest (
   val title: String,
@@ -4116,120 +4192,125 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
       }
       176.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDatePickerRequest.fromList(it)
+          PlatformWebSignInRequest.fromList(it)
         }
       }
       177.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetTextEditorRequest.fromList(it)
+          PlatformNativeSheetDatePickerRequest.fromList(it)
         }
       }
       178.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetResultRequest.fromList(it)
+          PlatformNativeSheetTextEditorRequest.fromList(it)
         }
       }
       179.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
+          PlatformNativeSheetResultRequest.fromList(it)
         }
       }
       180.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetControlChangedEvent.fromList(it)
+          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
         }
       }
       181.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDetailAppearedEvent.fromList(it)
+          PlatformNativeSheetControlChangedEvent.fromList(it)
         }
       }
       182.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelPinToggledEvent.fromList(it)
+          PlatformNativeSheetDetailAppearedEvent.fromList(it)
         }
       }
       183.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
+          PlatformNativeSheetModelPinToggledEvent.fromList(it)
         }
       }
       184.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelControlChangedEvent.fromList(it)
+          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
         }
       }
       185.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeEditProfileCommittedEvent.fromList(it)
+          PlatformNativeSheetModelControlChangedEvent.fromList(it)
         }
       }
       186.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetActionResult.fromList(it)
+          PlatformNativeEditProfileCommittedEvent.fromList(it)
         }
       }
       187.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccStatus.fromList(it)
+          PlatformNativeSheetActionResult.fromList(it)
         }
       }
       188.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccImage.fromList(it)
+          PlatformPccStatus.fromList(it)
         }
       }
       189.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccMessage.fromList(it)
+          PlatformPccImage.fromList(it)
         }
       }
       190.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolDefinition.fromList(it)
+          PlatformPccMessage.fromList(it)
         }
       }
       191.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolCall.fromList(it)
+          PlatformPccToolDefinition.fromList(it)
         }
       }
       192.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolResult.fromList(it)
+          PlatformPccToolCall.fromList(it)
         }
       }
       193.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccCompletionRequest.fromList(it)
+          PlatformPccToolResult.fromList(it)
         }
       }
       194.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccStreamEvent.fromList(it)
+          PlatformPccCompletionRequest.fromList(it)
         }
       }
       195.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushSubscription.fromList(it)
+          PlatformPccStreamEvent.fromList(it)
         }
       }
       196.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushToken.fromList(it)
+          PlatformPushSubscription.fromList(it)
         }
       }
       197.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushConfig.fromList(it)
+          PlatformPushToken.fromList(it)
         }
       }
       198.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushMessage.fromList(it)
+          PlatformPushConfig.fromList(it)
         }
       }
       199.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPushMessage.fromList(it)
+        }
+      }
+      200.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           PlatformPushTap.fromList(it)
         }
@@ -4427,100 +4508,104 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
         stream.write(175)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDatePickerRequest -> {
+      is PlatformWebSignInRequest -> {
         stream.write(176)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetTextEditorRequest -> {
+      is PlatformNativeSheetDatePickerRequest -> {
         stream.write(177)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetResultRequest -> {
+      is PlatformNativeSheetTextEditorRequest -> {
         stream.write(178)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetApplyDetailPatchRequest -> {
+      is PlatformNativeSheetResultRequest -> {
         stream.write(179)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetControlChangedEvent -> {
+      is PlatformNativeSheetApplyDetailPatchRequest -> {
         stream.write(180)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDetailAppearedEvent -> {
+      is PlatformNativeSheetControlChangedEvent -> {
         stream.write(181)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelPinToggledEvent -> {
+      is PlatformNativeSheetDetailAppearedEvent -> {
         stream.write(182)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetReasoningEffortChangedEvent -> {
+      is PlatformNativeSheetModelPinToggledEvent -> {
         stream.write(183)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelControlChangedEvent -> {
+      is PlatformNativeSheetReasoningEffortChangedEvent -> {
         stream.write(184)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeEditProfileCommittedEvent -> {
+      is PlatformNativeSheetModelControlChangedEvent -> {
         stream.write(185)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetActionResult -> {
+      is PlatformNativeEditProfileCommittedEvent -> {
         stream.write(186)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStatus -> {
+      is PlatformNativeSheetActionResult -> {
         stream.write(187)
         writeValue(stream, value.toList())
       }
-      is PlatformPccImage -> {
+      is PlatformPccStatus -> {
         stream.write(188)
         writeValue(stream, value.toList())
       }
-      is PlatformPccMessage -> {
+      is PlatformPccImage -> {
         stream.write(189)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolDefinition -> {
+      is PlatformPccMessage -> {
         stream.write(190)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolCall -> {
+      is PlatformPccToolDefinition -> {
         stream.write(191)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolResult -> {
+      is PlatformPccToolCall -> {
         stream.write(192)
         writeValue(stream, value.toList())
       }
-      is PlatformPccCompletionRequest -> {
+      is PlatformPccToolResult -> {
         stream.write(193)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStreamEvent -> {
+      is PlatformPccCompletionRequest -> {
         stream.write(194)
         writeValue(stream, value.toList())
       }
-      is PlatformPushSubscription -> {
+      is PlatformPccStreamEvent -> {
         stream.write(195)
         writeValue(stream, value.toList())
       }
-      is PlatformPushToken -> {
+      is PlatformPushSubscription -> {
         stream.write(196)
         writeValue(stream, value.toList())
       }
-      is PlatformPushConfig -> {
+      is PlatformPushToken -> {
         stream.write(197)
         writeValue(stream, value.toList())
       }
-      is PlatformPushMessage -> {
+      is PlatformPushConfig -> {
         stream.write(198)
         writeValue(stream, value.toList())
       }
-      is PlatformPushTap -> {
+      is PlatformPushMessage -> {
         stream.write(199)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPushTap -> {
+        stream.write(200)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -5389,6 +5474,15 @@ interface NativeSheetHostApi {
    * chosen, or null when nothing could be shown.
    */
   fun presentAlert(request: PlatformNativeSheetAlertRequest, callback: (Result<String?>) -> Unit)
+  /**
+   * Opens [request]'s page in a web view over Settings, for the user to
+   * sign in there. Each main-frame navigation is Dart's to allow
+   * ([NativeSheetFlutterApi.webSignInAllowsNavigation]); on each page Dart
+   * names ([NativeSheetFlutterApi.webSignInChecksPage]) the web view runs
+   * the request's check. Answers true once the check says the user is
+   * signed in, closing the web view; false when it is closed before.
+   */
+  fun presentWebSignIn(request: PlatformWebSignInRequest, callback: (Result<Boolean>) -> Unit)
 
   companion object {
     /** The codec used by NativeSheetHostApi. */
@@ -5680,6 +5774,26 @@ interface NativeSheetHostApi {
           channel.setMessageHandler(null)
         }
       }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.presentWebSignIn$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val requestArg = args[0] as PlatformWebSignInRequest
+            api.presentWebSignIn(requestArg) { result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
     }
   }
 }
@@ -5839,6 +5953,54 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
           callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
         } else {
           callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
+      }
+    }
+  }
+  /**
+   * Whether sign-in [sessionId]'s web view may load [url] in its main
+   * frame.
+   */
+  fun webSignInAllowsNavigation(sessionIdArg: String, urlArg: String, callback: (Result<Boolean>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.webSignInAllowsNavigation$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(sessionIdArg, urlArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
+        } else if (it[0] == null) {
+          callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
+        } else {
+          val output = it[0] as Boolean
+          callback(Result.success(output))
+        }
+      } else {
+        callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
+      }
+    }
+  }
+  /**
+   * Whether sign-in [sessionId]'s web view, having loaded [url], should
+   * run its check.
+   */
+  fun webSignInChecksPage(sessionIdArg: String, urlArg: String, callback: (Result<Boolean>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.webSignInChecksPage$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(sessionIdArg, urlArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
+        } else if (it[0] == null) {
+          callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
+        } else {
+          val output = it[0] as Boolean
+          callback(Result.success(output))
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
