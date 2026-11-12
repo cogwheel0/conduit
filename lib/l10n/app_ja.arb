@@ -6539,5 +6539,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "表示"
+  "hermesShowScheduledRunsAction": "表示",
+  "voiceCallLibreChatUnavailable": "LibreChat のチャットでは音声通話を利用できません。"
 }

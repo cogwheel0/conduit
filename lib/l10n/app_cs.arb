@@ -6845,5 +6845,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "Zobrazit"
+  "hermesShowScheduledRunsAction": "Zobrazit",
+  "voiceCallLibreChatUnavailable": "Hlasové hovory nejsou v chatech LibreChat k dispozici."
 }

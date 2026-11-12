@@ -4922,5 +4922,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "显示"
+  "hermesShowScheduledRunsAction": "显示",
+  "voiceCallLibreChatUnavailable": "LibreChat 聊天不支持语音通话。"
 }

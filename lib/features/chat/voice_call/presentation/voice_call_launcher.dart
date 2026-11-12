@@ -30,7 +30,12 @@ class VoiceCallLauncher {
   Future<void> launch({required bool startNewConversation}) async {
     final eligibility = await resolveVoiceCallEligibility(_ref);
     if (!eligibility.canStart) {
-      throw StateError(eligibility.errorMessage!);
+      // Why the call can't start is meant for the user; the host words it
+      // through `voiceModeErrorText`.
+      throw VoiceCallStartException(
+        kind: ChatVoiceModeError.message,
+        message: eligibility.errorMessage!,
+      );
     }
 
     final socketService = _ref.read(socketServiceProvider);

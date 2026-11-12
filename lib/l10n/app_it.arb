@@ -4922,5 +4922,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "Mostra"
+  "hermesShowScheduledRunsAction": "Mostra",
+  "voiceCallLibreChatUnavailable": "Le chiamate vocali non sono disponibili nelle chat di LibreChat."
 }

@@ -12,6 +12,10 @@ import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
+import 'package:conduit/features/chat/voice_mode/voice_mode_error_text.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -88,6 +92,45 @@ void main() {
     check(container.read(selectedModelProvider)).identicalTo(_fallbackModel);
     check(controller.admittedModels.single).identicalTo(_model);
     check(controller.startedByStartNewConversation.single).isTrue();
+  });
+
+  test('launcher refuses a LibreChat chat\'s call in the app\'s words, not '
+      'with a request to sign in', () async {
+    final libreChatModel = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model'],
+      },
+    ).single;
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.needsLogin,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(libreChatModel),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    final l10n = lookupAppLocalizations(const Locale('de'));
+
+    Object? refusal;
+    try {
+      await container
+          .read(voiceCallLauncherProvider)
+          .launch(startNewConversation: false);
+    } catch (error) {
+      refusal = error;
+    }
+
+    check(refusal).isA<VoiceCallStartException>();
+    final error = refusal! as VoiceCallStartException;
+    check(voiceModeErrorText(l10n, kind: error.kind, message: error.message))
+        .equals(l10n.voiceCallLibreChatUnavailable);
   });
 
   test('launcher propagates controller-side start failure', () async {

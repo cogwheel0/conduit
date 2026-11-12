@@ -4960,5 +4960,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "Показать"
+  "hermesShowScheduledRunsAction": "Показать",
+  "voiceCallLibreChatUnavailable": "Голосовые звонки недоступны в чатах LibreChat."
 }
