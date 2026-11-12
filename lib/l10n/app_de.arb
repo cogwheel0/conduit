@@ -4922,5 +4922,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "Zeigen"
+  "hermesShowScheduledRunsAction": "Zeigen",
+  "voiceCallLibreChatUnavailable": "Sprachanrufe sind in LibreChat-Chats nicht verfügbar."
 }

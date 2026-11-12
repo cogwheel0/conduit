@@ -4922,5 +4922,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "Tonen"
+  "hermesShowScheduledRunsAction": "Tonen",
+  "voiceCallLibreChatUnavailable": "Spraakoproepen zijn niet beschikbaar in LibreChat-chats."
 }

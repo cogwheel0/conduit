@@ -9299,5 +9299,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "Pokaż"
+  "hermesShowScheduledRunsAction": "Pokaż",
+  "voiceCallLibreChatUnavailable": "Połączenia głosowe nie są dostępne w czatach LibreChat."
 }

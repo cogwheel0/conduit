@@ -11343,5 +11343,9 @@
   "hermesShowScheduledRunsAction": "Show",
   "@hermesShowScheduledRunsAction": {
     "description": "Button on the row that says scheduled runs are hidden from the Hermes chat list; turns Show Scheduled Runs back on."
+  },
+  "voiceCallLibreChatUnavailable": "Voice calls aren't available in LibreChat chats.",
+  "@voiceCallLibreChatUnavailable": {
+    "description": "Shown when the voice call button is used in a LibreChat chat, which has no voice calls."
   }
 }

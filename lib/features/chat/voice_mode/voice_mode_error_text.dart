@@ -1,3 +1,5 @@
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart'
+    show voiceCallLibreChatRefusal;
 import 'package:conduit_core/voice/voice_session.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -21,6 +23,8 @@ String? voiceModeErrorText(
     ChatVoiceModeError.inputUnavailable => l10n.voiceInputUnavailable,
     ChatVoiceModeError.timeout => l10n.voiceCallStartTimeout,
     ChatVoiceModeError.noSpeech => l10n.voiceCallNoSpeech,
+    ChatVoiceModeError.message when message == voiceCallLibreChatRefusal =>
+      l10n.voiceCallLibreChatUnavailable,
     ChatVoiceModeError.message when message != null && message.isNotEmpty =>
       message,
     ChatVoiceModeError.message ||

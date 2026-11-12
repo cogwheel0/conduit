@@ -18,6 +18,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -617,6 +618,36 @@ void main() {
     check(eligibility.reason)
         .equals(VoiceCallEligibilityReason.authenticationRequired);
     check(eligibility.errorMessage).equals('Sign in to start a voice call.');
+  });
+
+  test('voice eligibility says a LibreChat chat has no voice calls, rather '
+      'than ask for a sign-in', () {
+    final libreChatModel = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model'],
+      },
+    ).single;
+    final container = ProviderContainer(
+      overrides: [
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.needsLogin,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(libreChatModel),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final eligibility = container.read(voiceCallEligibilityProvider);
+
+    check(eligibility.canStart).isFalse();
+    check(eligibility.reason)
+        .equals(VoiceCallEligibilityReason.backendUnsupported);
+    check(eligibility.errorMessage).equals(voiceCallLibreChatRefusal);
   });
 
   test('voice eligibility explains incomplete Hermes configuration', () {

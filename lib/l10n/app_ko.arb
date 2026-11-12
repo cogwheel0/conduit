@@ -4694,5 +4694,6 @@
       }
     }
   },
-  "hermesShowScheduledRunsAction": "표시"
+  "hermesShowScheduledRunsAction": "표시",
+  "voiceCallLibreChatUnavailable": "LibreChat 채팅에서는 음성 통화를 사용할 수 없습니다."
 }

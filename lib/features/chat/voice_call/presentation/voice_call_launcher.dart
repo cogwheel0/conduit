@@ -28,9 +28,15 @@ class VoiceCallLauncher {
   final Ref _ref;
 
   Future<void> launch({required bool startNewConversation}) async {
+    _refuseOpenLibreChatChat(startNewConversation);
     final eligibility = await resolveVoiceCallEligibility(_ref);
     if (!eligibility.canStart) {
-      throw StateError(eligibility.errorMessage!);
+      // Why the call can't start is meant for the user; the host words it
+      // through `voiceModeErrorText`.
+      throw VoiceCallStartException(
+        kind: ChatVoiceModeError.message,
+        message: eligibility.errorMessage!,
+      );
     }
 
     final socketService = _ref.read(socketServiceProvider);
@@ -43,6 +49,9 @@ class VoiceCallLauncher {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
+    // A LibreChat chat may have opened during the waits above; the
+    // controller reads the open chat as it starts.
+    _refuseOpenLibreChatChat(startNewConversation);
     final result = await _ref
         .read(chatVoiceModeControllerProvider.notifier)
         .start(
@@ -54,6 +63,19 @@ class VoiceCallLauncher {
       throw VoiceCallStartException(
         kind: snapshot.errorKind,
         message: snapshot.errorMessage ?? 'Unable to start a voice call.',
+      );
+    }
+  }
+
+  /// A call in the open chat cannot run in a LibreChat chat, whatever the
+  /// selection holds: one reopened after its saved model went away keeps the
+  /// model chosen before. A call that starts a new chat is not in it.
+  void _refuseOpenLibreChatChat(bool startNewConversation) {
+    if (!startNewConversation &&
+        isLibreChatConversation(_ref.read(activeConversationProvider))) {
+      throw const VoiceCallStartException(
+        kind: ChatVoiceModeError.message,
+        message: voiceCallLibreChatRefusal,
       );
     }
   }
