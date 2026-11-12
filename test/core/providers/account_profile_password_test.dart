@@ -127,6 +127,36 @@ void main() {
         .equals('Ada After');
   });
 
+  test('a refresh begun before a save does not put back the profile it '
+      'read', () async {
+    final home = _ProfileApi(server: 'home', user: 'ada');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWithValue(home)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+    final profile = container.read(accountProfileProvider.notifier);
+
+    final gate = home.readGate = Completer<void>();
+    home.nextName = 'Ada Before';
+    final refreshing = profile.refresh();
+    await Future<void>.delayed(Duration.zero);
+    home.readGate = null;
+    try {
+      await profile.save(name: 'Ada Saved', profileImageUrl: '');
+    } catch (_) {
+      // The auth refresh after a save has no session here; the save holds.
+    }
+    gate.complete();
+    await refreshing;
+
+    check(container.read(accountProfileProvider).value?.name)
+        .equals('Ada Saved');
+  });
+
   test("a refresh that lands after another server's profile was read is "
       'dropped', () async {
     final home = _ProfileApi(server: 'home', user: 'ada');

@@ -1085,15 +1085,15 @@ class NativeSheetHydrationService {
     ].any((row) => row.id == 'current-password');
   }
 
+  /// Counts the Profile page's fills, so one finishing after a newer one
+  /// puts nothing over it.
+  int _profileVisits = 0;
+
   /// Fills in the Profile page the Flutter Settings pages draw. Its editors
   /// save every field, so the page waits on its loading row until the
   /// profile has been read from the server again; when that fails, the copy
   /// the app holds is shown, and with none the page says so. (The native
   /// sheet fills its own Profile page as it opens.)
-  /// Counts the Profile page's fills, so one finishing after a newer one
-  /// puts nothing over it.
-  int _profileVisits = 0;
-
   Future<void> hydrateFlutterProfileDetail(AppLocalizations l10n) async {
     const pageId = NativeSheetRoutes.profile;
     final user = _ref.read(currentUserProvider2);

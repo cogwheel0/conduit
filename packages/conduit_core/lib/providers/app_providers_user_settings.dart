@@ -758,6 +758,9 @@ class AccountProfile extends _$AccountProfile {
     }
 
     _serverId = api.serverConfig.id;
+    // A refresh still on its way read the profile before this save: its
+    // answer is older than what was just saved, and is dropped.
+    _refreshes++;
     state = AsyncData(updated);
     await ref.read(authActionsProvider).refresh();
     ref.invalidate(currentUserProvider);
