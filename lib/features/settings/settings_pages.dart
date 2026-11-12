@@ -88,6 +88,7 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         // Kept, so the same announcement sent again is not read out twice.
         announcement: existing.announcement,
         search: existing.search,
+        calendar: existing.calendar,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {

@@ -1230,6 +1230,88 @@ class NativeSheetSearchConfig {
   };
 }
 
+/// A day of a [NativeSheetMonthCalendarConfig] that holds something: a dot
+/// under it in each of [colors] (ARGB), up to three.
+@immutable
+class NativeSheetCalendarMark {
+  const NativeSheetCalendarMark({required this.day, required this.colors});
+
+  /// `yyyy-MM-dd`.
+  final String day;
+  final List<int> colors;
+
+  Map<String, Object?> toMap() => {'day': day, 'colors': colors};
+
+  @override
+  bool operator ==(Object other) =>
+      other is NativeSheetCalendarMark &&
+      other.day == day &&
+      listEquals(other.colors, colors);
+
+  @override
+  int get hashCode => Object.hash(day, Object.hashAll(colors));
+}
+
+/// A month calendar a page keeps above its rows, the rows being the chosen
+/// day's. On iOS it is the system's month grid (`UICalendarView`).
+///
+/// Paging to another month goes back as a change of [monthChangedId] with
+/// that month's first day, and choosing a day as a change of
+/// [daySelectedId] with the day, each as `yyyy-MM-dd`. Described again, the
+/// grid keeps the month the person paged to unless [month] changes.
+@immutable
+class NativeSheetMonthCalendarConfig {
+  const NativeSheetMonthCalendarConfig({
+    required this.id,
+    required this.month,
+    required this.selectedDay,
+    this.marks = const [],
+  });
+
+  final String id;
+
+  /// The first day of the month to show, `yyyy-MM-dd`.
+  final String month;
+
+  /// The chosen day, `yyyy-MM-dd`.
+  final String selectedDay;
+
+  /// The days that hold something.
+  final List<NativeSheetCalendarMark> marks;
+
+  String get monthChangedId => '$id:month';
+  String get daySelectedId => '$id:day';
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'month': month,
+    'selectedDay': selectedDay,
+    'marks': [for (final mark in marks) mark.toMap()],
+  };
+}
+
+/// [day] as a month calendar names it: `yyyy-MM-dd`.
+String nativeSheetCalendarDay(DateTime day) =>
+    '${day.year.toString().padLeft(4, '0')}-'
+    '${day.month.toString().padLeft(2, '0')}-'
+    '${day.day.toString().padLeft(2, '0')}';
+
+/// The day a month calendar sent, or null for anything else.
+DateTime? parseNativeSheetCalendarDay(Object? value) {
+  if (value is! String) return null;
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+  if (match == null) return null;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final date = DateTime(year, month, day);
+  // 2026-02-30 is no day.
+  if (date.year != year || date.month != month || date.day != day) {
+    return null;
+  }
+  return date;
+}
+
 class NativeSheetDetailConfig {
   const NativeSheetDetailConfig({
     required this.id,
@@ -1251,6 +1333,7 @@ class NativeSheetDetailConfig {
     this.announcement,
     this.edited = false,
     this.search,
+    this.calendar,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1293,6 +1376,10 @@ class NativeSheetDetailConfig {
   /// A search field above the rows, filtering them as the person types.
   final NativeSheetSearchConfig? search;
 
+  /// A month calendar above the rows, the rows being the chosen day's. Only
+  /// the native iOS sheet draws it.
+  final NativeSheetMonthCalendarConfig? calendar;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1317,6 +1404,7 @@ class NativeSheetDetailConfig {
       if (announcement != null) 'announcement': announcement,
       if (edited) 'edited': edited,
       if (search case final search?) 'search': search.toMap(),
+      if (calendar case final calendar?) 'calendar': calendar.toMap(),
     };
   }
 }
@@ -1422,6 +1510,7 @@ class NativeSheetItemConfig {
     this.keyboard,
     this.passwordRole,
     this.rowActions = const [],
+    this.symbolColor,
   });
 
   final String id;
@@ -1497,8 +1586,13 @@ class NativeSheetItemConfig {
   /// control id.
   final List<NativeSheetRowAction> rowActions;
 
+  /// The colour the row's symbol is drawn in, as ARGB, in place of the
+  /// page's tint: a calendar's own colour, say.
+  final int? symbolColor;
+
   Map<String, Object?> toMap() {
     return {
+      if (symbolColor != null) 'symbolColor': symbolColor,
       if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
       if (confirmMessage != null) 'confirmMessage': confirmMessage,
       if (disabled) 'disabled': disabled,
@@ -1925,6 +2019,21 @@ extension on NativeSheetDetailConfig {
           value: search.value,
         ),
       },
+      calendar: switch (calendar) {
+        null => null,
+        final calendar => PlatformNativeSheetMonthCalendar(
+          id: calendar.id,
+          month: calendar.month,
+          selectedDay: calendar.selectedDay,
+          marks: [
+            for (final mark in calendar.marks)
+              PlatformNativeSheetCalendarMark(
+                day: mark.day,
+                colors: mark.colors,
+              ),
+          ],
+        ),
+      },
     );
   }
 }
@@ -1982,6 +2091,7 @@ extension on NativeSheetItemConfig {
       rowActions: rowActions.isEmpty
           ? null
           : [for (final action in rowActions) action.toPlatform()],
+      symbolColor: symbolColor,
     );
   }
 }

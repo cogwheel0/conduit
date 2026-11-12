@@ -50,8 +50,11 @@ class SettingsRowGlyph extends StatelessWidget {
         fallbackText: extractAvatarInitials(avatarName),
       );
     }
+    final symbolColor = item.symbolColor;
     final color = item.destructive
         ? theme.error
+        : symbolColor != null
+        ? Color(symbolColor)
         : item.accent
         ? theme.buttonPrimary
         : theme.iconSecondary;
