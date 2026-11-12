@@ -392,7 +392,9 @@ class CalendarSettingsPages extends SettingsPageModule {
     _month = month;
     if (paged) _failure = null;
     await _drawMonth(l10n);
-    if (paged) await _load(l10n);
+    // Read on its own, its answer checked when it comes: a slow server does
+    // not hold the next tap behind it in Settings's queue.
+    if (paged) unawaited(_load(l10n));
   }
 
   /// The grid paged to [month]: today when it is this month, otherwise the
@@ -1263,7 +1265,9 @@ class CalendarSettingsPages extends SettingsPageModule {
     } else if (rest.startsWith('people.search:')) {
       final people = _people[rest.substring('people.search:'.length)];
       if (people != null && value is String) {
-        await _search(l10n, people, value);
+        // Searched on its own, its answer checked when it comes: Save does
+        // not wait behind a slow search.
+        unawaited(_search(l10n, people, value));
       }
     } else if (rest.startsWith('people.add:')) {
       final parts = rest.substring('people.add:'.length).split(':');

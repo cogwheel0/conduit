@@ -207,6 +207,26 @@ void main() {
       await rig._settle(paging);
     });
 
+    testWidgets('a month paged to is read on its own, so the next change '
+        'does not wait for it', (tester) async {
+      final rig = await _open(tester);
+      final held = rig.wire.holdAgenda = Completer<void>();
+
+      final paging = rig.module.handleChange(
+        '$calendarGridId:month',
+        '2026-11-01',
+        _l10n,
+      );
+      var handled = false;
+      unawaited(paging.then((_) => handled = true));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Answered while the month is still being read.
+      expect(handled, isTrue);
+      held.complete();
+      await rig._settle(Future<void>.value());
+    });
+
     testWidgets('paging to another month chooses its first day and reads it', (
       tester,
     ) async {
