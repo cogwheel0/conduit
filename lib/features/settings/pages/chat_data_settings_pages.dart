@@ -483,8 +483,14 @@ class ChatDataSettingsPages extends SettingsPageModule {
       canDelete: _allowed('delete'),
       localOnly: _scope?.localOnlyChatIds.length ?? 0,
       unsent: _scope?.chatsWithUnsentWork ?? 0,
-      activity: _activity,
-      origin: _origin,
+      // An import from an earlier visit still with the server shows as
+      // running here, so the rows read as waiting rather than doing nothing.
+      activity: _importSending && _activity == ChatDataActivity.idle
+          ? ChatDataActivity.importing
+          : _activity,
+      origin: _importSending && _activity == ChatDataActivity.idle
+          ? ChatDataOrigin.import
+          : _origin,
       chatsRead: _chatsRead,
       importing: _importing,
       pickedName: _picked?.name,

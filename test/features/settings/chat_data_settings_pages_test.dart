@@ -1124,6 +1124,9 @@ void main() {
         name: 'chats.json',
         read: () async => fileBytes,
       );
+      // The page shows the import still running, the other rows waiting.
+      expect(session.row('import')!.pending, isTrue);
+      expect(session.row('archive')!.disabled, isTrue);
       await session.tap('import');
 
       expect(session.surface.asked, hasLength(asked));
