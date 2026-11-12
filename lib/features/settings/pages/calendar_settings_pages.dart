@@ -579,7 +579,13 @@ class CalendarSettingsPages extends SettingsPageModule {
       ..error = null;
     await _drawEvent(l10n, view);
     try {
-      final stored = await _notifier.respond(view.event, status, owner: owner);
+      // The record the page offered the answer from: the event read just
+      // now, which can list an invitation the agenda's copy did not.
+      final stored = await _notifier.respond(
+        view.fresh ?? view.event,
+        status,
+        owner: owner,
+      );
       if (!_current(owner) || !identical(_events[view.event.key], view)) {
         return;
       }

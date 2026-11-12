@@ -411,6 +411,38 @@ void main() {
         'accepted',
       );
     });
+
+    testWidgets('an invitation the agenda had not read yet takes an answer', (
+      tester,
+    ) async {
+      Map<String, Object?> townHall({required bool invited}) => eventJson(
+        'ev-team',
+        'cal-ro',
+        title: 'Town Hall',
+        owner: 'user-9',
+        startAt: _laterToday,
+        endAt: _laterToday + 3600000000000,
+        attendees: [if (invited) attendeeJson('ev-team', 'user-1')],
+      );
+      final rig = await _open(
+        tester,
+        configureWire: (wire) => wire.events = [townHall(invited: false)],
+      );
+      // Invited after the agenda was read; the event's own read has it.
+      rig.wire.events = [townHall(invited: true)];
+      final page = eventPage(rig);
+      await rig.open(page);
+      final rsvp = rig
+          .rows(page)
+          .singleWhere((row) => row.id.startsWith('calendar.event.rsvp:'));
+
+      await rig.change(rsvp.id, 'accepted');
+
+      expect(
+        (rig.wire.stored('ev-team')!['attendees'] as List).single['status'],
+        'accepted',
+      );
+    });
   });
 
   group('the editor', () {
