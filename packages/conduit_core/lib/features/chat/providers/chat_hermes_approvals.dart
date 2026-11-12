@@ -7,15 +7,17 @@ part of 'chat_providers.dart';
 /// puts it. A host shows it and answers through [resolveHermesApproval];
 /// mobile's composer card does the same over its widget state.
 final class HermesPendingApproval {
-  const HermesPendingApproval({
+  const HermesPendingApproval._({
     required this.messageId,
     required this.approvalId,
     required this.runId,
     required this.choices,
     this.summary,
+    this.executionGeneration,
     this.storedSessionId,
     this.restoredDesktopDecision = false,
-  });
+    HermesApprovalRun? run,
+  }) : _run = run;
 
   /// The assistant message the approval belongs to.
   final String messageId;
@@ -29,18 +31,48 @@ final class HermesPendingApproval {
   /// `deny`. Empty means a plain yes or no.
   final List<String> choices;
 
+  /// The run execution that asked, which newer Hermes servers require back
+  /// with the answer.
+  final int? executionGeneration;
+
   /// The desktop gateway's session, when the approval came from one.
   final String? storedSessionId;
 
   /// Whether this approval was restored from the gateway when the chat was
   /// reopened, rather than asked by a run this process started.
   final bool restoredDesktopDecision;
+
+  /// The run that asked, as it was when the approval was read. Null for a
+  /// restored approval, which is answered through its gateway session.
+  final HermesApprovalRun? _run;
 }
 
-/// The approval [message] is waiting on, or null when it is not waiting.
+/// The exact run an approval was read from. The answer goes to that run
+/// alone: one that replaced it, even under the same message and run ids, is
+/// not answered.
+final class HermesApprovalRun {
+  const HermesApprovalRun._({
+    required this.key,
+    required this.generationToken,
+    required this.cancelToken,
+  });
+
+  final HermesRunKey key;
+  final Object generationToken;
+  final CancelToken cancelToken;
+}
+
+/// The approval [message], in the chat open in [ref], is waiting on, or null
+/// when it is not waiting or the run that asked is no longer running.
 ///
-/// A `resolving` approval is not returned: it is already being answered.
-HermesPendingApproval? pendingHermesApprovalOf(ChatMessage message) {
+/// A `resolving` approval is not returned: it is already being answered. The
+/// run that asked is captured here, as mobile's approval card captures it
+/// when it is drawn, so [resolveHermesApproval] answers that run and no run
+/// that replaces it while the user decides.
+HermesPendingApproval? pendingHermesApprovalOf(
+  dynamic ref,
+  ChatMessage message,
+) {
   final metadata = message.metadata;
   if (metadata == null ||
       metadata['transport'] != kHermesTransport ||
@@ -64,7 +96,12 @@ HermesPendingApproval? pendingHermesApprovalOf(ChatMessage message) {
   if (restored && (storedSessionId == null || storedSessionId.isEmpty)) {
     return null;
   }
-  return HermesPendingApproval(
+  HermesApprovalRun? run;
+  if (!restored) {
+    run = _hermesApprovalRunOf(ref, messageId: message.id, runId: runId);
+    if (run == null) return null;
+  }
+  return HermesPendingApproval._(
     messageId: message.id,
     approvalId: approvalId,
     runId: runId,
@@ -80,22 +117,57 @@ HermesPendingApproval? pendingHermesApprovalOf(ChatMessage message) {
             .toList(growable: false),
       _ => const <String>[],
     },
+    executionGeneration: approval['executionGeneration'] is int
+        ? approval['executionGeneration'] as int
+        : null,
     storedSessionId: storedSessionId == null || storedSessionId.isEmpty
         ? null
         : storedSessionId,
     restoredDesktopDecision: restored,
+    run: run,
+  );
+}
+
+/// The live run [runId] of answer [messageId] in the chat open in [ref].
+HermesApprovalRun? _hermesApprovalRunOf(
+  dynamic ref, {
+  required String messageId,
+  required String runId,
+}) {
+  final conversation = ref.read(activeConversationProvider) as Conversation?;
+  if (conversation == null) return null;
+  final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
+  final key = hermesRunKeyForConversation(
+    ref,
+    conversation: conversation,
+    assistantMessageId: messageId,
+  );
+  final generationToken = registry.generationTokenFor(key, runId: runId);
+  if (generationToken == null) return null;
+  final cancelToken = registry.cancelTokenForGeneration(
+    key,
+    generationToken: generationToken,
+    runId: runId,
+  );
+  if (cancelToken == null) return null;
+  return HermesApprovalRun._(
+    key: key,
+    generationToken: generationToken,
+    cancelToken: cancelToken,
   );
 }
 
 /// Answers [approval] with [choice] (`once`, `session`, `always` or `deny`)
 /// for the chat open in [ref], and reports whether Hermes took the answer.
 ///
-/// The same steps as mobile's approval card: the run that asked must still be
-/// the one running (a replacement that reuses the message or run id cannot
-/// receive the old run's answer), the approval moves from `pending` to
-/// `resolving` while the answer is sent and back to `pending` if sending
-/// fails, and then to `approved` or `denied`. A restored desktop approval is
-/// answered through its gateway session.
+/// The same steps as mobile's approval card: the run read with the approval
+/// must still be the one running (a replacement that reuses the message or
+/// run id cannot receive the old run's answer), the approval moves from
+/// `pending` to `resolving` while the answer is sent, and then to `approved`
+/// or `denied`. A failed send puts it back to `pending`, unless Hermes said
+/// the prompt is no longer waiting or belongs to an older execution: it is
+/// then `settled`, since offering it again could only fail the same way. A
+/// restored desktop approval is answered through its gateway session.
 Future<bool> resolveHermesApproval(
   dynamic ref,
   HermesPendingApproval approval, {
@@ -119,24 +191,29 @@ Future<bool> resolveHermesApproval(
     );
   }
 
+  final run = approval._run;
+  if (run == null) return false;
+  final generationToken = run.generationToken;
   final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
   final runKey = hermesRunKeyForConversation(
     ref,
     conversation: conversation,
     assistantMessageId: approval.messageId,
   );
-  final generationToken = registry.generationTokenFor(
-    runKey,
-    runId: approval.runId,
-  );
-  final cancelToken = generationToken == null
-      ? null
-      : registry.cancelTokenForGeneration(
-          runKey,
-          generationToken: generationToken,
-          runId: approval.runId,
-        );
-  if (generationToken == null || cancelToken == null) return false;
+  // The chat's key may have moved from a local id to the server's since.
+  if (!registry.ownsGeneration(
+        run.key,
+        generationToken: generationToken,
+        runId: approval.runId,
+      ) &&
+      (runKey == run.key ||
+          !registry.ownsGeneration(
+            runKey,
+            generationToken: generationToken,
+            runId: approval.runId,
+          ))) {
+    return false;
+  }
   final capabilities = (ref.read(
     hermesCapabilitiesProvider,
   ) as AsyncValue<HermesCapabilities>).asData?.value;
@@ -146,7 +223,7 @@ Future<bool> resolveHermesApproval(
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   final updateProjectionState = captureHermesApprovalProjectionStateUpdater(
     ref,
-    cancelToken: cancelToken,
+    cancelToken: run.cancelToken,
     messageId: approval.messageId,
     runId: approval.runId,
     approvalId: approval.approvalId,
@@ -215,6 +292,16 @@ Future<bool> resolveHermesApproval(
         approvalId: approval.approvalId,
         choice: choice,
       );
+    } else if (service is HermesApiService) {
+      await service.resolveApproval(
+        approval.runId,
+        approvalId: approval.approvalId,
+        approved: approved,
+        executionGeneration: approval.executionGeneration,
+        // The scope picked (`session`, `always`) when the approval offered
+        // it; otherwise once or deny.
+        choice: approval.choices.contains(choice) ? choice : null,
+      );
     } else {
       await service.resolveApproval(
         approval.runId,
@@ -222,9 +309,17 @@ Future<bool> resolveHermesApproval(
         approved: approved,
       );
     }
-  } catch (_) {
-    DebugLogger.error('approval-resolve-failed', scope: 'chat/hermes_approval');
-    setState('pending', expected: 'resolving');
+  } catch (error) {
+    DebugLogger.error(
+      'approval-resolve-failed',
+      scope: 'chat/hermes_approval',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    final settled =
+        error is HermesApiException &&
+        (error.code == HermesApiErrorCode.approvalNotPending ||
+            error.code == HermesApiErrorCode.staleGeneration);
+    setState(settled ? 'settled' : 'pending', expected: 'resolving');
     return false;
   }
   setState(approved ? 'approved' : 'denied', expected: 'resolving');
