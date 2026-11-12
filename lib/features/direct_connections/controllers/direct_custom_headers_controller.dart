@@ -23,11 +23,12 @@ final class DirectHeaderValidationError {
 
 /// What is wrong with a header [name] carrying [value] beside the headers
 /// named [existing], or null when it can be added. Provider and MCP server
-/// headers are checked alike.
+/// headers are checked alike, each against its own [reserved] names.
 DirectHeaderValidationError? validateDirectCustomHeader(
   Iterable<String> existing, {
   required String name,
   required String value,
+  Set<String> reserved = DirectConnectionProfile.reservedHeaderNames,
 }) {
   if (name.isEmpty) {
     return const DirectHeaderValidationError(
@@ -39,9 +40,7 @@ DirectHeaderValidationError? validateDirectCustomHeader(
       DirectHeaderValidationIssue.invalidName,
     );
   }
-  if (DirectConnectionProfile.reservedHeaderNames.contains(
-    name.toLowerCase(),
-  )) {
+  if (reserved.contains(name.toLowerCase())) {
     return DirectHeaderValidationError(
       DirectHeaderValidationIssue.reservedName,
       headerName: name,

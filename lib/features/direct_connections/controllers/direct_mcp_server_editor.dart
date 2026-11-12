@@ -90,8 +90,12 @@ final class DirectMcpServerEditor extends ChangeNotifier {
       final persisted = servers
           .where((server) => server.id == previous.id)
           .firstOrNull;
-      if (persisted == null ||
-          identical(persisted, previous) ||
+      if (persisted == null) {
+        // Deleted elsewhere: there is nothing left to save to or delete.
+        _previous = null;
+        return true;
+      }
+      if (identical(persisted, previous) ||
           !_sameServerExceptSecureState(previous, persisted)) {
         return false;
       }
@@ -161,6 +165,7 @@ final class DirectMcpServerEditor extends ChangeNotifier {
       entries.map((entry) => entry.key),
       name: trimmedName,
       value: trimmedValue,
+      reserved: DirectMcpServer.reservedHeaderNames,
     );
     if (problem != null) return problem;
     _setHeaders([...entries, MapEntry(trimmedName, trimmedValue)]);

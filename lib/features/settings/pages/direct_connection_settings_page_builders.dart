@@ -1270,7 +1270,7 @@ NativeSheetDetailConfig buildDirectMcpServerPage(
   }
   if (editor.missing) return only(_notice(pageId, l10n.directMcpMissing));
 
-  final busy = editor.busy || saving;
+  final busy = editor.busy || saving || testing;
   final oauthPending = editor.oauthPending;
   final tokens = stored?.oauthTokens;
   final approvals = stored?.rememberedApprovals ?? const [];

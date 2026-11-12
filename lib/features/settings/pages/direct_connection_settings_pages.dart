@@ -125,6 +125,10 @@ final class _McpEditor {
   /// What the page last showed of the stored server.
   Object? shown;
 
+  /// What the page last showed of the editor's own state: a sign-in under
+  /// way, its message, the server gone.
+  Object? shownStatus;
+
   bool get edited => baseline != null && _mcpSignature(editor) != baseline;
 
   void dispose() {
@@ -540,8 +544,19 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
       take(servers);
       entry.shown = _mcpShown(entry.editor.previous);
     }
+    // A sign-in starting or ending, or what an action said, changes the page
+    // although the stored server may not: its Cancel row, its message.
+    entry.editor.addListener(() {
+      if (!identical(_mcpEditors[key], entry)) return;
+      if (_mcpStatus(entry.editor) == entry.shownStatus) return;
+      final l10n = _l10n;
+      if (l10n != null) unawaited(_applyMcp(l10n, key, entry));
+    });
     return entry;
   }
+
+  static Object _mcpStatus(DirectMcpServerEditor editor) =>
+      (editor.oauthPending, editor.message, editor.missing);
 
   Future<void> _applyMcp(
     AppLocalizations l10n,
@@ -550,6 +565,7 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
     bool registerChildren = false,
   }) {
     final header = buildDirectMcpHeaderPage(l10n, serverKey: key);
+    entry.shownStatus = _mcpStatus(entry.editor);
     return _surface.applyDetail(
       buildDirectMcpServerPage(
         l10n,

@@ -1,4 +1,8 @@
 import 'dart:async';
+
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
 import 'dart:io';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -1699,12 +1703,15 @@ void main() {
   group('MCP server editor', () {
     late DirectMcpServerStore store;
 
-    Future<_Rig> pumpMcp(WidgetTester tester) async {
+    Future<_Rig> pumpMcp(WidgetTester tester, {http.Client? client}) async {
       FlutterSecureStorage.setMockInitialValues({});
       store = DirectMcpServerStore(
         SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
       );
-      final coordinator = DirectMcpOAuthCoordinator(store: store);
+      final coordinator = DirectMcpOAuthCoordinator(
+        store: store,
+        client: client,
+      );
       addTearDown(coordinator.close);
       return _pump(
         tester,
@@ -1828,6 +1835,104 @@ void main() {
       expect((await store.load()).single.oauthTokens, isNull);
       expect(rig.titles(page), contains('Connect in Browser'));
       expect(rig.titles(page), isNot(contains('Disconnect OAuth')));
+    });
+
+    testWidgets('a browser sign-in under way shows on the page, with Cancel', (
+      tester,
+    ) async {
+      // The authorization server answers only once the test lets it.
+      final answer = Completer<http.Response>();
+      final rig = await pumpMcp(
+        tester,
+        client: MockClient((_) => answer.future),
+      );
+      final server = DirectMcpServer(
+        id: 'oauth-wait',
+        name: 'OAuth Wait',
+        endpoint: 'https://resource.example/mcp',
+        authMode: DirectMcpAuthMode.oauth,
+      );
+      await store.upsert(server);
+      final page = directMcpPageId(server.id);
+      final key = Uri.encodeComponent(server.id);
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
+
+      final connecting = rig.module.handleChange(
+        directMcpRowId('oauth-connect', key),
+        true,
+        _l10n,
+      );
+      await rig.until(
+        () => rig
+            .rows(page)
+            .any((row) => row.id == directMcpRowId('oauth-cancel', key)),
+      );
+      expect(rig.page(page).announcement, _l10n.directMcpOAuthPending);
+
+      // The sign-in runs on in the browser; it is let go here.
+      answer.completeError(http.ClientException('offline'));
+      await rig.settle(connecting);
+    });
+
+    testWidgets('a server removed elsewhere while its page is open says so', (
+      tester,
+    ) async {
+      final rig = await pumpMcp(tester);
+      final server = DirectMcpServer(
+        id: 'gone',
+        name: 'Gone',
+        endpoint: 'https://resource.example/mcp',
+      );
+      await store.upsert(server);
+      final page = directMcpPageId(server.id);
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
+
+      await rig.settle(
+        rig.container.read(directMcpServersProvider.notifier).remove(server.id),
+      );
+      await rig.until(() => rig.rows(page).length == 1);
+
+      expect(rig.rows(page).single.title, _l10n.directMcpMissing);
+    });
+
+    testWidgets("a header an MCP server can't carry is refused as it is "
+        'added', (tester) async {
+      final rig = await pumpMcp(tester);
+      const key = 'new';
+      final header = '$directMcpHeaderPagePrefix$key';
+      await rig.open(directMcpPageId(null));
+      await rig.open(header);
+
+      await rig.change(directMcpRowId('header-name', key), 'Connection');
+      await rig.change(directMcpRowId('header-value', key), 'close');
+      await rig.change(directMcpRowId('header-add', key));
+
+      expect(rig.closed, isEmpty);
+      expect(rig.page(header).announcement, contains('Connection'));
+    });
+
+    testWidgets('the fields wait while a test runs', (tester) async {
+      final rig = await pumpMcp(tester);
+      const key = 'new';
+      final page = directMcpPageId(null);
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
+      await rig.change(directMcpRowId('name', key), 'Tools');
+      await rig.change(
+        directMcpRowId('endpoint', key),
+        'https://mcp.example/mcp',
+      );
+
+      final testing = rig.module.handleChange(
+        directMcpRowId('test', key),
+        true,
+        _l10n,
+      );
+      expect(rig.row(page, directMcpRowId('name', key)).disabled, isTrue);
+      await rig.settle(testing);
+      expect(rig.row(page, directMcpRowId('name', key)).disabled, isFalse);
     });
 
     testWidgets('remembered approvals are revoked one or all', (tester) async {
