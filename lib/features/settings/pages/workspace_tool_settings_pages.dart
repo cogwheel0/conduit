@@ -92,6 +92,10 @@ final class WorkspaceToolEditor {
   bool valvesLoaded = false;
   bool valvesBusy = false;
   bool valvesDirty = false;
+
+  /// Text typed into a numeric valve that is no number (yet): kept as
+  /// typed, said on its row, and not saved.
+  final Map<String, String> valveTexts = {};
   String? valvesNotice;
   WorkspaceValveSpec? serverSpec;
   WorkspaceValveSpec? userSpec;
@@ -579,7 +583,12 @@ NativeSheetDetailConfig buildWorkspaceToolValvesPage(
                   kind: WorkspaceValveValues.isPasswordProperty(propertySpec)
                       ? NativeSheetItemKind.secureTextField
                       : NativeSheetItemKind.textField,
-                  value: value.toString(),
+                  value: editor.valveTexts[property] ?? value.toString(),
+                  subtitle: editor.valveTexts.containsKey(property)
+                      ? (type == 'integer'
+                            ? l10n.chatSettingErrorNotAWholeNumber
+                            : l10n.chatSettingErrorNotANumber)
+                      : null,
                   placeholder: title,
                   keyboard: type == 'integer' || type == 'number'
                       ? NativeSheetKeyboard.number
@@ -858,7 +867,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
         ..serverValues = WorkspaceValveValues.hydrate(serverSpec, serverValues)
         ..userValues = WorkspaceValveValues.hydrate(userSpec, userValues)
         ..valvesLoaded = true
-        ..valvesDirty = false;
+        ..valvesDirty = false
+        ..valveTexts.clear();
     }
     await _applyValves(l10n, editor);
   }
@@ -1362,17 +1372,28 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       values[property] = value;
     } else if (value is String) {
       final type = propertySpec['type']?.toString();
+      final numeric = type == 'number' || type == 'integer';
+      final text = value.trim();
+      final number = type == 'integer'
+          ? int.tryParse(text)
+          : num.tryParse(text);
+      if (numeric && text.isNotEmpty && number == null) {
+        // Kept as typed -- "1." or "-" on the way to a number, or not one --
+        // and said on its row; Save waits for a number.
+        final turned = !editor.valveTexts.containsKey(property);
+        editor
+          ..valveTexts[property] = value
+          ..valvesDirty = true;
+        if (turned || redraw) await _applyValves(l10n, editor);
+        return;
+      }
+      final wasInvalid = editor.valveTexts.remove(property) != null;
       values[property] = WorkspaceValveValues.coerceText(
         type,
         value,
         values[property],
       );
-      // Text that is no number is not kept: the field shows the value that
-      // will be saved, rather than one Save would quietly replace.
-      final numeric = type == 'number' || type == 'integer';
-      if (numeric &&
-          value.trim().isNotEmpty &&
-          values[property]?.toString() != value.trim()) {
+      if (wasInvalid) {
         editor.valvesDirty = true;
         await _applyValves(l10n, editor);
         return;
@@ -1390,6 +1411,12 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
   ) async {
     final id = editor.summary?.id;
     if (id == null || !editor.valvesLoaded || editor.valvesBusy) return;
+    // A value that is no number is not saved as the last one that was.
+    if (editor.valveTexts.isNotEmpty) {
+      editor.valvesNotice = l10n.chatSettingErrorNotANumber;
+      await _applyValves(l10n, editor);
+      return;
+    }
     final user = editor.valvesUser;
     final payload = WorkspaceValveValues.serialize(
       _specOf(editor),

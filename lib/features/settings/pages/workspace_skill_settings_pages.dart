@@ -532,11 +532,11 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
   /// Whether the server refused the id as taken. Open WebUI answers 400
   /// for other refusals too (source that does not load, a name in use), so
   /// a 400 counts only when it says the id is the problem.
+  /// Whether the server refused the id as taken: a 400 that says so. A
+  /// 409 is a skill name already in use, which the id cannot fix.
   static bool _isConflict(Object error) {
     if (error is! DioException) return false;
-    final status = error.response?.statusCode;
-    if (status == 409) return true;
-    if (status != 400) return false;
+    if (error.response?.statusCode != 400) return false;
     final data = error.response?.data;
     final detail = (data is Map ? data['detail'] : data)
         ?.toString()
@@ -660,6 +660,21 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     return true;
   }
 
+  /// The package a clone is made from, or null for a skill that is its
+  /// SKILL.md alone.
+  static List<Map<String, dynamic>>? _clonedFiles(WorkspaceSkillEditor editor) {
+    final files = editor.summary?.files ?? const <Map<String, dynamic>>[];
+    final supporting = [
+      for (final file in files)
+        if (file['path'] != 'SKILL.md') file,
+    ];
+    if (supporting.isEmpty) return null;
+    return [
+      {'path': 'SKILL.md', 'content': editor.content},
+      ...supporting,
+    ];
+  }
+
   Future<void> _clone(
     AppLocalizations l10n,
     WorkspaceSkillEditor editor,
@@ -673,12 +688,10 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       name: '${editor.name.trim()} ${l10n.workspaceSkillCloneSuffix}',
       description: description.isEmpty ? null : description,
       content: editor.content,
-      // Its supporting files go with it (SKILL.md is the content above),
-      // and it is on or off as the skill is.
-      files: [
-        for (final file in editor.summary?.files ?? const [])
-          if (file['path'] != 'SKILL.md') file,
-      ],
+      // Its supporting files go with it, beside a SKILL.md of the content
+      // above: a package the server takes whole. With none, the content
+      // alone makes the skill, as it always did.
+      files: _clonedFiles(editor),
       meta: editor.meta,
       isActive: editor.summary?.isActive ?? true,
     );

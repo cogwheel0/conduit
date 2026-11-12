@@ -191,8 +191,12 @@ final class _Skills extends WorkspaceSkills {
   Future<WorkspaceCollectionState<WorkspaceSkillSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
 
+  Object? createError;
+
   @override
   Future<WorkspaceSkillDetail> create(WorkspaceSkillForm form) async {
+    final error = createError;
+    if (error != null) throw error;
     created.add(form);
     return WorkspaceSkillSummary(id: form.id, name: form.name, userId: 'owner');
   }
@@ -747,18 +751,27 @@ void main() {
         check(tools.valveSaves).isEmpty();
       });
 
-      testWidgets('text that is no number is not kept as one', (tester) async {
-        final rig = await pump(tester);
+      testWidgets('text that is no number is kept as typed, said, and not '
+          'saved', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
         await rig.open(_tool1);
         await rig.open(valves);
         await rig.change(_toolRow('valve-mode', _toolKey, 'limit'), 'custom');
-        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '12');
+        final limit = _toolRow('valve-value', _toolKey, 'limit');
 
-        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '12x');
+        // On the way to a number, or not one: kept as typed.
+        await rig.change(limit, '-');
+        check(rig.row(valves, limit)!.value).equals('-');
+        check(rig.row(valves, limit)!.subtitle)
+            .equals(_l10n.chatSettingErrorNotAWholeNumber);
+        await rig.change(_toolRow('valves-save', _toolKey));
+        check(tools.valveSaves).isEmpty();
 
-        check(
-          rig.row(valves, _toolRow('valve-value', _toolKey, 'limit'))!.value,
-        ).equals('12');
+        await rig.change(limit, '-12');
+        check(rig.row(valves, limit)!.subtitle).isNull();
+        await rig.change(_toolRow('valves-save', _toolKey));
+        check(tools.valveSaves.single.$2['limit']).equals(-12);
       });
 
       testWidgets('valves that cannot be read offer Retry', (tester) async {
@@ -778,6 +791,28 @@ void main() {
   });
 
   group("a skill's editor", () {
+    testWidgets('a name already in use is not said to be the id', (
+      tester,
+    ) async {
+      final skills = _Skills()
+        ..createError = DioException(
+          requestOptions: RequestOptions(),
+          response: Response(
+            requestOptions: RequestOptions(),
+            statusCode: 409,
+            data: {'detail': 'A skill with this name already exists'},
+          ),
+        );
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_newSkill);
+      await rig.change(_skillRow('name'), 'Trail Planner');
+      await rig.change(_skillRow('content'), '# Trail planner');
+      await rig.change(_skillRow('save'));
+
+      check(rig.page(_newSkill).announcement)
+          .not((it) => it.equals(_l10n.workspaceSkillIdTaken));
+    });
+
     testWidgets('makes a skill whose id follows its name', (tester) async {
       final skills = _Skills();
       final rig = await pump(tester, skills: skills);
@@ -865,6 +900,8 @@ void main() {
 
       await rig.change(_skillRow('clone', _skillKey));
       check(skills.created.single.id).equals('skill-1_clone');
+      // Its SKILL.md alone: the content makes it, as it always did.
+      check(skills.created.single.files).isNull();
       check(skills.created.single.accessGrants).isNotNull().isEmpty();
 
       await rig.change(_skillRow('active', _skillKey));
