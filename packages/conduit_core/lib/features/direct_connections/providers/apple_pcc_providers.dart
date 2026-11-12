@@ -47,3 +47,24 @@ final appleOnDeviceStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
   }
   return ref.watch(applePccAdapterProvider).status(PlatformAppleModel.onDevice);
 });
+
+/// Whether Apple On-Device is offered as a Direct connection: turned on,
+/// where Apple's models can exist, and its model said it can answer when
+/// last asked. Null while the first answer is awaited.
+///
+/// A device whose model is not ready (still downloading, Apple Intelligence
+/// off, an ineligible device) is not offered it: the default-on connection
+/// would otherwise count as a usable Direct connection, so signing out of
+/// the last account would land on a Direct app whose only model cannot
+/// answer. Asking again keeps the last answer until the new one comes.
+final appleOnDeviceOfferedProvider = Provider<bool?>((ref) {
+  if (!ref.watch(applePccPlatformSupportedProvider) ||
+      !ref.watch(appleOnDeviceEnabledProvider)) {
+    return false;
+  }
+  final status = ref.watch(appleOnDeviceStatusProvider);
+  if (status.hasError && !status.isLoading) return false;
+  final current = status.value;
+  if (current == null) return status.isLoading ? null : false;
+  return current.availability == PlatformPccAvailability.available;
+});
