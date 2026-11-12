@@ -683,6 +683,38 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .watch();
   }
 
+  /// The live ops (pending, in flight or parked; seq ASC) of every chat
+  /// that has a queued request-completion, or of [chatId] alone. A chat's
+  /// ops run in order, so what holds an answer's request up can be an
+  /// earlier op of its chat, its create or update: the queued-completion
+  /// display (`queuedCompletionDisplaysOf`) reads them together.
+  Stream<List<OutboxOp>> watchChatQueuesWithCompletions({String? chatId}) {
+    final withCompletion = selectOnly(outboxOps)
+      ..addColumns([outboxOps.chatId])
+      ..where(
+        outboxOps.kind.equals(OutboxKind.requestCompletion.name) &
+            outboxOps.status.isIn(const [
+              OutboxStatus.pending,
+              OutboxStatus.failed,
+            ]),
+      );
+    return (select(outboxOps)
+          ..where(
+            (t) =>
+                t.status.isIn(const [
+                  OutboxStatus.pending,
+                  OutboxStatus.inFlight,
+                  OutboxStatus.failed,
+                ]) &
+                t.chatId.isInQuery(withCompletion) &
+                (chatId == null
+                    ? const Constant<bool>(true)
+                    : t.chatId.equals(chatId)),
+          )
+          ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+        .watch();
+  }
+
   /// All pending ops for [chatId] (seq ASC) — coalescing + tests (A2).
   Future<List<OutboxOp>> pendingForChat(
     String chatId, {
