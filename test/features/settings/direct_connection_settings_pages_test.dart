@@ -1913,6 +1913,37 @@ void main() {
       expect(rig.page(header).announcement, contains('Connection'));
     });
 
+    testWidgets('Save waits while a test asks its questions', (tester) async {
+      final rig = await pumpMcp(tester);
+      const key = 'new';
+      final page = directMcpPageId(null);
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
+      await rig.change(directMcpRowId('name', key), 'Tools');
+      // A key sent unencrypted, so the test asks first.
+      await rig.change(
+        directMcpRowId('endpoint', key),
+        'http://mcp.example/mcp',
+      );
+      await rig.change(directMcpRowId('auth', key), 'bearer');
+      await rig.change(directMcpRowId('token', key), 'synthetic-token');
+
+      final question = Completer<String?>();
+      rig.surface.onAsk = (_) => question.future;
+      final testing = rig.module.handleChange(
+        directMcpRowId('test', key),
+        true,
+        _l10n,
+      );
+      await tester.pump();
+      expect(rig.surface.asked, isNotEmpty);
+      await rig.change(directMcpRowId('save', key));
+
+      expect(await store.load(), isEmpty);
+      question.complete(null);
+      await rig.settle(testing);
+    });
+
     testWidgets('the fields wait while a test runs', (tester) async {
       final rig = await pumpMcp(tester);
       const key = 'new';

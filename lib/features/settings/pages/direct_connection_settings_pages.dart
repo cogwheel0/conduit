@@ -1018,7 +1018,9 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
       await _applyMcp(l10n, key, entry);
       return;
     }
-    if (editor.busy) return;
+    // A test under way (its questions included) holds every other row
+    // back, so nothing runs beside it.
+    if (editor.busy || entry.testing) return;
     Future<bool> confirm(DirectMcpEditorQuestion question) =>
         _confirmMcp(l10n, question);
     switch (row.field) {
