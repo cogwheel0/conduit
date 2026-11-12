@@ -6,6 +6,7 @@ import 'package:conduit/features/settings/views/settings_page_view.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -187,6 +188,27 @@ void main() {
     await tester.pumpAndSettle();
 
     check(find.text('page voice').evaluate()).isNotEmpty();
+    check(controller.changes).isEmpty();
+  });
+
+  testWidgets("a bar button naming a page pushes it, as a row leading to it "
+      'would, and sends nothing', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      NativeSheetDetailConfig(
+        id: 'month',
+        title: 'Calendar',
+        trailingActionDetailId: 'new-event',
+        trailingActionSfSymbol: 'plus',
+        items: const [NativeSheetItemConfig(id: 'row', title: 'Row')],
+      ),
+      known: [NativeSheetDetailConfig(id: 'new-event', title: 'New Event')],
+    );
+
+    await tester.tap(find.byType(ConduitAdaptiveAppBarIconButton));
+    await tester.pumpAndSettle();
+
+    check(find.text('page new-event').evaluate()).isNotEmpty();
     check(controller.changes).isEmpty();
   });
 

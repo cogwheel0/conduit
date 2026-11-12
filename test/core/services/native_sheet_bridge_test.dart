@@ -278,8 +278,8 @@ void main() {
         });
   });
 
-  test("a page's month calendar and a row's symbol colour go to the sheet "
-      'with the page', () async {
+  test("a page's month calendar, its bar button's page and a row's symbol "
+      'colour go to the sheet with the page', () async {
     NativeSheetBridge.instance.debugIsIOSOverride = true;
     PlatformNativeSheetApplyDetailPatchRequest? received;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -294,6 +294,8 @@ void main() {
     final page = NativeSheetDetailConfig(
       id: 'month',
       title: 'Calendar',
+      trailingActionDetailId: 'new-event',
+      trailingActionSfSymbol: 'plus',
       items: const [
         NativeSheetItemConfig(
           id: 'event',
@@ -327,6 +329,8 @@ void main() {
     check({for (final item in received!.items) item.id: item.symbolColor})
         .deepEquals({'event': 0xFF3366FF, 'plain': null});
     check(page.calendar!.monthChangedId).equals('grid:month');
+    check(received!.whole!.trailingActionDetailId).equals('new-event');
+    check(page.toMap()['trailingActionDetailId']).equals('new-event');
     check(page.calendar!.daySelectedId).equals('grid:day');
   });
 

@@ -2368,6 +2368,7 @@ class PlatformNativeSheetDetail {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.trailingActionDetailId,
     this.discardTitle,
     this.discardMessage,
     this.discardConfirmLabel,
@@ -2399,6 +2400,10 @@ class PlatformNativeSheetDetail {
   String? trailingActionId;
 
   String? trailingActionSfSymbol;
+
+  /// With it, the bar button pushes this page, as a row leading to it
+  /// would, rather than sending [trailingActionId].
+  String? trailingActionDetailId;
 
   /// What the page asks before its unsaved changes are dropped, by Back,
   /// a swipe back, or the sheet swiped away. Null drops them without asking.
@@ -2438,6 +2443,7 @@ class PlatformNativeSheetDetail {
       maxHeightFraction,
       trailingActionId,
       trailingActionSfSymbol,
+      trailingActionDetailId,
       discardTitle,
       discardMessage,
       discardConfirmLabel,
@@ -2468,15 +2474,16 @@ class PlatformNativeSheetDetail {
       maxHeightFraction: result[7] as double?,
       trailingActionId: result[8] as String?,
       trailingActionSfSymbol: result[9] as String?,
-      discardTitle: result[10] as String?,
-      discardMessage: result[11] as String?,
-      discardConfirmLabel: result[12] as String?,
-      discardCancelLabel: result[13] as String?,
-      busy: result[14] as bool?,
-      announcement: result[15] as String?,
-      edited: result[16] as bool?,
-      search: result[17] as PlatformNativeSheetSearch?,
-      calendar: result[18] as PlatformNativeSheetMonthCalendar?,
+      trailingActionDetailId: result[10] as String?,
+      discardTitle: result[11] as String?,
+      discardMessage: result[12] as String?,
+      discardConfirmLabel: result[13] as String?,
+      discardCancelLabel: result[14] as String?,
+      busy: result[15] as bool?,
+      announcement: result[16] as String?,
+      edited: result[17] as bool?,
+      search: result[18] as PlatformNativeSheetSearch?,
+      calendar: result[19] as PlatformNativeSheetMonthCalendar?,
     );
   }
 
@@ -2500,6 +2507,7 @@ class PlatformNativeSheetDetail {
         _deepEquals(maxHeightFraction, other.maxHeightFraction) &&
         _deepEquals(trailingActionId, other.trailingActionId) &&
         _deepEquals(trailingActionSfSymbol, other.trailingActionSfSymbol) &&
+        _deepEquals(trailingActionDetailId, other.trailingActionDetailId) &&
         _deepEquals(discardTitle, other.discardTitle) &&
         _deepEquals(discardMessage, other.discardMessage) &&
         _deepEquals(discardConfirmLabel, other.discardConfirmLabel) &&
@@ -2517,7 +2525,7 @@ class PlatformNativeSheetDetail {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol, discardTitle: $discardTitle, discardMessage: $discardMessage, discardConfirmLabel: $discardConfirmLabel, discardCancelLabel: $discardCancelLabel, busy: $busy, announcement: $announcement, edited: $edited, search: $search, calendar: $calendar)';
+    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol, trailingActionDetailId: $trailingActionDetailId, discardTitle: $discardTitle, discardMessage: $discardMessage, discardConfirmLabel: $discardConfirmLabel, discardCancelLabel: $discardCancelLabel, busy: $busy, announcement: $announcement, edited: $edited, search: $search, calendar: $calendar)';
   }
 }
 

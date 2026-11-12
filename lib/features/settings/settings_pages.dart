@@ -82,6 +82,7 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         maxHeightFraction: existing.maxHeightFraction,
         trailingActionId: existing.trailingActionId,
         trailingActionSfSymbol: existing.trailingActionSfSymbol,
+        trailingActionDetailId: existing.trailingActionDetailId,
         discardPrompt: existing.discardPrompt,
         busy: existing.busy,
         edited: existing.edited,

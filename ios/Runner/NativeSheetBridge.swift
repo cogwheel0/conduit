@@ -938,6 +938,9 @@ private struct NativeSheetDetail {
     /// A bar button that closes the sheet and then sends this action.
     let trailingActionId: String?
     let trailingActionSfSymbol: String?
+    /// With it, the bar button pushes this page, as a row leading to it
+    /// would.
+    let trailingActionDetailId: String?
     /// What the page asks before its unsaved changes are dropped; nil drops
     /// them without asking.
     let discardPrompt: NativeSheetDiscardPrompt?
@@ -964,6 +967,7 @@ private struct NativeSheetDetail {
         maxHeightFraction: CGFloat? = nil,
         trailingActionId: String? = nil,
         trailingActionSfSymbol: String? = nil,
+        trailingActionDetailId: String? = nil,
         discardPrompt: NativeSheetDiscardPrompt? = nil,
         busy: Bool = false,
         announcement: String? = nil,
@@ -981,6 +985,7 @@ private struct NativeSheetDetail {
         self.maxHeightFraction = maxHeightFraction
         self.trailingActionId = trailingActionId
         self.trailingActionSfSymbol = trailingActionSfSymbol
+        self.trailingActionDetailId = trailingActionDetailId
         self.discardPrompt = discardPrompt
         self.busy = busy
         self.announcement = announcement
@@ -1011,6 +1016,7 @@ private struct NativeSheetDetail {
         maxHeightFraction = NativeSheetDetail.parseMaxHeightFraction(payload["maxHeightFraction"])
         trailingActionId = payload["trailingActionId"] as? String
         trailingActionSfSymbol = payload["trailingActionSfSymbol"] as? String
+        trailingActionDetailId = payload["trailingActionDetailId"] as? String
         discardPrompt = NativeSheetDiscardPrompt(payload)
         busy = payload["busy"] as? Bool ?? false
         announcement = payload["announcement"] as? String
@@ -1206,6 +1212,7 @@ private extension PlatformNativeSheetDetail {
         payload["maxHeightFraction"] = maxHeightFraction
         payload["trailingActionId"] = trailingActionId
         payload["trailingActionSfSymbol"] = trailingActionSfSymbol
+        payload["trailingActionDetailId"] = trailingActionDetailId
         payload["discardTitle"] = discardTitle
         payload["discardMessage"] = discardMessage
         payload["discardConfirmLabel"] = discardConfirmLabel
@@ -1908,6 +1915,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 maxHeightFraction: existing.maxHeightFraction,
                 trailingActionId: existing.trailingActionId,
                 trailingActionSfSymbol: existing.trailingActionSfSymbol,
+                trailingActionDetailId: existing.trailingActionDetailId,
                 discardPrompt: existing.discardPrompt,
                 busy: existing.busy,
                 // Kept, so the same announcement sent again is not read out
@@ -4314,7 +4322,10 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         titleLabel.numberOfLines = 0
         titleLabel.isAccessibilityElement = false
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // At large text sizes the title keeps its words and the value gives
+        // way first, truncating ("Does Not Re…"), rather than the title
+        // being squeezed to a letter a line.
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.adjustsFontForContentSizeCategory = true
@@ -4327,7 +4338,10 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         valueButton.changesSelectionAsPrimaryAction = true
         valueButton.translatesAutoresizingMaskIntoConstraints = false
         valueButton.setContentHuggingPriority(.required, for: .horizontal)
-        valueButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        valueButton.setContentCompressionResistancePriority(
+            UILayoutPriority(UILayoutPriority.defaultHigh.rawValue - 1),
+            for: .horizontal
+        )
 
         contentView.addSubview(iconView)
         contentView.addSubview(textStack)
@@ -6737,6 +6751,20 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                 self?.onControlChanged(item, value)
             }, for: .valueChanged)
             picker.sizeToFit()
+            // A compact picker sizes itself far wider than its pill, which
+            // squeezes the row's title onto two lines ("Start Time"). The
+            // accessory takes the pill's own width; the title gets the rest.
+            let pill = picker.systemLayoutSizeFitting(
+                UIView.layoutFittingCompressedSize,
+                withHorizontalFittingPriority: .fittingSizeLevel,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            if pill.width > 0, pill.width < picker.frame.width {
+                picker.frame.size = CGSize(
+                    width: ceil(pill.width),
+                    height: max(picker.frame.height, ceil(pill.height))
+                )
+            }
             cell.accessoryView = picker
             cell.editingAccessoryView = picker
             cell.selectionStyle = .none
@@ -6800,6 +6828,15 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         }
 
         if pendingTextValues.isEmpty {
+            if let detailId = detail.trailingActionDetailId, !detailId.isEmpty,
+               let page = NativeSheetItem(["id": detailId, "title": detailId]) {
+                // Handled as a row leading to the page: it pushes it.
+                navigationItem.rightBarButtonItem = iconBarButton(
+                    systemName: detail.trailingActionSfSymbol ?? "plus",
+                    action: UIAction { [weak self] _ in self?.onSelect(page) }
+                )
+                return
+            }
             if let trailingActionId = detail.trailingActionId, !trailingActionId.isEmpty,
                let action = NativeSheetItem([
                    "id": trailingActionId,

@@ -2077,6 +2077,9 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
   /// A bar button that closes the sheet and then sends this action.
   var trailingActionId: String? = nil
   var trailingActionSfSymbol: String? = nil
+  /// With it, the bar button pushes this page, as a row leading to it
+  /// would, rather than sending [trailingActionId].
+  var trailingActionDetailId: String? = nil
   /// What the page asks before its unsaved changes are dropped, by Back,
   /// a swipe back, or the sheet swiped away. Null drops them without asking.
   var discardTitle: String? = nil
@@ -2108,15 +2111,16 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     let maxHeightFraction: Double? = nilOrValue(pigeonVar_list[7])
     let trailingActionId: String? = nilOrValue(pigeonVar_list[8])
     let trailingActionSfSymbol: String? = nilOrValue(pigeonVar_list[9])
-    let discardTitle: String? = nilOrValue(pigeonVar_list[10])
-    let discardMessage: String? = nilOrValue(pigeonVar_list[11])
-    let discardConfirmLabel: String? = nilOrValue(pigeonVar_list[12])
-    let discardCancelLabel: String? = nilOrValue(pigeonVar_list[13])
-    let busy: Bool? = nilOrValue(pigeonVar_list[14])
-    let announcement: String? = nilOrValue(pigeonVar_list[15])
-    let edited: Bool? = nilOrValue(pigeonVar_list[16])
-    let search: PlatformNativeSheetSearch? = nilOrValue(pigeonVar_list[17])
-    let calendar: PlatformNativeSheetMonthCalendar? = nilOrValue(pigeonVar_list[18])
+    let trailingActionDetailId: String? = nilOrValue(pigeonVar_list[10])
+    let discardTitle: String? = nilOrValue(pigeonVar_list[11])
+    let discardMessage: String? = nilOrValue(pigeonVar_list[12])
+    let discardConfirmLabel: String? = nilOrValue(pigeonVar_list[13])
+    let discardCancelLabel: String? = nilOrValue(pigeonVar_list[14])
+    let busy: Bool? = nilOrValue(pigeonVar_list[15])
+    let announcement: String? = nilOrValue(pigeonVar_list[16])
+    let edited: Bool? = nilOrValue(pigeonVar_list[17])
+    let search: PlatformNativeSheetSearch? = nilOrValue(pigeonVar_list[18])
+    let calendar: PlatformNativeSheetMonthCalendar? = nilOrValue(pigeonVar_list[19])
 
     return PlatformNativeSheetDetail(
       id: id,
@@ -2129,6 +2133,7 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
       maxHeightFraction: maxHeightFraction,
       trailingActionId: trailingActionId,
       trailingActionSfSymbol: trailingActionSfSymbol,
+      trailingActionDetailId: trailingActionDetailId,
       discardTitle: discardTitle,
       discardMessage: discardMessage,
       discardConfirmLabel: discardConfirmLabel,
@@ -2152,6 +2157,7 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
       maxHeightFraction,
       trailingActionId,
       trailingActionSfSymbol,
+      trailingActionDetailId,
       discardTitle,
       discardMessage,
       discardConfirmLabel,
@@ -2167,7 +2173,7 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionId, rhs.confirmActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionLabel, rhs.confirmActionLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxHeightFraction, rhs.maxHeightFraction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionId, rhs.trailingActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionSfSymbol, rhs.trailingActionSfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardTitle, rhs.discardTitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardMessage, rhs.discardMessage) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardConfirmLabel, rhs.discardConfirmLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardCancelLabel, rhs.discardCancelLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.busy, rhs.busy) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.announcement, rhs.announcement) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.edited, rhs.edited) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.search, rhs.search) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.calendar, rhs.calendar)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionId, rhs.confirmActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionLabel, rhs.confirmActionLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxHeightFraction, rhs.maxHeightFraction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionId, rhs.trailingActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionSfSymbol, rhs.trailingActionSfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionDetailId, rhs.trailingActionDetailId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardTitle, rhs.discardTitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardMessage, rhs.discardMessage) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardConfirmLabel, rhs.discardConfirmLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.discardCancelLabel, rhs.discardCancelLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.busy, rhs.busy) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.announcement, rhs.announcement) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.edited, rhs.edited) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.search, rhs.search) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.calendar, rhs.calendar)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2182,6 +2188,7 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: maxHeightFraction, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionSfSymbol, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionDetailId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: discardTitle, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: discardMessage, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: discardConfirmLabel, hasher: &hasher)
@@ -2194,7 +2201,7 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
   }
 
   public var description: String {
-    return "PlatformNativeSheetDetail(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), items: \(String(describing: items)), sections: \(String(describing: sections)), confirmActionId: \(String(describing: confirmActionId)), confirmActionLabel: \(String(describing: confirmActionLabel)), maxHeightFraction: \(String(describing: maxHeightFraction)), trailingActionId: \(String(describing: trailingActionId)), trailingActionSfSymbol: \(String(describing: trailingActionSfSymbol)), discardTitle: \(String(describing: discardTitle)), discardMessage: \(String(describing: discardMessage)), discardConfirmLabel: \(String(describing: discardConfirmLabel)), discardCancelLabel: \(String(describing: discardCancelLabel)), busy: \(String(describing: busy)), announcement: \(String(describing: announcement)), edited: \(String(describing: edited)), search: \(String(describing: search)), calendar: \(String(describing: calendar)))"
+    return "PlatformNativeSheetDetail(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), items: \(String(describing: items)), sections: \(String(describing: sections)), confirmActionId: \(String(describing: confirmActionId)), confirmActionLabel: \(String(describing: confirmActionLabel)), maxHeightFraction: \(String(describing: maxHeightFraction)), trailingActionId: \(String(describing: trailingActionId)), trailingActionSfSymbol: \(String(describing: trailingActionSfSymbol)), trailingActionDetailId: \(String(describing: trailingActionDetailId)), discardTitle: \(String(describing: discardTitle)), discardMessage: \(String(describing: discardMessage)), discardConfirmLabel: \(String(describing: discardConfirmLabel)), discardCancelLabel: \(String(describing: discardCancelLabel)), busy: \(String(describing: busy)), announcement: \(String(describing: announcement)), edited: \(String(describing: edited)), search: \(String(describing: search)), calendar: \(String(describing: calendar)))"
   }
 }
 

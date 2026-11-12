@@ -2076,6 +2076,11 @@ data class PlatformNativeSheetDetail (
   val trailingActionId: String? = null,
   val trailingActionSfSymbol: String? = null,
   /**
+   * With it, the bar button pushes this page, as a row leading to it
+   * would, rather than sending [trailingActionId].
+   */
+  val trailingActionDetailId: String? = null,
+  /**
    * What the page asks before its unsaved changes are dropped, by Back,
    * a swipe back, or the sheet swiped away. Null drops them without asking.
    */
@@ -2110,16 +2115,17 @@ data class PlatformNativeSheetDetail (
       val maxHeightFraction = pigeonVar_list[7] as Double?
       val trailingActionId = pigeonVar_list[8] as String?
       val trailingActionSfSymbol = pigeonVar_list[9] as String?
-      val discardTitle = pigeonVar_list[10] as String?
-      val discardMessage = pigeonVar_list[11] as String?
-      val discardConfirmLabel = pigeonVar_list[12] as String?
-      val discardCancelLabel = pigeonVar_list[13] as String?
-      val busy = pigeonVar_list[14] as Boolean?
-      val announcement = pigeonVar_list[15] as String?
-      val edited = pigeonVar_list[16] as Boolean?
-      val search = pigeonVar_list[17] as PlatformNativeSheetSearch?
-      val calendar = pigeonVar_list[18] as PlatformNativeSheetMonthCalendar?
-      return PlatformNativeSheetDetail(id, title, subtitle, items, sections, confirmActionId, confirmActionLabel, maxHeightFraction, trailingActionId, trailingActionSfSymbol, discardTitle, discardMessage, discardConfirmLabel, discardCancelLabel, busy, announcement, edited, search, calendar)
+      val trailingActionDetailId = pigeonVar_list[10] as String?
+      val discardTitle = pigeonVar_list[11] as String?
+      val discardMessage = pigeonVar_list[12] as String?
+      val discardConfirmLabel = pigeonVar_list[13] as String?
+      val discardCancelLabel = pigeonVar_list[14] as String?
+      val busy = pigeonVar_list[15] as Boolean?
+      val announcement = pigeonVar_list[16] as String?
+      val edited = pigeonVar_list[17] as Boolean?
+      val search = pigeonVar_list[18] as PlatformNativeSheetSearch?
+      val calendar = pigeonVar_list[19] as PlatformNativeSheetMonthCalendar?
+      return PlatformNativeSheetDetail(id, title, subtitle, items, sections, confirmActionId, confirmActionLabel, maxHeightFraction, trailingActionId, trailingActionSfSymbol, trailingActionDetailId, discardTitle, discardMessage, discardConfirmLabel, discardCancelLabel, busy, announcement, edited, search, calendar)
     }
   }
   fun toList(): List<Any?> {
@@ -2134,6 +2140,7 @@ data class PlatformNativeSheetDetail (
       maxHeightFraction,
       trailingActionId,
       trailingActionSfSymbol,
+      trailingActionDetailId,
       discardTitle,
       discardMessage,
       discardConfirmLabel,
@@ -2153,7 +2160,7 @@ data class PlatformNativeSheetDetail (
       return true
     }
     val other = other as PlatformNativeSheetDetail
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionId, other.confirmActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionLabel, other.confirmActionLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.maxHeightFraction, other.maxHeightFraction) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionId, other.trailingActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionSfSymbol, other.trailingActionSfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardTitle, other.discardTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardMessage, other.discardMessage) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardConfirmLabel, other.discardConfirmLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardCancelLabel, other.discardCancelLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.busy, other.busy) && ConduitPlatformApisPigeonUtils.deepEquals(this.announcement, other.announcement) && ConduitPlatformApisPigeonUtils.deepEquals(this.edited, other.edited) && ConduitPlatformApisPigeonUtils.deepEquals(this.search, other.search) && ConduitPlatformApisPigeonUtils.deepEquals(this.calendar, other.calendar)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.sections, other.sections) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionId, other.confirmActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmActionLabel, other.confirmActionLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.maxHeightFraction, other.maxHeightFraction) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionId, other.trailingActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionSfSymbol, other.trailingActionSfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.trailingActionDetailId, other.trailingActionDetailId) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardTitle, other.discardTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardMessage, other.discardMessage) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardConfirmLabel, other.discardConfirmLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.discardCancelLabel, other.discardCancelLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.busy, other.busy) && ConduitPlatformApisPigeonUtils.deepEquals(this.announcement, other.announcement) && ConduitPlatformApisPigeonUtils.deepEquals(this.edited, other.edited) && ConduitPlatformApisPigeonUtils.deepEquals(this.search, other.search) && ConduitPlatformApisPigeonUtils.deepEquals(this.calendar, other.calendar)
   }
 
   override fun hashCode(): Int {
@@ -2168,6 +2175,7 @@ data class PlatformNativeSheetDetail (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.maxHeightFraction)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.trailingActionId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.trailingActionSfSymbol)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.trailingActionDetailId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardTitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardMessage)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.discardConfirmLabel)
@@ -2180,7 +2188,7 @@ data class PlatformNativeSheetDetail (
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetDetail(id=$id, title=$title, subtitle=$subtitle, items=$items, sections=$sections, confirmActionId=$confirmActionId, confirmActionLabel=$confirmActionLabel, maxHeightFraction=$maxHeightFraction, trailingActionId=$trailingActionId, trailingActionSfSymbol=$trailingActionSfSymbol, discardTitle=$discardTitle, discardMessage=$discardMessage, discardConfirmLabel=$discardConfirmLabel, discardCancelLabel=$discardCancelLabel, busy=$busy, announcement=$announcement, edited=$edited, search=$search, calendar=$calendar)"
+    return "PlatformNativeSheetDetail(id=$id, title=$title, subtitle=$subtitle, items=$items, sections=$sections, confirmActionId=$confirmActionId, confirmActionLabel=$confirmActionLabel, maxHeightFraction=$maxHeightFraction, trailingActionId=$trailingActionId, trailingActionSfSymbol=$trailingActionSfSymbol, trailingActionDetailId=$trailingActionDetailId, discardTitle=$discardTitle, discardMessage=$discardMessage, discardConfirmLabel=$discardConfirmLabel, discardCancelLabel=$discardCancelLabel, busy=$busy, announcement=$announcement, edited=$edited, search=$search, calendar=$calendar)"
   }
 }
 

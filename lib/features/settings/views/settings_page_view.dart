@@ -461,6 +461,17 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
         onPressed: _confirmPendingText,
       );
     }
+    final page = detail.trailingActionDetailId;
+    if (page != null && page.isNotEmpty) {
+      final symbol = detail.trailingActionSfSymbol ?? 'plus';
+      // As a row leading to the page: it pushes it.
+      return ConduitAdaptiveAppBarIconButton(
+        icon: settingsMaterialIcon(symbol),
+        iosSymbol: symbol,
+        onPressed: () =>
+            unawaited(_select(NativeSheetItemConfig(id: page, title: page))),
+      );
+    }
     final trailing = detail.trailingActionId;
     if (trailing != null && trailing.isNotEmpty) {
       final symbol = detail.trailingActionSfSymbol ?? 'plus';

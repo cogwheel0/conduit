@@ -627,6 +627,7 @@ class PlatformNativeSheetDetail {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.trailingActionDetailId,
     this.discardTitle,
     this.discardMessage,
     this.discardConfirmLabel,
@@ -650,6 +651,10 @@ class PlatformNativeSheetDetail {
   /// A bar button that closes the sheet and then sends this action.
   String? trailingActionId;
   String? trailingActionSfSymbol;
+
+  /// With it, the bar button pushes this page, as a row leading to it
+  /// would, rather than sending [trailingActionId].
+  String? trailingActionDetailId;
 
   /// What the page asks before its unsaved changes are dropped, by Back,
   /// a swipe back, or the sheet swiped away. Null drops them without asking.
