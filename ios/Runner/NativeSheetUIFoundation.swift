@@ -210,6 +210,25 @@ extension NativeSheetLeaveGuarding {
     }
 }
 
+/// Of [controllers], first to top, the page whose changes closing them all
+/// would drop, if any: the highest page that holds unsaved changes, or a
+/// form under pages of its own that hold text not yet done. With `always`,
+/// the form asks although it holds nothing unsaved itself.
+func nativeSheetGuardingPage(
+    in controllers: [UIViewController]
+) -> (page: NativeSheetLeaveGuarding, always: Bool)? {
+    var textAbove = false
+    for controller in controllers.reversed() {
+        guard let page = controller as? NativeSheetLeaveGuarding else {
+            continue
+        }
+        if page.blocksLeaving { return (page, false) }
+        if textAbove && page.asksBeforeDiscarding { return (page, true) }
+        textAbove = textAbove || page.holdsUnfinishedText
+    }
+    return nil
+}
+
 /// A presented Settings sheet, one column or two, whose pages may hold
 /// unsaved changes: swiping it away asks the page that would lose them.
 protocol NativeSheetCloseGuarding: AnyObject {
@@ -248,16 +267,7 @@ final class NativeSheetNavigationController: UINavigationController, UIGestureRe
     /// form's (an address's Advanced page, say). With `always`, the form
     /// asks although it holds nothing unsaved itself.
     var guardingClosePage: (page: NativeSheetLeaveGuarding, always: Bool)? {
-        var textAbove = false
-        for controller in viewControllers.reversed() {
-            guard let page = controller as? NativeSheetLeaveGuarding else {
-                continue
-            }
-            if page.blocksLeaving { return (page, false) }
-            if textAbove && page.asksBeforeDiscarding { return (page, true) }
-            textAbove = textAbove || page.holdsUnfinishedText
-        }
-        return nil
+        nativeSheetGuardingPage(in: viewControllers)
     }
 
     /// Chosen to close the sheet without saving: no page sends what it held

@@ -27,18 +27,67 @@ final class SettingsPageReopened {
   const SettingsPageReopened();
 }
 
-/// A page of the page column whose unsaved changes switching to another
-/// root row would drop: it is asked first, with its own question.
+/// A page of Settings whose unsaved changes switching to another root row
+/// would drop -- it is asked first, with its own question -- and whose
+/// typed text goes with it when it moves between the columns.
 abstract interface class SettingsColumnMember {
+  /// The page's id.
+  String get pageId;
+
   /// Whether the page holds changes not yet saved.
   bool get holdsUnsavedChanges;
 
   /// The question the page asks before its changes go, when it has one.
   NativeSheetDiscardPrompt? get discardPrompt;
 
-  /// Sends text typed and not yet done, as the page would on leaving.
-  void commitPendingText();
+  /// Text typed into the page and not yet done, by row.
+  Map<String, String> get pendingText;
 }
+
+/// Pages moving between the page column and routes of their own as the
+/// window crosses [settingsTwoColumnMinWidth]. A page moved has not been
+/// left: what is typed into it goes with it, not sent -- on Change
+/// Password, sending it would change the password -- and the page left
+/// behind is not told it closed.
+final class SettingsColumnMove {
+  final Set<SettingsColumnMember> _pages = {};
+  final Map<String, Map<String, String>> _text = {};
+  final Set<String> _toColumn = {};
+
+  void register(SettingsColumnMember page) => _pages.add(page);
+  void unregister(SettingsColumnMember page) => _pages.remove(page);
+
+  /// Keeps the text typed into pages [ids] for the pages that open again
+  /// in their place.
+  void carry(Iterable<String> ids) {
+    final moving = ids.toSet();
+    _text.clear();
+    for (final page in _pages) {
+      final text = page.pendingText;
+      if (moving.contains(page.pageId) && text.isNotEmpty) {
+        _text[page.pageId] = Map.of(text);
+      }
+    }
+  }
+
+  /// The text page [pageId] held before it moved, once.
+  Map<String, String>? take(String pageId) => _text.remove(pageId);
+
+  /// Pages [ids], open as routes over the list, move beside it.
+  void moveToColumn(Iterable<String> ids) => _toColumn
+    ..clear()
+    ..addAll(ids);
+
+  /// Whether page [pageId] is a route over the list that moves beside it.
+  bool movesToColumn(String pageId) => _toColumn.contains(pageId);
+
+  /// The route page [pageId] is gone, moved beside the list: true once.
+  bool movedToColumn(String pageId) => _toColumn.remove(pageId);
+}
+
+final settingsColumnMoveProvider = Provider<SettingsColumnMove>(
+  (_) => SettingsColumnMove(),
+);
 
 /// The page column of Settings in two columns, for the pages in it: they
 /// open the pages they lead to here rather than as routes of the app, and
@@ -86,6 +135,8 @@ class SettingsColumns extends ConsumerStatefulWidget {
     super.key,
     required this.buildList,
     required this.firstPageId,
+    this.initialPageIds = const [],
+    this.onSelected,
   });
 
   final Widget Function(
@@ -96,6 +147,13 @@ class SettingsColumns extends ConsumerStatefulWidget {
 
   /// The root row whose page shows first, before any is chosen.
   final String? Function() firstPageId;
+
+  /// The pages the column opens with, first to top: those that were open
+  /// before the window widened, or the page chosen last.
+  final List<String> initialPageIds;
+
+  /// Told the root row whose page the column shows, as it changes.
+  final ValueChanged<String>? onSelected;
 
   @override
   ConsumerState<SettingsColumns> createState() => SettingsColumnsState();
@@ -132,17 +190,25 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
   bool get isMoving => _moving;
 
   @override
+  void initState() {
+    super.initState();
+    final ids = widget.initialPageIds;
+    if (ids.isNotEmpty) {
+      _selected = ids.first;
+      _entries.addAll([for (final id in ids) _ColumnEntry(id)]);
+    }
+  }
+
+  @override
   void register(SettingsColumnMember member) => _members.add(member);
 
   @override
   void unregister(SettingsColumnMember member) => _members.remove(member);
 
-  /// The column's pages move to one column: they keep what they hold, and
-  /// text typed in them is sent first.
+  /// The column's pages move to one column: they keep what they hold,
+  /// text typed in them too, which is not sent.
   void prepareToMove() {
-    for (final member in List.of(_members)) {
-      member.commitPendingText();
-    }
+    ref.read(settingsColumnMoveProvider).carry(openPageIds);
     _moving = true;
   }
 
@@ -167,7 +233,11 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
   Future<void> openRootPage(String id) async {
     final again = id == _selected && _entries.isNotEmpty;
     if (again && _entries.length == 1) return;
-    if (!await _mayLeave()) return;
+    // Its own row again keeps its page: only the pages above it go.
+    final leaving = {
+      for (final entry in again ? _entries.skip(1) : _entries) entry.id,
+    };
+    if (!await _mayLeave(leaving)) return;
     if (!mounted) return;
     setState(() {
       if (again) {
@@ -185,26 +255,33 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
         ..add(_ColumnEntry(id));
       _selected = id;
     });
+    widget.onSelected?.call(id);
   }
 
-  /// Asks the page with unsaved changes, the highest one first, whether
-  /// they may go. True when there are none, or the person chose to discard.
-  Future<bool> _mayLeave() async {
-    final dirty = _members.lastWhere(
-      (member) => member.holdsUnsavedChanges,
-      orElse: () => const _NoMember(),
-    );
-    if (dirty is _NoMember) return true;
-    final prompt = dirty.discardPrompt;
-    if (prompt == null) return true;
-    return ThemedDialogs.confirm(
-      context,
-      title: prompt.title,
-      message: prompt.message,
-      confirmText: prompt.discardLabel,
-      cancelText: prompt.keepLabel,
-      isDestructive: true,
-    );
+  /// Asks each page of [leaving] that holds unsaved changes, the highest
+  /// first, whether they may go. True when there are none, or the person
+  /// chose to discard every one.
+  Future<bool> _mayLeave(Set<String> leaving) async {
+    final asking = [
+      for (final member in _members.reversed)
+        if (leaving.contains(member.pageId) &&
+            member.holdsUnsavedChanges &&
+            member.discardPrompt != null)
+          member,
+    ];
+    for (final member in asking) {
+      final prompt = member.discardPrompt!;
+      final discard = await ThemedDialogs.confirm(
+        context,
+        title: prompt.title,
+        message: prompt.message,
+        confirmText: prompt.discardLabel,
+        cancelText: prompt.keepLabel,
+        isDestructive: true,
+      );
+      if (!discard || !mounted) return false;
+    }
+    return true;
   }
 
   @override
@@ -217,6 +294,7 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
       if (first != null) {
         _selected = first;
         _entries.add(_ColumnEntry(first));
+        widget.onSelected?.call(first);
       }
     }
     final theme = context.conduitTheme;
@@ -275,19 +353,6 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
           key: ValueKey<String>('settings-page-$id'),
           detailId: id,
         );
-}
-
-final class _NoMember implements SettingsColumnMember {
-  const _NoMember();
-
-  @override
-  bool get holdsUnsavedChanges => false;
-
-  @override
-  NativeSheetDiscardPrompt? get discardPrompt => null;
-
-  @override
-  void commitPendingText() {}
 }
 
 /// A page of the page column: it slides a little and fades in, or simply

@@ -48,14 +48,19 @@ final class _NoLibreChat extends LibreChatRegistryController {
 final class _RecordingController extends SettingsController {
   final List<String> closed = [];
   final List<String> appeared = [];
+  final List<String> changed = [];
 
   @override
   void handle(
     NativeSheetEvent event, {
     SettingsEventSource source = SettingsEventSource.nativeSheet,
   }) {
-    if (event case NativeSheetDetailAppeared(:final detailId)) {
-      appeared.add(detailId);
+    switch (event) {
+      case NativeSheetDetailAppeared(:final detailId):
+        appeared.add(detailId);
+      case NativeSheetControlChanged(:final id):
+        changed.add(id);
+      default:
     }
   }
 
@@ -72,9 +77,29 @@ const _user = User(
   role: 'user',
 );
 
-/// Two synthetic pages: a list whose row leads to a form that asks before
-/// dropping what is typed into it.
+/// Synthetic pages: a list whose row leads to a form that asks before
+/// dropping what is typed into it, and a form leading to that form.
 final _pages = [
+  NativeSheetDetailConfig(
+    id: 'test-outer',
+    title: 'Test Outer',
+    confirmActionId: 'test-outer-save',
+    discardPrompt: const NativeSheetDiscardPrompt(
+      title: 'Lose the outer draft?',
+      message: 'What you typed goes.',
+      discardLabel: 'Lose It',
+      keepLabel: 'Keep Outer',
+    ),
+    items: [
+      NativeSheetItemConfig(
+        id: 'test-outer-name',
+        title: 'Outer Name',
+        kind: NativeSheetItemKind.textField,
+        value: '',
+      ),
+      NativeSheetItemConfig(id: 'test-form', title: 'Test Form'),
+    ],
+  ),
   NativeSheetDetailConfig(
     id: 'test-list',
     title: 'Test List',
@@ -250,6 +275,102 @@ void main() {
     check(_column(tester)).deepEquals([NativeSheetRoutes.appearance]);
     // The form was closed for good.
     check(rig.controller.closed).contains('test-form');
+  });
+
+  testWidgets('another root row asks every page it would close that holds '
+      'unsaved changes, the highest first', (tester) async {
+    await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-outer');
+    await tester.enterText(find.byType(EditableText), 'Outer draft');
+    await tester.tap(_row('test-form'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), 'Inner draft');
+    await tester.pump();
+
+    await tester.ensureVisible(_row(NativeSheetRoutes.appearance));
+    await tester.tap(_row(NativeSheetRoutes.appearance));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Throw Away'));
+    await tester.pumpAndSettle();
+    // The form under it is asked too, and keeps its draft.
+    await tester.tap(find.text('Keep Outer'));
+    await tester.pumpAndSettle();
+    check(_column(tester)).deepEquals(['test-outer', 'test-form']);
+
+    await tester.tap(_row(NativeSheetRoutes.appearance));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Throw Away'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lose It'));
+    await tester.pumpAndSettle();
+    check(_column(tester)).deepEquals([NativeSheetRoutes.appearance]);
+  });
+
+  testWidgets("a root row's page chosen again asks only the pages above it", (
+    tester,
+  ) async {
+    await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-outer');
+    await tester.enterText(find.byType(EditableText), 'Outer draft');
+    await tester.tap(_row('test-form'));
+    await tester.pumpAndSettle();
+
+    await _openBeside(tester, 'test-outer');
+
+    check(find.text('Lose the outer draft?').evaluate()).isEmpty();
+    check(_column(tester)).deepEquals(['test-outer']);
+    check(find.text('Outer draft').evaluate()).isNotEmpty();
+  });
+
+  testWidgets('narrowing keeps the text typed into a page, not sent', (
+    tester,
+  ) async {
+    final rig = await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-form');
+    await tester.enterText(find.byType(EditableText), 'Draft');
+    await tester.pump();
+
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+
+    check(rig.router.state.uri.toString()).equals('/profile/page/test-form');
+    check(rig.controller.changed).isEmpty();
+    check(find.text('Draft').evaluate()).isNotEmpty();
+  });
+
+  testWidgets('widening again shows the pages beside the list as they were', (
+    tester,
+  ) async {
+    final rig = await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-list');
+    await tester.tap(_row('test-form'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), 'Draft');
+    await tester.pump();
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = _tablet;
+    await tester.pumpAndSettle();
+
+    check(_column(tester)).deepEquals(['test-list', 'test-form']);
+    // The routes the narrow window opened are gone, not left.
+    check(rig.router.state.uri.toString()).equals('/');
+    check(rig.controller.closed)
+      ..not((closed) => closed.contains('test-list'))
+      ..not((closed) => closed.contains('test-form'));
+    check(rig.controller.changed).isEmpty();
+    check(find.text('Draft').evaluate()).isNotEmpty();
+
+    // Narrowed once more, the same pages open over the list, and no more.
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+    check(rig.router.state.uri.toString()).equals('/profile/page/test-form');
+    rig.router.pop();
+    await tester.pumpAndSettle();
+    rig.router.pop();
+    await tester.pumpAndSettle();
+    check(rig.router.state.uri.toString()).equals('/');
   });
 
   testWidgets('a phone keeps one column, each page pushed over the root', (

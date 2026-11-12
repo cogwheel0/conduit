@@ -44,6 +44,11 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
   /// Whether the last frame showed two columns.
   bool _wasWide = false;
 
+  /// The root row whose page shows beside the list, or showed last: it
+  /// shows there again as the window widens with nothing open over the
+  /// list.
+  String? _selected;
+
   /// Whether the window has room for the root list beside a page: wide
   /// enough, and a tablet's -- a phone turned on its side keeps one column.
   static bool _isWide(Size size) =>
@@ -55,6 +60,7 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
     final columns = _columns.currentState;
     final ids = columns?.openPageIds ?? const <String>[];
     if (columns == null || ids.isEmpty) return;
+    _selected = columns.selectedId ?? _selected;
     columns.prepareToMove();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -68,6 +74,37 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
         );
       }
     });
+  }
+
+  /// The window widened to two columns: the pages open over the list move
+  /// beside it, as they were, and their routes go. Returns their ids, first
+  /// to top; none when only the list shows.
+  List<String> _moveToTwoColumns() {
+    final router = GoRouter.maybeOf(context);
+    if (router == null) return const [];
+    final above = <ImperativeRouteMatch>[];
+    for (final match
+        in router.routerDelegate.currentConfiguration.matches.reversed) {
+      if (match is! ImperativeRouteMatch ||
+          match.route.name != RouteNames.settingsPage) {
+        break;
+      }
+      above.insert(0, match);
+    }
+    final ids = [
+      for (final match in above) ?match.matches.pathParameters['id'],
+    ];
+    if (ids.isEmpty || ids.length != above.length) return const [];
+    ref.read(settingsColumnMoveProvider)
+      ..moveToColumn(ids)
+      ..carry(ids);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (var i = 0; i < ids.length && router.canPop(); i++) {
+        router.pop();
+      }
+    });
+    return ids;
   }
 
   /// The first root row that opens a page of Settings, shown beside the
@@ -168,12 +205,17 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
     // narrower, each page is pushed over the last, as on a phone.
     final wide = _isWide(MediaQuery.sizeOf(context));
     if (_wasWide && !wide) _moveToOneColumn();
+    final opened = !_wasWide && wide ? _moveToTwoColumns() : null;
     _wasWide = wide;
     if (!wide) return list(null, null);
     return SettingsColumns(
       key: _columns,
       buildList: list,
       firstPageId: () => _firstPageId(sections),
+      initialPageIds: opened != null && opened.isNotEmpty
+          ? opened
+          : [?_selected],
+      onSelected: (id) => _selected = id,
     );
   }
 }

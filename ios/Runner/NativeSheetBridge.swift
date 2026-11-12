@@ -2133,7 +2133,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         let controller = NativeProfileMenuTableViewController(
             configuration: configuration,
             onSelect: { [weak self] item in self?.handleSelection(item, fromRoot: true) },
-            onClose: { [weak self] in self?.dismissActive() }
+            onClose: { [weak self] in self?.closeSettingsAsking() }
         )
         let sheet: UIViewController
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -3101,6 +3101,21 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private func flushActiveSheetEditing() {
         activeController?.view.endEditing(true)
         activeNavigationController?.view.endEditing(true)
+    }
+
+    /// Settings's own Close: beside a page holding unsaved changes (two
+    /// columns), that page asks first, as a swipe down does.
+    private func closeSettingsAsking() {
+        guard let sheet = activeController as? NativeSheetCloseGuarding,
+              let guarding = sheet.guardingClosePage
+        else {
+            dismissActive()
+            return
+        }
+        guarding.page.askBeforeLeaving(always: guarding.always) { [weak self] in
+            sheet.dropUnsavedChanges()
+            self?.dismissActive()
+        }
     }
 
     private func dismissActive(completion: (() -> Void)? = nil) {
@@ -4413,24 +4428,53 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
     /// first when the pages there would lose unsaved changes. Its own row
     /// again goes back to its page's top.
     func showRootPage(_ id: String) {
-        let replace = { [weak self] in
-            guard let self else { return }
-            if id == self.selectedRootId,
-               let first = self.pages.viewControllers.first,
-               (first as? NativeDetailTableViewController)?.detailId == id {
-                self.popPagesToFirst()
-                return
-            }
-            self.replacePages(withPageOf: id)
-        }
-        guard let guarding = pages.guardingClosePage else {
-            replace()
+        let stack = pages.viewControllers
+        let again = id == selectedRootId &&
+            (stack.first as? NativeDetailTableViewController)?.detailId == id
+        // Its own row again keeps its page, with what it holds: only the
+        // pages above it go, and only they are asked.
+        let leaving = again ? Array(stack.dropFirst()) : stack
+        guard let guarding = nativeSheetGuardingPage(in: leaving) else {
+            openRootPage(id)
             return
         }
         guarding.page.askBeforeLeaving(always: guarding.always) { [weak self] in
-            self?.pages.dropUnsavedChanges()
-            replace()
+            for controller in leaving {
+                (controller as? NativeSheetLeaveGuarding)?.dropUnsavedChanges()
+            }
+            self?.openRootPage(id)
         }
+    }
+
+    /// Opens root row [id]'s page as the columns are now -- the sheet may
+    /// have narrowed while it asked -- or goes back to its top when it
+    /// shows already.
+    private func openRootPage(_ id: String) {
+        guard isExpanded else {
+            // One column: the page stacks on the list, over nothing else.
+            let stack = sidebar.viewControllers
+            guard let root = stack.first else { return }
+            if id == selectedRootId, stack.count > 1,
+               (stack[1] as? NativeDetailTableViewController)?.detailId == id {
+                let popped = stack.dropFirst(2)
+                for controller in popped.dropLast() { onPageLeft?(controller) }
+                sidebar.popToViewController(stack[1], animated: true)
+                return
+            }
+            guard let page = makePage?(id) else { return }
+            let covered = stack.dropFirst().dropLast()
+            sidebar.setViewControllers([root, page], animated: false)
+            selectedRootId = id
+            for controller in covered { onPageLeft?(controller) }
+            return
+        }
+        let first = pages.viewControllers.first
+        if id == selectedRootId,
+           (first as? NativeDetailTableViewController)?.detailId == id {
+            popPagesToFirst()
+            return
+        }
+        replacePages(withPageOf: id)
     }
 
     /// Replaces the second column's pages with root row [id]'s. The page on

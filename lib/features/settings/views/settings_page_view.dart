@@ -63,6 +63,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   late final NativeSheetHydrationService _hydration;
   late final SettingsController _controller;
   late final List<SettingsPageModule> _modules;
+  late final SettingsColumnMove _move;
 
   /// The page column the page is in, on a wide window.
   SettingsColumnController? _column;
@@ -75,10 +76,13 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
 
   @override
   void dispose() {
-    _hydration.stopFollowing(widget.detailId);
-    // Moving to one column as the window narrows, the page opens again
-    // there: it has not been left, and keeps its draft.
-    if (!(_column?.isMoving ?? false)) {
+    // Moved beside the list as the window widened, the page there follows
+    // what it shows now.
+    final toColumn = _move.movedToColumn(widget.detailId);
+    if (!toColumn) _hydration.stopFollowing(widget.detailId);
+    // Moving between one column and two as the window changes, the page
+    // opens again there: it has not been left, and keeps its draft.
+    if (!toColumn && !(_column?.isMoving ?? false)) {
       _controller.pageClosed(widget.detailId, modules: _modules);
     }
     super.dispose();
@@ -92,6 +96,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     _hydration = ref.read(nativeSheetHydrationServiceProvider);
     _controller = ref.read(settingsControllerProvider);
     _modules = ref.read(settingsPageModulesProvider);
+    _move = ref.read(settingsColumnMoveProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final route = ModalRoute.of(context);
@@ -223,9 +228,21 @@ class SettingsPageView extends ConsumerStatefulWidget {
 class _SettingsPageViewState extends ConsumerState<SettingsPageView>
     implements SettingsColumnMember {
   final Map<String, String> _pendingText = {};
+  late final SettingsColumnMove _move;
 
   /// The page column this page is in, on a wide window.
   SettingsColumnController? _column;
+
+  @override
+  void initState() {
+    super.initState();
+    _move = ref.read(settingsColumnMoveProvider)..register(this);
+    // Opened again as the window crossed two columns: the text typed into
+    // the page before it moved is still there, not yet done.
+    if (_move.take(widget.detail.id) case final text?) {
+      _pendingText.addAll(text);
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -239,8 +256,12 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView>
   @override
   void dispose() {
     _column?.unregister(this);
+    _move.unregister(this);
     super.dispose();
   }
+
+  @override
+  String get pageId => widget.detail.id;
 
   @override
   bool get holdsUnsavedChanges => _hasUnsavedChanges;
@@ -249,7 +270,7 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView>
   NativeSheetDiscardPrompt? get discardPrompt => widget.detail.discardPrompt;
 
   @override
-  void commitPendingText() => _commitPendingText();
+  Map<String, String> get pendingText => Map.unmodifiable(_pendingText);
 
   final Map<String, String> _committedText = {};
   final Map<String, Object?> _chosen = {};
@@ -717,7 +738,10 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView>
     if (widget.detail.discardPrompt == null) {
       return PopScope(
         onPopInvokedWithResult: (didPop, _) {
-          if (didPop) _commitPendingText();
+          // Moving beside the list, its text goes with it, not sent.
+          if (didPop && !_move.movesToColumn(widget.detail.id)) {
+            _commitPendingText();
+          }
         },
         child: page,
       );
