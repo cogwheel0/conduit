@@ -34,7 +34,8 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState;
+import 'package:conduit/features/settings/settings_controller.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -140,9 +141,29 @@ final class _Rig {
   }
 }
 
+/// The app root as far as Settings needs it: it attaches the controller.
+final class _App extends ConsumerStatefulWidget {
+  const _App();
+
+  @override
+  ConsumerState<_App> createState() => _AppState();
+}
+
+final class _AppState extends ConsumerState<_App> {
+  @override
+  void initState() {
+    super.initState();
+    ref.read(settingsControllerProvider).attach(ref);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
+}
+
 Future<_Rig> _pump(
   WidgetTester tester, {
   List<Override> overrides = const [],
+  bool attached = false,
 }) async {
   late final _Surface surface;
   final container = ProviderContainer(
@@ -154,6 +175,11 @@ Future<_Rig> _pump(
   );
   addTearDown(container.dispose);
   container.read(settingsSurfaceProvider);
+  if (attached) {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const _App()),
+    );
+  }
   final rig = _Rig(tester, container, surface);
   addTearDown(rig.module.settingsClosed);
   return rig;
@@ -555,6 +581,35 @@ void main() {
       expect(
         rig.container.read(directHistoryPolicyProvider),
         DirectHistoryPolicy.localOnly,
+      );
+    });
+
+    testWidgets('it follows what it shows after a row change, as in the '
+        'app', (tester) async {
+      final server = DirectTestTrackingReloadOpenWebUiConnections(
+        _snapshot([]),
+      );
+      final rig = await _pump(
+        tester,
+        overrides: pageOverrides(server: server),
+        attached: true,
+      );
+      await rig.open(directConnectionsPageId);
+      expect(
+        rig.row(directConnectionsPageId, directRowId('history-sync')).value,
+        true,
+      );
+
+      // Changed elsewhere, after a row change here read the modules again.
+      await rig.change(directRowId('unknown-row'));
+      await rig.container
+          .read(directHistoryPolicyProvider.notifier)
+          .setPolicy(DirectHistoryPolicy.localOnly);
+      await rig.settle(Future<void>.value());
+
+      expect(
+        rig.row(directConnectionsPageId, directRowId('history-sync')).value,
+        false,
       );
     });
 
