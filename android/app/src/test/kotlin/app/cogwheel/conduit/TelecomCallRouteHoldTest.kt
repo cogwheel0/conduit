@@ -176,6 +176,46 @@ class TelecomCallRouteHoldTest {
     }
 
     @Test
+    fun aSpeakerPressDuringAHoldAsksImmediately() {
+        val call = FakeCall()
+        // The phone never moves, so the hold keeps running, and Telecom goes
+        // on reporting the speaker route it already accepted.
+        call.applies = false
+        val bridge = bridge(call)
+        route(bridge, speaker = true)
+        idle(100)
+        val before = call.requests.size
+
+        route(bridge, speaker = true)
+
+        // The reported route is already speaker, which is also what a dropped
+        // re-ask leaves behind. Waiting out the 400 ms re-ask can miss the
+        // 900 ms window the caller gives the press.
+        assertEquals(before + 1, call.requests.size)
+        assertEquals(ROUTE_SPEAKER, call.requests.last())
+    }
+
+    @Test
+    fun anEarpiecePressDuringALaggingHoldAsksImmediately() {
+        val call = FakeCall()
+        call.applies = false
+        val bridge = bridge(call)
+        route(bridge, speaker = true)
+        idle(100)
+        // The speaker asks are in flight, and Telecom's report has not caught up.
+        call.audioRoute = ROUTE_EARPIECE
+        val before = call.requests.size
+
+        route(bridge, speaker = false)
+
+        // The report is already off the speaker, so the hold keeps that
+        // earpiece route. It still has to be asked now: the speaker requests
+        // already in flight would otherwise be the last word.
+        assertEquals(before + 1, call.requests.size)
+        assertEquals(ROUTE_EARPIECE, call.requests.last())
+    }
+
+    @Test
     fun disposingStopsTheHoldAndAnswersTheCaller() {
         val call = FakeCall()
         call.applies = false

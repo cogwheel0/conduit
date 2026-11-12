@@ -122,6 +122,11 @@ internal class TelecomCallBridge(
     // nobody wants any more.
     private var routeGeneration = 0
 
+    // A hold keeps posting after it has answered, so the answer slot does not
+    // say whether it is still asking. A superseded hold leaves this set: the
+    // press that replaced it has to know the previous one had not stopped.
+    private var routeHoldRunning = false
+
     // Whether the engine is gone. A lookup still polling then has to answer
     // rather than leave its caller waiting on a channel that no longer exists:
     // the caller's route queue is serialized behind that answer.
@@ -145,6 +150,7 @@ internal class TelecomCallBridge(
     fun dispose() {
         disposed = true
         routeGeneration += 1
+        routeHoldRunning = false
         main.removeCallbacksAndMessages(null)
         // Remove-callbacks also drops the lookups still polling, and their
         // callers would never hear back otherwise.
@@ -216,6 +222,8 @@ internal class TelecomCallBridge(
             onMissing = { result.success(null) },
         ) { telecomCall ->
             if (telecomCall == null) {
+                // Nothing to hold, and this press already took the route over.
+                if (generation == routeGeneration) routeHoldRunning = false
                 result.success(null)
             } else {
                 routeAudio(telecomCall, speaker, generation, result)
@@ -268,7 +276,18 @@ internal class TelecomCallBridge(
         pendingAnswers[generation] = result
         val route = call.audioRoute
         val supportedRoutes = call.supportedRoutes
-        telecomAudioRouteFor(speaker, route, supportedRoutes)?.let(call::setAudioRoute)
+        // Telecom's report can already match this press, or still show the
+        // route from before the hold. Neither means the phone is playing it
+        // there, and the next re-ask is 400 ms away, past the 900 ms the
+        // caller gives this press. A running hold asks for the route it would
+        // re-ask for, now. With no hold running, an already-correct route
+        // stays put.
+        val holdWasRunning = routeHoldRunning
+        if (holdWasRunning) {
+            call.setAudioRoute(telecomAudioRouteToHold(speaker, route, supportedRoutes))
+        } else {
+            telecomAudioRouteFor(speaker, route, supportedRoutes)?.let(call::setAudioRoute)
+        }
         val now = SystemClock.uptimeMillis()
         holdRoute(
             call,
@@ -310,11 +329,12 @@ internal class TelecomCallBridge(
         val now = SystemClock.uptimeMillis()
         val loudspeaker = loudspeaker()
         if (generation != routeGeneration) {
-            // A newer press owns the route now.
+            // A newer press owns the route now, and owns the running flag.
             settle(generation)
             return
         }
         if (loudspeaker == speaker || now >= deadline) {
+            routeHoldRunning = false
             settle(generation)
             return
         }
@@ -325,6 +345,7 @@ internal class TelecomCallBridge(
         } else {
             nextAskAt
         }
+        routeHoldRunning = true
         main.postDelayed({
             holdRoute(call, speaker, route, deadline, askAt, confirmBy, generation)
         }, POLL_INTERVAL_MS)
