@@ -234,14 +234,56 @@ pub struct AccountSummary {
     pub last_used_ms: Option<i64>,
 }
 
+/// Which kind of account owns the chats: an Open WebUI account, or a
+/// LibreChat one. Hermes and Direct have no accounts and sit beside either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PrimaryAccount {
+    #[serde(rename = "openWebUi")]
+    OpenWebUi,
+    #[serde(rename = "libreChat")]
+    LibreChat,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One saved LibreChat account.
+///
+/// Its id (`librechat:…`) never collides with an Open WebUI account's, so
+/// `accounts.switch` and `accounts.remove` take either kind.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatAccountSummary {
+    pub id: String,
+    /// The server's address, as signed in to.
+    pub base_url: String,
+    /// The server's own name, else its host.
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<AccountUser>,
+    /// The LibreChat account in use: in charge of the chats when
+    /// `AccountList.primary` is `PrimaryAccount.libreChat`.
+    #[serde(default)]
+    pub is_active: bool,
+    /// Whether it has a saved session. One without needs a sign-in, from
+    /// its server's sign-in form ("session ended").
+    #[serde(default)]
+    pub has_session: bool,
+    /// UTC milliseconds of the last switch to it or sign-in on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<i64>,
+}
+
 /// Reply to `accounts.list`, and part of every account change's reply.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountList {
     #[serde(default)]
     pub accounts: Vec<AccountSummary>,
     /// Null when no Open WebUI account is in use: a Direct-only or
-    /// Hermes-only setup, or one that has not chosen a backend yet.
+    /// Hermes-only setup, a LibreChat account in charge, or one that has not
+    /// chosen a backend yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_account_id: Option<String>,
     /// Whether an account is being added: `accounts.add` made a new account
@@ -249,6 +291,63 @@ pub struct AccountList {
     /// sign-in with a Cancel back to the account it was added from.
     #[serde(default)]
     pub adding_account: bool,
+    /// The saved LibreChat accounts.
+    #[serde(default)]
+    pub libre_chat_accounts: Vec<LibreChatAccountSummary>,
+    /// Who owns the chats. With `PrimaryAccount.libreChat` the window
+    /// routes on `libreChatSession`, not on `auth.status`.
+    #[serde(default = "default_account_list_primary")]
+    pub primary: PrimaryAccount,
+    /// The LibreChat account in use, whether or not it owns the chats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_libre_chat_account_id: Option<String>,
+    /// Where the LibreChat account in use stands.
+    #[serde(default = "default_account_list_libre_chat_session")]
+    pub libre_chat_session: LibreChatSessionPhase,
+}
+
+impl Default for AccountList {
+    fn default() -> Self {
+        Self {
+            accounts: Default::default(),
+            active_account_id: None,
+            adding_account: Default::default(),
+            libre_chat_accounts: Default::default(),
+            primary: default_account_list_primary(),
+            active_libre_chat_account_id: None,
+            libre_chat_session: default_account_list_libre_chat_session(),
+        }
+    }
+}
+
+fn default_account_list_primary() -> PrimaryAccount {
+    PrimaryAccount::OpenWebUi
+}
+
+fn default_account_list_libre_chat_session() -> LibreChatSessionPhase {
+    LibreChatSessionPhase::None
+}
+
+/// Where the session of the LibreChat account in use stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LibreChatSessionPhase {
+    /// No LibreChat account is in use.
+    #[serde(rename = "none")]
+    None,
+    /// Its saved session is being read.
+    #[serde(rename = "loading")]
+    Loading,
+    /// Signed in.
+    #[serde(rename = "signedIn")]
+    SignedIn,
+    /// Its session ended (expired, revoked, or never saved): it needs a
+    /// sign-in. Its chats stay.
+    #[serde(rename = "needsSignIn")]
+    NeedsSignIn,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
 }
 
 /// Params for `accounts.add`.
@@ -1224,6 +1323,42 @@ pub struct Capabilities {
     pub tags: bool,
     #[serde(default)]
     pub bulk_selection: bool,
+    /// A LibreChat account owns the chats, and what its role may use there.
+    /// Null otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub libre_chat: Option<LibreChatFeatures>,
+}
+
+/// What the signed-in LibreChat user may use: the server's interface
+/// switches, the role's permissions and the agents endpoint's capabilities
+/// (the core's `LibreChatCapabilities`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatFeatures {
+    #[serde(default)]
+    pub prompts: bool,
+    #[serde(default)]
+    pub memories: bool,
+    #[serde(default)]
+    pub create_memories: bool,
+    #[serde(default)]
+    pub update_memories: bool,
+    #[serde(default)]
+    pub opt_out_memories: bool,
+    #[serde(default)]
+    pub web_search: bool,
+    #[serde(default)]
+    pub code_interpreter: bool,
+    #[serde(default)]
+    pub file_search: bool,
+    #[serde(default)]
+    pub mcp_servers: bool,
+    #[serde(default)]
+    pub agents: bool,
+    #[serde(default)]
+    pub shared_links: bool,
+    #[serde(default)]
+    pub temporary_chat: bool,
 }
 
 /// What sort of channel it is: an Open WebUI channel the server's access
@@ -2365,6 +2500,38 @@ pub struct ChatSummary {
     /// is answering; a window draws no dot on the chat it shows.
     #[serde(default)]
     pub unread: bool,
+    /// What its menus offer (the sidebar's context menu, the Chat menu), by
+    /// the core's rule for the chat's backend: an Open WebUI chat, a
+    /// LibreChat one, an on-device Direct one.
+    #[serde(default)]
+    pub menu: ChatMenuAbilities,
+}
+
+/// What a listed chat's menus offer, from the core's `chatMenuAvailability`
+/// (the phone's conversation menu rules), as loaded when it was listed: a
+/// permission still loading reads as not allowed, and the list is sent
+/// again once it loads. A window leaves out what is false.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMenuAbilities {
+    /// Share Chat… (a LibreChat chat where its server allows links).
+    #[serde(default)]
+    pub share: bool,
+    /// Duplicate Chat (a LibreChat chat, while online).
+    #[serde(default)]
+    pub duplicate: bool,
+    /// Move To a folder (an Open WebUI chat, folders on).
+    #[serde(default)]
+    pub r#move: bool,
+    /// Mark as Unread or Read (an Open WebUI chat).
+    #[serde(default)]
+    pub mark_unread: bool,
+    /// Generate Title (a chat the server holds).
+    #[serde(default)]
+    pub generate_title: bool,
+    /// Export as a JSON backup or a Markdown transcript.
+    #[serde(default)]
+    pub export: bool,
 }
 
 /// A folder as the sidebar shows it.
@@ -5559,6 +5726,357 @@ pub struct HermesModelChoiceDto {
     pub label: String,
 }
 
+/// What checking an address for a LibreChat server found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LibreChatProbeOutcome {
+    /// A LibreChat server answered: `LibreChatProbeResult.server` says how to
+    /// sign in to it.
+    #[serde(rename = "found")]
+    Found,
+    /// Something answered, but not LibreChat.
+    #[serde(rename = "notLibreChat")]
+    NotLibreChat,
+    /// An Open WebUI server answered: add it as an Open WebUI account instead.
+    #[serde(rename = "openWebUi")]
+    OpenWebUi,
+    /// Nothing answered, or the server was too busy to say what it is.
+    #[serde(rename = "unreachable")]
+    Unreachable,
+    /// The address is not one a server can be reached at.
+    #[serde(rename = "invalidAddress")]
+    InvalidAddress,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A single sign-on button the server's sign-in page offers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatSsoProviderDto {
+    /// `openid`, `github`, `google`, `facebook`, `discord`, `saml` or
+    /// `apple`: the path segment of `/oauth/{kind}`.
+    pub kind: String,
+    /// The admin's own name for it (OpenID and SAML only); the window names
+    /// the others itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// A LibreChat server, as its public startup config describes signing in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatServerDto {
+    /// The address, normalized: what accounts on it are saved under.
+    pub base_url: String,
+    /// The server's own name (`appTitle`).
+    pub title: String,
+    /// Whether the form takes an email (or LDAP username) and password.
+    #[serde(default = "default_libre_chat_server_dto_password_sign_in")]
+    pub password_sign_in: bool,
+    /// LDAP checks the password; `ldapUsesUsername` asks for a username
+    /// rather than an email.
+    #[serde(default)]
+    pub ldap: bool,
+    #[serde(default)]
+    pub ldap_uses_username: bool,
+    /// The single sign-on buttons, in the server's order.
+    #[serde(default)]
+    pub sso_providers: Vec<LibreChatSsoProviderDto>,
+}
+
+fn default_libre_chat_server_dto_password_sign_in() -> bool {
+    true
+}
+
+/// Params for `librechat.probe`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatProbe {
+    pub url: String,
+}
+
+/// Reply to `librechat.probe`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatProbeResult {
+    pub outcome: LibreChatProbeOutcome,
+    /// Set when `outcome` is `LibreChatProbeOutcome.found`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<LibreChatServerDto>,
+}
+
+/// Params for `librechat.signIn`: an email (or LDAP username) and password.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatSignIn {
+    /// The server, as `librechat.probe` normalized it.
+    pub url: String,
+    pub email: String,
+    pub password: String,
+    /// Put the account in charge even while an answer is being written in
+    /// the account it replaces, stopping it.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// Params for `librechat.verify`: the second step of a sign-in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatVerify {
+    /// From the `twoFactorRequired` reply. The server's own token stays in
+    /// the daemon.
+    pub flow_id: String,
+    pub code: String,
+    /// `code` is a backup code rather than the authenticator app's.
+    #[serde(default)]
+    pub backup_code: bool,
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// Params for `librechat.ssoStart`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatSsoStart {
+    pub url: String,
+    /// A `LibreChatSsoProviderDto.kind`.
+    pub provider: String,
+}
+
+/// Reply to `librechat.ssoStart`: where the sign-in window starts, and how
+/// it tells the server's pages from the provider's.
+///
+/// LibreChat signs in through `/oauth/{provider}`, the provider, and back
+/// to `/oauth/{provider}/callback`, which sets the session's cookies and
+/// sends the browser on to its web app. The window stops at that last hop
+/// (the web app would renew the session and rotate its cookie) and hands the
+/// cookies of `cookieUrl` to `librechat.completeSso`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatSsoPlan {
+    pub start_url: String,
+    pub cookie_url: String,
+    /// The server's origins (`scheme://host[:port]`): the address typed and
+    /// the one it names as its own.
+    #[serde(default)]
+    pub server_origins: Vec<String>,
+    /// The server's path below its origin (`/chat`), or empty.
+    #[serde(default)]
+    pub base_path: String,
+}
+
+/// Params for `librechat.completeSso`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatSsoCompletion {
+    pub url: String,
+    /// The cookies the sign-in left for `LibreChatSsoPlan.cookieUrl`, by
+    /// name. Only `refreshToken` and `token_provider` are kept.
+    #[serde(default)]
+    pub cookies: BTreeMap<String, String>,
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// How a sign-in step went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LibreChatSignInOutcome {
+    /// Signed in, saved, and in charge of the chats.
+    #[serde(rename = "signedIn")]
+    SignedIn,
+    /// The account uses two-step verification: `librechat.verify` with
+    /// `LibreChatSignInResult.flowId` and a code.
+    #[serde(rename = "twoFactorRequired")]
+    TwoFactorRequired,
+    /// The server refused the email or password (its words in
+    /// `LibreChatSignInResult.serverMessage`).
+    #[serde(rename = "rejected")]
+    Rejected,
+    /// The code was not accepted; try another.
+    #[serde(rename = "invalidCode")]
+    InvalidCode,
+    /// The two-step sign-in ran out of time or was never started: start over.
+    #[serde(rename = "expired")]
+    Expired,
+    /// The server could not be reached.
+    #[serde(rename = "unreachable")]
+    Unreachable,
+    /// Signed in and saved, but an answer is still being written in the
+    /// account it would replace: ask, then `accounts.switch` with `force`.
+    #[serde(rename = "blockedByActiveReply")]
+    BlockedByActiveReply,
+    /// The single sign-on left no session.
+    #[serde(rename = "ssoUnfinished")]
+    SsoUnfinished,
+    /// Something else failed, such as saving the session.
+    #[serde(rename = "failed")]
+    Failed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to the sign-in steps.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatSignInResult {
+    pub outcome: LibreChatSignInOutcome,
+    /// For `LibreChatSignInOutcome.twoFactorRequired`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flow_id: Option<String>,
+    /// The account signed in to, once saved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    /// What the server said, in its own words, when it refused. Shown as it
+    /// is, as the phone shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_message: Option<String>,
+    /// The accounts after the step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accounts: Option<AccountList>,
+}
+
+/// Params for `librechat.composer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatComposerTarget {
+    /// The model the composer sends with; the account's selection when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+}
+
+/// One of the user's MCP servers the composer offers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatMcpServerDto {
+    pub name: String,
+    /// What a turn sends in `turns.send`'s `toolIds` to use it.
+    pub tool_id: String,
+    #[serde(default)]
+    pub tool_count: i64,
+    /// It needs signing in to, which only LibreChat's web app can do:
+    /// "Connect in LibreChat" opens `LibreChatComposer.webUrl`.
+    #[serde(default)]
+    pub needs_connection: bool,
+}
+
+/// Reply to `librechat.composer`: the tools a LibreChat turn may ask for.
+///
+/// Each is chosen by putting its tool id in `turns.send`'s `toolIds`, as
+/// Open WebUI's tools are. A saved agent or a model spec brings its own
+/// tools, so none is offered for one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatComposer {
+    /// The model is a LibreChat one.
+    #[serde(default)]
+    pub libre_chat: bool,
+    /// The tool ids of the switches, null where the server or role does
+    /// not allow it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search_tool_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_interpreter_tool_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_search_tool_id: Option<String>,
+    #[serde(default)]
+    pub mcp_servers: Vec<LibreChatMcpServerDto>,
+    /// The prompt library is offered for `/`.
+    #[serde(default)]
+    pub prompts: bool,
+    /// The server's web app, where an MCP server is connected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_url: Option<String>,
+}
+
+/// One saved memory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatMemoryDto {
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub token_count: i64,
+    /// UTC milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_ms: Option<i64>,
+}
+
+/// Reply to the `librechat.memories.*` methods.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatMemories {
+    /// The user's own switch: whether the assistant uses and updates them.
+    #[serde(default = "default_libre_chat_memories_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub memories: Vec<LibreChatMemoryDto>,
+    #[serde(default)]
+    pub total_tokens: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_limit: Option<i64>,
+    /// 0 to 100, when the server says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_percent: Option<i64>,
+    /// What the role allows.
+    #[serde(default)]
+    pub can_create: bool,
+    #[serde(default)]
+    pub can_update: bool,
+    #[serde(default)]
+    pub can_opt_out: bool,
+}
+
+impl Default for LibreChatMemories {
+    fn default() -> Self {
+        Self {
+            enabled: default_libre_chat_memories_enabled(),
+            memories: Default::default(),
+            total_tokens: Default::default(),
+            token_limit: None,
+            usage_percent: None,
+            can_create: Default::default(),
+            can_update: Default::default(),
+            can_opt_out: Default::default(),
+        }
+    }
+}
+
+fn default_libre_chat_memories_enabled() -> bool {
+    true
+}
+
+/// Params for `librechat.memories.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatMemoryEdit {
+    /// The memory being edited, which may be renamed to `key`; null adds a
+    /// new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_key: Option<String>,
+    /// Lowercase letters and underscores, as LibreChat requires.
+    pub key: String,
+    pub value: String,
+}
+
+/// Params for `librechat.memories.delete`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatMemoryRef {
+    pub key: String,
+}
+
+/// Params for `librechat.memories.setEnabled`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibreChatMemoryToggle {
+    pub enabled: bool,
+}
+
 /// How the app signs in to an MCP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum McpAuth {
@@ -8223,6 +8741,18 @@ pub enum UiRequestKind {
     /// `hermes.decisions.answer` (`value`), which is never logged or kept.
     #[serde(rename = "hermesSecret")]
     HermesSecret,
+    /// A LibreChat agent paused its run to ask the user something.
+    /// `detail` has `question`, an optional `description`, `options` (a list
+    /// of `{label, description?}`) and `multiSelect`; `messageArgs.chatId`
+    /// names the chat. The answer goes back as `UiResponse.text` (an
+    /// option's label, several joined with ", ", or the user's own words)
+    /// with choice `answer` (or `allow`, as the window's question card says
+    /// it); `cancel` stops the reply.
+    ///
+    /// A LibreChat tool call waiting for approval is a `toolApproval` with
+    /// `detail.backend` `libreChat`.
+    #[serde(rename = "libreChatQuestion")]
+    LibreChatQuestion,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -14014,6 +14544,136 @@ pub mod methods {
         type Params = super::RecordingTranscribe;
         type Result = super::VoiceTranscript;
     }
+
+    /// Checks an address for a LibreChat server and how to sign in there.
+    ///
+    /// `librechat.probe`: LibreChatProbe -> LibreChatProbeResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatProbe;
+
+    impl RpcMethod for LibrechatProbe {
+        const NAME: &'static str = "librechat.probe";
+        type Params = super::LibreChatProbe;
+        type Result = super::LibreChatProbeResult;
+    }
+
+    /// Signs in with an email (or LDAP username) and password.
+    ///
+    /// `librechat.signIn`: LibreChatSignIn -> LibreChatSignInResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatSignIn;
+
+    impl RpcMethod for LibrechatSignIn {
+        const NAME: &'static str = "librechat.signIn";
+        type Params = super::LibreChatSignIn;
+        type Result = super::LibreChatSignInResult;
+    }
+
+    /// The second step: an authenticator code or a backup code.
+    ///
+    /// `librechat.verify`: LibreChatVerify -> LibreChatSignInResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatVerify;
+
+    impl RpcMethod for LibrechatVerify {
+        const NAME: &'static str = "librechat.verify";
+        type Params = super::LibreChatVerify;
+        type Result = super::LibreChatSignInResult;
+    }
+
+    /// Where single sign-on starts, for the window's sign-in browser.
+    ///
+    /// `librechat.ssoStart`: LibreChatSsoStart -> LibreChatSsoPlan.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatSsoStart;
+
+    impl RpcMethod for LibrechatSsoStart {
+        const NAME: &'static str = "librechat.ssoStart";
+        type Params = super::LibreChatSsoStart;
+        type Result = super::LibreChatSsoPlan;
+    }
+
+    /// Finishes single sign-on with the cookies the window captured.
+    ///
+    /// `librechat.completeSso`: LibreChatSsoCompletion -> LibreChatSignInResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatCompleteSso;
+
+    impl RpcMethod for LibrechatCompleteSso {
+        const NAME: &'static str = "librechat.completeSso";
+        type Params = super::LibreChatSsoCompletion;
+        type Result = super::LibreChatSignInResult;
+    }
+
+    /// The tools the composer may offer a LibreChat turn.
+    ///
+    /// `librechat.composer`: LibreChatComposerTarget -> LibreChatComposer.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatComposer;
+
+    impl RpcMethod for LibrechatComposer {
+        const NAME: &'static str = "librechat.composer";
+        type Params = super::LibreChatComposerTarget;
+        type Result = super::LibreChatComposer;
+    }
+
+    /// The user's memories and whether the assistant uses them.
+    ///
+    /// `librechat.memories.list`: no params -> LibreChatMemories.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatMemoriesList;
+
+    impl RpcMethod for LibrechatMemoriesList {
+        const NAME: &'static str = "librechat.memories.list";
+        type Params = NoParams;
+        type Result = super::LibreChatMemories;
+    }
+
+    /// Adds a memory, or changes one (and its key).
+    ///
+    /// `librechat.memories.save`: LibreChatMemoryEdit -> LibreChatMemories.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatMemoriesSave;
+
+    impl RpcMethod for LibrechatMemoriesSave {
+        const NAME: &'static str = "librechat.memories.save";
+        type Params = super::LibreChatMemoryEdit;
+        type Result = super::LibreChatMemories;
+    }
+
+    /// `librechat.memories.delete`: LibreChatMemoryRef -> LibreChatMemories.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatMemoriesDelete;
+
+    impl RpcMethod for LibrechatMemoriesDelete {
+        const NAME: &'static str = "librechat.memories.delete";
+        type Params = super::LibreChatMemoryRef;
+        type Result = super::LibreChatMemories;
+    }
+
+    /// Turns the assistant's use of memories on or off.
+    ///
+    /// `librechat.memories.setEnabled`: LibreChatMemoryToggle -> LibreChatMemories.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatMemoriesSetEnabled;
+
+    impl RpcMethod for LibrechatMemoriesSetEnabled {
+        const NAME: &'static str = "librechat.memories.setEnabled";
+        type Params = super::LibreChatMemoryToggle;
+        type Result = super::LibreChatMemories;
+    }
+
+    /// Copies a LibreChat chat whole into a new chat on its server.
+    ///
+    /// `librechat.duplicate`: ChatRef -> ChatForked.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LibrechatDuplicate;
+
+    impl RpcMethod for LibrechatDuplicate {
+        const NAME: &'static str = "librechat.duplicate";
+        type Params = super::ChatRef;
+        type Result = super::ChatForked;
+    }
 }
 
 /// Every method, with its params and result DTOs by name (`None` for none).
@@ -15528,6 +16188,61 @@ pub const METHODS: &[MethodSpec] = &[
         params: Some("RecordingTranscribe"),
         result: Some("VoiceTranscript"),
     },
+    MethodSpec {
+        name: "librechat.probe",
+        params: Some("LibreChatProbe"),
+        result: Some("LibreChatProbeResult"),
+    },
+    MethodSpec {
+        name: "librechat.signIn",
+        params: Some("LibreChatSignIn"),
+        result: Some("LibreChatSignInResult"),
+    },
+    MethodSpec {
+        name: "librechat.verify",
+        params: Some("LibreChatVerify"),
+        result: Some("LibreChatSignInResult"),
+    },
+    MethodSpec {
+        name: "librechat.ssoStart",
+        params: Some("LibreChatSsoStart"),
+        result: Some("LibreChatSsoPlan"),
+    },
+    MethodSpec {
+        name: "librechat.completeSso",
+        params: Some("LibreChatSsoCompletion"),
+        result: Some("LibreChatSignInResult"),
+    },
+    MethodSpec {
+        name: "librechat.composer",
+        params: Some("LibreChatComposerTarget"),
+        result: Some("LibreChatComposer"),
+    },
+    MethodSpec {
+        name: "librechat.memories.list",
+        params: None,
+        result: Some("LibreChatMemories"),
+    },
+    MethodSpec {
+        name: "librechat.memories.save",
+        params: Some("LibreChatMemoryEdit"),
+        result: Some("LibreChatMemories"),
+    },
+    MethodSpec {
+        name: "librechat.memories.delete",
+        params: Some("LibreChatMemoryRef"),
+        result: Some("LibreChatMemories"),
+    },
+    MethodSpec {
+        name: "librechat.memories.setEnabled",
+        params: Some("LibreChatMemoryToggle"),
+        result: Some("LibreChatMemories"),
+    },
+    MethodSpec {
+        name: "librechat.duplicate",
+        params: Some("ChatRef"),
+        result: Some("ChatForked"),
+    },
 ];
 
 /// The event names, for `events.subscribe`.
@@ -16290,6 +17005,7 @@ pub mod conformance {
         "ChatFileDto",
         "ChatForked",
         "ChatList",
+        "ChatMenuAbilities",
         "ChatMessageDto",
         "ChatMessageVersionDto",
         "ChatPromptAnswer",
@@ -16433,6 +17149,26 @@ pub mod conformance {
         "KnowledgeList",
         "KnowledgeQuery",
         "KnowledgeSummary",
+        "LibreChatAccountSummary",
+        "LibreChatComposer",
+        "LibreChatComposerTarget",
+        "LibreChatFeatures",
+        "LibreChatMcpServerDto",
+        "LibreChatMemories",
+        "LibreChatMemoryDto",
+        "LibreChatMemoryEdit",
+        "LibreChatMemoryRef",
+        "LibreChatMemoryToggle",
+        "LibreChatProbe",
+        "LibreChatProbeResult",
+        "LibreChatServerDto",
+        "LibreChatSignIn",
+        "LibreChatSignInResult",
+        "LibreChatSsoCompletion",
+        "LibreChatSsoPlan",
+        "LibreChatSsoProviderDto",
+        "LibreChatSsoStart",
+        "LibreChatVerify",
         "MarkUnread",
         "McpAppContext",
         "McpAppDto",
@@ -16781,6 +17517,7 @@ pub mod conformance {
             "ChatFileDto" => roundtrip::<super::ChatFileDto>(json),
             "ChatForked" => roundtrip::<super::ChatForked>(json),
             "ChatList" => roundtrip::<super::ChatList>(json),
+            "ChatMenuAbilities" => roundtrip::<super::ChatMenuAbilities>(json),
             "ChatMessageDto" => roundtrip::<super::ChatMessageDto>(json),
             "ChatMessageVersionDto" => roundtrip::<super::ChatMessageVersionDto>(json),
             "ChatPromptAnswer" => roundtrip::<super::ChatPromptAnswer>(json),
@@ -16924,6 +17661,26 @@ pub mod conformance {
             "KnowledgeList" => roundtrip::<super::KnowledgeList>(json),
             "KnowledgeQuery" => roundtrip::<super::KnowledgeQuery>(json),
             "KnowledgeSummary" => roundtrip::<super::KnowledgeSummary>(json),
+            "LibreChatAccountSummary" => roundtrip::<super::LibreChatAccountSummary>(json),
+            "LibreChatComposer" => roundtrip::<super::LibreChatComposer>(json),
+            "LibreChatComposerTarget" => roundtrip::<super::LibreChatComposerTarget>(json),
+            "LibreChatFeatures" => roundtrip::<super::LibreChatFeatures>(json),
+            "LibreChatMcpServerDto" => roundtrip::<super::LibreChatMcpServerDto>(json),
+            "LibreChatMemories" => roundtrip::<super::LibreChatMemories>(json),
+            "LibreChatMemoryDto" => roundtrip::<super::LibreChatMemoryDto>(json),
+            "LibreChatMemoryEdit" => roundtrip::<super::LibreChatMemoryEdit>(json),
+            "LibreChatMemoryRef" => roundtrip::<super::LibreChatMemoryRef>(json),
+            "LibreChatMemoryToggle" => roundtrip::<super::LibreChatMemoryToggle>(json),
+            "LibreChatProbe" => roundtrip::<super::LibreChatProbe>(json),
+            "LibreChatProbeResult" => roundtrip::<super::LibreChatProbeResult>(json),
+            "LibreChatServerDto" => roundtrip::<super::LibreChatServerDto>(json),
+            "LibreChatSignIn" => roundtrip::<super::LibreChatSignIn>(json),
+            "LibreChatSignInResult" => roundtrip::<super::LibreChatSignInResult>(json),
+            "LibreChatSsoCompletion" => roundtrip::<super::LibreChatSsoCompletion>(json),
+            "LibreChatSsoPlan" => roundtrip::<super::LibreChatSsoPlan>(json),
+            "LibreChatSsoProviderDto" => roundtrip::<super::LibreChatSsoProviderDto>(json),
+            "LibreChatSsoStart" => roundtrip::<super::LibreChatSsoStart>(json),
+            "LibreChatVerify" => roundtrip::<super::LibreChatVerify>(json),
             "MarkUnread" => roundtrip::<super::MarkUnread>(json),
             "McpAppContext" => roundtrip::<super::McpAppContext>(json),
             "McpAppDto" => roundtrip::<super::McpAppDto>(json),

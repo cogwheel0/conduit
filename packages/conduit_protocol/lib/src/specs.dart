@@ -15,6 +15,7 @@ import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
 import 'hermes_work.dart';
+import 'librechat.dart';
 import 'mcp.dart';
 import 'mcp_apps.dart';
 import 'memories.dart';
@@ -1769,6 +1770,73 @@ abstract final class ConduitMethodSpecs {
         result: VoiceTranscript.fromJson,
       );
 
+  // librechat.*
+
+  static const librechatProbe =
+      ConduitMethodSpec<LibreChatProbe, LibreChatProbeResult>(
+        ConduitMethods.librechatProbe,
+        params: LibreChatProbe.fromJson,
+        result: LibreChatProbeResult.fromJson,
+      );
+  static const librechatSignIn =
+      ConduitMethodSpec<LibreChatSignIn, LibreChatSignInResult>(
+        ConduitMethods.librechatSignIn,
+        params: LibreChatSignIn.fromJson,
+        result: LibreChatSignInResult.fromJson,
+      );
+  static const librechatVerify =
+      ConduitMethodSpec<LibreChatVerify, LibreChatSignInResult>(
+        ConduitMethods.librechatVerify,
+        params: LibreChatVerify.fromJson,
+        result: LibreChatSignInResult.fromJson,
+      );
+  static const librechatSsoStart =
+      ConduitMethodSpec<LibreChatSsoStart, LibreChatSsoPlan>(
+        ConduitMethods.librechatSsoStart,
+        params: LibreChatSsoStart.fromJson,
+        result: LibreChatSsoPlan.fromJson,
+      );
+  static const librechatCompleteSso =
+      ConduitMethodSpec<LibreChatSsoCompletion, LibreChatSignInResult>(
+        ConduitMethods.librechatCompleteSso,
+        params: LibreChatSsoCompletion.fromJson,
+        result: LibreChatSignInResult.fromJson,
+      );
+  static const librechatComposer =
+      ConduitMethodSpec<LibreChatComposerTarget, LibreChatComposer>(
+        ConduitMethods.librechatComposer,
+        params: LibreChatComposerTarget.fromJson,
+        result: LibreChatComposer.fromJson,
+      );
+  static const librechatMemoriesList =
+      ConduitMethodSpec<void, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesList,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatMemoriesSave =
+      ConduitMethodSpec<LibreChatMemoryEdit, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesSave,
+        params: LibreChatMemoryEdit.fromJson,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatMemoriesDelete =
+      ConduitMethodSpec<LibreChatMemoryRef, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesDelete,
+        params: LibreChatMemoryRef.fromJson,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatMemoriesSetEnabled =
+      ConduitMethodSpec<LibreChatMemoryToggle, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesSetEnabled,
+        params: LibreChatMemoryToggle.fromJson,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatDuplicate = ConduitMethodSpec<ChatRef, ChatForked>(
+    ConduitMethods.librechatDuplicate,
+    params: ChatRef.fromJson,
+    result: ChatForked.fromJson,
+  );
+
   /// Every method, once.
   static const List<ConduitMethodSpec<Object?, Object?>> all =
       <ConduitMethodSpec<Object?, Object?>>[
@@ -2074,6 +2142,17 @@ abstract final class ConduitMethodSpecs {
         recordingsClose,
         recordingsDiscard,
         recordingsTranscribe,
+        librechatProbe,
+        librechatSignIn,
+        librechatVerify,
+        librechatSsoStart,
+        librechatCompleteSso,
+        librechatComposer,
+        librechatMemoriesList,
+        librechatMemoriesSave,
+        librechatMemoriesDelete,
+        librechatMemoriesSetEnabled,
+        librechatDuplicate,
       ];
 
   static final Map<String, ConduitMethodSpec<Object?, Object?>> _byName =

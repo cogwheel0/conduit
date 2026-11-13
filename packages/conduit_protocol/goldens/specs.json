@@ -1530,6 +1530,61 @@
       "name": "recordings.transcribe",
       "params": "RecordingTranscribe",
       "result": "VoiceTranscript"
+    },
+    {
+      "name": "librechat.probe",
+      "params": "LibreChatProbe",
+      "result": "LibreChatProbeResult"
+    },
+    {
+      "name": "librechat.signIn",
+      "params": "LibreChatSignIn",
+      "result": "LibreChatSignInResult"
+    },
+    {
+      "name": "librechat.verify",
+      "params": "LibreChatVerify",
+      "result": "LibreChatSignInResult"
+    },
+    {
+      "name": "librechat.ssoStart",
+      "params": "LibreChatSsoStart",
+      "result": "LibreChatSsoPlan"
+    },
+    {
+      "name": "librechat.completeSso",
+      "params": "LibreChatSsoCompletion",
+      "result": "LibreChatSignInResult"
+    },
+    {
+      "name": "librechat.composer",
+      "params": "LibreChatComposerTarget",
+      "result": "LibreChatComposer"
+    },
+    {
+      "name": "librechat.memories.list",
+      "params": null,
+      "result": "LibreChatMemories"
+    },
+    {
+      "name": "librechat.memories.save",
+      "params": "LibreChatMemoryEdit",
+      "result": "LibreChatMemories"
+    },
+    {
+      "name": "librechat.memories.delete",
+      "params": "LibreChatMemoryRef",
+      "result": "LibreChatMemories"
+    },
+    {
+      "name": "librechat.memories.setEnabled",
+      "params": "LibreChatMemoryToggle",
+      "result": "LibreChatMemories"
+    },
+    {
+      "name": "librechat.duplicate",
+      "params": "ChatRef",
+      "result": "ChatForked"
     }
   ],
   "events": [

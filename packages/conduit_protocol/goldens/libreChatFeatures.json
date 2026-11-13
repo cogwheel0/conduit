@@ -1,0 +1,14 @@
+{
+  "prompts": true,
+  "memories": true,
+  "createMemories": true,
+  "updateMemories": false,
+  "optOutMemories": false,
+  "webSearch": true,
+  "codeInterpreter": false,
+  "fileSearch": false,
+  "mcpServers": false,
+  "agents": false,
+  "sharedLinks": true,
+  "temporaryChat": false
+}

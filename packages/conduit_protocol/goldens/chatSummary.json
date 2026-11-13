@@ -11,5 +11,13 @@
   ],
   "shared": true,
   "readOnly": true,
-  "unread": false
+  "unread": false,
+  "menu": {
+    "share": false,
+    "duplicate": false,
+    "move": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "export": false
+  }
 }

@@ -36,10 +36,45 @@ abstract class ChatSummary with _$ChatSummary {
     /// unread (the core's `isConversationUnread`). Never true while the chat
     /// is answering; a window draws no dot on the chat it shows.
     @Default(false) bool unread,
+
+    /// What its menus offer (the sidebar's context menu, the Chat menu), by
+    /// the core's rule for the chat's backend: an Open WebUI chat, a
+    /// LibreChat one, an on-device Direct one.
+    @Default(ChatMenuAbilities()) ChatMenuAbilities menu,
   }) = _ChatSummary;
 
   factory ChatSummary.fromJson(Map<String, dynamic> json) =>
       _$ChatSummaryFromJson(json);
+}
+
+/// What a listed chat's menus offer, from the core's `chatMenuAvailability`
+/// (the phone's conversation menu rules), as loaded when it was listed: a
+/// permission still loading reads as not allowed, and the list is sent
+/// again once it loads. A window leaves out what is false.
+@freezed
+abstract class ChatMenuAbilities with _$ChatMenuAbilities {
+  const factory ChatMenuAbilities({
+    /// Share Chat… (a LibreChat chat where its server allows links).
+    @Default(false) bool share,
+
+    /// Duplicate Chat (a LibreChat chat, while online).
+    @Default(false) bool duplicate,
+
+    /// Move To a folder (an Open WebUI chat, folders on).
+    @Default(false) bool move,
+
+    /// Mark as Unread or Read (an Open WebUI chat).
+    @Default(false) bool markUnread,
+
+    /// Generate Title (a chat the server holds).
+    @Default(false) bool generateTitle,
+
+    /// Export as a JSON backup or a Markdown transcript.
+    @Default(false) bool export,
+  }) = _ChatMenuAbilities;
+
+  factory ChatMenuAbilities.fromJson(Map<String, dynamic> json) =>
+      _$ChatMenuAbilitiesFromJson(json);
 }
 
 /// A folder as the sidebar shows it.
@@ -427,6 +462,7 @@ abstract class ChatAbilities with _$ChatAbilities {
     /// Undo Last Turn on a Hermes chat's last reply: a Desktop Gateway
     /// session, whose transcript the gateway keeps (`hermes.history.undo`).
     @Default(false) bool undoLastTurn,
+
     /// A Hermes agent works in this chat: its subagents, processes and plan
     /// can be watched (`hermes.work.watch`).
     @Default(false) bool hermesWork,

@@ -29,6 +29,7 @@ export 'src/speech.dart';
 export 'src/handshake.dart';
 export 'src/hermes.dart';
 export 'src/hermes_work.dart';
+export 'src/librechat.dart';
 export 'src/mcp.dart';
 export 'src/mcp_apps.dart';
 export 'src/memories.dart';
