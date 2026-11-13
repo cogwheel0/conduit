@@ -159,15 +159,18 @@ class ScheduledCalendarReminder {
 }
 
 /// Everything a scheduled reminder shows or fires on, so a change to any of it
-/// schedules the reminder again.
+/// schedules the reminder again. That includes whether it fires on the minute,
+/// so allowing exact alarms later moves the pending reminders onto them.
 String calendarReminderFingerprint(
   CalendarReminder reminder, {
   required String title,
   required String body,
+  required bool exact,
 }) => [
   reminder.fireAt.millisecondsSinceEpoch,
   title,
   body,
+  exact ? 'exact' : 'inexact',
 ].join('|');
 
 /// Wraps a single [FlutterLocalNotificationsPlugin] instance for OS-level
@@ -406,18 +409,65 @@ class LocalNotificationService {
     }
   }
 
+  /// Whether calendar reminders can fire on the minute, as last checked by
+  /// [canScheduleExactReminders]: on Android only with the "Alarms &
+  /// reminders" permission, always elsewhere. Null until checked.
+  bool? get exactRemindersAllowed => _exactRemindersAllowed;
+  bool? _exactRemindersAllowed;
+
+  /// Checks, and remembers, whether calendar reminders can fire on the
+  /// minute ([exactRemindersAllowed]).
+  Future<bool> canScheduleExactReminders() async {
+    if (!Platform.isAndroid) return _exactRemindersAllowed = true;
+    if (!_initialized) await initialize();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      return _exactRemindersAllowed =
+          await android?.canScheduleExactNotifications() ?? false;
+    } catch (_) {
+      return _exactRemindersAllowed = false;
+    }
+  }
+
+  /// Opens Android's "Alarms & reminders" screen for this app, where the user
+  /// can let calendar reminders fire on the minute. Returns whether it is
+  /// allowed afterwards.
+  Future<bool> requestExactReminders() async {
+    if (!Platform.isAndroid) return true;
+    if (!_initialized) await initialize();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    try {
+      await android?.requestExactAlarmsPermission();
+    } catch (error) {
+      DebugLogger.warning(
+        'request-exact-alarms-failed',
+        scope: 'notifications/calendar',
+        data: {'error': error.toString()},
+      );
+    }
+    return canScheduleExactReminders();
+  }
+
   /// Schedules [reminder] for [scope] to be posted at its
   /// [CalendarReminder.fireAt], also while the app is not running. Returns
   /// false when it could not be scheduled.
   ///
-  /// On Android it fires exactly when the user allows alarms & reminders, and
-  /// otherwise at roughly that time; the app never asks for that permission.
+  /// [exact] is whether it may fire on the minute
+  /// ([canScheduleExactReminders]); otherwise Android posts it at roughly that
+  /// time. The app never prompts for the permission on its own.
   Future<bool> scheduleCalendarReminder(
     CalendarReminder reminder, {
     required String scope,
     required String title,
     required String body,
     required bool playSound,
+    required bool exact,
   }) async {
     if (!Platform.isAndroid && !Platform.isIOS) return false;
     if (!_initialized) await initialize();
@@ -450,7 +500,9 @@ class LocalNotificationService {
           android: androidDetails,
           iOS: iosDetails,
         ),
-        androidScheduleMode: await _calendarScheduleMode(),
+        androidScheduleMode: exact
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
         payload: ScheduledCalendarReminder.encode(
           key: reminder.key,
           scope: scope,
@@ -458,6 +510,7 @@ class LocalNotificationService {
             reminder,
             title: title,
             body: body,
+            exact: exact,
           ),
         ),
       );
@@ -471,18 +524,6 @@ class LocalNotificationService {
       );
       return false;
     }
-  }
-
-  Future<AndroidScheduleMode> _calendarScheduleMode() async {
-    if (!Platform.isAndroid) return AndroidScheduleMode.exactAllowWhileIdle;
-    final android = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    final exact = await android?.canScheduleExactNotifications() ?? false;
-    return exact
-        ? AndroidScheduleMode.exactAllowWhileIdle
-        : AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
   /// The calendar reminders scheduled and not yet posted, for every account.

@@ -7005,5 +7005,13 @@
         "example": "14:30"
       }
     }
+  },
+  "notificationCalendarExactTitle": "Presný čas",
+  "@notificationCalendarExactTitle": {
+    "description": "Settings row under Calendar Reminders on Android, shown when reminders cannot fire at the exact time. Opens the system's Alarms & reminders permission."
+  },
+  "notificationCalendarExactDescription": "Povoľte „Budíky a pripomienky“, aby pripomienky kalendára prichádzali presne na minútu.",
+  "@notificationCalendarExactDescription": {
+    "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   }
 }

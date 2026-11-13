@@ -8,7 +8,6 @@ import 'package:conduit_core/features/calendar/calendar_reminders.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 
 const _scope = 'owui:acct-1';
 const _otherScope = 'owui:acct-2';
@@ -40,6 +39,11 @@ class _FakeNotifications extends Fake implements LocalNotificationService {
   final cancelled = <int>[];
   int _nextId = 100;
   Completer<void>? holdSchedule;
+  bool exactAllowed = false;
+  final exactByKey = <String, bool>{};
+
+  @override
+  Future<bool> canScheduleExactReminders() async => exactAllowed;
 
   @override
   Future<List<ScheduledCalendarReminder>> scheduledCalendarReminders() async =>
@@ -52,6 +56,7 @@ class _FakeNotifications extends Fake implements LocalNotificationService {
     required String title,
     required String body,
     required bool playSound,
+    required bool exact,
   }) async {
     await holdSchedule?.future;
     scheduled.add(
@@ -63,10 +68,12 @@ class _FakeNotifications extends Fake implements LocalNotificationService {
           reminder,
           title: title,
           body: body,
+          exact: exact,
         ),
       ),
     );
     scheduledAt[reminder.key] = reminder.fireAt;
+    exactByKey[reminder.key] = exact;
     return true;
   }
 
@@ -158,6 +165,20 @@ void main() {
       check(
         h.notifications.scheduledAt['a|'],
       ).equals(_now.add(const Duration(minutes: 80)));
+    });
+
+    test('moves reminders onto exact alarms once they are allowed', () async {
+      final h = _Harness()..agenda = [_event('a')];
+      await h.scheduler.sync();
+      final id = h.notifications.scheduled.single.id;
+      check(h.notifications.exactByKey['a|']).equals(false);
+
+      h.notifications.exactAllowed = true;
+      await h.scheduler.sync();
+
+      check(h.notifications.cancelled).deepEquals([id]);
+      check(h.notifications.exactByKey['a|']).equals(true);
+      check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 
     test('drops reminders of deleted events and of alerts turned off', () async {

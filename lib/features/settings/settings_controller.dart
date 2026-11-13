@@ -40,6 +40,7 @@ import '../../shared/utils/ui_utils.dart';
 import '../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../shared/widgets/sign_out_options_dialog.dart';
 import '../chat/providers/text_to_speech_provider.dart';
+import '../notifications/services/calendar_reminder_scheduler.dart';
 import '../notifications/services/local_notification_service.dart';
 import '../profile/widgets/account_actions.dart';
 import '../profile/widgets/stt_language_picker.dart'
@@ -868,6 +869,16 @@ class SettingsController {
           if (!opened) {
             _showMessage((l10n) => l10n.notificationSystemSettingsOpenFailed);
           }
+        case nativeNotificationCalendarExactId:
+          await ref.read(localNotificationServiceProvider).requestExactReminders();
+          // Moves the scheduled reminders onto exact alarms if it was allowed,
+          // then drops the row.
+          await ref.read(calendarReminderSchedulerProvider).sync();
+          unawaited(
+            ref
+                .read(nativeSheetHydrationServiceProvider)
+                .hydrateDetail(NativeSheetRoutes.notificationSettings),
+          );
         case nativeDeviceSttLanguageId:
           final context = NavigationService.context;
           if (context == null || !context.mounted) return;
@@ -941,6 +952,13 @@ class SettingsController {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setNotificationCalendarEnabled(value);
+            await ref.read(calendarReminderSchedulerProvider).sync();
+            // The exact-timing row under the switch comes and goes with it.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
           }
         case 'transport-auto':
           await ref

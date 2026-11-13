@@ -5085,5 +5085,13 @@
         "example": "14:30"
       }
     }
+  },
+  "notificationCalendarExactTitle": "Heure exacte",
+  "@notificationCalendarExactTitle": {
+    "description": "Settings row under Calendar Reminders on Android, shown when reminders cannot fire at the exact time. Opens the system's Alarms & reminders permission."
+  },
+  "notificationCalendarExactDescription": "Autorisez « Alarmes et rappels » pour que les rappels d'agenda arrivent à la minute près.",
+  "@notificationCalendarExactDescription": {
+    "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   }
 }

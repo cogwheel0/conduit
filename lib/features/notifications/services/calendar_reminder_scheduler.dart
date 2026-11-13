@@ -130,6 +130,9 @@ class CalendarReminderScheduler {
     final plan = items == null
         ? const <CalendarReminder>[]
         : planCalendarReminders(items: items, userId: account.userId, now: now);
+    // Checked on every sync, so reminders move onto exact alarms once the
+    // user allows them (and Settings knows whether to offer it).
+    final exact = await _notifications.canScheduleExactReminders();
     final wanted = <String, (CalendarReminder, String, String, String)>{};
     for (final reminder in plan) {
       final text = _text(reminder);
@@ -141,6 +144,7 @@ class CalendarReminderScheduler {
           reminder,
           title: text.title,
           body: text.body,
+          exact: exact,
         ),
       );
     }
@@ -164,6 +168,7 @@ class CalendarReminderScheduler {
         title: title,
         body: body,
         playSound: settings.playSound,
+        exact: exact,
       );
     }
   }
