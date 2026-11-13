@@ -25,6 +25,7 @@ import '../../../shared/widgets/utility_components.dart';
 import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
+import 'settings_columns.dart';
 import 'settings_option_picker.dart';
 import 'settings_profile_editors.dart';
 import 'settings_rows.dart';
@@ -37,10 +38,74 @@ const _sectionGap = SizedBox(height: Spacing.lg);
 ///
 /// It asks for its rows when it appears and again whenever a page opened
 /// from it closes, as the native sheet fills a page in each time it shows.
+/// A page of Settings that its own feature draws, such as the calendar.
+/// Shown as a route over the root list, it is known to the column move as
+/// the other pages are, so a window widening while it has a sheet or
+/// question open waits for that to close before moving it beside the list.
+class SettingsFeaturePage extends ConsumerStatefulWidget {
+  const SettingsFeaturePage({
+    super.key,
+    required this.pageId,
+    required this.child,
+  });
+
+  final String pageId;
+  final Widget child;
+
+  @override
+  ConsumerState<SettingsFeaturePage> createState() =>
+      _SettingsFeaturePageState();
+}
+
+class _SettingsFeaturePageState extends ConsumerState<SettingsFeaturePage> {
+  late final SettingsColumnMove _move;
+  Route<Object?>? _route;
+
+  @override
+  void initState() {
+    super.initState();
+    _move = ref.read(settingsColumnMoveProvider);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = SettingsPageColumn.maybeOf(context) == null
+        ? ModalRoute.of(context)
+        : null;
+    if (route != null && !identical(route, _route)) {
+      if (_route case final old?) _move.routeClosed(widget.pageId, old);
+      _route = route;
+      _move.routeOpened(widget.pageId, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_route case final route?) _move.routeClosed(widget.pageId, route);
+    // Gone as it moved beside the list: the move is done with it.
+    _move.movedToColumn(widget.pageId);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class SettingsDetailPage extends ConsumerStatefulWidget {
-  const SettingsDetailPage({super.key, required this.detailId});
+  const SettingsDetailPage({
+    super.key,
+    required this.detailId,
+    this.reopened = false,
+  });
 
   final String detailId;
+
+  /// Opened again as the window narrowed past two columns. Under a page
+  /// opened with it, the page waits to describe itself until it shows:
+  /// describing itself also describes the pages it leads to, and would put
+  /// a loading page over the one open above it.
+  final bool reopened;
 
   @override
   ConsumerState<SettingsDetailPage> createState() => _SettingsDetailPageState();
@@ -52,11 +117,38 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   late final NativeSheetHydrationService _hydration;
   late final SettingsController _controller;
   late final List<SettingsPageModule> _modules;
+  late final SettingsColumnMove _move;
+
+  /// The page column the page is in, on a wide window.
+  SettingsColumnController? _column;
+
+  /// The route this page shows as over the list, when it is one.
+  Route<Object?>? _route;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _column = SettingsPageColumn.maybeOf(context);
+    final route = _column == null ? ModalRoute.of(context) : null;
+    if (route != null && !identical(route, _route)) {
+      _route = route;
+      _move.routeOpened(widget.detailId, route);
+    }
+  }
 
   @override
   void dispose() {
-    _hydration.stopFollowing(widget.detailId);
-    _controller.pageClosed(widget.detailId, modules: _modules);
+    if (_route case final route?) _move.routeClosed(widget.detailId, route);
+    // Moving between one column and two as the window changes, the page
+    // opens again there: it has not been left, keeps its draft, and the
+    // page in its place follows what it shows.
+    final moving =
+        _move.movedToColumn(widget.detailId) || (_column?.isMoving ?? false);
+    if (!moving) {
+      _move.left(widget.detailId);
+      _hydration.stopFollowing(widget.detailId);
+      _controller.pageClosed(widget.detailId, modules: _modules);
+    }
     super.dispose();
   }
 
@@ -68,12 +160,38 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     _hydration = ref.read(nativeSheetHydrationServiceProvider);
     _controller = ref.read(settingsControllerProvider);
     _modules = ref.read(settingsPageModulesProvider);
+    _move = ref.read(settingsColumnMoveProvider);
+    // Opened again where a move put it: the page on top was already
+    // showing, and does not describe itself again; one under it describes
+    // itself once it is uncovered, as it would have without the move.
+    final arrived = _move.arrives(widget.detailId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _appeared();
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      final covered = route != null && !route.isCurrent;
+      if (arrived && !covered) return;
+      if (!(widget.reopened || arrived) || route == null || route.isCurrent) {
+        _appeared();
+        return;
+      }
+      // Covered: the page describes itself once the page above it closes.
+      final above = route.secondaryAnimation;
+      if (above == null) {
+        _appeared();
+        return;
+      }
+      void shown(AnimationStatus status) {
+        if (status != AnimationStatus.dismissed) return;
+        above.removeStatusListener(shown);
+        if (mounted) _appeared();
+      }
+
+      above.addStatusListener(shown);
     });
   }
 
   void _appeared() {
+    _move.appeared(widget.detailId);
     final l10n = AppLocalizations.of(context);
     // Opened straight from a link, before the root registered it: show it
     // loading so its rows have somewhere to land.
@@ -89,6 +207,14 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
           NativeSheetDetailAppeared(detailId: widget.detailId),
           source: SettingsEventSource.flutter,
         );
+  }
+
+  /// Back from the page this one opened. Moving beside the list as the
+  /// window widened, the page was not returned to: the page above moved
+  /// with it, and describing this one again would drop that page's draft.
+  void _returned() {
+    if (_move.movesToColumn(widget.detailId)) return;
+    _appeared();
   }
 
   /// Goes back to the page that opened this one, closing any page above.
@@ -132,7 +258,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         children: const [Center(child: AdaptiveProgressIndicator())],
       );
     }
-    return SettingsPageView(detail: detail, onReturned: _appeared);
+    return SettingsPageView(detail: detail, onReturned: _returned);
   }
 }
 
@@ -150,9 +276,19 @@ class SettingsPageView extends ConsumerStatefulWidget {
     this.onReturned,
     this.leading = const [],
     this.leadingFor,
+    this.selectedId,
+    this.onOpenPage,
   });
 
   final NativeSheetDetailConfig detail;
+
+  /// The row whose page shows beside this list, kept selected: the root
+  /// list in two columns.
+  final String? selectedId;
+
+  /// Opens a row's page instead of pushing it: the root list in two
+  /// columns opens it beside itself.
+  final Future<void> Function(String id)? onOpenPage;
 
   /// A row's own leading picture, when the page has one its definition
   /// cannot carry; null keeps the row's glyph.
@@ -168,8 +304,63 @@ class SettingsPageView extends ConsumerStatefulWidget {
   ConsumerState<SettingsPageView> createState() => _SettingsPageViewState();
 }
 
-class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
+class _SettingsPageViewState extends ConsumerState<SettingsPageView>
+    implements SettingsColumnMember {
   final Map<String, String> _pendingText = {};
+  late final SettingsColumnMove _move;
+
+  /// The page column this page is in, on a wide window.
+  SettingsColumnController? _column;
+
+  @override
+  void initState() {
+    super.initState();
+    _move = ref.read(settingsColumnMoveProvider)..register(this);
+    // Opened again as the window crossed two columns: what the page held
+    // before it moved is still there -- text not done, text done, and that
+    // it was changed.
+    if (_move.take(widget.detail.id) case final draft?) {
+      _pendingText.addAll(draft.pending);
+      _committedText.addAll(draft.committed);
+      _controlEdits = draft.edits;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final column = SettingsPageColumn.maybeOf(context);
+    if (column == _column) return;
+    _column?.unregister(this);
+    _column = column?..register(this);
+  }
+
+  @override
+  void dispose() {
+    _column?.unregister(this);
+    _move.unregister(this);
+    super.dispose();
+  }
+
+  @override
+  String get pageId => widget.detail.id;
+
+  @override
+  bool get holdsUnsavedChanges => _hasUnsavedChanges;
+
+  @override
+  NativeSheetDiscardPrompt? get discardPrompt => widget.detail.discardPrompt;
+
+  @override
+  SettingsPageDraft get draft => (
+    pending: Map.of(_pendingText),
+    committed: Map.of(_committedText),
+    edits: _controlEdits,
+  );
+
+  @override
+  void commitPendingText() => _commitPendingText();
+
   final Map<String, String> _committedText = {};
   final Map<String, Object?> _chosen = {};
   final Map<String, List<String>> _order = {};
@@ -422,10 +613,23 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     }
 
     if (_navigable(item)) {
-      await context.pushNamed<void>(
-        RouteNames.settingsPage,
-        pathParameters: {'id': item.id},
-      );
+      // In two columns the root list opens a page beside itself, and a page
+      // beside it opens the next on top of itself; otherwise each page is
+      // pushed over the last.
+      final openRootPage = widget.onOpenPage;
+      if (openRootPage != null) {
+        await openRootPage(item.id);
+        return;
+      }
+      final column = SettingsPageColumn.maybeOf(context);
+      if (column != null) {
+        await column.open(item.id);
+      } else {
+        await context.pushNamed<void>(
+          RouteNames.settingsPage,
+          pathParameters: {'id': item.id},
+        );
+      }
       if (mounted) widget.onReturned?.call();
       return;
     }
@@ -502,6 +706,7 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
           : null,
       item: item,
       leading: widget.leadingFor?.call(item),
+      selected: item.id == widget.selectedId,
       navigable: _navigable(item),
       value: _chosen[item.id],
       textValue: text ? _currentText(item) : null,
@@ -622,7 +827,10 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     if (widget.detail.discardPrompt == null) {
       return PopScope(
         onPopInvokedWithResult: (didPop, _) {
-          if (didPop) _commitPendingText();
+          // Moving beside the list, its text goes with it, not sent.
+          if (didPop && !_move.movesToColumn(widget.detail.id)) {
+            _commitPendingText();
+          }
         },
         child: page,
       );

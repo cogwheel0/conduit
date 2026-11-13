@@ -225,6 +225,79 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
+  func testSettingsColumnsKeepARootPickerAsTheyNarrowAndWiden() throws {
+    let root = UIViewController()
+    let columns = NativeSettingsColumnsController(root: root)
+    columns.defaultRootId = { "test-page" }
+    columns.makePage = { id in
+      makeNativeDetailPageForTesting(["id": id, "title": "Test Page", "items": []])
+    }
+    columns.loadViewIfNeeded()
+    func resize(_ width: CGFloat) {
+      columns.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
+      columns.view.setNeedsLayout()
+      columns.view.layoutIfNeeded()
+    }
+    resize(1000)
+    XCTAssertTrue(columns.isExpanded)
+    let page = try XCTUnwrap(columns.pages.viewControllers.first)
+    // A root row's picker, opened over the list beside the page.
+    let picker = UIViewController()
+    columns.sidebar.pushViewController(picker, animated: false)
+
+    resize(500)
+    XCTAssertFalse(columns.isExpanded)
+    XCTAssertEqual(columns.sidebar.viewControllers.count, 3)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
+
+    // Widened again from there: the picker goes back over the list, the
+    // page beside it.
+    resize(1000)
+    XCTAssertTrue(columns.isExpanded)
+    XCTAssertEqual(columns.sidebar.viewControllers.count, 2)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
+    XCTAssertTrue(columns.pages.viewControllers.first === page)
+
+    // One column with only the picker over the list: widening keeps it
+    // there, and opens a page beside it.
+    resize(500)
+    columns.sidebar.setViewControllers([root, picker], animated: false)
+    resize(1000)
+    XCTAssertTrue(columns.isExpanded)
+    XCTAssertEqual(columns.sidebar.viewControllers.count, 2)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
+    XCTAssertEqual(columns.pages.viewControllers.count, 1)
+  }
+
+  @MainActor
+  func testSettingsColumnsCloseTheFirstPageEvenWhenItIsTheFirstRowsPage() throws {
+    let columns = NativeSettingsColumnsController(root: UIViewController())
+    columns.defaultRootId = { "test-page" }
+    columns.makePage = { id in
+      makeNativeDetailPageForTesting(["id": id, "title": "Test Page", "items": []])
+    }
+    var left: [UIViewController] = []
+    columns.onPageLeft = { left.append($0) }
+    columns.loadViewIfNeeded()
+    columns.view.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    columns.view.setNeedsLayout()
+    columns.view.layoutIfNeeded()
+    XCTAssertTrue(columns.isExpanded)
+    let page = try XCTUnwrap(columns.pages.viewControllers.first)
+    let above = try XCTUnwrap(
+      makeNativeDetailPageForTesting(["id": "above", "title": "Above", "items": []])
+    )
+    columns.pages.pushViewController(above, animated: false)
+
+    // The first row's own page closes itself: a new one takes its place,
+    // and the page above it goes with it.
+    XCTAssertTrue(columns.closeRootPage(where: { $0 === page }))
+    XCTAssertEqual(columns.pages.viewControllers.count, 1)
+    XCTAssertFalse(columns.pages.viewControllers.first === page)
+    XCTAssertTrue(left.contains { $0 === page })
+  }
+
+  @MainActor
   func testNativeProfilePresentationIsSingleUntilDismissed() throws {
     let presenter = ProfilePresentationTestController()
     let host = SelectionMenuTestHost(

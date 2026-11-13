@@ -38,6 +38,7 @@ import '../../features/settings/pages/hermes_page_ids.dart';
 import '../../features/hermes/views/hermes_room_page.dart';
 import '../../features/settings/pages/push_page_ids.dart'
     show pushPrivacyPageId;
+import '../../features/settings/views/settings_columns.dart';
 import '../../features/settings/views/settings_page_view.dart';
 import '../../features/settings/views/settings_root_page.dart';
 import '../services/native_sheet_bridge.dart' show NativeSheetRoutes;
@@ -345,15 +346,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.settingsPage,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
+        // Opened again as the window narrows: the page was already showing.
+        noTransition: state.extra is SettingsPageReopened ? true : null,
         // Settings's Calendar is the Flutter calendar wherever Flutter
         // draws Settings; the native sheet has a calendar page of its own.
         child: state.pathParameters['id'] == NativeSheetRoutes.calendar
-            ? const CalendarPage()
+            ? const SettingsFeaturePage(
+                pageId: NativeSheetRoutes.calendar,
+                child: CalendarPage(),
+              )
             : SettingsDetailPage(
                 key: ValueKey<String>(
                   'settings-page-${state.pathParameters['id']}',
                 ),
                 detailId: state.pathParameters['id']!,
+                reopened: state.extra is SettingsPageReopened,
               ),
       ),
     ),

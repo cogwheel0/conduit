@@ -4,18 +4,24 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/profile_avatar.dart';
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 import 'package:conduit_core/utils/user_display_name.dart';
+
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/utils/account_display.dart' show AccountCardKind;
 import '../../../core/utils/native_sheet_utils.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../settings_pages.dart';
 import '../settings_root.dart';
+import 'settings_columns.dart';
 import 'settings_page_view.dart';
 
 /// The Settings root as the Flutter Settings pages draw it: the same rows,
@@ -32,6 +38,153 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
   /// The account the root's pages were registered for, so they are
   /// registered again when another one takes over.
   Object? _registeredFor;
+
+  final _columns = GlobalKey<SettingsColumnsState>();
+
+  /// Whether the last frame showed two columns.
+  bool _wasWide = false;
+
+  /// The root row whose page shows beside the list, or showed last: it
+  /// shows there again as the window widens with nothing open over the
+  /// list.
+  String? _selected;
+
+  /// Whether the window has room for the root list beside a page: wide
+  /// enough, and a tablet's -- a phone turned on its side keeps one column.
+  static bool _isWide(Size size) =>
+      size.width >= settingsTwoColumnMinWidth && size.shortestSide >= 600;
+
+  /// The window narrowed past two columns: the pages beside the list open
+  /// again pushed over it, as one column shows them, keeping what they hold.
+  void _moveToOneColumn() {
+    final columns = _columns.currentState;
+    final ids = columns?.openPageIds ?? const <String>[];
+    if (columns == null || ids.isEmpty) return;
+    _selected = columns.selectedId ?? _selected;
+    columns.prepareToMove();
+    final move = ref.read(settingsColumnMoveProvider);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        // No page opens again: what was carried for them goes, so a later
+        // visit to a page by the same id does not take it.
+        move.carry(const []);
+        return;
+      }
+      for (final id in ids) {
+        unawaited(
+          context.pushNamed<void>(
+            RouteNames.settingsPage,
+            pathParameters: {'id': id},
+            extra: const SettingsPageReopened(),
+          ),
+        );
+      }
+    });
+  }
+
+  /// Checks again, while a sheet or question is open over pages that would
+  /// move beside the list, whether it has closed.
+  Timer? _waitingToWiden;
+
+  /// Checks again, while a sheet or question is open in the page column,
+  /// whether it has closed.
+  Timer? _waitingToNarrow;
+
+  /// The page column's narrowest, kept while a sheet or question open in it
+  /// holds the window at two columns.
+  static const double _narrowestPageColumn = 320;
+
+  @override
+  void dispose() {
+    _waitingToWiden?.cancel();
+    _waitingToNarrow?.cancel();
+    super.dispose();
+  }
+
+  /// Whether the window keeps two columns though it narrowed past them: a
+  /// sheet or question a page beside the list opened is open in the page
+  /// column, and moving the pages to one column would close it, with what it
+  /// holds. Two columns stay until it has gone, room allowing.
+  bool _waitToNarrow(Size size) {
+    final columns = _columns.currentState;
+    if (columns == null || !columns.holdsOverPages) return false;
+    if (size.width < settingsListColumnWidth + _narrowestPageColumn) {
+      return false;
+    }
+    _waitingToNarrow ??= Timer.periodic(const Duration(milliseconds: 250), (
+      timer,
+    ) {
+      if (_columns.currentState?.holdsOverPages ?? false) return;
+      timer.cancel();
+      _waitingToNarrow = null;
+      if (mounted) setState(() {});
+    });
+    return true;
+  }
+
+  /// The window widened to two columns: the pages open over the list move
+  /// beside it, as they were, and their routes go. Returns their ids, first
+  /// to top; none when only the list shows; null while a sheet or question
+  /// is open over them, which a resize does not close -- the window keeps
+  /// one column until it has gone.
+  List<String>? _moveToTwoColumns() {
+    final router = GoRouter.maybeOf(context);
+    if (router == null) return const [];
+    final above = <ImperativeRouteMatch>[];
+    for (final match
+        in router.routerDelegate.currentConfiguration.matches.reversed) {
+      if (match is! ImperativeRouteMatch ||
+          match.route.name != RouteNames.settingsPage) {
+        break;
+      }
+      above.insert(0, match);
+    }
+    final ids = [
+      for (final match in above) ?match.matches.pathParameters['id'],
+    ];
+    if (ids.isEmpty || ids.length != above.length) return const [];
+    final move = ref.read(settingsColumnMoveProvider);
+    final top = move.routeOf(ids.last);
+    if (top != null && !top.isCurrent) {
+      _waitingToWiden ??= Timer.periodic(const Duration(milliseconds: 250), (
+        timer,
+      ) {
+        if (!top.isActive || top.isCurrent) {
+          timer.cancel();
+          _waitingToWiden = null;
+          if (mounted) setState(() {});
+        }
+      });
+      return null;
+    }
+    move
+      ..moveToColumn(ids)
+      ..carry(ids);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Those pages' routes are the top ones, nothing open over them: each
+      // goes as it was moved.
+      for (var i = 0; i < ids.length && router.canPop(); i++) {
+        router.pop();
+      }
+    });
+    return ids;
+  }
+
+  /// The first root row that opens a page of Settings, shown beside the
+  /// list before another is chosen.
+  String? _firstPageId(List<NativeSheetSectionConfig> sections) {
+    final pages = ref.read(settingsPagesProvider);
+    for (final item in sections.expand((section) => section.items)) {
+      if (pages.contains(item.id) &&
+          !item.dismissOnSelect &&
+          item.url == null &&
+          item.kind != NativeSheetItemKind.searchablePicker) {
+        return item.id;
+      }
+    }
+    return null;
+  }
 
   /// Makes the root's pages known, built for the account signed in now. The
   /// Profile page stays loading until it appears and reads the profile the
@@ -89,12 +242,17 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
       appLanguageTag: readNativeAppLanguageTag(ref.watch),
       otherAccountCount: readNativeOtherAccountCount(ref.watch),
     );
-    return SettingsPageView(
+    Widget list(
+      String? selectedId,
+      Future<void> Function(String id)? openRootPage,
+    ) => SettingsPageView(
       detail: NativeSheetDetailConfig(
         id: NativeSheetRoutes.profileMenu,
         title: nativeSettingsTitle(l10n),
         sections: sections,
       ),
+      selectedId: selectedId,
+      onOpenPage: openRootPage,
       leadingFor: (item) => item.usesProfileAvatar
           ? _AccountCardPicture(
               kind: card.kind,
@@ -106,6 +264,28 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
                   : resolveUserAvatarUrlForUser(api, user),
             )
           : null,
+    );
+    // A tablet's window shows the root list beside the page it opened;
+    // narrower, each page is pushed over the last, as on a phone.
+    final size = MediaQuery.sizeOf(context);
+    final wide = _isWide(size) || (_wasWide && _waitToNarrow(size));
+    if (_wasWide && !wide) _moveToOneColumn();
+    List<String>? opened;
+    if (!_wasWide && wide) {
+      opened = _moveToTwoColumns();
+      // Something is open over the pages: one column, until it closes.
+      if (opened == null) return list(null, null);
+    }
+    _wasWide = wide;
+    if (!wide) return list(null, null);
+    return SettingsColumns(
+      key: _columns,
+      buildList: list,
+      firstPageId: () => _firstPageId(sections),
+      initialPageIds: opened != null && opened.isNotEmpty
+          ? opened
+          : [?_selected],
+      onSelected: (id) => _selected = id,
     );
   }
 }
