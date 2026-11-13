@@ -4250,6 +4250,11 @@ final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseG
     /// meanwhile is never taken for another.
     private weak var movedPage: UIViewController?
 
+    /// What root rows had opened over the list when the columns narrowed:
+    /// kept on top of the one column then, it goes back over the list as
+    /// the columns return, rather than into the page column. Held weakly.
+    private let overListWhenNarrowed = NSHashTable<UIViewController>.weakObjects()
+
     /// Whether [controller] appears because the last move carried it over;
     /// true once.
     func takeMoved(_ controller: UIViewController) -> Bool {
@@ -4398,14 +4403,17 @@ final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseG
             finishRelocating()
             return
         }
-        var opened = Array(stack.dropFirst())
-        var overList: [UIViewController] = []
+        let above = Array(stack.dropFirst())
+        // Kept over the list as the columns narrowed: back over the list.
+        var overList = above.filter { overListWhenNarrowed.contains($0) }
+        overListWhenNarrowed.removeAllObjects()
+        var opened = above.filter { !overList.contains($0) }
         if let first = opened.first as? NativeDetailTableViewController {
             selectedRootId = first.detailId
         } else {
             // A root row's picker stays over the list, with what is typed
             // into it; the page beside it opens anew.
-            overList = opened
+            overList = opened + overList
             opened = []
         }
         if opened.isEmpty,
@@ -4443,6 +4451,7 @@ final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseG
         // A picker a root row opened over the list stays on top, with what
         // is typed into it.
         let overList = Array(sidebar.viewControllers.dropFirst())
+        for controller in overList { overListWhenNarrowed.add(controller) }
         sidebar.setViewControllers(root + opened + overList, animated: false)
         isExpanded = false
         separator.isHidden = true

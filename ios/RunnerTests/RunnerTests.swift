@@ -225,11 +225,13 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
-  func testSettingsColumnsKeepARootPickerAsTheyNarrowAndWiden() {
+  func testSettingsColumnsKeepARootPickerAsTheyNarrowAndWiden() throws {
     let root = UIViewController()
     let columns = NativeSettingsColumnsController(root: root)
     columns.defaultRootId = { "test-page" }
-    columns.makePage = { _ in UIViewController() }
+    columns.makePage = { id in
+      makeNativeDetailPageForTesting(["id": id, "title": "Test Page", "items": []])
+    }
     columns.loadViewIfNeeded()
     func resize(_ width: CGFloat) {
       columns.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
@@ -238,16 +240,27 @@ class RunnerTests: XCTestCase {
     }
     resize(1000)
     XCTAssertTrue(columns.isExpanded)
-    // A root row's picker, opened over the list beside a page.
+    let page = try XCTUnwrap(columns.pages.viewControllers.first)
+    // A root row's picker, opened over the list beside the page.
     let picker = UIViewController()
     columns.sidebar.pushViewController(picker, animated: false)
 
     resize(500)
     XCTAssertFalse(columns.isExpanded)
-    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
     XCTAssertEqual(columns.sidebar.viewControllers.count, 3)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
 
-    // One column with the picker over the list: widening keeps it there.
+    // Widened again from there: the picker goes back over the list, the
+    // page beside it.
+    resize(1000)
+    XCTAssertTrue(columns.isExpanded)
+    XCTAssertEqual(columns.sidebar.viewControllers.count, 2)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
+    XCTAssertTrue(columns.pages.viewControllers.first === page)
+
+    // One column with only the picker over the list: widening keeps it
+    // there, and opens a page beside it.
+    resize(500)
     columns.sidebar.setViewControllers([root, picker], animated: false)
     resize(1000)
     XCTAssertTrue(columns.isExpanded)
