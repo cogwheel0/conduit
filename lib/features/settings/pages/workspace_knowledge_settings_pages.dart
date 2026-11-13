@@ -890,6 +890,7 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
           readOnly: editor.fieldsReadOnly,
           saveOnDone: editor.summary != null,
           resourceName: editor.name.trim().isEmpty ? null : editor.name.trim(),
+          session: editor.session,
         );
       }
       await _access.hydrate(detailId, l10n);
@@ -1988,7 +1989,12 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     // and the page says it was not saved.
     if (!_current(editor)) return l10n.workspaceKnowledgeSaveFailed;
     try {
-      await _notifier.updateAccess(summary.id, grants);
+      final saved = await _notifier.updateAccess(summary.id, grants);
+      // What the server kept: it drops grants the account may not give.
+      draft.kept = [
+        for (final grant in saved.summary.accessGrants)
+          WorkspaceAccessGrantInput.fromGrant(grant),
+      ];
     } catch (error, stackTrace) {
       DebugLogger.error(
         'workspace-knowledge-access-failed',

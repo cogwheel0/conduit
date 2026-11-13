@@ -51,6 +51,7 @@ WorkspaceKnowledgeSummary _summary({
   bool external = false,
   String userId = 'owner',
   Map<String, dynamic> meta = const {},
+  List<WorkspaceAccessGrant> accessGrants = const [],
 }) => WorkspaceKnowledgeSummary(
   id: id,
   name: 'Trail Notes',
@@ -58,6 +59,7 @@ WorkspaceKnowledgeSummary _summary({
   userId: userId,
   writeAccess: writeAccess,
   meta: {if (external) 'source': 'external', ...meta},
+  accessGrants: accessGrants,
 );
 
 const _folder = WorkspaceKnowledgeDirectory(
@@ -96,13 +98,31 @@ final class _Knowledge extends WorkspaceKnowledge {
   final accessSaves = <List<WorkspaceAccessGrantInput>>[];
   Completer<void>? saveGate;
 
+  /// What the server keeps of an access list sent: by default all of it, as
+  /// Open WebUI does for grants the account may give.
+  List<WorkspaceAccessGrantInput> Function(
+    List<WorkspaceAccessGrantInput> grants,
+  )
+  keepAccess = (grants) => grants;
+
   @override
   Future<WorkspaceKnowledgeDetail> updateAccess(
     String id,
     List<WorkspaceAccessGrantInput> grants,
   ) async {
     accessSaves.add(grants);
-    return WorkspaceKnowledgeDetail(summary: _summary());
+    return WorkspaceKnowledgeDetail(
+      summary: _summary(
+        accessGrants: [
+          for (final grant in keepAccess(grants))
+            WorkspaceAccessGrant(
+              principalType: grant.principalType,
+              principalId: grant.principalId,
+              permission: grant.permission,
+            ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -760,6 +780,29 @@ void main() {
         role: 'user',
       );
 
+      testWidgets('stays on the list the server saved when it kept less '
+          'than was sent', (tester) async {
+        // The server drops what the account may not give: here, Everyone.
+        final knowledge = _Knowledge()
+          ..keepAccess = (grants) => [
+            for (final grant in grants)
+              if (grant.principalId != '*') grant,
+          ];
+        final rig = await pump(tester, knowledge: knowledge);
+        await rig.open(_base1);
+        await rig.open(access);
+
+        await rig.change(everyone, 'server');
+        await rig.change(done);
+
+        check(knowledge.accessSaves.single.map((g) => g.principalId))
+            .contains('*');
+        check(rig.closed).not((it) => it.contains(access));
+        check(rig.page(access).announcement)
+            .equals(_l10n.resourceSharingFiltered);
+        check(rig.row(access, everyone)!.value).equals('restricted');
+      });
+
       testWidgets('is not saved once another account signed in', (
         tester,
       ) async {
@@ -772,9 +815,11 @@ void main() {
         rig.container.read(_signedInProvider.notifier).use(grace);
         await rig.change(done);
 
+        // A list opened for an account since gone is neither sent nor drawn
+        // again, nor closed as if it were saved.
         check(knowledge.accessSaves).isEmpty();
-        check(rig.page(access).announcement)
-            .equals(_l10n.workspaceKnowledgeSaveFailed);
+        check(rig.closed).not((it) => it.contains(access));
+        check(rig.page(access).announcement).isNull();
       });
 
       testWidgets("is not drawn again with another account's grants", (
