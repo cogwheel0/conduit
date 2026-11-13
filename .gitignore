@@ -47,8 +47,10 @@ app.*.symbols
 app.*.map.json
 
 # Workspace package build output (the root `/build/` rule is root-anchored
-# and does not cover the packages).
+# and does not cover the packages). `dart build cli` writes the daemon's
+# bundle under apps/daemon/build/.
 packages/*/build/
+apps/*/build/
 
 # Android Studio will place build artifacts here
 /android/app/debug

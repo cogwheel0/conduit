@@ -11,6 +11,7 @@ workspace:
   - packages/conduit_markdown
   - packages/conduit_protocol
   - packages/conduit_theme
+  - apps/daemon
 dependencies:
   flutter:
     sdk: flutter
@@ -28,6 +29,12 @@ dependencies:
   'packages/conduit_markdown': 'name: conduit_markdown\ndependencies:\n',
   'packages/conduit_protocol': 'name: conduit_protocol\n',
   'packages/conduit_theme': 'name: conduit_theme\n',
+  'apps/daemon': '''
+name: conduitd
+dependencies:
+  conduit_core:
+  conduit_protocol:
+''',
 });
 
 Plan _plan(List<String> changed, {Set<String> missing = const {}}) =>
@@ -50,6 +57,7 @@ void main() {
 
     check(_names(plan)).deepEquals([
       'Package boundaries',
+      'Analyze daemon',
       'Analyze conduit_core',
       'Analyze conduit_markdown',
       'Analyze app',
@@ -61,6 +69,7 @@ void main() {
     check(plan.leftToCi).deepEquals([
       'the full Dart test suites',
       'Web-safe packages (conduit_markdown compiled to JS and run)',
+      'Desktop daemon (macOS build and smoke test)',
     ]);
   });
 
@@ -76,6 +85,7 @@ void main() {
     // One lockfile resolves the whole workspace.
     final lock = _plan(['pubspec.lock']);
     check(_names(lock)).deepEquals([
+      'Analyze daemon',
       'Analyze conduit_core',
       'Analyze conduit_markdown',
       'Analyze conduit_protocol',
@@ -94,6 +104,7 @@ void main() {
 
     check(_names(plan)).deepEquals([
       'Package boundaries',
+      'Analyze daemon',
       'Analyze conduit_protocol',
       'Test conduit_protocol (whole suite)',
     ]);
