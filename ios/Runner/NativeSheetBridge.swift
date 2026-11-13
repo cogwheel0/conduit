@@ -5195,9 +5195,6 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
     }
 }
 
-/// One line of a comparison between two texts: monospaced, a − or + glyph
-/// in front, and a tinted band for a line removed or added. VoiceOver reads
-/// the row's subtitle, which says what happened to the line.
 /// A row of source code filling its page: monospaced, edited as is, with a
 /// Tab key above the keyboard. Long lines wrap.
 private final class NativeSheetCodeTableViewCell: UITableViewCell, UITextViewDelegate {
@@ -5328,6 +5325,9 @@ private final class NativeSheetCodeTableViewCell: UITableViewCell, UITextViewDel
     }
 }
 
+/// One line of a comparison between two texts: monospaced, a − or + glyph
+/// in front, and a tinted band for a line removed or added. VoiceOver reads
+/// the row's subtitle, which says what happened to the line.
 private final class NativeSheetDiffLineTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetDiffLineTableViewCell"
 
