@@ -2359,7 +2359,7 @@ class HermesSettingsPages extends SettingsPageModule {
   Future<void> _hydrateHidden(AppLocalizations l10n) async {
     // Opened afresh: the last list read may be another connection's, and
     // its rows would unhide that connection's chats on this one.
-    _hiddenList++;
+    final list = ++_hiddenList;
     _hidden = null;
     _hiddenFailed = false;
     await _surface.applyDetail(
@@ -2371,9 +2371,11 @@ class HermesSettingsPages extends SettingsPageModule {
       ),
     );
     final listening = _ref.listen(hermesHiddenSessionsProvider, (_, _) {});
+    List<HermesSessionSummary>? read;
+    var failed = false;
     try {
       _ref.invalidate(hermesHiddenSessionsProvider);
-      _hidden = await _ref
+      read = await _ref
           .read(hermesHiddenSessionsProvider.future)
           .timeout(const Duration(seconds: 15));
     } catch (error) {
@@ -2382,10 +2384,14 @@ class HermesSettingsPages extends SettingsPageModule {
         scope: 'settings/hermes',
         data: {'errorType': error.runtimeType.toString()},
       );
-      _hiddenFailed = true;
+      failed = true;
     } finally {
       listening.close();
     }
+    // A later opening started its own read meanwhile: this one is not it.
+    if (list != _hiddenList) return;
+    _hidden = read;
+    _hiddenFailed = failed;
     await _applyHidden(l10n);
   }
 

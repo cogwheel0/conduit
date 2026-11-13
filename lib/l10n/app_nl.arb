@@ -4889,7 +4889,7 @@
     }
   },
   "hermesMcpFillRequired": "Vul alle verplichte waarden in.",
-  "hermesMcpStillInstallingSignIn": "Hermes installeert {name} nog. Zodra hij in de lijst staat, meld je je aan met Verifiëren op zijn pagina.",
+  "hermesMcpStillInstallingSignIn": "Hermes installeert {name} nog. Zodra hij in de lijst staat, meld je je aan met Authenticeren op zijn pagina.",
   "@hermesMcpStillInstallingSignIn": {
     "placeholders": {
       "name": {
@@ -4905,7 +4905,7 @@
       }
     }
   },
-  "hermesMcpAddedSignInUnfinished": "{name} is toegevoegd, maar het aanmelden is niet voltooid. Gebruik Verifiëren op zijn pagina om het opnieuw te proberen.",
+  "hermesMcpAddedSignInUnfinished": "{name} is toegevoegd, maar het aanmelden is niet voltooid. Gebruik Authenticeren op zijn pagina om het opnieuw te proberen.",
   "@hermesMcpAddedSignInUnfinished": {
     "placeholders": {
       "name": {
