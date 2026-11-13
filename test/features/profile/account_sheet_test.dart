@@ -13,7 +13,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
@@ -915,39 +914,6 @@ void main() {
     // The sheet stands on the keyboard: 95% of the 1,400 pixels above it.
     check(sheet()).equals(1330);
     check(body).equals(sheet() - chrome);
-  });
-
-  testWidgets('a Direct provider is edited in the sheet, without tabs', (
-    tester,
-  ) async {
-    await pumpSheet(
-      tester,
-      const EditDirectConnectionRequest('desk'),
-      overrides: [
-        directConnectionProfilesProvider.overrideWith(
-          () => DirectTestStaticDirectProfiles([
-            DirectConnectionProfile(
-              id: 'desk',
-              name: 'Desk',
-              adapterKey: kOllamaAdapterKey,
-              baseUrl: 'http://10.0.0.7:11434',
-            ),
-          ]),
-        ),
-      ],
-    );
-
-    expect(find.byKey(const Key('account-sheet-kind')), findsNothing);
-    expect(find.text('Edit Connection'), findsOne);
-    expect(find.byKey(const Key('account-sheet-direct')), findsOne);
-    // The form's own Save; the sheet adds one only for iOS's toolbar Save.
-    expect(
-      find.descendant(
-        of: find.byType(AccountSheet),
-        matching: find.text('Save'),
-      ),
-      findsOne,
-    );
   });
 
   // An inactive connection loads before its form shows, and that wait was

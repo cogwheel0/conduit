@@ -652,7 +652,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/direct_connections/views/direct_connection_editor_page.dart
     symbol: "CupertinoActivityIndicator"
-    count: 2
+    count: 1
     owner: direct-connections
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
@@ -730,12 +730,6 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/direct_connections/views/ollama_model_actions.dart
     package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/on_device_web_search_section.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
     count: 1
     owner: direct-connections
     reason: "Existing use awaiting migration to the platform UI seam"

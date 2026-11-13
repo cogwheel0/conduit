@@ -245,7 +245,10 @@ final class DirectMcpServer {
        rememberedApprovals = List.unmodifiable(rememberedApprovals);
 
   static const int currentSchemaVersion = 4;
-  static const Set<String> _reservedHeaders = {
+
+  /// Header names an MCP server's custom headers may not use: a provider's,
+  /// and the hop-by-hop ones the transport owns.
+  static const Set<String> reservedHeaderNames = {
     ...DirectConnectionProfile.reservedHeaderNames,
     'connection',
     'keep-alive',
@@ -348,7 +351,7 @@ final class DirectMcpServer {
           !DirectConnectionProfile.isValidCustomHeaderValue(entry.value)) {
         return 'A custom header is invalid.';
       }
-      if (_reservedHeaders.contains(normalizedName)) {
+      if (reservedHeaderNames.contains(normalizedName)) {
         return 'A reserved HTTP header cannot be customized.';
       }
     }

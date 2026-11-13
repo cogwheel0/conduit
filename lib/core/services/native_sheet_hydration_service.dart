@@ -90,6 +90,8 @@ import '../../features/release_notes/release_notes_presenter.dart'
 import 'package:conduit_core/features/support/support_links.dart';
 import '../../features/settings/pages/webhook_settings_pages.dart'
     show readNotificationTargets, webhookListPageId;
+import '../../features/settings/pages/direct_connection_settings_page_builders.dart'
+    show directAccountsChildPages;
 import '../../features/settings/settings_page_module.dart';
 import '../../features/settings/settings_pages.dart';
 import '../../features/chat/widgets/model_control_labels.dart';
@@ -945,6 +947,7 @@ class NativeSheetHydrationService {
         // sheet opened, and a pushed page comes back to this one.
         await settleNativeAccountsDetail(_ref.read);
         final accounts = readNativeAccountsDetail(_ref.read, l10n);
+        final apple = _ref.read(applePccPlatformSupportedProvider);
         await _surface.applyDetailPatch(
           detailId: nativeAccountsDetailId,
           title: accounts.title,
@@ -967,6 +970,15 @@ class NativeSheetHydrationService {
                     '${Uri.encodeComponent(serverId)}',
                 title: l10n.accountsServerAddresses,
               ),
+            // Direct's pages and its accounts', and the editor adding one.
+            ...directAccountsChildPages(
+              l10n,
+              profiles:
+                  _ref.read(directConnectionProfilesProvider).value ??
+                  const [],
+              appleOnDevice: apple && _ref.read(appleOnDeviceEnabledProvider),
+              applePcc: apple && _ref.read(applePccEnabledProvider),
+            ),
           ],
         );
         return;

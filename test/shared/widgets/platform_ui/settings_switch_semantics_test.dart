@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_form.dart';
-import 'package:conduit/features/direct_connections/views/direct_connection_editor_sections.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_sections.dart';
@@ -16,7 +14,6 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
@@ -46,29 +43,6 @@ void main() {
             configuration.native ? 27 : 18;
         PlatformUiCapabilities.debugNativeIOS26Override = configuration.native;
       });
-
-      for (final compact in [false, true]) {
-        testWidgets('direct availability has one actionable label ($compact)', (
-          tester,
-        ) async {
-          final form = DirectConnectionEditorForm(
-            mode: const DirectConnectionEditorMode.create(),
-          );
-          addTearDown(form.dispose);
-          await _pump(
-            tester,
-            compact
-                ? DirectConnectionGeneralSection(form: form)
-                : DirectConnectionAvailabilitySection(form: form),
-          );
-          _expectSwitch(
-            tester,
-            _l10n(tester).enabledLabel,
-            true,
-            rowOwnsSemantics: compact,
-          );
-        }, variant: TargetPlatformVariant.only(configuration.platform));
-      }
 
       for (final sheet in [false, true]) {
         testWidgets('job name labels only its switch ($sheet)', (tester) async {

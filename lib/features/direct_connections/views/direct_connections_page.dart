@@ -29,7 +29,6 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 
 import '../providers/apple_pcc_providers.dart';
 import '../services/apple_pcc_adapter.dart';
-import 'on_device_web_search_section.dart';
 
 const List<int> _directContextLengthOptions = <int>[
   4096,
@@ -51,36 +50,30 @@ const int kDirectContextCompactionInlineLimit = 5;
 
 Widget _buildDirectConnectionsScaffold(
   BuildContext context, {
-  required bool isOnboarding,
   required List<Widget> children,
   Widget bottomAction = const SizedBox.shrink(),
 }) {
   final l10n = AppLocalizations.of(context)!;
-  if (isOnboarding) {
-    return UtilityPageScaffold.auth(
-      title: l10n.backendChooserDirectTitle,
-      backNavigation: UtilityBackNavigation(
-        label: l10n.back,
-        buttonKey: const ValueKey<String>('direct-onboarding-back-button'),
-        onPressed: () => context.go(Routes.backendChooser),
-      ),
-      bottomAction: bottomAction,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: children,
-      ),
-    );
-  }
-  return UtilityPageScaffold.settings(
-    title: l10n.directConnectionsTitle,
-    children: children,
+  return UtilityPageScaffold.auth(
+    title: l10n.backendChooserDirectTitle,
+    backNavigation: UtilityBackNavigation(
+      label: l10n.back,
+      buttonKey: const ValueKey<String>('direct-onboarding-back-button'),
+      onPressed: () => context.go(Routes.backendChooser),
+    ),
+    bottomAction: bottomAction,
+    body: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    ),
   );
 }
 
+/// Direct set up during onboarding: Apple's models, the providers to chat
+/// with and MCP servers, then on to the app. Settings keeps Direct in pages
+/// of its own.
 class DirectConnectionsPage extends ConsumerStatefulWidget {
-  const DirectConnectionsPage({super.key, this.isOnboarding = false});
-
-  final bool isOnboarding;
+  const DirectConnectionsPage({super.key});
 
   @override
   ConsumerState<DirectConnectionsPage> createState() =>
@@ -159,12 +152,10 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
     final contextLengthOverrides = ref.watch(
       directContextLengthOverridesProvider,
     );
-    final maxImagesPerRequest = ref.watch(directMaxImagesPerRequestProvider);
 
     return profiles.when(
       loading: () => _buildDirectConnectionsScaffold(
         context,
-        isOnboarding: widget.isOnboarding,
         children: const [
           SizedBox(height: Spacing.xxl),
           Center(child: CircularProgressIndicator.adaptive()),
@@ -177,7 +168,6 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       ),
       error: (error, _) => _buildDirectConnectionsScaffold(
         context,
-        isOnboarding: widget.isOnboarding,
         children: [
           DirectConnectionsError(
             message: _friendlyLoadError(l10n, error),
@@ -209,26 +199,6 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
             UiUtils.showMessage(context, l10n.applePccUnavailable);
           }
         },
-        webSearchSettings: const OnDeviceWebSearchSettingsSection(),
-        maxImagesPerRequest: maxImagesPerRequest,
-        onMaxImagesPerRequestChanged: (count) => unawaited(
-          ref
-              .read(directMaxImagesPerRequestProvider.notifier)
-              .set(count)
-              .then<void>(
-                (_) {},
-                // The row keeps showing the stored value; say why it didn't
-                // change.
-                onError: (Object _, StackTrace _) {
-                  if (context.mounted) {
-                    UiUtils.showMessage(
-                      context,
-                      l10n.directImagesPerRequestSaveFailed,
-                    );
-                  }
-                },
-              ),
-        ),
         modelsWithoutContextLimit: modelsWithoutContextLimit,
         contextLengthOverrides: contextLengthOverrides,
         onContextLengthChanged: (modelId, contextLength) => unawaited(
@@ -241,7 +211,6 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         showHistorySync: showOpenWebUi,
         syncWithOpenWebUi:
             historyPolicy == DirectHistoryPolicy.syncWithOpenWebUI,
-        isOnboarding: widget.isOnboarding,
         onSyncChanged: (sync) {
           ref
               .read(directHistoryPolicyProvider.notifier)
@@ -278,6 +247,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
     await context.pushNamed(
       RouteNames.directMcpServerEditor,
       pathParameters: {'id': id},
+      queryParameters: const {'onboarding': 'true'},
       extra: const NativeSheetNavigationOrigin(),
     );
   }
@@ -291,7 +261,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
       RouteNames.directConnectionEditor,
       pathParameters: {'id': id},
       queryParameters: {
-        if (widget.isOnboarding) 'onboarding': 'true',
+        'onboarding': 'true',
         if (isOpenWebUi) 'source': openWebUiDirectConnectionSourceQueryValue,
       },
       extra: const NativeSheetNavigationOrigin(),
@@ -309,7 +279,6 @@ class DirectConnectionsContent extends StatelessWidget {
     this.showOpenWebUi = false,
     this.showHistorySync = false,
     required this.syncWithOpenWebUi,
-    required this.isOnboarding,
     required this.onSyncChanged,
     required this.onAdd,
     required this.onEdit,
@@ -330,9 +299,6 @@ class DirectConnectionsContent extends StatelessWidget {
     this.modelsWithoutContextLimit = const <Model>[],
     this.contextLengthOverrides = const <String, int>{},
     this.onContextLengthChanged,
-    this.webSearchSettings,
-    this.maxImagesPerRequest = kDefaultDirectMaxImagesPerRequest,
-    this.onMaxImagesPerRequestChanged,
   });
 
   final List<DirectConnectionProfile> profiles;
@@ -342,7 +308,6 @@ class DirectConnectionsContent extends StatelessWidget {
   final bool showOpenWebUi;
   final bool showHistorySync;
   final bool syncWithOpenWebUi;
-  final bool isOnboarding;
   final ValueChanged<bool> onSyncChanged;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
@@ -364,13 +329,6 @@ class DirectConnectionsContent extends StatelessWidget {
   final Map<String, int> contextLengthOverrides;
   final void Function(String modelId, int contextLength)?
   onContextLengthChanged;
-
-  /// On-device web search settings; hidden during onboarding.
-  final Widget? webSearchSettings;
-
-  /// The Images per request setting; hidden during onboarding.
-  final int maxImagesPerRequest;
-  final ValueChanged<int>? onMaxImagesPerRequestChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -450,7 +408,6 @@ class DirectConnectionsContent extends StatelessWidget {
           onAdd: onAddOpenWebUi ?? onAdd,
           onEdit: onEditOpenWebUi ?? onEdit,
           onRetry: onRetryOpenWebUi,
-          flat: isOnboarding,
         ),
         const SizedBox(height: Spacing.xl),
       ],
@@ -464,7 +421,6 @@ class DirectConnectionsContent extends StatelessWidget {
         emptySubtitle: l10n.directProfilesEmptySubtitle,
         onAdd: onAdd,
         onEdit: onEdit,
-        flat: isOnboarding,
       ),
       const SizedBox(height: Spacing.xl),
       _DirectMcpSection(
@@ -473,24 +429,11 @@ class DirectConnectionsContent extends StatelessWidget {
         onAdd: onAddMcp,
         onEdit: onEditMcp,
         onRetry: onRetryMcp,
-        flat: isOnboarding,
       ),
-      if (onMaxImagesPerRequestChanged != null && !isOnboarding) ...[
-        const SizedBox(height: Spacing.xl),
-        _DirectImagesPerRequestSection(
-          value: maxImagesPerRequest,
-          onChanged: onMaxImagesPerRequestChanged!,
-        ),
-      ],
-      if (webSearchSettings != null && !isOnboarding) ...[
-        const SizedBox(height: Spacing.xl),
-        webSearchSettings!,
-      ],
     ];
 
     return _buildDirectConnectionsScaffold(
       context,
-      isOnboarding: isOnboarding,
       children: content,
       bottomAction: ConduitButton(
         key: const ValueKey<String>('finish-direct-onboarding-button'),
@@ -509,7 +452,6 @@ class _DirectMcpSection extends StatelessWidget {
     required this.onAdd,
     required this.onEdit,
     required this.onRetry,
-    required this.flat,
   });
 
   final List<DirectMcpServer> servers;
@@ -517,7 +459,6 @@ class _DirectMcpSection extends StatelessWidget {
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
   final VoidCallback onRetry;
-  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -550,11 +491,9 @@ class _DirectMcpSection extends StatelessWidget {
             title: l10n.directMcpEmptyTitle,
             subtitle: l10n.directMcpReachabilityHelp,
             onAdd: onAdd,
-            flat: flat,
           )
         else
           _DirectConnectionListSurface(
-            flat: flat,
             children: [
               for (var index = 0; index < servers.length; index++)
                 UtilityRow(
@@ -715,63 +654,6 @@ class _AppleModelSection extends StatelessWidget {
     };
   }
 }
-
-/// How many of a chat's newest images one Direct request carries.
-class _DirectImagesPerRequestSection extends StatelessWidget {
-  const _DirectImagesPerRequestSection({
-    required this.value,
-    required this.onChanged,
-  });
-
-  final int value;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return InsetGroupedList(
-      title: l10n.attachments,
-      footer: l10n.directImagesPerRequestFooter,
-      useNativeSurface: PlatformInfo.isIOS,
-      children: [
-        UtilityRow(
-          key: const ValueKey<String>('direct-images-per-request'),
-          title: l10n.directImagesPerRequest,
-          subtitle: _formatCount(context, value),
-          titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
-          showChevron: true,
-          onTap: () => _showPicker(context),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _showPicker(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    const options = kDirectMaxImagesPerRequestOptions;
-    final selected = await showAdaptiveSelectionSheet<int>(
-      context: context,
-      builder: (sheetContext) => AdaptiveSelectionSheet(
-        title: l10n.directImagesPerRequest,
-        description: l10n.directImagesPerRequestFooter,
-        itemCount: options.length,
-        itemBuilder: (context, index) {
-          final option = options[index];
-          return AdaptiveSelectionTile(
-            title: _formatCount(context, option),
-            selected: option == value,
-            onTap: () => Navigator.of(sheetContext).pop(option),
-          );
-        },
-      ),
-    );
-    if (selected != null && selected != value) onChanged(selected);
-  }
-}
-
-String _formatCount(BuildContext context, int count) =>
-    NumberFormat.decimalPattern(Localizations.localeOf(context).toLanguageTag())
-        .format(count);
 
 /// One row standing in for a long context-limit list.
 class _DirectContextCompactionSummary extends StatelessWidget {
@@ -965,14 +847,12 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
     required this.onAdd,
     required this.onEdit,
     this.onRetry,
-    this.flat = false,
   });
 
   final AsyncValue<OpenWebUiDirectConnectionsSnapshot?> connections;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
   final VoidCallback? onRetry;
-  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -1001,7 +881,6 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
             title: l10n.openWebUiDirectProfilesEmptyTitle,
             subtitle: l10n.openWebUiDirectProfilesEmptySubtitle,
             onAdd: onAdd,
-            flat: flat,
           ),
           if (connections.hasError) ...[
             const SizedBox(height: Spacing.sm),
@@ -1009,7 +888,6 @@ class _OpenWebUiDirectConnectionSection extends StatelessWidget {
           ],
         ] else ...[
           _DirectConnectionListSurface(
-            flat: flat,
             children: [
               for (var index = 0; index < records.length; index++)
                 _DirectConnectionTile(
@@ -1040,7 +918,6 @@ class _DirectConnectionSection extends StatelessWidget {
     required this.emptySubtitle,
     required this.onAdd,
     required this.onEdit,
-    this.flat = false,
   });
 
   final String title;
@@ -1050,7 +927,6 @@ class _DirectConnectionSection extends StatelessWidget {
   final String emptySubtitle;
   final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
-  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -1067,11 +943,9 @@ class _DirectConnectionSection extends StatelessWidget {
             title: emptyTitle,
             subtitle: emptySubtitle,
             onAdd: onAdd,
-            flat: flat,
           )
         else
           _DirectConnectionListSurface(
-            flat: flat,
             children: [
               for (var index = 0; index < profiles.length; index++)
                 _DirectConnectionTile(
@@ -1178,13 +1052,11 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onAdd,
-    this.flat = false,
   });
 
   final String title;
   final String subtitle;
   final VoidCallback onAdd;
-  final bool flat;
 
   @override
   Widget build(BuildContext context) {
@@ -1201,7 +1073,7 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
       ),
       onTap: onAdd,
     );
-    if (flat && !PlatformInfo.isIOS) {
+    if (!PlatformInfo.isIOS) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
         child: content,
@@ -1296,17 +1168,13 @@ class _DirectConnectionTile extends StatelessWidget {
 }
 
 class _DirectConnectionListSurface extends StatelessWidget {
-  const _DirectConnectionListSurface({
-    required this.children,
-    this.flat = false,
-  });
+  const _DirectConnectionListSurface({required this.children});
 
   final List<Widget> children;
-  final bool flat;
 
   @override
   Widget build(BuildContext context) {
-    if (flat && !PlatformInfo.isIOS) {
+    if (!PlatformInfo.isIOS) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
         child: Column(children: children),

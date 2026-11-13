@@ -17,22 +17,27 @@ import 'package:conduit_core/features/direct_connections/controllers/direct_conn
 
 import 'direct_connection_editor_workflow.dart';
 
+/// The editor gateway over the providers of [container]: a page's,
+/// or the app's for an editor that lives in Settings's own pages.
 DirectConnectionEditorGateway riverpodDirectConnectionEditorGateway(
-  WidgetRef ref,
+  ProviderContainer container,
   DirectConnectionEditorMode mode,
 ) => switch (mode.source) {
-  DirectConnectionEditorSource.local => _RiverpodLocalEditorGateway(ref, mode),
+  DirectConnectionEditorSource.local => _RiverpodLocalEditorGateway(
+    container,
+    mode,
+  ),
   DirectConnectionEditorSource.openWebUi => _RiverpodOpenWebUiEditorGateway(
-    ref,
+    container,
     mode,
   ),
 };
 
 abstract base class _RiverpodEditorGateway
     implements DirectConnectionEditorGateway {
-  _RiverpodEditorGateway(this.ref, this.mode);
+  _RiverpodEditorGateway(this.container, this.mode);
 
-  final WidgetRef ref;
+  final ProviderContainer container;
 
   @override
   final DirectConnectionEditorMode mode;
@@ -55,7 +60,7 @@ abstract base class _RiverpodEditorGateway
     DirectEditorResourceListener listener, {
     required bool fireImmediately,
   }) => _RiverpodEditorResourceSubscription(
-    ref.listenManual(
+    container.listen(
       provider,
       (_, next) => listener(mapResource(next, map)),
       fireImmediately: fireImmediately,
@@ -64,7 +69,7 @@ abstract base class _RiverpodEditorGateway
 
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) =>
-      ref.read(directConnectionProfilesProvider.notifier).probe(profile);
+      container.read(directConnectionProfilesProvider.notifier).probe(profile);
 
   @override
   Future<void> delete(DirectEditorDeleteIntent intent) async {
@@ -89,18 +94,18 @@ abstract base class _RiverpodEditorGateway
   Future<void> deleteStoredProfile(DirectConnectionProfile savedProfile);
 
   Future<bool> _clearDirectPreferenceIfLastUsable(String profileId) async {
-    final profiles = await ref.read(
+    final profiles = await container.read(
       effectiveDirectConnectionProfilesFutureProvider.future,
     );
     final hasAnotherUsable = profiles.any(
       (profile) => profile.id != profileId && profile.isUsable,
     );
     if (hasAnotherUsable ||
-        ref.read(preferredBackendProvider) != PreferredBackend.direct) {
+        container.read(preferredBackendProvider) != PreferredBackend.direct) {
       return false;
     }
     try {
-      await ref
+      await container
           .read(preferredBackendProvider.notifier)
           .set(PreferredBackend.unset);
       return true;
@@ -117,7 +122,7 @@ abstract base class _RiverpodEditorGateway
 
   Future<void> _restoreDirectPreference() async {
     try {
-      await ref
+      await container
           .read(preferredBackendProvider.notifier)
           .set(PreferredBackend.direct);
     } catch (error, stackTrace) {
@@ -142,7 +147,7 @@ final class _RiverpodEditorResourceSubscription<T>
 }
 
 final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
-  _RiverpodLocalEditorGateway(super.ref, super.mode)
+  _RiverpodLocalEditorGateway(super.container, super.mode)
     : assert(mode.source == DirectConnectionEditorSource.local);
 
   DirectConnectionProfile? _previousProfile;
@@ -169,8 +174,10 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
   }
 
   @override
-  DirectEditorLoadState get resourceState =>
-      mapResource(ref.read(directConnectionProfilesProvider), _resourceFor);
+  DirectEditorLoadState get resourceState => mapResource(
+    container.read(directConnectionProfilesProvider),
+    _resourceFor,
+  );
 
   @override
   DirectEditorResourceSubscription subscribe(
@@ -185,7 +192,7 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
 
   @override
   Future<void> reload() =>
-      ref.read(directConnectionProfilesProvider.notifier).reload();
+      container.read(directConnectionProfilesProvider.notifier).reload();
 
   @override
   void hydrate(DirectEditorResource resource) {
@@ -202,7 +209,7 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
       throw const DirectEditorTargetUnavailable();
     }
     try {
-      await ref
+      await container
           .read(directConnectionProfilesProvider.notifier)
           .upsert(
             intent.draft,
@@ -217,8 +224,8 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
     // is saved by now; failing to check or switch does not undo that.
     if (mode.isNew && intent.draft.isUsable) {
       try {
-        if (ref.read(hermesOnlyModeProvider)) {
-          await ref
+        if (container.read(hermesOnlyModeProvider)) {
+          await container
               .read(preferredBackendProvider.notifier)
               .set(PreferredBackend.direct);
         }
@@ -236,13 +243,14 @@ final class _RiverpodLocalEditorGateway extends _RiverpodEditorGateway {
   bool ownerIsCurrent(DirectEditorOwner? owner) => true;
 
   @override
-  Future<void> deleteStoredProfile(DirectConnectionProfile savedProfile) => ref
-      .read(directConnectionProfilesProvider.notifier)
-      .remove(savedProfile.id);
+  Future<void> deleteStoredProfile(DirectConnectionProfile savedProfile) =>
+      container
+          .read(directConnectionProfilesProvider.notifier)
+          .remove(savedProfile.id);
 }
 
 final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
-  _RiverpodOpenWebUiEditorGateway(super.ref, super.mode)
+  _RiverpodOpenWebUiEditorGateway(super.container, super.mode)
     : assert(mode.source == DirectConnectionEditorSource.openWebUi);
 
   OpenWebUiDirectConnectionRecord? _previousRecord;
@@ -272,14 +280,16 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
       owner: DirectEditorOwner(
         serverId: snapshot.serverId,
         accountId: snapshot.accountId,
-        authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+        authEpoch: container.read(openWebUiAuthSessionEpochProvider),
       ),
     );
   }
 
   @override
-  DirectEditorLoadState get resourceState =>
-      mapResource(ref.read(openWebUiDirectConnectionsProvider), _resourceFor);
+  DirectEditorLoadState get resourceState => mapResource(
+    container.read(openWebUiDirectConnectionsProvider),
+    _resourceFor,
+  );
 
   @override
   DirectEditorResourceSubscription subscribe(
@@ -294,7 +304,7 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
 
   @override
   Future<void> reload() =>
-      ref.read(openWebUiDirectConnectionsProvider.notifier).reload();
+      container.read(openWebUiDirectConnectionsProvider.notifier).reload();
 
   @override
   void hydrate(DirectEditorResource resource) {
@@ -323,14 +333,14 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
   Future<void> save(DirectEditorSaveIntent intent) async {
     try {
       if (mode.isNew) {
-        await ref
+        await container
             .read(openWebUiDirectConnectionsProvider.notifier)
             .add(intent.draft, authType: _authType(intent.authentication));
         return;
       }
       final previous = _previousRecord;
       if (previous == null) throw const DirectEditorTargetUnavailable();
-      await ref
+      await container
           .read(openWebUiDirectConnectionsProvider.notifier)
           .updateConnection(
             previous,
@@ -344,13 +354,16 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
 
   @override
   bool ownerIsCurrent(DirectEditorOwner? owner) {
-    final snapshot = ref.read(openWebUiDirectConnectionsProvider).asData?.value;
+    final snapshot = container
+        .read(openWebUiDirectConnectionsProvider)
+        .asData
+        ?.value;
     return owner != null &&
         snapshot != null &&
         owner.matches(
           serverId: snapshot.serverId,
           accountId: snapshot.accountId,
-          authEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+          authEpoch: container.read(openWebUiAuthSessionEpochProvider),
         );
   }
 
@@ -359,7 +372,7 @@ final class _RiverpodOpenWebUiEditorGateway extends _RiverpodEditorGateway {
     final previous = _previousRecord;
     if (previous == null) throw const DirectEditorTargetUnavailable();
     try {
-      await ref
+      await container
           .read(openWebUiDirectConnectionsProvider.notifier)
           .delete(previous);
     } on OpenWebUiDirectConnectionCommitUncertainException catch (

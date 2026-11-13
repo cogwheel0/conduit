@@ -21,6 +21,45 @@ final class DirectHeaderValidationError {
   final String? headerName;
 }
 
+/// What is wrong with a header [name] carrying [value] beside the headers
+/// named [existing], or null when it can be added. Provider and MCP server
+/// headers are checked alike, each against its own [reserved] names.
+DirectHeaderValidationError? validateDirectCustomHeader(
+  Iterable<String> existing, {
+  required String name,
+  required String value,
+  Set<String> reserved = DirectConnectionProfile.reservedHeaderNames,
+}) {
+  if (name.isEmpty) {
+    return const DirectHeaderValidationError(
+      DirectHeaderValidationIssue.nameRequired,
+    );
+  }
+  if (!DirectConnectionProfile.isValidCustomHeaderName(name)) {
+    return const DirectHeaderValidationError(
+      DirectHeaderValidationIssue.invalidName,
+    );
+  }
+  if (reserved.contains(name.toLowerCase())) {
+    return DirectHeaderValidationError(
+      DirectHeaderValidationIssue.reservedName,
+      headerName: name,
+    );
+  }
+  if (existing.any((other) => other.toLowerCase() == name.toLowerCase())) {
+    return DirectHeaderValidationError(
+      DirectHeaderValidationIssue.duplicateName,
+      headerName: name,
+    );
+  }
+  if (!DirectConnectionProfile.isValidCustomHeaderValue(value)) {
+    return const DirectHeaderValidationError(
+      DirectHeaderValidationIssue.invalidValue,
+    );
+  }
+  return null;
+}
+
 /// Owns custom-header input, validation, and collection mutations.
 final class DirectCustomHeadersController {
   DirectCustomHeadersController({required this.onChanged}) {
@@ -79,8 +118,11 @@ final class DirectCustomHeadersController {
   bool add() {
     if (!canAdd) return false;
     final normalizedName = name.text.trim();
-    final validationError =
-        _validateName(normalizedName) ?? _validateValue(value.text);
+    final validationError = validateDirectCustomHeader(
+      _headers.keys,
+      name: normalizedName,
+      value: value.text,
+    );
     if (validationError != null) {
       _error = validationError;
       onChanged(DirectCustomHeadersChange.input);
@@ -101,41 +143,6 @@ final class DirectCustomHeadersController {
   void remove(String name) {
     if (_headers.remove(name) == null) return;
     _markChanged();
-  }
-
-  DirectHeaderValidationError? _validateName(String name) {
-    if (!DirectConnectionProfile.isValidCustomHeaderName(name)) {
-      return const DirectHeaderValidationError(
-        DirectHeaderValidationIssue.invalidName,
-      );
-    }
-    if (DirectConnectionProfile.reservedHeaderNames.contains(
-      name.toLowerCase(),
-    )) {
-      return DirectHeaderValidationError(
-        DirectHeaderValidationIssue.reservedName,
-        headerName: name,
-      );
-    }
-    final duplicate = _headers.keys.any(
-      (existing) => existing.toLowerCase() == name.toLowerCase(),
-    );
-    if (duplicate) {
-      return DirectHeaderValidationError(
-        DirectHeaderValidationIssue.duplicateName,
-        headerName: name,
-      );
-    }
-    return null;
-  }
-
-  DirectHeaderValidationError? _validateValue(String value) {
-    if (!DirectConnectionProfile.isValidCustomHeaderValue(value)) {
-      return const DirectHeaderValidationError(
-        DirectHeaderValidationIssue.invalidValue,
-      );
-    }
-    return null;
   }
 
   void _markChanged() {

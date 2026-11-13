@@ -22,6 +22,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show TextInput;
 import 'package:flutter/widgets.dart';
 
 import '../../core/services/native_sheet_bridge.dart';
@@ -43,8 +44,6 @@ import '../profile/widgets/stt_language_picker.dart'
 import '../push/widgets/push_target_actions.dart'
     show setPushEnabledFromNativeSheet;
 import '../push/widgets/push_target_detail_sheet.dart';
-import '../profile/widgets/account_sheet.dart'
-    show EditDirectConnectionRequest, showAccountSheet;
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
 import 'settings_page_module.dart';
@@ -294,10 +293,6 @@ class SettingsController {
         await signOutOfLibreChatAccount(context, account);
         await _refreshSignOutPage();
         return true;
-      case nativeDirectEditActionId:
-        if (context == null || value is! String) return true;
-        await showAccountSheet(context, EditDirectConnectionRequest(value));
-        return true;
       case nativeAccountSignOutOfActionId:
         if (context == null || value is! String) return true;
         final accounts = await ref.read(openWebUiAccountsProvider.future);
@@ -441,17 +436,6 @@ class SettingsController {
       }
 
       if (await _handleNativeAccountAction(event.id, value)) return;
-
-      if (event.id == NativeSheetRoutes.directConnections) {
-        final request = directConnectionsNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
 
       if (event.id == NativeSheetRoutes.personalConnections) {
         // The sheet was built before this arrived, and Advanced or the
@@ -1172,8 +1156,13 @@ class SettingsController {
       }
     }
     // The page was left, or opened again, while the change was sent: the
-    // outcome is not put over what that visit shows.
+    // outcome is not put over what that visit shows, nor ends the AutoFill
+    // context of fields that are not the ones it was sent from.
     if (visit != _passwordVisit) return;
+    // AutoFill (Android's, through the Flutter fields) offers to save the
+    // new password once its fields' context ends with the change made; a
+    // refused change saves nothing.
+    TextInput.finishAutofillContext(shouldSave: outcome == null);
     // Changed, the page says so in place of its fields, with nothing left
     // to send or to lose; refused, it starts over saying why.
     await _surface.applyDetail(

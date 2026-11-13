@@ -411,6 +411,7 @@ class PlatformNativeSheetItem {
     this.confirmMessage,
     this.disabled,
     this.keyboard,
+    this.passwordRole,
     this.rowActions,
   });
 
@@ -468,6 +469,11 @@ class PlatformNativeSheetItem {
   /// The keyboard a text row brings up: `url`, `email`, `number`, or the
   /// default when null.
   String? keyboard;
+
+  /// For a secure row holding the account's own password: `current`, or
+  /// `newPassword` for one being set. Null marks any other secret (an API
+  /// key, a token), which the system must not offer to save as a password.
+  String? passwordRole;
 
   /// What else the row can do, besides what a tap does: a long press lists
   /// them, and a swipe offers them where the page is not reordering.

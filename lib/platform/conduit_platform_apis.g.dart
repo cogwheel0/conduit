@@ -1622,6 +1622,7 @@ class PlatformNativeSheetItem {
     this.confirmMessage,
     this.disabled,
     this.keyboard,
+    this.passwordRole,
     this.rowActions,
   });
 
@@ -1707,6 +1708,11 @@ class PlatformNativeSheetItem {
   /// default when null.
   String? keyboard;
 
+  /// For a secure row holding the account's own password: `current`, or
+  /// `newPassword` for one being set. Null marks any other secret (an API
+  /// key, a token), which the system must not offer to save as a password.
+  String? passwordRole;
+
   /// What else the row can do, besides what a tap does: a long press lists
   /// them, and a swipe offers them where the page is not reordering.
   List<PlatformNativeSheetRowAction>? rowActions;
@@ -1749,6 +1755,7 @@ class PlatformNativeSheetItem {
       confirmMessage,
       disabled,
       keyboard,
+      passwordRole,
       rowActions,
     ];
   }
@@ -1796,7 +1803,8 @@ class PlatformNativeSheetItem {
       confirmMessage: result[33] as String?,
       disabled: result[34] as bool?,
       keyboard: result[35] as String?,
-      rowActions: (result[36] as List<Object?>?)
+      passwordRole: result[36] as String?,
+      rowActions: (result[37] as List<Object?>?)
           ?.cast<PlatformNativeSheetRowAction>(),
     );
   }
@@ -1846,6 +1854,7 @@ class PlatformNativeSheetItem {
         _deepEquals(confirmMessage, other.confirmMessage) &&
         _deepEquals(disabled, other.disabled) &&
         _deepEquals(keyboard, other.keyboard) &&
+        _deepEquals(passwordRole, other.passwordRole) &&
         _deepEquals(rowActions, other.rowActions);
   }
 
@@ -1855,7 +1864,7 @@ class PlatformNativeSheetItem {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel, confirmMessage: $confirmMessage, disabled: $disabled, keyboard: $keyboard, rowActions: $rowActions)';
+    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel, confirmMessage: $confirmMessage, disabled: $disabled, keyboard: $keyboard, passwordRole: $passwordRole, rowActions: $rowActions)';
   }
 }
 

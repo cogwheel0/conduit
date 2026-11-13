@@ -551,6 +551,17 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
             obscureText: secure && _obscured,
             autocorrect: !secure && keyboard == null,
             enableSuggestions: !secure && keyboard == null,
+            // The account's own password is AutoFill's to fill and save;
+            // any other secret (a key, a token) is kept out of it, and an
+            // ordinary field is left for the platform to judge.
+            autofillHints: switch (item.passwordRole) {
+              NativeSheetPasswordRole.current => const [AutofillHints.password],
+              NativeSheetPasswordRole.newPassword => const [
+                AutofillHints.newPassword,
+              ],
+              null when secure => null,
+              null => const <String>[],
+            },
             minLines: multiline ? 3 : 1,
             maxLines: multiline ? 12 : 1,
             keyboardType: multiline

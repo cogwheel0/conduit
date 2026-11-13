@@ -14,102 +14,11 @@ import '../../profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 
 import '../controllers/direct_connection_editor_form.dart';
-import '../controllers/direct_custom_headers_controller.dart';
+import '../controllers/direct_connection_editor_messages.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 
 part 'direct_connection_advanced_settings.dart';
-
-final class DirectConnectionAvailabilitySection extends StatelessWidget {
-  const DirectConnectionAvailabilitySection({super.key, required this.form});
-
-  final DirectConnectionEditorForm form;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    return InsetGroupedSection(
-      child: MergeSemantics(
-        child: InkWell(
-          onTap: () {
-            ConduitHaptics.selectionClick();
-            form.setEnabled(!form.enabled);
-          },
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ExcludeSemantics(
-                      child: Text(
-                        l10n.enabledLabel,
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: Spacing.xxs),
-                    Text(
-                      l10n.directConnectionEnabledSubtitle,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: Spacing.md),
-              AdaptiveSwitch(
-                value: form.enabled,
-                semanticLabel: l10n.enabledLabel,
-                onChanged: form.setEnabled,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The compact first group used by the iOS editor.
-///
-/// Availability and provider are both connection identity, so presenting them
-/// as one list creates a single entry point before the editable credentials.
-final class DirectConnectionGeneralSection extends StatelessWidget {
-  const DirectConnectionGeneralSection({super.key, required this.form});
-
-  final DirectConnectionEditorForm form;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return InsetGroupedList(
-      useNativeSurface: true,
-      footer: form.policy.editsProvider
-          ? l10n.directConnectionEnabledSubtitle
-          : l10n.openWebUiDirectConnectionProviderDescription,
-      children: [
-        UtilityRow(
-          title: l10n.enabledLabel,
-          titleFontWeight: FontWeight.w400,
-          toggled: form.enabled,
-          trailing: AdaptiveSwitch(
-            value: form.enabled,
-            onChanged: form.setEnabled,
-            semanticLabel: l10n.enabledLabel,
-          ),
-          onTap: () => form.setEnabled(!form.enabled),
-        ),
-        _NativeProviderRow(form: form),
-      ],
-    );
-  }
-}
 
 List<AdaptiveDropdownOption<String>> _providerOptions(AppLocalizations l10n) =>
     [

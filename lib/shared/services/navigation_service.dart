@@ -16,17 +16,10 @@ final class NativeSheetNavigationOrigin {
 
 typedef NativeSheetNavigationRequest = ({String routeName, Object extra});
 
-/// Direct Connections is pushed as the native profile sheet starts to slide
-/// away, so the page is already underneath when it has gone. Keep its route and transition marker coupled so this entry point cannot
+/// Personal connections are pushed as the native profile sheet starts to
+/// slide away, so the page is already underneath when it has gone. Keep its
+/// route and transition marker coupled so this entry point cannot
 /// accidentally restore a second Cupertino transition over the native sheet.
-const NativeSheetNavigationRequest
-directConnectionsNativeSheetNavigationRequest = (
-  routeName: RouteNames.directConnections,
-  extra: NativeSheetNavigationOrigin(),
-);
-
-/// Personal connections open the same way: the list page is pushed as the
-/// native sheet slides away, without a second transition over it.
 const NativeSheetNavigationRequest
 personalConnectionsNativeSheetNavigationRequest = (
   routeName: RouteNames.personalConnections,

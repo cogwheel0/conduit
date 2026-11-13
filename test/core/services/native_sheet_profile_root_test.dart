@@ -3,7 +3,9 @@ import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart'
     show nativeProfileSheetFieldsDiffer;
+import 'package:conduit/features/settings/pages/direct_connection_page_ids.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -102,6 +104,13 @@ List<NativeSheetSectionConfig> _root({
   card: _card,
   appLanguageTag: appLanguageTag,
   otherAccountCount: otherAccountCount,
+);
+
+
+/// The editor adding a provider on this device.
+final _newDirectEditor = directConnectionPageId(
+  DirectConnectionEditorSource.local,
+  null,
 );
 
 void main() {
@@ -363,6 +372,8 @@ void main() {
       String? hermesInUseId,
       List<DirectConnectionProfile>? direct = const [],
       Set<String> pushAttention = const {},
+      bool appleOnDevice = false,
+      bool applePcc = false,
     }) => buildNativeAccountsDetail(
       _l10n,
       accounts: accounts,
@@ -370,6 +381,8 @@ void main() {
       hermesInUseId: hermesInUseId,
       directProfiles: direct,
       pushAttention: pushAttention,
+      appleOnDevice: appleOnDevice,
+      applePcc: applePcc,
     );
 
     test('a card for each server, its accounts under it, the active one '
@@ -563,14 +576,37 @@ void main() {
         ],
       );
 
-      final desk = _item(page.sections, '$nativeDirectEditActionId:desk');
+      // A page of Settings's own: the sheet stays open.
+      final desk = _item(
+        page.sections,
+        directConnectionPageId(DirectConnectionEditorSource.local, 'desk'),
+      );
       expect(desk.subtitle, 'Ollama · Disabled');
       expect(desk.checked, isFalse);
-      expect(desk.actionId, nativeDirectEditActionId);
-      expect(desk.actionValue, 'desk');
+      expect(desk.dismissOnSelect, isFalse);
+      expect(desk.actionId, isNull);
       expect(
         _ids(page.sections).expand((ids) => ids),
-        isNot(contains('accounts-direct-add')),
+        isNot(contains(_newDirectEditor)),
+      );
+    });
+
+    test('Direct and its Apple models open their pages in Settings', () {
+      final page = accountsPage(appleOnDevice: true, applePcc: true);
+
+      for (final id in [
+        directConnectionsPageId,
+        directApplePageId(directAppleOnDevice),
+        directApplePageId(directApplePcc),
+      ]) {
+        final row = _item(page.sections, id);
+        expect(row.dismissOnSelect, isFalse, reason: id);
+        expect(row.actionId, isNull, reason: id);
+      }
+      // Apple's models are accounts enough: no Add Connection.
+      expect(
+        _ids(page.sections).expand((ids) => ids),
+        isNot(contains(_newDirectEditor)),
       );
     });
 
@@ -609,23 +645,27 @@ void main() {
       expect(kinds(libreChat: false).map((row) => row.actionValue), [
         'openWebUi',
         'hermes',
-        'direct',
+        null,
       ]);
       final rows = kinds(libreChat: true);
       expect(rows.map((row) => row.actionValue), [
         'openWebUi',
         'libreChat',
         'hermes',
-        'direct',
+        null,
       ]);
-      // The sign-in is a flow of its own, opened as the sheet closes.
+      // A sign-in is a flow of its own, opened as the sheet closes.
       expect(
-        rows.every(
+        rows.take(3).every(
           (row) =>
               row.dismissOnSelect && row.actionId == nativeAccountAddActionId,
         ),
         isTrue,
       );
+      // A provider is a form in Settings, the sheet staying open.
+      final direct = rows.last;
+      expect(direct.id, directConnectionAddAccountPageId);
+      expect(direct.dismissOnSelect, isFalse);
     });
 
     test('an empty card offers to add its first, on its own tab', () {
@@ -634,13 +674,17 @@ void main() {
       for (final (id, kind) in [
         ('accounts-openwebui-add', 'openWebUi'),
         ('accounts-hermes-add', 'hermes'),
-        ('accounts-direct-add', 'direct'),
       ]) {
         final add = _item(page.sections, id);
         expect(add.accent, isTrue, reason: id);
         expect(add.actionId, nativeAccountAddActionId, reason: id);
         expect(add.actionValue, kind, reason: id);
       }
+      // Direct's opens the editor adding a provider, in Settings.
+      final direct = _item(page.sections, _newDirectEditor);
+      expect(direct.accent, isTrue);
+      expect(direct.dismissOnSelect, isFalse);
+      expect(direct.actionId, isNull);
     });
 
     test('unread accounts say so, and unread providers offer no add', () {
@@ -648,7 +692,7 @@ void main() {
 
       final ids = _ids(page.sections).expand((ids) => ids).toList();
       expect(ids, contains('accounts-unreadable'));
-      expect(ids, isNot(contains('accounts-direct-add')));
+      expect(ids, isNot(contains(_newDirectEditor)));
     });
 
     test('signing out of every account is offered with several', () {

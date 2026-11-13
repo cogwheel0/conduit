@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/models/model.dart';
@@ -44,7 +42,6 @@ void main() {
           home: DirectConnectionsContent(
             profiles: [profile],
             syncWithOpenWebUi: true,
-            isOnboarding: false,
             showHistorySync: true,
             onSyncChanged: (_) {},
             onAdd: () {},
@@ -93,7 +90,6 @@ void main() {
           home: DirectConnectionsContent(
             profiles: profiles,
             syncWithOpenWebUi: syncEnabled,
-            isOnboarding: false,
             showHistorySync: true,
             onSyncChanged: (value) => syncEnabled = value,
             onAdd: () {},
@@ -104,7 +100,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Direct Connections'), findsAtLeastNWidgets(1));
+    expect(find.text('Model Provider'), findsAtLeastNWidgets(1));
     expect(find.text('Open WebUI History'), findsAtLeastNWidgets(1));
     expect(find.text('Home Ollama'), findsOneWidget);
     expect(find.textContaining('http://192.168.1.5:11434'), findsOneWidget);
@@ -152,7 +148,6 @@ void main() {
             openWebUiConnections: AsyncData(snapshot),
             showOpenWebUi: true,
             syncWithOpenWebUi: true,
-            isOnboarding: false,
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (id) => editedLocal = id,
@@ -190,7 +185,6 @@ void main() {
           home: DirectConnectionsContent(
             profiles: const [],
             syncWithOpenWebUi: true,
-            isOnboarding: false,
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (_) {},
@@ -214,7 +208,6 @@ void main() {
           home: DirectConnectionsContent(
             profiles: const [],
             syncWithOpenWebUi: false,
-            isOnboarding: false,
             appleOnDeviceStatus: AsyncData(
               PlatformPccStatus(
                 availability: PlatformPccAvailability.available,
@@ -296,7 +289,6 @@ void main() {
                 )
                 .toList(),
             syncWithOpenWebUi: false,
-            isOnboarding: false,
             onContextLengthChanged: (modelId, contextLength) {
               changedModelId = modelId;
               changedContextLength = contextLength;
@@ -343,7 +335,6 @@ void main() {
             ),
           ],
           syncWithOpenWebUi: false,
-          isOnboarding: false,
           onContextLengthChanged: (_, _) {},
           onSyncChanged: (_) {},
           onAdd: () {},
@@ -362,55 +353,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(note, findsNothing);
-  });
-
-  testWidgets('images per request opens a picker outside onboarding', (
-    tester,
-  ) async {
-    int? changed;
-    Widget content({required bool isOnboarding}) => ProviderScope(
-      child: MaterialApp(
-        localizationsDelegates: conduitLocalizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: DirectConnectionsContent(
-          profiles: const [],
-          syncWithOpenWebUi: false,
-          isOnboarding: isOnboarding,
-          maxImagesPerRequest: kDefaultDirectMaxImagesPerRequest,
-          onMaxImagesPerRequestChanged: (count) => changed = count,
-          onSyncChanged: (_) {},
-          onAdd: () {},
-          onEdit: (_) {},
-        ),
-      ),
-    );
-
-    await tester.pumpWidget(content(isOnboarding: true));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('direct-images-per-request')),
-      findsNothing,
-    );
-
-    await tester.pumpWidget(content(isOnboarding: false));
-    await tester.pumpAndSettle();
-    final row = find.byKey(const ValueKey('direct-images-per-request'));
-    await tester.ensureVisible(row);
-    await tester.pumpAndSettle();
-    expect(
-      find.descendant(of: row, matching: find.text('Images per request')),
-      findsOneWidget,
-    );
-    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
-
-    await tester.tap(row);
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('4'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('4'));
-    await tester.pumpAndSettle();
-
-    expect(changed, 4);
   });
 
   testWidgets('a long context fallback list moves to its own page', (
@@ -438,7 +380,6 @@ void main() {
             profiles: const [],
             modelsWithoutContextLimit: models,
             syncWithOpenWebUi: false,
-            isOnboarding: false,
             onContextLengthChanged: (_, _) {},
             onSyncChanged: (_) {},
             onAdd: () {},
@@ -499,7 +440,6 @@ void main() {
             openWebUiConnections: AsyncData(snapshot),
             showOpenWebUi: true,
             syncWithOpenWebUi: true,
-            isOnboarding: false,
             onSyncChanged: (_) {},
             onAdd: () {},
             onEdit: (_) {},
@@ -549,7 +489,6 @@ void main() {
               ),
               showOpenWebUi: true,
               syncWithOpenWebUi: true,
-              isOnboarding: false,
               onSyncChanged: (_) {},
               onAdd: () {},
               onEdit: (_) {},
@@ -570,104 +509,6 @@ void main() {
       findsOneWidget,
     );
   });
-
-  testWidgets('a failed Images per request save says so', (tester) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          directConnectionProfilesProvider.overrideWith(
-            () => DirectTestStaticDirectProfiles(const []),
-          ),
-          directHistoryPolicyProvider.overrideWith(
-            DirectTestStaticHistoryPolicy.new,
-          ),
-          directMaxImagesPerRequestProvider.overrideWith(
-            _FailingMaxImagesPerRequest.new,
-          ),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionsPage(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final row = find.byKey(const ValueKey('direct-images-per-request'));
-    await tester.ensureVisible(row);
-    await tester.pumpAndSettle();
-    await tester.tap(row);
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('4'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('4'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text('Images per request could not be saved. Try again.'),
-      findsOneWidget,
-    );
-    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
-  });
-
-  testWidgets('management refreshes server connections on entry and resume', (
-    tester,
-  ) async {
-    final snapshot = OpenWebUiDirectConnectionsCodec(
-      serverId: 'server',
-      accountId: 'account',
-    ).decode({'ui': <String, Object?>{}});
-    final remoteController = DirectTestTrackingReloadOpenWebUiConnections(
-      snapshot,
-    );
-    final availableStore = OpenWebUiDirectConnectionStore(
-      serverId: 'server',
-      accountId: 'account',
-      readSettings: () async => const <String, dynamic>{},
-      writeSettings: (_) async {},
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          directConnectionProfilesProvider.overrideWith(
-            () => DirectTestStaticDirectProfiles(const []),
-          ),
-          directHistoryPolicyProvider.overrideWith(
-            DirectTestStaticHistoryPolicy.new,
-          ),
-          openWebUiDirectConnectionStoreProvider.overrideWithValue(
-            availableStore,
-          ),
-          openWebUiDirectConnectionsProvider.overrideWith(
-            () => remoteController,
-          ),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: const DirectConnectionsPage(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(remoteController.reloadCount, 1);
-
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pumpAndSettle();
-    expect(remoteController.reloadCount, 2);
-  });
-}
-
-final class _FailingMaxImagesPerRequest
-    extends DirectMaxImagesPerRequestController {
-  @override
-  int build() => kDefaultDirectMaxImagesPerRequest;
-
-  @override
-  Future<void> set(int count) =>
-      Future<void>.error(const FileSystemException('disk full'));
 }
 
 final class _FixedDiscovery extends DirectModelDiscoveryController {

@@ -2,6 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/features/settings/pages/direct_connection_page_ids.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:flutter/widgets.dart' show Locale;
@@ -56,8 +57,7 @@ void main() {
           .equals('/profile/direct-connections/local%20profile');
     });
 
-    test('native-sheet entry dismisses without a second page transition', () {
-      // Its card on the native Accounts page opens it.
+    test('Accounts opens Direct in a page of Settings, the sheet open', () {
       final item = [
         for (final section in buildNativeAccountsDetail(
           lookupAppLocalizations(const Locale('en')),
@@ -68,14 +68,10 @@ void main() {
         ).sections)
           ...section.items,
       ].singleWhere((item) => item.id == NativeSheetRoutes.directConnections);
-      final request = directConnectionsNativeSheetNavigationRequest;
 
-      check(item.id).equals(NativeSheetRoutes.directConnections);
-      check(item.dismissOnSelect).isTrue();
-      check(item.actionId).equals(NativeSheetRoutes.directConnections);
-      check(item.actionValue).equals(true);
-      check(request.routeName).equals(RouteNames.directConnections);
-      check(usesNoTransitionForNativeSheet(request.extra)).isTrue();
+      check(item.id).equals(directConnectionsPageId);
+      check(item.dismissOnSelect).isFalse();
+      check(item.actionId).isNull();
     });
   });
 }

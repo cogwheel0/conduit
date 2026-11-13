@@ -61,6 +61,9 @@ import '../../features/calendar/views/calendar_page.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 
 import '../../features/direct_connections/views/direct_mcp_server_editor_page.dart';
+import '../../features/direct_connections/controllers/direct_mcp_server_editor.dart'
+    show directMcpNewServerId;
+import '../../features/settings/pages/direct_connection_page_ids.dart';
 import '../../l10n/app_localizations.dart';
 
 import 'package:conduit_core/models/server_config.dart';
@@ -550,44 +553,62 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const CalendarPage()),
     ),
+    // Onboarding sets Direct up in pages of its own; afterwards Direct is
+    // Settings's, in its pages.
     GoRoute(
       path: Routes.directConnections,
       name: RouteNames.directConnections,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: DirectConnectionsPage(
-          isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
-        ),
+        child: _isOnboarding(state)
+            ? const DirectConnectionsPage()
+            : const SettingsDetailPage(detailId: directConnectionsPageId),
       ),
     ),
     GoRoute(
       path: Routes.directMcpServerEditor,
       name: RouteNames.directMcpServerEditor,
-      pageBuilder: (context, state) => _buildPlatformPage(
-        state: state,
-        child: DirectMcpServerEditorPage(serverId: state.pathParameters['id']!),
-      ),
+      pageBuilder: (context, state) {
+        final serverId = state.pathParameters['id']!;
+        return _buildPlatformPage(
+          state: state,
+          child: _isOnboarding(state)
+              ? DirectMcpServerEditorPage(serverId: serverId)
+              : SettingsDetailPage(
+                  detailId: directMcpPageId(
+                    serverId == directMcpNewServerId ? null : serverId,
+                  ),
+                ),
+        );
+      },
     ),
     GoRoute(
       path: Routes.directConnectionEditor,
       name: RouteNames.directConnectionEditor,
-      pageBuilder: (context, state) => _buildPlatformPage(
-        state: state,
-        child: DirectConnectionEditorPage(
-          mode: DirectConnectionEditorMode.fromRoute(
-            profileId: state.pathParameters['id']!,
-            source:
-                state.uri.queryParameters['source'] ==
-                    openWebUiDirectConnectionSourceQueryValue
-                ? DirectConnectionEditorSource.openWebUi
-                : DirectConnectionEditorSource.local,
-          ),
-          isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
-          entry: state.uri.queryParameters['entry'] == 'chooser'
-              ? DirectEditorEntry.chooser
-              : DirectEditorEntry.overview,
-        ),
-      ),
+      pageBuilder: (context, state) {
+        final mode = DirectConnectionEditorMode.fromRoute(
+          profileId: state.pathParameters['id']!,
+          source:
+              state.uri.queryParameters['source'] ==
+                  openWebUiDirectConnectionSourceQueryValue
+              ? DirectConnectionEditorSource.openWebUi
+              : DirectConnectionEditorSource.local,
+        );
+        return _buildPlatformPage(
+          state: state,
+          child: _isOnboarding(state)
+              ? DirectConnectionEditorPage(
+                  mode: mode,
+                  isOnboarding: true,
+                  entry: state.uri.queryParameters['entry'] == 'chooser'
+                      ? DirectEditorEntry.chooser
+                      : DirectEditorEntry.overview,
+                )
+              : SettingsDetailPage(
+                  detailId: directConnectionPageId(mode.source, mode.profileId),
+                ),
+        );
+      },
     ),
     GoRoute(
       path: Routes.hermesSettings,
@@ -774,6 +795,10 @@ Page<void> _buildNoTransitionPage({
     child: child,
   );
 }
+
+/// Whether [state] is a step of first-run setup rather than of Settings.
+bool _isOnboarding(GoRouterState state) =>
+    state.uri.queryParameters['onboarding'] == 'true';
 
 Page<void> _buildPlatformPage({
   required GoRouterState state,

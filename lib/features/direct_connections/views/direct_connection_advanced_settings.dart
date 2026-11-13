@@ -546,37 +546,3 @@ final class _ProviderIcon extends StatelessWidget {
     );
   }
 }
-
-String? directDraftValidationMessage(
-  AppLocalizations l10n,
-  DirectDraftValidationIssue? issue,
-) => switch (issue) {
-  DirectDraftValidationIssue.nameRequired => l10n.directConnectionNameRequired,
-  DirectDraftValidationIssue.invalidUrl => l10n.directConnectionUrlInvalid,
-  DirectDraftValidationIssue.invalidOpenRouterUrl =>
-    l10n.directOpenRouterUrlInvalid,
-  DirectDraftValidationIssue.credentialsReentryRequired =>
-    l10n.directConnectionCredentialsReentryRequired,
-  DirectDraftValidationIssue.apiKeyRequired =>
-    l10n.directConnectionApiKeyRequired,
-  DirectDraftValidationIssue.unsupportedAuthentication =>
-    l10n.openWebUiDirectConnectionUnsupportedAuth,
-  null => null,
-};
-
-String? directHeaderValidationMessage(
-  AppLocalizations l10n,
-  DirectHeaderValidationError? error,
-) => switch (error?.issue) {
-  DirectHeaderValidationIssue.nameRequired =>
-    l10n.directConnectionHeaderNameRequired,
-  DirectHeaderValidationIssue.invalidName => l10n.headerNameInvalidChars,
-  DirectHeaderValidationIssue.reservedName => l10n.headerNameReserved(
-    error!.headerName!,
-  ),
-  DirectHeaderValidationIssue.duplicateName => l10n.headerAlreadyExists(
-    error!.headerName!,
-  ),
-  DirectHeaderValidationIssue.invalidValue => l10n.headerValueInvalidChars,
-  null => null,
-};

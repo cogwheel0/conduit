@@ -118,7 +118,8 @@ class NativeSheetRoutes {
   static const aiMemory = 'ai-memory';
   static const dataConnection = 'data-connection';
   static const hermes = 'hermes';
-  static const directConnections = 'open-direct-connections';
+  /// The Direct Connections page, Settings's own.
+  static const directConnections = 'direct-connections';
   static const personalConnections = 'open-personal-connections';
   static const scheduledTasks = 'open-scheduled-tasks';
   static const calendar = 'open-calendar';
@@ -1304,6 +1305,7 @@ class NativeSheetItemConfig {
     this.confirmMessage,
     this.disabled = false,
     this.keyboard,
+    this.passwordRole,
     this.rowActions = const [],
   });
 
@@ -1367,6 +1369,11 @@ class NativeSheetItemConfig {
   /// The keyboard a text row brings up; null keeps the default.
   final NativeSheetKeyboard? keyboard;
 
+  /// What a secure row holds when it is the account's own password. Null,
+  /// for any other secret, keeps the system from offering to save it as a
+  /// password.
+  final NativeSheetPasswordRole? passwordRole;
+
   /// What else the row can do, besides what a tap does. On iOS a long press
   /// lists them, and a swipe offers them where the page is not reordering;
   /// the Flutter pages list them in the row's menu. Each is sent as its own
@@ -1379,6 +1386,7 @@ class NativeSheetItemConfig {
       if (confirmMessage != null) 'confirmMessage': confirmMessage,
       if (disabled) 'disabled': disabled,
       if (keyboard != null) 'keyboard': keyboard!.name,
+      if (passwordRole != null) 'passwordRole': passwordRole!.name,
       if (rowActions.isNotEmpty)
         'rowActions': [for (final action in rowActions) action.toMap()],
       'id': id,
@@ -1419,6 +1427,10 @@ class NativeSheetItemConfig {
 
 /// The keyboard a text row brings up.
 enum NativeSheetKeyboard { url, email, number }
+
+/// Which of the account's passwords a secure row holds: the one in use, or
+/// one being set.
+enum NativeSheetPasswordRole { current, newPassword }
 
 /// One more thing a row can do, sent as its own control id.
 @immutable
@@ -1818,6 +1830,7 @@ extension on NativeSheetItemConfig {
       confirmMessage: confirmMessage,
       disabled: disabled ? true : null,
       keyboard: keyboard?.name,
+      passwordRole: passwordRole?.name,
       rowActions: rowActions.isEmpty
           ? null
           : [for (final action in rowActions) action.toPlatform()],
