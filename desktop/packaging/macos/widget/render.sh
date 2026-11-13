@@ -12,8 +12,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$1"
 dest="$(cd "$1" && pwd)"
 tool="$dest/.render-widgets"
+python3 "$here/../native_strings.py" widget "$here/../../../../lib/l10n" \
+  "$dest/.gen/WidgetStrings.swift" >&2
 sdk="$(xcrun --sdk macosx --show-sdk-path)"
 xcrun --sdk macosx swiftc -sdk "$sdk" -target arm64-apple-macos14.0 -O \
   -warnings-as-errors -parse-as-library -module-name RenderWidgets \
-  "$here"/Sources/*.swift "$here/Render/RenderWidgets.swift" -o "$tool"
+  "$here"/Sources/*.swift "$dest/.gen/WidgetStrings.swift" \
+  "$here/Render/RenderWidgets.swift" -o "$tool"
 "$tool" "$here/Fixtures/snapshot.json" "$dest"

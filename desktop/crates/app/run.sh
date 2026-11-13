@@ -70,6 +70,13 @@ else
     if [ -e "$f" ]; then mv "$f" "$widget_dir/unused-$(date +%s)-$(basename "$f")"; fi
   done
 fi
+# App Intents (Shortcuts, Siri, Spotlight): their metadata and strings,
+# made again when the Swift, the strings or the scripts changed.
+meta="$app/Contents/Resources/Metadata.appintents/extract.actionsdata"
+if [ ! -f "$meta" ] || [ -n "$(find crates/app/intents ../lib/l10n/desktop \
+  packaging/macos/intents.sh packaging/macos/native_strings.py -newer "$meta" | head -1)" ]; then
+  bash packaging/macos/intents.sh bundle "$app" >/dev/null
+fi
 # An ad-hoc signature over the whole bundle (Info.plist included), so the
 # system treats it as an app for notifications and the login item. Dev
 # secrets go through /usr/bin/security, so the signature changing on each

@@ -40,7 +40,7 @@ SERVICES_STRINGS=(
 native_strings() {
   local out="$1" table="$2"
   shift 2
-  xcrun swift "$PACKAGING_DIR/native-strings.swift" "$REPO_ROOT/lib/l10n" "$out" "$table" "$@" >&2
+  python3 "$PACKAGING_DIR/native_strings.py" table "$REPO_ROOT/lib/l10n" "$out" "$table" "$@" >&2
 }
 
 share_build() {

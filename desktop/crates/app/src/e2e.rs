@@ -64,6 +64,8 @@
 //!   Chat, Generate Title, Mark as Unread and Save Chat ([`actions`]).
 //! * `widget`: the desktop widget's snapshot (sign-in, rename, archive, a
 //!   new chat, the language, sign-out) and its links ([`widget`]).
+//! * `intents`: Shortcuts' actions (App Intents) through the Swift
+//!   intents' own `perform()` and chat query ([`intents`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -85,6 +87,7 @@ mod direct;
 mod hermes_cards;
 mod hermes_sessions;
 mod integration;
+mod intents;
 mod librechat;
 mod notes;
 mod offline;
@@ -771,6 +774,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "calendar" => calendar::run(&inputs, &dir, cx).await,
         "tasks" => tasks::run(&inputs, &dir, cx).await,
         "widget" => widget::run(&inputs, &dir, cx).await,
+        "intents" => intents::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

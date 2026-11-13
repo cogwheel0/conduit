@@ -325,7 +325,11 @@ pub fn area_key_label(key: keymap::AreaKey, l10n: &L10n) -> String {
         K::MarkChecked => l10n.desktop_note_mark_checked(),
         K::Quote => l10n.desktop_note_quote(),
         K::CodeBlock => l10n.desktop_note_code_block(),
-        K::SaveWorkspaceItem => l10n.save(),
+        K::SaveWorkspaceItem | K::SaveCalendarEvent | K::SaveScheduledTask => l10n.save(),
+        K::CalendarEarlier => l10n.desktop_keyboard_calendar_earlier(),
+        K::CalendarLater => l10n.desktop_keyboard_calendar_later(),
+        K::CalendarToday => l10n.calendar_today(),
+        K::DeleteCalendarItem | K::DeleteScheduledTask => l10n.desktop_delete_ellipsis(),
     }
 }
 
@@ -1012,11 +1016,15 @@ impl SettingsView {
                 KeyGroup::Window => l10n.desktop_menu_window(),
                 KeyGroup::Notes => l10n.sidebar_notes_tab(),
                 KeyGroup::Workspace => l10n.workspace_title(),
+                KeyGroup::Calendar => l10n.calendar_title(),
+                KeyGroup::ScheduledTasks => l10n.scheduled_tasks_title(),
             };
             // Where these keys work, under the areas' own groups.
             let footer = footer.or_else(|| match group {
                 KeyGroup::Notes => Some(l10n.desktop_keyboard_notes_footer().into()),
                 KeyGroup::Workspace => Some(l10n.desktop_keyboard_workspace_footer().into()),
+                KeyGroup::Calendar => Some(l10n.desktop_keyboard_calendar_footer().into()),
+                KeyGroup::ScheduledTasks => Some(l10n.desktop_keyboard_tasks_footer().into()),
                 _ => None,
             });
             sections.push(settings_section(title, footer, rows, cx).into_any_element());

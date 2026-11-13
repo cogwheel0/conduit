@@ -44,9 +44,12 @@ for old in "$appex" "$lib"; do
 done
 
 echo "==> widget: ConduitWidget.appex ($bundle_id.widget, group $group)" >&2
+# The widget's words in every language, from the ARBs.
+python3 "$here/../native_strings.py" widget "$here/../../../../lib/l10n" \
+  "$out/gen/WidgetStrings.swift" >&2
 mkdir -p "$appex/Contents/MacOS"
 "${swiftc[@]}" -parse-as-library -application-extension -module-name ConduitWidget \
-  "$here"/Sources/*.swift "$here/Extension/Main.swift" \
+  "$here"/Sources/*.swift "$out/gen/WidgetStrings.swift" "$here/Extension/Main.swift" \
   -o "$appex/Contents/MacOS/ConduitWidget"
 sed -e "s/@BUNDLE_ID@/$bundle_id.widget/" \
   -e "s/@VERSION@/$version/" \

@@ -448,8 +448,9 @@ pub fn fixed_conflict(stroke: &KeyStroke, action: Option<ShortcutAction>) -> Opt
 }
 
 /// A key that works in one area only, listed in Settings › Keyboard under
-/// it: Notes' (its list and editor: New Note and the Format menu's chords)
-/// and Workspace's Save. Some share a chord with a command that works
+/// it: Notes' (its list and editor: New Note and the Format menu's chords),
+/// Workspace's Save, and the Calendar's and Scheduled Tasks' keys (their
+/// panes' and editors' own key handlers). Some share a chord with a command that works
 /// everywhere else (⌘N New Chat, ⌘K the palette, ⌘I Chat Settings): Notes
 /// binds them in its own contexts after the shortcut table, so they win
 /// there (`menus::bind_keys`), and they take no chord from anything else.
@@ -473,6 +474,35 @@ pub enum AreaKey {
     CodeBlock,
     /// ⌘S in a Workspace editor.
     SaveWorkspaceItem,
+    /// The agenda's earlier and later days, and today (⌘←, ⌘→, ⌘T).
+    CalendarEarlier,
+    CalendarLater,
+    CalendarToday,
+    /// ⌘⌫ on the agenda's selected event.
+    DeleteCalendarItem,
+    /// ⌘S in the event editor.
+    SaveCalendarEvent,
+    /// ⌘⌫ on the selected task.
+    DeleteScheduledTask,
+    /// ⌘S in the task editor.
+    SaveScheduledTask,
+}
+
+impl AreaKey {
+    /// The Settings › Keyboard group it is listed under.
+    pub fn group(self) -> KeyGroup {
+        use AreaKey as A;
+        match self {
+            A::SaveWorkspaceItem => KeyGroup::Workspace,
+            A::CalendarEarlier
+            | A::CalendarLater
+            | A::CalendarToday
+            | A::DeleteCalendarItem
+            | A::SaveCalendarEvent => KeyGroup::Calendar,
+            A::DeleteScheduledTask | A::SaveScheduledTask => KeyGroup::ScheduledTasks,
+            _ => KeyGroup::Notes,
+        }
+    }
 }
 
 /// The area keys and their chords, as Notes binds them (the Format menu
@@ -498,6 +528,13 @@ pub fn area_shortcuts() -> Vec<(AreaKey, KeyStroke)> {
         (A::Quote, k("'").primary()),
         (A::CodeBlock, k("c").primary().alt()),
         (A::SaveWorkspaceItem, k("s").primary()),
+        (A::CalendarEarlier, k("arrowleft").primary()),
+        (A::CalendarLater, k("arrowright").primary()),
+        (A::CalendarToday, k("t").primary()),
+        (A::DeleteCalendarItem, k("backspace").primary()),
+        (A::SaveCalendarEvent, k("s").primary()),
+        (A::DeleteScheduledTask, k("backspace").primary()),
+        (A::SaveScheduledTask, k("s").primary()),
     ]
 }
 
@@ -536,6 +573,10 @@ pub enum KeyGroup {
     Notes,
     /// Save, in a Workspace editor.
     Workspace,
+    /// The agenda's days, Delete and Save, in Calendar.
+    Calendar,
+    /// Delete and Save, in Scheduled Tasks.
+    ScheduledTasks,
 }
 
 /// Every shortcut the app has, grouped: the rebindable ones the app can
@@ -597,19 +638,23 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
             KeyGroup::Window,
             vec![QuickAsk, R(A::OpenSettings), R(A::ShowShortcuts)],
         ),
+        (KeyGroup::Notes, area_rows(KeyGroup::Notes)),
+        (KeyGroup::Workspace, area_rows(KeyGroup::Workspace)),
+        (KeyGroup::Calendar, area_rows(KeyGroup::Calendar)),
         (
-            KeyGroup::Notes,
-            area_shortcuts()
-                .into_iter()
-                .map(|(k, _)| KeyRow::Area(k))
-                .filter(|r| *r != KeyRow::Area(AreaKey::SaveWorkspaceItem))
-                .collect(),
-        ),
-        (
-            KeyGroup::Workspace,
-            vec![KeyRow::Area(AreaKey::SaveWorkspaceItem)],
+            KeyGroup::ScheduledTasks,
+            area_rows(KeyGroup::ScheduledTasks),
         ),
     ]
+}
+
+/// One area's keys, as rows.
+fn area_rows(group: KeyGroup) -> Vec<KeyRow> {
+    area_shortcuts()
+        .into_iter()
+        .filter(|(k, _)| k.group() == group)
+        .map(|(k, _)| KeyRow::Area(k))
+        .collect()
 }
 
 /// The action other than `action` that `stroke` already fires.
@@ -1043,15 +1088,35 @@ mod tests {
             assert_eq!(n, 1, "{key:?}");
         }
         // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
-        // Notes and Workspace's Save.
-        assert_eq!(rows.len(), 52);
-        // The area keys share no chord among themselves; where one is a
-        // fixed command's too (⌘I Chat Settings), Notes takes it only in
-        // its own contexts.
-        let area: Vec<KeyStroke> = area_shortcuts().into_iter().map(|(_, s)| s).collect();
-        for (i, s) in area.iter().enumerate() {
-            assert!(!area[i + 1..].contains(s), "{s:?} twice");
+        // Notes, Workspace's Save, 5 in Calendar and 2 in Scheduled Tasks.
+        assert_eq!(rows.len(), 59);
+        // One area's keys share no chord among themselves (areas may: only
+        // the one in front takes its keys); where one is a fixed command's
+        // too (⌘I Chat Settings), Notes takes it only in its own contexts.
+        for group in [
+            KeyGroup::Notes,
+            KeyGroup::Workspace,
+            KeyGroup::Calendar,
+            KeyGroup::ScheduledTasks,
+        ] {
+            let area: Vec<KeyStroke> = area_shortcuts()
+                .into_iter()
+                .filter(|(k, _)| k.group() == group)
+                .map(|(_, s)| s)
+                .collect();
+            for (i, s) in area.iter().enumerate() {
+                assert!(!area[i + 1..].contains(s), "{s:?} twice in {group:?}");
+            }
         }
+        // The Calendar's and Scheduled Tasks' keys as their panes take them
+        // (views/calendar, views/tasks: ⌘⌫ also as ⌘Delete, ⌘S also as
+        // ⌘Return in the editors).
+        let shown = |k| describe(&area_stroke(k), true);
+        assert_eq!(shown(AreaKey::CalendarEarlier), "⌘←");
+        assert_eq!(shown(AreaKey::CalendarLater), "⌘→");
+        assert_eq!(shown(AreaKey::CalendarToday), "⌘T");
+        assert_eq!(shown(AreaKey::DeleteCalendarItem), "⌘⌫");
+        assert_eq!(shown(AreaKey::SaveScheduledTask), "⌘S");
         assert_eq!(describe(&area_stroke(AreaKey::NewNote), true), "⌘N");
         assert_eq!(describe(&area_stroke(AreaKey::Link), true), "⌘K");
         assert_eq!(describe(&area_stroke(AreaKey::CodeBlock), true), "⌥⌘C");

@@ -262,6 +262,20 @@ pub fn handle_urls(urls: Vec<String>, cx: &mut App) {
     drain(cx);
 }
 
+/// Opens `request` as a link would (an App Intent's New Chat or Open
+/// Chat): queued until the main frame shows, which comes forward.
+pub fn open_request(request: OpenRequest, cx: &mut App) {
+    let Some(shell) = shell(cx) else {
+        return;
+    };
+    log::info!("intent opens: {}", describe(&request));
+    shell.update(cx, |s, cx| s.push(request, cx));
+    if shell.read(cx).waits_for_main() {
+        show_main(cx);
+    }
+    drain(cx);
+}
+
 /// A request for the log: its kind, never ids, text or file names.
 fn describe(request: &OpenRequest) -> &'static str {
     match request {
@@ -273,7 +287,7 @@ fn describe(request: &OpenRequest) -> &'static str {
         OpenRequest::Note { .. } => "note",
         OpenRequest::Settings { .. } => "settings",
         OpenRequest::QuickAskDraft { .. } => "quick ask draft",
-        OpenRequest::QuickAsk => "quick ask",
+        OpenRequest::QuickAsk { .. } => "quick ask",
         OpenRequest::VoiceCall => "voice call",
     }
 }
@@ -335,7 +349,7 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
         OpenRequest::Share { id } => open_share(&id, cx),
         OpenRequest::Channel { id } => open_item(AreaItem::Channel(id), cx),
         OpenRequest::Note { id } => open_item(AreaItem::Note(id), cx),
-        OpenRequest::QuickAsk => show_quick_ask(cx),
+        OpenRequest::QuickAsk { text } => quick_ask_with(text, cx),
         OpenRequest::VoiceCall => start_voice_call(cx),
     }
 }
@@ -355,32 +369,77 @@ fn open_new_chat(
         log::info!("open with: skipped a folder or missing file");
         let _ = path;
     }
+    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
     crate::with_main_view(cx, move |view, window, cx| {
         view.new_chat(false, window, cx);
         let pane = view.chat_pane.clone();
-        pane.update(cx, |p, cx| {
-            p.hand_to_new_chat(text, plan.accepted, carried, window, cx);
-        });
+        // After this update: the pane follows the new selection as it ends,
+        // and its draft switch empties the message box (a chat was open
+        // before), so the text goes in after that.
+        cx.spawn_in(window, async move |_, cx| {
+            let _ = pane.update_in(cx, |p, window, cx| {
+                if let Some(text) = &text {
+                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
+                }
+                if !plan.accepted.is_empty() {
+                    p.composer_store
+                        .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
+                }
+                if !carried.is_empty() {
+                    p.composer_store
+                        .update(cx, |c, cx| c.adopt_attachments(carried, cx));
+                }
+                p.focus_composer(window, cx);
+            });
+        })
+        .detach();
     });
-    refused_files(plan.too_many, &plan.too_large, cx);
+    refused_files(too_many, &too_large, cx);
 }
 
-/// `conduit://call` (the widget's Voice Call, mobile's `mic`): a voice call
-/// in a new chat. Where no call can start, mobile opens a new chat with the
-/// caret in the composer instead, and so does this.
+/// The Quick Ask panel, as the menu-bar item and the hotkey show it; with
+/// `text`, a new question with the text in its message box.
+fn quick_ask_with(text: Option<String>, cx: &mut App) {
+    show_quick_ask(cx);
+    let Some(text) = text.filter(|t| !t.trim().is_empty()) else {
+        return;
+    };
+    let text: String = text.chars().take(deep_link::MAX_TEXT).collect();
+    let Some((handle, view)) = cx.try_global::<Desktop>().and_then(|d| d.quick_ask.clone()) else {
+        return;
+    };
+    let _ = handle.update(cx, |_, window, cx| {
+        view.update(cx, |v, cx| {
+            v.new_chat(window, cx);
+            v.composer.update(cx, |c, cx| c.set_text(&text, window, cx));
+            v.focus_composer(window, cx);
+        })
+    });
+}
+
+/// `conduit://call` (the widget's Voice Call, mobile's `mic`) and
+/// Shortcuts' Start Voice Call ([`crate::intents`]): a voice call in a new
+/// chat, as the phone's widget starts one. The main window shows a new chat
+/// and the call starts there with [`CallStore::start`], so its strip shows
+/// in that chat, with the core's reason when it refuses the call (no model,
+/// a backend that takes no calls, ...). Never the `VoiceCall` action: it
+/// toggles, so it would end a call that is on. A call that is already on is
+/// shown instead.
 ///
-/// The widget's call link isn't wired to calls yet, so it always takes
-/// that way; with calls, `CallStore::start(None, None, None, false)` and
-/// `show_main` go here, as Quick Ask's call button does, and the call's own
-/// notices say when it can't start.
+/// [`CallStore::start`]: crate::stores::call::CallStore::start
 fn start_voice_call(cx: &mut App) {
-    dispatch(
-        OpenRequest::NewChat {
-            text: None,
-            files: vec![],
-        },
-        cx,
-    );
+    let Some(call) = cx.try_global::<AppState>().map(|s| s.stores.call.clone()) else {
+        return;
+    };
+    if call.read(cx).is_active() {
+        show_main(cx);
+        crate::with_main_view(cx, |view, _, cx| {
+            view.chat_pane.update(cx, |p, cx| p.show_call(cx))
+        });
+        return;
+    }
+    open_new_chat(None, vec![], vec![], cx);
+    call.update(cx, |c, cx| c.start(None, None, None, false, cx));
 }
 
 /// The toasts for files a new chat could not take: past the count limit,
@@ -940,6 +999,16 @@ pub fn open_notification_settings(cx: &mut App) {
 // ── Notifications ──────────────────────────────────────────────────────────
 
 fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
+    // An answer Shortcuts is waiting for gets no notification: the shortcut
+    // has it (crate::intents holds it until the shortcut's question ends).
+    if crate::intents::hold_notification(finished, cx) {
+        return;
+    }
+    notify_turn_finished(finished, cx);
+}
+
+/// The answer notification for `finished`, when one is due.
+pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
     let Some(state) = cx.try_global::<AppState>() else {
         return;
     };

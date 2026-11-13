@@ -38,8 +38,9 @@ pub enum OpenRequest {
     /// `id` (its text and uploaded files), which only this request takes.
     QuickAskDraft { id: u64 },
     /// `conduit://quick-ask`: the Quick Ask panel (the widget's Ask
-    /// Conduit).
-    QuickAsk,
+    /// Conduit); Shortcuts' Show Quick Ask may bring a question's `text`,
+    /// which starts a new question with it in the message box.
+    QuickAsk { text: Option<String> },
     /// `conduit://call`, or mobile's `conduit://mic`: a voice call in a new
     /// chat (the widget's Voice Call).
     VoiceCall,
@@ -53,7 +54,7 @@ impl OpenRequest {
     /// Main). Settings opens in its own window whatever is routed, and
     /// Quick Ask in its panel (which says when setup isn't finished).
     pub fn needs_main(&self) -> bool {
-        !matches!(self, Self::Settings { .. } | Self::QuickAsk)
+        !matches!(self, Self::Settings { .. } | Self::QuickAsk { .. })
     }
 }
 
@@ -141,7 +142,7 @@ pub fn parse(url: &str) -> Option<OpenRequest> {
         "note" | "notes" => id
             .filter(|i| valid_id(i))
             .map(|id| OpenRequest::Note { id }),
-        "quick-ask" => id.is_none().then_some(OpenRequest::QuickAsk),
+        "quick-ask" => id.is_none().then_some(OpenRequest::QuickAsk { text: None }),
         "call" | "mic" => id.is_none().then_some(OpenRequest::VoiceCall),
         "share" => id
             .filter(|i| super::share_inbox::valid_id(i))
@@ -310,9 +311,10 @@ mod tests {
 
     #[test]
     fn opens_quick_ask_or_a_voice_call_as_the_widget_asks() {
-        assert_eq!(parse("conduit://quick-ask"), Some(OpenRequest::QuickAsk));
+        let quick_ask = Some(OpenRequest::QuickAsk { text: None });
+        assert_eq!(parse("conduit://quick-ask"), quick_ask);
         assert_eq!(parse("conduit://call"), Some(OpenRequest::VoiceCall));
-        assert_eq!(parse("conduit://quick-ask/"), Some(OpenRequest::QuickAsk));
+        assert_eq!(parse("conduit://quick-ask/"), quick_ask);
         // The phone widget's links.
         assert_eq!(parse("conduit://new_chat?homeWidget=true"), new_chat(None));
         assert_eq!(
@@ -414,7 +416,7 @@ mod tests {
         assert!(new_chat(None).unwrap().needs_main());
         assert!(!OpenRequest::Settings { tab: None }.needs_main());
         assert!(OpenRequest::VoiceCall.needs_main());
-        assert!(!OpenRequest::QuickAsk.needs_main());
+        assert!(!OpenRequest::QuickAsk { text: None }.needs_main());
     }
 
     #[test]

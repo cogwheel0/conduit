@@ -136,6 +136,56 @@ fn write_two(path: &Path, first: &Path, second: &Path) -> bool {
     std::fs::write(path, crate::voice::pcm::wav(&pcm)).is_ok()
 }
 
+/// For passes that start a call from elsewhere (the widget's link,
+/// Shortcuts' Start Voice Call): a quiet stand-in for the call's microphone
+/// (one that asked for the Mac's would put up its permission prompt) and
+/// this pass's call settings (the server transcribes, the Mac speaks,
+/// Standard calls).
+pub(super) async fn prepare_quiet_call(dir: &Path, cx: &mut AsyncApp) -> bool {
+    let quiet = dir.join("call-stand-in-quiet.wav");
+    if !write_silence(&quiet, 60.0) {
+        return false;
+    }
+    cx.update(|cx| {
+        call(cx).update(cx, |c, cx| {
+            c.set_input(Some(InputOverride::File(quiet.clone())), cx)
+        })
+    });
+    set_settings(
+        AppSettingsPatch {
+            stt_preference: Some("serverOnly".into()),
+            stt_language_code: Some("en".into()),
+            voice_call_mode: Some("standard".into()),
+            voice_barge_in_enabled: Some(false),
+            ..Default::default()
+        },
+        cx,
+    )
+    .await;
+    save_voice(
+        VoiceSettingsEdit {
+            stt_engine: Some("server".into()),
+            tts_engine: Some("device".into()),
+            ..Default::default()
+        },
+        cx,
+    )
+    .await
+}
+
+/// The call that is on now: its number, while one is on.
+pub(super) fn call_on(cx: &mut App) -> Option<i64> {
+    let store = call(cx);
+    let store = store.read(cx);
+    store.is_active().then(|| store.state().call)
+}
+
+/// Ends the call that is on, and waits until it is over.
+pub(super) async fn end_call(cx: &mut AsyncApp) -> bool {
+    cx.update(|cx| call(cx).update(cx, |c, cx| c.end(cx)));
+    wait_until(cx, Duration::from_secs(10), |cx| call_on(cx).is_none()).await
+}
+
 /// Starts a call as the composer's call button does.
 async fn start_call(cx: &mut AsyncApp) {
     in_pane(cx, |p, _, cx| p.start_call(cx));

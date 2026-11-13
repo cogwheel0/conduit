@@ -307,6 +307,26 @@ fn report(cx: &mut App) -> Route {
     route
 }
 
+/// `SMOKE intents <n> types resolve` (packaging/macos/smoke.sh looks for
+/// it), or says the bundle has no metadata (a bare binary) or what is
+/// missing.
+async fn intents_types() {
+    let script = serde_json::json!({ "steps": [{ "intent": "types" }] });
+    let Some(out) = crate::intents::self_test(&script).await else {
+        println!("SMOKE FAILED intents self-test did not answer");
+        return;
+    };
+    let step = &out[0];
+    let missing = step["missing"].as_array().map(Vec::len).unwrap_or(0);
+    match (step["ok"].as_bool(), step["named"].as_u64()) {
+        (Some(true), Some(named)) if missing == 0 && named > 0 => {
+            println!("SMOKE intents {named} types resolve")
+        }
+        (Some(true), _) => println!("SMOKE FAILED intents types missing: {}", step["missing"]),
+        _ => println!("SMOKE intents: {}", step["error"].as_str().unwrap_or("?")),
+    }
+}
+
 pub(crate) async fn shoot_both_modes(
     handle: AnyWindowHandle,
     dir: &std::path::Path,
@@ -477,6 +497,9 @@ pub fn run(dir: PathBuf, options: SmokeOptions, cx: &mut App) {
                 Ok(d) => println!("SMOKE FAILED diagnostics zip missing: {}", d.path),
                 Err(e) => println!("SMOKE FAILED diagnostics: {e}"),
             }
+            // The App Intents: every type the bundle's Metadata.appintents
+            // names (the runtime looks them up by name) is in this binary.
+            intents_types().await;
             shoot_both_modes(main, &dir, status_name(&status, route), cx).await;
             if options.preview_main && route != Route::Main {
                 cx.update(|cx| {

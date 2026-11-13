@@ -5,10 +5,14 @@
 #   desktop/packaging/macos/bundle.sh [command] [options]
 #
 # Commands (default: all, in this order):
-#   build          compile the app (Rust), conduitd (`dart build cli`),
-#                  libconduit_whisper, the desktop widget (widget/build.sh) and
-#                  the Share extension (share/build.sh), and assemble an
-#                  unsigned Conduit.app
+#   build          compile the app (Rust, with its Swift App Intents),
+#                  conduitd (`dart build cli`), libconduit_whisper, the
+#                  desktop widget (widget/build.sh) and the Share extension
+#                  (share/build.sh), and assemble an unsigned Conduit.app
+#                  (the intents' metadata and strings from intents.sh, the
+#                  third-party notices from notices/notices.sh, which needs
+#                  cargo-about). The app is built without its test harness
+#                  (no `harness` feature).
 #   sign           sign inside out with the hardened runtime: conduitd's
 #                  libraries, conduitd, Sparkle's helpers and framework, the
 #                  widget's library and extension, the Share extension
@@ -18,8 +22,9 @@
 #   dmg            Conduit-<version>.dmg with an Applications link (signed
 #                  when there is a signing identity)
 #   notarize-dmg   notarize the DMG and staple it (skipped without credentials)
-#   verify         codesign, Gatekeeper, architecture, minimum-OS and
-#                  Info.plist checks, and the bundle's sizes
+#   verify         codesign, Gatekeeper, architecture, minimum-OS,
+#                  Info.plist, App Intents, notices and no-test-harness
+#                  checks (harness_check.sh), and the bundle's sizes
 #   all            everything above
 #
 # Options:
@@ -180,6 +185,13 @@ build_whisper() {
   whisper_lib="$dir/libconduit_whisper.dylib"
   if [ "$skip_whisper" = 1 ]; then
     [ -f "$whisper_lib" ] || die "--skip-whisper: no $whisper_lib"
+    # One built for a newer macOS than the bundle's (another checkout's, say)
+    # would not load there, and verify refuses it: build it instead.
+    local minos
+    minos="$(vtool -show-build "$whisper_lib" 2>/dev/null | awk '/minos/ {print $2; exit}')"
+    if [ -n "$minos" ] && [ "$(printf '%s\n%s\n' "$minos" "$MACOS_MIN" | sort -V | tail -1)" != "$MACOS_MIN" ]; then
+      die "--skip-whisper: $whisper_lib needs macOS $minos, the bundle $MACOS_MIN (build it: leave out --skip-whisper)"
+    fi
     log "reusing $whisper_lib"
     return
   fi
@@ -263,6 +275,10 @@ assemble() {
   ditto "$widget_dir/ConduitWidget.appex" "$app/Contents/PlugIns/ConduitWidget.appex"
   cp "$widget_dir/libconduit_widget.dylib" "$app/Contents/Frameworks/"
 
+  # App Intents (Shortcuts, Siri, Spotlight): Resources/Metadata.appintents
+  # and each locale's strings (intents.sh), for this bundle id.
+  MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" "$PACKAGING_DIR/intents.sh" bundle "$app" \
+    --bundle-id "$bundle_id"
   # The open-source notices, generated for what this bundle ships; fails
   # when a licence is missing (packaging/notices/README.md).
   "$DESKTOP_DIR/packaging/notices/notices.sh" --out "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
@@ -502,6 +518,12 @@ do_verify() {
     ok "Share extension: embedded, sandboxed, signed; Services: 2 items, 14 languages"
   else
     failed=1
+  fi
+  if "$PACKAGING_DIR/intents.sh" verify "$app" >"$out/intents-verify.txt" 2>&1; then
+    ok "App Intents: $(sed -n 's/^native_strings: ok: //p' "$out/intents-verify.txt")"
+  else
+    fail "App Intents (intents.sh verify)"
+    sed 's/^/     /' "$out/intents-verify.txt"
   fi
   if [ -s "$app/Contents/Resources/THIRD_PARTY_NOTICES.md" ]; then
     ok "THIRD_PARTY_NOTICES.md: $(grep -c '' "$app/Contents/Resources/THIRD_PARTY_NOTICES.md") lines"

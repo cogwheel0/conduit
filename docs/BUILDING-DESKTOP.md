@@ -28,6 +28,8 @@ Conduit.app/Contents/
     ├── AppIcon.icns            packaging/macos/AppIcon.icns (macOS 14/15)
     ├── Assets.car              packaging/macos/Assets.car (the icon on macOS 26+)
     ├── THIRD_PARTY_NOTICES.md  made by packaging/notices/notices.sh at bundle time
+    ├── Metadata.appintents/    the App Intents' metadata (packaging/macos/intents.sh)
+    ├── <locale>.lproj/         their strings: Localizable.strings, AppShortcuts.strings
     └── conduitd/
         ├── bin/conduitd        `dart build cli` of apps/daemon (Dart AOT)
         └── lib/
@@ -190,7 +192,7 @@ on (System Settings › General › Login Items & Extensions › Sharing, or
 Conduit" opens Quick Ask with the selected text quoted (a new chat when Quick
 Ask is off or not set up), and "New Conduit Chat With Selection" opens a new
 chat with it. Their titles are translated by `ServicesMenu.strings`, which
-`share/build.sh` writes from the ARB catalogs (`native-strings.swift`).
+`share/build.sh` writes from the ARB catalogs (`native_strings.py table`).
 Dev bundles (`crates/app/run.sh`) leave `NSServices` out, so worktree builds
 never appear in the Services menu.
 
@@ -466,9 +468,10 @@ widget. `CONDUIT_WIDGET_SNAPSHOT=<file>` sends the snapshot to a file
 instead (the `--e2e widget` pass does). `widget/render.sh OUT_DIR` draws
 the widget's views to PNGs (light and dark, each family and state) from
 `widget/Fixtures/snapshot.json`, which the app's writer test keeps equal to
-what the app writes. The widget's words are generated from the desktop
-ARBs (`desktopWidget*`) into `widget/Sources/WidgetStrings.swift`:
-`UPDATE_WIDGET_STRINGS=1 cargo test -p conduit-desktop widget_strings`.
+what the app writes. The widget's words come from the ARBs
+(`desktopWidget*`, "Yesterday" and the weekdays): `widget/build.sh` and
+`render.sh` generate `WidgetStrings.swift` with `native_strings.py widget`
+before compiling.
 
 ## Third-party notices
 
@@ -515,6 +518,60 @@ All three files are committed, so builds never render. `bundle.sh` copies
 both into `Contents/Resources`, and `verify` checks them (`--release` fails
 without them). On macOS 26+ the system adds its own glass edge and lighting
 to the tile; the artwork itself is the iOS icon's.
+
+## Shortcuts and App Intents
+
+Conduit's actions in Shortcuts, Spotlight and Siri (Ask Conduit, New Chat,
+Open Chat, Start Voice Call, Show Quick Ask, and their App Shortcuts) are
+App Intents written in Swift, in `desktop/crates/app/intents/`. They are
+built without Xcode:
+
+1. `crates/app/build.rs` runs `packaging/macos/intents.sh compile`: `swiftc`
+   (Swift 6, `-parse-as-library`, the deployment target) makes one object
+   and the compiler's constant values, and `libtool` a static library that
+   the Rust binary links whole. AppKit registers the process with the App
+   Intents runtime at launch; nothing in Rust names the intents.
+2. `bundle.sh` (and `crates/app/run.sh` for the dev bundle) runs
+   `intents.sh bundle`, which recompiles for the constant values and runs
+   Apple's `appintentsmetadataprocessor` as Xcode's "Extract App Intents
+   Metadata" step does, into `Resources/Metadata.appintents`. Then
+   `native_strings.py intents` writes each locale's `Localizable.strings` and
+   `AppShortcuts.strings` from `lib/l10n/desktop` (`desktopIntent*` keys).
+   A string the intents show with no ARB key fails the bundle, and
+   `cargo test` (`intents::tests`) checks the same before any bundle.
+3. `verify` and `smoke.sh` run `intents.sh verify` (five actions, the chat
+   entity and its query, five App Shortcuts, every locale's strings), and
+   `smoke.sh --launch` checks that every type the metadata names is in the
+   binary (`SMOKE intents <n> types resolve`).
+
+Each intent's `perform()` hands the app one JSON request over a C function
+(`conduit_intents_request`, `src/intents.rs`) and gets one reply. The app
+does the work through conduitd: Ask Conduit is `intents.ask` (a new chat,
+then the answer, up to two minutes), Open Chat's list is `intents.chats`,
+and New Chat and Open Chat take the `conduit://` links' path. The intents
+are in the app rather than in an App Intents extension: an extension must
+be sandboxed, could only reach conduitd through an app group (which needs
+a team ID), and could do nothing while the app is not running, since
+conduitd is the app's child.
+
+`--e2e intents` runs the Swift intents' own `perform()` and query in the
+app's process against the local Open WebUI; Shortcuts itself can't be
+driven from a test (`shortcuts run` only runs shortcuts in the user's
+library).
+
+### Signing and App Intents
+
+| Signature | Shortcuts and Spotlight list the actions | The actions run |
+| --- | --- | --- |
+| Ad-hoc (`-`, local builds) | yes, once Launch Services has launched the bundle (before that, linkd logs "not trusted for binding") | no: linkd refuses the app's runtime registration ("requiresValidatedBundle", "Unable to get teamId") |
+| Apple Development (a free or paid team) | yes | expected yes: the signature has a team ID |
+| Developer ID (releases) | yes | yes, as for any notarized app |
+
+No entitlement is needed for App Intents. To see what linkd did with a
+bundle: `/usr/bin/log show --last 10m --predicate 'process == "linkd" AND
+eventMessage CONTAINS "<bundle id>"'`. Test bundles are registered with
+Launch Services when they are launched; take them out afterwards with
+`lsregister -u <path to the .app>` (`LSREGISTER` in `lib.sh`).
 
 ## Troubleshooting
 
