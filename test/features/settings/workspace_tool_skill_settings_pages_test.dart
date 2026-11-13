@@ -128,6 +128,9 @@ final class _Tools extends WorkspaceTools {
   Object? createError;
   Object? valvesError;
 
+  /// Runs as a switch or a valve save is sent, before it answers.
+  void Function()? onSend;
+
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
@@ -151,6 +154,7 @@ final class _Tools extends WorkspaceTools {
 
   @override
   Future<WorkspaceToolDetail> toggle(String id) async {
+    onSend?.call();
     toggled.add(id);
     // As Open WebUI answers a toggle: no source, no write access.
     return const WorkspaceToolSummary(
@@ -204,8 +208,10 @@ final class _Tools extends WorkspaceTools {
   Future<Map<String, dynamic>> userToolValves(String id) async => {};
 
   @override
-  Future<void> updateToolValves(String id, Map<String, dynamic> valves) async =>
-      valveSaves.add((false, valves));
+  Future<void> updateToolValves(String id, Map<String, dynamic> valves) async {
+    onSend?.call();
+    valveSaves.add((false, valves));
+  }
 
   @override
   Future<void> refresh() async {}
@@ -734,6 +740,21 @@ void main() {
       check(tools.updated).isEmpty();
     });
 
+    testWidgets('a switch sent as another account signs in leaves the page '
+        'free, read for that account', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      tools.onSend = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_tool1);
+
+      await rig.change(_toolRow('active', _toolKey));
+
+      check(tools.toggled).deepEquals(['tool-1']);
+      check(rig.page(_tool1).busy).not((it) => it.equals(true));
+      check(rig.row(_tool1, _toolRow('active', _toolKey))).isNotNull();
+    });
+
     group('from a URL', () {
       final url = '$workspaceToolUrlPagePrefix$workspaceNewKey';
 
@@ -822,6 +843,22 @@ void main() {
 
     group('its valves', () {
       final valves = '$workspaceToolValvesPagePrefix$_toolKey';
+
+      testWidgets('a save sent as another account signs in closes the page '
+          'rather than leave it busy', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        tools.onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_grace);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(tools.valveSaves).length.equals(1);
+        check(rig.closed).deepEquals([valves]);
+      });
 
       testWidgets('a value of its own is set, then saved', (tester) async {
         final tools = _Tools();
@@ -1166,6 +1203,21 @@ void main() {
       await rig.change(_skillRow('clone', _skillKey));
 
       check(skills.created.single.id).equals('skill-1_clone');
+    });
+
+    testWidgets('a duplicate made as another account signs in leaves the '
+        'page free, read for that account', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      skills.onClone = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
+      check(rig.page(_skill1).busy).not((it) => it.equals(true));
+      check(rig.row(_skill1, _skillRow('clone', _skillKey))).isNotNull();
     });
 
     testWidgets('a duplicate refused after another account signed in makes '

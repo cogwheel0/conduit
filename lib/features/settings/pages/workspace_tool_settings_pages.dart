@@ -1194,11 +1194,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the write.
     if (!_current(editor)) {
-      editor.busy = false;
-      if (identical(_editors[editor.key], editor)) {
-        _say(editor, l10n.workspaceToolSaveFailed);
-        await _applyEditor(l10n, editor, withPages: false);
-      }
+      await _sessionEnded(l10n, editor);
       return;
     }
     String? problem;
@@ -1220,7 +1216,10 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
           ? l10n.workspaceToolIdTaken
           : l10n.workspaceToolSaveFailed;
     }
-    if (!_current(editor)) return;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor);
+      return;
+    }
     editor.busy = false;
     if (problem != null) {
       _say(editor, problem);
@@ -1232,6 +1231,23 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     _editors.remove(editor.key);
     _access.forget(editor.key);
     await _surface.closeDetail('$workspaceToolPagePrefix${editor.key}');
+  }
+
+  /// Frees [editor] once its session ended during a change it was drawn
+  /// busy for, so its page ([pageId], else the editor's) is not left
+  /// disabled. Still the one open, the page is described again for the
+  /// session there is now, as on its return: the editor from before is
+  /// dropped unseen, the tool read afresh, and a page of its own closed.
+  Future<void> _sessionEnded(
+    AppLocalizations l10n,
+    WorkspaceToolEditor editor, {
+    String? pageId,
+  }) async {
+    editor
+      ..busy = false
+      ..valvesBusy = false;
+    if (!identical(_editors[editor.key], editor)) return;
+    await hydrate(pageId ?? '$workspaceToolPagePrefix${editor.key}', l10n);
   }
 
   /// Runs [operation] on a saved tool, the editor staying open.
@@ -1248,7 +1264,10 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor, withPages: false);
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the operation.
-    if (!_current(editor)) return false;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor);
+      return false;
+    }
     Object? failed;
     try {
       await operation();
@@ -1261,7 +1280,10 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     }
-    if (!_current(editor)) return false;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor);
+      return false;
+    }
     editor.busy = false;
     if (failed != null) {
       _say(editor, failure ?? l10n.workspaceToolSaveFailed);
@@ -1494,7 +1516,11 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     await _applyValves(l10n, editor);
     // Another account signed in while the page was drawn busy: nothing is
     // sent, with no await between this and the write.
-    if (!_current(editor)) return;
+    final valvesPage = '$workspaceToolValvesPagePrefix${editor.key}';
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor, pageId: valvesPage);
+      return;
+    }
     var saved = false;
     try {
       if (user) {
@@ -1511,7 +1537,10 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     }
-    if (!_current(editor)) return;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor, pageId: valvesPage);
+      return;
+    }
     editor.valvesBusy = false;
     if (!saved) {
       editor.valvesNotice = l10n.workspaceToolValvesSaveFailed;
@@ -1521,7 +1550,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     editor.valvesDirty = false;
     _say(editor, l10n.workspaceToolValvesSaved, error: false);
     await _applyEditor(l10n, editor, withPages: false);
-    await _surface.closeDetail('$workspaceToolValvesPagePrefix${editor.key}');
+    await _surface.closeDetail(valvesPage);
   }
 
   // -- From a URL ------------------------------------------------------------------

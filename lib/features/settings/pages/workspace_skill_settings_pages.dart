@@ -639,11 +639,7 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the write.
     if (!_current(editor)) {
-      editor.busy = false;
-      if (identical(_editors[editor.key], editor)) {
-        _say(editor, l10n.workspaceSkillSaveFailed);
-        await _applyEditor(l10n, editor, withPages: false);
-      }
+      await _sessionEnded(l10n, editor);
       return;
     }
     String? problem;
@@ -665,7 +661,10 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
           ? l10n.workspaceSkillIdTaken
           : l10n.workspaceSkillSaveFailed;
     }
-    if (!_current(editor)) return;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor);
+      return;
+    }
     editor.busy = false;
     if (problem != null) {
       _say(editor, problem);
@@ -677,6 +676,20 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     _editors.remove(editor.key);
     _access.forget(editor.key);
     await _surface.closeDetail('$workspaceSkillPagePrefix${editor.key}');
+  }
+
+  /// Frees [editor] once its session ended during a change it was drawn
+  /// busy for, so its page is not left disabled. Still the one open, the
+  /// page is described again for the session there is now, as on its
+  /// return: the editor from before is dropped unseen, and the skill read
+  /// afresh.
+  Future<void> _sessionEnded(
+    AppLocalizations l10n,
+    WorkspaceSkillEditor editor,
+  ) async {
+    editor.busy = false;
+    if (!identical(_editors[editor.key], editor)) return;
+    await hydrate('$workspaceSkillPagePrefix${editor.key}', l10n);
   }
 
   Future<bool> _operate(
@@ -691,7 +704,10 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor, withPages: false);
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the operation.
-    if (!_current(editor)) return false;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor);
+      return false;
+    }
     Object? failed;
     try {
       await operation();
@@ -704,7 +720,10 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     }
-    if (!_current(editor)) return false;
+    if (!_current(editor)) {
+      await _sessionEnded(l10n, editor);
+      return false;
+    }
     editor.busy = false;
     if (failed != null) {
       _say(editor, l10n.workspaceSkillSaveFailed);
