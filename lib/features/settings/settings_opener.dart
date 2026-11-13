@@ -11,20 +11,21 @@ enum SettingsDestination {
   flutterPages,
 }
 
-/// Where Command-comma opens Settings: the same native sheet as the account
-/// button wherever that button can present it, else the Flutter pages.
+/// Where Command-comma opens Settings: the native sheet wherever iOS can
+/// present it, as the account button opens it, else the Flutter pages.
 SettingsDestination settingsShortcutDestination({
   required bool nativeSheetAvailable,
 }) => nativeSheetAvailable
     ? SettingsDestination.nativeSheet
     : SettingsDestination.flutterPages;
 
-/// The account button's own way of opening Settings, while it is on screen,
-/// so a keyboard shortcut opens the very same sheet.
+/// The app's way of opening Settings, registered at its root, so the account
+/// button, Command-comma and any other entry open the very same sheet
+/// whatever is on screen.
 final class SettingsOpener {
   Future<void> Function()? _open;
 
-  /// How Settings opens now, if the account button is on screen.
+  /// How Settings opens, once the app has registered it.
   Future<void> Function()? get open => _open;
 
   void register(Future<void> Function() open) => _open = open;

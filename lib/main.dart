@@ -67,6 +67,8 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'features/settings/settings_controller.dart';
+import 'features/navigation/widgets/sidebar_user_pill.dart'
+    show registerAppSettingsOpener;
 import 'shared/services/flutter_ui_requests.dart';
 import 'shared/services/raster_media_policy.dart';
 import 'platform/carplay_service.dart';
@@ -596,6 +598,7 @@ class ConduitApp extends ConsumerStatefulWidget {
 class _ConduitAppState extends ConsumerState<ConduitApp> {
   Brightness? _lastAppliedOverlayBrightness;
   StreamSubscription<NativeSheetEvent>? _nativeSheetSubscription;
+  VoidCallback? _unregisterSettingsOpener;
 
   @override
   void initState() {
@@ -612,6 +615,9 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     _nativeSheetSubscription = NativeSheetBridge.instance.events.listen(
       settingsController.handle,
     );
+    // The account button, Command-comma and any other entry open Settings
+    // here, so each presents the same sheet with the same account.
+    _unregisterSettingsOpener = registerAppSettingsOpener(ref);
 
     // Delay heavy provider initialization until after the first frame so the
     // initial paint stays responsive.
@@ -625,6 +631,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   @override
   void dispose() {
+    _unregisterSettingsOpener?.call();
     _nativeSheetSubscription?.cancel();
     super.dispose();
   }

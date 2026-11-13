@@ -29,6 +29,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'sidebar_page_test_support.dart';
 
+import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart'
+    show sidebarNativeProfilePresenterProvider;
 import 'package:conduit/features/settings/settings_opener.dart';
 
 void main() {
@@ -77,11 +79,18 @@ void main() {
     );
   });
 
-  testWidgets('Command-comma opens the native Settings sheet the account '
-      'button opens', (tester) async {
+  testWidgets('Command-comma opens Settings the way the app opens it', (
+    tester,
+  ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        sidebarNativeProfilePresenterProvider.overrideWithValue(
+          (_) async => true,
+        ),
+      ],
+    );
     addTearDown(container.dispose);
     var sheets = 0;
     Future<void> openSheet() async => sheets++;
@@ -104,7 +113,7 @@ void main() {
     expect(sheets, 1);
   });
 
-  test('Settings opens where the account button would open it', () {
+  test('Settings opens in the native sheet wherever it can be presented', () {
     expect(
       settingsShortcutDestination(nativeSheetAvailable: true),
       SettingsDestination.nativeSheet,
@@ -120,7 +129,7 @@ void main() {
       ..register(first)
       ..register(second)
       ..unregister(first);
-    // A button gone after another took over leaves the newer one.
+    // An opener taken back after another took over leaves the newer one.
     expect(opener.open, same(second));
   });
 

@@ -24,6 +24,8 @@ import '../utils/chat_list_back.dart';
 import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
+import 'sidebar_user_pill.dart'
+    show flutterSettingsShowing, sidebarNativeProfilePresenterProvider;
 import 'sidebar_tab_registry.dart';
 import '../../terminal/providers/terminal_providers.dart';
 
@@ -239,18 +241,17 @@ class _AppKeyboardShortcutsState extends ConsumerState<AppKeyboardShortcuts> {
   }
 
   void _openSettings() {
-    // On iOS and iPadOS, the same native sheet as the account button.
+    // On iOS and iPadOS, the app's native sheet, as the account button opens
+    // it, whether or not the sidebar is showing.
     final open = ref.read(settingsOpenerProvider).open;
-    if (settingsShortcutDestination(nativeSheetAvailable: open != null) ==
+    final sheet =
+        open != null && ref.read(sidebarNativeProfilePresenterProvider) != null;
+    if (settingsShortcutDestination(nativeSheetAvailable: sheet) ==
         SettingsDestination.nativeSheet) {
       unawaited(open!());
       return;
     }
-    final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
-    if (path == Routes.profile ||
-        path?.startsWith('${Routes.profile}/') == true) {
-      return;
-    }
+    if (flutterSettingsShowing()) return;
     unawaited(NavigationService.pushTo(Routes.profile));
   }
 

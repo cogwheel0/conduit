@@ -34,13 +34,6 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 
 import '../../../shared/services/navigation_service.dart';
 
-import 'package:conduit_core/features/automations/providers/automation_providers.dart'
-    show scheduledTasksEntryVisibleProvider;
-import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarAvailableProvider;
-import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatDataControlsEntryVisibleProvider;
-import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/native_sheet_utils.dart';
@@ -54,8 +47,6 @@ import 'package:conduit_core/utils/user_display_name.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit_core/features/push/providers/push_providers.dart'
-    show notificationsWithoutAccountProvider;
 
 import '../../hermes/widgets/hermes_connection_switcher.dart';
 
@@ -371,16 +362,6 @@ class _SidebarProfileAppBarLeadingState
     extends ConsumerState<SidebarProfileAppBarLeading> {
   bool _openingProfile = false;
 
-  /// This button's way of opening Settings, which Command-comma uses too.
-  Future<void> Function()? _opener;
-  late final SettingsOpener _settingsOpener = ref.read(settingsOpenerProvider);
-
-  @override
-  void dispose() {
-    if (_opener case final opener?) _settingsOpener.unregister(opener);
-    super.dispose();
-  }
-
   Future<void> _openProfile(Future<void> Function() present) async {
     // Claim the opening before navigation or account loading can yield.
     if (_openingProfile) return;
@@ -395,9 +376,6 @@ class _SidebarProfileAppBarLeadingState
   @override
   Widget build(BuildContext context) {
     final user = resolveSidebarUser(ref);
-    final nativeProfilePresenter = ref.watch(
-      sidebarNativeProfilePresenterProvider,
-    );
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
@@ -416,7 +394,6 @@ class _SidebarProfileAppBarLeadingState
 
     final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
-    final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final directTitle = l10n.directConnectionsTitle;
     final hermesName = ref.watch(hermesActiveConnectionNameProvider);
     final displayName = libreChatUser != null
@@ -510,125 +487,15 @@ class _SidebarProfileAppBarLeadingState
     Future<void> presentProfile() async {
       await Navigator.of(context).maybePop();
       if (!context.mounted) return;
-      FocusManager.instance.primaryFocus?.unfocus();
-      // Native sheets do not participate in Flutter's focus traversal.
-      // Let the chat input release its keyboard before presenting Settings.
-      await WidgetsBinding.instance.endOfFrame;
-      if (!context.mounted) return;
-
-      if (nativeProfilePresenter != null) {
-        // Pre-load the Hermes avatar bytes (the config builder is sync, and
-        // avatarBytes must be supplied up front): without an Open WebUI
-        // user, the account card may name a Hermes connection.
-        final hermesAvatarBytes = hermesOnly || user == null
-            ? await _loadHermesAvatarBytes()
-            : null;
-        if (!context.mounted) return;
-        // The sheet lists the other saved accounts as they are when it opens,
-        // so the first open after launch must not beat their load.
-        await _loadSavedAccounts(ref);
-        if (!context.mounted) return;
-        final hasAccountProfile = !hermesOnly && user != null;
-        // The profile details editor preselects the stored gender and birth
-        // date and saves every field, so it must not open on a profile that
-        // was never loaded. A cached one opens the sheet at once; it is
-        // refreshed behind the sheet, which then takes the newer copy, and
-        // its Profile page editors wait for that refresh.
-        final cachedProfile = hasAccountProfile
-            ? ref.read(accountProfileProvider).asData?.value
-            : null;
-        final accountProfile = !hasAccountProfile
-            ? null
-            : cachedProfile ?? await _currentAccountProfile(ref);
-        if (!context.mounted) return;
-        // With no profile at all, the sheet would offer empty fields that a
-        // save writes over the stored ones. The settings page loads the
-        // profile itself and reports a failure, so go there instead.
-        final profileUnavailable = hasAccountProfile && accountProfile == null;
-        if (!profileUnavailable) {
-          final rootAccount = user == null
-              ? null
-              : NativeProfileRootAccount(
-                  displayName: displayName,
-                  email: settingsUserEmail(user) ?? l10n.noEmailLabel,
-                );
-          final generation = ++_nativeProfileSheetGeneration;
-          final config = _buildNativeProfileSheetConfig(
-            context: context,
-            ref: ref,
-            accountProfile: accountProfile,
-            user: user,
-            api: api,
-            displayName: displayName,
-            initials: initial,
-            rootAccount: rootAccount,
-            // On a cached copy the Profile page waits for the refresh: its
-            // editors save every field, so one opened on the cached copy
-            // would write it over newer server values.
-            profilePending: cachedProfile != null,
-            // Read when the sheet opens, so a toggle made while it was closed
-            // is already reflected; the action re-checks on delivery, and an
-            // Advanced change made inside the sheet rebuilds these rows.
-            visibility: NativeProfileRootVisibility(
-              showCalendar: ref.read(calendarAvailableProvider),
-              canManageWorkspace: canManageWorkspace,
-              showScheduledTasks: ref.read(scheduledTasksEntryVisibleProvider),
-              showPersonalConnections: ref.read(
-                personalConnectionsEntryVisibleProvider,
-              ),
-              showChatDataControls: ref.read(
-                chatDataControlsEntryVisibleProvider,
-              ),
-              showNotificationsWithoutAccount: ref.read(
-                notificationsWithoutAccountProvider,
-              ),
-              showLibreChatPersonalization:
-                  ref.read(primaryAccountKindProvider) ==
-                  PrimaryAccountKind.libreChat,
-            ),
-            hermesAvatarBytes: hermesAvatarBytes,
-          );
-          ref
-              .read(nativeSheetHydrationServiceProvider)
-              .rememberProfileRoot(rootAccount);
-          final presented = await nativeProfilePresenter(config);
-          if (presented) {
-            if (cachedProfile != null) {
-              unawaited(
-                _refreshPresentedProfile(
-                  ref,
-                  generation: generation,
-                  shown: cachedProfile,
-                  displayName: displayName,
-                  initials: initial,
-                  user: user,
-                  api: api,
-                  l10n: l10n,
-                ),
-              );
-            }
-            return;
-          }
-        }
+      // The app opens Settings, as Command-comma does: the native sheet on
+      // iOS, whatever is on screen, else the Flutter pages.
+      final open = ref.read(settingsOpenerProvider).open;
+      if (open != null) {
+        await open();
+        return;
       }
-
-      if (context.mounted) {
-        await context.pushNamed(
-          sidebarProfileFallbackRouteName(
-            directPrimary: directPrimary,
-            hasOpenWebUiUser: user != null,
-          ),
-        );
-      }
+      await NativeSettingsSheet(ref).open(context);
     }
-
-    // Command-comma opens Settings the way this button does, while the
-    // native sheet is how it does.
-    if (_opener case final previous?) _settingsOpener.unregister(previous);
-    _opener = nativeProfilePresenter == null
-        ? null
-        : () => _openProfile(presentProfile);
-    if (_opener case final opener?) _settingsOpener.register(opener);
 
     // Exclude the native glass button's own node so VoiceOver announces one
     // labelled control instead of an unlabelled avatar image.
@@ -659,6 +526,195 @@ class _SidebarProfileAppBarLeadingState
                 ),
               ),
       ),
+    );
+  }
+}
+
+/// Registers the app's way of opening Settings for as long as [ref]'s widget
+/// lives, and returns how to take it back. Called from the app's root, so the
+/// account button, Command-comma and any other entry present the same sheet
+/// whatever is on screen: the native one on iOS and iPadOS, else the Flutter
+/// pages.
+VoidCallback registerAppSettingsOpener(WidgetRef ref) {
+  // Claimed while the sheet is built and presented, so a second tap or key
+  // press that lands while the accounts load does not present it twice.
+  var opening = false;
+  Future<void> open() async {
+    final context = NavigationService.context;
+    if (opening || context == null || !context.mounted) return;
+    opening = true;
+    final String? fallback;
+    try {
+      fallback = await NativeSettingsSheet(ref).present(context);
+    } finally {
+      opening = false;
+    }
+    // The Flutter pages, once: a second request finds them showing.
+    if (fallback == null || !context.mounted || flutterSettingsShowing()) {
+      return;
+    }
+    await context.pushNamed(fallback);
+  }
+
+  final opener = ref.read(settingsOpenerProvider)..register(open);
+  return () => opener.unregister(open);
+}
+
+/// Whether the Flutter Settings pages are on screen.
+bool flutterSettingsShowing() {
+  final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
+  return path == Routes.profile ||
+      path?.startsWith('${Routes.profile}/') == true;
+}
+
+/// Opens Settings from anywhere in the app: the native sheet where iOS can
+/// present it, built for the account in use, else the Flutter pages. The
+/// account button, Command-comma and any other entry open it the same way.
+final class NativeSettingsSheet {
+  NativeSettingsSheet(this.ref);
+
+  /// A ref that outlives the sheet: the app root's.
+  final WidgetRef ref;
+
+  /// Opens Settings from [context], a context under the app's navigator, and
+  /// completes once the Flutter pages, if they opened instead, are left.
+  Future<void> open(BuildContext context) async {
+    final fallback = await present(context);
+    if (fallback != null && context.mounted) await context.pushNamed(fallback);
+  }
+
+  /// Presents the native sheet, built for the account in use. Returns the
+  /// Flutter Settings route to open instead when it cannot be presented, or
+  /// null once it was, or when [context] is gone.
+  Future<String?> present(BuildContext context) async {
+    final nativeProfilePresenter = ref.read(
+      sidebarNativeProfilePresenterProvider,
+    );
+    final authUser = ref.read(currentUserProvider2);
+    final dynamic user = ref
+        .read(currentUserProvider)
+        .maybeWhen(data: (value) => value ?? authUser, orElse: () => authUser);
+    final hermesOnly = ref.read(hermesOnlyModeProvider);
+    final directPrimary =
+        ref.read(preferredBackendProvider) == PreferredBackend.direct;
+    final libreChatUser =
+        ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? ref.read(primaryUserProvider)
+        : null;
+    final api = ref.read(apiServiceProvider);
+    final l10n = AppLocalizations.of(context)!;
+    final hermesName = ref.read(hermesActiveConnectionNameProvider);
+    final displayName = libreChatUser != null
+        ? (libreChatUser.displayName.isEmpty
+              ? l10n.libreChatTitle
+              : libreChatUser.displayName)
+        : hermesOnly
+        ? hermesName ?? kHermesDefaultConnectionName
+        : directPrimary && user == null
+        ? l10n.directConnectionsTitle
+        : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
+    final hermesShown = hermesOnly && libreChatUser == null;
+    final initial = hermesShown
+        ? hermesConnectionInitials(hermesName)
+        : directPrimary && user == null
+        ? l10n.directConnectionsTitle.characters.first.toUpperCase()
+        : displayName.isEmpty
+        ? 'U'
+        : displayName.characters.first.toUpperCase();
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    // Native sheets do not participate in Flutter's focus traversal.
+    // Let the chat input release its keyboard before presenting Settings.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!context.mounted) return null;
+
+    if (nativeProfilePresenter != null) {
+      // Pre-load the Hermes avatar bytes (the config builder is sync, and
+      // avatarBytes must be supplied up front): without an Open WebUI
+      // user, the account card may name a Hermes connection.
+      final hermesAvatarBytes = hermesOnly || user == null
+          ? await _loadHermesAvatarBytes()
+          : null;
+      if (!context.mounted) return null;
+      // The sheet lists the other saved accounts as they are when it opens,
+      // so the first open after launch must not beat their load, nor the
+      // answer on whether it offers Workspace.
+      await Future.wait([
+        _loadSavedAccounts(ref),
+        _loadWorkspaceCapabilities(ref),
+      ]);
+      if (!context.mounted) return null;
+      final hasAccountProfile = !hermesOnly && user != null;
+      // The profile details editor preselects the stored gender and birth
+      // date and saves every field, so it must not open on a profile that
+      // was never loaded. A cached one opens the sheet at once; it is
+      // refreshed behind the sheet, which then takes the newer copy, and
+      // its Profile page editors wait for that refresh.
+      final cachedProfile = hasAccountProfile
+          ? ref.read(accountProfileProvider).asData?.value
+          : null;
+      final accountProfile = !hasAccountProfile
+          ? null
+          : cachedProfile ?? await _currentAccountProfile(ref);
+      if (!context.mounted) return null;
+      // With no profile at all, the sheet would offer empty fields that a
+      // save writes over the stored ones. The settings page loads the
+      // profile itself and reports a failure, so go there instead.
+      final profileUnavailable = hasAccountProfile && accountProfile == null;
+      if (!profileUnavailable) {
+        final rootAccount = user == null
+            ? null
+            : NativeProfileRootAccount(
+                displayName: displayName,
+                email: settingsUserEmail(user) ?? l10n.noEmailLabel,
+              );
+        final generation = ++_nativeProfileSheetGeneration;
+        final config = _buildNativeProfileSheetConfig(
+          context: context,
+          ref: ref,
+          accountProfile: accountProfile,
+          user: user,
+          api: api,
+          displayName: displayName,
+          initials: initial,
+          rootAccount: rootAccount,
+          // On a cached copy the Profile page waits for the refresh: its
+          // editors save every field, so one opened on the cached copy
+          // would write it over newer server values.
+          profilePending: cachedProfile != null,
+          // Read when the sheet opens, so a toggle made while it was closed
+          // is already reflected; the action re-checks on delivery, and an
+          // Advanced change made inside the sheet rebuilds these rows.
+          visibility: readNativeProfileRootVisibility(ref.read),
+          hermesAvatarBytes: hermesAvatarBytes,
+        );
+        ref
+            .read(nativeSheetHydrationServiceProvider)
+            .rememberProfileRoot(rootAccount);
+        final presented = await nativeProfilePresenter(config);
+        if (presented) {
+          if (cachedProfile != null) {
+            unawaited(
+              _refreshPresentedProfile(
+                ref,
+                generation: generation,
+                shown: cachedProfile,
+                displayName: displayName,
+                initials: initial,
+                user: user,
+                api: api,
+                l10n: l10n,
+              ),
+            );
+          }
+          return null;
+        }
+      }
+    }
+
+    return sidebarProfileFallbackRouteName(
+      directPrimary: directPrimary,
+      hasOpenWebUiUser: user != null,
     );
   }
 
@@ -701,6 +757,32 @@ class _SidebarProfileAppBarLeadingState
         scope: 'navigation/profile',
         data: {'error': error.toString()},
       );
+    }
+  }
+
+  /// Waits briefly for whether the account may manage any Workspace section,
+  /// which decides the root's Workspace row. Nothing on screen need have
+  /// asked yet when Settings opens from a shortcut; without an answer in time
+  /// the row stays hidden, as it does while the answer loads.
+  Future<void> _loadWorkspaceCapabilities(WidgetRef ref) async {
+    // Listened to meanwhile: a provider only read is not rebuilt when the
+    // account it reads for changes, and its answer would never come.
+    final listening = ref.listenManual(
+      workspaceCapabilitiesProvider,
+      (_, _) {},
+    );
+    try {
+      await ref
+          .read(workspaceCapabilitiesProvider.future)
+          .timeout(const Duration(seconds: 2));
+    } catch (error) {
+      DebugLogger.warning(
+        'workspace-capabilities-load-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    } finally {
+      listening.close();
     }
   }
 
@@ -938,38 +1020,39 @@ class _SidebarProfileAppBarLeadingState
     final host = Uri.tryParse(baseUrl)?.host;
     return host != null && host.isNotEmpty ? host : fallback;
   }
+}
 
-  static final LinkedHashMap<String, Uint8List> _dataImageBytesCache =
-      LinkedHashMap<String, Uint8List>();
+/// A `data:image` URL's bytes, kept for the last few decoded.
+final LinkedHashMap<String, Uint8List> _dataImageBytesCache =
+    LinkedHashMap<String, Uint8List>();
 
-  Uint8List? _decodeDataImage(String? dataUrl) {
-    if (dataUrl == null || !dataUrl.startsWith('data:image')) {
+Uint8List? _decodeDataImage(String? dataUrl) {
+  if (dataUrl == null || !dataUrl.startsWith('data:image')) {
+    return null;
+  }
+  final cached = _dataImageBytesCache.remove(dataUrl);
+  if (cached != null) {
+    _dataImageBytesCache[dataUrl] = cached;
+    return cached;
+  }
+  try {
+    final commaIndex = dataUrl.indexOf(',');
+    if (commaIndex == -1) return null;
+    final encodedLength = dataUrl.length - commaIndex - 1;
+    final maximumBase64Length =
+        ((_sidebarAvatarMaximumEncodedBytes + 2) ~/ 3) * 4;
+    if (encodedLength > maximumBase64Length) return null;
+    final decoded = base64Decode(dataUrl.substring(commaIndex + 1));
+    if (decoded.lengthInBytes > _sidebarAvatarMaximumEncodedBytes) {
       return null;
     }
-    final cached = _dataImageBytesCache.remove(dataUrl);
-    if (cached != null) {
-      _dataImageBytesCache[dataUrl] = cached;
-      return cached;
+    _dataImageBytesCache[dataUrl] = decoded;
+    while (_dataImageBytesCache.length > 4) {
+      _dataImageBytesCache.remove(_dataImageBytesCache.keys.first);
     }
-    try {
-      final commaIndex = dataUrl.indexOf(',');
-      if (commaIndex == -1) return null;
-      final encodedLength = dataUrl.length - commaIndex - 1;
-      final maximumBase64Length =
-          ((_sidebarAvatarMaximumEncodedBytes + 2) ~/ 3) * 4;
-      if (encodedLength > maximumBase64Length) return null;
-      final decoded = base64Decode(dataUrl.substring(commaIndex + 1));
-      if (decoded.lengthInBytes > _sidebarAvatarMaximumEncodedBytes) {
-        return null;
-      }
-      _dataImageBytesCache[dataUrl] = decoded;
-      while (_dataImageBytesCache.length > 4) {
-        _dataImageBytesCache.remove(_dataImageBytesCache.keys.first);
-      }
-      return decoded;
-    } catch (_) {
-      return null;
-    }
+    return decoded;
+  } catch (_) {
+    return null;
   }
 }
 
