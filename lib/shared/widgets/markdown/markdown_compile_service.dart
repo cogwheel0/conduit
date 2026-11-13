@@ -1666,6 +1666,7 @@ class _MarkdownCompilerBackend {
   ReceivePort? _exitPort;
   SendPort? _sendPort;
   Future<SendPort>? _startupFuture;
+  Completer<SendPort>? _startupHandshake;
   final Map<int, Completer<Map<String, Object?>>> _pendingSingle =
       <int, Completer<Map<String, Object?>>>{};
   final Map<int, Completer<List<Map<String, Object?>>>> _pendingBatch =
@@ -1708,6 +1709,11 @@ class _MarkdownCompilerBackend {
   }
 
   Future<SendPort> _ensureStarted() {
+    if (_disposed) {
+      return Future<SendPort>.error(
+        StateError('Markdown compiler backend disposed'),
+      );
+    }
     final existing = _sendPort;
     if (existing != null) {
       return SynchronousFuture(existing);
@@ -1729,6 +1735,10 @@ class _MarkdownCompilerBackend {
     _errorPort = errorPort;
     _exitPort = exitPort;
     final completer = Completer<SendPort>();
+    // A failed spawn or dispose() can fail the handshake before anything
+    // awaits it; that is not an uncaught error.
+    completer.future.ignore();
+    _startupHandshake = completer;
 
     receivePort.listen((dynamic message) {
       if (message is SendPort) {
@@ -1762,13 +1772,20 @@ class _MarkdownCompilerBackend {
     });
 
     try {
-      _isolate = await Isolate.spawn<SendPort>(
+      final isolate = await Isolate.spawn<SendPort>(
         _markdownCompilerIsolateMain,
         receivePort.sendPort,
         debugName: 'markdown_compiler',
         onError: errorPort.sendPort,
         onExit: exitPort.sendPort,
       );
+      if (_disposed) {
+        // Disposed while spawning: its ports are closed, so it could
+        // never answer, and nothing else would stop it.
+        isolate.kill(priority: Isolate.immediate);
+        throw StateError('Markdown compiler backend disposed');
+      }
+      _isolate = isolate;
       return await completer.future.timeout(const Duration(seconds: 5));
     } catch (error, stackTrace) {
       if (!completer.isCompleted) {
@@ -1778,6 +1795,9 @@ class _MarkdownCompilerBackend {
       rethrow;
     } finally {
       _startupFuture = null;
+      if (identical(_startupHandshake, completer)) {
+        _startupHandshake = null;
+      }
     }
   }
 
@@ -1912,10 +1932,14 @@ class _MarkdownCompilerBackend {
 
   void dispose() {
     _disposed = true;
-    _failPendingRequests(
-      StateError('Markdown compiler backend disposed'),
-      StackTrace.empty,
-    );
+    final error = StateError('Markdown compiler backend disposed');
+    // Closing the ports below means the isolate's port can never arrive,
+    // so a startup still waiting for it ends now, not at its timeout.
+    final handshake = _startupHandshake;
+    if (handshake != null && !handshake.isCompleted) {
+      handshake.completeError(error, StackTrace.empty);
+    }
+    _failPendingRequests(error, StackTrace.empty);
     _resetIsolateState(killIsolate: true);
   }
 }
@@ -1927,6 +1951,7 @@ class _MarkdownPrepareBackend {
   ReceivePort? _exitPort;
   SendPort? _sendPort;
   Future<SendPort>? _startupFuture;
+  Completer<SendPort>? _startupHandshake;
   final Map<int, Completer<String>> _pendingPrepared =
       <int, Completer<String>>{};
   final Map<int, Completer<MarkdownPreparationPatch>> _pendingStreaming =
@@ -1993,6 +2018,11 @@ class _MarkdownPrepareBackend {
   }
 
   Future<SendPort> _ensureStarted() {
+    if (_disposed) {
+      return Future<SendPort>.error(
+        StateError('Markdown prepare backend disposed'),
+      );
+    }
     final existing = _sendPort;
     if (existing != null) {
       return SynchronousFuture(existing);
@@ -2014,6 +2044,10 @@ class _MarkdownPrepareBackend {
     _errorPort = errorPort;
     _exitPort = exitPort;
     final completer = Completer<SendPort>();
+    // A failed spawn or dispose() can fail the handshake before anything
+    // awaits it; that is not an uncaught error.
+    completer.future.ignore();
+    _startupHandshake = completer;
 
     receivePort.listen((dynamic message) {
       if (message is SendPort) {
@@ -2047,13 +2081,20 @@ class _MarkdownPrepareBackend {
     });
 
     try {
-      _isolate = await Isolate.spawn<SendPort>(
+      final isolate = await Isolate.spawn<SendPort>(
         _markdownPrepareIsolateMain,
         receivePort.sendPort,
         debugName: 'markdown_prepare',
         onError: errorPort.sendPort,
         onExit: exitPort.sendPort,
       );
+      if (_disposed) {
+        // Disposed while spawning: its ports are closed, so it could
+        // never answer, and nothing else would stop it.
+        isolate.kill(priority: Isolate.immediate);
+        throw StateError('Markdown prepare backend disposed');
+      }
+      _isolate = isolate;
       return await completer.future.timeout(const Duration(seconds: 5));
     } catch (error, stackTrace) {
       if (!completer.isCompleted) {
@@ -2063,6 +2104,9 @@ class _MarkdownPrepareBackend {
       rethrow;
     } finally {
       _startupFuture = null;
+      if (identical(_startupHandshake, completer)) {
+        _startupHandshake = null;
+      }
     }
   }
 
@@ -2205,10 +2249,14 @@ class _MarkdownPrepareBackend {
 
   void dispose() {
     _disposed = true;
-    _failPendingRequests(
-      StateError('Markdown prepare backend disposed'),
-      StackTrace.empty,
-    );
+    final error = StateError('Markdown prepare backend disposed');
+    // Closing the ports below means the isolate's port can never arrive,
+    // so a startup still waiting for it ends now, not at its timeout.
+    final handshake = _startupHandshake;
+    if (handshake != null && !handshake.isCompleted) {
+      handshake.completeError(error, StackTrace.empty);
+    }
+    _failPendingRequests(error, StackTrace.empty);
     _resetIsolateState(killIsolate: true);
   }
 }
