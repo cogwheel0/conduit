@@ -755,6 +755,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
           readOnly: editor.readOnly,
           saveOnDone: !editor.isCreate,
           resourceName: editor.name.trim().isEmpty ? null : editor.name.trim(),
+          session: editor.session,
         );
       }
       await _access.hydrate(detailId, l10n);
@@ -1643,7 +1644,12 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     // and the page says it was not saved.
     if (!_current(editor)) return l10n.workspaceToolSaveFailed;
     try {
-      await _notifier.updateAccess(summary.id, grants);
+      final saved = await _notifier.updateAccess(summary.id, grants);
+      // What the server kept: it drops grants the account may not give.
+      draft.kept = [
+        for (final grant in saved.accessGrants)
+          WorkspaceAccessGrantInput.fromGrant(grant),
+      ];
     } catch (error, stackTrace) {
       DebugLogger.error(
         'workspace-tool-access-failed',

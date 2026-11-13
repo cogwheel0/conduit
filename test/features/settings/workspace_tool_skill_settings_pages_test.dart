@@ -155,6 +155,36 @@ final class _Tools extends WorkspaceTools {
     return _tool();
   }
 
+  final accessSaves = <List<WorkspaceAccessGrantInput>>[];
+
+  /// What the server keeps of an access list sent: by default all of it.
+  List<WorkspaceAccessGrantInput> Function(
+    List<WorkspaceAccessGrantInput> grants,
+  )
+  keepAccess = (grants) => grants;
+
+  @override
+  Future<WorkspaceToolDetail> updateAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    accessSaves.add(grants);
+    return WorkspaceToolSummary(
+      id: id,
+      name: 'Star Chart',
+      userId: 'owner',
+      writeAccess: true,
+      accessGrants: [
+        for (final grant in keepAccess(grants))
+          WorkspaceAccessGrant(
+            principalType: grant.principalType,
+            principalId: grant.principalId,
+            permission: grant.permission,
+          ),
+      ],
+    );
+  }
+
   @override
   Future<WorkspaceToolDetail> toggle(String id) async {
     onSend?.call();
@@ -642,6 +672,31 @@ void main() {
       check(form.id).equals('tool-1');
       check(form.meta['description']).equals('Charts stars');
       check(rig.closed).deepEquals([_tool1]);
+    });
+
+    testWidgets("its Access stays on the list the server saved when it kept "
+        'less than was sent', (tester) async {
+      // The server drops what the account may not give: here, Everyone.
+      final tools = _Tools()
+        ..keepAccess = (grants) => [
+          for (final grant in grants)
+            if (grant.principalId != '*') grant,
+        ];
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      final access = workspaceAccessPageId(WorkspaceSection.tools, _toolKey);
+      await rig.open(access);
+      final scope = '${WorkspaceSection.tools.name}|$_toolKey';
+
+      await rig.change(workspaceRowId('access-general', scope), 'server');
+      await rig.change(workspaceRowId('access-done', scope));
+
+      check(tools.accessSaves.single.map((g) => g.principalId)).contains('*');
+      check(rig.closed).not((it) => it.contains(access));
+      check(rig.page(access).announcement)
+          .equals(_l10n.resourceSharingFiltered);
+      check(rig.row(access, workspaceRowId('access-general', scope))!.value)
+          .equals('restricted');
     });
 
     testWidgets('a duplicate keeps none of the access list', (tester) async {
