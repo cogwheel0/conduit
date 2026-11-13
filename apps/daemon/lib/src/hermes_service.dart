@@ -623,15 +623,17 @@ final class HermesService {
   }
 
   /// What a Hermes chat offers: its history's actions, unless another
-  /// Hermes app owns it. Undo needs a Desktop Gateway, whose session keeps
-  /// the transcript.
+  /// Hermes app owns it (Undo needs a Desktop Gateway, whose session keeps
+  /// the transcript); and, whoever owns it, its agent's work and its
+  /// context window and usage.
   ChatAbilities abilities(String sessionId) {
+    final service = _container.read(hermesApiServiceProvider);
     final readOnly = chatState(sessionId).readOnly;
     return ChatAbilities(
       branchFromHere: !readOnly,
-      undoLastTurn:
-          !readOnly &&
-          _container.read(hermesApiServiceProvider) is HermesDesktopApiService,
+      undoLastTurn: !readOnly && service is HermesDesktopApiService,
+      hermesWork: service != null,
+      hermesContext: service != null,
     );
   }
 
