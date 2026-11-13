@@ -3322,6 +3322,8 @@ final class TurnsService implements ChatTurns {
           metadata: <String, dynamic>{
             'backend': 'hermes',
             'hermesSessionId': sessionId,
+            // A Bot Chat runs as its bot, as the phone opens it.
+            ...hermes.chatMetadata(sessionId),
           },
         ),
       );

@@ -53,6 +53,7 @@ import 'handoff_service.dart';
 import 'automations_service.dart';
 import 'calendar_service.dart';
 import 'hermes_cards_service.dart';
+import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
 import 'calls_service.dart';
 import 'speech_service.dart';
@@ -125,6 +126,7 @@ class DaemonServer {
   QueuedCompletionsService? _queuedCompletions;
   McpAppsService? _mcpApps;
   HermesCardsService? _hermesCards;
+  HermesRoomsService? _hermesRooms;
   ComposerService? _composer;
   DraftsService? _drafts;
   PromptsService? _prompts;
@@ -210,6 +212,9 @@ class DaemonServer {
     final temporary = TemporaryChats();
     _queuedCompletions = QueuedCompletionsService(core.container, events);
     _hermes = HermesService(core.container, events: events);
+    // Bot Mode and Group Chats; a bot's Bot Chat opens as its session.
+    _hermesRooms = HermesRoomsService(core.container, events);
+    _hermes!.botChats = _hermesRooms;
     _chats = ChatsService(
       core.container,
       events: events,
@@ -362,6 +367,7 @@ class DaemonServer {
       handoff: _handoff,
       calendar: _calendar,
       automations: _automations,
+      hermesRooms: _hermesRooms,
     );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.
@@ -1098,6 +1104,8 @@ class DaemonServer {
     _queuedCompletions?.dispose();
     _mcpApps?.dispose();
     _hermesCards?.dispose();
+    _hermesRooms?.dispose();
+    _hermesRooms = null;
     _turns = null;
     _chats?.dispose();
     _chats = null;

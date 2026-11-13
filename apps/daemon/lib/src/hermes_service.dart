@@ -25,6 +25,7 @@ import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
+import 'hermes_rooms_service.dart' show HermesBotChats;
 import 'settled.dart';
 
 /// Whether [config] is a desktop gateway that signs in natively and has not
@@ -96,6 +97,9 @@ final class HermesService {
     _previous.clear();
     _lastRead.clear();
   }
+
+  /// The bots whose Bot Chats sessions are (`hermes.bots.*`).
+  HermesBotChats? botChats;
 
   void dispose() {
     _readOnlyWatch?.close();
@@ -620,6 +624,7 @@ final class HermesService {
       owner: owner == null || owner.trim().isEmpty
           ? ''
           : hermesSessionSourceName(owner),
+      bot: botChats?.botOf(sessionId),
     );
   }
 
@@ -847,6 +852,11 @@ final class HermesService {
   /// Titles of sessions this app made that Hermes leaves untitled (a copy
   /// keeps its chat's title while the list does not).
   final Map<String, String> _titles = <String, String>{};
+
+  /// The conversation metadata a session's chat opens with: a Bot Chat's
+  /// bot (the phone writes the same when its roster opens one).
+  Map<String, Object> chatMetadata(String sessionId) =>
+      botChats?.botMetadataOf(sessionId) ?? const <String, Object>{};
 
   /// The session's title as the list has it, for a chat header.
   Future<String?> titleOf(String sessionId) async {
