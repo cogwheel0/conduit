@@ -1,0 +1,1031 @@
+{
+  "@@locale": "cs",
+  "desktopSignIn": "Přihlásit se",
+  "desktopSignOut": "Odhlásit se",
+  "desktopSignOutEllipsis": "Odhlásit se…",
+  "desktopSignOutOf": "Odhlásit se z účtu {name}…",
+  "@desktopSignOutOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopSignOutAnyway": "Přesto se odhlásit",
+  "desktopSwitchAnyway": "Přesto přepnout",
+  "desktopReplyInProgress": "Odpověď se ještě generuje.",
+  "desktopAddAccountEllipsis": "Přidat účet…",
+  "desktopAddAccount": "Přidat účet",
+  "desktopConnectToServer": "Připojit k serveru",
+  "desktopServerAddress": "Adresa serveru",
+  "desktopServerName": "Název serveru",
+  "desktopAdvancedSettings": "Pokročilá nastavení",
+  "desktopAllowUnverifiedCertificate": "Povolit neověřený certifikát",
+  "desktopCustomHeaders": "Vlastní hlavičky",
+  "desktopAddHeader": "Přidat hlavičku",
+  "desktopHeaderName": "Název hlavičky",
+  "desktopHeaderValue": "Hodnota hlavičky",
+  "desktopRemoveHeader": "Odebrat hlavičku",
+  "desktopPrivateKey": "Soukromý klíč",
+  "desktopConnecting": "Připojování…",
+  "desktopInvalidServerAddress": "Zadejte adresu začínající na http:// nebo https://.",
+  "desktopApiKey": "Klíč API",
+  "desktopEmailOrUsername": "E-mail nebo uživatelské jméno",
+  "desktopSignInWithSso": "Přihlásit se přes SSO",
+  "desktopSignInWithLdap": "Přihlásit se přes LDAP",
+  "desktopSigningIn": "Přihlašování…",
+  "desktopSsoFailed": "Jednotné přihlášení se nezdařilo. Zkuste to znovu.",
+  "desktopUseDifferentServer": "Vybrat jiný server",
+  "desktopWrongCredentials": "E-mail nebo heslo nesouhlasí. Zkuste to znovu.",
+  "desktopLdapNotEnabled": "Tento server nepovoluje přihlášení přes LDAP.",
+  "desktopCertificateUntrusted": "Certifikát tohoto serveru nelze ověřit.",
+  "desktopChooseHowToConnect": "Vyberte způsob připojení",
+  "desktopSelfHostedServices": "Vlastní hostované služby",
+  "desktopConnectDirectly": "Připojit přímo",
+  "desktopTryDemo": "Vyzkoušet demo",
+  "desktopStopGenerating": "Zastavit generování",
+  "desktopImageGeneration": "Generování obrázků",
+  "desktopSearchModels": "Hledat modely",
+  "desktopNoModelsAvailable": "Nejsou dostupné žádné modely.",
+  "desktopSomethingWentWrong": "Něco se pokazilo. Zkuste to znovu.",
+  "desktopRanCode": "Kód spuštěn",
+  "desktopRunningCode": "Spouštění kódu…",
+  "desktopCodeFailed": "Kód se nespustil",
+  "desktopAllowOnce": "Povolit jednou",
+  "desktopAllowForSession": "Povolit pro tuto relaci",
+  "desktopAlwaysAllow": "Vždy povolit",
+  "desktopToolApproval": "Schválení nástroje",
+  "desktopToolApprovalQuestion": "Povolit {name}?",
+  "desktopApprovalRequired": "Vyžaduje schválení",
+  "desktopMoveToMenu": "Přesunout do",
+  "desktopShareChat": "Sdílet chat",
+  "desktopShareLinkCopied": "Odkaz ke sdílení byl zkopírován do schránky.",
+  "desktopShareFailed": "Chat se nepodařilo sdílet.",
+  "desktopLoadMore": "Načíst další",
+  "desktopTestConnection": "Otestovat připojení",
+  "desktopSaving": "Ukládání…",
+  "desktopSignInWithHermes": "Přihlásit se přes Hermes Agent",
+  "desktopSignOutOfHermes": "Odhlásit se z Hermes Agent",
+  "desktopAddConnection": "Přidat připojení",
+  "desktopAddConnectionEllipsis": "Přidat připojení…",
+  "desktopEditConnection": "Upravit připojení",
+  "desktopConnectionName": "Název připojení",
+  "desktopProviderType": "Typ poskytovatele",
+  "desktopMyProvider": "Můj poskytovatel",
+  "desktopRenameEllipsis": "Přejmenovat…",
+  "desktopDeleteEllipsis": "Smazat…",
+  "desktopShowLogs": "Zobrazit protokoly",
+  "desktopPaletteNoResults": "Žádné chaty ani příkazy neodpovídají.",
+  "desktopCoreConnecting": "Spouštění aplikace Conduit…",
+  "desktopCoreConnected": "Připojeno k jádru",
+  "desktopCoreReconnecting": "Opětovné připojování…",
+  "desktopCoreUnavailable": "Conduit přestal fungovat",
+  "desktopCoreVersionMismatch": "Conduit je potřeba přeinstalovat. Některé jeho části pocházejí z jiné verze.",
+  "desktopKeyringUnavailable": "Nebyla nalezena systémová klíčenka, takže uložené přihlašovací údaje jsou méně chráněné. Nainstalujte gnome-keyring nebo kwallet.",
+  "desktopQuickAskPlaceholder": "Zeptejte se Conduitu…",
+  "desktopQuickAskContinue": "Pokračovat v hlavním okně",
+  "desktopSettingsKeyboardTab": "Klávesnice",
+  "desktopShortcutConflict": "{shortcut} už používá příkaz {command}.",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Nastavení",
+  "desktopSettingsNoServers": "Zatím žádné účty.",
+  "desktopSettingsAddServer": "Přidat server",
+  "desktopSettingsSignedIn": "Přihlášeno",
+  "desktopSettingsSwitchServer": "Přepnout",
+  "desktopSettingsRemoveServer": "Odebrat",
+  "desktopSigningOut": "Odhlašování…",
+  "desktopSignedOut": "Odhlášeno.",
+  "desktopSignOutSuperseded": "Mezitím proběhlo nové přihlášení, takže nic nebylo odstraněno.",
+  "desktopSignOutIncomplete": "Zde jste odhlášeni, ale toto zařízení ještě nedokončilo mazání údajů. Conduit to zkusí znovu při příštím spuštění.",
+  "desktopChooseFile": "Vybrat soubor…",
+  "desktopReplaceFile": "Nahradit…",
+  "desktopChatsLabel": "Chaty",
+  "desktopNoChatsYet": "Zatím žádné chaty. Nový začnete odesláním zprávy.",
+  "desktopSending": "Odesílání…",
+  "desktopSignInMethod": "Způsob přihlášení",
+  "desktopChatActions": "Akce pro {title}",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Přejmenovat",
+  "desktopPinChat": "Připnout",
+  "desktopUnpinChat": "Odepnout",
+  "desktopArchiveChat": "Archivovat",
+  "desktopConfirmDelete": "Tuto akci nelze vrátit.",
+  "desktopRenamePrompt": "Nový název",
+  "desktopSearchChats": "Hledat chaty",
+  "desktopSearchNoResults": "Žádné chaty neodpovídají. Zkuste méně slov nebo jiná slova.",
+  "desktopSearchClear": "Vymazat hledání",
+  "desktopPickAConversation": "Vyberte konverzaci",
+  "desktopPickAConversationHint": "Vyberte ji v postranním panelu, nebo novou začněte psaním níže.",
+  "desktopNewConversation": "Nový chat",
+  "desktopShortcutsTitle": "Klávesové zkratky",
+  "desktopShortcutFocusComposer": "Přejít do pole zprávy",
+  "desktopShortcutOpenPalette": "Hledat chaty a příkazy",
+  "desktopShortcutFocusModelPicker": "Vybrat model",
+  "desktopShortcutShowShortcuts": "Zobrazit klávesové zkratky",
+  "desktopShortcutCopyLastResponse": "Kopírovat poslední odpověď",
+  "desktopShortcutCopyLastCodeBlock": "Kopírovat poslední blok kódu",
+  "desktopComposerHint": "Enter pro odeslání, Shift+Enter pro nový řádek",
+  "desktopCopied": "Zkopírováno",
+  "desktopNothingToCopy": "Zatím není co kopírovat",
+  "desktopPreview": "Náhled",
+  "desktopHidePreview": "Skrýt náhled",
+  "desktopAttachFiles": "Přiložit soubory",
+  "desktopRemoveAttachment": "Odebrat {name}",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "{name} se nepodařilo přiložit",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "Čeká se na dokončení nahrávání příloh",
+  "desktopAlreadyGenerating": "Počkejte, až se aktuální odpověď dokončí, nebo ji zastavte.",
+  "desktopPreviousAnswer": "Předchozí odpověď",
+  "desktopNextAnswer": "Další odpověď",
+  "desktopAnswerPosition": "Odpověď {index} z {count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "Synchronizace ještě probíhá, takže některé chaty se zatím nemusí zobrazit.",
+  "desktopSyncing": "Synchronizace…",
+  "desktopSyncingPercent": "Synchronizace… {percent} %",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "Synchronizace selhala",
+  "desktopTemporaryHint": "Neukládá se. Po zavření aplikace zmizí.",
+  "desktopAllow": "Povolit",
+  "desktopDeny": "Zamítnout",
+  "desktopServerAsks": "Požadavek serveru",
+  "desktopShortcutAllowRequest": "Povolit požadavek",
+  "desktopShortcutDenyRequest": "Zamítnout požadavek",
+  "desktopToolRunning": "Spouští se {name}…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "Použito {name}",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopUnnamedTool": "Nástroj",
+  "desktopToolInput": "Vstup",
+  "desktopDetails": "Podrobnosti",
+  "desktopDropToAttach": "Přetáhněte soubory sem a přiložte je",
+  "desktopPaletteLabel": "Paleta příkazů",
+  "desktopPalettePlaceholder": "Hledat chaty a příkazy",
+  "desktopPaletteCommands": "Příkazy",
+  "desktopPaletteRecent": "Nedávné chaty",
+  "desktopPaletteConversations": "Chaty",
+  "desktopNewTemporaryChat": "Nový dočasný chat",
+  "desktopPromptMenu": "Prompty",
+  "desktopPromptInsert": "Vložit",
+  "desktopPromptFill": "Vyplnit {title}",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "Zdroje ({count})",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "Dobrá odpověď",
+  "desktopBadResponse": "Špatná odpověď",
+  "desktopAddTag": "Přidat štítek",
+  "desktopTagName": "Název štítku",
+  "desktopRemoveTag": "Odebrat štítek {name}",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "Zobrazit konverzace se štítkem {name}",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "Přesunout do {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "Odebrat ze složky",
+  "desktopSelectedCount": "Vybráno: {count}",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "Hotovo",
+  "desktopMoveSelected": "Přesunout do…",
+  "desktopNoFolder": "Bez složky",
+  "desktopBulkDeleteConfirm": "Smazat chaty ({count})?",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "Nepodařilo se změnit: {count}.",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "Jste offline. Vaše chaty zůstávají k dispozici a odesílání bude pokračovat, až budete znovu online.",
+  "desktopControls": "Ovládání",
+  "desktopSystemPromptHint": "Pouze pro tuto konverzaci. Ponechte prázdné, chcete-li použít výchozí hodnotu z nastavení Open WebUI.",
+  "desktopSaved": "Uloženo",
+  "desktopOpenImage": "Otevřít obrázek {name}",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "Modely",
+  "desktopAnswerWith": "Odpovědět pomocí {model}",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "Použít místo toho vybraný model",
+  "desktopSortBy": "Seřadit podle",
+  "desktopSortUpdated": "Poslední změny",
+  "desktopSortTitle": "Název",
+  "desktopFolderEmpty": "V této složce zatím nic není.",
+  "desktopToggleFolder": "Zobrazit nebo skrýt obsah složky {name}",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "Přehled",
+  "desktopOverviewHint": "Všechny větve této konverzace. Vyberte zprávu a zobrazí se její větev.",
+  "desktopKnowledgeMenu": "Znalosti",
+  "desktopOpenAiCompatible": "Kompatibilní s OpenAI",
+  "desktopDirectHistoryLocal": "Uchovávat přímé chaty pouze v tomto počítači",
+  "desktopDirectEnable": "Používat {name}",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "Přidejte koncový bod Streamable HTTP, který je z tohoto počítače dostupný. Jeho nástroje pak lze nabízet modelům z vašich přímých připojení.",
+  "desktopMcpSignedIn": "Přihlášeno",
+  "desktopMcpNotSignedIn": "Nepřihlášeno",
+  "desktopMcpHeadersConfigured": "Nastaveno: {names}. Zadáním nových hlaviček je nahradíte.",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "Před přihlášením server uložte.",
+  "desktopNoteSaveFailed": "Zatím neuloženo; další pokus proběhne při příští změně",
+  "desktopLoadOlderMessages": "Načíst starší zprávy",
+  "desktopMessageEdited": "upraveno",
+  "desktopReasoningSeconds": "{count, plural, =0{méně než sekundu} =1{1 sekundu} few{# sekundy} other{# sekund}}",
+  "desktopReasoningMinutes": "{count, plural, =1{minutu} few{# minuty} other{# minut}}",
+  "desktopChatMissing": "Tento chat už neexistuje.",
+  "desktopChatLoadFailed": "Chat se nepodařilo načíst.",
+  "desktopActionFailed": "Nepovedlo se. Zkuste to znovu.",
+  "desktopRatingNotSaved": "Vaše hodnocení se neuložilo.",
+  "desktopModelChip": "Model: {name}",
+  "desktopModelNotSelected": "Tento model se nepodařilo vybrat.",
+  "desktopUploadingPercent": "Nahrávání… {percent} %",
+  "desktopWriting": "{name}, píše",
+  "desktopSourceLabel": "Zdroj {index}: {title}",
+  "desktopOpenFile": "Otevřít {name}",
+  "desktopWaitingForAnswer": "Čeká se na odpověď…",
+  "desktopKnowledgeChip": "Znalosti: {name}",
+  "desktopNoPromptsMatch": "Žádné výzvy neodpovídají.",
+  "desktopNoKnowledgeMatch": "Žádné znalosti neodpovídají.",
+  "desktopEditMessageLabel": "Upravit zprávu",
+  "desktopSendOffline": "Offline",
+  "desktopFeatures": "Funkce",
+  "desktopFieldRequired": "Vyplňte {field}.",
+  "desktopAttachmentImage": "Obrázek {name}",
+  "desktopVersionOf": "Odpověď {index} z {count}",
+  "desktopWorkspaceImport": "Importovat",
+  "desktopWorkspaceExportAll": "Exportovat vše",
+  "desktopWorkspaceExport": "Exportovat",
+  "desktopWorkspaceUpdated": "Aktualizováno {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "Neimportováno: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "Jedna položka na řádek",
+  "desktopWorkspaceCommaSeparated": "Oddělte čárkami",
+  "desktopWorkspaceActive": "Aktivní",
+  "desktopWorkspaceNoSections": "V pracovním prostoru na tomto serveru nemůžete nic spravovat.",
+  "desktopWorkspaceNotFound": "Tato položka už neexistuje.",
+  "desktopWorkspaceCleanupFailed": "Odebrat neúspěšné soubory",
+  "desktopWorkspaceAccessSaved": "Přístup uložen.",
+  "desktopWorkspaceAccessAdd": "Přidat",
+  "desktopWorkspaceValvesUserHint": "Vaše vlastní nastavení tohoto nástroje; valves serveru platí pro všechny.",
+  "desktopWorkspaceDefaultFeaturesHint": "Funkce zapnuté v novém chatu s tímto modelem, např. web_search, code_interpreter.",
+  "desktopHermesTestOk": "Připojeno k Hermes Agent.",
+  "desktopHermesTestUnauthorized": "Hermes Agent klíč odmítl.",
+  "desktopHermesTestUnreachable": "Hermes Agent na této adrese není dostupný.",
+  "desktopHermesOpenSession": "Otevřít",
+  "desktopHermesMode": "Typ připojení",
+  "desktopHermesSignInToFinish": "Uloženo. Dokončete přihlášením k Hermes Agent.",
+  "desktopHermesSignInRequired": "Chcete-li mluvit s agentem, přihlaste se k Hermes v Nastavení.",
+  "desktopStopDictation": "Zastavit diktování",
+  "desktopMicrophoneUnavailable": "Conduit nemůže použít mikrofon. Zkontrolujte, zda je připojen a zda má Conduit povolení ho používat.",
+  "desktopNothingHeard": "Nic nebylo slyšet.",
+  "desktopTranscriptionFailed": "Přepis se nezdařil. Zkuste to znovu.",
+  "desktopShortcutDictate": "Spustit nebo zastavit diktování",
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Přečíst nahlas",
+  "desktopStopReading": "Zastavit čtení",
+  "desktopVoiceCallHeard": "Řekli jste: {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Obecné",
+  "desktopCloseToTray": "Po zavření okna nechat spuštěné",
+  "desktopCloseToTrayDescription": "Conduit zůstane v oznamovací oblasti, takže oznámení a rychlý dotaz dál fungují.",
+  "desktopLaunchAtLogin": "Otevřít po přihlášení",
+  "desktopLaunchAtLoginDescription": "Po přihlášení se spustí v oznamovací oblasti. Pouze v nainstalovaných verzích.",
+  "desktopQuickAskTitle": "Rychlý dotaz",
+  "desktopQuickAskEnabled": "Otevírat rychlý dotaz odkudkoli",
+  "desktopQuickAskShortcut": "Zkratka",
+  "desktopQuickAskShortcutInvalid": "Použijte jednu nebo více modifikačních kláves a klávesu, např. CommandOrControl+Shift+Space.",
+  "desktopQuickAskShortcutTaken": "Tuto zkratku používá jiná aplikace. Zvolte jinou.",
+  "desktopQuickAskNeedsSetup": "Nejprve otevřete Conduit a dokončete nastavení.",
+  "desktopNotificationsSection": "Oznámení",
+  "desktopShortcutPressKeys": "Stiskněte nové klávesy, nebo Esc pro zrušení",
+  "desktopShortcutChange": "Změnit",
+  "desktopShortcutReset": "Obnovit",
+  "desktopShortcutResetAll": "Obnovit výchozí",
+  "desktopShortcutChangeLabel": "Změnit zkratku pro {command}",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "Zobrazit změny",
+  "desktopReleaseDismiss": "Zavřít",
+  "desktopAboutDaemon": "Verze služby na pozadí",
+  "desktopAboutUserData": "Uživatelská data",
+  "desktopAboutLogs": "Protokoly",
+  "desktopSttEngineLocal": "V tomto počítači",
+  "desktopSttEngineLocalDescription": "Přepisuje Whisper v tomto počítači. Váš hlas ho nikdy neopustí.",
+  "desktopSttModelsTitle": "Modely řeči",
+  "desktopSttModelsDescription": "Stáhnou se jednou z Hugging Face a zůstanou v tomto počítači. Větší modely slyší lépe, ale pracují déle.",
+  "desktopSttModelDownload": "Stáhnout ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Stahování… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Smazat",
+  "desktopSttModelUse": "Použít",
+  "desktopSttModelInUse": "Používá se",
+  "desktopSttModelEnglishOnly": "Pouze angličtina",
+  "desktopSttModelFailedChecksum": "Stažený soubor nebyl ten očekávaný, proto byl zahozen.",
+  "desktopSttModelFailedNetwork": "Stahování se nezdařilo. Zkontrolujte připojení a zkuste to znovu.",
+  "desktopSttLocalNeedsModel": "Chcete-li přepisovat v tomto počítači, stáhněte model; do té doby přepisuje server.",
+  "desktopUiFontSize": "Velikost textu",
+  "desktopUiFontSizeValue": "{size} pt",
+  "desktopUiFontSizeHint": "Bloky kódu si ponechávají vlastní velikost.",
+  "desktopSidebar": "Postranní panel",
+  "desktopSidePane": "Vedlejší panel",
+  "desktopShortcutToggleSidebar": "Zobrazit nebo skrýt postranní panel",
+  "desktopShortcutToggleSidePane": "Zobrazit nebo skrýt vedlejší panel",
+  "desktopSearch": "Hledat",
+  "desktopMinimizeWindow": "Minimalizovat",
+  "desktopMaximizeWindow": "Maximalizovat",
+  "desktopRestoreWindow": "Obnovit z maximalizace",
+  "desktopCloseWindow": "Zavřít",
+  "desktopResizeSidebar": "Změnit velikost postranního panelu",
+  "desktopResizeSidePane": "Změnit velikost vedlejšího panelu",
+  "desktopEarlier": "Dříve",
+  "desktopChatRunning": "Odpovídá",
+  "desktopChatUnread": "Nová odpověď",
+  "desktopChatFailed": "Odpověď selhala",
+  "desktopShell": "Shell",
+  "desktopSources": "Zdroje",
+  "desktopNoSources": "V této konverzaci zatím nejsou citovány žádné zdroje.",
+  "desktopClosePane": "Zavřít vedlejší panel",
+  "desktopNoPreview": "Zatím není co zobrazit v náhledu. Když odpověď napíše webovou stránku, zobrazí se zde.",
+  "desktopPreviewPosition": "{index} z {count}",
+  "desktopPreviousPreview": "Předchozí stránka",
+  "desktopNextPreview": "Další stránka",
+  "desktopOpenShell": "Otevřít shell",
+  "desktopCloseShell": "Zavřít shell",
+  "desktopResizeShell": "Změnit velikost shellu",
+  "desktopAllNotes": "Všechny poznámky",
+  "desktopMenuSettings": "Nastavení…",
+  "desktopMenuServices": "Služby",
+  "desktopMenuHide": "Skrýt Conduit",
+  "desktopMenuHideOthers": "Skrýt ostatní",
+  "desktopMenuShowAll": "Zobrazit vše",
+  "desktopMenuQuit": "Ukončit Conduit",
+  "desktopMenuCloseWindow": "Zavřít okno",
+  "desktopMenuUndo": "Zpět",
+  "desktopMenuRedo": "Znovu",
+  "desktopMenuCut": "Vyjmout",
+  "desktopMenuPaste": "Vložit",
+  "desktopMenuSelectAll": "Vybrat vše",
+  "desktopMenuView": "Zobrazení",
+  "desktopMenuToggleSidebar": "Zobrazit nebo skrýt boční panel",
+  "desktopMenuFullScreen": "Zapnout/vypnout celou obrazovku",
+  "desktopMenuWindow": "Okno",
+  "desktopMenuZoom": "Zvětšit",
+  "desktopMenuBringAllToFront": "Převést vše do popředí",
+  "desktopMenuHelp": "Nápověda",
+  "desktopMenuConduitHelp": "Nápověda Conduit",
+  "desktopCoreOpeningData": "Otevírání vašich dat…",
+  "desktopCoreFailedHint": "Zkuste to znovu. Pokud se to opakuje, klikněte na „Zobrazit protokoly“ a přiložte protokoly k nahlášení problému.",
+  "desktopStoreUnreadableTitle": "Conduit nemůže otevřít svá uložená data",
+  "desktopStoreUnreadableBody": "Data na tomto Macu byla uložena s klíčem, který už Conduit nemá, obvykle starší verzí. Obnovením místních dat začnete znovu. Stará složka se zachová pod novým názvem; nic se nesmaže.",
+  "desktopResetLocalData": "Obnovit místní data",
+  "desktopResetFailed": "Stará data se nepodařilo přesunout. Zkuste to znovu, nebo klikněte na „Zobrazit protokoly“ a zobrazte podrobnosti.",
+  "desktopExportDiagnosticsHint": "Uloží protokoly a anonymizovanou konfiguraci do souboru zip a zobrazí ho ve Finderu. Nic se nenahrává.",
+  "desktopExporting": "Exportování…",
+  "desktopDiagnosticsSaved": "Uloženo: {name}",
+  "desktopDiagnosticsFailed": "Diagnostiku se nepodařilo exportovat.",
+  "desktopSettingsAppearanceTab": "Vzhled",
+  "desktopSettingsAccountsTab": "Účty",
+  "desktopSettingsDirectTab": "Přímá připojení",
+  "desktopSettingsDataTab": "Data",
+  "desktopNotAvailableYet": "Zatím není k dispozici",
+  "desktopAppearanceTheme": "Motiv",
+  "desktopPalette": "Paleta",
+  "desktopAppearanceLayout": "Rozvržení",
+  "desktopSidebarTranslucent": "Průsvitný",
+  "desktopSidebarSolid": "Plný",
+  "desktopDensity": "Hustota",
+  "desktopDensityCompact": "Kompaktní",
+  "desktopDensityComfortable": "Pohodlná",
+  "desktopLanguageSystem": "Systém ({language})",
+  "desktopShortcutOpenSettings": "Otevřít nastavení",
+  "desktopShortcutNeedsModifier": "Zkratka musí obsahovat ⌘ nebo ⌥.",
+  "desktopAccountAddedNeedsSignIn": "Dokončete přidání účtu přihlášením k novému účtu.",
+  "desktopAccountAlreadyActive": "Účet {name} se už používá.",
+  "@desktopAccountAlreadyActive": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountChangeFailed": "Účet se nepodařilo změnit. Zkuste to znovu.",
+  "desktopAccountNothingToCancel": "Přihlášení už bylo dokončeno, takže nebylo co rušit.",
+  "desktopAccountSignedOut": "Odhlášeno z účtu {name}.",
+  "@desktopAccountSignedOut": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNext": "Odhlášeno z účtu {name}. Nyní se používá {next}.",
+  "@desktopAccountSignedOutNext": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNextNeedsSignIn": "Odhlášeno z účtu {name}. Pokračujte přihlášením k účtu {next}.",
+  "@desktopAccountSignedOutNextNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedNeedsSignIn": "Přepnuto na účet {name}. Pokračujte přihlášením.",
+  "@desktopAccountSwitchedNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedTo": "Přepnuto na účet {name}.",
+  "@desktopAccountSwitchedTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountUnknownOutcome": "Změna účtu skončila, ale tato verze Conduitu nedokáže určit jak. Zkontrolujte seznam účtů.",
+  "desktopAdd": "Přidat",
+  "desktopAllModels": "Všechny modely",
+  "desktopAnswering": "Odesílání odpovědi…",
+  "desktopApprovalFailed": "Vaše odpověď nedorazila. Zkuste to znovu.",
+  "desktopApprovalUnsupportedBody": "Na tento požadavek zde zatím nelze odpovědět. Odpovězte v Conduitu v telefonu nebo v Open WebUI na webu, případně jej zavřete.",
+  "desktopApprovalUnsupportedTitle": "Odpovězte na jiném zařízení",
+  "desktopBackend": "Způsob připojení",
+  "desktopChangeServer": "Změnit",
+  "desktopChatToolbar": "Panel nástrojů chatu",
+  "desktopClearLocalDataConfirm": "Vymazat",
+  "desktopClearLocalDataConfirmBody": "Conduit se na tomto Macu odhlásí ze všech účtů a začne znovu. Stará data budou přesunuta stranou, ne smazána.",
+  "desktopClearLocalDataConfirmTitle": "Vymazat místní data?",
+  "desktopClearLocalDataHint": "Uložené účty, relace a chaty stažené do tohoto Macu. Vaše chaty zůstanou na vašich serverech.",
+  "desktopClientCertificateHelp": "Pro servery, které vyžadují vzájemné TLS.",
+  "desktopClose": "Zavřít",
+  "desktopComposerLabel": "Psaní zprávy",
+  "desktopConnectedTo": "Připojeno k {server} (Open WebUI {version})",
+  "@desktopConnectedTo": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopConversation": "Chat",
+  "desktopCustomHeadersHelp": "Odesílají se s každým požadavkem, například kvůli přihlašovací proxy.",
+  "desktopDataSignOutHint": "Odhlásí účet {name}. Převezme jej další uložený účet.",
+  "@desktopDataSignOutHint": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDirectNone": "Zatím žádná přímá připojení.",
+  "desktopDirectTestFailed": "Poskytovatel není dostupný. Zkontrolujte adresu serveru a klíč API.",
+  "desktopDirectTestOk": "{count, plural, one{Připojeno. Nalezen {count} model.} few{Připojeno. Nalezeny {count} modely.} other{Připojeno. Nalezeno {count} modelů.}}",
+  "@desktopDirectTestOk": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesModeApi": "API server",
+  "desktopHermesReady": "Hermes Agent je připraven k použití.",
+  "desktopHermesSigningIn": "Dokončete přihlášení v prohlížeči…",
+  "desktopHideSidebar": "Skrýt postranní panel",
+  "desktopMessageField": "Zpráva",
+  "desktopMessages": "Zprávy",
+  "desktopModelsCanMakeMistakes": "Modely mohou dělat chyby. Důležité informace si ověřte.",
+  "desktopMoreActionsFor": "Další akce pro {name}",
+  "@desktopMoreActionsFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopNewFolder": "Nová složka",
+  "desktopNoAccountInUse": "Nepoužívá se žádný účet Open WebUI.",
+  "desktopOr": "nebo",
+  "desktopPaletteNavigate": "Procházet",
+  "desktopPaletteOpen": "Otevřít",
+  "desktopPaletteOpenInBackground": "Otevřít na pozadí",
+  "desktopPaletteResults": "Výsledky",
+  "desktopQuickAskAsk": "Zeptat se",
+  "desktopRecentQuestions": "Nedávné dotazy",
+  "desktopSelfSignedHelp": "Jen pro servery, které provozujete sami.",
+  "desktopServerChip": "Server: {name}. Změnit",
+  "@desktopServerChip": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerChipLabel": "Server: {name}, {host}",
+  "@desktopServerChipLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerNameHelp": "Nepovinné. Zobrazuje se v postranním panelu a v přepínači účtů.",
+  "desktopServerUrlHelp": "Conduit server před přihlášením ověří.",
+  "desktopSessionExpired": "Relace vypršela. Přihlaste se, aby se tento účet synchronizoval.",
+  "desktopSetUpConduit": "Nastavení Conduitu",
+  "desktopSettingsSections": "Sekce nastavení",
+  "desktopShellExtrasLater": "Tyto možnosti přibudou s položkou v řádku nabídek v pozdější aktualizaci.",
+  "desktopSignInAgain": "Znovu se přihlásit…",
+  "desktopSignInAgainBody": "Vaše relace na tomto serveru skončila. Pro další synchronizaci se znovu přihlaste.",
+  "desktopSignInFieldsRequired": "Zadejte e-mail nebo uživatelské jméno a heslo.",
+  "desktopSsoCancelled": "Jednotné přihlášení bylo zrušeno.",
+  "desktopSsoNeedsPassword": "Přihlašovací proxy vás pustila dál. Nyní se přihlaste k Open WebUI.",
+  "desktopSsoTimedOut": "Jednotné přihlášení trvalo příliš dlouho. Zkuste to znovu.",
+  "desktopSsoWindowTitle": "Přihlášení k {server}",
+  "@desktopSsoWindowTitle": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopToolResult": "Výsledek",
+  "desktopPositionOf": "{index} z {count}",
+  "@desktopPositionOf": {
+    "placeholders": {
+      "index": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTimeNow": "teď",
+  "desktopTimeMinutesShort": "{count} min",
+  "@desktopTimeMinutesShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursShort": "{count} h",
+  "@desktopTimeHoursShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeMinutesAgo": "{count, plural, one{před {count} minutou} other{před {count} minutami}}",
+  "@desktopTimeMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursAgo": "{count, plural, one{před {count} hodinou} other{před {count} hodinami}}",
+  "@desktopTimeHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopWeekdayShort": "{weekday, select, 1{po} 2{út} 3{st} 4{čt} 5{pá} 6{so} 7{ne} other{}}",
+  "@desktopWeekdayShort": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWeekdayLong": "{weekday, select, 1{pondělí} 2{úterý} 3{středa} 4{čtvrtek} 5{pátek} 6{sobota} 7{neděle} other{}}",
+  "@desktopWeekdayLong": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMonthShort": "{month, select, 1{1} 2{2} 3{3} 4{4} 5{5} 6{6} 7{7} 8{8} 9{9} 10{10} 11{11} 12{12} other{}}",
+  "@desktopMonthShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShort": "{day}. {month}.",
+  "@desktopDateShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShortYear": "{day}. {month}. {year}",
+  "@desktopDateShortYear": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      },
+      "year": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPaletteResultCount": "{count, plural, one{{count} výsledek} few{{count} výsledky} other{{count} výsledků}}",
+  "@desktopPaletteResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopChatCount": "{count, plural, one{{count} chat} few{{count} chaty} other{{count} chatů}}",
+  "@desktopChatCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncOffline": "Offline",
+  "desktopSynced": "Aktuální",
+  "desktopChatChangeFailed": "Změnu se nepodařilo provést.",
+  "@desktopChatChangeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopBulkPartlyFailed": "{count, plural, one{{count} chat se nepodařilo změnit.} few{{count} chaty se nepodařilo změnit.} other{{count} chatů se nepodařilo změnit.}}",
+  "@desktopBulkPartlyFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSelectChat": "Vybrat {title}",
+  "@desktopSelectChat": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopQuickAskEmpty": "Zeptejte se na cokoli. Odpověď se zobrazí tady a uloží se k vašim konverzacím.",
+  "desktopOpenInConduit": "Otevřít v Conduitu",
+  "desktopOpenFilesTooMany": "{count, plural, one{Další {count} soubor nebyl připojen: najednou lze otevřít nejvýše {max}.} few{Další {count} soubory nebyly připojeny: najednou lze otevřít nejvýše {max}.} many{Dalších {count} souboru nebylo připojeno: najednou lze otevřít nejvýše {max}.} other{Dalších {count} souborů nebylo připojeno: najednou lze otevřít nejvýše {max}.}}",
+  "@desktopOpenFilesTooMany": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopOpenFileTooLarge": "Soubor {name} je větší než 256 MB, proto nebyl připojen.",
+  "@desktopOpenFileTooLarge": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelsNotAvailable": "Kanály zatím na počítači nejsou k dispozici.",
+  "desktopNotesNotAvailable": "Poznámky zatím na počítači nejsou k dispozici.",
+  "desktopNotificationAnswerReady": "Odpověď je hotová.",
+  "desktopNotificationAnswerFailed": "Odpověď nebyla dokončena.",
+  "desktopTrayOpen": "Otevřít Conduit",
+  "desktopTrayQuickAsk": "Rychlý dotaz",
+  "desktopCloseToMenuBar": "Zavírat do řádku nabídek",
+  "desktopCloseToMenuBarDescription": "Po zavření okna Conduit dál běží v řádku nabídek, takže rychlý dotaz a oznámení dál fungují.",
+  "desktopLaunchAtLoginHint": "Conduit se otevře po přihlášení. Se zapnutou volbou „Zavírat do řádku nabídek“ se spustí v řádku nabídek.",
+  "desktopLoginItemNeedsApproval": "Povolte Conduit v Nastavení systému › Obecné › Položky otevírané po přihlášení.",
+  "desktopLoginItemNotFound": "macOS tuto kopii Conduitu nenajde. Přesuňte ji do složky Aplikace a zkuste to znovu.",
+  "desktopLoginItemFailed": "Toto se nepodařilo změnit. Zkontrolujte položky po přihlášení v Nastavení systému.",
+  "@desktopLoginItemFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopOpenSystemSettings": "Otevřít Nastavení systému",
+  "desktopQuickAskShortcutUnsupported": "Tato klávesa nemůže být globální zkratkou. Zvolte jinou.",
+  "desktopQuickAskShortcutUnavailable": "Globální zkratky teď nejsou k dispozici.",
+  "desktopNotifyAnswers": "Oznámit dokončení odpovědi",
+  "desktopNotifyAnswersFooter": "Oznámení ukazují jen název chatu, nikdy odpověď, protože se mohou zobrazit na zamčené obrazovce i na sdílených obrazovkách.",
+  "desktopNotificationsDenied": "Oznámení pro Conduit jsou v Nastavení systému vypnutá.",
+  "desktopNotificationsUnavailable": "Oznámení fungují jen v nainstalované aplikaci.",
+  "desktopNotificationsOff": "Oznámení jsou vypnutá",
+  "desktopMenuBarSection": "Řádek nabídek",
+  "desktopShowSidebar": "Zobrazit postranní panel",
+  "desktopCheckForUpdates": "Vyhledat aktualizace…",
+  "desktopUpdatesSection": "Aktualizace",
+  "desktopAutomaticUpdateChecks": "Automaticky vyhledávat aktualizace",
+  "desktopBetaUpdates": "Dostávat beta verze",
+  "desktopBetaUpdatesFooter": "Beta verze přicházejí dřív a mohou být méně stabilní. Po vypnutí Conduit počká na příští stabilní verzi; ke starší verzi se nikdy nevrátí.",
+  "desktopUpdatesUnavailable": "Aktualizace fungují jen v nainstalované aplikaci.",
+  "desktopSuggestionsHeading": "Návrhy",
+  "desktopImageLoadFailed": "Obrázek se nepodařilo načíst.",
+  "desktopPreviewHtmlTitle": "Náhled HTML",
+  "desktopPreviewDiagramTitle": "Náhled diagramu",
+  "desktopPreviewChartTitle": "Náhled grafu",
+  "desktopMenuHideSidebar": "Skrýt postranní panel",
+  "desktopMenuShowSidebar": "Zobrazit postranní panel",
+  "desktopMenuEnterFullScreen": "Přejít na celou obrazovku",
+  "desktopMenuExitFullScreen": "Ukončit režim celé obrazovky",
+  "desktopMenuFind": "Najít…",
+  "desktopMenuChat": "Chat",
+  "desktopMenuRenameChat": "Přejmenovat…",
+  "desktopMenuMoveTo": "Přesunout do",
+  "desktopMenuRemoveFromFolder": "Odebrat ze složky",
+  "desktopMenuDeleteChat": "Smazat…",
+  "desktopMenuCopyLastReply": "Kopírovat poslední odpověď",
+  "desktopMenuCopyLastCodeBlock": "Kopírovat poslední blok kódu",
+  "desktopMenuKeyboardShortcuts": "Klávesové zkratky",
+  "desktopFolderNewChat": "Nový chat v této složce",
+  "desktopFolderExpand": "Rozbalit",
+  "desktopFolderCollapse": "Sbalit",
+  "desktopCopyAsMarkdown": "Kopírovat jako Markdown",
+  "desktopShortcutTypeShortcut": "Zadejte zkratku",
+  "desktopShortcutResetToDefault": "Obnovit výchozí",
+  "desktopShortcutRecordHelp": "Klikněte na zkratku a stiskněte nové klávesy, nebo stiskněte Esc pro zrušení.",
+  "desktopMenuFindSubmenu": "Najít",
+  "desktopFindNext": "Najít další",
+  "desktopFindPrevious": "Najít předchozí",
+  "desktopMenuSearchChats": "Hledat v chatech",
+  "desktopMenuSearchChatsAndCommands": "Hledat chaty a příkazy…",
+  "desktopMenuChooseModel": "Vybrat model…",
+  "desktopMenuActualSize": "Skutečná velikost",
+  "desktopMenuZoomIn": "Zvětšit",
+  "desktopMenuZoomOut": "Zmenšit",
+  "desktopFindInChat": "Najít v chatu",
+  "desktopFindNoMatches": "Žádné shody",
+  "desktopSoftwareUpdate": "Aktualizace softwaru",
+  "desktopCheckNow": "Zkontrolovat",
+  "desktopDiagnostics": "Diagnostika",
+  "desktopDiagnosticReport": "Diagnostická zpráva",
+  "desktopExportEllipsis": "Exportovat…",
+  "desktopLocalData": "Místní data",
+  "desktopClearEllipsis": "Vymazat…",
+  "desktopHermesAgent": "Hermes Agent",
+  "desktopSyncNow": "Synchronizovat",
+  "desktopPaletteClay": "Hlína",
+  "desktopPaletteBerry": "Malina",
+  "desktopServerNamePlaceholder": "Domácí server",
+  "desktopPrivateKeyPassword": "Heslo privátního klíče",
+  "desktopOptional": "Volitelné",
+  "desktopSignInFailed": "Přihlášení se nezdařilo. Zkontrolujte přihlašovací údaje a adresu serveru.",
+  "desktopCouldntReachServer": "Server není dostupný. Zkontrolujte připojení a ověřte, že server běží.",
+  "desktopNotOpenWebUi": "Toto zřejmě není server Open WebUI.",
+  "desktopServerFormSubtitle": "Zadejte adresu svého serveru Open WebUI.",
+  "desktopSsoDescription": "Přihlaste se přes poskytovatele identity vaší organizace.",
+  "desktopHermesSubtitle": "Připojte se k Hermes Agent na vlastním serveru.",
+  "desktopSelectChats": "Vybrat chaty…",
+  "desktopNewSubfolder": "Nová podsložka",
+  "desktopDeleteFolderEllipsis": "Smazat složku…",
+  "desktopDeleteFolderTitle": "Smazat „{name}“?",
+  "desktopDeleteFolderKeepsChats": "Chaty v ní se nesmažou. Přesunou se do seznamu chatů.",
+  "desktopDeleteFolderWithSubfolders": "Smažou se i její podsložky. Chaty v nich se nesmažou. Přesunou se do seznamu chatů.",
+  "desktopFolderNameTaken": "Název „{name}“ už je obsazený.",
+  "desktopFolderNameTakenMessage": "Zvolte jiný název.",
+  "desktopKeyboardChats": "Chaty",
+  "desktopKeyboardMessages": "Zprávy",
+  "desktopKeyboardFindAndView": "Najít a zobrazení",
+  "desktopKeyboardDeleteChat": "Smazat chat",
+  "desktopKeyboardFindInChat": "Najít v chatu",
+  "desktopKeyboardQuickAskOff": "Rychlý dotaz je vypnutý. Zapněte ho v části Obecné.",
+  "desktopEmailPlaceholder": "jmeno@example.com",
+  "desktopRequiredPlaceholder": "Povinné",
+  "desktopCopyErrorDetails": "Kopírovat podrobnosti chyby",
+  "desktopConnect": "Připojit",
+  "desktopSignInSubtitle": "Přihlaste se svým účtem Open WebUI.",
+  "desktopCodeCopied": "Kód byl zkopírován do schránky.",
+  "desktopHeaderAlreadyExists": "Hlavička „{key}“ už je nastavená. Pokud ji chcete změnit, nejdřív ji odeberte.",
+  "desktopMcpAlwaysAllowNote": "{serverName} bude moci spouštět {toolName} bez dalšího ptaní, dokud se nástroj nezmění.",
+  "desktopSkip": "Přeskočit",
+  "desktopHermesModeApiHelp": "Používá API server agenta a klíč API.",
+  "desktopHermesModeGatewayHelp": "Přihlásí se přes prohlížeč a použije jeden z profilů agenta.",
+  "desktopSendWaitsReconnecting": "Odeslat půjde, až se Conduit znovu připojí.",
+  "desktopSendWaitsStarting": "Odeslat půjde, až se Conduit spustí.",
+  "desktopSendWaitsOffline": "Odeslat půjde, až budete znovu online.",
+  "desktopMenuNextChat": "Další chat",
+  "desktopMenuPreviousChat": "Předchozí chat",
+  "desktopClearSearch": "Vymazat hledání",
+  "desktopPreviewCopyCode": "Kopírovat kód",
+  "desktopPreviewSave": "Uložit…",
+  "desktopPreviewOpenInBrowser": "Otevřít v prohlížeči",
+  "desktopPreviewSaveFailed": "Soubor se nepodařilo uložit.",
+  "desktopShortcutFixedNote": "Ztlumené zkratky patří k řádku nabídek a nelze je změnit.",
+  "desktopAboutVersionLine": "Verze {version}",
+  "desktopTryAgain": "Zkusit znovu"
+}

@@ -1,0 +1,1031 @@
+{
+  "@@locale": "nl",
+  "desktopSignIn": "Inloggen",
+  "desktopSignOut": "Uitloggen",
+  "desktopSignOutEllipsis": "Uitloggen…",
+  "desktopSignOutOf": "{name} uitloggen…",
+  "@desktopSignOutOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopSignOutAnyway": "Toch uitloggen",
+  "desktopSwitchAnyway": "Toch wisselen",
+  "desktopReplyInProgress": "Er wordt nog een antwoord geschreven.",
+  "desktopAddAccountEllipsis": "Account toevoegen…",
+  "desktopAddAccount": "Account toevoegen",
+  "desktopConnectToServer": "Verbinden met server",
+  "desktopServerAddress": "Serveradres",
+  "desktopServerName": "Servernaam",
+  "desktopAdvancedSettings": "Geavanceerde instellingen",
+  "desktopAllowUnverifiedCertificate": "Niet-geverifieerd certificaat toestaan",
+  "desktopCustomHeaders": "Aangepaste headers",
+  "desktopAddHeader": "Header toevoegen",
+  "desktopHeaderName": "Header-naam",
+  "desktopHeaderValue": "Header-waarde",
+  "desktopRemoveHeader": "Header verwijderen",
+  "desktopPrivateKey": "Privésleutel",
+  "desktopConnecting": "Verbinden…",
+  "desktopInvalidServerAddress": "Voer een adres in dat begint met http:// of https://.",
+  "desktopApiKey": "API-sleutel",
+  "desktopEmailOrUsername": "E-mail of gebruikersnaam",
+  "desktopSignInWithSso": "Inloggen met SSO",
+  "desktopSignInWithLdap": "Inloggen met LDAP",
+  "desktopSigningIn": "Inloggen…",
+  "desktopSsoFailed": "Eenmalige aanmelding is mislukt. Probeer het opnieuw.",
+  "desktopUseDifferentServer": "Andere server gebruiken",
+  "desktopWrongCredentials": "Het e-mailadres of wachtwoord klopt niet. Probeer het opnieuw.",
+  "desktopLdapNotEnabled": "Deze server staat inloggen met LDAP niet toe.",
+  "desktopCertificateUntrusted": "Het certificaat van deze server kan niet worden geverifieerd.",
+  "desktopChooseHowToConnect": "Kies hoe je verbinding maakt",
+  "desktopSelfHostedServices": "Zelfgehoste diensten",
+  "desktopConnectDirectly": "Direct verbinden",
+  "desktopTryDemo": "Demo proberen",
+  "desktopStopGenerating": "Stop met genereren",
+  "desktopImageGeneration": "Afbeeldingen genereren",
+  "desktopSearchModels": "Modellen zoeken",
+  "desktopNoModelsAvailable": "Geen modellen beschikbaar.",
+  "desktopSomethingWentWrong": "Er ging iets mis. Probeer het opnieuw.",
+  "desktopRanCode": "Code uitgevoerd",
+  "desktopRunningCode": "Code wordt uitgevoerd…",
+  "desktopCodeFailed": "Code niet uitgevoerd",
+  "desktopAllowOnce": "Eenmaal toestaan",
+  "desktopAllowForSession": "Toestaan voor deze sessie",
+  "desktopAlwaysAllow": "Altijd toestaan",
+  "desktopToolApproval": "Goedkeuring van tool",
+  "desktopToolApprovalQuestion": "{name} toestaan?",
+  "desktopApprovalRequired": "Goedkeuring vereist",
+  "desktopMoveToMenu": "Verplaatsen naar",
+  "desktopShareChat": "Chat delen",
+  "desktopShareLinkCopied": "Deellink gekopieerd naar het klembord.",
+  "desktopShareFailed": "Deze chat kon niet worden gedeeld.",
+  "desktopLoadMore": "Meer laden",
+  "desktopTestConnection": "Verbinding testen",
+  "desktopSaving": "Opslaan…",
+  "desktopSignInWithHermes": "Inloggen met Hermes Agent",
+  "desktopSignOutOfHermes": "Uitloggen bij Hermes Agent",
+  "desktopAddConnection": "Verbinding toevoegen",
+  "desktopAddConnectionEllipsis": "Verbinding toevoegen…",
+  "desktopEditConnection": "Verbinding bewerken",
+  "desktopConnectionName": "Naam van verbinding",
+  "desktopProviderType": "Type provider",
+  "desktopMyProvider": "Mijn provider",
+  "desktopRenameEllipsis": "Hernoemen…",
+  "desktopDeleteEllipsis": "Verwijderen…",
+  "desktopShowLogs": "Logboeken tonen",
+  "desktopPaletteNoResults": "Geen chats of opdrachten gevonden.",
+  "desktopCoreConnecting": "Conduit wordt gestart…",
+  "desktopCoreConnected": "Verbonden met de core",
+  "desktopCoreReconnecting": "Opnieuw verbinden…",
+  "desktopCoreUnavailable": "Conduit werkt niet meer",
+  "desktopCoreVersionMismatch": "Conduit moet opnieuw worden geïnstalleerd. Sommige onderdelen komen uit een andere versie.",
+  "desktopKeyringUnavailable": "Geen systeemsleutelhanger gevonden, dus opgeslagen inloggegevens zijn minder goed beschermd. Installeer gnome-keyring of kwallet.",
+  "desktopQuickAskPlaceholder": "Vraag het Conduit…",
+  "desktopQuickAskContinue": "Verder in hoofdvenster",
+  "desktopSettingsKeyboardTab": "Toetsenbord",
+  "desktopShortcutConflict": "{shortcut} wordt al gebruikt door {command}.",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "Instellingen",
+  "desktopSettingsNoServers": "Nog geen accounts.",
+  "desktopSettingsAddServer": "Server toevoegen",
+  "desktopSettingsSignedIn": "Ingelogd",
+  "desktopSettingsSwitchServer": "Wisselen",
+  "desktopSettingsRemoveServer": "Verwijderen",
+  "desktopSigningOut": "Uitloggen…",
+  "desktopSignedOut": "Uitgelogd.",
+  "desktopSignOutSuperseded": "Een nieuwere inlog heeft deze vervangen, dus er is niets verwijderd.",
+  "desktopSignOutIncomplete": "Hier uitgelogd, maar dit apparaat is nog niet klaar met vergeten. Conduit probeert het opnieuw bij de volgende start.",
+  "desktopChooseFile": "Bestand kiezen…",
+  "desktopReplaceFile": "Vervangen…",
+  "desktopChatsLabel": "Chats",
+  "desktopNoChatsYet": "Nog geen chats. Stuur een bericht om er een te beginnen.",
+  "desktopSending": "Verzenden…",
+  "desktopSignInMethod": "Inlogmethode",
+  "desktopChatActions": "Acties voor {title}",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "Hernoemen",
+  "desktopPinChat": "Vastpinnen",
+  "desktopUnpinChat": "Losmaken",
+  "desktopArchiveChat": "Archiveren",
+  "desktopConfirmDelete": "Dit kan niet ongedaan worden gemaakt.",
+  "desktopRenamePrompt": "Nieuwe titel",
+  "desktopSearchChats": "Chats zoeken",
+  "desktopSearchNoResults": "Geen chats gevonden. Probeer minder of andere woorden.",
+  "desktopSearchClear": "Zoekopdracht wissen",
+  "desktopPickAConversation": "Kies een gesprek",
+  "desktopPickAConversationHint": "Kies er een in de zijbalk, of typ hieronder om een nieuw gesprek te beginnen.",
+  "desktopNewConversation": "Nieuwe chat",
+  "desktopShortcutsTitle": "Sneltoetsen",
+  "desktopShortcutFocusComposer": "Naar het berichtvak",
+  "desktopShortcutOpenPalette": "Chats en opdrachten zoeken",
+  "desktopShortcutFocusModelPicker": "Een model kiezen",
+  "desktopShortcutShowShortcuts": "Sneltoetsen tonen",
+  "desktopShortcutCopyLastResponse": "Laatste antwoord kopiëren",
+  "desktopShortcutCopyLastCodeBlock": "Laatste codeblok kopiëren",
+  "desktopComposerHint": "Enter om te verzenden, Shift+Enter voor een nieuwe regel",
+  "desktopCopied": "Gekopieerd",
+  "desktopNothingToCopy": "Nog niets om te kopiëren",
+  "desktopPreview": "Voorbeeld",
+  "desktopHidePreview": "Voorbeeld verbergen",
+  "desktopAttachFiles": "Bestanden bijvoegen",
+  "desktopRemoveAttachment": "{name} verwijderen",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "{name} kon niet worden bijgevoegd",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "Wachten tot de bijlagen klaar zijn",
+  "desktopAlreadyGenerating": "Wacht tot het huidige antwoord klaar is, of stop het.",
+  "desktopPreviousAnswer": "Vorig antwoord",
+  "desktopNextAnswer": "Volgend antwoord",
+  "desktopAnswerPosition": "Antwoord {index} van {count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "Nog bezig met synchroniseren, dus sommige chats worden mogelijk nog niet getoond.",
+  "desktopSyncing": "Synchroniseren…",
+  "desktopSyncingPercent": "Synchroniseren… {percent}%",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "Synchronisatie mislukt",
+  "desktopTemporaryHint": "Niet opgeslagen. Verdwijnt wanneer je de app sluit.",
+  "desktopAllow": "Toestaan",
+  "desktopDeny": "Weigeren",
+  "desktopServerAsks": "Verzoek van de server",
+  "desktopShortcutAllowRequest": "Verzoek toestaan",
+  "desktopShortcutDenyRequest": "Verzoek weigeren",
+  "desktopToolRunning": "{name} wordt uitgevoerd…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "{name} gebruikt",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopUnnamedTool": "Tool",
+  "desktopToolInput": "Invoer",
+  "desktopDetails": "Details",
+  "desktopDropToAttach": "Zet bestanden neer om ze bij te voegen",
+  "desktopPaletteLabel": "Opdrachtpalet",
+  "desktopPalettePlaceholder": "Chats en opdrachten zoeken",
+  "desktopPaletteCommands": "Opdrachten",
+  "desktopPaletteRecent": "Recente chats",
+  "desktopPaletteConversations": "Chats",
+  "desktopNewTemporaryChat": "Nieuwe tijdelijke chat",
+  "desktopPromptMenu": "Prompts",
+  "desktopPromptInsert": "Invoegen",
+  "desktopPromptFill": "{title} invullen",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "Bronnen ({count})",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "Goed antwoord",
+  "desktopBadResponse": "Slecht antwoord",
+  "desktopAddTag": "Tag toevoegen",
+  "desktopTagName": "Tagnaam",
+  "desktopRemoveTag": "Tag {name} verwijderen",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "Gesprekken met tag {name} tonen",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "Verplaatsen naar {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "Uit map verwijderen",
+  "desktopSelectedCount": "{count} geselecteerd",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "Klaar",
+  "desktopMoveSelected": "Verplaatsen naar…",
+  "desktopNoFolder": "Geen map",
+  "desktopBulkDeleteConfirm": "{count} chats verwijderen?",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "{count} konden niet worden gewijzigd.",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "Je bent offline. Je chats zijn er nog, en verzenden gaat verder zodra je weer online bent.",
+  "desktopControls": "Bediening",
+  "desktopSystemPromptHint": "Alleen voor dit gesprek. Laat leeg om je standaard uit de instellingen van Open WebUI te gebruiken.",
+  "desktopSaved": "Opgeslagen",
+  "desktopOpenImage": "Afbeelding {name} openen",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "Modellen",
+  "desktopAnswerWith": "Antwoorden met {model}",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "In plaats daarvan het geselecteerde model gebruiken",
+  "desktopSortBy": "Sorteren op",
+  "desktopSortUpdated": "Laatst bijgewerkt",
+  "desktopSortTitle": "Titel",
+  "desktopFolderEmpty": "Nog niets in deze map.",
+  "desktopToggleFolder": "Inhoud van {name} tonen of verbergen",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "Overzicht",
+  "desktopOverviewHint": "Alle vertakkingen van dit gesprek. Kies een bericht om de vertakking te tonen.",
+  "desktopKnowledgeMenu": "Kennis",
+  "desktopOpenAiCompatible": "OpenAI-compatibel",
+  "desktopDirectHistoryLocal": "Directe chats alleen op deze computer bewaren",
+  "desktopDirectEnable": "{name} gebruiken",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "Voeg een Streamable HTTP-endpoint toe dat deze computer kan bereiken. De hulpmiddelen ervan kunnen dan worden aangeboden aan modellen uit je directe verbindingen.",
+  "desktopMcpSignedIn": "Ingelogd",
+  "desktopMcpNotSignedIn": "Niet ingelogd",
+  "desktopMcpHeadersConfigured": "Ingesteld: {names}. Typ nieuwe headers om ze te vervangen.",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "Sla de server op voordat je inlogt.",
+  "desktopNoteSaveFailed": "Nog niet opgeslagen; wordt opnieuw geprobeerd bij de volgende wijziging",
+  "desktopLoadOlderMessages": "Oudere berichten laden",
+  "desktopMessageEdited": "bewerkt",
+  "desktopReasoningSeconds": "{count, plural, =0{minder dan een seconde} =1{1 seconde} other{# seconden}}",
+  "desktopReasoningMinutes": "{count, plural, =1{een minuut} other{# minuten}}",
+  "desktopChatMissing": "Deze chat bestaat niet meer.",
+  "desktopChatLoadFailed": "Deze chat kon niet worden geladen.",
+  "desktopActionFailed": "Dat is niet gelukt. Probeer het opnieuw.",
+  "desktopRatingNotSaved": "Je beoordeling is niet opgeslagen.",
+  "desktopModelChip": "Model: {name}",
+  "desktopModelNotSelected": "Dat model kon niet worden gekozen.",
+  "desktopUploadingPercent": "Uploaden… {percent}%",
+  "desktopWriting": "{name}, schrijft",
+  "desktopSourceLabel": "Bron {index}: {title}",
+  "desktopOpenFile": "{name} openen",
+  "desktopWaitingForAnswer": "Wachten op het antwoord…",
+  "desktopKnowledgeChip": "Kennis: {name}",
+  "desktopNoPromptsMatch": "Geen prompts gevonden.",
+  "desktopNoKnowledgeMatch": "Geen kennis gevonden.",
+  "desktopEditMessageLabel": "Je bericht bewerken",
+  "desktopSendOffline": "Offline",
+  "desktopFeatures": "Functies",
+  "desktopFieldRequired": "Vul {field} in.",
+  "desktopAttachmentImage": "Afbeelding {name}",
+  "desktopVersionOf": "Antwoord {index} van {count}",
+  "desktopWorkspaceImport": "Importeren",
+  "desktopWorkspaceExportAll": "Alles exporteren",
+  "desktopWorkspaceExport": "Exporteren",
+  "desktopWorkspaceUpdated": "Bijgewerkt {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "Niet geïmporteerd: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "Eén per regel",
+  "desktopWorkspaceCommaSeparated": "Scheiden met komma's",
+  "desktopWorkspaceActive": "Actief",
+  "desktopWorkspaceNoSections": "Er is niets in de workspace dat je op deze server kunt beheren.",
+  "desktopWorkspaceNotFound": "Dit item bestaat niet meer.",
+  "desktopWorkspaceCleanupFailed": "Mislukte bestanden verwijderen",
+  "desktopWorkspaceAccessSaved": "Toegang opgeslagen.",
+  "desktopWorkspaceAccessAdd": "Toevoegen",
+  "desktopWorkspaceValvesUserHint": "Je eigen instellingen voor dit hulpmiddel; de valves van de server gelden voor iedereen.",
+  "desktopWorkspaceDefaultFeaturesHint": "Functies die aan staan in een nieuwe chat met dit model, bijv. web_search, code_interpreter.",
+  "desktopHermesTestOk": "Verbonden met Hermes Agent.",
+  "desktopHermesTestUnauthorized": "Hermes Agent heeft de sleutel geweigerd.",
+  "desktopHermesTestUnreachable": "Hermes Agent is niet bereikbaar op dat adres.",
+  "desktopHermesOpenSession": "Openen",
+  "desktopHermesMode": "Verbindingstype",
+  "desktopHermesSignInToFinish": "Opgeslagen. Log in bij Hermes Agent om af te ronden.",
+  "desktopHermesSignInRequired": "Log in bij Hermes in Instellingen om met de agent te praten.",
+  "desktopStopDictation": "Dicteren stoppen",
+  "desktopMicrophoneUnavailable": "Conduit kan geen microfoon gebruiken. Controleer of er een is aangesloten en of Conduit toestemming heeft om hem te gebruiken.",
+  "desktopNothingHeard": "Er werd niets gehoord.",
+  "desktopTranscriptionFailed": "Dit kon niet worden getranscribeerd. Probeer het opnieuw.",
+  "desktopShortcutDictate": "Dicteren starten of stoppen",
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "Voorlezen",
+  "desktopStopReading": "Voorlezen stoppen",
+  "desktopVoiceCallHeard": "Je zei: {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "Algemeen",
+  "desktopCloseToTray": "Actief blijven wanneer het venster wordt gesloten",
+  "desktopCloseToTrayDescription": "Conduit blijft in het systeemvak, zodat meldingen en snelle vraag blijven werken.",
+  "desktopLaunchAtLogin": "Openen bij inloggen",
+  "desktopLaunchAtLoginDescription": "Start in het systeemvak wanneer je inlogt. Alleen bij geïnstalleerde versies.",
+  "desktopQuickAskTitle": "Snelle vraag",
+  "desktopQuickAskEnabled": "Snelle vraag overal openen",
+  "desktopQuickAskShortcut": "Sneltoets",
+  "desktopQuickAskShortcutInvalid": "Gebruik een of meer modificatietoetsen en een toets, zoals CommandOrControl+Shift+Space.",
+  "desktopQuickAskShortcutTaken": "Een andere app gebruikt deze sneltoets. Kies een andere.",
+  "desktopQuickAskNeedsSetup": "Open eerst Conduit om het instellen af te ronden.",
+  "desktopNotificationsSection": "Meldingen",
+  "desktopShortcutPressKeys": "Druk op de nieuwe toetsen, of Esc om te annuleren",
+  "desktopShortcutChange": "Wijzigen",
+  "desktopShortcutReset": "Herstellen",
+  "desktopShortcutResetAll": "Standaardwaarden herstellen",
+  "desktopShortcutChangeLabel": "Sneltoets voor {command} wijzigen",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "Bekijk wat er is veranderd",
+  "desktopReleaseDismiss": "Sluiten",
+  "desktopAboutDaemon": "Versie van achtergronddienst",
+  "desktopAboutUserData": "Gebruikersgegevens",
+  "desktopAboutLogs": "Logboeken",
+  "desktopSttEngineLocal": "Op deze computer",
+  "desktopSttEngineLocalDescription": "Getranscribeerd door Whisper op deze computer. Je stem verlaat hem nooit.",
+  "desktopSttModelsTitle": "Spraakmodellen",
+  "desktopSttModelsDescription": "Eenmalig gedownload van Hugging Face en bewaard op deze computer. Grotere modellen verstaan beter en doen er langer over.",
+  "desktopSttModelDownload": "Downloaden ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "Downloaden… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "Verwijderen",
+  "desktopSttModelUse": "Gebruiken",
+  "desktopSttModelInUse": "In gebruik",
+  "desktopSttModelEnglishOnly": "Alleen Engels",
+  "desktopSttModelFailedChecksum": "De download was niet het verwachte bestand en is daarom weggegooid.",
+  "desktopSttModelFailedNetwork": "Het downloaden is mislukt. Controleer de verbinding en probeer het opnieuw.",
+  "desktopSttLocalNeedsModel": "Download een model om op deze computer te transcriberen; tot die tijd doet de server dat.",
+  "desktopUiFontSize": "Tekstgrootte",
+  "desktopUiFontSizeValue": "{size} pt",
+  "desktopUiFontSizeHint": "Codeblokken behouden hun eigen grootte.",
+  "desktopSidebar": "Zijbalk",
+  "desktopSidePane": "Zijpaneel",
+  "desktopShortcutToggleSidebar": "Zijbalk tonen of verbergen",
+  "desktopShortcutToggleSidePane": "Zijpaneel tonen of verbergen",
+  "desktopSearch": "Zoeken",
+  "desktopMinimizeWindow": "Minimaliseren",
+  "desktopMaximizeWindow": "Maximaliseren",
+  "desktopRestoreWindow": "Vorige grootte",
+  "desktopCloseWindow": "Sluiten",
+  "desktopResizeSidebar": "Formaat van zijbalk wijzigen",
+  "desktopResizeSidePane": "Formaat van zijpaneel wijzigen",
+  "desktopEarlier": "Eerder",
+  "desktopChatRunning": "Bezig met antwoorden",
+  "desktopChatUnread": "Nieuw antwoord",
+  "desktopChatFailed": "Antwoord mislukt",
+  "desktopShell": "Shell",
+  "desktopSources": "Bronnen",
+  "desktopNoSources": "Nog geen bronnen geciteerd in dit gesprek.",
+  "desktopClosePane": "Zijpaneel sluiten",
+  "desktopNoPreview": "Nog niets om te bekijken. Als een antwoord een webpagina schrijft, verschijnt die hier.",
+  "desktopPreviewPosition": "{index} van {count}",
+  "desktopPreviousPreview": "Vorige pagina",
+  "desktopNextPreview": "Volgende pagina",
+  "desktopOpenShell": "Shell openen",
+  "desktopCloseShell": "Shell sluiten",
+  "desktopResizeShell": "Formaat van shell wijzigen",
+  "desktopAllNotes": "Alle notities",
+  "desktopMenuSettings": "Instellingen…",
+  "desktopMenuServices": "Voorzieningen",
+  "desktopMenuHide": "Verberg Conduit",
+  "desktopMenuHideOthers": "Verberg andere",
+  "desktopMenuShowAll": "Toon alles",
+  "desktopMenuQuit": "Stop Conduit",
+  "desktopMenuCloseWindow": "Sluit venster",
+  "desktopMenuUndo": "Herstel",
+  "desktopMenuRedo": "Opnieuw",
+  "desktopMenuCut": "Knip",
+  "desktopMenuPaste": "Plak",
+  "desktopMenuSelectAll": "Selecteer alles",
+  "desktopMenuView": "Weergave",
+  "desktopMenuToggleSidebar": "Toon of verberg navigatiekolom",
+  "desktopMenuFullScreen": "Schermvullende weergave aan/uit",
+  "desktopMenuWindow": "Venster",
+  "desktopMenuZoom": "Zoom",
+  "desktopMenuBringAllToFront": "Breng alles naar voren",
+  "desktopMenuHelp": "Help",
+  "desktopMenuConduitHelp": "Conduit-help",
+  "desktopCoreOpeningData": "Je gegevens worden geopend…",
+  "desktopCoreFailedHint": "Probeer het opnieuw. Gebeurt het steeds, klik dan op ‘Logboeken tonen’ en voeg de logboeken toe als je het probleem meldt.",
+  "desktopStoreUnreadableTitle": "Conduit kan de opgeslagen gegevens niet openen",
+  "desktopStoreUnreadableBody": "De gegevens op deze Mac zijn bewaard met een sleutel die Conduit niet meer heeft, meestal door een eerdere versie. Stel de lokale gegevens opnieuw in om opnieuw te beginnen. De oude map blijft bewaard onder een nieuwe naam; er wordt niets verwijderd.",
+  "desktopResetLocalData": "Lokale gegevens opnieuw instellen",
+  "desktopResetFailed": "Kan de oude gegevens niet verplaatsen. Probeer het opnieuw, of klik op ‘Logboeken tonen’ voor details.",
+  "desktopExportDiagnosticsHint": "Bewaart de logboeken en een geanonimiseerde configuratie in een zip-bestand en toont het in de Finder. Er wordt niets geüpload.",
+  "desktopExporting": "Exporteren…",
+  "desktopDiagnosticsSaved": "{name} bewaard",
+  "desktopDiagnosticsFailed": "Kan de diagnose niet exporteren.",
+  "desktopSettingsAppearanceTab": "Weergave",
+  "desktopSettingsAccountsTab": "Accounts",
+  "desktopSettingsDirectTab": "Directe verbindingen",
+  "desktopSettingsDataTab": "Gegevens",
+  "desktopNotAvailableYet": "Nog niet beschikbaar",
+  "desktopAppearanceTheme": "Thema",
+  "desktopPalette": "Palet",
+  "desktopAppearanceLayout": "Indeling",
+  "desktopSidebarTranslucent": "Doorschijnend",
+  "desktopSidebarSolid": "Effen",
+  "desktopDensity": "Dichtheid",
+  "desktopDensityCompact": "Compact",
+  "desktopDensityComfortable": "Ruim",
+  "desktopLanguageSystem": "Systeem ({language})",
+  "desktopShortcutOpenSettings": "Instellingen openen",
+  "desktopShortcutNeedsModifier": "Gebruik ⌘ of ⌥ in de sneltoets.",
+  "desktopAccountAddedNeedsSignIn": "Log in bij het nieuwe account om het toevoegen af te ronden.",
+  "desktopAccountAlreadyActive": "Het account {name} is al in gebruik.",
+  "@desktopAccountAlreadyActive": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountChangeFailed": "Het account kon niet worden gewijzigd. Probeer het opnieuw.",
+  "desktopAccountNothingToCancel": "Die aanmelding was al voltooid, dus er viel niets te annuleren.",
+  "desktopAccountSignedOut": "Uitgelogd bij {name}.",
+  "@desktopAccountSignedOut": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNext": "Uitgelogd bij {name}. Nu wordt {next} gebruikt.",
+  "@desktopAccountSignedOutNext": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNextNeedsSignIn": "Uitgelogd bij {name}. Log in bij {next} om door te gaan.",
+  "@desktopAccountSignedOutNextNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedNeedsSignIn": "Overgeschakeld naar {name}. Log in om door te gaan.",
+  "@desktopAccountSwitchedNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedTo": "Overgeschakeld naar {name}.",
+  "@desktopAccountSwitchedTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountUnknownOutcome": "De accountwijziging is klaar, maar deze versie van Conduit kan niet zien hoe. Controleer de accountlijst.",
+  "desktopAdd": "Toevoegen",
+  "desktopAllModels": "Alle modellen",
+  "desktopAnswering": "Je antwoord wordt verzonden…",
+  "desktopApprovalFailed": "Je antwoord is niet aangekomen. Probeer het opnieuw.",
+  "desktopApprovalUnsupportedBody": "Dit verzoek kan hier nog niet worden beantwoord. Beantwoord het in Conduit op je telefoon of in Open WebUI op het web, of sluit het.",
+  "desktopApprovalUnsupportedTitle": "Beantwoord dit op een ander apparaat",
+  "desktopBackend": "Verbindingstype",
+  "desktopChangeServer": "Wijzigen",
+  "desktopChatToolbar": "Chatwerkbalk",
+  "desktopClearLocalDataConfirm": "Wissen",
+  "desktopClearLocalDataConfirmBody": "Conduit logt op deze Mac uit bij alle accounts en begint opnieuw. De oude gegevens worden apart gezet, niet verwijderd.",
+  "desktopClearLocalDataConfirmTitle": "Lokale gegevens wissen?",
+  "desktopClearLocalDataHint": "Opgeslagen accounts, sessies en de chats die naar deze Mac zijn gedownload. Je chats blijven op je servers.",
+  "desktopClientCertificateHelp": "Voor servers die wederzijdse TLS vereisen.",
+  "desktopClose": "Sluiten",
+  "desktopComposerLabel": "Bericht opstellen",
+  "desktopConnectedTo": "Verbonden met {server} (Open WebUI {version})",
+  "@desktopConnectedTo": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopConversation": "Chat",
+  "desktopCustomHeadersHelp": "Worden met elk verzoek meegestuurd, bijvoorbeeld om langs een aanmeldproxy te komen.",
+  "desktopDataSignOutHint": "Logt uit bij {name}. Het volgende opgeslagen account neemt het over.",
+  "@desktopDataSignOutHint": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDirectNone": "Nog geen directe verbindingen.",
+  "desktopDirectTestFailed": "De provider is niet bereikbaar. Controleer het serveradres en de API-sleutel.",
+  "desktopDirectTestOk": "{count, plural, =1{Verbonden. 1 model gevonden.} other{Verbonden. {count} modellen gevonden.}}",
+  "@desktopDirectTestOk": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesModeApi": "API-server",
+  "desktopHermesReady": "Hermes Agent is klaar voor gebruik.",
+  "desktopHermesSigningIn": "Rond het inloggen af in je browser…",
+  "desktopHideSidebar": "Zijbalk verbergen",
+  "desktopMessageField": "Bericht",
+  "desktopMessages": "Berichten",
+  "desktopModelsCanMakeMistakes": "Modellen kunnen fouten maken. Controleer belangrijke informatie.",
+  "desktopMoreActionsFor": "Meer acties voor {name}",
+  "@desktopMoreActionsFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopNewFolder": "Nieuwe map",
+  "desktopNoAccountInUse": "Er is geen Open WebUI-account in gebruik.",
+  "desktopOr": "of",
+  "desktopPaletteNavigate": "Navigeren",
+  "desktopPaletteOpen": "Openen",
+  "desktopPaletteOpenInBackground": "Op de achtergrond openen",
+  "desktopPaletteResults": "Resultaten",
+  "desktopQuickAskAsk": "Vragen",
+  "desktopRecentQuestions": "Recente vragen",
+  "desktopSelfSignedHelp": "Alleen voor servers die je zelf beheert.",
+  "desktopServerChip": "Server: {name}. Wijzigen",
+  "@desktopServerChip": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerChipLabel": "Server: {name}, {host}",
+  "@desktopServerChipLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerNameHelp": "Optioneel. Wordt getoond in de zijbalk en de accountwisselaar.",
+  "desktopServerUrlHelp": "Conduit controleert de server voordat je inlogt.",
+  "desktopSessionExpired": "Sessie verlopen. Log in om dit account te synchroniseren.",
+  "desktopSetUpConduit": "Conduit instellen",
+  "desktopSettingsSections": "Instellingsonderdelen",
+  "desktopShellExtrasLater": "Deze komen met het menubalkonderdeel in een latere update.",
+  "desktopSignInAgain": "Opnieuw inloggen…",
+  "desktopSignInAgainBody": "Je sessie op deze server is beëindigd. Log opnieuw in om te blijven synchroniseren.",
+  "desktopSignInFieldsRequired": "Vul je e-mailadres of gebruikersnaam en je wachtwoord in.",
+  "desktopSsoCancelled": "Eenmalige aanmelding is geannuleerd.",
+  "desktopSsoNeedsPassword": "De aanmeldproxy heeft je doorgelaten. Log nu in bij Open WebUI.",
+  "desktopSsoTimedOut": "Eenmalige aanmelding duurde te lang. Probeer het opnieuw.",
+  "desktopSsoWindowTitle": "Inloggen bij {server}",
+  "@desktopSsoWindowTitle": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopToolResult": "Resultaat",
+  "desktopPositionOf": "{index} van {count}",
+  "@desktopPositionOf": {
+    "placeholders": {
+      "index": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTimeNow": "nu",
+  "desktopTimeMinutesShort": "{count} min",
+  "@desktopTimeMinutesShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursShort": "{count} u",
+  "@desktopTimeHoursShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeMinutesAgo": "{count, plural, =1{1 minuut geleden} other{{count} minuten geleden}}",
+  "@desktopTimeMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursAgo": "{count, plural, =1{1 uur geleden} other{{count} uur geleden}}",
+  "@desktopTimeHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopWeekdayShort": "{weekday, select, 1{ma} 2{di} 3{wo} 4{do} 5{vr} 6{za} 7{zo} other{}}",
+  "@desktopWeekdayShort": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWeekdayLong": "{weekday, select, 1{maandag} 2{dinsdag} 3{woensdag} 4{donderdag} 5{vrijdag} 6{zaterdag} 7{zondag} other{}}",
+  "@desktopWeekdayLong": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMonthShort": "{month, select, 1{jan} 2{feb} 3{mrt} 4{apr} 5{mei} 6{jun} 7{jul} 8{aug} 9{sep} 10{okt} 11{nov} 12{dec} other{}}",
+  "@desktopMonthShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShort": "{day} {month}",
+  "@desktopDateShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShortYear": "{day} {month} {year}",
+  "@desktopDateShortYear": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      },
+      "year": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPaletteResultCount": "{count, plural, =1{1 resultaat} other{{count} resultaten}}",
+  "@desktopPaletteResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopChatCount": "{count, plural, =1{1 chat} other{{count} chats}}",
+  "@desktopChatCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncOffline": "Offline",
+  "desktopSynced": "Bijgewerkt",
+  "desktopChatChangeFailed": "De wijziging is niet doorgevoerd.",
+  "@desktopChatChangeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopBulkPartlyFailed": "{count, plural, =1{1 chat kon niet worden gewijzigd.} other{{count} chats konden niet worden gewijzigd.}}",
+  "@desktopBulkPartlyFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSelectChat": "{title} selecteren",
+  "@desktopSelectChat": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopQuickAskEmpty": "Vraag maar raak. Het antwoord verschijnt hier en wordt bij je chats bewaard.",
+  "desktopOpenInConduit": "Openen in Conduit",
+  "desktopOpenFilesTooMany": "{count, plural, one{Nog 1 bestand is niet bijgevoegd: je kunt er maximaal {max} tegelijk openen.} other{Nog {count} bestanden zijn niet bijgevoegd: je kunt er maximaal {max} tegelijk openen.}}",
+  "@desktopOpenFilesTooMany": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopOpenFileTooLarge": "{name} is groter dan 256 MB en is daarom niet bijgevoegd.",
+  "@desktopOpenFileTooLarge": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelsNotAvailable": "Kanalen zijn nog niet beschikbaar op de desktop.",
+  "desktopNotesNotAvailable": "Notities zijn nog niet beschikbaar op de desktop.",
+  "desktopNotificationAnswerReady": "Het antwoord is klaar.",
+  "desktopNotificationAnswerFailed": "Het antwoord is niet afgemaakt.",
+  "desktopTrayOpen": "Open Conduit",
+  "desktopTrayQuickAsk": "Snelle vraag",
+  "desktopCloseToMenuBar": "Sluiten naar de menubalk",
+  "desktopCloseToMenuBarDescription": "Als je het venster sluit, blijft Conduit actief in de menubalk, zodat snelle vraag en meldingen blijven werken.",
+  "desktopLaunchAtLoginHint": "Conduit opent wanneer je inlogt. Met ‘Sluiten naar de menubalk’ aan start het in de menubalk.",
+  "desktopLoginItemNeedsApproval": "Sta Conduit toe in Systeeminstellingen › Algemeen › Inlogonderdelen.",
+  "desktopLoginItemNotFound": "macOS kan deze kopie van Conduit niet vinden. Zet hem in Apps en probeer het opnieuw.",
+  "desktopLoginItemFailed": "Dit kon niet worden gewijzigd. Controleer de inlogonderdelen in Systeeminstellingen.",
+  "@desktopLoginItemFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopOpenSystemSettings": "Open Systeeminstellingen",
+  "desktopQuickAskShortcutUnsupported": "Deze toets kan geen algemene sneltoets zijn. Kies een andere.",
+  "desktopQuickAskShortcutUnavailable": "Algemene sneltoetsen zijn nu niet beschikbaar.",
+  "desktopNotifyAnswers": "Melden wanneer een antwoord klaar is",
+  "desktopNotifyAnswersFooter": "Meldingen tonen alleen de titel van de chat, nooit het antwoord, omdat ze op het toegangsscherm en op gedeelde schermen kunnen verschijnen.",
+  "desktopNotificationsDenied": "Meldingen voor Conduit staan uit in Systeeminstellingen.",
+  "desktopNotificationsUnavailable": "Meldingen werken alleen in de geïnstalleerde app.",
+  "desktopNotificationsOff": "Meldingen staan uit",
+  "desktopMenuBarSection": "Menubalk",
+  "desktopShowSidebar": "Zijbalk tonen",
+  "desktopCheckForUpdates": "Zoek naar updates…",
+  "desktopUpdatesSection": "Updates",
+  "desktopAutomaticUpdateChecks": "Automatisch naar updates zoeken",
+  "desktopBetaUpdates": "Bètaversies ontvangen",
+  "desktopBetaUpdatesFooter": "Bèta's komen eerder en kunnen minder stabiel zijn. Zet je dit uit, dan wacht Conduit op de volgende stabiele versie; het gaat nooit terug naar een oudere versie.",
+  "desktopUpdatesUnavailable": "Updates zijn er alleen voor de geïnstalleerde app.",
+  "desktopSuggestionsHeading": "Suggesties",
+  "desktopImageLoadFailed": "Deze afbeelding kan niet worden geladen.",
+  "desktopPreviewHtmlTitle": "HTML-voorbeeld",
+  "desktopPreviewDiagramTitle": "Diagramvoorbeeld",
+  "desktopPreviewChartTitle": "Grafiekvoorbeeld",
+  "desktopMenuHideSidebar": "Verberg navigatiekolom",
+  "desktopMenuShowSidebar": "Toon navigatiekolom",
+  "desktopMenuEnterFullScreen": "Activeer schermvullende weergave",
+  "desktopMenuExitFullScreen": "Stop schermvullende weergave",
+  "desktopMenuFind": "Zoek…",
+  "desktopMenuChat": "Chat",
+  "desktopMenuRenameChat": "Wijzig naam…",
+  "desktopMenuMoveTo": "Verplaatsen naar",
+  "desktopMenuRemoveFromFolder": "Verwijder uit map",
+  "desktopMenuDeleteChat": "Verwijder…",
+  "desktopMenuCopyLastReply": "Laatste antwoord kopiëren",
+  "desktopMenuCopyLastCodeBlock": "Kopieer laatste codeblok",
+  "desktopMenuKeyboardShortcuts": "Sneltoetsen",
+  "desktopFolderNewChat": "Nieuwe chat in map",
+  "desktopFolderExpand": "Klap uit",
+  "desktopFolderCollapse": "Klap in",
+  "desktopCopyAsMarkdown": "Kopieer als Markdown",
+  "desktopShortcutTypeShortcut": "Typ toetscombinatie",
+  "desktopShortcutResetToDefault": "Herstel standaard",
+  "desktopShortcutRecordHelp": "Klik op een toetscombinatie en druk op de nieuwe toetsen, of druk op Esc om te annuleren.",
+  "desktopMenuFindSubmenu": "Zoek",
+  "desktopFindNext": "Zoek volgende",
+  "desktopFindPrevious": "Zoek vorige",
+  "desktopMenuSearchChats": "Chats doorzoeken",
+  "desktopMenuSearchChatsAndCommands": "Chats en opdrachten zoeken…",
+  "desktopMenuChooseModel": "Een model kiezen…",
+  "desktopMenuActualSize": "Ware grootte",
+  "desktopMenuZoomIn": "Zoom in",
+  "desktopMenuZoomOut": "Zoom uit",
+  "desktopFindInChat": "Zoek in chat",
+  "desktopFindNoMatches": "Geen overeenkomsten",
+  "desktopSoftwareUpdate": "Software-update",
+  "desktopCheckNow": "Controleer nu",
+  "desktopDiagnostics": "Diagnose",
+  "desktopDiagnosticReport": "Diagnoserapport",
+  "desktopExportEllipsis": "Exporteer…",
+  "desktopLocalData": "Lokale gegevens",
+  "desktopClearEllipsis": "Wis…",
+  "desktopHermesAgent": "Hermes Agent",
+  "desktopSyncNow": "Synchroniseer nu",
+  "desktopPaletteClay": "Klei",
+  "desktopPaletteBerry": "Bes",
+  "desktopServerNamePlaceholder": "Thuisserver",
+  "desktopPrivateKeyPassword": "Wachtwoord voor privésleutel",
+  "desktopOptional": "Optioneel",
+  "desktopSignInFailed": "Inloggen is niet gelukt. Controleer je inloggegevens en het serveradres.",
+  "desktopCouldntReachServer": "Server niet bereikbaar. Controleer je verbinding en of de server draait.",
+  "desktopNotOpenWebUi": "Dit lijkt geen Open WebUI-server te zijn.",
+  "desktopServerFormSubtitle": "Voer het adres van je Open WebUI-server in.",
+  "desktopSsoDescription": "Log in via de identiteitsprovider van je organisatie.",
+  "desktopHermesSubtitle": "Maak verbinding met een zelfgehoste Hermes Agent.",
+  "desktopSelectChats": "Chats selecteren…",
+  "desktopNewSubfolder": "Nieuwe submap",
+  "desktopDeleteFolderEllipsis": "Map verwijderen…",
+  "desktopDeleteFolderTitle": "‘{name}’ verwijderen?",
+  "desktopDeleteFolderKeepsChats": "De chats erin worden niet verwijderd. Ze worden naar je chatlijst verplaatst.",
+  "desktopDeleteFolderWithSubfolders": "De submappen worden ook verwijderd. De chats erin worden niet verwijderd. Ze worden naar je chatlijst verplaatst.",
+  "desktopFolderNameTaken": "De naam ‘{name}’ is al in gebruik.",
+  "desktopFolderNameTakenMessage": "Kies een andere naam.",
+  "desktopKeyboardChats": "Chats",
+  "desktopKeyboardMessages": "Berichten",
+  "desktopKeyboardFindAndView": "Zoek en weergave",
+  "desktopKeyboardDeleteChat": "Chat verwijderen",
+  "desktopKeyboardFindInChat": "Zoek in chat",
+  "desktopKeyboardQuickAskOff": "Snelle vraag staat uit. Zet hem aan bij Algemeen.",
+  "desktopEmailPlaceholder": "naam@example.com",
+  "desktopRequiredPlaceholder": "Vereist",
+  "desktopCopyErrorDetails": "Kopieer foutdetails",
+  "desktopConnect": "Verbinden",
+  "desktopSignInSubtitle": "Log in met je Open WebUI-account.",
+  "desktopCodeCopied": "Code gekopieerd naar het klembord.",
+  "desktopHeaderAlreadyExists": "Header ‘{key}’ is al ingesteld. Verwijder hem eerst om hem te wijzigen.",
+  "desktopMcpAlwaysAllowNote": "{serverName} mag {toolName} voortaan zonder te vragen uitvoeren, tot de tool verandert.",
+  "desktopSkip": "Overslaan",
+  "desktopHermesModeApiHelp": "Gebruikt de API-server van de agent met een API-sleutel.",
+  "desktopHermesModeGatewayHelp": "Logt in via je browser en gebruikt een van de profielen van de agent.",
+  "desktopSendWaitsReconnecting": "Je kunt versturen zodra Conduit opnieuw verbonden is.",
+  "desktopSendWaitsStarting": "Je kunt versturen zodra Conduit is opgestart.",
+  "desktopSendWaitsOffline": "Je kunt versturen zodra je weer online bent.",
+  "desktopMenuNextChat": "Volgende chat",
+  "desktopMenuPreviousChat": "Vorige chat",
+  "desktopClearSearch": "Zoekopdracht wissen",
+  "desktopPreviewCopyCode": "Code kopiëren",
+  "desktopPreviewSave": "Bewaar…",
+  "desktopPreviewOpenInBrowser": "Openen in browser",
+  "desktopPreviewSaveFailed": "Kan het bestand niet bewaren.",
+  "desktopShortcutFixedNote": "Gedimde sneltoetsen horen bij de menubalk en kunnen niet worden gewijzigd.",
+  "desktopAboutVersionLine": "Versie {version}",
+  "desktopTryAgain": "Opnieuw proberen"
+}
