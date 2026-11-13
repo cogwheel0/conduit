@@ -4935,5 +4935,9 @@
     }
   },
   "showModelNameInComposer": "Modelnaam in berichtveld tonen",
-  "showModelNameInComposerDescription": "Het lege berichtveld noemt het gekozen model in plaats van Conduit."
+  "showModelNameInComposerDescription": "Het lege berichtveld noemt het gekozen model in plaats van Conduit.",
+  "settingsAddAction": "Toevoegen",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

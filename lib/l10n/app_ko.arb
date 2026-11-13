@@ -4707,5 +4707,9 @@
     }
   },
   "showModelNameInComposer": "메시지 입력란에 모델 이름 표시",
-  "showModelNameInComposerDescription": "비어 있는 메시지 입력란에 Conduit 대신 선택한 모델 이름을 표시합니다."
+  "showModelNameInComposerDescription": "비어 있는 메시지 입력란에 Conduit 대신 선택한 모델 이름을 표시합니다.",
+  "settingsAddAction": "추가",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

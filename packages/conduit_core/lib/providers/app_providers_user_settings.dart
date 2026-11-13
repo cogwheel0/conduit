@@ -682,18 +682,49 @@ class UserMemories extends _$UserMemories {
 
 @Riverpod(keepAlive: true)
 class AccountProfile extends _$AccountProfile {
+  /// The server the profile held was read from. A copy kept through a
+  /// reload or a failed read may be another server's.
+  String? _serverId;
+
   @override
   Future<AccountMetadata?> build() async {
     final api = ref.watch(apiServiceProvider);
     if (api == null) {
       return null;
     }
-    return api.getAccountMetadata();
+    final profile = await api.getAccountMetadata();
+    // A build another server's replaced meanwhile: its result is dropped,
+    // and it says nothing about the profile held.
+    if (identical(ref.read(apiServiceProvider), api)) {
+      _serverId = api.serverConfig.id;
+    }
+    return profile;
   }
 
+  /// The profile held, the copy kept from before a refresh included, when
+  /// it was read from server [serverId]: null when it is another server's,
+  /// as after a switch whose read failed.
+  AccountMetadata? profileOn(String serverId) {
+    final server = _serverId;
+    if (server != null && server != serverId) return null;
+    return state.value;
+  }
+
+  /// Counts refreshes, so one answered after a newer one is dropped.
+  int _refreshes = 0;
+
   Future<void> refresh() async {
+    final api = ref.read(apiServiceProvider);
+    final refresh = ++_refreshes;
     state = const AsyncLoading();
-    state = await AsyncValue.guard(_loadProfile);
+    final next = await AsyncValue.guard(() => _loadProfile(api));
+    // Another server, or session, took over while it was read: the profile
+    // read is the last one's, and the provider has the new one's already.
+    if (!ref.mounted || !identical(ref.read(apiServiceProvider), api)) return;
+    // A newer refresh began meanwhile: its answer is the one kept.
+    if (refresh != _refreshes) return;
+    if (next.hasValue && api != null) _serverId = api.serverConfig.id;
+    state = next;
   }
 
   Future<AccountMetadata> save({
@@ -717,10 +748,19 @@ class AccountProfile extends _$AccountProfile {
       dateOfBirth: dateOfBirth,
       timezone: timezone,
     );
-    if (!ref.mounted) {
+    // Another session, or another account's profile read meanwhile: the
+    // saved one is not put over it.
+    final held = state.value;
+    if (!ref.mounted ||
+        !identical(api, ref.read(apiServiceProvider)) ||
+        (held != null && held.id != updated.id)) {
       return updated;
     }
 
+    _serverId = api.serverConfig.id;
+    // A refresh still on its way read the profile before this save: its
+    // answer is older than what was just saved, and is dropped.
+    _refreshes++;
     state = AsyncData(updated);
     await ref.read(authActionsProvider).refresh();
     ref.invalidate(currentUserProvider);
@@ -748,8 +788,7 @@ class AccountProfile extends _$AccountProfile {
     await ref.read(authStateManagerProvider.notifier).logout();
   }
 
-  Future<AccountMetadata?> _loadProfile() async {
-    final api = ref.read(apiServiceProvider);
+  Future<AccountMetadata?> _loadProfile(ApiService? api) async {
     if (api == null) {
       return null;
     }

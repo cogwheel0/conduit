@@ -9,19 +9,11 @@ import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/services/voice_input_service.dart';
 
+export '../../../core/utils/native_sheet_utils.dart'
+    show deviceSttLanguageSubtitle, shouldShowDeviceSttLanguageSetting;
+
 String sttLanguageSubtitle(AppLocalizations l10n, AppSettings settings) {
   return settings.sttLanguageCode ?? l10n.sttTranscriptionLanguageAuto;
-}
-
-String deviceSttLanguageSubtitle(AppLocalizations l10n, AppSettings settings) {
-  final localeId = settings.voiceLocaleId;
-  if (localeId == null) {
-    return l10n.sttTranscriptionLanguageAuto;
-  }
-  if (localeId == SettingsService.voiceLocaleSystemDefault) {
-    return l10n.ttsSystemDefault;
-  }
-  return localeId;
 }
 
 Future<void> showDeviceSttLanguagePickerSheet(

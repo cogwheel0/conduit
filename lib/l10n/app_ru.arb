@@ -4973,5 +4973,9 @@
     }
   },
   "showModelNameInComposer": "Показывать название модели в поле сообщения",
-  "showModelNameInComposerDescription": "В пустом поле сообщения указывается выбранная модель вместо Conduit."
+  "showModelNameInComposerDescription": "В пустом поле сообщения указывается выбранная модель вместо Conduit.",
+  "settingsAddAction": "Добавить",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

@@ -75,6 +75,140 @@ void main() {
     ) as _LogoutSpyAuthStateManager;
     check(auth.logoutCalls).equals(0);
   });
+  test('a profile saved for a session since replaced is not kept as the '
+      "new one's", () async {
+    final saving = _ProfileApi(server: 'home', user: 'ada')
+      ..saveGate = Completer<void>();
+    ApiService current = saving;
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWith((ref) => current)],
+    );
+    addTearDown(container.dispose);
+    await container.read(accountProfileProvider.future);
+
+    final save = container
+        .read(accountProfileProvider.notifier)
+        .save(name: 'Ada Saved', profileImageUrl: '');
+    await Future<void>.delayed(Duration.zero);
+    current = _ProfileApi(server: 'work', user: 'grace');
+    container.invalidate(apiServiceProvider);
+    await container.read(accountProfileProvider.future);
+    saving.saveGate!.complete();
+    await save;
+
+    check(container.read(accountProfileProvider).value?.id).equals('grace');
+  });
+
+  test('a refresh answered after a newer one is dropped', () async {
+    final home = _ProfileApi(server: 'home', user: 'ada');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWithValue(home)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+    final profile = container.read(accountProfileProvider.notifier);
+
+    final gate = home.readGate = Completer<void>();
+    home.nextName = 'Ada Before';
+    final first = profile.refresh();
+    await Future<void>.delayed(Duration.zero);
+    home
+      ..readGate = null
+      ..nextName = 'Ada After';
+    await profile.refresh();
+    gate.complete();
+    await first;
+
+    check(container.read(accountProfileProvider).value?.name)
+        .equals('Ada After');
+  });
+
+  test('a refresh begun before a save does not put back the profile it '
+      'read', () async {
+    final home = _ProfileApi(server: 'home', user: 'ada');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWithValue(home)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+    final profile = container.read(accountProfileProvider.notifier);
+
+    final gate = home.readGate = Completer<void>();
+    home.nextName = 'Ada Before';
+    final refreshing = profile.refresh();
+    await Future<void>.delayed(Duration.zero);
+    home.readGate = null;
+    try {
+      await profile.save(name: 'Ada Saved', profileImageUrl: '');
+    } catch (_) {
+      // The auth refresh after a save has no session here; the save holds.
+    }
+    gate.complete();
+    await refreshing;
+
+    check(container.read(accountProfileProvider).value?.name)
+        .equals('Ada Saved');
+  });
+
+  test("a refresh that lands after another server's profile was read is "
+      'dropped', () async {
+    final home = _ProfileApi(server: 'home', user: 'ada');
+    ApiService current = home;
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWith((ref) => current)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+
+    home.readGate = Completer<void>();
+    final refreshing = container
+        .read(accountProfileProvider.notifier)
+        .refresh();
+    await Future<void>.delayed(Duration.zero);
+    current = _ProfileApi(server: 'work', user: 'grace');
+    container.invalidate(apiServiceProvider);
+    await container.read(accountProfileProvider.future);
+    home.readGate!.complete();
+    await refreshing;
+
+    final profile = container.read(accountProfileProvider.notifier);
+    check(container.read(accountProfileProvider).value?.id).equals('grace');
+    check(profile.profileOn('work')?.id).equals('grace');
+    check(profile.profileOn('home')).isNull();
+  });
+
+  test("a profile kept through a failed read of another server's is not "
+      "that server's", () async {
+    ApiService current = _ProfileApi(server: 'home', user: 'ada');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [apiServiceProvider.overrideWith((ref) => current)],
+    );
+    addTearDown(container.dispose);
+    final listening = container.listen(accountProfileProvider, (_, _) {});
+    addTearDown(listening.close);
+    await container.read(accountProfileProvider.future);
+
+    // The same user id on another server, which cannot be read.
+    current = _ProfileApi(server: 'work', user: 'ada')..fails = true;
+    container.invalidate(apiServiceProvider);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    final profile = container.read(accountProfileProvider.notifier);
+    check(profile.profileOn('work')).isNull();
+    check(profile.profileOn('home')?.id).equals('ada');
+  });
 }
 
 ProviderContainer _container(_PasswordApi api) => ProviderContainer(
@@ -130,5 +264,54 @@ final class _PasswordApi extends ApiService {
     if (error != null) throw error;
     await updateGate?.future;
     updates.add((password: password, newPassword: newPassword));
+  }
+}
+
+final class _ProfileApi extends ApiService {
+  _ProfileApi({required String server, required this.user})
+    : super(
+        serverConfig: ServerConfig(
+          id: server,
+          name: server,
+          url: 'https://$server.example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final String user;
+  Completer<void>? saveGate;
+  Completer<void>? readGate;
+  bool fails = false;
+
+  /// The name the next read answers with, taken as the read is sent.
+  String? nextName;
+
+  AccountMetadata _profile(String name) => AccountMetadata(
+    id: user,
+    email: '$user@example.test',
+    name: name,
+    role: 'user',
+    isActive: true,
+  );
+
+  @override
+  Future<AccountMetadata> getAccountMetadata() async {
+    final name = nextName ?? user;
+    await readGate?.future;
+    if (fails) throw StateError('offline');
+    return _profile(name);
+  }
+
+  @override
+  Future<AccountMetadata> updateAccountMetadata({
+    required String name,
+    required String profileImageUrl,
+    String? bio,
+    String? gender,
+    String? dateOfBirth,
+    String? timezone,
+  }) async {
+    await saveGate?.future;
+    return _profile(name);
   }
 }

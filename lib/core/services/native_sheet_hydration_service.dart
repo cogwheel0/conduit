@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
@@ -9,6 +11,10 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../features/chat/providers/text_to_speech_provider.dart';
+import '../../features/chat/services/voice_input_service.dart'
+    show
+        localVoiceRecognitionAvailableProvider,
+        serverVoiceRecognitionAvailableProvider;
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -34,6 +40,7 @@ import 'package:conduit_core/models/tool.dart';
 import '../network/image_header_utils.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/utils/user_display_name.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
@@ -54,11 +61,12 @@ import 'package:conduit_core/navigation/routes.dart'
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart'
     show workspaceCapabilitiesProvider;
 
+import 'package:conduit_core/models/socket_health.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import '../../features/push/widgets/push_target_actions.dart'
-    show pushTargetTitle;
+    show pushTargetNeedsAttention, pushTargetTitle;
 
 import '../utils/model_icon_utils.dart';
 import '../utils/model_logos.dart';
@@ -74,6 +82,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
+import '../../features/settings/settings_pages.dart';
 import '../../features/chat/widgets/model_control_labels.dart';
 import '../../platform/conduit_platform_apis.g.dart'
     show PlatformNativeSheetModelControl;
@@ -174,6 +183,21 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   );
 }
 
+/// Which speech engines can work now, read from the providers the voice
+/// features use. Device recognition still being checked counts as able.
+NativeVoiceEngineAvailability readNativeVoiceEngineAvailability(
+  NativeSheetProviderReader read,
+) {
+  final tts = read(textToSpeechServiceProvider);
+  return NativeVoiceEngineAvailability(
+    deviceRecognition:
+        read(localVoiceRecognitionAvailableProvider).value ?? true,
+    serverRecognition: read(serverVoiceRecognitionAvailableProvider),
+    deviceSpeech: tts.deviceEngineAvailable || !tts.isInitialized,
+    serverSpeech: read(serverSpeechProviderProvider)?.canSynthesize == true,
+  );
+}
+
 /// The language the app is set to, as the App Language row names it: a
 /// language tag, or `system`.
 String readNativeAppLanguageTag(NativeSheetProviderReader read) =>
@@ -194,6 +218,17 @@ int? readNativeOtherAccountCount(NativeSheetProviderReader read) {
   return others + libreChatAccounts.length;
 }
 
+/// The page that signs out of one saved account, read now.
+NativeSheetDetailConfig readNativeAccountSignOutDetail(
+  NativeSheetProviderReader read,
+  AppLocalizations l10n,
+) => buildNativeAccountSignOutDetail(
+  l10n,
+  accounts: read(openWebUiAccountsProvider).value,
+  libreChatAccounts:
+      read(libreChatRegistryProvider).value?.accounts ?? const [],
+);
+
 /// The native Accounts page, read now.
 NativeSheetDetailConfig readNativeAccountsDetail(
   NativeSheetProviderReader read,
@@ -203,6 +238,7 @@ NativeSheetDetailConfig readNativeAccountsDetail(
   // are they rows.
   final apple = read(applePccPlatformSupportedProvider);
   final libreChatSession = read(libreChatSessionProvider).value;
+  final push = read(pushStateIfUsedProvider);
   return buildNativeAccountsDetail(
     l10n,
     libreChatEnabled: read(libreChatBackendEnabledProvider),
@@ -223,6 +259,13 @@ NativeSheetDetailConfig readNativeAccountsDetail(
     directProfiles: read(directConnectionProfilesProvider).value,
     appleOnDevice: apple && read(appleOnDeviceEnabledProvider),
     applePcc: apple && read(applePccEnabledProvider),
+    // As the Flutter Accounts page marked them: where push is on and an
+    // account or connection's setup needs the user.
+    pushAttention: {
+      if (push != null && push.enabled)
+        for (final target in push.targets.values)
+          if (pushTargetNeedsAttention(target)) target.scope,
+    },
   );
 }
 
@@ -297,9 +340,13 @@ nativeHydratedServerReasoningEffort({
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref) {
     final sheetEvents = NativeSheetBridge.instance.events.listen((event) {
-      if (event is NativeSheetDismissed) _appearanceDetailPresented = false;
+      if (event is NativeSheetDismissed) {
+        _appearanceDetailPresented = false;
+        stopFollowing(nativeSocketHealthDetailId);
+      }
     });
     _ref.onDispose(sheetEvents.cancel);
+    _ref.onDispose(() => _socketHealthUpdates?.cancel());
     // The native sheet keeps the rows it was handed, so a language chosen
     // inside it left every label in the old language until the sheet was
     // reopened. Hand it rows built in the new language: the root, where the
@@ -312,7 +359,11 @@ class NativeSheetHydrationService {
   }
 
   final Ref _ref;
+  SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
   bool _appearanceDetailPresented = false;
+
+  /// The connection's health, followed while its page is on screen.
+  StreamSubscription<SocketHealth>? _socketHealthUpdates;
   MemoryOwner? _memoryOwner;
   _NativeProfileRoot? _profileRoot;
   final NativeSheetHydrationGeneration _notificationsHydration =
@@ -353,7 +404,7 @@ class NativeSheetHydrationService {
     if (ctx == null || !ctx.mounted) return false;
     final l10n = AppLocalizations.of(ctx);
     if (l10n == null) return false;
-    final applied = await NativeSheetBridge.instance.applyDetailPatch(
+    final applied = await _surface.applyDetailPatch(
       detailId: NativeSheetRoutes.profileMenu,
       title: nativeSettingsTitle(l10n),
       items: const [],
@@ -835,21 +886,35 @@ class NativeSheetHydrationService {
       return;
     }
 
+    // Another page on screen means the health page is not.
+    if (detailId != nativeSocketHealthDetailId) {
+      stopFollowing(nativeSocketHealthDetailId);
+    }
+
     switch (detailId) {
+      case nativeSocketHealthDetailId:
+        _followSocketHealth(l10n);
+        return;
+      case nativeAccountSignOutOfDetailId:
+        await _applyNativeDetail(
+          readNativeAccountSignOutDetail(_ref.read, l10n),
+        );
+        return;
       case nativeAccountsDetailId:
         // As they are now: the Direct providers may have been read since the
         // sheet opened, and a pushed page comes back to this one.
         await settleNativeAccountsDetail(_ref.read);
         final accounts = readNativeAccountsDetail(_ref.read, l10n);
-        await NativeSheetBridge.instance.applyDetailPatch(
+        await _surface.applyDetailPatch(
           detailId: nativeAccountsDetailId,
           title: accounts.title,
           items: const [],
           sections: accounts.sections,
+          detailSheets: [readNativeAccountSignOutDetail(_ref.read, l10n)],
         );
         return;
-      case NativeSheetRoutes.accountSettings:
-        await _hydrateNativeAccountSettingsDetail(ctx, l10n);
+      case 'password':
+        await _hydrateNativePasswordDetail(ctx, l10n);
         return;
       case NativeSheetRoutes.appearance:
       case NativeSheetRoutes.chats:
@@ -967,59 +1032,129 @@ class NativeSheetHydrationService {
     }
   }
 
-  Future<void> _hydrateNativeAccountSettingsDetail(
+  /// Turns the Change Password page into a note that the server does not
+  /// allow it, when the server says so. An allowed change leaves the form
+  /// as it is, so nothing typed into it is lost -- unless the page was
+  /// forgotten while open (another account took over) and shows a loading
+  /// row again: then it gets its form back.
+  Future<void> _hydrateNativePasswordDetail(
     BuildContext context,
     AppLocalizations l10n,
   ) async {
+    // The answer is for the account signed in as the page asked; another
+    // account's page is filled in by its own visit.
+    final api = _ref.read(apiServiceProvider);
+    final userId = _ref.read(currentUserProvider2)?.id;
+    var allowed = true;
     try {
       final about = await _ref.read(serverAboutInfoProvider.future);
-      if (!context.mounted) return;
-      final passwordChangeEnabled = about?.enablePasswordChangeForm ?? true;
-
-      await _applyNativeDetail(
-        NativeSheetDetailConfig(
-          id: NativeSheetRoutes.accountSettings,
-          title: l10n.accountSettingsTitle,
-          items: [
-            if (passwordChangeEnabled)
-              NativeSheetItemConfig(
-                id: 'password',
-                title: l10n.changePasswordTitle,
-                subtitle: l10n.passwordChangeDescription,
-                sfSymbol: 'lock',
-              )
-            else
-              NativeSheetItemConfig(
-                id: 'password-unavailable',
-                title: l10n.changePasswordTitle,
-                subtitle: l10n.passwordChangeUnavailable,
-                sfSymbol: 'lock.slash',
-                kind: NativeSheetItemKind.info,
-              ),
-          ],
-        ),
-        detailSheets: passwordChangeEnabled
-            ? [
-                buildNativePasswordDetail(
-                  l10n,
-                  passwordChangeEnabled: true,
-                  subtitle: l10n.passwordFieldsRequired,
-                ),
-              ]
-            : const [],
-      );
+      allowed = about?.enablePasswordChangeForm ?? true;
     } catch (error, stackTrace) {
+      // The form stays; the server refuses a change it does not allow.
       DebugLogger.error(
-        'native-account-settings-hydration-failed',
+        'native-password-hydration-failed',
         scope: 'native-sheet',
         error: error,
         stackTrace: stackTrace,
       );
-      await _patchNativeDetailError(
-        NativeSheetRoutes.accountSettings,
-        l10n.unableToLoadOpenWebuiSettings,
+    }
+    if (!context.mounted ||
+        !identical(_ref.read(apiServiceProvider), api) ||
+        _ref.read(currentUserProvider2)?.id != userId) {
+      return;
+    }
+    if (allowed && !_passwordPageIsLoading()) return;
+    final page = buildNativePasswordDetail(
+      l10n,
+      passwordChangeEnabled: allowed,
+    );
+    await _applyNativeDetail(page);
+    // The Flutter pages take it whole, Done and all: a patch keeps the bar
+    // actions a page had, and one opened from a link had none.
+    _ref.read(settingsPagesProvider.notifier).register([page]);
+  }
+
+  /// Whether the Flutter pages hold the Change Password page without its
+  /// form: the loading page a forgotten page is drawn as until described.
+  bool _passwordPageIsLoading() {
+    final page = _ref.read(settingsPagesProvider)['password'];
+    if (page == null) return false;
+    return ![
+      ...page.items,
+      for (final section in page.sections) ...section.items,
+    ].any((row) => row.id == 'current-password');
+  }
+
+  /// Counts the Profile page's fills, so one finishing after a newer one
+  /// puts nothing over it.
+  int _profileVisits = 0;
+
+  /// Fills in the Profile page the Flutter Settings pages draw. Its editors
+  /// save every field, so the page waits on its loading row until the
+  /// profile has been read from the server again; when that fails, the copy
+  /// the app holds is shown, and with none the page says so. (The native
+  /// sheet fills its own Profile page as it opens.)
+  Future<void> hydrateFlutterProfileDetail(AppLocalizations l10n) async {
+    const pageId = NativeSheetRoutes.profile;
+    final user = _ref.read(currentUserProvider2);
+    if (user == null) {
+      await _patchNativeDetailError(pageId, l10n.unableToLoadProfile);
+      return;
+    }
+    final api = _ref.read(apiServiceProvider);
+    // The copy kept from before an earlier refresh that failed counts too,
+    // but never one left from another account.
+    final held = api == null
+        ? _ref.read(accountProfileProvider).value
+        : _ref
+              .read(accountProfileProvider.notifier)
+              .profileOn(api.serverConfig.id);
+    final cached = held?.id == user.id ? held : null;
+    final visit = ++_profileVisits;
+    var refreshed = true;
+    try {
+      await _ref
+          .read(accountProfileProvider.notifier)
+          .refresh()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      refreshed = false;
+      DebugLogger.warning(
+        'account-profile-refresh-failed',
+        scope: 'settings/profile',
+        data: {'error': error.toString()},
       );
     }
+    // Another account took over meanwhile, or the page opened again: the
+    // page is the newer visit's to fill.
+    if (visit != _profileVisits ||
+        !identical(_ref.read(apiServiceProvider), api) ||
+        _ref.read(currentUserProvider2)?.id != user.id) {
+      return;
+    }
+    // `refresh` keeps a failed request in the provider rather than throwing.
+    final state = _ref.read(accountProfileProvider);
+    final fresh = refreshed && !state.hasError ? state.asData?.value : null;
+    final profile = fresh ?? cached;
+    if (profile == null) {
+      await _patchNativeDetailError(pageId, l10n.unableToLoadProfile);
+      return;
+    }
+    await _applyNativeDetail(
+      NativeSheetDetailConfig(
+        id: pageId,
+        title: nativeProfileTitle(l10n),
+        sections: buildNativeProfileDetailSections(
+          l10n,
+          // The name the profile was just read with, which the Name editor
+          // starts from too.
+          displayName: profile.name.trim().isNotEmpty
+              ? profile.name.trim()
+              : deriveUserDisplayName(user, fallback: l10n.userFallbackName),
+          accountProfile: profile,
+        ),
+      ),
+    );
   }
 
   Future<void> _hydrateNativePersonalizationDetail(
@@ -1254,7 +1389,19 @@ class NativeSheetHydrationService {
     );
     final masterSection = NativeSheetSectionConfig(
       footer: l10n.notificationsEnabledDescription,
-      items: [masterItem],
+      items: [
+        masterItem,
+        // Android lets each kind of notification be turned off in its own
+        // settings; iOS keeps one switch per app there, so it has no row.
+        if (defaultTargetPlatform == TargetPlatform.android)
+          NativeSheetItemConfig(
+            id: nativeNotificationSystemSettingsId,
+            title: l10n.notificationSystemSettingsTitle,
+            subtitle: l10n.notificationSystemSettingsDescription,
+            sfSymbol: 'gearshape.2',
+            showsDisclosure: true,
+          ),
+      ],
     );
     // With notifications off the rest cannot do anything, so it is not
     // shown, as Settings hides an app's alert options until they are
@@ -1445,6 +1592,10 @@ class NativeSheetHydrationService {
               .toList(growable: false),
       serverOffersVoiceChoice:
           _ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
+      // The provider's page shows no engines.
+      availability: providerOnly
+          ? const NativeVoiceEngineAvailability()
+          : readNativeVoiceEngineAvailability(_ref.read),
     );
     if (providerOnly) {
       await _applyNativeDetail(nativeAudio.voiceProviderDetail);
@@ -1759,7 +1910,7 @@ class NativeSheetHydrationService {
               ),
             if (socketService != null)
               NativeSheetItemConfig(
-                id: 'socket-health',
+                id: nativeSocketHealthDetailId,
                 title: l10n.connectionHealth,
                 subtitle: nativeSocketHealthSummary(
                   l10n,
@@ -1772,7 +1923,7 @@ class NativeSheetHydrationService {
         detailSheets: [
           if (socketService != null)
             NativeSheetDetailConfig(
-              id: 'socket-health',
+              id: nativeSocketHealthDetailId,
               title: l10n.connectionHealth,
               subtitle: nativeSocketHealthSummary(
                 l10n,
@@ -1909,6 +2060,34 @@ class NativeSheetHydrationService {
           ),
         ],
       ),
+      // Only Android lets Conduit be the default assistant.
+      if (defaultTargetPlatform == TargetPlatform.android)
+        NativeSheetSectionConfig(
+          footer: l10n.androidAssistantDescription,
+          items: [
+            NativeSheetItemConfig(
+              id: nativeAndroidAssistantTriggerId,
+              title: l10n.androidAssistantTitle,
+              sfSymbol: 'sparkles',
+              kind: NativeSheetItemKind.segment,
+              value: appSettings.androidAssistantTrigger.name,
+              options: [
+                NativeSheetOptionConfig(
+                  id: AndroidAssistantTrigger.overlay.name,
+                  label: l10n.androidAssistantOverlayOption,
+                ),
+                NativeSheetOptionConfig(
+                  id: AndroidAssistantTrigger.newChat.name,
+                  label: l10n.androidAssistantNewChatOption,
+                ),
+                NativeSheetOptionConfig(
+                  id: AndroidAssistantTrigger.voiceCall.name,
+                  label: l10n.androidAssistantVoiceCallOption,
+                ),
+              ],
+            ),
+          ],
+        ),
     ];
   }
 
@@ -2206,7 +2385,7 @@ class NativeSheetHydrationService {
           .where((id) => allowedIds.contains(id))
           .toSet();
 
-      await NativeSheetBridge.instance.applyDetailPatch(
+      await _surface.applyDetailPatch(
         detailId: 'quick-pills',
         clearSubtitle: true,
         items: [
@@ -2273,7 +2452,7 @@ class NativeSheetHydrationService {
     final modelId = Uri.decodeComponent(encodedModel);
 
     Future<void> patchFailure() async {
-      await NativeSheetBridge.instance.applyDetailPatch(
+      await _surface.applyDetailPatch(
         detailId: detailId,
         clearSubtitle: true,
         items: [
@@ -2293,10 +2472,17 @@ class NativeSheetHydrationService {
       return;
     }
 
+    final userId = _ref.read(currentUserProvider2)?.id;
     final detail = await api.getModelDetails(modelId);
-    if (!context.mounted) return;
+    // Read for an account since gone: its prompt is not put on the page
+    // another account opens by the same id, which a save would send.
+    if (!context.mounted ||
+        !identical(_ref.read(apiServiceProvider), api) ||
+        _ref.read(currentUserProvider2)?.id != userId) {
+      return;
+    }
     if (detail == null) {
-      await NativeSheetBridge.instance.applyDetailPatch(
+      await _surface.applyDetailPatch(
         detailId: detailId,
         clearSubtitle: true,
         items: [
@@ -2339,15 +2525,40 @@ class NativeSheetHydrationService {
             ),
           ];
 
-    await NativeSheetBridge.instance.applyDetailPatch(
+    await _surface.applyDetailPatch(
       detailId: detailId,
       subtitle: l10n.modelSystemPromptEditorDescription,
       items: items,
     );
   }
 
+  /// Shows the connection's health now, then again each time it changes,
+  /// until the page leaves the screen.
+  void _followSocketHealth(AppLocalizations l10n) {
+    final socket = _ref.read(socketServiceProvider);
+    _socketHealthUpdates?.cancel();
+    _socketHealthUpdates = null;
+    Future<void> show(SocketHealth? health) => _surface.applyDetailPatch(
+      detailId: nativeSocketHealthDetailId,
+      subtitle: nativeSocketHealthSummary(l10n, health),
+      items: nativeSocketHealthItems(l10n, health),
+    );
+    unawaited(show(socket?.currentHealth));
+    if (socket == null) return;
+    _socketHealthUpdates = socket.healthStream.listen(
+      (health) => unawaited(show(health)),
+    );
+  }
+
+  /// Stops keeping page [detailId] current; it has left the screen.
+  void stopFollowing(String detailId) {
+    if (detailId != nativeSocketHealthDetailId) return;
+    _socketHealthUpdates?.cancel();
+    _socketHealthUpdates = null;
+  }
+
   Future<void> _patchNativeDetailError(String detailId, String title) {
-    return NativeSheetBridge.instance.applyDetailPatch(
+    return _surface.applyDetailPatch(
       detailId: detailId,
       clearSubtitle: true,
       items: [
@@ -2365,7 +2576,7 @@ class NativeSheetHydrationService {
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) {
-    return NativeSheetBridge.instance.applyDetailPatch(
+    return _surface.applyDetailPatch(
       detailId: detail.id,
       title: detail.title,
       subtitle: detail.subtitle,

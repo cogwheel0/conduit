@@ -31,7 +31,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_ui/material_ui.dart' show Scaffold;
+import 'package:material_ui/material_ui.dart' show Navigator, Scaffold;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -389,6 +389,43 @@ void main() {
     expect(native.pushed.single.extra, isA<NativeSheetNavigationOrigin>());
     expect(find.byKey(const Key('push-detail-status')), findsOneWidget);
     expect(find.text('Needs your admin to set up'), findsOneWidget);
+  });
+
+  testWidgets('a fix made in the sheet shows on the pages under it', (
+    tester,
+  ) async {
+    final state = pushStateWith([
+      const PushTargetState(
+        target: pushOwuiTarget,
+        status: PushStatus.needsAdminSetup,
+      ),
+    ]);
+    final fake = FakePushCoordinator(state);
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: state,
+      coordinator: fake,
+    );
+    await native.control('push-target', pushOwuiTarget.scope);
+
+    // Set up meanwhile, then the sheet is closed.
+    fake.emit(
+      pushStateWith([
+        const PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+      ]),
+    );
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byKey(const Key('push-detail-status'))))
+        .pop();
+    await tester.pumpAndSettle();
+
+    final row = native
+        .items(NativeSheetRoutes.pushTargets)
+        .singleWhere(
+          (item) => item.id == 'push-target:${pushOwuiTarget.scope}',
+        );
+    expect(row.subtitle, 'On');
   });
 
   testWidgets('a row for a target removed since opens the page alone', (

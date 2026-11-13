@@ -9319,5 +9319,9 @@
   "showModelNameInComposerDescription": "Puste pole wiadomości podaje nazwę wybranego modelu zamiast Conduit.",
   "@showModelNameInComposerDescription": {
     "description": "Explains the Show Model Name in Message Box switch in Settings > Chat."
+  },
+  "settingsAddAction": "Dodaj",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
   }
 }

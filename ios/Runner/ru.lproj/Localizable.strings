@@ -29,11 +29,13 @@
 "appIntent.unableSendLink" = "Не удалось отправить ссылку";
 "appIntent.unableSendText" = "Не удалось отправить текст";
 "appIntent.unableStartVoiceCall" = "Не удалось начать голосовой вызов";
+"native.add" = "Добавить";
 "native.avatar" = "Аватар";
 "native.bio" = "Био";
 "native.cancel" = "Отмена";
 "native.chooseModel" = "Выбрать модель";
 "native.clear" = "Очистить";
+"native.close" = "Закрыть";
 "native.customGender" = "Пользовательский пол";
 "native.dateOfBirth" = "Дата рождения";
 "native.done" = "Готово";

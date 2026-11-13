@@ -5,13 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit/core/services/native_sheet_bridge.dart';
-import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
-import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/profile/views/profile_page.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -27,7 +22,6 @@ import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'package:mocktail/mocktail.dart';
 
 void main() {
   testWidgets('compact iOS editor shares native workspace chrome', (
@@ -608,121 +602,7 @@ void main() {
     expect(find.byKey(const Key('workspace-denied')), findsOneWidget);
     expect(find.byKey(const Key('workspace-list-models')), findsNothing);
   });
-
-  testWidgets('ProfilePage exposes a permission-gated workspace entry', (
-    tester,
-  ) async {
-    final originalErrorWidgetBuilder = ErrorWidget.builder;
-    final router = GoRouter(
-      initialLocation: '/profile',
-      routes: [
-        GoRoute(path: '/profile', builder: (_, _) => const ProfilePage()),
-        GoRoute(
-          path: Routes.workspace,
-          name: RouteNames.workspace,
-          builder: (_, _) => const Scaffold(body: Text('workspace target')),
-        ),
-      ],
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          reviewerModeProvider.overrideWithValue(false),
-          isAuthLoadingProvider2.overrideWithValue(false),
-          currentUserProvider2.overrideWithValue(_user),
-          currentUserProvider.overrideWith((ref) async => _user),
-          apiServiceProvider.overrideWithValue(_WorkspaceApiService()),
-          workspaceCapabilitiesProvider.overrideWith(
-            (ref) async => _capabilities,
-          ),
-        ],
-        child: MaterialApp.router(
-          routerConfig: router,
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(NativeSheetRoutes.workspace, 'workspace-entry');
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('workspace-entry')),
-      300,
-    );
-    expect(find.byKey(const Key('settings-category-account')), findsNothing);
-    expect(find.byKey(const Key('settings-category-app')), findsNothing);
-    expect(find.byKey(const Key('settings-category-ai')), findsNothing);
-    expect(find.byKey(const Key('settings-category-server')), findsNothing);
-    expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
-    // Connection rows follow in the next group.
-    await tester.dragUntilVisible(
-      find.byKey(const Key('data-connection-entry')),
-      find.byType(ListView),
-      const Offset(0, -200),
-    );
-    expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
-
-    // The centered profile header is tall; bring the whole row on screen.
-    await tester.dragUntilVisible(
-      find.byKey(const Key('workspace-entry')),
-      find.byType(ListView),
-      const Offset(0, 200),
-    );
-    await tester.ensureVisible(find.byKey(const Key('workspace-entry')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('workspace-entry')));
-    await tester.pumpAndSettle();
-    expect(find.text('workspace target'), findsOneWidget);
-    ErrorWidget.builder = originalErrorWidgetBuilder;
-  });
-
-  testWidgets('ProfilePage hides workspace entry without workspace access', (
-    tester,
-  ) async {
-    final originalErrorWidgetBuilder = ErrorWidget.builder;
-    final router = GoRouter(
-      initialLocation: '/profile',
-      routes: [
-        GoRoute(path: '/profile', builder: (_, _) => const ProfilePage()),
-      ],
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          reviewerModeProvider.overrideWithValue(false),
-          isAuthLoadingProvider2.overrideWithValue(false),
-          currentUserProvider2.overrideWithValue(_user),
-          currentUserProvider.overrideWith((ref) async => _user),
-          apiServiceProvider.overrideWithValue(_WorkspaceApiService()),
-          workspaceCapabilitiesProvider.overrideWith(
-            (ref) async => const WorkspaceCapabilities(),
-          ),
-        ],
-        child: MaterialApp.router(
-          routerConfig: router,
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('data-connection-entry')),
-      300,
-    );
-
-    expect(find.byKey(const Key('settings-category-server')), findsNothing);
-    expect(find.byKey(const Key('workspace-entry')), findsNothing);
-    expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
-    ErrorWidget.builder = originalErrorWidgetBuilder;
-  });
 }
-
-final class _WorkspaceApiService extends Mock implements ApiService {}
 
 Widget _workspaceHarness({
   WorkspaceCapabilities capabilities = _capabilities,
@@ -762,13 +642,6 @@ Widget _workspaceHarness({
 const _capabilities = WorkspaceCapabilities(
   models: WorkspaceSectionCapabilities.all,
   tools: WorkspaceSectionCapabilities.all,
-);
-
-const _user = User(
-  id: 'user-1',
-  username: 'user',
-  email: 'user@example.com',
-  role: 'user',
 );
 
 class _TestWorkspaceModels extends WorkspaceModels {

@@ -29,11 +29,13 @@
 "appIntent.unableSendLink" = "Odkaz nelze odeslat";
 "appIntent.unableSendText" = "Text nelze odeslat";
 "appIntent.unableStartVoiceCall" = "Hlasový hovor nelze zahájit";
+"native.add" = "Přidat";
 "native.avatar" = "Avatar";
 "native.bio" = "O mně";
 "native.cancel" = "Zrušit";
 "native.chooseModel" = "Vybrat model";
 "native.clear" = "Vymazat";
+"native.close" = "Zavřít";
 "native.customGender" = "Vlastní pohlaví";
 "native.dateOfBirth" = "Datum narození";
 "native.done" = "Hotovo";

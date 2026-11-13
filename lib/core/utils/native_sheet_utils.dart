@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show Uint8List, immutable;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, Uint8List, defaultTargetPlatform, immutable;
 import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -387,7 +388,9 @@ const nativeLibreChatPersonalizationActionId = 'librechat-personalization';
 /// page, adds any.
 ///
 /// [accounts] and [directProfiles] are null when they could not be read in
-/// time; [hermesInUseId] is null while Hermes is off.
+/// time; [hermesInUseId] is null while Hermes is off. An account or
+/// connection whose push scope is in [pushAttention] says its push setup
+/// needs the user.
 NativeSheetDetailConfig buildNativeAccountsDetail(
   AppLocalizations l10n, {
   required List<OpenWebUiAccountEntry>? accounts,
@@ -400,7 +403,12 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
   List<LibreChatAccount> libreChatAccounts = const [],
   String? libreChatInChargeId,
   bool libreChatInChargeSignedIn = true,
+  Set<String> pushAttention = const {},
 }) {
+  String? withAttention(String scope, String? subtitle) =>
+      pushAttention.contains(scope)
+      ? [l10n.pushAttentionChip, ?subtitle].join(' · ')
+      : subtitle;
   final byServer = <String, List<OpenWebUiAccountEntry>>{};
   for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
     byServer.putIfAbsent(entry.server.id, () => []).add(entry);
@@ -455,7 +463,15 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
                 actionId: nativeAccountServerActionId,
                 actionValue: group.first.server.id,
               ),
-              for (final entry in group) _nativeAccountItem(entry, l10n),
+              for (final entry in group)
+                _nativeAccountItem(
+                  entry,
+                  l10n,
+                  subtitle: withAttention(
+                    PushTarget.openWebUiScope(entry.id),
+                    accountSubtitle(entry, l10n),
+                  ),
+                ),
             ],
           ),
       if (libreChatEnabled || libreChatAccounts.isNotEmpty)
@@ -526,7 +542,10 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             _nativeSwitchItem(
               id: '$nativeHermesUseActionId:${connection.id}',
               title: connection.name,
-              subtitle: hermesConnectionSummary(connection, l10n),
+              subtitle: withAttention(
+                PushTarget.hermesScope(connection.id),
+                hermesConnectionSummary(connection, l10n),
+              ),
               sfSymbol: connection.mode == HermesBackendMode.desktopGateway
                   ? 'desktopcomputer'
                   : 'cloud',
@@ -605,10 +624,18 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
         ],
       ),
       // With one account, Settings' Sign out (or LibreChat's) already signs
-      // out of it.
+      // out of it. With several, one of them can be left, or every one.
       if ((accounts?.length ?? 0) + libreChatAccounts.length > 1)
         NativeSheetSectionConfig(
-          items: [_nativeSignOutItem(l10n, title: l10n.accountsSignOutAll)],
+          items: [
+            NativeSheetItemConfig(
+              id: nativeAccountSignOutOfDetailId,
+              title: l10n.signOut,
+              sfSymbol: 'rectangle.portrait.and.arrow.right',
+              showsDisclosure: true,
+            ),
+            _nativeSignOutItem(l10n, title: l10n.accountsSignOutAll),
+          ],
         ),
     ],
   );
@@ -617,17 +644,74 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
 /// Id of the Add Account row that ends the native Accounts page.
 const nativeAccountsAddItemId = 'accounts-add';
 
+/// Id of the page that lists each saved account to sign out of alone.
+const nativeAccountSignOutOfDetailId = 'accounts-sign-out-of';
+
+/// The page that signs out of one saved account, Open WebUI's or
+/// LibreChat's, leaving the others signed in. Each row closes the native
+/// sheet first: signing out asks before it acts.
+NativeSheetDetailConfig buildNativeAccountSignOutDetail(
+  AppLocalizations l10n, {
+  required List<OpenWebUiAccountEntry>? accounts,
+  List<LibreChatAccount> libreChatAccounts = const [],
+}) {
+  NativeSheetItemConfig row({
+    required String id,
+    required String name,
+    required String? subtitle,
+    required String actionId,
+    required String actionValue,
+  }) => NativeSheetItemConfig(
+    id: id,
+    title: l10n.accountsSignOutOf(name),
+    subtitle: subtitle,
+    sfSymbol: 'rectangle.portrait.and.arrow.right',
+    destructive: true,
+    dismissOnSelect: true,
+    showsDisclosure: false,
+    actionId: actionId,
+    actionValue: actionValue,
+  );
+  return NativeSheetDetailConfig(
+    id: nativeAccountSignOutOfDetailId,
+    title: l10n.signOut,
+    sections: [
+      NativeSheetSectionConfig(
+        items: [
+          for (final entry in accounts ?? const <OpenWebUiAccountEntry>[])
+            row(
+              id: '$nativeAccountSignOutOfActionId:${entry.id}',
+              name: accountDisplayName(entry, l10n),
+              subtitle: serverDisplayName(entry.server),
+              actionId: nativeAccountSignOutOfActionId,
+              actionValue: entry.id,
+            ),
+          for (final account in libreChatAccounts)
+            row(
+              id: '$nativeLibreChatSignOutActionId:${account.id}',
+              name: account.displayName,
+              subtitle: account.serverTitle ?? account.host,
+              actionId: nativeLibreChatSignOutActionId,
+              actionValue: account.id,
+            ),
+        ],
+      ),
+    ],
+  );
+}
+
 /// A saved Open WebUI account under its server: switched to on a tap, but
 /// the one in use, signed in, stays put.
 NativeSheetItemConfig _nativeAccountItem(
   OpenWebUiAccountEntry entry,
-  AppLocalizations l10n,
-) {
+  AppLocalizations l10n, {
+  String? subtitle,
+}) {
   final name = accountDisplayName(entry, l10n);
   return _nativeSwitchItem(
     id: '$nativeAccountSwitchActionId:${entry.id}',
     title: name,
-    subtitle: accountSubtitle(entry, l10n),
+    subtitle: subtitle ?? accountSubtitle(entry, l10n),
     avatarName: name,
     avatarBytes: _dataUrlBytes(entry.summary.profileImage),
     checked: entry.isActive,
@@ -737,6 +821,9 @@ const nativeSignOutActionId = 'sign-out';
 const nativeAccountSwitchActionId = 'account-switch';
 const nativeAccountAddActionId = 'account-add';
 const nativeAccountSignOutActionId = 'account-sign-out';
+
+/// Signs out of the saved Open WebUI account it names, active or not.
+const nativeAccountSignOutOfActionId = 'account-sign-out-of';
 const nativeAccountServerActionId = 'account-server';
 const nativeHermesUseActionId = 'account-hermes-use';
 const nativeDirectEditActionId = 'account-direct-edit';
@@ -821,6 +908,27 @@ List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
         ),
       ],
     ),
+    // What the server says about the account: its role, and whether it is
+    // active with the status its owner set.
+    if (accountProfile != null)
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'profile-role',
+            title: l10n.roleLabel,
+            subtitle: _capitalized(accountProfile.role),
+            sfSymbol: 'person.crop.circle.badge.checkmark',
+            kind: NativeSheetItemKind.info,
+          ),
+          NativeSheetItemConfig(
+            id: 'profile-status',
+            title: l10n.accountStatus,
+            subtitle: nativeProfileStatusLabel(l10n, accountProfile),
+            sfSymbol: 'circle.lefthalf.filled',
+            kind: NativeSheetItemKind.info,
+          ),
+        ],
+      ),
     NativeSheetSectionConfig(
       items: [
         NativeSheetItemConfig(
@@ -831,6 +939,29 @@ List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
       ],
     ),
   ];
+}
+
+/// Active or inactive, then the status the account's owner set, if any:
+/// "Active • 🌴 On holiday".
+String nativeProfileStatusLabel(
+  AppLocalizations l10n,
+  AccountMetadata profile,
+) {
+  final base = profile.isActive ? l10n.activeStatus : l10n.inactiveStatus;
+  final parts = [
+    if (profile.statusEmoji?.trim() case final emoji? when emoji.isNotEmpty)
+      emoji,
+    if (profile.statusMessage?.trim() case final message?
+        when message.isNotEmpty)
+      message,
+  ];
+  return parts.isEmpty ? base : '$base • ${parts.join(' ')}';
+}
+
+String _capitalized(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return trimmed;
+  return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
 }
 
 /// What the Profile details row holds now -- the gender and birthday set,
@@ -919,6 +1050,24 @@ NativeSheetDetailConfig buildNativeLoadingDetail({
   );
 }
 
+/// Which speech engines can work now: on this device, and on the server
+/// or provider in use. An engine that cannot is still listed, greyed, and
+/// a warning says so when it is the one chosen.
+@immutable
+class NativeVoiceEngineAvailability {
+  const NativeVoiceEngineAvailability({
+    this.deviceRecognition = true,
+    this.serverRecognition = true,
+    this.deviceSpeech = true,
+    this.serverSpeech = true,
+  });
+
+  final bool deviceRecognition;
+  final bool serverRecognition;
+  final bool deviceSpeech;
+  final bool serverSpeech;
+}
+
 class NativeAudioSheetParts {
   const NativeAudioSheetParts({
     required this.mainSections,
@@ -933,6 +1082,38 @@ class NativeAudioSheetParts {
 
 /// The Voice provider choice that clears it.
 const nativeNoVoiceProviderId = 'none';
+
+/// The Voice row that picks the language Android's own recognizer listens
+/// for, which opens the device's language list.
+const nativeDeviceSttLanguageId = 'stt-device-language';
+
+/// The Chats row that picks what holding the assistant button opens on
+/// Android, where Conduit can be the default assistant.
+const nativeAndroidAssistantTriggerId = 'android-assistant-trigger';
+
+/// The Notifications row that opens Android's notification settings for
+/// Conduit, where its channels are switched on and off.
+const nativeNotificationSystemSettingsId = 'notification-system-settings';
+
+/// Whether Voice offers the device recognizer's language: only on Android,
+/// and only while the device does the recognizing.
+bool shouldShowDeviceSttLanguageSetting(
+  TargetPlatform platform,
+  SttPreference preference,
+) =>
+    platform == TargetPlatform.android &&
+    preference == SttPreference.deviceOnly;
+
+/// What the device recognizer listens for: automatic, the system's
+/// language, or a locale.
+String deviceSttLanguageSubtitle(AppLocalizations l10n, AppSettings settings) {
+  final localeId = settings.voiceLocaleId;
+  if (localeId == null) return l10n.sttTranscriptionLanguageAuto;
+  if (localeId == SettingsService.voiceLocaleSystemDefault) {
+    return l10n.ttsSystemDefault;
+  }
+  return localeId;
+}
 
 /// The text fields of the Voice provider page, by item id.
 const nativeVoiceProviderFieldIds = {
@@ -956,6 +1137,8 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   List<DirectConnectionProfile> voiceProviderCandidates =
       const <DirectConnectionProfile>[],
   bool serverOffersVoiceChoice = true,
+  NativeVoiceEngineAvailability availability =
+      const NativeVoiceEngineAvailability(),
 }) {
   final sttSegment = NativeSheetItemConfig(
     id: 'stt-engine',
@@ -968,8 +1151,16 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     kind: NativeSheetItemKind.segment,
     value: appSettings.sttPreference.name,
     options: [
-      NativeSheetOptionConfig(id: 'deviceOnly', label: l10n.sttEngineDevice),
-      NativeSheetOptionConfig(id: 'serverOnly', label: l10n.sttEngineServer),
+      NativeSheetOptionConfig(
+        id: 'deviceOnly',
+        label: l10n.sttEngineDevice,
+        enabled: availability.deviceRecognition,
+      ),
+      NativeSheetOptionConfig(
+        id: 'serverOnly',
+        label: l10n.sttEngineServer,
+        enabled: availability.serverRecognition,
+      ),
     ],
   );
 
@@ -1012,8 +1203,16 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     kind: NativeSheetItemKind.segment,
     value: appSettings.ttsEngine.name,
     options: [
-      NativeSheetOptionConfig(id: 'device', label: l10n.ttsEngineDevice),
-      NativeSheetOptionConfig(id: 'server', label: l10n.ttsEngineServer),
+      NativeSheetOptionConfig(
+        id: 'device',
+        label: l10n.ttsEngineDevice,
+        enabled: availability.deviceSpeech,
+      ),
+      NativeSheetOptionConfig(
+        id: 'server',
+        label: l10n.ttsEngineServer,
+        enabled: availability.serverSpeech,
+      ),
     ],
   );
 
@@ -1072,6 +1271,19 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
 
   final sttItems = <NativeSheetItemConfig>[
     sttSegment,
+    // Android's recognizer takes a locale of its own; iOS's follows the
+    // system.
+    if (shouldShowDeviceSttLanguageSetting(
+      defaultTargetPlatform,
+      appSettings.sttPreference,
+    ))
+      NativeSheetItemConfig(
+        id: nativeDeviceSttLanguageId,
+        title: l10n.sttDeviceLanguage,
+        subtitle: deviceSttLanguageSubtitle(l10n, appSettings),
+        sfSymbol: 'globe',
+        showsDisclosure: true,
+      ),
     if (appSettings.sttPreference == SttPreference.serverOnly) ...[
       sttLanguageField,
       silenceSlider,
@@ -1237,8 +1449,27 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
           ),
         ],
       ),
-      NativeSheetSectionConfig(items: sttItems),
-      NativeSheetSectionConfig(items: ttsItems),
+      // The chosen engine that cannot work says so under its group.
+      NativeSheetSectionConfig(
+        footer: switch (appSettings.sttPreference) {
+          SttPreference.deviceOnly when !availability.deviceRecognition =>
+            l10n.sttDeviceUnavailableWarning,
+          SttPreference.serverOnly when !availability.serverRecognition =>
+            l10n.sttServerUnavailableWarning,
+          _ => null,
+        },
+        items: sttItems,
+      ),
+      NativeSheetSectionConfig(
+        footer: switch (appSettings.ttsEngine) {
+          TtsEngine.device when !availability.deviceSpeech =>
+            l10n.ttsDeviceUnavailableWarning,
+          TtsEngine.server when !availability.serverSpeech =>
+            l10n.ttsServerUnavailableWarning,
+          _ => null,
+        },
+        items: ttsItems,
+      ),
       NativeSheetSectionConfig(
         footer: l10n.voiceProviderDescription,
         items: [
@@ -1268,6 +1499,9 @@ String _nativeVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
       settings.ttsVoiceName ?? settings.ttsVoice ?? l10n.ttsSystemDefault;
   return formatTtsVoiceDisplayName(voice);
 }
+
+/// Change Password's Done: the one control that sends the change.
+const nativePasswordSaveActionId = 'password-save';
 
 NativeSheetDetailConfig buildNativePasswordDetail(
   AppLocalizations l10n, {
@@ -1314,6 +1548,8 @@ NativeSheetDetailConfig buildNativePasswordDetail(
     id: 'password',
     title: l10n.changePasswordTitle,
     subtitle: passwordChangeEnabled ? subtitle : null,
+    // Typing fills a draft; only Done sends it.
+    confirmActionId: passwordChangeEnabled ? nativePasswordSaveActionId : null,
     items: items,
   );
 }
@@ -1766,6 +2002,9 @@ List<NativeSheetOptionConfig> nativeLanguageDropdownOptions(
     NativeSheetOptionConfig(id: 'ja', label: l10n.japanese),
   ];
 }
+
+/// Id of the Connection health page, which follows the connection live.
+const nativeSocketHealthDetailId = 'socket-health';
 
 String nativeSocketHealthSummary(AppLocalizations l10n, SocketHealth? health) {
   if (health == null) return l10n.socketNotConnected;

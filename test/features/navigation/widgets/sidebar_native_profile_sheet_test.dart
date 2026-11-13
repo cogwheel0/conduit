@@ -4,6 +4,9 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart'
     show nativeAccountSwitchActionId, nativeAccountsDetailId;
+import 'package:conduit/features/navigation/providers/sidebar_search_providers.dart';
+import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart'
+    show AppKeyboardShortcuts;
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -12,6 +15,8 @@ import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
+    show PlatformUiCapabilities;
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -135,6 +140,12 @@ Future<_Harness> _pump(
   List<Override> overrides = const [],
   FocusNode? inputFocus,
   VoidCallback? onPresent,
+  // Stands in for the sidebar's header, the account button by default.
+  Widget? header,
+  // Opens Settings from the app's root, as the app does.
+  bool appOpener = false,
+  // What the account may do in Workspace; none by default.
+  Future<WorkspaceCapabilities>? capabilities,
 }) async {
   final storage = _MockOptimizedStorageService();
   when(storage.getThemeMode).thenReturn(null);
@@ -153,7 +164,7 @@ Future<_Harness> _pump(
       hermesOnlyModeProvider.overrideWithValue(false),
       accountProfileProvider.overrideWith(() => profiles),
       workspaceCapabilitiesProvider.overrideWith(
-        (ref) => Completer<WorkspaceCapabilities>().future,
+        (ref) => capabilities ?? Future.value(const WorkspaceCapabilities()),
       ),
       calendarAvailableProvider.overrideWithValue(false),
       scheduledTasksEntryVisibleProvider.overrideWithValue(false),
@@ -198,12 +209,17 @@ Future<_Harness> _pump(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: Column(
-            children: [
-              if (inputFocus != null) TextField(focusNode: inputFocus),
-              const SidebarProfileAppBarLeading(),
-            ],
+        home: _AppRoot(
+          appOpener: appOpener,
+          child: AppKeyboardShortcuts(
+            child: Scaffold(
+              body: Column(
+                children: [
+                  if (inputFocus != null) TextField(focusNode: inputFocus),
+                  header ?? const SidebarProfileAppBarLeading(),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -211,6 +227,44 @@ Future<_Harness> _pump(
   );
   await tester.pump();
   return harness;
+}
+
+/// The app's root, which opens Settings for every entry when [appOpener].
+class _AppRoot extends ConsumerStatefulWidget {
+  const _AppRoot({required this.appOpener, required this.child});
+
+  final bool appOpener;
+  final Widget child;
+
+  @override
+  ConsumerState<_AppRoot> createState() => _AppRootState();
+}
+
+class _AppRootState extends ConsumerState<_AppRoot> {
+  VoidCallback? _unregister;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.appOpener) _unregister = registerAppSettingsOpener(ref);
+  }
+
+  @override
+  void dispose() {
+    _unregister?.call();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+Future<void> _pressCommandComma(WidgetTester tester) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+  await tester.sendKeyEvent(LogicalKeyboardKey.comma);
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+  await tester.pump();
+  await tester.pump();
 }
 
 Future<void> _tapAvatar(WidgetTester tester) async {
@@ -541,5 +595,185 @@ void main() {
 
     harness.profiles.pending!.complete(_profile());
     await tester.pump();
+  });
+
+  group('Settings opens from the app', () {
+    setUp(() {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    });
+    tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    testWidgets('Command-comma presents the native sheet with the sidebar '
+        'closed', (tester) async {
+      final chatFocus = FocusNode();
+      addTearDown(chatFocus.dispose);
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        appOpener: true,
+        // No account button on screen: the sidebar is closed.
+        header: Focus(focusNode: chatFocus, child: const Text('Chat')),
+      );
+      chatFocus.requestFocus();
+      await tester.pump();
+
+      await _pressCommandComma(tester);
+
+      check(harness.presented).length.equals(1);
+      check(_rootItemIds(harness.presented.single))
+          .contains(nativeAccountsDetailId);
+      harness.profiles.pending!.complete(_profile());
+      await tester.pump();
+    });
+
+    testWidgets('Command-comma presents the native sheet while sidebar search '
+        'is open', (tester) async {
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        appOpener: true,
+        // Search takes the account button's place in the sidebar header.
+        header: const SidebarSearchAppBarLeading(
+          hintText: 'Search',
+          maxWidth: 300,
+        ),
+      );
+      final search = harness.container.read(
+        sidebarSearchFieldFocusNodeProvider,
+      );
+      search.requestFocus();
+      await tester.pump();
+      check(search.hasFocus).isTrue();
+
+      await _pressCommandComma(tester);
+
+      check(harness.presented).length.equals(1);
+      check(_rootItemIds(harness.presented.single))
+          .contains(nativeAccountsDetailId);
+      harness.profiles.pending!.complete(_profile());
+      await tester.pump();
+    });
+
+    testWidgets('Command-K still reaches the shortcuts once the sheet is up', (
+      tester,
+    ) async {
+      final chatFocus = FocusNode();
+      addTearDown(chatFocus.dispose);
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        appOpener: true,
+        header: TextField(focusNode: chatFocus),
+      );
+      chatFocus.requestFocus();
+      await tester.pump();
+
+      await _pressCommandComma(tester);
+      check(harness.presented).length.equals(1);
+      check(chatFocus.hasFocus).isFalse();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+
+      check(harness.container.read(sidebarHeaderSearchExpandedProvider))
+          .isTrue();
+      harness.profiles.pending!.complete(_profile());
+      await tester.pump();
+    });
+
+    testWidgets('a sheet whose account changed while it loaded is built for '
+        'the account in use', (tester) async {
+      final accounts = Completer<List<OpenWebUiAccountEntry>>();
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        accounts: accounts.future,
+        appOpener: true,
+      );
+
+      await _tapAvatar(tester);
+      check(harness.presented).isEmpty();
+      harness.container
+          .read(_signedInUser.notifier)
+          .signIn(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              name: 'Grace',
+              role: 'user',
+            ),
+          );
+      accounts.complete([_savedAccount('ada', isActive: true)]);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      check(harness.presented).length.equals(1);
+      check(harness.presented.single.profile.email).equals('grace@example.com');
+      harness.profiles.pending?.complete(_profile());
+      await tester.pump();
+    });
+
+    testWidgets('the first opening waits to learn whether Workspace is '
+        'offered', (tester) async {
+      // Nothing on screen has asked yet whether the account may manage
+      // Workspace when a shortcut opens Settings.
+      final capabilities = Completer<WorkspaceCapabilities>();
+      final chatFocus = FocusNode();
+      addTearDown(chatFocus.dispose);
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        appOpener: true,
+        capabilities: capabilities.future,
+        header: Focus(focusNode: chatFocus, child: const Text('Chat')),
+      );
+      chatFocus.requestFocus();
+      await tester.pump();
+
+      await _pressCommandComma(tester);
+      check(harness.presented).isEmpty();
+      capabilities.complete(
+        const WorkspaceCapabilities(models: WorkspaceSectionCapabilities.all),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      check(harness.presented).length.equals(1);
+      check(_rootItemIds(harness.presented.single))
+          .contains(NativeSheetRoutes.workspace);
+      harness.profiles.pending!.complete(_profile());
+      await tester.pump();
+    });
+
+    testWidgets('the account button and Command-comma open one sheet between '
+        'them', (tester) async {
+      final accounts = Completer<List<OpenWebUiAccountEntry>>();
+      final chatFocus = FocusNode();
+      addTearDown(chatFocus.dispose);
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        accounts: accounts.future,
+        inputFocus: chatFocus,
+        appOpener: true,
+      );
+      chatFocus.requestFocus();
+      await tester.pump();
+
+      // The first opening waits for the saved accounts; a second request
+      // in the meantime joins it rather than presenting again.
+      await _pressCommandComma(tester);
+      await _tapAvatar(tester);
+      accounts.complete([_savedAccount('ada', isActive: true)]);
+      await tester.pump();
+      await tester.pump();
+
+      check(harness.presented).length.equals(1);
+      harness.profiles.pending!.complete(_profile());
+      await tester.pump();
+    });
   });
 }

@@ -4935,5 +4935,9 @@
     }
   },
   "showModelNameInComposer": "Mostrar el nombre del modelo en el cuadro de mensaje",
-  "showModelNameInComposerDescription": "El cuadro de mensaje vacío muestra el nombre del modelo seleccionado en lugar de Conduit."
+  "showModelNameInComposerDescription": "El cuadro de mensaje vacío muestra el nombre del modelo seleccionado en lugar de Conduit.",
+  "settingsAddAction": "Añadir",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

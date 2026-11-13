@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
+import '../../settings/settings_opener.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -23,6 +24,8 @@ import '../utils/chat_list_back.dart';
 import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
+import 'sidebar_user_pill.dart'
+    show flutterSettingsShowing, sidebarNativeProfilePresenterProvider;
 import 'sidebar_tab_registry.dart';
 import '../../terminal/providers/terminal_providers.dart';
 
@@ -174,6 +177,20 @@ class _SidebarOverlayDismissListenerState
   }
 }
 
+/// Takes focus from a field into the app's keyboard shortcuts, as Escape
+/// does, so Command-K and the rest still reach them once something native,
+/// such as the Settings sheet, takes over. Unfocusing instead hands focus to
+/// the enclosing scope, which can sit above them. Where the shortcuts are not
+/// on screen, it unfocuses.
+void restFocusInAppShortcuts() {
+  final resting = _AppKeyboardShortcutsState._shown?._restingFocus;
+  if (resting != null && resting.context != null) {
+    resting.requestFocus();
+  } else {
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+}
+
 /// Hardware keyboard shortcuts: Command-N starts something new for the
 /// sidebar's backend or tab, Command-K searches, Command-1 to Command-5 pick
 /// a sidebar tab, Command-comma opens Settings, and Escape closes search,
@@ -204,8 +221,18 @@ class _AppKeyboardShortcutsState extends ConsumerState<AppKeyboardShortcuts> {
     skipTraversal: true,
   );
 
+  /// The shortcuts on screen, for [restFocusInAppShortcuts].
+  static _AppKeyboardShortcutsState? _shown;
+
+  @override
+  void initState() {
+    super.initState();
+    _shown = this;
+  }
+
   @override
   void dispose() {
+    if (identical(_shown, this)) _shown = null;
     _restingFocus.dispose();
     super.dispose();
   }
@@ -238,11 +265,17 @@ class _AppKeyboardShortcutsState extends ConsumerState<AppKeyboardShortcuts> {
   }
 
   void _openSettings() {
-    final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
-    if (path == Routes.profile ||
-        path?.startsWith('${Routes.profile}/') == true) {
+    // On iOS and iPadOS, the app's native sheet, as the account button opens
+    // it, whether or not the sidebar is showing.
+    final open = ref.read(settingsOpenerProvider).open;
+    final sheet =
+        open != null && ref.read(sidebarNativeProfilePresenterProvider) != null;
+    if (settingsShortcutDestination(nativeSheetAvailable: sheet) ==
+        SettingsDestination.nativeSheet) {
+      unawaited(open!());
       return;
     }
+    if (flutterSettingsShowing()) return;
     unawaited(NavigationService.pushTo(Routes.profile));
   }
 

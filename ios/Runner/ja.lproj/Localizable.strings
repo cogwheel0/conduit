@@ -29,11 +29,13 @@
 "appIntent.unableSendLink" = "リンクを送信できません";
 "appIntent.unableSendText" = "テキストを送信できません";
 "appIntent.unableStartVoiceCall" = "音声通話を開始できません";
+"native.add" = "追加";
 "native.avatar" = "アバター";
 "native.bio" = "自己紹介";
 "native.cancel" = "キャンセル";
 "native.chooseModel" = "モデルを選択";
 "native.clear" = "クリア";
+"native.close" = "閉じる";
 "native.customGender" = "カスタム性別";
 "native.dateOfBirth" = "生年月日";
 "native.done" = "完了";
