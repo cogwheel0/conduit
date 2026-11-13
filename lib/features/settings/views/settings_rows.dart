@@ -145,6 +145,14 @@ class SettingsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final row = _buildRow(context);
     if (!item.disabled && !inactive) return row;
+    // Read-only code still scrolls, and its text can be selected and copied:
+    // its field is not editable, as on the native sheet.
+    if (item.kind == NativeSheetItemKind.code && !inactive) {
+      return Semantics(
+        enabled: false,
+        child: Opacity(opacity: 0.4, child: row),
+      );
+    }
     // Waiting on another row's action, or on the page's Done, the row takes
     // no taps; one disabled outright is dimmed and read out as unavailable.
     return Semantics(

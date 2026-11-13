@@ -390,6 +390,39 @@ void main() {
         .deepEquals([('source', 'class Tools:\n    pass')]);
   });
 
+  testWidgets('a row of code the account may only view still scrolls and '
+      'selects, but is not edited', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail([
+        NativeSheetItemConfig(
+          id: 'source',
+          title: 'Python Source',
+          kind: NativeSheetItemKind.code,
+          value: [for (var i = 0; i < 200; i++) 'line_$i = $i'].join('\n'),
+          disabled: true,
+        ),
+      ]),
+    );
+
+    final field = find.descendant(
+      of: _row('source'),
+      matching: find.byType(AdaptiveTextField),
+    );
+    check(tester.widget<AdaptiveTextField>(field).readOnly).isTrue();
+    // Nothing above the field swallows its touches.
+    check(
+      find
+          .ancestor(
+            of: find.byType(EditableText),
+            matching: find.byWidgetPredicate(
+              (widget) => widget is IgnorePointer && widget.ignoring,
+            ),
+          )
+          .evaluate(),
+    ).isEmpty();
+  });
+
   testWidgets("a page's search sends what is typed once typing pauses, and "
       'keeps it when the page is described again', (tester) async {
     final controller = _RecordingController();
