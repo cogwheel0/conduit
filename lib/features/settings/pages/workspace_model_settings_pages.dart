@@ -750,11 +750,26 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       identical(_editors[editor.key], editor) &&
       (editor.session?.isCurrent(_ref) ?? false);
 
+  /// Drops the editor [key] names when it was opened for an account since
+  /// gone, unseen, with its access draft; returns whether it did.
+  bool _dropStale(String? key) {
+    final editor = key == null ? null : _editors[key];
+    if (key == null || editor == null || _current(editor)) return false;
+    _editors.remove(key);
+    _access.forget(key);
+    return true;
+  }
+
   @override
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
     _l10n = l10n;
     if (_access.ownsPage(detailId)) {
       final key = _access.editorKeyOf(detailId);
+      // A page of another account's editor: closed, never drawn for this one.
+      if (_dropStale(key)) {
+        await _surface.closeDetail(detailId);
+        return;
+      }
       final editor = key == null ? null : _editors[key];
       final state = editor?.state;
       if (editor != null && state != null) {
@@ -772,9 +787,15 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       return;
     }
     if (detailId.startsWith(workspaceModelAdvancedPagePrefix)) {
-      final editor =
-          _editors[detailId.substring(workspaceModelAdvancedPagePrefix.length)];
-      if (editor != null) await _applyAdvanced(l10n, editor);
+      final key = detailId.substring(workspaceModelAdvancedPagePrefix.length);
+      // A page of an editor gone, or of another account's: closed, never
+      // drawn for this one.
+      final editor = _dropStale(key) ? null : _editors[key];
+      if (editor == null) {
+        await _surface.closeDetail(detailId);
+        return;
+      }
+      await _applyAdvanced(l10n, editor);
       return;
     }
     if (detailId.startsWith(workspaceModelRelationshipPagePrefix)) {
@@ -786,8 +807,13 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       final kind = WorkspaceModelRelationshipKind.values
           .where((value) => value.name == rest.substring(0, colon))
           .firstOrNull;
-      final editor = _editors[rest.substring(colon + 1)];
-      if (kind == null || editor == null) return;
+      if (kind == null) return;
+      final key = rest.substring(colon + 1);
+      final editor = _dropStale(key) ? null : _editors[key];
+      if (editor == null) {
+        await _surface.closeDetail(detailId);
+        return;
+      }
       await _applyRelationship(l10n, editor, kind);
       unawaited(_loadOptions(editor, kind));
       return;
@@ -801,10 +827,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     }
     // Another account's editor, kept from before it signed in: dropped
     // unseen, with its access draft, and this account's model read afresh.
-    if (open != null) {
-      _editors.remove(key);
-      _access.forget(key);
-    }
+    _dropStale(key);
     final editor = _editors[key] = WorkspaceModelEditor(key, _session());
     unawaited(_loadBaseModels());
     if (editor.isCreate) {
@@ -1008,12 +1031,12 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
             ),
         ];
       case WorkspaceModelRelationshipKind.tools:
-        final listening = _ref.listen(workspaceToolsProvider, (_, _) {});
-        final state = await _ref
-            .read(workspaceToolsProvider.future)
-            .whenComplete(listening.close);
+        // Read without the search the Workspace Tools list may be filtered
+        // by: any tool may be chosen.
+        final tools = await WorkspaceSessionIdentity.read(_ref).api
+            .getWorkspaceTools();
         return [
-          for (final tool in state.items)
+          for (final tool in tools)
             WorkspaceRelationshipOption(id: tool.id, label: tool.name),
         ];
       case WorkspaceModelRelationshipKind.skills:

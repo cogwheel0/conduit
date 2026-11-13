@@ -887,7 +887,9 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     final account = _account();
     await _applyList(l10n, section);
     if (_account() != account) {
+      // The row was drawn busy; draw it ready again.
       _running.remove(section);
+      if (_listsShown.contains(section)) await _applyList(l10n, section);
       return;
     }
     try {

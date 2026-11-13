@@ -334,8 +334,8 @@ final class _Knowledge extends WorkspaceKnowledge {
   }
 }
 
-/// The server's knowledge bases and skills, a page at a time, whatever the
-/// Workspace list is browsing with.
+/// The server's knowledge bases and skills, a page at a time, and its tools,
+/// whatever the Workspace list is browsing with.
 final class _PagedApi extends ApiService {
   _PagedApi()
     : super(
@@ -345,6 +345,12 @@ final class _PagedApi extends ApiService {
       );
 
   final knowledgeQueries = <String?>[];
+
+  @override
+  Future<List<WorkspaceToolSummary>> getWorkspaceTools() async => const [
+    WorkspaceToolSummary(id: 'tool-1', name: 'Star Chart', userId: 'u'),
+    WorkspaceToolSummary(id: 'tool-2', name: 'Moon Dial', userId: 'u'),
+  ];
 
   @override
   Future<WorkspacePagedResponse<WorkspaceKnowledgeSummary>>
@@ -860,6 +866,42 @@ void main() {
           .equals(_l10n.workspaceImportInvalidJson);
     });
 
+    testWidgets('an export stops once another account signed in while its '
+        'row was drawn busy, and leaves the row ready', (tester) async {
+      final rig = await pump(tester, models: _Models([_writableModel()]));
+      await rig.open(modelsPage);
+      final gate = rig.surface.gate = Completer<void>();
+
+      final exporting = rig.module<WorkspaceSettingsPages>().handleChange(
+        workspaceRowId('list-export', 'models'),
+        true,
+        _l10n,
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await tester.pump(const Duration(milliseconds: 20));
+      rig.surface.gate = null;
+      gate.complete();
+      await rig.settle(exporting);
+
+      check(rig.export.shared).isEmpty();
+      final export = rig.row(
+        modelsPage,
+        workspaceRowId('list-export', 'models'),
+      );
+      check(export!.pending).not((it) => it.equals(true));
+      check(export.disabled).isFalse();
+    });
+
     testWidgets('exports every model through the share sheet', (tester) async {
       final rig = await pump(tester, models: _Models([_writableModel()]));
       await rig.open(modelsPage);
@@ -1181,7 +1223,57 @@ void main() {
       await rig.open(_model1);
 
       check(rig.row(_model1, _modelRow('name', _model1Key))?.value)
-          .not((it) => it.equals('Private Model'));
+          .equals('Orbit Model');
+    });
+
+    testWidgets("an editor's own pages kept from another account are closed, "
+        'not drawn for the next', (tester) async {
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      final advanced = '$workspaceModelAdvancedPagePrefix$_model1Key';
+      final access = workspaceAccessPageId(WorkspaceSection.models, _model1Key);
+      final knowledge = workspaceModelRelationshipPageId(
+        WorkspaceModelRelationshipKind.knowledge,
+        _model1Key,
+      );
+      final vision = _modelRow('capability', _model1Key, 'vision');
+      final everyone = workspaceRowId(
+        'access-general',
+        '${WorkspaceSection.models.name}|$_model1Key',
+      );
+      final starAtlas = _modelRow('relationship', _model1Key, 'knowledge|kb-1');
+      await rig.open(_model1);
+      await rig.open(advanced);
+      await rig.change(vision, true);
+      await rig.open(access);
+      await rig.open(knowledge);
+      check(rig.row(advanced, vision)).isNotNull();
+      check(rig.row(access, everyone)).isNotNull();
+      check(rig.row(knowledge, starAtlas)).isNotNull();
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      // Settings forgets what it drew once another account signs in, and
+      // the pages still on screen ask for themselves again.
+      rig.container.read(settingsPagesProvider.notifier).clear();
+      await rig.open(knowledge);
+      await rig.open(access);
+      await rig.open(advanced);
+
+      check(rig.row(knowledge, starAtlas)).isNull();
+      check(rig.row(access, everyone)).isNull();
+      check(rig.row(advanced, vision)).isNull();
+      check(rig.closed).deepEquals([knowledge, access, advanced]);
     });
 
     testWidgets('knowledge past the first page can be chosen', (tester) async {
@@ -1225,6 +1317,30 @@ void main() {
       final asked = queries.skip(before).toList();
       check(asked).isNotEmpty();
       check(asked).every((it) => it.isNull());
+    });
+
+    testWidgets("a search on the Workspace Tools list leaves the editor's "
+        'tools whole', (tester) async {
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      await rig.container
+          .read(workspaceToolsProvider.notifier)
+          .setQuery('star');
+      check(rig.container.read(workspaceToolsProvider).requireValue.items)
+          .length
+          .equals(1);
+      await rig.open(_model1);
+      final page = workspaceModelRelationshipPageId(
+        WorkspaceModelRelationshipKind.tools,
+        _model1Key,
+      );
+      await rig.open(page);
+
+      check(
+        rig.row(page, _modelRow('relationship', _model1Key, 'tools|tool-2')),
+      ).isNotNull();
     });
 
     testWidgets('a capability switched on Advanced marks the editor edited', (
