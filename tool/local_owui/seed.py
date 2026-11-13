@@ -39,6 +39,7 @@ import urllib.request
 import uuid
 
 MODEL = 'fake-model'
+SECOND_MODEL = 'fake-model-b'
 REFUSED_MODEL = 'fake-refused'
 ADMIN = {'name': 'Avery Tester', 'email': 'avery@example.test'}
 SECOND = {'name': 'Riley Example', 'email': 'riley@example.test'}
@@ -339,15 +340,19 @@ def main():
 
     # Open WebUI lists base models from saved model records, which a fresh
     # server has none of. Public, as the model already is.
-    server.ok('POST', '/api/v1/models/create', {
-        'id': MODEL,
-        'name': MODEL,
-        'base_model_id': None,
-        'meta': {'description': 'The local fake model.'},
-        'params': {},
-        'access_grants': [{'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}],
-    }, token)
-    print('base model', MODEL)
+    for model_id, description in (
+        (MODEL, 'The local fake model.'),
+        (SECOND_MODEL, 'A second local fake model, for comparing answers.'),
+    ):
+        server.ok('POST', '/api/v1/models/create', {
+            'id': model_id,
+            'name': model_id,
+            'base_model_id': None,
+            'meta': {'description': description},
+            'params': {},
+            'access_grants': [{'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}],
+        }, token)
+        print('base model', model_id)
 
     prompts = [
         {'command': 'orbit', 'name': 'Orbit facts',
@@ -419,6 +424,7 @@ def main():
         f"OWUI_EMAIL={ADMIN['email']}",
         f'OWUI_PASSWORD={admin_password}',
         f'OWUI_MODEL={MODEL}',
+        f'OWUI_SECOND_MODEL={SECOND_MODEL}',
         f'OWUI_REFUSED_MODEL={REFUSED_MODEL}',
         f"OWUI_SECOND_EMAIL={SECOND['email']}",
         f"OWUI_SECOND_NAME={SECOND['name']}",

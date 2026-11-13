@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart'
+    show chatHandoffCoordinatorProvider;
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider;
@@ -41,6 +43,7 @@ import 'bootstrap.dart';
 import 'daemon_paths.dart';
 import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
+import 'ports/handoff.dart';
 import 'ports/connectivity.dart';
 import 'ports/database_opener.dart';
 import 'ports/key_value_store.dart';
@@ -69,6 +72,7 @@ final class CoreRuntime {
     required DaemonConnectivity connectivity,
     required this.openUrl,
     required this.uiRequests,
+    required this.handoff,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -84,6 +88,10 @@ final class CoreRuntime {
   /// How the core asks the user something mid-turn; the server attaches its
   /// broker once there is one.
   final DaemonUiRequestPort uiRequests;
+
+  /// How a server's `chat:handoff` is put to the user; the server attaches
+  /// its handoff service once there is one.
+  final DaemonHandoffPort handoff;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -223,6 +231,7 @@ final class CoreRuntime {
     connectivity.start();
     final openUrl = DaemonOpenUrlPort();
     final uiRequests = DaemonUiRequestPort();
+    final handoff = DaemonHandoffPort();
 
     final container = ProviderContainer(
       observers: observers,
@@ -235,6 +244,9 @@ final class CoreRuntime {
         connectivityPortProvider.overrideWithValue(connectivity),
         openExternalUrlProvider.overrideWithValue(openUrl),
         uiRequestPortProvider.overrideWithValue(uiRequests),
+        // A server's `chat:handoff` is asked of the windows, which open the
+        // new chat themselves; a phone's coordinator asks its screen.
+        chatHandoffCoordinatorProvider.overrideWith(handoff.coordinator),
         // The outbox runs a queued Open WebUI completion through the chat
         // library, as on mobile: live into the chat scope that has the chat
         // open, headless otherwise. The core leaves this seam to its host
@@ -324,6 +336,7 @@ final class CoreRuntime {
       connectivity: connectivity,
       openUrl: openUrl,
       uiRequests: uiRequests,
+      handoff: handoff,
       boxes: boxes.all,
     );
   }

@@ -25,6 +25,7 @@ import 'valves_service.dart';
 import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
+import 'handoff_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
 import 'core_settings_service.dart';
@@ -68,6 +69,7 @@ final class CoreServices {
     this.valves,
     this.access,
     this.folderSettings,
+    this.handoff,
   });
 
   final AccountsService? accounts;
@@ -100,6 +102,9 @@ final class CoreServices {
   final ValvesService? valves;
   final AccessService? access;
   final FolderSettingsService? folderSettings;
+
+  /// A server's `chat:handoff`, put to the windows.
+  final HandoffService? handoff;
 }
 
 /// One connected renderer window.
@@ -176,6 +181,7 @@ class RpcSession {
   ValvesService? get _valves => _services().valves;
   AccessService? get _access => _services().access;
   FolderSettingsService? get _folderSettings => _services().folderSettings;
+  HandoffService? get _handoff => _services().handoff;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -189,6 +195,7 @@ class RpcSession {
     // still waiting take their conservative default now rather than hang
     // the turn that asked them.
     _uiRequests?.onWindowsChanged();
+    _handoff?.onWindowsChanged();
     await _peer.close();
   }
 
@@ -278,6 +285,9 @@ class RpcSession {
       // only be answered by one that no longer does.
       for (final request in _uiRequests?.pending ?? const <UiRequest>[]) {
         _events.emitTo(sessionId, ConduitEventSpecs.uiRequest, request);
+      }
+      for (final request in _handoff?.pending ?? const <HandoffRequest>[]) {
+        _events.emitTo(sessionId, ConduitEventSpecs.handoffRequested, request);
       }
       // And a chat already answering, or one whose answer finished before
       // the window could listen: see [TurnsService.catchUp].
@@ -519,7 +529,30 @@ class RpcSession {
       ConduitMethodSpecs.chatsSetArchivedVisible,
       (r) => _requireChats().setArchivedVisible(visible: r.visible),
     );
-    _on(ConduitMethodSpecs.chatsShare, (ref) => _requireChats().share(ref.id));
+    _on(ConduitMethodSpecs.chatsShare, (r) => _requireChats().share(r));
+    _on(ConduitMethodSpecs.chatsFork, (r) => _requireChats().fork(r));
+    _on(ConduitMethodSpecs.chatsExport, (r) => _requireChats().export(r));
+    _on(
+      ConduitMethodSpecs.chatsGenerateTitle,
+      (r) => _requireChats().generateTitle(r.id),
+    );
+    _on(
+      ConduitMethodSpecs.chatsMarkUnread,
+      (r) => _requireChats().markUnread(r),
+    );
+    _on(
+      ConduitMethodSpecs.chatsSaveTemporary,
+      (r) => _requireTurns().saveTemporary(r.id),
+    );
+    // The count from the chat's scope, then the chat as it is afterwards.
+    _on(ConduitMethodSpecs.messagesDelete, (r) async {
+      final count = await _requireTurns().deleteMessages(r);
+      if (r.dryRun) return MessagesDeleted(count: count);
+      return MessagesDeleted(
+        count: count,
+        chat: await _requireChats().get(r.chatId),
+      );
+    });
     _on(
       ConduitMethodSpecs.chatsUnshare,
       (ref) => _requireChats().unshare(ref.id),
@@ -588,6 +621,12 @@ class RpcSession {
       return const StoppedResult(stopped: true);
     });
     _on(ConduitMethodSpecs.turnsSteer, (r) => _requireTurns().steer(r));
+    _on(ConduitMethodSpecs.turnsMerge, (r) => _requireTurns().merge(r));
+    _on(ConduitMethodSpecs.handoffAnswer, (r) async {
+      final handoff = _handoff;
+      if (handoff == null) return const HandoffAnswered(open: false);
+      return handoff.answer(r);
+    });
 
     // queue.*: messages queued behind a running answer.
     _on(ConduitMethodSpecs.queueGet, (r) => _requireTurns().queueGet(r.id));

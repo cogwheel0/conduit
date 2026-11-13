@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduitd/conduitd.dart';
@@ -97,6 +98,70 @@ void main() {
         ('chat-1', 'folder-1', true),
         ('chat-2', 'folder-1', false),
       ]);
+    });
+  });
+
+  group('unread', () {
+    test('a chat never read shows as unread, but not while it answers', () {
+      expect(chatSummaryOf(chat(), currentUserId: 'user-a').unread, isTrue);
+      expect(
+        chatSummaryOf(chat(), currentUserId: 'user-a', generating: true).unread,
+        isFalse,
+      );
+    });
+
+    test('a chat read since it last changed does not', () {
+      final read = chat().copyWith(lastReadAt: DateTime.utc(2026, 11, 3));
+      expect(chatSummaryOf(read, currentUserId: 'user-a').unread, isFalse);
+    });
+  });
+
+  group('siblingIdsOf', () {
+    ChatMessage message(
+      String id, {
+      List<String> versions = const <String>[],
+      Map<String, dynamic>? metadata,
+    }) => ChatMessage(
+      id: id,
+      role: 'assistant',
+      content: id,
+      timestamp: DateTime.utc(2026, 11, 2),
+      metadata: metadata,
+      versions: <ChatMessageVersion>[
+        for (final version in versions)
+          ChatMessageVersion(
+            id: version,
+            content: version,
+            timestamp: DateTime.utc(2026, 11, 2),
+          ),
+      ],
+    );
+
+    test('none without versions', () {
+      expect(siblingIdsOf(message('a2'), null), isEmpty);
+    });
+
+    test("in the parent's order, wherever the shown one stands", () {
+      final parent = ChatMessage(
+        id: 'q1',
+        role: 'user',
+        content: 'Which liner?',
+        timestamp: DateTime.utc(2026, 11, 2),
+        metadata: <String, dynamic>{
+          'childrenIds': <String>['a1', 'a2', 'a3'],
+        },
+      );
+      expect(
+        siblingIdsOf(message('a2', versions: <String>['a1', 'a3']), parent),
+        <String>['a1', 'a2', 'a3'],
+      );
+    });
+
+    test('versions then the shown one when the parent does not say', () {
+      expect(
+        siblingIdsOf(message('a2', versions: <String>['a1']), null),
+        <String>['a1', 'a2'],
+      );
     });
   });
 }

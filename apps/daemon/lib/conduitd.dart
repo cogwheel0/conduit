@@ -27,6 +27,8 @@ export 'src/direct_service.dart';
 export 'src/event_bus.dart';
 export 'src/files_service.dart';
 export 'src/folder_settings_service.dart';
+export 'src/handoff_service.dart';
+export 'src/ports/handoff.dart';
 export 'src/diagnostics.dart';
 export 'src/drafts_service.dart';
 export 'src/composer_wire.dart';

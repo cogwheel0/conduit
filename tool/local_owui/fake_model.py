@@ -4,7 +4,7 @@ Usage: python3 -I fake_model.py --port 8151 [--log requests.jsonl]
 
 Open WebUI reaches it as an OpenAI connection; the desktop app's direct
 mode can use it straight (http://127.0.0.1:<port>/v1, any API key). It
-offers two models:
+offers three models:
 
 - "fake-model" answers from the last *user* message (Open WebUI puts
   hidden tool results after it), case-insensitive, first match wins:
@@ -20,7 +20,14 @@ offers two models:
   - "math": inline and display math;
   - "long": about 32,000 characters, streamed in small chunks;
   - "slow": one word every 200 ms for a minute (to stop it);
+  - "effort", sent with a `reasoning_effort`: HTTP 400 naming the
+    parameter, as a provider that does not take it answers;
+  - Open WebUI's Merge Responses prompt ("synthesize these responses"):
+    one merged sentence;
   - anything else: a short greeting.
+  A streamed answer ends with a usage chunk (tokens and timings).
+- "fake-model-b" answers as "fake-model" does, each answer starting "B: ",
+  so Compare Models and Regenerate With have a second model.
 - "fake-refused" refuses every request with HTTP 400, as a provider does
   for a model the account may not use.
 
@@ -47,6 +54,10 @@ MODEL = 'fake-model'
 # Request keys the log keeps: what a chat's settings may send.
 LOGGED_PARAMS = ('temperature', 'top_p', 'top_k', 'min_p', 'max_tokens', 'seed', 'stop',
                  'frequency_penalty', 'presence_penalty', 'reasoning_effort', 'format')
+SECOND_MODEL = 'fake-model-b'
+MERGE_PROMPT = re.compile(r'synthesize these responses', re.IGNORECASE)
+MERGED = 'A merged answer from the fake model: both responses agree, in fewer words.'
+EFFORT_REFUSAL = 'Unsupported parameter: reasoning_effort is not supported with this model.'
 REFUSED_MODEL = 'fake-refused'
 REFUSAL = 'fake-refused is not available on this plan (a synthetic refusal).'
 
@@ -218,6 +229,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip('/').endswith('/models'):
             self._json(200, {'object': 'list', 'data': [
                 {'id': MODEL, 'object': 'model', 'owned_by': 'fake'},
+                {'id': SECOND_MODEL, 'object': 'model', 'owned_by': 'fake'},
                 {'id': REFUSED_MODEL, 'object': 'model', 'owned_by': 'fake'},
             ]})
         else:
@@ -312,6 +324,11 @@ class Handler(BaseHTTPRequestHandler):
         word = WORD.search(user_text)
         if task is not None:
             text = task
+        elif MERGE_PROMPT.search(user_text):
+            text = MERGED
+        elif 'effort' in lower and body.get('reasoning_effort') is not None:
+            self._error(400, EFFORT_REFUSAL)
+            return
         elif notes:
             items = [i.strip() for i in re.split(r'[;\n]', notes.group(1)) if i.strip()]
             text = '# Notes\n\n' + '\n'.join(f'- [ ] {i}' for i in items)
@@ -348,6 +365,10 @@ class Handler(BaseHTTPRequestHandler):
             text = ''
         else:
             reasoning, text = answer_for(user_text)
+        # The second model's answers say whose they are (not its background
+        # task answers, which Open WebUI reads as JSON).
+        if model.endswith(SECOND_MODEL) and text and task is None:
+            text = 'B: ' + text
 
         if not stream:
             message = {'role': 'assistant', 'content': text or None}
@@ -393,6 +414,16 @@ class Handler(BaseHTTPRequestHandler):
                         send(chunk(model, {'content': piece + (' ' if i < len(pieces) - 1 else '')}))
                         time.sleep(0.2 if slow else 0.03)
                 send(chunk(model, {}, 'stop'))
+            # As OpenAI's `include_usage` sends it: no choices, the counts,
+            # and Groq-style timings for the rates.
+            words = max(1, len(text.split()))
+            send({
+                'id': 'chatcmpl-fake', 'object': 'chat.completion.chunk', 'created': int(time.time()),
+                'model': model, 'choices': [],
+                'usage': {'prompt_tokens': 12, 'completion_tokens': words, 'total_tokens': 12 + words,
+                          'prompt_time': 0.02, 'completion_time': round(words * 0.03, 3),
+                          'total_time': round(0.02 + words * 0.03, 3)},
+            })
             self.wfile.write(b'data: [DONE]\n\n')
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
