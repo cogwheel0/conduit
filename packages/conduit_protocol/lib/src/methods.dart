@@ -830,6 +830,23 @@ abstract final class ConduitMethods {
   /// Creates the draft's task, or replaces the task with it.
   static const String automationsSave = 'automations.save';
 
+  static const String applePrefix = 'apple.';
+
+  // apple.* -- Apple's Foundation Models as a Direct backend. The chat runs
+  // here (the core's Direct engine and Apple adapter); the window runs the
+  // model, which is a Swift API.
+
+  /// Apple Intelligence on this Mac, as Settings shows it.
+  static const String appleStatus = 'apple.status';
+
+  /// Asks the Mac again (Settings' Refresh); a model that became able to
+  /// answer is listed in the model picker.
+  static const String appleRefresh = 'apple.refresh';
+
+  /// The window's engine answers an `apple.command`, or says what a run
+  /// did.
+  static const String appleReport = 'apple.report';
+
   // notes.* -- listed with the prefixes because they are few.
 
   /// Every note, or those matching a query; pinned first.
@@ -1412,6 +1429,7 @@ abstract final class ConduitMethods {
     speechPrefix,
     calendarPrefix,
     automationsPrefix,
+    applePrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

@@ -3652,6 +3652,96 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     index: 1,
     positionMs: 800,
   ),
+  'appleEngineStatus': const AppleEngineStatus(
+    availability: AppleAvailability.available,
+    contextSize: 4096,
+    supportsCurrentLocale: true,
+  ),
+  'appleModelStatus': const AppleModelStatus(
+    model: AppleModelKind.onDevice,
+    availability: AppleAvailability.unavailable,
+    reason: AppleUnavailableReason.modelNotReady,
+    supportsCurrentLocale: true,
+  ),
+  'appleModels': const AppleModels(
+    models: <AppleModelStatus>[
+      AppleModelStatus(
+        model: AppleModelKind.onDevice,
+        availability: AppleAvailability.available,
+        contextSize: 4096,
+        supportsCurrentLocale: true,
+      ),
+    ],
+  ),
+  'appleMessage': const AppleMessage(
+    role: 'user',
+    content: 'Name three hardy herbs for a windowsill.',
+  ),
+  'appleToolDefinition': const AppleToolDefinition(
+    name: 'garden_lookup',
+    description: 'Looks up a plant in the garden notebook.',
+    inputSchemaJson: '{}',
+  ),
+  'appleGeneration': const AppleGeneration(
+    runId: 'run-5c1e',
+    model: AppleModelKind.onDevice,
+    messages: <AppleMessage>[
+      AppleMessage(role: 'system', content: 'Answer briefly.'),
+      AppleMessage(
+        role: 'user',
+        content: 'Name three hardy herbs for a windowsill.',
+      ),
+    ],
+    temperature: 0.4,
+    maximumResponseTokens: 512,
+  ),
+  'appleCommandStart': const AppleCommand(
+    id: 3,
+    kind: AppleCommandKind.start,
+    request: AppleGeneration(
+      runId: 'run-5c1e',
+      model: AppleModelKind.onDevice,
+      messages: <AppleMessage>[
+        AppleMessage(role: 'user', content: 'Is thyme hardy?'),
+      ],
+    ),
+  ),
+  'appleCommandToolResult': const AppleCommand(
+    id: 4,
+    kind: AppleCommandKind.toolResult,
+    runId: 'run-5c1e',
+    callId: 'call-1',
+    toolContent: 'Thyme survives frost.',
+  ),
+  'appleReportStatus': const AppleReport(
+    id: 2,
+    status: AppleEngineStatus(
+      availability: AppleAvailability.unavailable,
+      reason: AppleUnavailableReason.appleIntelligenceNotEnabled,
+    ),
+  ),
+  'appleReportReady': const AppleReport(
+    kind: AppleReportKind.ready,
+    supported: true,
+    runs: <String>['run-5c1e'],
+  ),
+  'appleReportContent': const AppleReport(
+    kind: AppleReportKind.content,
+    runId: 'run-5c1e',
+    content: 'Thyme, rosemary and sage.',
+  ),
+  'appleReportFailed': const AppleReport(
+    kind: AppleReportKind.failed,
+    runId: 'run-5c1e',
+    failure: AppleFailure.contextExceeded,
+  ),
+  'appleReportToolCall': const AppleReport(
+    kind: AppleReportKind.toolCall,
+    runId: 'run-5c1e',
+    callId: 'call-1',
+    toolName: 'garden_lookup',
+    argumentsJson: '{}',
+  ),
   'hermesWorkWatch': const HermesWorkWatch(
     chatId: 'local:hermes_s-4f2a',
     subagentId: 'sa-2',
@@ -4880,6 +4970,19 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'speechReportAnswer': SpeechReport.fromJson,
       'speechReportWord': SpeechReport.fromJson,
       'speechReportPlayer': SpeechReport.fromJson,
+      'appleEngineStatus': AppleEngineStatus.fromJson,
+      'appleModelStatus': AppleModelStatus.fromJson,
+      'appleModels': AppleModels.fromJson,
+      'appleMessage': AppleMessage.fromJson,
+      'appleToolDefinition': AppleToolDefinition.fromJson,
+      'appleGeneration': AppleGeneration.fromJson,
+      'appleCommandStart': AppleCommand.fromJson,
+      'appleCommandToolResult': AppleCommand.fromJson,
+      'appleReportStatus': AppleReport.fromJson,
+      'appleReportReady': AppleReport.fromJson,
+      'appleReportContent': AppleReport.fromJson,
+      'appleReportFailed': AppleReport.fromJson,
+      'appleReportToolCall': AppleReport.fromJson,
       'hermesWorkWatch': HermesWorkWatch.fromJson,
       'hermesWork': HermesWork.fromJson,
       'hermesWorkEmpty': HermesWork.fromJson,

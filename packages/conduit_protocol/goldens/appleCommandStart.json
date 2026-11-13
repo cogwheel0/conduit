@@ -1,0 +1,16 @@
+{
+  "id": 3,
+  "kind": "start",
+  "request": {
+    "runId": "run-5c1e",
+    "model": "onDevice",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Is thyme hardy?"
+      }
+    ],
+    "tools": []
+  },
+  "toolCancelled": false
+}

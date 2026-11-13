@@ -1,0 +1,9 @@
+{
+  "id": 2,
+  "ok": true,
+  "runs": [],
+  "status": {
+    "availability": "unavailable",
+    "reason": "appleIntelligenceNotEnabled"
+  }
+}

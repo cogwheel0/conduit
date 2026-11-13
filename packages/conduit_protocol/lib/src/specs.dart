@@ -41,6 +41,7 @@ import 'terminal.dart';
 import 'turns.dart';
 import 'valves.dart';
 import 'speech.dart';
+import 'apple.dart';
 import 'calls.dart';
 import 'voice.dart';
 import 'web_search.dart';
@@ -1130,6 +1131,22 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.callsSkip,
     result: CallState.fromJson,
   );
+  // apple.*
+
+  static const appleStatus = ConduitMethodSpec<void, AppleModels>(
+    ConduitMethods.appleStatus,
+    result: AppleModels.fromJson,
+  );
+  static const appleRefresh = ConduitMethodSpec<void, AppleModels>(
+    ConduitMethods.appleRefresh,
+    result: AppleModels.fromJson,
+  );
+  static const appleReport = ConduitMethodSpec<AppleReport, OkResult>(
+    ConduitMethods.appleReport,
+    params: AppleReport.fromJson,
+    result: OkResult.fromJson,
+  );
+
   static const callsReport = ConduitMethodSpec<CallReport, OkResult>(
     ConduitMethods.callsReport,
     params: CallReport.fromJson,
@@ -2431,6 +2448,9 @@ abstract final class ConduitMethodSpecs {
         automationsEditor,
         automationsCheckDraft,
         automationsSave,
+        appleStatus,
+        appleRefresh,
+        appleReport,
         notesList,
         notesGet,
         notesSave,
@@ -2810,6 +2830,11 @@ abstract final class ConduitEventSpecs {
     payload: CallState.fromJson,
     scoped: false,
   );
+  static const appleCommand = ConduitEventSpec<AppleCommand>(
+    ConduitEvents.appleCommand,
+    payload: AppleCommand.fromJson,
+    scoped: false,
+  );
   static const callsCommand = ConduitEventSpec<CallCommand>(
     ConduitEvents.callsCommand,
     payload: CallCommand.fromJson,
@@ -2895,6 +2920,7 @@ abstract final class ConduitEventSpecs {
         automationsRunProgress,
         hermesRoomsChanged,
         hermesRoomsListChanged,
+        appleCommand,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

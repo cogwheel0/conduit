@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.64.0";
+pub const PROTOCOL_VERSION: &str = "1.65.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -435,6 +435,396 @@ pub struct AccountChangeResult {
 pub struct AccountsChanged {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_account_id: Option<String>,
+}
+
+/// Apple's Foundation Models: the one on this Mac (`onDevice`), or the one
+/// on Apple's servers (`privateCloudCompute`), which a build without its
+/// entitlement never offers (FoundationModels traps on its first request).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AppleModelKind {
+    #[serde(rename = "onDevice")]
+    OnDevice,
+    #[serde(rename = "privateCloudCompute")]
+    PrivateCloudCompute,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Whether a model can answer: the phone's `PlatformPccAvailability`.
+/// `unsupported` means never on this Mac as it is (its macOS is too old, or
+/// the model is not offered in this build); `unavailable`, not now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AppleAvailability {
+    #[serde(rename = "available")]
+    Available,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "unsupported")]
+    Unsupported,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Why a model cannot answer, for the window to say in its own words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AppleUnavailableReason {
+    /// This Mac runs a macOS older than 26.
+    #[serde(rename = "systemTooOld")]
+    SystemTooOld,
+    /// This Mac cannot run Apple Intelligence.
+    #[serde(rename = "deviceNotEligible")]
+    DeviceNotEligible,
+    /// Apple Intelligence is off in System Settings.
+    #[serde(rename = "appleIntelligenceNotEnabled")]
+    AppleIntelligenceNotEnabled,
+    /// The model is still downloading, or not ready yet.
+    #[serde(rename = "modelNotReady")]
+    ModelNotReady,
+    /// No window's engine answered (the app is starting or closing).
+    #[serde(rename = "noEngine")]
+    NoEngine,
+    /// Not offered in this build (Private Cloud Compute without its
+    /// entitlement).
+    #[serde(rename = "notOffered")]
+    NotOffered,
+    /// Apple gave a reason this version does not know.
+    #[serde(rename = "other")]
+    Other,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// What an engine says of one model: what a `status` command's answer
+/// carries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleEngineStatus {
+    #[serde(default = "default_apple_engine_status_availability")]
+    pub availability: AppleAvailability,
+    /// Why it cannot answer, when `availability` is not `available`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<AppleUnavailableReason>,
+    /// The context window the model reported, in tokens; none when it
+    /// reported none (or 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_size: Option<i64>,
+    /// False when Apple says the Mac's language may not be supported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_current_locale: Option<bool>,
+}
+
+impl Default for AppleEngineStatus {
+    fn default() -> Self {
+        Self {
+            availability: default_apple_engine_status_availability(),
+            reason: None,
+            context_size: None,
+            supports_current_locale: None,
+        }
+    }
+}
+
+fn default_apple_engine_status_availability() -> AppleAvailability {
+    AppleAvailability::Unsupported
+}
+
+/// One of Apple's models as Settings › Direct Connections shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleModelStatus {
+    pub model: AppleModelKind,
+    #[serde(default = "default_apple_model_status_availability")]
+    pub availability: AppleAvailability,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<AppleUnavailableReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_size: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_current_locale: Option<bool>,
+}
+
+fn default_apple_model_status_availability() -> AppleAvailability {
+    AppleAvailability::Unsupported
+}
+
+/// Apple Intelligence on this Mac: what `apple.status` and `apple.refresh`
+/// answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleModels {
+    /// The models this Mac may offer, in the phone's order: Apple On-Device
+    /// only while the build lacks Private Cloud Compute's entitlement.
+    #[serde(default)]
+    pub models: Vec<AppleModelStatus>,
+}
+
+/// One message of the conversation a run sends: `system`, `user` or
+/// `assistant`, the last one the user's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleMessage {
+    pub role: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+/// A tool the model may call during a run (a Direct MCP server's).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleToolDefinition {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// Its arguments' JSON Schema, as JSON text.
+    #[serde(default = "default_apple_tool_definition_input_schema_json")]
+    pub input_schema_json: String,
+}
+
+fn default_apple_tool_definition_input_schema_json() -> String {
+    "{}".to_owned()
+}
+
+/// A run for Apple's model: the conversation, its tools and the options the
+/// core's adapter checked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleGeneration {
+    pub run_id: String,
+    pub model: AppleModelKind,
+    #[serde(default)]
+    pub messages: Vec<AppleMessage>,
+    #[serde(default)]
+    pub tools: Vec<AppleToolDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum_response_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub greedy_sampling: Option<bool>,
+    /// A JSON Schema the answer must follow, with its name; both or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_schema_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_schema_json: Option<String>,
+}
+
+/// What `apple.command` asks the window's Foundation Models engine to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AppleCommandKind {
+    /// Whether `AppleCommand.model` can answer: answered with
+    /// `AppleReport.status`.
+    #[serde(rename = "status")]
+    Status,
+    /// Start `AppleCommand.request`. The answer only says it started; its
+    /// text, usage and end come as reports naming its run.
+    #[serde(rename = "start")]
+    Start,
+    /// Stop run `AppleCommand.runId`; it reports `done`.
+    #[serde(rename = "cancel")]
+    Cancel,
+    /// The answer to tool call `AppleCommand.callId` of run
+    /// `AppleCommand.runId`: `AppleCommand.toolContent`, or
+    /// `AppleCommand.toolCancelled`, which ends the run's tools.
+    #[serde(rename = "toolResult")]
+    ToolResult,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Payload of `apple.command`: the daemon runs the chat (the core's Direct
+/// engine and Apple adapter), the window runs Apple's model. Answered with
+/// `apple.report` naming `id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleCommand {
+    pub id: i64,
+    pub kind: AppleCommandKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<AppleModelKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<AppleGeneration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_content: Option<String>,
+    #[serde(default)]
+    pub tool_cancelled: bool,
+}
+
+/// What an `AppleReport` tells, besides answering a command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AppleReportKind {
+    /// The window's engine is here (sent each time the window connects):
+    /// `AppleReport.supported` says whether this Mac's macOS has Apple's
+    /// models, and `AppleReport.runs` which runs it still has.
+    #[serde(rename = "ready")]
+    Ready,
+    /// Run `AppleReport.runId` wrote `AppleReport.content`.
+    #[serde(rename = "content")]
+    Content,
+    /// Run `AppleReport.runId`'s token counts.
+    #[serde(rename = "usage")]
+    Usage,
+    /// Run `AppleReport.runId` failed: `AppleReport.failure` says how.
+    #[serde(rename = "failed")]
+    Failed,
+    /// Run `AppleReport.runId` ended (cancelled runs too).
+    #[serde(rename = "done")]
+    Done,
+    /// Run `AppleReport.runId`'s model calls tool `AppleReport.toolName`
+    /// with `AppleReport.argumentsJson` as `AppleReport.callId`: answered
+    /// with a `toolResult` command.
+    #[serde(rename = "toolCall")]
+    ToolCall,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// How a run failed: the daemon words it as the phone does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AppleFailure {
+    /// The conversation is longer than the model's context.
+    #[serde(rename = "contextExceeded")]
+    ContextExceeded,
+    /// The model is not ready (its assets are missing).
+    #[serde(rename = "notReady")]
+    NotReady,
+    /// Apple's guardrails blocked the request.
+    #[serde(rename = "guardrail")]
+    Guardrail,
+    /// The model declined the request.
+    #[serde(rename = "refusal")]
+    Refusal,
+    /// The model cannot process this request (a language, guide or
+    /// capability it lacks).
+    #[serde(rename = "unsupported")]
+    Unsupported,
+    /// The model's answer could not be read.
+    #[serde(rename = "decoding")]
+    Decoding,
+    /// Too many requests at once.
+    #[serde(rename = "busy")]
+    Busy,
+    #[serde(rename = "timedOut")]
+    TimedOut,
+    /// The request, its schema or a tool's schema was refused before it ran.
+    #[serde(rename = "invalidRequest")]
+    InvalidRequest,
+    #[serde(rename = "invalidSchema")]
+    InvalidSchema,
+    #[serde(rename = "invalidToolSchema")]
+    InvalidToolSchema,
+    /// The model's stream went back on what it had written.
+    #[serde(rename = "invalidStream")]
+    InvalidStream,
+    /// The model cannot answer now: `AppleReport.reason` says why.
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "failed")]
+    Failed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `apple.report`: a command's answer (`id`) and/or what the
+/// engine did (`kind`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppleReport {
+    /// The command answered, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    /// Whether the command was carried out; `error` says why not, for the
+    /// log.
+    #[serde(default = "default_apple_report_ok")]
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// What happened, when it reports an event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AppleReportKind>,
+    /// `ready`: whether this Mac's macOS has Apple's models (26 or later).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported: Option<bool>,
+    /// `ready`: the runs the engine is still running. A socket that came
+    /// back keeps them; the daemon ends any other it started.
+    #[serde(default)]
+    pub runs: Vec<String>,
+    /// A `status` command's answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<AppleEngineStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<AppleFailure>,
+    /// `failed` with `unavailable`: why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<AppleUnavailableReason>,
+}
+
+impl Default for AppleReport {
+    fn default() -> Self {
+        Self {
+            id: None,
+            ok: default_apple_report_ok(),
+            error: None,
+            kind: None,
+            supported: None,
+            runs: Default::default(),
+            status: None,
+            run_id: None,
+            content: None,
+            input_tokens: None,
+            output_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
+            call_id: None,
+            tool_name: None,
+            arguments_json: None,
+            failure: None,
+            reason: None,
+        }
+    }
+}
+
+fn default_apple_report_ok() -> bool {
+    true
 }
 
 /// Mirrors the core's `AuthStatus` one-for-one.
@@ -15563,6 +15953,44 @@ pub mod methods {
         type Result = super::AutomationDraftState;
     }
 
+    /// Apple Intelligence on this Mac, as Settings shows it.
+    ///
+    /// `apple.status`: no params -> AppleModels.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AppleStatus;
+
+    impl RpcMethod for AppleStatus {
+        const NAME: &'static str = "apple.status";
+        type Params = NoParams;
+        type Result = super::AppleModels;
+    }
+
+    /// Asks the Mac again (Settings' Refresh); a model that became able to
+    /// answer is listed in the model picker.
+    ///
+    /// `apple.refresh`: no params -> AppleModels.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AppleRefresh;
+
+    impl RpcMethod for AppleRefresh {
+        const NAME: &'static str = "apple.refresh";
+        type Params = NoParams;
+        type Result = super::AppleModels;
+    }
+
+    /// The window's engine answers an `apple.command`, or says what a run
+    /// did.
+    ///
+    /// `apple.report`: AppleReport -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AppleReport;
+
+    impl RpcMethod for AppleReport {
+        const NAME: &'static str = "apple.report";
+        type Params = super::AppleReport;
+        type Result = super::OkResult;
+    }
+
     /// Every note, or those matching a query; pinned first.
     ///
     /// `notes.list`: NoteQuery -> NoteList.
@@ -18561,6 +18989,21 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("AutomationDraftState"),
     },
     MethodSpec {
+        name: "apple.status",
+        params: None,
+        result: Some("AppleModels"),
+    },
+    MethodSpec {
+        name: "apple.refresh",
+        params: None,
+        result: Some("AppleModels"),
+    },
+    MethodSpec {
+        name: "apple.report",
+        params: Some("AppleReport"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "notes.list",
         params: Some("NoteQuery"),
         result: Some("NoteList"),
@@ -19524,6 +19967,10 @@ pub mod events {
     /// The Group Chats listed changed: one was made, renamed or disbanded,
     /// or one had news. Payload `HermesRooms`.
     pub const HERMES_ROOMS_LIST_CHANGED: &str = "hermes.rooms.listChanged";
+    /// The daemon asks the window's Foundation Models engine for a model's
+    /// status, to start or stop a run, or answers a tool call. Payload
+    /// `AppleCommand`; answered with `apple.report`.
+    pub const APPLE_COMMAND: &str = "apple.command";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -19753,6 +20200,11 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("HermesRooms"),
         scoped: false,
     },
+    EventSpec {
+        name: "apple.command",
+        payload: Some("AppleCommand"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -19973,6 +20425,12 @@ pub enum Event {
     ///
     /// `hermes.rooms.listChanged`.
     HermesRoomsListChanged(HermesRooms),
+    /// The daemon asks the window's Foundation Models engine for a model's
+    /// status, to start or stop a run, or answers a tool call. Payload
+    /// `AppleCommand`; answered with `apple.report`.
+    ///
+    /// `apple.command`.
+    AppleCommand(AppleCommand),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -20045,6 +20503,7 @@ impl Event {
             events::HERMES_ROOMS_LIST_CHANGED => {
                 Self::HermesRoomsListChanged(serde_json::from_value(payload)?)
             }
+            events::APPLE_COMMAND => Self::AppleCommand(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -20100,6 +20559,7 @@ impl Event {
             Self::AutomationsRunProgress(_) => events::AUTOMATIONS_RUN_PROGRESS,
             Self::HermesRoomsChanged(_) => events::HERMES_ROOMS_CHANGED,
             Self::HermesRoomsListChanged(_) => events::HERMES_ROOMS_LIST_CHANGED,
+            Self::AppleCommand(_) => events::APPLE_COMMAND,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -20145,6 +20605,7 @@ impl Event {
             Self::AutomationsRunProgress(payload) => serde_json::to_value(payload),
             Self::HermesRoomsChanged(payload) => serde_json::to_value(payload),
             Self::HermesRoomsListChanged(payload) => serde_json::to_value(payload),
+            Self::AppleCommand(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -20192,6 +20653,14 @@ pub mod conformance {
         "AppPreferencesPatch",
         "AppSettingsDto",
         "AppSettingsPatch",
+        "AppleCommand",
+        "AppleEngineStatus",
+        "AppleGeneration",
+        "AppleMessage",
+        "AppleModelStatus",
+        "AppleModels",
+        "AppleReport",
+        "AppleToolDefinition",
         "ArchivedVisibility",
         "AttachmentAvailability",
         "AuthSnapshot",
@@ -20798,6 +21267,14 @@ pub mod conformance {
             "AppPreferencesPatch" => roundtrip::<super::AppPreferencesPatch>(json),
             "AppSettingsDto" => roundtrip::<super::AppSettingsDto>(json),
             "AppSettingsPatch" => roundtrip::<super::AppSettingsPatch>(json),
+            "AppleCommand" => roundtrip::<super::AppleCommand>(json),
+            "AppleEngineStatus" => roundtrip::<super::AppleEngineStatus>(json),
+            "AppleGeneration" => roundtrip::<super::AppleGeneration>(json),
+            "AppleMessage" => roundtrip::<super::AppleMessage>(json),
+            "AppleModelStatus" => roundtrip::<super::AppleModelStatus>(json),
+            "AppleModels" => roundtrip::<super::AppleModels>(json),
+            "AppleReport" => roundtrip::<super::AppleReport>(json),
+            "AppleToolDefinition" => roundtrip::<super::AppleToolDefinition>(json),
             "ArchivedVisibility" => roundtrip::<super::ArchivedVisibility>(json),
             "AttachmentAvailability" => roundtrip::<super::AttachmentAvailability>(json),
             "AuthSnapshot" => roundtrip::<super::AuthSnapshot>(json),

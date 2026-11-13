@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.64.0",
+  "protocolVersion": "1.65.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -1072,6 +1072,21 @@
       "result": "AutomationDraftState"
     },
     {
+      "name": "apple.status",
+      "params": null,
+      "result": "AppleModels"
+    },
+    {
+      "name": "apple.refresh",
+      "params": null,
+      "result": "AppleModels"
+    },
+    {
+      "name": "apple.report",
+      "params": "AppleReport",
+      "result": "OkResult"
+    },
+    {
       "name": "notes.list",
       "params": "NoteQuery",
       "result": "NoteList"
@@ -2126,6 +2141,11 @@
     {
       "name": "hermes.rooms.listChanged",
       "payload": "HermesRooms",
+      "scoped": false
+    },
+    {
+      "name": "apple.command",
+      "payload": "AppleCommand",
       "scoped": false
     }
   ]
