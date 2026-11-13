@@ -37,6 +37,7 @@ import 'ui_requests_service.dart';
 import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
+import 'capabilities_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
 import 'workspace_service.dart';
@@ -103,6 +104,7 @@ class DaemonServer {
   TerminalsService? _terminals;
   HermesService? _hermes;
   VoiceService? _voice;
+  CapabilitiesService? _capabilities;
 
   /// What sessions see of the services above: none until [attachCore].
   CoreServices _coreServices = const CoreServices();
@@ -214,6 +216,13 @@ class DaemonServer {
       terminals: _terminals,
       hermes: _hermes,
       voice: _voice,
+    );
+    // What the active account can use: answered by `system.capabilities`
+    // and the handshake, announced on change.
+    _capabilities = CapabilitiesService(
+      core.container,
+      events: events,
+      onChange: (capabilities) => _system.capabilities = capabilities,
     );
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
@@ -843,6 +852,8 @@ class DaemonServer {
     _turns = null;
     _chats?.dispose();
     _chats = null;
+    _capabilities?.dispose();
+    _capabilities = null;
     // After the sockets and those, so nothing can arrive mid-teardown and
     // read a half-disposed container; before completing, so a caller
     // awaiting `onStopped` knows the database is closed and the process can
