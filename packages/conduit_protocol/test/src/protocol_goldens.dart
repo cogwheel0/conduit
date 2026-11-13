@@ -3265,6 +3265,59 @@ const Map<String, String> protocolGoldens = <String, String>{
   "enabled": false
 }''',
 
+  'intentAsk': r'''
+{
+  "text": "Name three hardy herbs for a windowsill.",
+  "model": "fake-model",
+  "timeoutMs": 90000
+}''',
+
+  'intentAnswer': r'''
+{
+  "chatId": "chat-1",
+  "messageId": "msg-2",
+  "outcome": "answered",
+  "text": "Thyme, chives and mint.",
+  "title": "Windowsill herbs"
+}''',
+
+  'intentAnswerTimedOut': r'''
+{
+  "chatId": "chat-1",
+  "messageId": "msg-2",
+  "outcome": "timedOut",
+  "text": "Thyme,"
+}''',
+
+  'intentChatsQuery': r'''
+{
+  "ids": [
+    "chat-1"
+  ],
+  "query": "herbs",
+  "limit": 10
+}''',
+
+  'intentChat': r'''
+{
+  "id": "chat-2",
+  "title": "Bread starter",
+  "updatedAtMs": 0,
+  "pinned": false
+}''',
+
+  'intentChats': r'''
+{
+  "chats": [
+    {
+      "id": "chat-1",
+      "title": "Windowsill herbs",
+      "updatedAtMs": 1767225600000,
+      "pinned": true
+    }
+  ]
+}''',
+
   'terminalDisplayFile': r'''
 {
   "chatId": "c1",

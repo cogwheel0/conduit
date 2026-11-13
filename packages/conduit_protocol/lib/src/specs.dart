@@ -17,6 +17,7 @@ import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
 import 'hermes_work.dart';
+import 'intents.dart';
 import 'librechat.dart';
 import 'mcp.dart';
 import 'mcp_apps.dart';
@@ -1968,6 +1969,18 @@ abstract final class ConduitMethodSpecs {
     result: ChatForked.fromJson,
   );
 
+  // intents.*
+  static const intentsAsk = ConduitMethodSpec<IntentAsk, IntentAnswer>(
+    ConduitMethods.intentsAsk,
+    params: IntentAsk.fromJson,
+    result: IntentAnswer.fromJson,
+  );
+  static const intentsChats = ConduitMethodSpec<IntentChatsQuery, IntentChats>(
+    ConduitMethods.intentsChats,
+    params: IntentChatsQuery.fromJson,
+    result: IntentChats.fromJson,
+  );
+
   /// Every method, once.
   static const List<ConduitMethodSpec<Object?, Object?>> all =
       <ConduitMethodSpec<Object?, Object?>>[
@@ -2305,6 +2318,8 @@ abstract final class ConduitMethodSpecs {
         librechatMemoriesDelete,
         librechatMemoriesSetEnabled,
         librechatDuplicate,
+        intentsAsk,
+        intentsChats,
       ];
 
   static final Map<String, ConduitMethodSpec<Object?, Object?>> _byName =

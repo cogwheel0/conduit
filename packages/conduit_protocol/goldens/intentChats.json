@@ -1,0 +1,10 @@
+{
+  "chats": [
+    {
+      "id": "chat-1",
+      "title": "Windowsill herbs",
+      "updatedAtMs": 1767225600000,
+      "pinned": true
+    }
+  ]
+}

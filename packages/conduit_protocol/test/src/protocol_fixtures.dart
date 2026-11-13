@@ -1638,6 +1638,41 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'libreChatMemoryRef': const LibreChatMemoryRef(key: 'home_port'),
   'libreChatMemoryToggle': const LibreChatMemoryToggle(enabled: false),
+  // intents.* (1.63.0)
+  'intentAsk': const IntentAsk(
+    text: 'Name three hardy herbs for a windowsill.',
+    model: 'fake-model',
+    timeoutMs: 90000,
+  ),
+  'intentAnswer': const IntentAnswer(
+    chatId: 'chat-1',
+    messageId: 'msg-2',
+    outcome: IntentAskOutcome.answered,
+    text: 'Thyme, chives and mint.',
+    title: 'Windowsill herbs',
+  ),
+  'intentAnswerTimedOut': const IntentAnswer(
+    chatId: 'chat-1',
+    messageId: 'msg-2',
+    outcome: IntentAskOutcome.timedOut,
+    text: 'Thyme,',
+  ),
+  'intentChatsQuery': const IntentChatsQuery(
+    ids: <String>['chat-1'],
+    query: 'herbs',
+    limit: 10,
+  ),
+  'intentChat': const IntentChat(id: 'chat-2', title: 'Bread starter'),
+  'intentChats': const IntentChats(
+    chats: <IntentChat>[
+      IntentChat(
+        id: 'chat-1',
+        title: 'Windowsill herbs',
+        updatedAtMs: 1767225600000,
+        pinned: true,
+      ),
+    ],
+  ),
   'terminalDisplayFile': const TerminalDisplayFile(
     chatId: 'c1',
     path: '/home/user/report.md',
@@ -4093,6 +4128,12 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'libreChatMemoryEdit': LibreChatMemoryEdit.fromJson,
       'libreChatMemoryRef': LibreChatMemoryRef.fromJson,
       'libreChatMemoryToggle': LibreChatMemoryToggle.fromJson,
+      'intentAsk': IntentAsk.fromJson,
+      'intentAnswer': IntentAnswer.fromJson,
+      'intentAnswerTimedOut': IntentAnswer.fromJson,
+      'intentChatsQuery': IntentChatsQuery.fromJson,
+      'intentChat': IntentChat.fromJson,
+      'intentChats': IntentChats.fromJson,
       'terminalDisplayFile': TerminalDisplayFile.fromJson,
       'noteFile': NoteFile.fromJson,
       'noteAttach': NoteAttach.fromJson,

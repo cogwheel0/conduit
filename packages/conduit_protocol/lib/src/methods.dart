@@ -1208,6 +1208,17 @@ abstract final class ConduitMethods {
 
   /// Copies a LibreChat chat whole into a new chat on its server.
   static const String librechatDuplicate = 'librechat.duplicate';
+  static const String intentsPrefix = 'intents.';
+
+  // intents.*. Shortcuts and App Intents on the Mac: the app's intents ask
+  // through these, and the daemon does the work.
+
+  /// A question whose answer comes back in the reply (Ask Conduit): sends
+  /// it as a new chat and waits for the answer, up to a timeout.
+  static const String intentsAsk = 'intents.ask';
+
+  /// The chats Shortcuts offers (Open Chat): by id, by search, or recent.
+  static const String intentsChats = 'intents.chats';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
@@ -1254,6 +1265,7 @@ abstract final class ConduitMethods {
     dictationPrefix,
     recordingsPrefix,
     librechatPrefix,
+    intentsPrefix,
     settingsPrefix,
     syncPrefix,
     socketPrefix,

@@ -1690,6 +1690,16 @@
       "name": "librechat.duplicate",
       "params": "ChatRef",
       "result": "ChatForked"
+    },
+    {
+      "name": "intents.ask",
+      "params": "IntentAsk",
+      "result": "IntentAnswer"
+    },
+    {
+      "name": "intents.chats",
+      "params": "IntentChatsQuery",
+      "result": "IntentChats"
     }
   ],
   "events": [
