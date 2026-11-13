@@ -19,6 +19,10 @@
 //! * `direct`: a fresh profile, Direct, the fake model as an
 //!   OpenAI-compatible provider (`FAKE_OPENAI_URL`), Test, Save, and the
 //!   direct-only main frame.
+//! * `direct-advanced`: Settings › Direct Connections end to end: headers,
+//!   manual models, the Responses API, the history location, a connection
+//!   kept in Open WebUI, Ollama's models, an MCP server signed in with OAuth
+//!   and its tool called, and web search reaching the request ([`direct`]).
 //! * `hermes`: a fresh profile, Hermes in API-server mode against the fake
 //!   Hermes server (`FAKE_HERMES_URL`, `FAKE_HERMES_KEY`), Test, Save, and
 //!   the Hermes-only main frame.
@@ -68,6 +72,7 @@ mod chat;
 mod chat_settings;
 mod composer;
 mod dictation;
+mod direct;
 mod hermes_cards;
 mod hermes_sessions;
 mod integration;
@@ -719,6 +724,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "owui" => owui(&inputs, &dir, cx).await,
         "sso" => sso(&inputs, &dir, cx).await,
         "direct" => direct(&inputs, &dir, cx).await,
+        "direct-advanced" => direct::run(&inputs, &dir, cx).await,
         "hermes" => hermes(&inputs, &dir, cx).await,
         "hermes-sessions" => hermes_sessions::run_scenario(&inputs, &dir, cx).await,
         "hermes-cards" => hermes_cards::run(&inputs, &dir, cx).await,

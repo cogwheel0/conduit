@@ -272,13 +272,23 @@ impl ConnectionStore {
         let Some(master_key) = self.master_key.clone() else {
             return;
         };
-        let config = SupervisorConfig::new(
+        let mut config = SupervisorConfig::new(
             self.binary.clone(),
             self.paths.user_data.clone(),
             self.paths.logs.clone(),
             self.token.clone(),
             master_key,
         );
+        // Run from the checkout: the daemon's logo catalog is the repo's
+        // (a bundle has its own beside conduitd).
+        let catalog = crate::views::model_logo::MODEL_LOGO_CATALOG_DIR;
+        if std::env::var_os("CONDUIT_MODEL_LOGOS").is_none()
+            && std::path::Path::new(catalog).join("catalog.json").exists()
+        {
+            config
+                .env
+                .push(("CONDUIT_MODEL_LOGOS".into(), catalog.into()));
+        }
         let (supervisor, events) = Supervisor::spawn(config, &runtime::shared());
         pump(cx, events, |s, e, cx| s.on_supervisor(e, cx));
         self.supervisor = Some(supervisor);
@@ -419,7 +429,11 @@ impl ConnectionStore {
                             "opening {} for the daemon",
                             url.origin().ascii_serialization()
                         );
-                        cx.open_url(url.as_str());
+                        let intercepted =
+                            cx.try_global::<open_url::Intercept>().is_some_and(|i| i.0);
+                        if !intercepted {
+                            cx.open_url(url.as_str());
+                        }
                         self.opened_urls.push(url.to_string());
                     }
                     None => log::warn!("refused a shell.openUrl that is not http(s)"),

@@ -3274,15 +3274,27 @@ impl ChatComposer {
             .when(hot, |d| d.bg(r.overlay_hover))
             .hover(|s| s.bg(r.overlay_hover))
             .cursor_pointer()
-            .child(icon(
-                if pinned {
-                    IconName::Pin
-                } else {
-                    IconName::Sparkles
+            // A direct model's maker, as the phone's picker shows it; the
+            // pin button says whether it is pinned.
+            .child(
+                match model
+                    .logo
+                    .as_deref()
+                    .and_then(|id| crate::views::model_logo::logo(id, 14., r.text))
+                {
+                    Some(logo) => logo.into_any_element(),
+                    None => icon(
+                        if pinned {
+                            IconName::Pin
+                        } else {
+                            IconName::Sparkles
+                        },
+                        14.,
+                        r.text_subtle,
+                    )
+                    .into_any_element(),
                 },
-                14.,
-                r.text_subtle,
-            ))
+            )
             .child(
                 div()
                     .flex_1()

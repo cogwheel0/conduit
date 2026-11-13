@@ -62,6 +62,7 @@ impl Daemon for FixtureDaemon {
                         pinned: true,
                         capabilities: vec![],
                         connection: None,
+                        logo: None,
                     },
                     ModelSummary {
                         id: "fixture-model-2".into(),
@@ -70,6 +71,7 @@ impl Daemon for FixtureDaemon {
                         pinned: false,
                         capabilities: vec![],
                         connection: None,
+                        logo: None,
                     },
                 ],
                 selected_id: Some("fixture-model".into()),

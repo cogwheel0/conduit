@@ -79,7 +79,7 @@ use crate::stores::settings::{RecordMessage, SettingsStore};
 use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess};
 use crate::views::accounts::{accounts_sections, remove_account};
 use crate::views::add_account::{self, AddAccountSheet};
-use crate::views::direct::DirectView;
+use crate::views::direct::pane::DirectPane;
 use crate::views::forms;
 use crate::views::hermes::HermesView;
 use crate::views::privacy;
@@ -366,7 +366,7 @@ pub struct SettingsView {
     settings: Entity<SettingsStore>,
     connection: Entity<ConnectionStore>,
     stores: Stores,
-    direct: Option<Entity<DirectView>>,
+    pub direct: Option<Entity<DirectPane>>,
     hermes: Option<Entity<HermesView>>,
     pub profile: Option<Entity<profile::ProfilePane>>,
     pub personalization: Option<Entity<personalization::PersonalizationPane>>,
@@ -502,6 +502,13 @@ impl SettingsView {
             }
             self.tab = tab;
             self.switched = Some(cx.background_executor().now());
+            // Direct Connections reads the account's connections again
+            // each time it is shown, as mobile's page does.
+            if tab == Tab::Direct
+                && let Some(p) = &self.direct
+            {
+                p.update(cx, |p, cx| p.refresh_quietly(cx));
+            }
             cx.notify();
         }
     }
@@ -645,6 +652,11 @@ impl SettingsView {
             "default-model" => {
                 if let Some(p) = &self.personalization {
                     p.update(cx, |p, cx| p.choose_default_model(value, cx));
+                }
+            }
+            menu if menu.starts_with("direct-") || menu.starts_with("web-search-") => {
+                if let Some(p) = &self.direct {
+                    p.update(cx, |p, cx| p.choose(menu, value, window, cx));
                 }
             }
             menu if menu.starts_with("audio-") => {
@@ -1492,21 +1504,21 @@ impl SettingsView {
     }
 
     fn direct(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let l10n = cx.l10n().clone();
+        // The pane draws its own groups at the page's inset, as every
+        // other page's groups are, not inside another card.
+        vec![self.direct_pane(window, cx).into_any_element()]
+    }
+
+    /// Settings › Direct Connections, made once.
+    pub fn direct_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<DirectPane> {
         let stores = self.stores.clone();
-        // The view draws its own groups (the list, the form) at the page's
-        // inset, as every other page's groups are, not inside another card.
-        let direct = self
-            .direct
-            .get_or_insert_with(|| {
-                cx.new(|cx| {
-                    let mut v = DirectView::new(stores, false, window, cx);
-                    v.footer = Some(l10n.direct_connections_description().into());
-                    v
-                })
-            })
-            .clone();
-        vec![direct.into_any_element()]
+        self.direct
+            .get_or_insert_with(|| cx.new(|cx| DirectPane::new(stores, window, cx)))
+            .clone()
     }
 
     fn hermes(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {

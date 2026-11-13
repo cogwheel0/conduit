@@ -9,6 +9,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use conduit_daemon::protocol::{RpcMethod, codes, error};
 use conduit_daemon::{RpcClient, RpcError};
@@ -20,11 +21,34 @@ pub type CallFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Sen
 /// Something that answers JSON-RPC calls by name.
 pub trait Daemon: Send + Sync + 'static {
     fn call_value(&self, method: &'static str, params: Value) -> CallFuture;
+
+    /// A call that may take longer than the usual deadline (a sign-in the
+    /// user finishes in the browser).
+    fn call_value_with_timeout(
+        &self,
+        method: &'static str,
+        params: Value,
+        timeout: Duration,
+    ) -> CallFuture {
+        let _ = timeout;
+        self.call_value(method, params)
+    }
 }
 
 impl Daemon for RpcClient {
     fn call_value(&self, method: &'static str, params: Value) -> CallFuture {
         Box::pin(RpcClient::call_value(self, method, params))
+    }
+
+    fn call_value_with_timeout(
+        &self,
+        method: &'static str,
+        params: Value,
+        timeout: Duration,
+    ) -> CallFuture {
+        Box::pin(RpcClient::call_value_with_timeout(
+            self, method, params, timeout,
+        ))
     }
 }
 
@@ -47,6 +71,25 @@ impl Rpc {
     {
         let call = serde_json::to_value(params)
             .map(|p| self.0.call_value(M::NAME, p))
+            .map_err(|e| error(codes::INVALID_PARAMS, format!("{}: {e}", M::NAME)));
+        async move {
+            let value = call?.await?;
+            serde_json::from_value::<M::Result>(value)
+                .map_err(|e| error(codes::DECODE, format!("{}: {e}", M::NAME)))
+        }
+    }
+
+    /// [`Rpc::call`] with its own deadline.
+    pub fn call_with_timeout<M: RpcMethod>(
+        &self,
+        params: &M::Params,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<M::Result, RpcError>> + Send + 'static + use<M>
+    where
+        M::Result: Send + 'static,
+    {
+        let call = serde_json::to_value(params)
+            .map(|p| self.0.call_value_with_timeout(M::NAME, p, timeout))
             .map_err(|e| error(codes::INVALID_PARAMS, format!("{}: {e}", M::NAME)));
         async move {
             let value = call?.await?;

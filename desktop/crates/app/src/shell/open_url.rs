@@ -3,6 +3,14 @@
 //! are opened; anything else (file:, javascript:, custom schemes) is
 //! refused, because the payload comes over the wire.
 
+/// An end-to-end pass follows `shell.openUrl` pages itself (as a user's
+/// browser would) instead of opening the system browser: the URL is only
+/// recorded ([`crate::stores::connection::ConnectionStore::opened_urls`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Intercept(pub bool);
+
+impl gpui_kit::Global for Intercept {}
+
 /// The URL to open, if it is one the app should open.
 pub fn validate(raw: &str) -> Option<url::Url> {
     let url = url::Url::parse(raw.trim()).ok()?;

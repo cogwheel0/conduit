@@ -2160,6 +2160,7 @@ mod tests {
             pinned,
             capabilities: vec![],
             connection: None,
+            logo: None,
         }
     }
 
@@ -2274,6 +2275,7 @@ mod tests {
             pinned: false,
             capabilities: vec![],
             connection: None,
+            logo: None,
         }
     }
 

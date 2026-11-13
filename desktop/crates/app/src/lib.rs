@@ -44,7 +44,6 @@ pub mod windows;
 
 use std::path::PathBuf;
 
-use conduit_components::assets::ConduitAssets;
 use conduit_components::window as cw;
 use conduit_daemon::paths::{self, AppPaths, Flavor};
 use gpui_kit::{
@@ -263,7 +262,7 @@ pub fn run() {
     #[cfg(not(all(target_os = "macos", feature = "harness")))]
     let scripted = shots.is_some();
 
-    let app = gpui_kit::application().with_assets(ConduitAssets);
+    let app = gpui_kit::application().with_assets(crate::views::model_logo::AppAssets);
     // `conduit://` links and "Open with" files, cold launch included: they
     // can come before the app state exists, so they wait in a channel.
     let (urls_tx, urls_rx) = desktop::url_channel();
