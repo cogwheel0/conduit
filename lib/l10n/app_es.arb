@@ -5019,6 +5019,7 @@
   "hermesJobCreatedNotifyFailed": "Tarea creada, pero no se pudieron activar sus notificaciones.",
   "hermesJobUpdatedNotifyFailed": "Tarea guardada, pero no se pudieron cambiar sus notificaciones.",
   "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto.",
+  "pushSettingsMenuAction": "Ajustes de push",
   "workspaceSkillCloneSaveFirst": "Guarda o descarta los cambios antes de duplicar la habilidad.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

@@ -5019,6 +5019,7 @@
   "hermesJobCreatedNotifyFailed": "排程工作已建立，但無法為其開啟通知。",
   "hermesJobUpdatedNotifyFailed": "排程工作已儲存，但無法變更其通知。",
   "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。",
+  "pushSettingsMenuAction": "推播設定",
   "workspaceSkillCloneSaveFirst": "請先儲存或捨棄變更，再複製此技能。",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

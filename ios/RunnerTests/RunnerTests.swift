@@ -1138,6 +1138,7 @@ class RunnerTests: XCTestCase {
       "account-switch", "account-add", "account-sign-out",
       "account-sign-out-of", "account-direct-edit",
       "account-librechat-use", "account-librechat-sign-out",
+      "push-target-sign-in",
     ] {
       XCTAssertTrue(
         nativeSheetSelectionWaitsForDismiss(actionId: actionId),

@@ -42,6 +42,9 @@ const Map<String, IconData> _icons = {
   // Settings root.
   'bell': Icons.notifications_outlined,
   'bell.badge': Icons.notifications_active_outlined,
+  // Push.
+  'bell.slash': Icons.notifications_off_outlined,
+  'doc.on.doc': Icons.copy_outlined,
   'bell.and.waves.left.and.right': Icons.notifications_active_outlined,
   'app.badge': Icons.mark_email_unread_outlined,
   'brain.head.profile': Icons.psychology_outlined,

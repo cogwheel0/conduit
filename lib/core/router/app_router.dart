@@ -36,7 +36,8 @@ import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/librechat/views/librechat_sign_in_page.dart';
 import '../../features/settings/pages/hermes_page_ids.dart';
 import '../../features/hermes/views/hermes_room_page.dart';
-import '../../features/push/views/push_privacy_page.dart';
+import '../../features/settings/pages/push_page_ids.dart'
+    show pushPrivacyPageId;
 import '../../features/settings/views/settings_page_view.dart';
 import '../../features/settings/views/settings_root_page.dart';
 import '../services/native_sheet_bridge.dart' show NativeSheetRoutes;
@@ -478,8 +479,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.pushPrivacy,
       name: RouteNames.pushPrivacy,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const PushPrivacyPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: pushPrivacyPageId),
+      ),
     ),
     GoRoute(
       path: Routes.personalConnections,

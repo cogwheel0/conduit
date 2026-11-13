@@ -92,6 +92,10 @@ import '../../features/settings/pages/webhook_settings_pages.dart'
     show readNotificationTargets, webhookListPageId;
 import '../../features/settings/pages/direct_connection_settings_page_builders.dart'
     show directAccountsChildPages;
+import '../../features/settings/pages/push_page_ids.dart'
+    show buildPushTargetLoadingPage;
+import '../../features/settings/pages/push_settings_pages.dart'
+    show buildPushPrivacyPage, pushTargetChildPages;
 import '../../features/settings/settings_page_module.dart';
 import '../../features/settings/settings_pages.dart';
 import '../../features/chat/widgets/model_control_labels.dart';
@@ -293,6 +297,16 @@ Set<String> readNativePushAttention(NativeSheetProviderReader read) {
   };
 }
 
+/// The pages of the push targets that need the user, which the Accounts
+/// rows' menus open.
+List<NativeSheetDetailConfig> readNativePushAttentionPages(
+  NativeSheetProviderReader read,
+  AppLocalizations l10n,
+) => [
+  for (final scope in readNativePushAttention(read))
+    buildPushTargetLoadingPage(l10n, scope),
+];
+
 /// Waits for what the native Accounts page shows from secure storage:
 /// LibreChat's saved accounts, rather than showing none, and the session of
 /// the one in charge, which while loading is neither signed in nor out.
@@ -366,6 +380,9 @@ class NativeSheetHydrationService {
     final sheetEvents = NativeSheetBridge.instance.events.listen((event) {
       if (event is NativeSheetDismissed) {
         _appearanceDetailPresented = false;
+        // A Notifications load still on its way has no page left to fill,
+        // and the pages it would hand over were forgotten with the sheet.
+        _notificationsHydration.begin();
         stopFollowing(nativeSocketHealthDetailId);
       }
     });
@@ -957,6 +974,10 @@ class NativeSheetHydrationService {
             readNativeAccountSignOutDetail(_ref.read, l10n),
             readNativeAddAccountDetail(_ref.read, l10n),
             ...buildHermesAccountsDetails(l10n),
+            // The push pages the rows' menus open while push needs the user,
+            // those not drawn yet.
+            for (final page in readNativePushAttentionPages(_ref.read, l10n))
+              if (!_ref.read(settingsPagesProvider).contains(page.id)) page,
             // Each server's page, filled in as it appears.
             for (final serverId in {
               for (final entry
@@ -1016,9 +1037,6 @@ class NativeSheetHydrationService {
         return;
       case NativeSheetRoutes.notificationSettings:
         await _hydrateNativeNotificationsDetail(l10n);
-        return;
-      case NativeSheetRoutes.pushTargets:
-        await _hydrateNativePushTargetsDetail(l10n);
         return;
       case 'advanced-prompt-overrides':
         await _hydrateNativeAdvancedPromptDetail(ctx, l10n);
@@ -1701,13 +1719,23 @@ class NativeSheetHydrationService {
   /// The distributors as last read, for a delivery change to choose from.
   List<String>? get pushDistributors => _pushDistributors;
 
-  /// The push targets detail the Notifications sheet's push row opens.
+  /// The pages the Notifications page's push rows open: "How Push Stays
+  /// Private", and while push is on, the targets list and each target's
+  /// page.
   List<NativeSheetDetailConfig> _nativePushDetailSheets(
     AppLocalizations l10n,
   ) {
     final push = _ref.read(pushStateIfUsedProvider);
-    if (push == null || !push.enabled) return const [];
-    return [_nativePushTargetsDetail(l10n, push)];
+    final known = _ref.read(settingsPagesProvider);
+    return [
+      buildPushPrivacyPage(l10n),
+      if (push != null && push.enabled) ...[
+        _nativePushTargetsDetail(l10n, push),
+        // A target's page already drawn keeps what it shows.
+        for (final page in pushTargetChildPages(l10n, push))
+          if (!known.contains(page.id)) page,
+      ],
+    ];
   }
 
   NativeSheetDetailConfig _nativePushTargetsDetail(
@@ -1725,12 +1753,6 @@ class NativeSheetHydrationService {
       push,
       titleOf: (target) => pushTargetTitle(l10n, target, accounts),
     );
-  }
-
-  Future<void> _hydrateNativePushTargetsDetail(AppLocalizations l10n) async {
-    final push = _ref.read(pushStateIfUsedProvider);
-    if (push == null) return;
-    await _applyNativeDetail(_nativePushTargetsDetail(l10n, push));
   }
 
   /// The Voice pages, with [detailId] as the one patched: iOS redraws only

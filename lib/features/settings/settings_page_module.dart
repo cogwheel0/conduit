@@ -9,6 +9,7 @@ import 'pages/hermes_mcp_settings_pages.dart';
 import 'pages/hermes_settings_pages.dart';
 import 'pages/librechat_memory_settings_pages.dart';
 import 'pages/personal_connection_settings_pages.dart';
+import 'pages/push_settings_pages.dart';
 import 'pages/scheduled_task_settings_pages.dart';
 import 'pages/server_address_settings_pages.dart';
 import 'pages/webhook_settings_pages.dart';
@@ -56,6 +57,7 @@ final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
     HermesMcpSettingsPages(ref),
     ScheduledTaskSettingsPages(ref),
     PersonalConnectionSettingsPages(ref),
+    PushSettingsPages(ref),
     CalendarSettingsPages(ref),
     WorkspaceSettingsPages(ref),
     WorkspaceModelSettingsPages(ref),

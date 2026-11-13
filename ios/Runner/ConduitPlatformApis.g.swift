@@ -1692,6 +1692,8 @@ struct PlatformNativeSheetRowAction: Hashable, CustomStringConvertible {
   var destructive: Bool
   /// Asked before it acts; the label confirms.
   var confirmMessage: String? = nil
+  /// The page it opens instead of sending its id.
+  var detailId: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1701,13 +1703,15 @@ struct PlatformNativeSheetRowAction: Hashable, CustomStringConvertible {
     let sfSymbol: String? = nilOrValue(pigeonVar_list[2])
     let destructive = pigeonVar_list[3] as! Bool
     let confirmMessage: String? = nilOrValue(pigeonVar_list[4])
+    let detailId: String? = nilOrValue(pigeonVar_list[5])
 
     return PlatformNativeSheetRowAction(
       id: id,
       label: label,
       sfSymbol: sfSymbol,
       destructive: destructive,
-      confirmMessage: confirmMessage
+      confirmMessage: confirmMessage,
+      detailId: detailId
     )
   }
   func toList() -> [Any?] {
@@ -1717,13 +1721,14 @@ struct PlatformNativeSheetRowAction: Hashable, CustomStringConvertible {
       sfSymbol,
       destructive,
       confirmMessage,
+      detailId,
     ]
   }
   static func == (lhs: PlatformNativeSheetRowAction, rhs: PlatformNativeSheetRowAction) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmMessage, rhs.confirmMessage)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmMessage, rhs.confirmMessage) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.detailId, rhs.detailId)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1733,10 +1738,11 @@ struct PlatformNativeSheetRowAction: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: sfSymbol, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: destructive, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: confirmMessage, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: detailId, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetRowAction(id: \(String(describing: id)), label: \(String(describing: label)), sfSymbol: \(String(describing: sfSymbol)), destructive: \(String(describing: destructive)), confirmMessage: \(String(describing: confirmMessage)))"
+    return "PlatformNativeSheetRowAction(id: \(String(describing: id)), label: \(String(describing: label)), sfSymbol: \(String(describing: sfSymbol)), destructive: \(String(describing: destructive)), confirmMessage: \(String(describing: confirmMessage)), detailId: \(String(describing: detailId)))"
   }
 }
 

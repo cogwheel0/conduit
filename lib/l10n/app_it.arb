@@ -5019,6 +5019,7 @@
   "hermesJobCreatedNotifyFailed": "Attività creata, ma non è stato possibile attivarne le notifiche.",
   "hermesJobUpdatedNotifyFailed": "Attività salvata, ma non è stato possibile modificarne le notifiche.",
   "hermesJobNotifyNeedsScheduled": "Attiva Attività pianificate in Notifiche per usarlo.",
+  "pushSettingsMenuAction": "Impostazioni push",
   "workspaceSkillCloneSaveFirst": "Salva o annulla le modifiche prima di duplicare la skill.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

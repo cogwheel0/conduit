@@ -355,6 +355,8 @@ class SettingsRow extends StatelessWidget {
       key: ValueKey<String>('settings-row-${item.id}'),
       leading: SettingsRowGlyph(item: item),
       title: item.title,
+      // A statement, said whole, as the native sheet says it.
+      titleMaxLines: 12,
       subtitle: item.subtitle,
       subtitleMaxLines: 12,
       destructive: item.destructive,

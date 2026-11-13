@@ -38,6 +38,7 @@ import '../../features/push/widgets/push_target_actions.dart'
         pushTargetNeedsAttention;
 import '../../features/settings/pages/direct_connection_page_ids.dart';
 import '../../features/settings/pages/hermes_page_ids.dart';
+import '../../features/settings/pages/push_page_ids.dart';
 import 'account_display.dart';
 import 'message_action_settings.dart';
 import 'tts_voice_utils.dart';
@@ -528,6 +529,10 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
 }) {
   String? withAttention(String scope, String? subtitle) =>
       nativePushAttentionSubtitle(l10n, pushAttention, scope, subtitle);
+  // A row whose push needs the user opens its push page from its menu.
+  List<NativeSheetRowAction> pushMenu(String scope) => [
+    if (pushAttention.contains(scope)) pushSettingsRowAction(l10n, scope),
+  ];
   final byServer = <String, List<OpenWebUiAccountEntry>>{};
   for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
     byServer.putIfAbsent(entry.server.id, () => []).add(entry);
@@ -590,6 +595,7 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
                     PushTarget.openWebUiScope(entry.id),
                     accountSubtitle(entry, l10n),
                   ),
+                  rowActions: pushMenu(PushTarget.openWebUiScope(entry.id)),
                 ),
             ],
           ),
@@ -663,6 +669,7 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
                 PushTarget.hermesScope(connection.id),
                 hermesConnectionSummary(connection, l10n),
               ),
+              rowActions: pushMenu(PushTarget.hermesScope(connection.id)),
               sfSymbol: connection.mode == HermesBackendMode.desktopGateway
                   ? 'desktopcomputer'
                   : 'cloud',
@@ -1923,13 +1930,6 @@ NativeSheetSectionConfig buildNativeNotificationTargetsSection(
 /// Control id of the native push switch.
 const nativePushEnabledId = 'push-enabled';
 
-/// Control id a native push target row sends, with the target's scope as its
-/// value, to open that target's Flutter detail sheet.
-const nativePushTargetActionId = 'push-target';
-
-/// Control id the native "How push stays private" row sends.
-const nativePushPrivacyActionId = 'push-privacy';
-
 /// Control id of the push row shown while notifications are blocked: it
 /// opens the system settings where they are allowed.
 const nativePushPermissionId = 'push-permission-denied';
@@ -2014,12 +2014,11 @@ List<NativeSheetSectionConfig> buildNativePushSections(
                 ? 'checkmark.circle'
                 : 'exclamationmark.triangle',
           ),
+        // A page of Settings's own.
         NativeSheetItemConfig(
-          id: nativePushPrivacyActionId,
+          id: pushPrivacyPageId,
           title: l10n.pushPrivacyTitle,
           sfSymbol: 'lock.shield',
-          dismissOnSelect: true,
-          actionId: nativePushPrivacyActionId,
         ),
       ],
     ),
@@ -2124,15 +2123,15 @@ List<NativeSheetSectionConfig> buildNativePushSections(
   return sections;
 }
 
-/// The native list of push targets: each row says its status and opens the
-/// target's Flutter detail sheet, which has the one-tap fixes.
+/// The list of push targets: each row says its status and opens the
+/// target's page of Settings, which has the one-tap fixes.
 NativeSheetDetailConfig buildNativePushTargetsDetail(
   AppLocalizations l10n,
   PushState push, {
   required String Function(PushTarget target) titleOf,
 }) {
   NativeSheetItemConfig row(PushTargetState target) => NativeSheetItemConfig(
-    id: '$nativePushTargetActionId:${target.scope}',
+    id: pushTargetPageId(target.scope),
     title: titleOf(target.target),
     subtitle: pushStatusText(l10n, target),
     sfSymbol: pushTargetBusy(target)
@@ -2142,9 +2141,6 @@ NativeSheetDetailConfig buildNativePushTargetsDetail(
         : target.status == PushStatus.on
         ? 'checkmark.circle'
         : 'bell.slash',
-    dismissOnSelect: true,
-    actionId: nativePushTargetActionId,
-    actionValue: target.scope,
   );
 
   return NativeSheetDetailConfig(

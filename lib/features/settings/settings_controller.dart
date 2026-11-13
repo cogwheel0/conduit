@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart'
+    show authStateManagerProvider;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show currentUserProvider2;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -9,11 +11,15 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/push/models/push_status.dart'
     show PushAndroidTransport;
+import 'package:conduit_core/features/push/models/push_target.dart'
+    show OpenWebUiPushTarget;
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/server_memory.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show OpenWebUiAccountChangeResult;
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,8 +44,8 @@ import '../profile/widgets/stt_language_picker.dart'
     show showDeviceSttLanguagePickerSheet;
 import '../push/widgets/push_target_actions.dart'
     show setPushEnabledFromNativeSheet;
-import '../push/widgets/push_target_detail_sheet.dart';
 import 'settings_page_module.dart';
+import 'pages/push_page_ids.dart' show pushTargetSignInActionId;
 import 'pages/server_address_settings_pages.dart'
     show serverAddressesAddAccountActionId, serverAddressesPageId;
 import 'settings_pages.dart';
@@ -446,18 +452,8 @@ class SettingsController {
         if (await module.handleChange(event.id, value, l10n)) return;
       }
 
-      if (event.id == nativePushTargetActionId && value is String) {
-        _openPushTarget(value, source.navigationOrigin);
-        return;
-      }
-
-      if (event.id == nativePushPrivacyActionId) {
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            RouteNames.pushPrivacy,
-            extra: source.navigationOrigin,
-          ),
-        );
+      if (event.id == pushTargetSignInActionId && value is String) {
+        await _signInForPush(value);
         return;
       }
 
@@ -1359,35 +1355,45 @@ class SettingsController {
     return true;
   }
 
-  /// Opens one push target's detail sheet, with its one-tap fixes. From the
-  /// native sheet, which has closed, it opens over the Notifications page; a
-  /// target removed since the list was drawn opens the page alone, which
-  /// lists the targets there are now. From a Flutter Settings page it opens
-  /// over that page.
-  void _openPushTarget(String scope, NativeSheetNavigationOrigin? origin) {
-    if (origin != null) {
+  /// Signs in to the Open WebUI account behind push target [scope], from its
+  /// push page's Sign In row; the native sheet has closed for it. Another
+  /// account is switched to, opening its sign-in when it needs one. For the
+  /// account in use, which the app still takes for signed in while its
+  /// server refused push, the session is checked: one that still works sets
+  /// push up again, and an expired one goes through the app's own
+  /// sign-in-again flow.
+  Future<void> _signInForPush(String scope) async {
+    final target = ref.read(pushStateIfUsedProvider)?.targets[scope]?.target;
+    if (target is! OpenWebUiPushTarget) return;
+    final context = NavigationService.context;
+    if (context == null || !context.mounted) return;
+    // Read now: the page may not outlast the switch.
+    final container = ProviderScope.containerOf(context, listen: false);
+    final router = NavigationService.router;
+    final result = await switchToSavedAccount(context, ref, target.accountId);
+    if (result != OpenWebUiAccountChangeResult.alreadyActive) return;
+    if (await recheckActiveAccountSession(container)) {
       unawaited(
-        NavigationService.router.pushNamed<void>(
-          RouteNames.notificationSettings,
-          extra: origin,
-        ),
+        container
+            .read(pushCoordinatorProvider.notifier)
+            .retry(scope)
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'push-retry-failed',
+                scope: 'settings/push',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
       );
+    } else if (container
+            .read(authStateManagerProvider)
+            .asData
+            ?.value
+            .isAuthenticated !=
+        true) {
+      openActiveAccountSignIn(router);
     }
-    final targets = ref.read(pushStateIfUsedProvider)?.targets;
-    if (targets == null || !targets.containsKey(scope)) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = NavigationService.navigatorKey.currentContext;
-      if (context == null || !context.mounted) return;
-      unawaited(
-        showPushTargetDetailSheet(context, scope).then((_) async {
-          // A fix made in the sheet changed the target's status: the pages
-          // under it say so now, not when they are next opened.
-          final hydration = ref.read(nativeSheetHydrationServiceProvider);
-          await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
-          await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
-        }),
-      );
-    });
   }
 
   /// The Add memory page's fields with Advanced on, kept until Done adds

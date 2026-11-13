@@ -190,6 +190,101 @@ void main() {
     check(controller.changes).isEmpty();
   });
 
+  testWidgets('a statement row is said whole, not cut after two lines', (
+    tester,
+  ) async {
+    const statement =
+        'Your own server encrypts each push notification so that only this '
+        'device can read it. The key that decrypts it never leaves this '
+        'device, so nothing in between can read it.';
+    await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'intro',
+          title: statement,
+          kind: NativeSheetItemKind.info,
+        ),
+      ]),
+    );
+
+    final text = tester.widget<Text>(find.text(statement));
+    check(text.maxLines).isNotNull().isGreaterThan(2);
+  });
+
+  testWidgets("a row menu item naming a page opens it, as a row leading to "
+      'it would, and sends nothing', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'account',
+          title: 'Ada',
+          rowActions: [
+            NativeSheetRowAction(
+              id: 'push-settings',
+              label: 'Push Settings',
+              detailId: 'push-target-page:x',
+            ),
+          ],
+        ),
+      ]),
+      known: [NativeSheetDetailConfig(id: 'push-target-page:x', title: 'Push')],
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-row-actions-account')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Push Settings').last);
+    await tester.pumpAndSettle();
+
+    check(find.text('page push-target-page:x').evaluate()).isNotEmpty();
+    check(controller.changes).isEmpty();
+  });
+
+  testWidgets('a row menu item naming a page with a question asks it '
+      'before opening the page', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'account',
+          title: 'Ada',
+          rowActions: [
+            NativeSheetRowAction(
+              id: 'reset',
+              label: 'Start Over',
+              destructive: true,
+              confirmMessage: 'Start this account over?',
+              detailId: 'start-over-page',
+            ),
+          ],
+        ),
+      ]),
+      known: [NativeSheetDetailConfig(id: 'start-over-page', title: 'Over')],
+    );
+    Future<void> choose() async {
+      await tester.tap(
+        find.byKey(const ValueKey<String>('settings-row-actions-account')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start Over').last);
+      await tester.pumpAndSettle();
+    }
+
+    await choose();
+    check(find.text('Start this account over?').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+    check(find.text('page start-over-page').evaluate()).isEmpty();
+
+    await choose();
+    await tester.tap(find.text('Start Over').last);
+    await tester.pumpAndSettle();
+    check(find.text('page start-over-page').evaluate()).isNotEmpty();
+  });
+
   testWidgets("a bar button naming a page pushes it, as a row leading to it "
       'would, and sends nothing', (tester) async {
     final controller = await _pumpPage(

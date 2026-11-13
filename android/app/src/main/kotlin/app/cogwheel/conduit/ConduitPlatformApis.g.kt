@@ -1725,7 +1725,9 @@ data class PlatformNativeSheetRowAction (
   val sfSymbol: String? = null,
   val destructive: Boolean,
   /** Asked before it acts; the label confirms. */
-  val confirmMessage: String? = null
+  val confirmMessage: String? = null,
+  /** The page it opens instead of sending its id. */
+  val detailId: String? = null
 )
  {
   companion object {
@@ -1735,7 +1737,8 @@ data class PlatformNativeSheetRowAction (
       val sfSymbol = pigeonVar_list[2] as String?
       val destructive = pigeonVar_list[3] as Boolean
       val confirmMessage = pigeonVar_list[4] as String?
-      return PlatformNativeSheetRowAction(id, label, sfSymbol, destructive, confirmMessage)
+      val detailId = pigeonVar_list[5] as String?
+      return PlatformNativeSheetRowAction(id, label, sfSymbol, destructive, confirmMessage, detailId)
     }
   }
   fun toList(): List<Any?> {
@@ -1745,6 +1748,7 @@ data class PlatformNativeSheetRowAction (
       sfSymbol,
       destructive,
       confirmMessage,
+      detailId,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -1755,7 +1759,7 @@ data class PlatformNativeSheetRowAction (
       return true
     }
     val other = other as PlatformNativeSheetRowAction
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.label, other.label) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmMessage, other.confirmMessage)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.label, other.label) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.confirmMessage, other.confirmMessage) && ConduitPlatformApisPigeonUtils.deepEquals(this.detailId, other.detailId)
   }
 
   override fun hashCode(): Int {
@@ -1765,10 +1769,11 @@ data class PlatformNativeSheetRowAction (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.sfSymbol)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.destructive)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.confirmMessage)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.detailId)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetRowAction(id=$id, label=$label, sfSymbol=$sfSymbol, destructive=$destructive, confirmMessage=$confirmMessage)"
+    return "PlatformNativeSheetRowAction(id=$id, label=$label, sfSymbol=$sfSymbol, destructive=$destructive, confirmMessage=$confirmMessage, detailId=$detailId)"
   }
 }
 

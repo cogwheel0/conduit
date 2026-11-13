@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/features/settings/pages/push_page_ids.dart';
 import 'package:conduit/features/settings/pages/server_address_settings_pages.dart';
 import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:conduit/features/settings/settings_page_module.dart';
@@ -341,6 +342,33 @@ void main() {
         .rows(_page)
         .singleWhere((row) => row.id == 'account-switch:a');
     expect(account.subtitle, startsWith(_l10n.pushAttentionChip));
+  });
+
+  testWidgets('a push page drawn before the server is read again keeps '
+      'what it shows', (tester) async {
+    final rig = await pump(
+      tester,
+      push: const PushState(
+        enabled: true,
+        targets: {
+          'owui:a': PushTargetState(
+            target: OpenWebUiPushTarget(accountId: 'a', label: 'a'),
+            status: PushStatus.signInNeeded,
+          ),
+        },
+      ),
+    );
+    final target = pushTargetPageId('owui:a');
+    final drawn = NativeSheetDetailConfig(
+      id: target,
+      title: 'a',
+      items: const [NativeSheetItemConfig(id: 'drawn', title: 'Drawn')],
+    );
+    rig.container.read(settingsPagesProvider.notifier).register([drawn]);
+
+    await rig.open(_page);
+
+    expect(rig.container.read(settingsPagesProvider)[target], same(drawn));
   });
 
   testWidgets('lists the addresses in order and marks the one in use', (

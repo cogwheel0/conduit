@@ -512,15 +512,21 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       // One of the row's other actions acts as a row of its own would:
       // asking first when it has a question, opening a page it names.
       onAction: (action) => unawaited(
-        _select(
-          NativeSheetItemConfig(
+        _select(switch (action.detailId) {
+          final page? when page.isNotEmpty => NativeSheetItemConfig(
+            id: page,
+            title: action.label,
+            destructive: action.destructive,
+            confirmMessage: action.confirmMessage,
+          ),
+          _ => NativeSheetItemConfig(
             id: action.id,
             title: action.label,
             destructive: action.destructive,
             confirmMessage: action.confirmMessage,
             showsDisclosure: false,
           ),
-        ),
+        }),
       ),
       inactive: widget.detail.busy,
     );

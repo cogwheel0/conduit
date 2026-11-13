@@ -5019,6 +5019,7 @@
   "hermesJobCreatedNotifyFailed": "Job erstellt, aber Benachrichtigungen konnten dafür nicht eingeschaltet werden.",
   "hermesJobUpdatedNotifyFailed": "Job gespeichert, aber seine Benachrichtigungen konnten nicht geändert werden.",
   "hermesJobNotifyNeedsScheduled": "Schalte dafür in den Benachrichtigungen „Geplante Aufgaben“ ein.",
+  "pushSettingsMenuAction": "Push-Einstellungen",
   "workspaceSkillCloneSaveFirst": "Speichere oder verwirf deine Änderungen, bevor du den Skill duplizierst.",
   "@workspaceSkillCloneSaveFirst": {
     "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."

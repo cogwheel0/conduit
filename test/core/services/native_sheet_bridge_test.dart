@@ -237,6 +237,42 @@ void main() {
         });
   });
 
+  test('a row menu item that opens a page names it to the sheet', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+    const opens = NativeSheetRowAction(
+      id: 'push',
+      label: 'Push Settings',
+      detailId: 'push-target-page:x',
+    );
+    const sends = NativeSheetRowAction(id: 'sign-out', label: 'Sign Out');
+
+    await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: 'accounts',
+      items: const [
+        NativeSheetItemConfig(
+          id: 'account',
+          title: 'Ada',
+          rowActions: [opens, sends],
+        ),
+      ],
+    );
+
+    check([
+      for (final action in received!.items.single.rowActions!) action.detailId,
+    ]).deepEquals(['push-target-page:x', null]);
+    check(opens.toMap()['detailId']).equals('push-target-page:x');
+  });
+
   test("a page's search field goes to the sheet with the page", () async {
     NativeSheetBridge.instance.debugIsIOSOverride = true;
     PlatformNativeSheetApplyDetailPatchRequest? received;
