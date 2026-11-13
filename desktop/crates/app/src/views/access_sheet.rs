@@ -85,6 +85,22 @@ pub fn open_for_chat(
     opened
 }
 
+/// Share Access… for a workspace item of `kind` (a model, knowledge base,
+/// prompt, tool or skill) named `name`.
+pub fn open_for_workspace(
+    stores: Stores,
+    kind: AccessResourceKind,
+    id: &str,
+    name: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let id = id.to_string();
+    sheet::open(window, WIDTH, cx, move |w, cx| {
+        AccessSheet::new(stores, kind, id, name, w, cx)
+    });
+}
+
 pub struct AccessSheet {
     stores: Stores,
     rpc: Rpc,
@@ -586,7 +602,8 @@ impl AccessSheet {
     fn title(&self, l10n: &L10n) -> String {
         match self.kind {
             AccessResourceKind::Chat => l10n.chat_share_audience(),
-            _ => l10n.folder_share_settings(),
+            AccessResourceKind::Folder | AccessResourceKind::Note => l10n.folder_share_settings(),
+            _ => l10n.desktop_workspace_share_access_title(),
         }
     }
 

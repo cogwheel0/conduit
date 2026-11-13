@@ -1,6 +1,8 @@
 //! Tool Settings: the user's own settings ("personal valves") for the
 //! tools, filters and pipe a chat uses, as mobile's Tool Settings sheet,
-//! in a window sheet on the main window (Chat › Tool Settings…).
+//! in a window sheet on the main window (Chat › Tool Settings…). The
+//! workspace's tool editor opens it too, for one tool's valves: the server
+//! valves everyone's chats use, and the account's own (`workspace.valves`).
 //!
 //! The daemon reads each one's schema and values (`valves.get`, over core's
 //! personal valves editor) and types what the form sends back; the sheet
@@ -12,8 +14,9 @@ use std::rc::Rc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::views::kit::{Button, Switch, grouped_section};
 use conduit_protocol::{
-    NoticeLevel, ValveEdit, ValveField, ValveFieldType, ValveTarget, ValvesDocument, ValvesPhase,
-    ValvesRef, ValvesSave, methods,
+    NoticeLevel, ValveEdit, ValveField, ValveFieldType, ValveTarget, ValveTargetKind,
+    ValvesDocument, ValvesPhase, ValvesRef, ValvesSave, WorkspaceValves, WorkspaceValvesQuery,
+    methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
@@ -43,6 +46,8 @@ const CUSTOM: &str = "__custom__";
 pub struct ValvesSheet {
     stores: Stores,
     rpc: Rpc,
+    /// A workspace tool's valves (its id), rather than a chat's own.
+    tool: Option<String>,
     targets: Vec<ValveTarget>,
     selected: usize,
     pub document: Option<ValvesDocument>,
@@ -71,6 +76,57 @@ impl ValvesSheet {
             _account: account,
             stores,
             rpc,
+            tool: None,
+            targets,
+            selected: 0,
+            document: None,
+            edits: vec![],
+            initial: vec![],
+            inputs: vec![],
+            saving: false,
+            failure: None,
+            _subscriptions: vec![],
+            _load: None,
+        };
+        this.load(window, cx);
+        this
+    }
+
+    /// A workspace tool's valves: the server's (`user` false) or the
+    /// account's own, with a pop-up between them when it has both.
+    pub fn for_tool(
+        stores: Stores,
+        tool_id: String,
+        name: String,
+        server: bool,
+        user: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let l10n = cx.l10n().clone();
+        let mut targets = vec![];
+        if server {
+            targets.push(ValveTarget {
+                kind: ValveTargetKind::Tool,
+                id: "server".into(),
+                label: l10n.workspace_tool_valves_server(),
+            });
+        }
+        if user {
+            targets.push(ValveTarget {
+                kind: ValveTargetKind::Tool,
+                id: "user".into(),
+                label: l10n.workspace_tool_valves_user(),
+            });
+        }
+        let rpc = stores.connection.read(cx).rpc();
+        let _ = name;
+        let account = sheet::close_with_account(&stores, cx);
+        let mut this = Self {
+            _account: account,
+            stores,
+            rpc,
+            tool: Some(tool_id),
             targets,
             selected: 0,
             document: None,
@@ -90,12 +146,57 @@ impl ValvesSheet {
         self.targets.get(self.selected)
     }
 
+    /// A workspace tool's valves as the form draws them.
+    fn tool_document(target: &ValveTarget, valves: WorkspaceValves) -> ValvesDocument {
+        ValvesDocument {
+            kind: ValveTargetKind::Tool,
+            id: target.id.clone(),
+            label: target.label.clone(),
+            phase: if valves.fields.is_empty() {
+                ValvesPhase::Unavailable
+            } else {
+                ValvesPhase::Ready
+            },
+            fields: valves.fields,
+        }
+    }
+
     fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(target) = self.target().cloned() else {
             return;
         };
         self.document = None;
         self.failure = None;
+        if let Some(tool_id) = self.tool.clone() {
+            let call = self
+                .rpc
+                .call::<methods::WorkspaceValves>(&WorkspaceValvesQuery {
+                    tool_id,
+                    user: target.id == "user",
+                });
+            let handle = window.window_handle();
+            self._load = Some(
+                cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    let result = call.await;
+                    let _ = handle.update(cx, |_, window, cx| {
+                        let _ = this.update(cx, |s, cx| match result {
+                            Ok(valves) => {
+                                let doc = Self::tool_document(&target, valves);
+                                s.adopt(doc, window, cx)
+                            }
+                            Err(e) => {
+                                log::warn!("workspace.valves: {e}");
+                                s.failure =
+                                    Some(cx.l10n().desktop_workspace_tool_valves_load_failed());
+                                cx.notify();
+                            }
+                        });
+                    });
+                }),
+            );
+            cx.notify();
+            return;
+        }
         let call = self.rpc.call::<methods::ValvesGet>(&ValvesRef {
             kind: target.kind,
             id: target.id.clone(),
@@ -173,6 +274,11 @@ impl ValvesSheet {
         cx.notify();
     }
 
+    /// Gives valve `key` its own value `text` (the E2E pass).
+    pub fn set_value(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        self.set_text(key, text.to_string(), cx);
+    }
+
     fn edit_mut(&mut self, key: &str) -> Option<&mut ValveEdit> {
         self.edits.iter_mut().find(|e| e.key == key)
     }
@@ -224,6 +330,55 @@ impl ValvesSheet {
         self.failure = None;
         cx.notify();
         let sent = self.edits.clone();
+        if let Some(tool_id) = self.tool.clone() {
+            let call = self
+                .rpc
+                .call::<methods::WorkspaceSaveValves>(&WorkspaceValves {
+                    tool_id,
+                    user: target.id == "user",
+                    schema: Default::default(),
+                    values: Default::default(),
+                    fields: vec![],
+                    edits: sent.clone(),
+                });
+            let handle = window.window_handle();
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = handle.update(cx, |_, window, cx| {
+                    let _ = this.update(cx, |s, cx| {
+                        s.saving = false;
+                        let l10n = cx.l10n().clone();
+                        match result {
+                            Ok(valves) => {
+                                let text = l10n.desktop_workspace_tool_valves_saved();
+                                s.stores
+                                    .toasts
+                                    .update(cx, |t, cx| t.show(NoticeLevel::Info, text, cx));
+                                if s.edits == sent {
+                                    let doc = Self::tool_document(&target, valves);
+                                    s.adopt(doc, window, cx);
+                                    sheet::dismiss(cx);
+                                } else {
+                                    // Changed again while it saved: the rest
+                                    // stays to be saved.
+                                    s.initial = sent;
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("workspace.saveValves: {e}");
+                                s.failure = Some(match e.args.get("detail") {
+                                    Some(detail) => detail.clone(),
+                                    None => l10n.desktop_workspace_tool_valves_save_failed(),
+                                });
+                            }
+                        }
+                        cx.notify();
+                    });
+                });
+            })
+            .detach();
+            return;
+        }
         let call = self.rpc.call::<methods::ValvesSave>(&ValvesSave {
             kind: target.kind,
             id: target.id,
@@ -514,7 +669,11 @@ impl SheetBody for ValvesSheet {
     }
 
     fn label(&self, cx: &App) -> SharedString {
-        cx.l10n().personal_tool_settings().into()
+        if self.tool.is_some() {
+            cx.l10n().desktop_workspace_tool_valves_title().into()
+        } else {
+            cx.l10n().personal_tool_settings().into()
+        }
     }
 }
 
@@ -533,14 +692,31 @@ impl Render for ValvesSheet {
                         .role(Role::Heading)
                         .text_size(px(t.metrics.body + 2.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(l10n.personal_tool_settings()),
+                        .child(if self.tool.is_some() {
+                            l10n.desktop_workspace_tool_valves_title()
+                        } else {
+                            l10n.personal_tool_settings()
+                        }),
                 )
-                .child(
-                    div()
-                        .text_size(px(t.metrics.small + 0.5))
-                        .line_height(relative(1.4))
-                        .text_color(t.roles.text_subtle)
-                        .child(l10n.personal_tool_settings_description()),
+                .when_some(
+                    match &self.tool {
+                        // A tool's own valves say whose they are; the
+                        // server's need no note.
+                        Some(_) => self
+                            .target()
+                            .filter(|t| t.id == "user")
+                            .map(|_| l10n.desktop_workspace_valves_user_hint()),
+                        None => Some(l10n.personal_tool_settings_description()),
+                    },
+                    |d, text| {
+                        d.child(
+                            div()
+                                .text_size(px(t.metrics.small + 0.5))
+                                .line_height(relative(1.4))
+                                .text_color(t.roles.text_subtle)
+                                .child(text),
+                        )
+                    },
                 )
                 .into_any_element(),
         ];

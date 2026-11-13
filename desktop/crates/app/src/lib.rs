@@ -41,6 +41,8 @@ pub mod updates;
 pub mod views;
 pub mod voice;
 pub mod windows;
+#[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod workspace_fixture;
 
 use std::path::PathBuf;
 
@@ -214,6 +216,12 @@ pub fn run() {
     #[cfg(all(target_os = "macos", feature = "harness"))]
     if let Some(mode) = fixture::Mode::from_args(&args) {
         fixture::run(mode);
+        return;
+    }
+    // The workspace's list over 2,000 canned prompts (perf).
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if workspace_fixture::requested(&args) {
+        workspace_fixture::run();
         return;
     }
     let flavor = Flavor::detect();

@@ -40,6 +40,7 @@ pub mod status;
 pub mod toasts;
 pub mod valves;
 pub mod words;
+pub mod workspace;
 
 /// The globals a view needs to draw in a test window: GPUI Kit, Conduit's
 /// light theme, the components' strings and English.
