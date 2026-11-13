@@ -8,8 +8,9 @@
 //! account; the arrow keys cross the sections and ← and → close and open
 //! them; `conduit://note` and `conduit://channel` open the item's pane; Go
 //! › a section and Back and Forward; a note saved and a channel made
-//! appear on `notes.changed` and `channels.changed`; and Hermes switched on
-//! and off adds and takes away its section (`capabilities.changed`).
+//! appear on `notes.changed` and `channels.changed`; Scheduled Tasks waits
+//! for Settings' Advanced, as on the phone; and Hermes switched on and off
+//! adds and takes away its section (`capabilities.changed`).
 //! Screenshots in light and dark, and AccessKit checks of the headings.
 
 use std::path::Path;
@@ -127,6 +128,35 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         return ok("main window", false);
     };
 
+    // ── Scheduled tasks wait for Settings' Advanced, as on the phone ──
+    let without = [
+        Area::Chats,
+        Area::Notes,
+        Area::Channels,
+        Area::Workspace,
+        Area::Calendar,
+    ];
+    let gated = wait_until(cx, Duration::from_secs(60), move |cx| {
+        headings(cx).iter().map(|(a, _)| *a).collect::<Vec<_>>() == without
+    })
+    .await;
+    pass &= ok(
+        "with Advanced off there is no Scheduled Tasks section",
+        gated,
+    );
+    cx.update(|cx| {
+        let settings = cx.global::<AppState>().stores.app_settings.clone();
+        settings.update(cx, |s, cx| {
+            s.set(
+                conduit_protocol::AppSettingsPatch {
+                    advanced_features_enabled: Some(true),
+                    ..Default::default()
+                },
+                cx,
+            )
+        })
+    });
+
     // ── Sections, as the capabilities say ─────────────────────────────
     let expected = [
         Area::Chats,
@@ -160,6 +190,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                 && c.channels
                 && c.calendar
                 && c.automations
+                && c.scheduled_tasks
                 && c.workspace_prompts
                 && c.folders
                 && !c.terminal

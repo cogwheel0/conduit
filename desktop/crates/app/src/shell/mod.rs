@@ -10,6 +10,7 @@
 //! ([`now_playing`]).
 
 pub mod crash;
+pub mod date_picker;
 pub mod deep_link;
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "macos")]

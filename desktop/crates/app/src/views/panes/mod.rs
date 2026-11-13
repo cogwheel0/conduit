@@ -51,6 +51,13 @@ pub struct AreaPane {
     pub channel: Option<Entity<crate::views::channels::ChannelPane>>,
     /// The Notes section's list and note panes.
     pub notes: Entity<NotesArea>,
+    /// The calendar's pane, once it was shown.
+    pub calendar: Option<Entity<crate::views::calendar::CalendarPane>>,
+    /// Scheduled tasks' pane, once it was shown.
+    pub tasks: Option<Entity<crate::views::tasks::TasksPane>>,
+    /// The item the pane showed last, so an area that comes back is read
+    /// again (as the phone's page is when it reopens).
+    last_item: Option<AreaItem>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -76,10 +83,14 @@ impl AreaPane {
                         .update(cx, |a, cx| a.refresh_hermes_hidden(cx));
                 }
             }),
-            cx.observe(&stores.navigation, |this, _, cx| {
+            cx.observe(&stores.navigation, |this: &mut Self, nav, cx| {
                 // A channel left (for a chat, say, which this pane does not
                 // draw) closes at once: it is no longer in front.
                 channels::on_navigation(this, cx);
+                // A chat in between: an area that comes back is new again.
+                if nav.read(cx).selected_item().is_none() {
+                    this.last_item = None;
+                }
                 cx.notify()
             }),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
@@ -92,6 +103,9 @@ impl AreaPane {
             workspace: None,
             channel: None,
             notes,
+            calendar: None,
+            tasks: None,
+            last_item: None,
             _subscriptions: subscriptions,
         }
     }
@@ -181,8 +195,11 @@ impl Render for AreaPane {
         let r = t.roles;
         let Some(item) = self.item(cx) else {
             channels::sync(self, None, window, cx);
+            self.last_item = None;
             return div().size_full().bg(r.content).into_any_element();
         };
+        let returning = self.last_item.as_ref() == Some(&item);
+        self.last_item = Some(item.clone());
         channels::sync(self, Some(&item), window, cx);
         let title = channels::shown_title(self, &item, cx)
             .unwrap_or_else(|| title_of(&item, &self.stores, cx));
@@ -216,8 +233,14 @@ impl Render for AreaPane {
                     .into_any_element()
             }
             AreaItem::Terminal(id) => terminal::pane(id, &title, &t, &l),
-            AreaItem::Calendar => calendar::pane(&title, &t, &l),
-            AreaItem::Automations => automations::pane(&title, &t, &l),
+            AreaItem::Calendar => {
+                calendar::pane(&mut self.calendar, returning, &self.stores, window, cx)
+                    .into_any_element()
+            }
+            AreaItem::Automations => {
+                automations::pane(&mut self.tasks, returning, &self.stores, window, cx)
+                    .into_any_element()
+            }
         };
         // As the chat's toolbar: with the sidebar hidden it starts after
         // the traffic lights and offers the sidebar back.

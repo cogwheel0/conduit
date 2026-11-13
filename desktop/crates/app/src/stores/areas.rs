@@ -46,7 +46,8 @@ pub fn visible_areas(capabilities: &Capabilities) -> Vec<Area> {
             Area::Channels => capabilities.channels,
             Area::Workspace => capabilities.workspace,
             Area::Calendar => capabilities.calendar,
-            Area::Automations => capabilities.automations,
+            // As the phone offers them: with Settings' Advanced on.
+            Area::Automations => capabilities.scheduled_tasks,
         })
         .collect()
 }
@@ -463,6 +464,18 @@ mod tests {
         assert!(is_hermes_chat("local:hermes_s1"));
         assert!(!is_hermes_chat("local:hermes_") && !is_hermes_chat("c1"));
         assert_eq!(visible_areas(&Capabilities::default()), [Area::Chats]);
+        // Scheduled tasks are offered with Settings' Advanced on, as on the
+        // phone: the server allowing them is not enough.
+        let tasks = |advanced: bool| Capabilities {
+            automations: true,
+            scheduled_tasks: advanced,
+            ..Default::default()
+        };
+        assert_eq!(visible_areas(&tasks(false)), [Area::Chats]);
+        assert_eq!(
+            visible_areas(&tasks(true)),
+            [Area::Chats, Area::Automations]
+        );
     }
 
     #[gpui_kit::test]

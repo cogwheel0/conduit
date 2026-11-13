@@ -1,12 +1,33 @@
-//! Scheduled tasks' pane: a placeholder until the task list.
+//! Scheduled tasks' pane: the task list beside the chosen task
+//! ([`crate::views::tasks::TasksPane`]), made once and kept, so the search,
+//! filter and chosen task survive a visit to a chat.
 
-use conduit_components::theme::ConduitTheme;
-use gpui_kit::AnyElement;
+use gpui_kit::{AppContext as _, Context, Entity, Window};
 
-use crate::l10n::L10n;
-use crate::stores::navigation::AreaItem;
+use crate::stores::Stores;
+use crate::views::tasks::TasksPane;
 
-/// Every scheduled task, titled `title`.
-pub fn pane(title: &str, t: &ConduitTheme, l: &L10n) -> AnyElement {
-    super::placeholder(&AreaItem::Automations, title, t, l)
+/// The tasks pane (made the first time, and read again each time it is
+/// shown).
+pub fn pane<V: 'static>(
+    slot: &mut Option<Entity<TasksPane>>,
+    shown: bool,
+    stores: &Stores,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) -> Entity<TasksPane> {
+    match slot {
+        Some(pane) => {
+            if !shown {
+                pane.update(cx, |p, cx| p.show(cx));
+            }
+            pane.clone()
+        }
+        None => {
+            let stores = stores.clone();
+            let pane = cx.new(|cx| TasksPane::new(stores, window, cx));
+            *slot = Some(pane.clone());
+            pane
+        }
+    }
 }

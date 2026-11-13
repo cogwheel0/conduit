@@ -22,6 +22,8 @@
 //! * [`speech`]: read aloud, which the daemon runs and this window speaks.
 //! * [`call`]: a voice call, which the daemon runs and this window hears
 //!   and, for a realtime voice, plays.
+//! * [`calendar`] and [`tasks`]: the calendar's agenda and the scheduled
+//!   tasks, as the daemon keeps them.
 //! * [`shell`]: the macOS shell extras' state (links waiting for the main
 //!   window, the hotkey, notification and login-item statuses).
 //!
@@ -32,6 +34,7 @@
 pub mod accounts;
 pub mod app_settings;
 pub mod areas;
+pub mod calendar;
 pub mod call;
 pub mod channel;
 pub mod chat;
@@ -51,6 +54,7 @@ pub mod session;
 pub mod settings;
 pub mod shell;
 pub mod speech;
+pub mod tasks;
 pub mod toasts;
 pub mod ui_requests;
 
@@ -90,6 +94,8 @@ pub struct Stores {
     /// A voice call: the call the daemon runs, and this window's ears and
     /// realtime audio.
     pub call: Entity<call::CallStore>,
+    pub calendar: Entity<calendar::CalendarStore>,
+    pub tasks: Entity<tasks::TasksStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -144,7 +150,9 @@ impl Stores {
             sections: cx.new(|_| SectionsStore::load(None)),
             app_settings: cx.new(|_| app_settings::AppSettingsStore::new(rpc.clone())),
             speech: cx.new(|cx| speech::SpeechStore::new(rpc.clone(), connection.clone(), cx)),
-            call: cx.new(|cx| call::CallStore::new(rpc, connection, cx)),
+            call: cx.new(|cx| call::CallStore::new(rpc.clone(), connection, cx)),
+            calendar: cx.new(|_| calendar::CalendarStore::new(rpc.clone())),
+            tasks: cx.new(|_| tasks::TasksStore::new(rpc)),
         }
     }
 
@@ -181,6 +189,8 @@ impl Stores {
             let rpc = rpc.clone();
             cx.new(|cx| call::CallStore::new(rpc, connection, cx))
         };
+        let calendar = cx.new(|_| calendar::CalendarStore::new(rpc.clone()));
+        let tasks = cx.new(|_| tasks::TasksStore::new(rpc.clone()));
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -196,6 +206,8 @@ impl Stores {
             app_settings,
             speech,
             call,
+            calendar,
+            tasks,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
@@ -203,6 +215,8 @@ impl Stores {
         app_settings::wire(&stores, cx);
         speech::wire(&stores, cx);
         call::wire(&stores, cx);
+        calendar::wire(&stores, cx);
+        tasks::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat

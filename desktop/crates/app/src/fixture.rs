@@ -154,6 +154,7 @@ pub fn all_areas() -> Capabilities {
         workspace_skills: true,
         calendar: true,
         automations: true,
+        scheduled_tasks: true,
         folders: true,
         ..Default::default()
     }
@@ -456,6 +457,8 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         areas: cx.new(|_| crate::stores::areas::AreasStore::new(rpc.clone())),
         sections: cx.new(|_| crate::stores::sections::SectionsStore::load(None)),
         app_settings: cx.new(|_| crate::stores::app_settings::AppSettingsStore::new(rpc.clone())),
+        calendar: cx.new(|_| crate::stores::calendar::CalendarStore::new(rpc.clone())),
+        tasks: cx.new(|_| crate::stores::tasks::TasksStore::new(rpc.clone())),
         accounts,
         session,
     }
