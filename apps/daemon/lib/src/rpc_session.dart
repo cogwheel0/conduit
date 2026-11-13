@@ -703,6 +703,7 @@ class RpcSession {
       (r) => _need(_data).deleteAll(r, caller: this),
     );
     _on(ConduitMethodSpecs.dataConnection, (_) => _need(_data).connection());
+    _on(ConduitMethodSpecs.dataReconnect, (_) => _need(_data).reconnect());
   }
 
   /// [service], or `rpc.daemonUnavailable` while the core is coming up.

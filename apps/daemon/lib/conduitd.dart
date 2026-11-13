@@ -37,6 +37,7 @@ export 'src/daemon_server.dart';
 export 'src/direct_service.dart';
 export 'src/event_bus.dart';
 export 'src/files_service.dart';
+export 'src/media_service.dart';
 export 'src/folder_settings_service.dart';
 export 'src/handoff_service.dart';
 export 'src/intents_service.dart';

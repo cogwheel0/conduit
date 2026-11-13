@@ -376,6 +376,15 @@ def answer_for(text):
             '```mermaid\ngraph TD\n  A[Question] --> B{Fake model}\n  B -->|code| C[Blocks]\n'
             '  B -->|math| D[Formulas]\n```\n'
         )
+    elif 'diagram' in t:
+        # Streamed slowly (see `do_POST`): the fence stays open for a
+        # while, so a client can be seen to keep it as code until it ends.
+        body = (
+            'Here is the tide cycle as a diagram.\n\n'
+            '```mermaid\ngraph LR\n  A[Low water] --> B[Flood tide]\n'
+            '  B --> C[High water]\n  C --> D[Ebb tide]\n  D --> A\n```\n\n'
+            'Each full cycle takes about twelve and a half hours.'
+        )
     elif 'math' in t:
         body = (
             'The orbital speed is $v = \\sqrt{GM/r}$ for a circular orbit, and the '
@@ -1135,10 +1144,11 @@ class Handler(BaseHTTPRequestHandler):
                         time.sleep(0.016)
                 else:
                     slow = 'slow' in lower
+                    diagram = 'diagram' in lower
                     pieces = text.split(' ')
                     for i, piece in enumerate(pieces):
                         send(chunk(model, {'content': piece + (' ' if i < len(pieces) - 1 else '')}))
-                        time.sleep(0.2 if slow else 0.03)
+                        time.sleep(0.2 if slow else 0.4 if diagram else 0.03)
                 send(chunk(model, {}, 'stop'))
             # As OpenAI's `include_usage` sends it: no choices, the counts,
             # and Groq-style timings for the rates.

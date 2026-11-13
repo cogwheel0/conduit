@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:conduit_core/providers/app_providers.dart'
+    show activeServerProvider;
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show preferredBackendProvider;
 import 'package:conduit_core/services/api_service.dart'
@@ -34,6 +36,8 @@ import 'redact.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
+import 'media_service.dart';
+import 'settled.dart';
 import 'log.dart';
 import 'rpc_session.dart';
 import 'temporary_chats.dart';
@@ -126,6 +130,23 @@ class DaemonServer {
   TurnsService? _turns;
   ModelsService? _models;
   FilesService? _files;
+
+  /// `GET /media/{image|pdf}`: no core needed, so it answers from the start
+  /// (the account's server, once there is one, is reached as it is).
+  late final MediaService _media = MediaService(ownServer: _activeServerUrl);
+
+  /// The active account's server address, for `/media`; null before the
+  /// core or without a server (Direct, Hermes).
+  Future<Uri?> _activeServerUrl() async {
+    final core = _core;
+    if (core == null) return null;
+    final server = await readSettled(
+      core.container,
+      activeServerProvider.future,
+    );
+    return server == null ? null : Uri.tryParse(server.url);
+  }
+
   UiRequestsService? _uiRequests;
   ChatPromptsService? _chatPrompts;
   QueuedCompletionsService? _queuedCompletions;
@@ -541,6 +562,9 @@ class DaemonServer {
     if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
     if (path.startsWith('/calls/')) return _callAudio(request, path);
     if (path.startsWith('/files/')) return _file(request);
+    if (path.startsWith('${ConduitHttpRoutes.media}/')) {
+      return _mediaFetch(request, path);
+    }
     if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
     if (path.startsWith('/recordings/')) return _recording(request, path);
     if (path.startsWith('/tts/')) return _speech(request, path);
@@ -804,6 +828,47 @@ class DaemonServer {
     } on Object catch (error, stack) {
       _log.error('file download failed', error, stack);
       return _problem(502, ConduitErrorCodes.serverError, 'download failed');
+    }
+  }
+
+  /// `GET /media/{image|pdf}?url=` -- a picture or a PDF on another site,
+  /// for the window (see [MediaService] for what is and is not sent).
+  /// Answered with its bytes and type, or a problem whose code says why
+  /// not (`media.tooLarge`, `media.wrongType`, `media.timedOut`, ...).
+  Future<shelf.Response> _mediaFetch(shelf.Request request, String path) async {
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    final kind = switch (path.substring(ConduitHttpRoutes.media.length + 1)) {
+      'image' => MediaKind.image,
+      'pdf' => MediaKind.pdf,
+      _ => null,
+    };
+    final url = request.url.queryParameters['url'];
+    if (kind == null || url == null) {
+      return _problem(404, ConduitErrorCodes.notFound, 'no such media');
+    }
+    try {
+      final media = await _media.fetch(url, kind);
+      return shelf.Response.ok(
+        media.bytes,
+        headers: <String, String>{
+          'content-type': media.contentType,
+          'x-content-type-options': 'nosniff',
+          'content-disposition': 'inline',
+          // The window keeps what it drew; nothing here outlives the reply.
+          'cache-control': 'no-store',
+          ..._corsHeaders,
+        },
+      );
+    } on MediaFetchException catch (error) {
+      // The failure only: the address is the chat's, not the log's.
+      _log.info('media ${kind.name}: ${error.failure.name}');
+      return _problem(
+        error.failure.status,
+        error.failure.code,
+        error.failure.name,
+      );
     }
   }
 
@@ -1167,6 +1232,7 @@ class DaemonServer {
     _computer = null;
     await _server?.close(force: true);
     _server = null;
+    _media.close();
     // The services that hold chats and watches go while the core they read
     // is still there: stopping an answer that is still running, and closing a
     // chat that lingers after its answer, both read its container.

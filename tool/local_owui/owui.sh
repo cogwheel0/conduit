@@ -14,6 +14,10 @@
 #                                          sends it (drive_chat.py), into DIR
 #   tool/local_owui/owui.sh showcase DIR   a stored chat with every rich block
 #                                          (showcase.py), its ids into DIR
+#   tool/local_owui/owui.sh media DIR URL  a stored chat with pictures and PDFs
+#                                          from the site at URL (media_site.py)
+#                                          and the server, and diagrams
+#                                          (media_chat.py), its ids into DIR
 #   tool/local_owui/owui.sh tool-permissions on|off
 #                                          auto tool permissions on, or back as
 #                                          they were (tool_permissions.py)
@@ -80,7 +84,7 @@ PROXY_PORT=${CONDUIT_OWUI_PROXY_PORT:-}
 
 command=${1:-}
 [ $# -gt 0 ] && shift
-# `chat` takes two arguments; nothing else takes any.
+# `chat` and `media` take two arguments; nothing else takes any.
 ARG1=
 ARG2=
 # `peer` hands every argument to channel_peer.py.
@@ -104,7 +108,7 @@ while [ $# -gt 0 ]; do
     --proxy-port) PROXY_PORT=$2; shift 2 ;;
     -*) echo "unknown option: $1" >&2; exit 64 ;;
     *)
-      if { [ "$command" != chat ] && [ "$command" != showcase ] && [ "$command" != tool-permissions ]; } || [ -n "$ARG2" ]; then
+      if { [ "$command" != chat ] && [ "$command" != showcase ] && [ "$command" != media ] && [ "$command" != tool-permissions ]; } || [ -n "$ARG2" ]; then
         echo "unexpected argument: $1" >&2
         exit 64
       fi
@@ -482,6 +486,20 @@ showcase() {
     --secret-file "$STATE/secret" --out "$ARG1"
 }
 
+media() {
+  need_venv
+  if [ -z "$ARG1" ] || [ -z "$ARG2" ]; then
+    echo "usage: $0 media OUT-DIR SITE-URL" >&2
+    exit 64
+  fi
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/media_chat.py" --env-file "$ENV_FILE" \
+    --site "$ARG2" --out "$ARG1"
+}
+
 tool_permissions() {
   need_venv
   if [ "$ARG1" != on ] && [ "$ARG1" != off ]; then
@@ -609,12 +627,13 @@ case $command in
   env) echo "$ENV_FILE" ;;
   chat) chat ;;
   showcase) showcase ;;
+  media) media ;;
   peer) peer ;;
   tool-permissions) tool_permissions ;;
   two-step) two_step ;;
   proxy) proxy ;;
   *)
-    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac
