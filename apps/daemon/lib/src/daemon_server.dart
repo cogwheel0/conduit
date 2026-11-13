@@ -61,6 +61,7 @@ import 'data_service.dart';
 import 'access_service.dart';
 import 'chat_settings_service.dart';
 import 'folder_settings_service.dart';
+import 'librechat_service.dart';
 import 'memories_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
@@ -137,6 +138,7 @@ class DaemonServer {
   CoreSettingsService? _coreSettings;
   ProfileService? _profile;
   MemoriesService? _memories;
+  LibreChatService? _libreChat;
   ChatSettingsService? _chatSettings;
   ValvesService? _valves;
   AccessService? _access;
@@ -273,6 +275,11 @@ class DaemonServer {
     _coreSettings = CoreSettingsService(core.container, events: events);
     _profile = ProfileService(core.container, accounts: _accounts);
     _memories = MemoriesService(core.container);
+    _libreChat = LibreChatService(
+      core.container,
+      events: events,
+      accounts: _accounts!,
+    );
     _releaseNotes = ReleaseNotesRpcService(core.container);
     _data = DataService(core.container, events: events);
     _chatSettings = ChatSettingsService(
@@ -332,6 +339,7 @@ class DaemonServer {
       coreSettings: _coreSettings,
       profile: _profile,
       memories: _memories,
+      libreChat: _libreChat,
       releaseNotes: _releaseNotes,
       data: _data,
       drafts: _drafts,

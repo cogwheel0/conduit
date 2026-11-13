@@ -7,6 +7,12 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_prompts.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatPromptsProvider;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatSessionProvider, LibreChatSignedInState;
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import 'settled.dart';
 import 'language_tag.dart';
@@ -67,6 +73,8 @@ final class PromptsService {
       );
     }
 
+    if (isLibreChatPrompt(prompt)) return _renderLibreChat(prompt, request);
+
     final user = _container.read(authStateManagerProvider).value?.user;
     final processor = PromptProcessor(
       parser: _parser,
@@ -112,12 +120,70 @@ final class PromptsService {
     );
   }
 
+  /// A LibreChat prompt, read with LibreChat's grammar (`{{name}}`, and
+  /// `{{name:a|b}}`, whose choices are suggestions), as mobile fills it:
+  /// every blank is a text field, prefilled with its first choice, and one
+  /// left empty stays in the text. Open WebUI's parser never reads it.
+  RenderedPrompt _renderLibreChat(Prompt prompt, RenderPrompt request) {
+    final variables = libreChatPromptVariables(prompt.content);
+    final userName = _libreChatUserName();
+    // Each blank once, under a name the form can key it by.
+    final names = <String>[];
+    for (final variable in variables) {
+      var name = variable.name.isEmpty ? 'value' : variable.name;
+      for (var suffix = 2; names.contains(name); suffix++) {
+        name = '${variable.name} $suffix';
+      }
+      names.add(name);
+    }
+    if (variables.isEmpty || request.values.isNotEmpty) {
+      return RenderedPrompt(
+        content: fillLibreChatPrompt(
+          prompt.content,
+          values: <String, String>{
+            for (final (index, variable) in variables.indexed)
+              if ((request.values[names[index]] ?? '').isNotEmpty)
+                variable.token: request.values[names[index]]!,
+          },
+          userName: userName,
+        ),
+      );
+    }
+    return RenderedPrompt(
+      content: prompt.content,
+      inputs: <PromptInput>[
+        for (final (index, variable) in variables.indexed)
+          PromptInput(
+            name: names[index],
+            label: names[index],
+            type: 'text',
+            placeholder: variable.options.isEmpty
+                ? null
+                : variable.options.join(' | '),
+            defaultValue: variable.options.firstOrNull,
+            options: variable.options,
+          ),
+      ],
+    );
+  }
+
+  String? _libreChatUserName() {
+    final state = _container.read(libreChatSessionProvider).value;
+    if (state is! LibreChatSignedInState) return null;
+    final user = state.handle.current?.user;
+    return user?.name ?? user?.username;
+  }
+
   Future<List<Prompt>> _fetch() async {
     // With Hermes Agent's model chosen, the `/` menu is its skills, as on
-    // mobile: `/review` sent to the agent runs that skill.
+    // mobile: `/review` sent to the agent runs that skill. With a LibreChat
+    // account in charge, its prompt library.
     final selected = _container.read(selectedModelProvider);
     final prompts = selected != null && isHermesModel(selected)
         ? await _hermesSkills()
+        : _container.read(primaryAccountKindProvider) ==
+              PrimaryAccountKind.libreChat
+        ? await _libreChatPrompts()
         : await (_fetchOverride ?? _fromServer)();
     _byCommand = <String, Prompt>{
       for (final prompt in prompts) prompt.command: prompt,
@@ -129,6 +195,15 @@ final class PromptsService {
     _container.invalidate(hermesSkillPromptsProvider);
     try {
       return await readSettled(_container, hermesSkillPromptsProvider.future);
+    } on Object {
+      return const <Prompt>[];
+    }
+  }
+
+  Future<List<Prompt>> _libreChatPrompts() async {
+    _container.invalidate(libreChatPromptsProvider);
+    try {
+      return await readSettled(_container, libreChatPromptsProvider.future);
     } on Object {
       return const <Prompt>[];
     }

@@ -166,6 +166,64 @@ final class UiRequestsService implements UiRequestPort {
     return response.choice == 'allow';
   }
 
+  /// Asks whether a LibreChat run may go on with tool [toolName]: a run that
+  /// paused for approval. Unanswered, it is rejected.
+  Future<bool> askLibreChatToolApproval({
+    required String chatId,
+    required String toolName,
+    String? description,
+    String? argumentsJson,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.toolApproval,
+      messageCode: 'librechat.toolApproval',
+      args: <String, String>{
+        'title': toolName,
+        'message': description ?? '',
+        'chatId': chatId,
+      },
+      detail: <String, dynamic>{
+        'backend': 'libreChat',
+        'arguments': ?argumentsJson,
+      },
+    );
+    return response.choice == 'allow';
+  }
+
+  /// Puts a LibreChat agent's question to the user: its options, or words
+  /// of their own. Null when it was cancelled (or nobody could be asked).
+  Future<String?> askLibreChatQuestion({
+    required String chatId,
+    required String question,
+    String? description,
+    List<Map<String, String>> options = const <Map<String, String>>[],
+    bool multiSelect = false,
+    String? progress,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.libreChatQuestion,
+      messageCode: 'librechat.question',
+      args: <String, String>{
+        'title': question,
+        'chatId': chatId,
+        'progress': ?progress,
+      },
+      detail: <String, dynamic>{
+        'question': question,
+        'description': ?description,
+        'options': options,
+        'multiSelect': multiSelect,
+      },
+      defaultChoice: 'cancel',
+    );
+    // The window's question card answers `allow` with the text (the same
+    // card as any server's question); `answer` is the plain word for it.
+    final text = response.text?.trim();
+    final answered = response.choice == 'answer' || response.choice == 'allow';
+    if (!answered || text == null || text.isEmpty) return null;
+    return text;
+  }
+
   /// Asks whether an MCP App in a chat may call one of its server's tools,
   /// as mobile asks before every call. Unanswered, it is refused.
   Future<bool> askMcpAppToolCall({

@@ -437,6 +437,10 @@ pub(crate) mod tests {
             accounts,
             active_account_id: active,
             adding_account: false,
+            libre_chat_accounts: Default::default(),
+            primary: conduit_protocol::PrimaryAccount::OpenWebUi,
+            active_libre_chat_account_id: None,
+            libre_chat_session: conduit_protocol::LibreChatSessionPhase::None,
         }
     }
 

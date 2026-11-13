@@ -11,6 +11,10 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/ports/audio_playback_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart'
+    show libreChatServerSpeechProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -229,6 +233,18 @@ final class SpeechService {
         model = models.where((m) => m.id == modelId).firstOrNull;
       } on Object {
         model = null;
+      }
+    }
+    // A LibreChat server's engines load once per account: wait for that
+    // read, as dictation does, or the reading falls back to this Mac.
+    if (model != null && isLibreChatModel(model)) {
+      try {
+        await readSettled(
+          container,
+          libreChatServerSpeechProvider.future,
+        ).timeout(const Duration(seconds: 10));
+      } on Object {
+        return null;
       }
     }
     // A model no longer listed is the Open WebUI server's, as the core's

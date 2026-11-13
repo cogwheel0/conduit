@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
@@ -57,6 +58,11 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatSessionHandleProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -700,7 +706,9 @@ final class TurnsService implements ChatTurns {
       // "Run this again" means the same model unless the caller says
       // otherwise.
       final model = await _resolveModel(
-        request.model ?? target.assistantMessage.model,
+        request.model ??
+            _libreChatModelOf(session) ??
+            target.assistantMessage.model,
       );
       await _requireBackendFor(model);
       _choose(session.scope.container, model);
@@ -777,7 +785,9 @@ final class TurnsService implements ChatTurns {
           .where((m) => m.role == 'assistant')
           .firstOrNull
           ?.model;
-      final model = await _resolveModel(request.model ?? answeredWith);
+      final model = await _resolveModel(
+        request.model ?? _libreChatModelOf(session) ?? answeredWith,
+      );
       await _requireBackendFor(model);
       _choose(session.scope.container, model);
       return await _run(
@@ -1917,7 +1927,7 @@ final class TurnsService implements ChatTurns {
       }
       return;
     }
-    final answer = messages.where((m) => m.id == turn.messageId).lastOrNull;
+    final answer = _find(session, messages, turn.messageId);
     if (answer == null) return;
     if (answer.isStreaming) {
       _refreshText(session, turn);
@@ -2047,7 +2057,7 @@ final class TurnsService implements ChatTurns {
     ChatMessage? answer;
     final expected = pending.assistantMessageId;
     if (expected != null) {
-      answer = messages.where((m) => m.id == expected).lastOrNull;
+      answer = _find(session, messages, expected);
     } else {
       // The answer now streaming at the end of the transcript. A regenerate
       // may stream into the answer it replaces, keeping its id and moving
@@ -2075,6 +2085,13 @@ final class TurnsService implements ChatTurns {
       }
       return;
     }
+    // A LibreChat answer streams under an id minted here until the server
+    // names it (and its question): the windows are told the server's ids,
+    // which the stored chat keeps, so the turn starts once they are named,
+    // or once it ends unnamed.
+    if (answer.isStreaming && isUnconfirmedLibreChatMessage(answer)) {
+      return;
+    }
     final transport = answer.metadata?['transport'];
     final clientOwned =
         transport == kHermesTransport || transport == kDirectTransport;
@@ -2084,8 +2101,9 @@ final class TurnsService implements ChatTurns {
     final chatId = session.scope.conversation?.id;
     if (chatId == null || (!clientOwned && !pending.sendSettled)) return;
     final index = messages.indexOf(answer);
+    final asked = pending.userMessageId;
     final question =
-        pending.userMessageId ??
+        (asked == null ? null : _currentId(session, asked)) ??
         messages
             .take(index < 0 ? 0 : index)
             .lastWhere((m) => m.role == 'user', orElse: () => answer!)
@@ -2322,7 +2340,7 @@ final class TurnsService implements ChatTurns {
     if (session.scope.isDisposed || turn.finished) return;
     final live = session.scope.container
         .read(chatMessagesProvider.notifier)
-        .contentForStreamingMessage(turn.messageId);
+        .contentForStreamingMessage(_currentId(session, turn.messageId));
     if (live != null && live != turn.text) {
       turn.text = live;
       turn.dirty = true;
@@ -2648,6 +2666,115 @@ final class TurnsService implements ChatTurns {
         answer,
       );
     }
+    final libreChat = session.scope.isDisposed
+        ? null
+        : libreChatPendingActionFor(session.scope.container, answer.id);
+    final actionId = libreChat?.actionId;
+    if (libreChat != null &&
+        actionId != null &&
+        session.asked.add('librechat:$actionId')) {
+      unawaited(_answerLibreChatAction(session, answer.id, libreChat));
+    }
+  }
+
+  /// Puts what a LibreChat run paused on to the windows, one card at a
+  /// time -- each tool call to approve, or each question -- and resumes the
+  /// run with the answers, as the phone's overlay does. A question left
+  /// unanswered stops the reply; a tool call left unanswered is rejected.
+  Future<void> _answerLibreChatAction(
+    _ChatSession session,
+    String messageId,
+    LibreChatPendingAction action,
+  ) async {
+    final ask = _uiRequests;
+    final chatId = session.chatId ?? '';
+    final scope = session.scope;
+    try {
+      if (action.isQuestion) {
+        final questions = action.questions;
+        final answers = <String, String>{};
+        for (final (index, question) in questions.indexed) {
+          final id = question['id']?.toString() ?? 'question';
+          final options = question['options'];
+          final answer = ask == null
+              ? null
+              : await ask.askLibreChatQuestion(
+                  chatId: chatId,
+                  question: question['question']?.toString() ?? '',
+                  description: question['description']?.toString(),
+                  options: <Map<String, String>>[
+                    if (options is List)
+                      for (final option in options)
+                        if (option is Map && option['label'] != null)
+                          <String, String>{
+                            'label': '${option['label']}',
+                            if (option['description'] != null)
+                              'description': '${option['description']}',
+                          },
+                  ],
+                  multiSelect: question['multiSelect'] == true,
+                  progress: questions.length > 1
+                      ? '${index + 1}/${questions.length}'
+                      : null,
+                );
+          if (answer == null) {
+            if (!scope.isDisposed) await stop(chatId);
+            return;
+          }
+          answers[id] = answer;
+        }
+        if (scope.isDisposed) return;
+        await resolveLibreChatPendingAction(
+          scope.container,
+          messageId,
+          answers: answers,
+        );
+        return;
+      }
+      if (!action.isToolApproval) return;
+      final decisions = <String, LibreChatToolDecisionInput>{};
+      for (final request in action.toolRequests) {
+        final allowed =
+            ask != null &&
+            request.allowed.contains(LibreChatToolDecision.approve) &&
+            await ask.askLibreChatToolApproval(
+              chatId: chatId,
+              toolName: request.name,
+              description: request.description,
+              argumentsJson: _argumentsJson(request.arguments),
+            );
+        decisions[request.toolCallId] = LibreChatToolDecisionInput(
+          allowed ? LibreChatToolDecision.approve : LibreChatToolDecision.reject,
+        );
+      }
+      if (scope.isDisposed) return;
+      await resolveLibreChatPendingAction(
+        scope.container,
+        messageId,
+        decisions: decisions,
+      );
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'librechat-action-failed',
+        scope: 'daemon/turns',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// A tool call's arguments, as pretty JSON for the card.
+  static String? _argumentsJson(Object? arguments) {
+    if (arguments == null) return null;
+    Object? value = arguments;
+    if (arguments is String) {
+      try {
+        value = jsonDecode(arguments);
+      } on FormatException {
+        return arguments;
+      }
+    }
+    return const JsonEncoder.withIndent('  ').convert(value);
   }
 
   Future<void> _answerMcpApproval({
@@ -3295,6 +3422,20 @@ final class TurnsService implements ChatTurns {
   /// The request wins when it names one, as the composer's picker does.
   /// Otherwise the account's selection or default ([currentModel]), and
   /// failing that the first model offered.
+  /// The model a LibreChat chat runs on, as the picker knows it. Its
+  /// stored answers name the server's raw model (`harbour-small`), which is
+  /// no model here; the chat names the picker's (a spec, an agent, or an
+  /// endpoint's model). Null for any other chat.
+  static String? _libreChatModelOf(_ChatSession session) {
+    if (session.scope.isDisposed) return null;
+    final conversation = session.scope.conversation;
+    if (conversation == null || !isLibreChatConversation(conversation)) {
+      return null;
+    }
+    final id = conversation.model;
+    return id == null || id.isEmpty ? null : id;
+  }
+
   Future<Model> _resolveModel(String? requested) async {
     List<Model> models;
     try {
@@ -3389,6 +3530,18 @@ final class TurnsService implements ChatTurns {
           code: ConduitErrorCodes.unauthenticated,
           args: <String, String>{'backend': 'hermes'},
           debugMessage: 'sign in to Hermes first',
+        );
+      }
+      return;
+    }
+    if (isLibreChatModel(model)) {
+      // A LibreChat model sends through the LibreChat account's session,
+      // whose renewals the core runs; none signed in means a sign-in first.
+      if (_container.read(libreChatSessionHandleProvider) == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.unauthenticated,
+          args: <String, String>{'backend': 'libreChat'},
+          debugMessage: 'sign in to LibreChat first',
         );
       }
       return;
@@ -3581,10 +3734,31 @@ final class TurnsService implements ChatTurns {
 
   static ChatMessage? _answerOf(_ChatSession session, _Turn turn) {
     if (session.scope.isDisposed) return null;
-    return session.scope.messages
-        .where((m) => m.id == turn.messageId)
-        .lastOrNull;
+    return _find(session, session.scope.messages, turn.messageId);
   }
+
+  /// The message the windows know as [id] in [messages]. A LibreChat turn's
+  /// messages start with ids minted here and take the server's once it
+  /// names them; the windows keep the id the turn was announced with, and
+  /// the transcript is searched under the server's.
+  static ChatMessage? _find(
+    _ChatSession session,
+    List<ChatMessage> messages,
+    String id,
+  ) {
+    final found = messages.where((m) => m.id == id).lastOrNull;
+    if (found != null) return found;
+    final current = _currentId(session, id);
+    if (current == id) return null;
+    return messages.where((m) => m.id == current).lastOrNull;
+  }
+
+  static String _currentId(_ChatSession session, String id) =>
+      session.scope.isDisposed
+      ? id
+      : session.scope.container
+            .read(libreChatRunRegistryProvider)
+            .currentMessageId(id);
 
   static bool _changed(ChatMessage? before, ChatMessage after) =>
       before == null ||
@@ -3614,6 +3788,15 @@ final class TurnsService implements ChatTurns {
         code: ConduitErrorCodes.invalidParams,
         args: <String, String>{'detail': error.message},
         debugMessage: error.message,
+      );
+    }
+    // LibreChat keeps every chat: a temporary one is refused before anything
+    // is sent, as on the phone.
+    if (error is LibreChatTemporaryChatException) {
+      return const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        args: <String, String>{'reason': 'libreChatTemporaryChat'},
+        debugMessage: 'LibreChat keeps every chat; temporary chat is on',
       );
     }
     final detail = _describe(error);

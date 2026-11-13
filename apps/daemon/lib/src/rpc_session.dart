@@ -32,6 +32,7 @@ import 'handoff_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'calls_service.dart';
+import 'librechat_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
@@ -76,6 +77,7 @@ final class CoreServices {
     this.coreSettings,
     this.profile,
     this.memories,
+    this.libreChat,
     this.releaseNotes,
     this.data,
     this.drafts,
@@ -115,6 +117,9 @@ final class CoreServices {
   final CoreSettingsService? coreSettings;
   final ProfileService? profile;
   final MemoriesService? memories;
+
+  /// `librechat.*`: LibreChat sign-in, composer tools, memories, Duplicate.
+  final LibreChatService? libreChat;
   final ReleaseNotesRpcService? releaseNotes;
   final DataService? data;
   final DraftsService? drafts;
@@ -206,6 +211,7 @@ class RpcSession {
   CoreSettingsService? get _coreSettings => _services().coreSettings;
   ProfileService? get _profile => _services().profile;
   MemoriesService? get _memories => _services().memories;
+  LibreChatService? get _libreChat => _services().libreChat;
   ChatPromptsService? get _chatPrompts => _services().chatPrompts;
   McpAppsService? get _mcpApps => _services().mcpApps;
   HermesCardsService? get _hermesCards => _services().hermesCards;
@@ -480,6 +486,41 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.profileSignOutAll,
       (p) => _need(_profile).signOutAll(p),
+    );
+    _on(ConduitMethodSpecs.librechatProbe, (p) => _need(_libreChat).probe(p));
+    _on(ConduitMethodSpecs.librechatSignIn, (p) => _need(_libreChat).signIn(p));
+    _on(ConduitMethodSpecs.librechatVerify, (p) => _need(_libreChat).verify(p));
+    _on(
+      ConduitMethodSpecs.librechatSsoStart,
+      (p) => _need(_libreChat).ssoStart(p),
+    );
+    _on(
+      ConduitMethodSpecs.librechatCompleteSso,
+      (p) => _need(_libreChat).completeSso(p),
+    );
+    _on(
+      ConduitMethodSpecs.librechatComposer,
+      (p) => _need(_libreChat).composer(p),
+    );
+    _on(
+      ConduitMethodSpecs.librechatMemoriesList,
+      (_) => _need(_libreChat).memories(),
+    );
+    _on(
+      ConduitMethodSpecs.librechatMemoriesSave,
+      (p) => _need(_libreChat).saveMemory(p),
+    );
+    _on(
+      ConduitMethodSpecs.librechatMemoriesDelete,
+      (p) => _need(_libreChat).deleteMemory(p),
+    );
+    _on(
+      ConduitMethodSpecs.librechatMemoriesSetEnabled,
+      (p) => _need(_libreChat).setMemoriesEnabled(p),
+    );
+    _on(
+      ConduitMethodSpecs.librechatDuplicate,
+      (p) => _need(_libreChat).duplicate(p),
     );
     _on(ConduitMethodSpecs.memoriesList, (_) => _need(_memories).list());
     _on(ConduitMethodSpecs.memoriesAdd, (p) => _need(_memories).add(p));

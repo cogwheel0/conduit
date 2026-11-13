@@ -183,6 +183,7 @@ fn chat_value() -> Value {
                 model: None,
                 tags: vec![],
                 shared: false,
+                menu: Default::default(),
             },
             messages,
             system_prompt: None,
