@@ -1,32 +1,15 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:conduit_core/features/chat/read_aloud/device_speech_engine.dart';
 import 'package:flutter/services.dart';
 
-class NativeTtsEvent {
-  const NativeTtsEvent({
-    required this.type,
-    this.message,
-    this.start,
-    this.end,
-  });
+export 'package:conduit_core/features/chat/read_aloud/device_speech_engine.dart'
+    show NativeTtsAudio, NativeTtsEvent;
 
-  final String type;
-  final String? message;
-  final int? start;
-  final int? end;
-
-  factory NativeTtsEvent.fromMap(Map<Object?, Object?> map) {
-    return NativeTtsEvent(
-      type: (map['type'] as String?) ?? 'unknown',
-      message: map['message'] as String?,
-      start: (map['start'] as num?)?.toInt(),
-      end: (map['end'] as num?)?.toInt(),
-    );
-  }
-}
-
-class NativeTtsService {
+/// The phone's engine: AVSpeechSynthesizer on iOS, TextToSpeech on Android,
+/// over platform channels.
+class NativeTtsService implements DeviceSpeechEngine {
   static const MethodChannel _iosMethodChannel = MethodChannel(
     'app.cogwheel.conduit/native_ios_tts',
   );
@@ -42,6 +25,14 @@ class NativeTtsService {
 
   bool get isSupportedPlatform => Platform.isIOS || Platform.isAndroid;
 
+  @override
+  String get engineName => Platform.isIOS ? 'AVSpeech' : 'AndroidTTS';
+
+  /// A new utterance is queued or replaces the last with a cancel; a
+  /// reading never relies on either.
+  @override
+  bool get replacesOnSpeak => false;
+
   MethodChannel? get _methodChannel {
     if (Platform.isIOS) return _iosMethodChannel;
     if (Platform.isAndroid) return _androidMethodChannel;
@@ -54,6 +45,7 @@ class NativeTtsService {
     return null;
   }
 
+  @override
   Stream<NativeTtsEvent> get events {
     final channel = _eventChannel;
     if (!isSupportedPlatform || channel == null) {
@@ -66,6 +58,7 @@ class NativeTtsService {
     });
   }
 
+  @override
   Future<bool> isAvailable() async {
     final channel = _methodChannel;
     if (!isSupportedPlatform || channel == null) {
@@ -80,6 +73,7 @@ class NativeTtsService {
     }
   }
 
+  @override
   Future<List<Map<String, dynamic>>> getVoices() async {
     final channel = _methodChannel;
     if (!isSupportedPlatform || channel == null) {
@@ -106,6 +100,7 @@ class NativeTtsService {
   ///
   /// [voiceCall] keeps playback on the active call route. Android uses the
   /// voice-communication stream; iOS activates the shared call audio session.
+  @override
   Future<bool> speak({
     required String text,
     String? voiceIdentifier,
@@ -136,6 +131,7 @@ class NativeTtsService {
   }
 
   /// Renders device speech to a local file so read-aloud can seek by time.
+  @override
   Future<NativeTtsAudio> synthesize({
     required String text,
     String? voiceIdentifier,
@@ -161,12 +157,16 @@ class NativeTtsService {
     return NativeTtsAudio(path, Duration(milliseconds: milliseconds));
   }
 
+  @override
   Future<bool> cancelSynthesis() => _invokeBool('cancelSynthesis');
 
+  @override
   Future<bool> stop() => _invokeBool('stop');
 
+  @override
   Future<bool> pause() => _invokeBool('pause');
 
+  @override
   Future<bool> resume() => _invokeBool('resume');
 
   Future<bool> _invokeBool(String method) async {
@@ -192,10 +192,4 @@ class NativeTtsService {
     });
     return normalized;
   }
-}
-
-class NativeTtsAudio {
-  const NativeTtsAudio(this.path, this.duration);
-  final String path;
-  final Duration duration;
 }
