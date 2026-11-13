@@ -462,6 +462,71 @@
       "result": "KnowledgeList"
     },
     {
+      "name": "drafts.get",
+      "params": "DraftRef",
+      "result": "Draft"
+    },
+    {
+      "name": "drafts.save",
+      "params": "DraftSave",
+      "result": "Draft"
+    },
+    {
+      "name": "queue.get",
+      "params": "ChatRef",
+      "result": "QueueState"
+    },
+    {
+      "name": "queue.add",
+      "params": "QueueAdd",
+      "result": "QueueState"
+    },
+    {
+      "name": "queue.edit",
+      "params": "QueueEdit",
+      "result": "QueueState"
+    },
+    {
+      "name": "queue.remove",
+      "params": "QueueDraftRef",
+      "result": "QueueState"
+    },
+    {
+      "name": "queue.sendNow",
+      "params": "QueueDraftRef",
+      "result": "QueueSendNowResult"
+    },
+    {
+      "name": "queue.retry",
+      "params": "ChatRef",
+      "result": "QueueState"
+    },
+    {
+      "name": "mentions.search",
+      "params": "ComposerSearch",
+      "result": "MentionList"
+    },
+    {
+      "name": "skills.search",
+      "params": "ComposerSearch",
+      "result": "SkillList"
+    },
+    {
+      "name": "context.search",
+      "params": "ComposerSearch",
+      "result": "ContextSuggestions"
+    },
+    {
+      "name": "context.fetchUrl",
+      "params": "FetchUrl",
+      "result": "FetchedUrl"
+    },
+    {
+      "name": "files.list",
+      "params": "ComposerSearch",
+      "result": "ServerFileList"
+    },
+    {
       "name": "prompts.list",
       "params": null,
       "result": "PromptList"
@@ -610,6 +675,11 @@
       "name": "turns.edit",
       "params": "EditTurn",
       "result": "SendTurnAccepted"
+    },
+    {
+      "name": "turns.steer",
+      "params": "SteerTurn",
+      "result": "SteerResult"
     },
     {
       "name": "turns.rate",
@@ -1137,6 +1207,11 @@
       "name": "settings.changed",
       "payload": null,
       "scoped": false
+    },
+    {
+      "name": "queue.changed",
+      "payload": "QueueState",
+      "scoped": true
     }
   ]
 }

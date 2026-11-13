@@ -1508,6 +1508,61 @@ pub struct ComposerOptions {
     /// server, and a direct model never reaches it.
     #[serde(default)]
     pub mcp_tools: Vec<ToolSummary>,
+    /// Open WebUI's toggle filters (the server's `toggle` functions), as
+    /// mobile's + panel lists them under Filters.
+    #[serde(default)]
+    pub filters: Vec<ToolSummary>,
+    /// The `filters` the selected model turns on by itself (the core's
+    /// `defaultFilterIdsForModel`): where a new message's filters start.
+    #[serde(default)]
+    pub filter_defaults: Vec<String>,
+    /// The + menu offers the code interpreter: the core's
+    /// `codeInterpreterOfferProvider` with nothing chosen yet. Off for a
+    /// turn that never reaches an Open WebUI server.
+    #[serde(default)]
+    pub code_interpreter: bool,
+    /// Why the code interpreter cannot run for the selected model, as the
+    /// core's `CodeInterpreterBlock` names it (`unsupportedEngine`,
+    /// `serverDisabled`, ...); null when it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_interpreter_block: Option<String>,
+    /// What the + menu may attach for the selected model, as mobile's
+    /// `_overflowAttachmentAvailability` decides it.
+    #[serde(default)]
+    pub attachments: AttachmentAvailability,
+    /// `$` lists Open WebUI skills: an Open WebUI account, and a model
+    /// that is not Hermes, LibreChat or an on-device Direct one.
+    #[serde(default)]
+    pub skills: bool,
+    /// `#` lists context (notes, knowledge bases and their files): not for
+    /// a Hermes or LibreChat model, which cannot resolve Open WebUI ids.
+    #[serde(default)]
+    pub context: bool,
+    /// `#` includes notes: the account's notes feature is on.
+    #[serde(default)]
+    pub notes: bool,
+    /// `@` lists the server's users and channels besides the models.
+    #[serde(default)]
+    pub mentions: bool,
+    /// The selected model is Hermes on a Desktop Gateway: a message typed
+    /// while it answers goes to the running turn (`turns.steer`).
+    #[serde(default)]
+    pub steer: bool,
+    /// Image extensions (with the dot, lower case) the composer turns into a
+    /// JPEG before uploading, as mobile does: HEIC, RAW and BMP (the core's
+    /// `alwaysConvertImageFormats`).
+    #[serde(default)]
+    pub image_conversions: Vec<String>,
+    /// "Compare Models" may send one message to two models: an Open WebUI
+    /// account and model, a stored chat, and the Advanced setting on, as
+    /// the core's `comparisonCommandAvailableProvider` decides.
+    #[serde(default)]
+    pub compare_models: bool,
+    /// The quick pills Settings › Chats chose that this model can turn on,
+    /// in their order (the core's `composerQuickPills`, as mobile's composer
+    /// draws them); none outside Open WebUI.
+    #[serde(default)]
+    pub quick_pills: Vec<QuickPillOption>,
 }
 
 /// A knowledge base, as the `#` menu lists it.
@@ -1534,6 +1589,256 @@ pub struct KnowledgeQuery {
 pub struct KnowledgeList {
     #[serde(default)]
     pub items: Vec<KnowledgeSummary>,
+}
+
+/// Which attachment kinds the + menu offers for the selected model.
+///
+/// Mobile's table (`_overflowAttachmentAvailability`): Open WebUI takes
+/// every kind but MCP content; a Direct model takes files, images and, with
+/// an enabled MCP server, MCP content; Hermes takes files, and images when
+/// the server reads them; LibreChat files and images.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentAvailability {
+    #[serde(default = "default_attachment_availability_files")]
+    pub files: bool,
+    /// Files already on the Open WebUI server (`files.list`).
+    #[serde(default)]
+    pub server_files: bool,
+    #[serde(default = "default_attachment_availability_images")]
+    pub images: bool,
+    /// A web page's readable text or a YouTube video's transcript
+    /// (`context.fetchUrl`).
+    #[serde(default)]
+    pub web_page: bool,
+    /// A Direct MCP server's prompts and resources (`mcp.content`).
+    #[serde(default)]
+    pub mcp_content: bool,
+}
+
+impl Default for AttachmentAvailability {
+    fn default() -> Self {
+        Self {
+            files: default_attachment_availability_files(),
+            server_files: Default::default(),
+            images: default_attachment_availability_images(),
+            web_page: Default::default(),
+            mcp_content: Default::default(),
+        }
+    }
+}
+
+fn default_attachment_availability_files() -> bool {
+    true
+}
+
+fn default_attachment_availability_images() -> bool {
+    true
+}
+
+/// Params for the composer's searches: `mentions.search`, `skills.search`,
+/// `context.search` and `files.list`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerSearch {
+    #[serde(default)]
+    pub query: String,
+}
+
+/// A user or channel the `@` menu offers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionTarget {
+    pub id: String,
+    pub name: String,
+    /// A second line: a user's email, a channel's description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Reply to `mentions.search`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionList {
+    #[serde(default)]
+    pub users: Vec<MentionTarget>,
+    #[serde(default)]
+    pub channels: Vec<MentionTarget>,
+}
+
+/// An Open WebUI skill, as the `$` menu lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSummary {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Reply to `skills.search`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillList {
+    #[serde(default)]
+    pub items: Vec<SkillSummary>,
+}
+
+/// What a `#` suggestion attaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ContextSuggestionKind {
+    #[serde(rename = "note")]
+    Note,
+    #[serde(rename = "knowledgeBase")]
+    KnowledgeBase,
+    #[serde(rename = "knowledgeFile")]
+    KnowledgeFile,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A `#` suggestion: the core's `ComposerContextSuggestion`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextSuggestion {
+    pub kind: ContextSuggestionKind,
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    /// A knowledge file's base.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_name: Option<String>,
+}
+
+/// Reply to `context.search`: notes first, then knowledge bases, then
+/// knowledge files, up to four of each (the core's per-type cap).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextSuggestions {
+    #[serde(default)]
+    pub items: Vec<ContextSuggestion>,
+}
+
+/// What a context attachment is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ContextAttachmentKind {
+    #[serde(rename = "web")]
+    Web,
+    #[serde(rename = "youtube")]
+    Youtube,
+    #[serde(rename = "knowledge")]
+    Knowledge,
+    #[serde(rename = "note")]
+    Note,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Context that goes with a message without being a file: a web page's
+/// text, a YouTube transcript, a note, a knowledge file. The core's
+/// `ChatContextAttachment`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextAttachmentDto {
+    pub id: String,
+    pub kind: ContextAttachmentKind,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// A page's readable text or a video's transcript, as the server
+    /// extracted it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_name: Option<String>,
+    /// A knowledge file's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
+}
+
+/// Params for `context.fetchUrl`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchUrl {
+    pub url: String,
+}
+
+/// Reply to `context.fetchUrl`: the attachment, or why there is none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchedUrl {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<ContextAttachmentDto>,
+    /// `invalidUrl`, `noContent` (a page with no readable text, a video
+    /// with no transcript) or `failed`; null with an attachment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// A file already on the Open WebUI server, for the server-file picker.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerFile {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at_ms: Option<i64>,
+}
+
+/// Reply to `files.list`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerFileList {
+    #[serde(default)]
+    pub items: Vec<ServerFile>,
+}
+
+/// What a mention stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MentionKind {
+    #[serde(rename = "entity")]
+    Entity,
+    #[serde(rename = "skill")]
+    Skill,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A mention in a message: the core's `ComposerMention`. The daemon turns
+/// the text into Open WebUI's wire format (`<@U:id|Name>`, `<$id|Name>`)
+/// with the core's tracker.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerMentionDto {
+    /// UTF-16 offsets into the message text, `end` exclusive.
+    pub start: i64,
+    pub end: i64,
+    pub id: String,
+    pub label: String,
+    /// `M` a model, `U` a user, `C` a channel.
+    #[serde(default = "default_composer_mention_dto_id_type")]
+    pub id_type: String,
+    #[serde(default = "default_composer_mention_dto_kind")]
+    pub kind: MentionKind,
+}
+
+fn default_composer_mention_dto_id_type() -> String {
+    "M".to_owned()
+}
+
+fn default_composer_mention_dto_kind() -> MentionKind {
+    MentionKind::Entity
 }
 
 /// Reply to `data.summary`: what Chat Data Controls' server-wide actions
@@ -3124,6 +3429,162 @@ pub struct RenderedPrompt {
     pub inputs: Vec<PromptInput>,
 }
 
+/// Names a composer's draft: a stored chat's, or a new chat's (in a
+/// folder, or none). Params for `drafts.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftRef {
+    /// Null for a chat not started yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    /// A new chat's folder ("New Chat in Folder"); ignored with a `chatId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+}
+
+/// Params for `drafts.save`: what the composer holds now. An empty `text`
+/// clears the draft.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftSave {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+    #[serde(default)]
+    pub text: String,
+}
+
+/// A composer's draft, as the account's database keeps it (the core's
+/// `ComposerDraftStore`). Reply to `drafts.get` and `drafts.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Draft {
+    #[serde(default)]
+    pub text: String,
+    /// False where nothing is kept: a temporary or read-only chat, or no
+    /// account database. The composer then holds the text only while open.
+    #[serde(default = "default_draft_stored")]
+    pub stored: bool,
+}
+
+impl Default for Draft {
+    fn default() -> Self {
+        Self {
+            text: Default::default(),
+            stored: default_draft_stored(),
+        }
+    }
+}
+
+fn default_draft_stored() -> bool {
+    true
+}
+
+/// One message queued behind a running answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedDraftDto {
+    pub id: String,
+    /// The text as it will be sent (mentions in Open WebUI's wire format).
+    pub text: String,
+    #[serde(default)]
+    pub files: Vec<ChatFileDto>,
+    #[serde(default)]
+    pub context: Vec<ContextAttachmentDto>,
+    /// Being stopped for, or being sent: it cannot be edited or removed.
+    #[serde(default)]
+    pub frozen: bool,
+}
+
+/// Where a queue is in handing its drafts over (the core's
+/// `ChatDraftQueuePhase`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum QueuePhase {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "stopping")]
+    Stopping,
+    #[serde(rename = "admitting")]
+    Admitting,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A chat's queue: the core's `ChatDraftQueue`. Reply to every `queue.*`
+/// method and the payload of `queue.changed`.
+///
+/// Every draft waiting when the answer finishes goes out as one message
+/// (the texts joined by a blank line, the files in order), as Open WebUI's
+/// own queue does. Queued drafts live in the daemon's memory only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueState {
+    pub chat_id: String,
+    #[serde(default)]
+    pub drafts: Vec<QueuedDraftDto>,
+    #[serde(default = "default_queue_state_phase")]
+    pub phase: QueuePhase,
+    /// The last batch was refused before it was sent; nothing goes out
+    /// again until `queue.retry` (or an edit).
+    #[serde(default)]
+    pub admission_failed: bool,
+    /// A message typed now would be queued rather than sent: an answer is
+    /// running in an Open WebUI chat that takes queued turns.
+    #[serde(default)]
+    pub offer: bool,
+}
+
+fn default_queue_state_phase() -> QueuePhase {
+    QueuePhase::Idle
+}
+
+/// Params for `queue.add`: what the composer holds, queued behind the
+/// running answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueAdd {
+    pub chat_id: String,
+    pub text: String,
+    #[serde(default)]
+    pub mentions: Vec<ComposerMentionDto>,
+    /// Ids of files already uploaded through `/upload`, or picked from the
+    /// server's files.
+    #[serde(default)]
+    pub file_ids: Vec<String>,
+    #[serde(default)]
+    pub context: Vec<ContextAttachmentDto>,
+}
+
+/// Params naming one queued draft: `queue.remove` and `queue.sendNow`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueDraftRef {
+    pub chat_id: String,
+    pub draft_id: String,
+}
+
+/// Params for `queue.edit`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEdit {
+    pub chat_id: String,
+    pub draft_id: String,
+    pub text: String,
+}
+
+/// Reply to `queue.sendNow`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueSendNowResult {
+    /// The core's `ChatDraftSendNowOutcome`: `admitted`, `unavailable`,
+    /// `blockedByUpload`, `stopFailed`, `changed` or `admissionFailed`.
+    pub outcome: String,
+    pub queue: QueueState,
+}
+
 /// One version's release note, as core's catalog reads it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -3736,6 +4197,10 @@ pub struct QuickPillOption {
     /// window names itself).
     #[serde(default)]
     pub name: String,
+    /// The tool's or filter's own id, which its switch turns on (a filter's
+    /// without the `filter:` prefix); empty for `web` and `image`.
+    #[serde(default)]
+    pub target_id: String,
 }
 
 /// Reply to `settings.quickPills`: the pills on offer, in core's order.
@@ -4238,6 +4703,21 @@ pub struct SendTurn {
     /// Ids of files already uploaded through `/upload`.
     #[serde(default)]
     pub file_ids: Vec<String>,
+    /// Web pages, YouTube transcripts, notes and knowledge files (`#`, the
+    /// + menu's Web Page): the core's context attachments.
+    #[serde(default)]
+    pub context: Vec<ContextAttachmentDto>,
+    /// `@` users and channels and `$` skills in `text`, which the daemon
+    /// writes in Open WebUI's wire format.
+    #[serde(default)]
+    pub mentions: Vec<ComposerMentionDto>,
+    /// Open WebUI toggle filters chosen in the + menu.
+    #[serde(default)]
+    pub filter_ids: Vec<String>,
+    /// "Compare Models": the two models to answer side by side. Empty for an
+    /// ordinary turn; `model` is then ignored.
+    #[serde(default)]
+    pub compare_models: Vec<String>,
     /// Start a conversation the server never stores.
     ///
     /// Only meaningful with no `chatId`. The daemon assigns a `local:` id,
@@ -4422,6 +4902,36 @@ pub struct RatedResult {
 #[serde(rename_all = "camelCase")]
 pub struct StoppedResult {
     pub stopped: bool,
+}
+
+/// Params for `turns.steer`: a message typed while Hermes is working.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteerTurn {
+    pub chat_id: String,
+    pub text: String,
+    #[serde(default)]
+    pub mentions: Vec<ComposerMentionDto>,
+    /// True steers the running turn; false sends the text as the next
+    /// message, after it (the core's `HermesBusyTurnAction`).
+    #[serde(default = "default_steer_turn_steer")]
+    pub steer: bool,
+}
+
+fn default_steer_turn_steer() -> bool {
+    true
+}
+
+/// Reply to `turns.steer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteerResult {
+    /// Hermes took the message.
+    pub accepted: bool,
+    /// Hermes did not say whether the turn saw the steer: the composer keeps
+    /// the text and says so, without sending it again.
+    #[serde(default)]
+    pub uncertain: bool,
 }
 
 /// Dictation, read aloud and call mode settings, with what the active
@@ -6633,6 +7143,165 @@ pub mod methods {
         type Result = super::KnowledgeList;
     }
 
+    /// The composer's draft for a chat (or a new chat), as the account's
+    /// database keeps it.
+    ///
+    /// `drafts.get`: DraftRef -> Draft.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DraftsGet;
+
+    impl RpcMethod for DraftsGet {
+        const NAME: &'static str = "drafts.get";
+        type Params = super::DraftRef;
+        type Result = super::Draft;
+    }
+
+    /// Keeps what the composer holds now; an empty text clears it.
+    ///
+    /// `drafts.save`: DraftSave -> Draft.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DraftsSave;
+
+    impl RpcMethod for DraftsSave {
+        const NAME: &'static str = "drafts.save";
+        type Params = super::DraftSave;
+        type Result = super::Draft;
+    }
+
+    /// A chat's messages queued behind its running answer.
+    ///
+    /// `queue.get`: ChatRef -> QueueState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct QueueGet;
+
+    impl RpcMethod for QueueGet {
+        const NAME: &'static str = "queue.get";
+        type Params = super::ChatRef;
+        type Result = super::QueueState;
+    }
+
+    /// Queues a message behind the running answer.
+    ///
+    /// `queue.add`: QueueAdd -> QueueState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct QueueAdd;
+
+    impl RpcMethod for QueueAdd {
+        const NAME: &'static str = "queue.add";
+        type Params = super::QueueAdd;
+        type Result = super::QueueState;
+    }
+
+    /// Replaces a queued message's text.
+    ///
+    /// `queue.edit`: QueueEdit -> QueueState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct QueueEdit;
+
+    impl RpcMethod for QueueEdit {
+        const NAME: &'static str = "queue.edit";
+        type Params = super::QueueEdit;
+        type Result = super::QueueState;
+    }
+
+    /// Removes a queued message.
+    ///
+    /// `queue.remove`: QueueDraftRef -> QueueState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct QueueRemove;
+
+    impl RpcMethod for QueueRemove {
+        const NAME: &'static str = "queue.remove";
+        type Params = super::QueueDraftRef;
+        type Result = super::QueueState;
+    }
+
+    /// Stops the running answer and sends one queued message at once.
+    ///
+    /// `queue.sendNow`: QueueDraftRef -> QueueSendNowResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct QueueSendNow;
+
+    impl RpcMethod for QueueSendNow {
+        const NAME: &'static str = "queue.sendNow";
+        type Params = super::QueueDraftRef;
+        type Result = super::QueueSendNowResult;
+    }
+
+    /// Lets a queue whose last batch was refused try again.
+    ///
+    /// `queue.retry`: ChatRef -> QueueState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct QueueRetry;
+
+    impl RpcMethod for QueueRetry {
+        const NAME: &'static str = "queue.retry";
+        type Params = super::ChatRef;
+        type Result = super::QueueState;
+    }
+
+    /// The server's users and channels matching what follows an `@`.
+    ///
+    /// `mentions.search`: ComposerSearch -> MentionList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MentionsSearch;
+
+    impl RpcMethod for MentionsSearch {
+        const NAME: &'static str = "mentions.search";
+        type Params = super::ComposerSearch;
+        type Result = super::MentionList;
+    }
+
+    /// The Open WebUI skills matching what follows a `$`.
+    ///
+    /// `skills.search`: ComposerSearch -> SkillList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SkillsSearch;
+
+    impl RpcMethod for SkillsSearch {
+        const NAME: &'static str = "skills.search";
+        type Params = super::ComposerSearch;
+        type Result = super::SkillList;
+    }
+
+    /// Notes, knowledge bases and knowledge files matching what follows a `#`.
+    ///
+    /// `context.search`: ComposerSearch -> ContextSuggestions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ContextSearch;
+
+    impl RpcMethod for ContextSearch {
+        const NAME: &'static str = "context.search";
+        type Params = super::ComposerSearch;
+        type Result = super::ContextSuggestions;
+    }
+
+    /// A web page's readable text or a YouTube video's transcript, as a
+    /// context attachment.
+    ///
+    /// `context.fetchUrl`: FetchUrl -> FetchedUrl.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ContextFetchUrl;
+
+    impl RpcMethod for ContextFetchUrl {
+        const NAME: &'static str = "context.fetchUrl";
+        type Params = super::FetchUrl;
+        type Result = super::FetchedUrl;
+    }
+
+    /// The account's files already on the Open WebUI server, for the
+    /// server-file picker.
+    ///
+    /// `files.list`: ComposerSearch -> ServerFileList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct FilesList;
+
+    impl RpcMethod for FilesList {
+        const NAME: &'static str = "files.list";
+        type Params = super::ComposerSearch;
+        type Result = super::ServerFileList;
+    }
+
     /// The account's saved prompts, for the composer's `/` menu.
     ///
     /// `prompts.list`: no params -> PromptList.
@@ -7006,6 +7675,19 @@ pub mod methods {
         const NAME: &'static str = "turns.edit";
         type Params = super::EditTurn;
         type Result = super::SendTurnAccepted;
+    }
+
+    /// A message typed while Hermes works: steers the running turn, or goes
+    /// as the next message (a Hermes Desktop Gateway).
+    ///
+    /// `turns.steer`: SteerTurn -> SteerResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct TurnsSteer;
+
+    impl RpcMethod for TurnsSteer {
+        const NAME: &'static str = "turns.steer";
+        type Params = super::SteerTurn;
+        type Result = super::SteerResult;
     }
 
     /// Rates an answer, up or down, as Open WebUI's own client does: an
@@ -8359,6 +9041,71 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("KnowledgeList"),
     },
     MethodSpec {
+        name: "drafts.get",
+        params: Some("DraftRef"),
+        result: Some("Draft"),
+    },
+    MethodSpec {
+        name: "drafts.save",
+        params: Some("DraftSave"),
+        result: Some("Draft"),
+    },
+    MethodSpec {
+        name: "queue.get",
+        params: Some("ChatRef"),
+        result: Some("QueueState"),
+    },
+    MethodSpec {
+        name: "queue.add",
+        params: Some("QueueAdd"),
+        result: Some("QueueState"),
+    },
+    MethodSpec {
+        name: "queue.edit",
+        params: Some("QueueEdit"),
+        result: Some("QueueState"),
+    },
+    MethodSpec {
+        name: "queue.remove",
+        params: Some("QueueDraftRef"),
+        result: Some("QueueState"),
+    },
+    MethodSpec {
+        name: "queue.sendNow",
+        params: Some("QueueDraftRef"),
+        result: Some("QueueSendNowResult"),
+    },
+    MethodSpec {
+        name: "queue.retry",
+        params: Some("ChatRef"),
+        result: Some("QueueState"),
+    },
+    MethodSpec {
+        name: "mentions.search",
+        params: Some("ComposerSearch"),
+        result: Some("MentionList"),
+    },
+    MethodSpec {
+        name: "skills.search",
+        params: Some("ComposerSearch"),
+        result: Some("SkillList"),
+    },
+    MethodSpec {
+        name: "context.search",
+        params: Some("ComposerSearch"),
+        result: Some("ContextSuggestions"),
+    },
+    MethodSpec {
+        name: "context.fetchUrl",
+        params: Some("FetchUrl"),
+        result: Some("FetchedUrl"),
+    },
+    MethodSpec {
+        name: "files.list",
+        params: Some("ComposerSearch"),
+        result: Some("ServerFileList"),
+    },
+    MethodSpec {
         name: "prompts.list",
         params: None,
         result: Some("PromptList"),
@@ -8507,6 +9254,11 @@ pub const METHODS: &[MethodSpec] = &[
         name: "turns.edit",
         params: Some("EditTurn"),
         result: Some("SendTurnAccepted"),
+    },
+    MethodSpec {
+        name: "turns.steer",
+        params: Some("SteerTurn"),
+        result: Some("SteerResult"),
     },
     MethodSpec {
         name: "turns.rate",
@@ -8958,7 +9710,8 @@ pub mod events {
     /// window refetches `system.capabilities`.
     pub const CAPABILITIES_CHANGED: &str = "capabilities.changed";
     /// The models on offer changed: a direct connection was added and its
-    /// models discovered, or the server's list was refreshed. No
+    /// models discovered, or the server's list was refreshed. Also when the
+    /// model the next turn runs with changed (a new Default Model, say). No
     /// payload; `models.list` says what they are.
     pub const MODELS_CHANGED: &str = "models.changed";
     /// The daemon needs a page opened in the system browser: an MCP
@@ -8978,6 +9731,9 @@ pub mod events {
     /// Core's `AppSettings` changed, from any window or the daemon itself.
     /// No payload; `settings.get` says what they are now.
     pub const SETTINGS_CHANGED: &str = "settings.changed";
+    /// A chat's queued messages changed. Payload `QueueState`, scoped to the
+    /// chat.
+    pub const QUEUE_CHANGED: &str = "queue.changed";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -9112,6 +9868,11 @@ pub const EVENTS: &[EventSpec] = &[
         payload: None,
         scoped: false,
     },
+    EventSpec {
+        name: "queue.changed",
+        payload: Some("QueueState"),
+        scoped: true,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -9201,7 +9962,8 @@ pub enum Event {
     /// `capabilities.changed`.
     CapabilitiesChanged,
     /// The models on offer changed: a direct connection was added and its
-    /// models discovered, or the server's list was refreshed. No
+    /// models discovered, or the server's list was refreshed. Also when the
+    /// model the next turn runs with changed (a new Default Model, say). No
     /// payload; `models.list` says what they are.
     ///
     /// `models.changed`.
@@ -9235,6 +9997,11 @@ pub enum Event {
     ///
     /// `settings.changed`.
     SettingsChanged,
+    /// A chat's queued messages changed. Payload `QueueState`, scoped to the
+    /// chat.
+    ///
+    /// `queue.changed`, scoped.
+    QueueChanged(QueueState),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -9278,6 +10045,7 @@ impl Event {
                 Self::TerminalDisplayFile(serde_json::from_value(payload)?)
             }
             events::SETTINGS_CHANGED => Self::SettingsChanged,
+            events::QUEUE_CHANGED => Self::QueueChanged(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -9314,6 +10082,7 @@ impl Event {
             Self::VoiceChanged(_) => events::VOICE_CHANGED,
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
             Self::SettingsChanged => events::SETTINGS_CHANGED,
+            Self::QueueChanged(_) => events::QUEUE_CHANGED,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -9341,6 +10110,7 @@ impl Event {
             Self::WorkspaceChanged(payload) => serde_json::to_value(payload),
             Self::VoiceChanged(payload) => serde_json::to_value(payload),
             Self::TerminalDisplayFile(payload) => serde_json::to_value(payload),
+            Self::QueueChanged(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -9381,6 +10151,7 @@ pub mod conformance {
         "AppSettingsDto",
         "AppSettingsPatch",
         "ArchivedVisibility",
+        "AttachmentAvailability",
         "AuthSnapshot",
         "AuthUser",
         "BulkChats",
@@ -9426,8 +10197,13 @@ pub mod conformance {
         "ChatTreeNode",
         "ChatUsageDto",
         "ChatsChanged",
+        "ComposerMentionDto",
         "ComposerOptions",
+        "ComposerSearch",
         "ConnectionHealth",
+        "ContextAttachmentDto",
+        "ContextSuggestion",
+        "ContextSuggestions",
         "CreateFolder",
         "DaemonPaths",
         "DataActionResult",
@@ -9445,10 +10221,15 @@ pub mod conformance {
         "DirectRef",
         "DirectTestResult",
         "DirectVoiceProviderDto",
+        "Draft",
+        "DraftRef",
+        "DraftSave",
         "EditTurn",
         "EventEnvelope",
         "EventSubscription",
         "ExternalAuthCompletion",
+        "FetchUrl",
+        "FetchedUrl",
         "FolderContents",
         "FolderCreated",
         "FolderRef",
@@ -9495,6 +10276,8 @@ pub mod conformance {
         "MemoryList",
         "MemoryRef",
         "MemoryToggle",
+        "MentionList",
+        "MentionTarget",
         "MessageBlockDto",
         "MessageStatusDto",
         "ModelList",
@@ -9535,6 +10318,12 @@ pub mod conformance {
         "PromptInput",
         "PromptList",
         "PromptSummary",
+        "QueueAdd",
+        "QueueDraftRef",
+        "QueueEdit",
+        "QueueSendNowResult",
+        "QueueState",
+        "QueuedDraftDto",
         "QuickPillOption",
         "QuickPillOptions",
         "RateTurn",
@@ -9556,11 +10345,17 @@ pub mod conformance {
         "SendTurn",
         "SendTurnAccepted",
         "ServerDraft",
+        "ServerFile",
+        "ServerFileList",
         "ServerStatus",
         "ServerSummary",
         "SetChatFlag",
         "ShutdownResult",
         "SignOutAll",
+        "SkillList",
+        "SkillSummary",
+        "SteerResult",
+        "SteerTurn",
         "StopTurn",
         "StoppedResult",
         "SyncState",
@@ -9683,6 +10478,7 @@ pub mod conformance {
             "AppSettingsDto" => roundtrip::<super::AppSettingsDto>(json),
             "AppSettingsPatch" => roundtrip::<super::AppSettingsPatch>(json),
             "ArchivedVisibility" => roundtrip::<super::ArchivedVisibility>(json),
+            "AttachmentAvailability" => roundtrip::<super::AttachmentAvailability>(json),
             "AuthSnapshot" => roundtrip::<super::AuthSnapshot>(json),
             "AuthUser" => roundtrip::<super::AuthUser>(json),
             "BulkChats" => roundtrip::<super::BulkChats>(json),
@@ -9728,8 +10524,13 @@ pub mod conformance {
             "ChatTreeNode" => roundtrip::<super::ChatTreeNode>(json),
             "ChatUsageDto" => roundtrip::<super::ChatUsageDto>(json),
             "ChatsChanged" => roundtrip::<super::ChatsChanged>(json),
+            "ComposerMentionDto" => roundtrip::<super::ComposerMentionDto>(json),
             "ComposerOptions" => roundtrip::<super::ComposerOptions>(json),
+            "ComposerSearch" => roundtrip::<super::ComposerSearch>(json),
             "ConnectionHealth" => roundtrip::<super::ConnectionHealth>(json),
+            "ContextAttachmentDto" => roundtrip::<super::ContextAttachmentDto>(json),
+            "ContextSuggestion" => roundtrip::<super::ContextSuggestion>(json),
+            "ContextSuggestions" => roundtrip::<super::ContextSuggestions>(json),
             "CreateFolder" => roundtrip::<super::CreateFolder>(json),
             "DaemonPaths" => roundtrip::<super::DaemonPaths>(json),
             "DataActionResult" => roundtrip::<super::DataActionResult>(json),
@@ -9747,10 +10548,15 @@ pub mod conformance {
             "DirectRef" => roundtrip::<super::DirectRef>(json),
             "DirectTestResult" => roundtrip::<super::DirectTestResult>(json),
             "DirectVoiceProviderDto" => roundtrip::<super::DirectVoiceProviderDto>(json),
+            "Draft" => roundtrip::<super::Draft>(json),
+            "DraftRef" => roundtrip::<super::DraftRef>(json),
+            "DraftSave" => roundtrip::<super::DraftSave>(json),
             "EditTurn" => roundtrip::<super::EditTurn>(json),
             "EventEnvelope" => roundtrip::<super::EventEnvelope>(json),
             "EventSubscription" => roundtrip::<super::EventSubscription>(json),
             "ExternalAuthCompletion" => roundtrip::<super::ExternalAuthCompletion>(json),
+            "FetchUrl" => roundtrip::<super::FetchUrl>(json),
+            "FetchedUrl" => roundtrip::<super::FetchedUrl>(json),
             "FolderContents" => roundtrip::<super::FolderContents>(json),
             "FolderCreated" => roundtrip::<super::FolderCreated>(json),
             "FolderRef" => roundtrip::<super::FolderRef>(json),
@@ -9797,6 +10603,8 @@ pub mod conformance {
             "MemoryList" => roundtrip::<super::MemoryList>(json),
             "MemoryRef" => roundtrip::<super::MemoryRef>(json),
             "MemoryToggle" => roundtrip::<super::MemoryToggle>(json),
+            "MentionList" => roundtrip::<super::MentionList>(json),
+            "MentionTarget" => roundtrip::<super::MentionTarget>(json),
             "MessageBlockDto" => roundtrip::<super::MessageBlockDto>(json),
             "MessageStatusDto" => roundtrip::<super::MessageStatusDto>(json),
             "ModelList" => roundtrip::<super::ModelList>(json),
@@ -9837,6 +10645,12 @@ pub mod conformance {
             "PromptInput" => roundtrip::<super::PromptInput>(json),
             "PromptList" => roundtrip::<super::PromptList>(json),
             "PromptSummary" => roundtrip::<super::PromptSummary>(json),
+            "QueueAdd" => roundtrip::<super::QueueAdd>(json),
+            "QueueDraftRef" => roundtrip::<super::QueueDraftRef>(json),
+            "QueueEdit" => roundtrip::<super::QueueEdit>(json),
+            "QueueSendNowResult" => roundtrip::<super::QueueSendNowResult>(json),
+            "QueueState" => roundtrip::<super::QueueState>(json),
+            "QueuedDraftDto" => roundtrip::<super::QueuedDraftDto>(json),
             "QuickPillOption" => roundtrip::<super::QuickPillOption>(json),
             "QuickPillOptions" => roundtrip::<super::QuickPillOptions>(json),
             "RateTurn" => roundtrip::<super::RateTurn>(json),
@@ -9858,11 +10672,17 @@ pub mod conformance {
             "SendTurn" => roundtrip::<super::SendTurn>(json),
             "SendTurnAccepted" => roundtrip::<super::SendTurnAccepted>(json),
             "ServerDraft" => roundtrip::<super::ServerDraft>(json),
+            "ServerFile" => roundtrip::<super::ServerFile>(json),
+            "ServerFileList" => roundtrip::<super::ServerFileList>(json),
             "ServerStatus" => roundtrip::<super::ServerStatus>(json),
             "ServerSummary" => roundtrip::<super::ServerSummary>(json),
             "SetChatFlag" => roundtrip::<super::SetChatFlag>(json),
             "ShutdownResult" => roundtrip::<super::ShutdownResult>(json),
             "SignOutAll" => roundtrip::<super::SignOutAll>(json),
+            "SkillList" => roundtrip::<super::SkillList>(json),
+            "SkillSummary" => roundtrip::<super::SkillSummary>(json),
+            "SteerResult" => roundtrip::<super::SteerResult>(json),
+            "SteerTurn" => roundtrip::<super::SteerTurn>(json),
             "StopTurn" => roundtrip::<super::StopTurn>(json),
             "StoppedResult" => roundtrip::<super::StoppedResult>(json),
             "SyncState" => roundtrip::<super::SyncState>(json),

@@ -12,5 +12,48 @@
       "id": "local_mcp:mcp-1",
       "name": "Docs"
     }
+  ],
+  "filters": [
+    {
+      "id": "tidy",
+      "name": "Tidy Up",
+      "description": "Fix spacing"
+    }
+  ],
+  "filterDefaults": [
+    "tidy"
+  ],
+  "codeInterpreter": true,
+  "codeInterpreterBlock": "unsupportedEngine",
+  "attachments": {
+    "files": true,
+    "serverFiles": true,
+    "images": true,
+    "webPage": true,
+    "mcpContent": false
+  },
+  "skills": true,
+  "context": true,
+  "notes": true,
+  "mentions": true,
+  "steer": false,
+  "imageConversions": [
+    ".heic",
+    ".bmp"
+  ],
+  "compareModels": true,
+  "quickPills": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": "",
+      "targetId": ""
+    },
+    {
+      "id": "filter:tidy",
+      "kind": "filter",
+      "name": "Tidy Up",
+      "targetId": "tidy"
+    }
   ]
 }

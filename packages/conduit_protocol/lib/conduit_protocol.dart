@@ -30,6 +30,7 @@ export 'src/profile.dart';
 export 'src/peer_helpers.dart';
 export 'src/prompts.dart';
 export 'src/release_notes.dart';
+export 'src/queue.dart';
 export 'src/protocol_version.dart';
 export 'src/rpc_error.dart';
 export 'src/servers.dart';

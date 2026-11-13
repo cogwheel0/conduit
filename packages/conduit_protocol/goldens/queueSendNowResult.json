@@ -1,0 +1,10 @@
+{
+  "outcome": "admitted",
+  "queue": {
+    "chatId": "chat-7c1f0b2a",
+    "drafts": [],
+    "phase": "idle",
+    "admissionFailed": false,
+    "offer": false
+  }
+}

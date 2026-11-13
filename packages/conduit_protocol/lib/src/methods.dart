@@ -228,6 +228,51 @@ abstract final class ConduitMethods {
   /// Knowledge bases matching what follows a `#` in the composer.
   static const String composerKnowledge = 'composer.knowledge';
 
+  // drafts.*, queue.*, mentions.*, skills.*, context.*, files.* -- what
+  // the composer holds and draws on.
+
+  /// The composer's draft for a chat (or a new chat), as the account's
+  /// database keeps it.
+  static const String draftsGet = 'drafts.get';
+
+  /// Keeps what the composer holds now; an empty text clears it.
+  static const String draftsSave = 'drafts.save';
+
+  /// A chat's messages queued behind its running answer.
+  static const String queueGet = 'queue.get';
+
+  /// Queues a message behind the running answer.
+  static const String queueAdd = 'queue.add';
+
+  /// Replaces a queued message's text.
+  static const String queueEdit = 'queue.edit';
+
+  /// Removes a queued message.
+  static const String queueRemove = 'queue.remove';
+
+  /// Stops the running answer and sends one queued message at once.
+  static const String queueSendNow = 'queue.sendNow';
+
+  /// Lets a queue whose last batch was refused try again.
+  static const String queueRetry = 'queue.retry';
+
+  /// The server's users and channels matching what follows an `@`.
+  static const String mentionsSearch = 'mentions.search';
+
+  /// The Open WebUI skills matching what follows a `$`.
+  static const String skillsSearch = 'skills.search';
+
+  /// Notes, knowledge bases and knowledge files matching what follows a `#`.
+  static const String contextSearch = 'context.search';
+
+  /// A web page's readable text or a YouTube video's transcript, as a
+  /// context attachment.
+  static const String contextFetchUrl = 'context.fetchUrl';
+
+  /// The account's files already on the Open WebUI server, for the
+  /// server-file picker.
+  static const String filesList = 'files.list';
+
   /// The account's saved prompts, for the composer's `/` menu.
   static const String promptsList = 'prompts.list';
 
@@ -345,6 +390,10 @@ abstract final class ConduitMethods {
   /// Replaces one of the user's messages with new text and answers it, as
   /// a new branch.
   static const String turnsEdit = 'turns.edit';
+
+  /// A message typed while Hermes works: steers the running turn, or goes
+  /// as the next message (a Hermes Desktop Gateway).
+  static const String turnsSteer = 'turns.steer';
 
   /// Rates an answer, up or down, as Open WebUI's own client does: an
   /// evaluation record plus the thumb on the message. Gated on
@@ -476,6 +525,11 @@ abstract final class ConduitMethods {
   static const String modelsPrefix = 'models.';
   static const String capabilitiesPrefix = 'capabilities.';
   static const String filesPrefix = 'files.';
+  static const String draftsPrefix = 'drafts.';
+  static const String queuePrefix = 'queue.';
+  static const String mentionsPrefix = 'mentions.';
+  static const String skillsPrefix = 'skills.';
+  static const String contextPrefix = 'context.';
   static const String knowledgePrefix = 'knowledge.';
   static const String notesPrefix = 'notes.';
 
@@ -721,6 +775,11 @@ abstract final class ConduitMethods {
     modelsPrefix,
     capabilitiesPrefix,
     filesPrefix,
+    draftsPrefix,
+    queuePrefix,
+    mentionsPrefix,
+    skillsPrefix,
+    contextPrefix,
     knowledgePrefix,
     notesPrefix,
     channelsPrefix,
