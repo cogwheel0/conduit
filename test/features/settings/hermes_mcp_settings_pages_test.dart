@@ -698,6 +698,8 @@ void main() {
 
     check(rig.rows(hermesMcpPageId).map((row) => row.id))
         .not((ids) => ids.contains('$hermesMcpPageId-loading'));
+    check(rig.rows(hermesMcpPageId).map((row) => row.title))
+        .contains(_l10n.hermesMcpLoadFailed);
     await hermes.dispose();
   });
 

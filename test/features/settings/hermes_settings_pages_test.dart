@@ -399,6 +399,76 @@ void main() {
     await tester.runAsync(() => Future.wait([opening, using]));
   });
 
+  testWidgets('switching from the Hermes page waits for the token refresh '
+      'its editor started', (tester) async {
+    // The binding blocks real HTTP; the refresh must really be in flight.
+    final blockedHttp = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = blockedHttp);
+    final gateway = (await tester.runAsync(_RotatingGateway.start))!;
+    addTearDown(gateway.close);
+    // Hermes stays off, so no live client refreshes the tokens itself.
+    _store(
+      enabled: false,
+      connections: _connections(
+        workBaseUrl: gateway.baseUrl,
+        workDesktop: true,
+      ),
+    );
+    await secrets.write(
+      key: 'hermes_desktop_credentials_v1:$_work',
+      value: jsonEncode(
+        HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'access-refresh-0',
+            refreshToken: 'refresh-0',
+            expiresAt: DateTime.utc(2020),
+          ),
+        ).toJson(),
+      ),
+    );
+    final rig = await _pump(tester, secrets: secrets);
+
+    // Opening the editor lists the connection's profiles, which refreshes
+    // its expired tokens.
+    final opening = rig.module.hydrate(hermesConnectionPageId(_work), _l10n);
+    for (var i = 0; i < 100 && !gateway.refreshing.isCompleted; i++) {
+      await rig.settleIo();
+    }
+    check(gateway.refreshing.isCompleted).isTrue();
+
+    final using = rig.module.handleChange(
+      hermesSettingsRowId('use', _work),
+      true,
+      _l10n,
+    );
+    for (var i = 0; i < 5; i++) {
+      await rig.settleIo();
+    }
+    check(rig.container.read(hermesConfigProvider).connectionId).equals(_home);
+
+    gateway.release.complete();
+    for (
+      var i = 0;
+      i < 100 && rig.container.read(hermesConfigProvider).connectionId != _work;
+      i++
+    ) {
+      await rig.settleIo();
+    }
+    final active = rig.container.read(hermesConfigProvider);
+    check(active.connectionId).equals(_work);
+    // The switch picked up the replacement tokens; the spent ones would
+    // sign the connection out at its next refresh.
+    check(active.desktopCredentials?.nativeTokens?.refreshToken)
+        .equals('refresh-1');
+
+    await tester.runAsync(gateway.close);
+    for (var i = 0; i < 10; i++) {
+      await rig.settleIo();
+    }
+    await tester.runAsync(() => Future.wait([opening, using]));
+  });
+
   testWidgets('a token refresh that ends after its editor closed is kept', (
     tester,
   ) async {
@@ -634,6 +704,50 @@ void main() {
     check(titles).not((it) => it.contains(_l10n.hermesActionFailed));
   });
 
+  testWidgets('a server action is not run once its editor was left while '
+      'it was drawn', (tester) async {
+    final config = _SignOutFails();
+    final rig = await _pump(
+      tester,
+      secrets: secrets,
+      overrides: [
+        hermesConfigProvider.overrideWith(() => config),
+        settingsSurfaceProvider.overrideWith(_GatedSurface.new),
+        hermesInstalledSkillsProvider.overrideWith((ref) async => const []),
+        hermesToolsetsProvider.overrideWith((ref) async => const []),
+        hermesServerStatusProvider.overrideWith((ref) async => const {}),
+        hermesConnectionsProvider.overrideWithValue(const [
+          HermesConnectionProfile(
+            id: _home,
+            name: 'Home agent',
+            baseUrl: 'https://home.example',
+            mode: HermesBackendMode.desktopGateway,
+            documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+          ),
+        ]),
+      ],
+    );
+    await rig.open(hermesConnectionPageId(_home));
+    final server = '$hermesConnectionServerPagePrefix${_key(_home)}';
+    await rig.open(server);
+    final surface =
+        rig.container.read(settingsSurfaceProvider) as _GatedSurface;
+    final gate = surface.gate = Completer<void>();
+
+    final signingOut = rig.module.handleChange(
+      _row('sign-out', _home),
+      true,
+      _l10n,
+    );
+    await tester.pump();
+    // The editor is left while its page is drawn busy.
+    rig.module.pageLeft(hermesConnectionPageId(_home));
+    gate.complete();
+    await rig.settle(signingOut);
+
+    check(config.signOuts).equals(0);
+  });
+
   group('hidden chats', () {
     const hidden = HermesSessionSummary(
       id: 'session-1',
@@ -805,6 +919,25 @@ final class _BlockingCookieJar extends NullCookieJarPort {
 
 /// A Desktop Gateway connection whose Sign Out cannot end its dashboard
 /// session.
+/// Settings whose next page update waits on [gate] when it is set.
+final class _GatedSurface extends SettingsSurface {
+  _GatedSurface(super.ref);
+
+  Completer<void>? gate;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final applied = await super.applyDetail(detail, detailSheets: detailSheets);
+    final held = gate;
+    gate = null;
+    await held?.future;
+    return applied;
+  }
+}
+
 class _SignOutFails extends HermesConfigController {
   var signOuts = 0;
 

@@ -1404,8 +1404,15 @@ class HermesJobSettingsPages extends SettingsPageModule {
         // not read as one to try again, which would make the job twice. The
         // job's rows wait meanwhile, since this step rewrites its delivery.
         // A switch while the editor closed: this connection's rows are not
-        // this save's to mark.
-        if (visit != _connectionVisit) return;
+        // this save's to mark, but its notification change still applies.
+        if (visit != _connectionVisit) {
+          if (jobId != null) {
+            unawaited(
+              _trySetJobNotify(notifyConnection, jobId, notify: notify),
+            );
+          }
+          return;
+        }
         if (jobId != null) _busy.add(jobId);
         await _applyShown();
         final changed =

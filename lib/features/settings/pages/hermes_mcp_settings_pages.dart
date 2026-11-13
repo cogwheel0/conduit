@@ -669,6 +669,11 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     _testResults.clear();
     _catalog = null;
     _catalogFailed = false;
+    // The last connection's actions mark its servers, not this one's by
+    // the same names.
+    _testing.clear();
+    _authenticating.clear();
+    _busy.clear();
   }
 
   @override
@@ -823,6 +828,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       );
       if (mine != _listReads) return false;
       _failed = _servers == null;
+      // The list read before stays, with word that it could not be read
+      // again.
+      if (!_failed) _notice = l10n.hermesMcpLoadFailed;
     }
     await _applyList(l10n);
     return read;
@@ -899,7 +907,10 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         _notice = l10n.hermesMcpActionFailed;
       }
     } finally {
-      marks.remove(name);
+      // Another connection's server by the same name keeps its own mark.
+      if (_ref.read(hermesActiveConnectionIdProvider) == connection) {
+        marks.remove(name);
+      }
     }
     await _applyAll(l10n, name);
     return succeeded;

@@ -6770,7 +6770,7 @@
   "hermesMcpArguments": "Argumenty (jeden na riadok)",
   "hermesMcpApiKeyOptional": "API kľúč (voliteľné)",
   "hermesMcpAdd": "Pridať",
-  "hermesMcpCatalogAsks": "Vyžaduje {names}",
+  "hermesMcpCatalogAsks": "Žiada o {names}",
   "@hermesMcpCatalogAsks": {
     "placeholders": {
       "names": {

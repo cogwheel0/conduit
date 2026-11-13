@@ -1331,6 +1331,10 @@ class HermesSettingsPages extends SettingsPageModule {
     _switching = connectionId;
     _rootNotice = null;
     await _applyRoot(l10n);
+    // As from its editor: a switch waits for work that rotates the
+    // connection's stored tokens, or it would load the ones being replaced.
+    final editor = _editors[Uri.encodeComponent(connectionId)];
+    if (editor != null) await Future.wait(editor.tokenWork.toList());
     try {
       await _ref
           .read(hermesConfigProvider.notifier)
@@ -1373,6 +1377,11 @@ class HermesSettingsPages extends SettingsPageModule {
   }
 
   // -- Connection editor -------------------------------------------------------
+
+  /// Whether [editor] is still open under [key] and edits the connection
+  /// in use, so an action on the service in use is its own.
+  bool _actsOn(String key, _Editor editor) =>
+      identical(_editors[key], editor) && _editsActive(editor);
 
   bool _editsActive(_Editor editor) {
     final id = editor.controller?.connectionId;
@@ -2209,7 +2218,9 @@ class HermesSettingsPages extends SettingsPageModule {
     await _surface.applyDetail(
       buildHermesServerPage(l10n, key, management, notice: editor.serverNotice),
       detailSheets: [
-        if (management.desktop)
+        // An MCP page already drawn keeps what it shows.
+        if (management.desktop &&
+            !_ref.read(settingsPagesProvider).contains(hermesMcpPageId))
           buildNativeLoadingDetail(
             l10n: l10n,
             id: hermesMcpPageId,
@@ -2229,6 +2240,15 @@ class HermesSettingsPages extends SettingsPageModule {
     if (!editor.pendingToolsets.add(name)) return;
     editor.serverNotice = null;
     await _applyServer(l10n, key, editor);
+    // Another connection in use, or the editor left, while it was drawn:
+    // nothing is sent to the connection in use now.
+    if (!_actsOn(key, editor)) {
+      editor
+        ..pendingToolsets.remove(name)
+        ..serverNotice = l10n.hermesToolsetUpdateFailed;
+      await _applyServer(l10n, key, editor);
+      return;
+    }
     try {
       final service = _ref.read(hermesApiServiceProvider);
       if (service is HermesDesktopApiService) {
@@ -2263,6 +2283,15 @@ class HermesSettingsPages extends SettingsPageModule {
       ..gatewayActionRunning = true
       ..serverNotice = null;
     await _applyServer(l10n, key, editor);
+    // Another connection in use, or the editor left, while it was drawn:
+    // the action, which reads the service in use, is not run on it.
+    if (!_actsOn(key, editor)) {
+      editor
+        ..gatewayActionRunning = false
+        ..serverNotice = failureMessage ?? l10n.hermesActionFailed;
+      await _applyServer(l10n, key, editor);
+      return;
+    }
     try {
       await action();
     } catch (error) {
