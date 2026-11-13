@@ -74,6 +74,55 @@ void main() {
     },
   );
 
+  test('a pause the voice never reports still pauses the reading', () async {
+    await manager.speak(text);
+    events.clear();
+
+    // The engine pauses and answers, but sends no `pause` of its own.
+    await manager.pause();
+    await pumpEventQueue();
+    expect(events.whereType<TtsPaused>(), hasLength(1));
+
+    await manager.resume();
+    await pumpEventQueue();
+    expect(engine.resumes, 1);
+    expect(events.last, isA<TtsResumed>());
+  });
+
+  test(
+    'a sentence that ends while a pause is on its way holds the next one',
+    () async {
+      await manager.speak(text);
+      // The first sentence ends just as the engine is asked to pause.
+      engine.duringPause = () async {
+        engine.emit('complete');
+        await pumpEventQueue();
+      };
+      await manager.pause();
+      await pumpEventQueue();
+
+      expect(engine.spoken, ['A red kite.'], reason: 'nothing more is said');
+      expect(manager.currentChunkIndex, 1);
+      expect(events.last, isA<TtsPaused>());
+
+      await manager.resume();
+      await pumpEventQueue();
+      expect(engine.spoken.last, 'Two green frogs.');
+      expect(events.last, isA<TtsResumed>());
+    },
+  );
+
+  test('a late pause report does not pause a reading resumed since', () async {
+    await manager.speak(text);
+    await manager.pause();
+    await manager.resume();
+    await pumpEventQueue();
+
+    engine.emit('pause');
+    await pumpEventQueue();
+    expect(events.last, isA<TtsResumed>());
+  });
+
   test(
     'a new speed says the rest of the sentence from the word reached',
     () async {
@@ -175,6 +224,9 @@ class _Engine implements DeviceSpeechEngine {
   bool replaces = true;
   int resumes = 0;
 
+  /// Runs while a pause is being answered.
+  Future<void> Function()? duringPause;
+
   void emit(String type) => _events.add(NativeTtsEvent(type: type));
 
   void emitProgress(int start, int end) =>
@@ -228,7 +280,10 @@ class _Engine implements DeviceSpeechEngine {
   Future<bool> stop() async => true;
 
   @override
-  Future<bool> pause() async => true;
+  Future<bool> pause() async {
+    await duringPause?.call();
+    return true;
+  }
 
   @override
   Future<bool> resume() async {

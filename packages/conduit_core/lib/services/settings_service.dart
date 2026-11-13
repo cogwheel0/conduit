@@ -101,6 +101,8 @@ class SettingsService {
       PreferenceKeys.notificationChannelEnabled;
   static const String _notificationScheduledEnabledKey =
       PreferenceKeys.notificationScheduledEnabled;
+  static const String _notificationChannelMentionsOnlyKey =
+      PreferenceKeys.notificationChannelMentionsOnly;
 
   // Settings that name a server's data are stored per Open WebUI account;
   // see account_scoped_preferences.dart. Every read and write below resolves
@@ -244,6 +246,10 @@ class SettingsService {
     return _putPreference(_notificationScheduledEnabledKey, value);
   }
 
+  static Future<void> setNotificationChannelMentionsOnly(bool value) {
+    return _putPreference(_notificationChannelMentionsOnlyKey, value);
+  }
+
   /// Get high contrast preference
   static Future<bool> getHighContrast() {
     final value = _getPreference<bool>(_highContrastKey);
@@ -354,6 +360,8 @@ class SettingsService {
       _notificationChatEnabledKey: settings.notificationChatEnabled,
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
       _notificationScheduledEnabledKey: settings.notificationScheduledEnabled,
+      _notificationChannelMentionsOnlyKey:
+          settings.notificationChannelMentionsOnly,
     };
 
     // Resolve every account-scoped key now, before the first write yields: a
@@ -860,7 +868,8 @@ class SettingsService {
         getStringList(_pinnedModelsKey) ?? const <String>[],
       ),
       notificationsEnabled:
-          get<bool>(_notificationsEnabledKey) ?? false,
+          get<bool>(_notificationsEnabledKey) ??
+          hostDefaults.notificationsEnabled,
       notificationSound:
           get<bool>(_notificationSoundKey) ?? true,
       notificationSoundAlways:
@@ -875,6 +884,8 @@ class SettingsService {
           get<bool>(_notificationChannelEnabledKey) ?? true,
       notificationScheduledEnabled:
           get<bool>(_notificationScheduledEnabledKey) ?? true,
+      notificationChannelMentionsOnly:
+          get<bool>(_notificationChannelMentionsOnlyKey) ?? false,
       webSearchEngine: WebSearchEngineChoice.parse(
         get<String>(PreferenceKeys.webSearchEngine),
       ),
@@ -997,6 +1008,10 @@ class AppSettings {
   final bool notificationChatEnabled;
   final bool notificationChannelEnabled;
   final bool notificationScheduledEnabled;
+
+  /// With [notificationChannelEnabled], only messages that mention the user
+  /// or arrive in a direct message alert.
+  final bool notificationChannelMentionsOnly;
   // On-device web search (Direct models without provider-hosted search).
   final WebSearchEngineChoice webSearchEngine;
   final SafeSearch webSearchSafeSearch;
@@ -1056,6 +1071,7 @@ class AppSettings {
     this.notificationChatEnabled = true,
     this.notificationChannelEnabled = true,
     this.notificationScheduledEnabled = true,
+    this.notificationChannelMentionsOnly = false,
     this.webSearchEngine = WebSearchEngineChoice.auto,
     this.webSearchSafeSearch = SafeSearch.moderate,
     this.webSearchRegion,
@@ -1111,6 +1127,7 @@ class AppSettings {
     bool? notificationChatEnabled,
     bool? notificationChannelEnabled,
     bool? notificationScheduledEnabled,
+    bool? notificationChannelMentionsOnly,
     WebSearchEngineChoice? webSearchEngine,
     SafeSearch? webSearchSafeSearch,
     Object? webSearchRegion = const _DefaultValue(),
@@ -1196,6 +1213,9 @@ class AppSettings {
           notificationChannelEnabled ?? this.notificationChannelEnabled,
       notificationScheduledEnabled:
           notificationScheduledEnabled ?? this.notificationScheduledEnabled,
+      notificationChannelMentionsOnly:
+          notificationChannelMentionsOnly ??
+          this.notificationChannelMentionsOnly,
       webSearchEngine: webSearchEngine ?? this.webSearchEngine,
       webSearchSafeSearch: webSearchSafeSearch ?? this.webSearchSafeSearch,
       webSearchRegion: webSearchRegion is _DefaultValue
@@ -1257,6 +1277,8 @@ class AppSettings {
         other.notificationChatEnabled == notificationChatEnabled &&
         other.notificationChannelEnabled == notificationChannelEnabled &&
         other.notificationScheduledEnabled == notificationScheduledEnabled &&
+        other.notificationChannelMentionsOnly ==
+            notificationChannelMentionsOnly &&
         other.webSearchEngine == webSearchEngine &&
         other.webSearchSafeSearch == webSearchSafeSearch &&
         other.webSearchRegion == webSearchRegion &&
@@ -1313,6 +1335,7 @@ class AppSettings {
       notificationChatEnabled,
       notificationChannelEnabled,
       notificationScheduledEnabled,
+      notificationChannelMentionsOnly,
       webSearchEngine,
       webSearchSafeSearch,
       webSearchRegion,
@@ -1344,19 +1367,29 @@ bool _listEquals(List<String> a, List<String> b) {
 ///
 /// Mobile keeps every default as it is. The desktop daemon overrides
 /// [appSettingsHostDefaultsProvider]: a Mac always has a hardware keyboard,
-/// so Enter sends there unless the user turns it off.
+/// so Enter sends there unless the user turns it off, and a Mac app asks for
+/// notification permission the first time one would show, so notifications
+/// start on there.
 final class AppSettingsHostDefaults {
-  const AppSettingsHostDefaults({this.sendOnEnter = false});
+  const AppSettingsHostDefaults({
+    this.sendOnEnter = false,
+    this.notificationsEnabled = false,
+  });
 
   /// `sendOnEnter` while the user has never set it.
   final bool sendOnEnter;
 
-  @override
-  bool operator ==(Object other) =>
-      other is AppSettingsHostDefaults && other.sendOnEnter == sendOnEnter;
+  /// `notificationsEnabled` while neither the user nor the server has set it.
+  final bool notificationsEnabled;
 
   @override
-  int get hashCode => sendOnEnter.hashCode;
+  bool operator ==(Object other) =>
+      other is AppSettingsHostDefaults &&
+      other.sendOnEnter == sendOnEnter &&
+      other.notificationsEnabled == notificationsEnabled;
+
+  @override
+  int get hashCode => Object.hash(sendOnEnter, notificationsEnabled);
 }
 
 /// The host's [AppSettingsHostDefaults]: none unless the host overrides it.
@@ -1380,7 +1413,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     }
 
     _pendingLoad ??= _hydrateFromPrefs(hostDefaults);
-    return AppSettings(sendOnEnter: hostDefaults.sendOnEnter);
+    return AppSettings(
+      sendOnEnter: hostDefaults.sendOnEnter,
+      notificationsEnabled: hostDefaults.notificationsEnabled,
+    );
   }
 
   Future<void> _hydrateFromPrefs(AppSettingsHostDefaults hostDefaults) async {
@@ -1472,6 +1508,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setNotificationScheduledEnabled(bool value) async {
     state = state.copyWith(notificationScheduledEnabled: value);
     await SettingsService.setNotificationScheduledEnabled(value);
+  }
+
+  Future<void> setNotificationChannelMentionsOnly(bool value) async {
+    state = state.copyWith(notificationChannelMentionsOnly: value);
+    await SettingsService.setNotificationChannelMentionsOnly(value);
   }
 
   /// Applies the three server-synced notification prefs fetched from Open WebUI

@@ -39,4 +39,36 @@ void main() {
     check(classifySignInFailure('Sign-in failed. Please try again.'))
         .equals(SignInFailure.failed);
   });
+
+  group('jwtSignInTokenProblem', () {
+    test('asks for a token when none was given', () {
+      check(jwtSignInTokenProblem(null)).equals(JwtTokenProblem.missing);
+      check(jwtSignInTokenProblem('')).equals(JwtTokenProblem.missing);
+    });
+
+    test('refuses API keys in any case', () {
+      for (final key in [
+        'sk-abcdefghijk',
+        'SK-abcdefghijk',
+        'api-0123456789',
+        'Key-0123456789',
+        '  sk-0123456789',
+      ]) {
+        check(
+          because: key,
+          jwtSignInTokenProblem(key),
+        ).equals(JwtTokenProblem.apiKey);
+      }
+    });
+
+    test('refuses a token too short to be a session', () {
+      check(jwtSignInTokenProblem('eyJ.short'))
+          .equals(JwtTokenProblem.tooShort);
+      check(jwtSignInTokenProblem('   ')).equals(JwtTokenProblem.tooShort);
+    });
+
+    test('lets a session token through', () {
+      check(jwtSignInTokenProblem('eyJhbGciOi.eyJzdWIi.c2lnbmF0dXJl')).isNull();
+    });
+  });
 }

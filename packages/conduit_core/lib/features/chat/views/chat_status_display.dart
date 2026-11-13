@@ -31,43 +31,78 @@ List<ChatStatusUpdate> filterVisibleStatusUpdates(
   return settled;
 }
 
+/// The lines core words itself (rather than Open WebUI's description or
+/// the action's name), as data: a client that words them in its own
+/// language reads [resolveStatusPhrase]; [resolveStatusDescription] is the
+/// English.
+enum ChatStatusPhrase {
+  /// "Searching Knowledge for "…"": [ChatStatusUpdate.query] names it.
+  knowledgeSearch,
+
+  /// "Searching": the web search's queries are out.
+  searching,
+
+  /// "Querying": the knowledge queries are out.
+  querying,
+
+  /// "Retrieved N sources" ("No sources found" for none):
+  /// [ChatStatusUpdate.count] says how many.
+  sourcesRetrieved,
+
+  /// "Processing": an update with neither a description nor an action.
+  processing,
+}
+
+/// Which of core's own lines [update] reads, or null when it reads Open
+/// WebUI's description or its action's name.
+ChatStatusPhrase? resolveStatusPhrase(ChatStatusUpdate update) {
+  final description = update.description?.trim();
+  final action = update.action?.trim();
+  if (action == 'knowledge_search' && update.query?.isNotEmpty == true) {
+    return ChatStatusPhrase.knowledgeSearch;
+  }
+  if (action == 'web_search_queries_generated' && update.queries.isNotEmpty) {
+    return ChatStatusPhrase.searching;
+  }
+  if (action == 'queries_generated' && update.queries.isNotEmpty) {
+    return ChatStatusPhrase.querying;
+  }
+  if (action == 'sources_retrieved' && update.count != null) {
+    return ChatStatusPhrase.sourcesRetrieved;
+  }
+  if (description != null && description.isNotEmpty) return null;
+  if (action != null && action.isNotEmpty) return null;
+  return ChatStatusPhrase.processing;
+}
+
 /// The line [update] reads, as Open WebUI's client words it: its action's
 /// own phrasing where it has one, otherwise its description with the
 /// `{{count}}` and `{{searchQuery}}` placeholders filled in, otherwise the
 /// action name.
 String resolveStatusDescription(ChatStatusUpdate update) {
+  switch (resolveStatusPhrase(update)) {
+    case ChatStatusPhrase.knowledgeSearch:
+      return 'Searching Knowledge for "${update.query}"';
+    case ChatStatusPhrase.searching:
+      return 'Searching';
+    case ChatStatusPhrase.querying:
+      return 'Querying';
+    case ChatStatusPhrase.sourcesRetrieved:
+      final count = update.count!;
+      if (count == 0) return 'No sources found';
+      if (count == 1) return 'Retrieved 1 source';
+      return 'Retrieved $count sources';
+    case ChatStatusPhrase.processing:
+      return 'Processing';
+    case null:
+      break;
+  }
   final description = update.description?.trim();
-  final action = update.action?.trim();
-
-  if (action == 'knowledge_search' && update.query?.isNotEmpty == true) {
-    return 'Searching Knowledge for "${update.query}"';
-  }
-
-  if (action == 'web_search_queries_generated' && update.queries.isNotEmpty) {
-    return 'Searching';
-  }
-
-  if (action == 'queries_generated' && update.queries.isNotEmpty) {
-    return 'Querying';
-  }
-
-  if (action == 'sources_retrieved' && update.count != null) {
-    final count = update.count!;
-    if (count == 0) return 'No sources found';
-    if (count == 1) return 'Retrieved 1 source';
-    return 'Retrieved $count sources';
-  }
-
   if (description != null && description.isNotEmpty) {
     return _replaceStatusPlaceholders(description, update);
   }
-
-  if (action != null && action.isNotEmpty) {
-    final words = action.replaceAll('_', ' ');
-    return '${words[0].toUpperCase()}${words.substring(1)}';
-  }
-
-  return 'Processing';
+  final words = update.action!.trim().replaceAll('_', ' ');
+  return '${words[0].toUpperCase()}${words.substring(1)}';
 }
 
 String _replaceStatusPlaceholders(String template, ChatStatusUpdate update) {

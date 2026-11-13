@@ -14,12 +14,16 @@ import 'package:test/test.dart';
 final class _Media implements RealtimeWebRtcMediaPort {
   final _messages = StreamController<String>.broadcast();
   final _states = StreamController<RealtimeMediaState>.broadcast();
+  final _levels = StreamController<RealtimeMediaLevels>.broadcast();
   final sent = <Map<String, Object?>>[];
   String? answer;
   bool? microphone;
   var closed = false;
 
   void receive(Map<String, Object?> event) => _messages.add(jsonEncode(event));
+
+  void hears({required double input, required double output}) =>
+      _levels.add((input: input, output: output));
 
   List<String> get types => [
     for (final event in sent) event['type']! as String,
@@ -37,6 +41,9 @@ final class _Media implements RealtimeWebRtcMediaPort {
 
   @override
   Stream<RealtimeMediaState> get states => _states.stream;
+
+  @override
+  Stream<RealtimeMediaLevels> get levels => _levels.stream;
 
   @override
   void send(String message) =>
@@ -385,6 +392,25 @@ void main() {
     check(engine.state.muted).isTrue();
     await engine.end();
   });
+
+  test(
+    'the meter follows both sides, and a muted microphone is quiet',
+    () async {
+      await start();
+
+      media.hears(input: 0.2, output: 0.05);
+      await _settle();
+      check(engine.state.inputLevel).equals(0.2);
+      check(engine.state.outputLevel).equals(0.05);
+
+      engine.setMuted(true);
+      media.hears(input: 0.3, output: 0.1);
+      await _settle();
+      check(engine.state.inputLevel).equals(0);
+      check(engine.state.outputLevel).equals(0.1);
+      await engine.end();
+    },
+  );
 
   test('ending closes the session before the connection', () async {
     await start();

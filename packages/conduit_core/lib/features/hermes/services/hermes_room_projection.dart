@@ -2,6 +2,7 @@
 /// status, and @mention completion. Pure functions of what Hermes reported.
 library;
 
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
@@ -602,6 +603,54 @@ List<HermesRoomMember> hermesRoomMentionCandidates(
     text: text.substring(0, query.start) + inserted + after,
     caret: query.start + inserted.length + (spacer.isEmpty ? 1 : 0),
   );
+}
+
+/// The roster bot a room member is, when it is one.
+HermesBot? hermesRoomMemberBot(List<HermesBot>? bots, String profile) {
+  for (final bot in bots ?? const <HermesBot>[]) {
+    if (bot.name == profile) return bot;
+  }
+  return null;
+}
+
+/// The bots a new room may seat: the roster, narrowed to the profiles
+/// Hermes says it can seat when it says.
+List<HermesBot> hermesSeatableBots(
+  List<HermesBot> bots,
+  HermesRoomCapabilities capabilities,
+) {
+  final seatable = capabilities.seatableProfiles;
+  return [
+    for (final bot in bots)
+      if (seatable == null || seatable.contains(bot.name)) bot,
+  ];
+}
+
+/// Whether a new room can be made here: the gateway runs rooms, offers
+/// `groups.create`, and two of the roster's bots may sit in one.
+bool hermesRoomsCanCreate(
+  HermesRoomCapabilities capabilities,
+  List<HermesBot> bots,
+) =>
+    capabilities.driver &&
+    capabilities.offers('groups.create') &&
+    hermesSeatableBots(bots, capabilities).length >= kMinHermesRoomSeats;
+
+/// The members a new room seats for the bots [picked] (profile names, in
+/// the order picked), each resolved against [bots] as listed now; null
+/// when one of them is no longer listed, so a room is never made with
+/// fewer members than were picked.
+List<HermesRoomMember>? hermesRoomMembersFor(
+  List<HermesBot> bots,
+  List<String> picked,
+) {
+  final members = <HermesRoomMember>[];
+  for (final name in picked) {
+    final bot = hermesRoomMemberBot(bots, name);
+    if (bot == null) return null;
+    members.add(HermesRoomMember.forBot(bot));
+  }
+  return members;
 }
 
 /// Whether Hermes refused a `groups.send` before posting anything of it:

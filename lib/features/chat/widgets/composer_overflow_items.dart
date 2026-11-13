@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/integrations/personal_connection_display.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
@@ -525,19 +526,9 @@ List<ComposerOverflowItem> buildComposerOverflowConnectionItems({
   ];
 }
 
-/// The entry's description, else its host. The full URL can carry a token.
-String? _toolServerSubtitle(PersonalConnectionEntry entry) {
-  final info = personalConnectionMap(entry.raw['info']);
-  for (final candidate in <Object?>[
-    entry.raw['description'],
-    info?['description'],
-  ]) {
-    final text = candidate?.toString().trim() ?? '';
-    if (text.isNotEmpty) return text;
-  }
-  final host = Uri.tryParse(entry.url)?.host.trim() ?? '';
-  return host.isEmpty ? null : host;
-}
+/// The entry's description, else its host (core's rule).
+String? _toolServerSubtitle(PersonalConnectionEntry entry) =>
+    personalToolServerSubtitle(entry.raw, entry.url);
 
 /// Whether [actionId] names a personal tool server or a terminal, whose
 /// selection is validated against the signed-in account before it applies.

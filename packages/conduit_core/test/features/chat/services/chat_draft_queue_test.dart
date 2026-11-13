@@ -300,6 +300,7 @@ class _Session {
     bool advanced = true,
     bool online = true,
     Model? model,
+    ChatDraftQueueAdmissionWait? admissionWait,
   }) async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -348,6 +349,8 @@ class _Session {
         selectedTerminalIdProvider.overrideWithValue(null),
         syncEngineProvider.overrideWith(() => engine),
         attachedFilesProvider.overrideWith(_Tray.new),
+        if (admissionWait != null)
+          chatDraftQueueAdmissionWaitProvider.overrideWithValue(admissionWait),
       ],
     );
     addTearDown(container.dispose);
@@ -669,6 +672,50 @@ void main() {
       check(rows.single.content).equals('frozen');
       check(s.active!.drafts.single.text).equals('later');
       check(await s.completions()).length.equals(1);
+    });
+
+    test('a batch the host holds before admission leaves the composer free: '
+        'a message sent meanwhile goes first, and the batch follows its '
+        'answer', () async {
+      final hold = Completer<void>();
+      var waits = 0;
+      final s = await _Session.start(
+        // The host lets the chat settle after the first answer only.
+        admissionWait: () => ++waits == 1 ? hold.future : null,
+      );
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      final queued = s.queue.enqueue('queued')!;
+
+      s.finishResponse();
+      await s.until(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+      check(s.active!.frozenDraftIds).deepEquals([queued.id]);
+      check(await s.sentUserRows()).isEmpty();
+      // Nothing is running while the host holds the batch, so the composer
+      // sends, as it does while a Stop waits on the server.
+      check(s.container.read(chatMainAnswerActiveProvider)).isFalse();
+      await s.container.read(_sendOrdinaryMessage)('sent meanwhile');
+      check(s.container.read(chatMainAnswerActiveProvider)).isTrue();
+
+      hold.complete();
+      await s.until(() => s.active?.phase == ChatDraftQueuePhase.idle);
+      await s.settle();
+      // Nothing was sent over the newer answer; the draft waits, editable,
+      // without a Retry.
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile']);
+      check(s.active!.drafts.map((d) => d.id)).deepEquals([queued.id]);
+      check(s.active!.frozenDraftIds).isEmpty();
+      check(s.active!.admissionFailed).isFalse();
+
+      s.finishResponse();
+      await s.until(() => s.active == null);
+      await s.settle();
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile', 'queued']);
+      check(await s.completions()).length.equals(2);
+      check(waits).equals(2);
     });
 
     test('a send refused before it commits keeps every draft and shows nothing',
