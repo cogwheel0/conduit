@@ -5929,6 +5929,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // Back on screen, as after a back swipe or a pull of the sheet let go
+        // of: the page is not leaving, and searches again.
+        leaving = false
         NativeSheetBridge.shared.markDetailVisible(self)
         refreshNavigationAction()
     }
@@ -6049,6 +6052,11 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             leaving = true
             searchDebounce?.invalidate()
             searchDebounce = nil
+            // A swipe let go of before it finishes leaves the page where it
+            // was: it searches again.
+            transitionCoordinator?.notifyWhenInteractionChanges { [weak self] context in
+                if context.isCancelled { self?.leaving = false }
+            }
         }
         view.endEditing(true)
     }
