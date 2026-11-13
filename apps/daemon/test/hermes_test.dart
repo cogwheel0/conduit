@@ -24,7 +24,8 @@ import 'support/null_sink.dart';
 import 'support/window.dart';
 
 /// Hermes Agent, against a fake of its API server: the connection,
-/// a conversation in a session, an approval, sessions and jobs.
+/// a conversation in a session, an approval, and sessions. Its jobs,
+/// catalog and connections are `hermes_admin_test.dart`'s.
 void main() {
   late Directory temporary;
   late CoreRuntime runtime;
@@ -90,10 +91,6 @@ void main() {
     expect(changed.last.connection, status.connection);
     expect(status.capabilities.jobs, isTrue);
     expect(status.capabilities.runApproval, isTrue);
-
-    final catalog = await hermes.catalog();
-    expect(catalog.skills.single.name, 'review');
-    expect(catalog.toolsets.single.tools, <String>['search', 'fetch']);
   });
 
   test('a conversation is a session, answered through turns', () async {
@@ -446,36 +443,6 @@ void main() {
       HermesService.keepIds(edited, scope).map((m) => m.id).skip(4),
       <String>['r5', 'r6'],
     );
-  });
-
-  test('scheduled agents are made, paused, run and deleted', () async {
-    var jobs = await hermes.saveJob(
-      const HermesJobEdit(
-        name: 'Morning brief',
-        prompt: 'Summarise the news',
-        schedule: '0 8 * * *',
-      ),
-    );
-    final job = jobs.jobs.single;
-    expect(job.name, 'Morning brief');
-    expect(job.enabled, isTrue);
-    expect(job.scheduleText, isNotNull);
-    jobs = await hermes.setJobEnabled(
-      HermesJobToggle(id: job.id, enabled: false),
-    );
-    expect(jobs.jobs.single.enabled, isFalse);
-    jobs = await hermes.saveJob(
-      HermesJobEdit(
-        id: job.id,
-        prompt: 'Summarise the tech news',
-        schedule: '0 9 * * *',
-      ),
-    );
-    expect(jobs.jobs.single.prompt, 'Summarise the tech news');
-    jobs = await hermes.runJob(job.id);
-    expect(jobs.jobs.single.lastStatus, 'ok');
-    jobs = await hermes.deleteJob(job.id);
-    expect(jobs.jobs, isEmpty);
   });
 
   test('a desktop gateway that signs in natively waits for it', () async {
