@@ -192,8 +192,22 @@ enum NativeSheetHaptics {
 protocol NativeSheetLeaveGuarding: AnyObject {
     /// Whether leaving now would drop unsaved changes.
     var blocksLeaving: Bool { get }
-    /// Asks, then runs [leave] once the user chooses to discard.
-    func askBeforeLeaving(then leave: @escaping () -> Void)
+    /// Whether the page has a question to ask before its changes go.
+    var asksBeforeDiscarding: Bool { get }
+    /// Whether text typed on the page is not done yet.
+    var holdsUnfinishedText: Bool { get }
+    /// Asks, then runs [leave] once the user chooses to discard. With
+    /// [always], asks even when the page holds nothing unsaved itself: a page
+    /// it opened does.
+    func askBeforeLeaving(always: Bool, then leave: @escaping () -> Void)
+    /// Forgets what the page holds unsaved, once it was chosen to discard.
+    func dropUnsavedChanges()
+}
+
+extension NativeSheetLeaveGuarding {
+    func askBeforeLeaving(then leave: @escaping () -> Void) {
+        askBeforeLeaving(always: false, then: leave)
+    }
 }
 
 final class NativeSheetNavigationController: UINavigationController, UIGestureRecognizerDelegate {
@@ -216,6 +230,32 @@ final class NativeSheetNavigationController: UINavigationController, UIGestureRe
               page.blocksLeaving
         else { return nil }
         return page
+    }
+
+    /// The page whose changes closing the sheet would drop, if any: the
+    /// highest page that holds unsaved changes, or a form under pages of its
+    /// own that hold text not yet done -- what a form's pages hold is the
+    /// form's (an address's Advanced page, say). With `always`, the form
+    /// asks although it holds nothing unsaved itself.
+    var guardingClosePage: (page: NativeSheetLeaveGuarding, always: Bool)? {
+        var textAbove = false
+        for controller in viewControllers.reversed() {
+            guard let page = controller as? NativeSheetLeaveGuarding else {
+                continue
+            }
+            if page.blocksLeaving { return (page, false) }
+            if textAbove && page.asksBeforeDiscarding { return (page, true) }
+            textAbove = textAbove || page.holdsUnfinishedText
+        }
+        return nil
+    }
+
+    /// Chosen to close the sheet without saving: no page sends what it held
+    /// as the sheet goes.
+    func dropUnsavedChanges() {
+        for controller in viewControllers {
+            (controller as? NativeSheetLeaveGuarding)?.dropUnsavedChanges()
+        }
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {

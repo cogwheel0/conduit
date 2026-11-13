@@ -118,6 +118,36 @@ void main() {
     expect(debugCompiledMarkdownCacheSize(), 1);
   });
 
+  testWidgets('a service disposed while its worker starts prepares nothing '
+      'on the calling isolate', (tester) async {
+    final paths = <MarkdownPrepareExecutionPath>[];
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      debugOnPrepareExecution: paths.add,
+    );
+    final content = List<String>.filled(
+      200,
+      'worker-backed markdown',
+    ).join(' ');
+
+    String? prepared;
+    unawaited(
+      service
+          .prepareContent(content, streaming: false)
+          .then((value) => prepared = value),
+    );
+    await tester.pump();
+    service.dispose();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await tester.pump();
+
+    check(prepared).equals(content);
+    check(paths)
+        .not((it) => it.contains(MarkdownPrepareExecutionPath.fallbackSync));
+  });
+
   test('markdown workers retire after the configured idle period', () async {
     final service = MarkdownCompileService(
       workerManager: WorkerManager(),

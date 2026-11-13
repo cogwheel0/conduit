@@ -48,6 +48,8 @@ import '../profile/widgets/account_sheet.dart'
 import '../workspace/providers/workspace_capabilities_provider.dart';
 import '../workspace/workspace_navigation.dart';
 import 'settings_page_module.dart';
+import 'pages/server_address_settings_pages.dart'
+    show serverAddressesAddAccountActionId, serverAddressesPageId;
 import 'settings_pages.dart';
 
 /// Which Settings an event came from.
@@ -108,6 +110,19 @@ class SettingsController {
 
   SettingsSurface get _surface => ref.read(settingsSurfaceProvider);
 
+  /// Numbers each row change as it joins the queue.
+  int _controlsQueued = 0;
+  int? _controlHandled;
+
+  /// How many row changes have joined the queue so far. A page recording
+  /// this as it appears can tell a change made on an earlier visit, still
+  /// waiting its turn, from one made on its own.
+  int get controlsQueued => _controlsQueued;
+
+  /// The number of the queued row change being handled now; null when none
+  /// is (a change handled straight away, outside the queue).
+  int? get controlHandled => _controlHandled;
+
   /// The account a row change belongs to: the user signed in, on the server
   /// they are signed in to (both null with none).
   (String?, String?) _controlOwner() => (
@@ -123,9 +138,22 @@ class SettingsController {
     ref.read(settingsPagesProvider.notifier).clear();
   }
 
-  /// A Flutter Settings page closed: what it held unsaved is forgotten.
-  void pageClosed(String detailId) {
+  /// A Settings page closed: what it held unsaved is forgotten, and its
+  /// module hears of it. A page closing as its tree goes passes the
+  /// [modules] it read while it was up, as no provider may be read then.
+  void pageClosed(String detailId, {List<SettingsPageModule>? modules}) {
     if (detailId == 'password') _startPasswordVisit();
+    final List<SettingsPageModule> owners;
+    if (modules != null) {
+      owners = modules;
+    } else if (_attached) {
+      owners = ref.read(settingsPageModulesProvider);
+    } else {
+      owners = const [];
+    }
+    for (final module in owners) {
+      if (module.ownsPage(detailId)) module.pageLeft(detailId);
+    }
   }
 
   bool get _attached => _widgetRef?.context.mounted ?? false;
@@ -144,7 +172,12 @@ class SettingsController {
     switch (event) {
       case NativeSheetLogoutRequested():
         unawaited(_handleNativeSheetLogoutRequested());
+      case NativeSheetDetailLeft(:final detailId):
+        pageClosed(detailId);
       case NativeSheetDismissed():
+        for (final module in ref.read(settingsPageModulesProvider)) {
+          module.settingsClosed();
+        }
         _nativeSheetDraftValues.clear();
         _passwordVisit++;
         _clearNewMemoryDraft();
@@ -168,13 +201,19 @@ class SettingsController {
         // last one, is dropped rather than sent to the new one.
         final owner = _controlOwner();
         final draft = _newMemoryDraftVisit;
-        _nativeSheetControlQueue = _nativeSheetControlQueue.then((_) {
-          if (owner != _controlOwner()) return null;
-          return _handleNativeSheetControlChanged(
-            event,
-            source,
-            newMemoryDraftVisit: draft,
-          );
+        final sequence = ++_controlsQueued;
+        _nativeSheetControlQueue = _nativeSheetControlQueue.then((_) async {
+          if (owner != _controlOwner()) return;
+          _controlHandled = sequence;
+          try {
+            await _handleNativeSheetControlChanged(
+              event,
+              source,
+              newMemoryDraftVisit: draft,
+            );
+          } finally {
+            _controlHandled = null;
+          }
         });
       case NativeSheetDetailAppeared(:final detailId):
         // A password typed on an earlier visit is not combined with this one.
@@ -208,6 +247,18 @@ class SettingsController {
     Object? value,
   ) async {
     final context = NavigationService.context;
+    // Sign Out from an account row's menu, on the server's page: the
+    // Settings sheet closes first, as the sign-out page's own rows do.
+    const signOutOfPrefix = '$nativeAccountSignOutOfActionId:';
+    if (actionId.startsWith(signOutOfPrefix)) {
+      // Waited for, so the sign-out question is not presented over the
+      // sheet as it leaves, where it could be dropped.
+      if (!await NativeSheetBridge.instance.dismissSettings()) return true;
+      return _handleNativeAccountAction(
+        nativeAccountSignOutOfActionId,
+        actionId.substring(signOutOfPrefix.length),
+      );
+    }
     switch (actionId) {
       case nativeAccountSwitchActionId:
         if (context == null || value is! String) return true;
@@ -223,14 +274,9 @@ class SettingsController {
               : AccountKind.openWebUi,
         );
         return true;
-      case nativeAccountServerActionId:
-        if (value is! String) return true;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            RouteNames.serverAddresses,
-            extra: value,
-          ),
-        );
+      case serverAddressesAddAccountActionId:
+        if (context == null || value is! String) return true;
+        openAddAccount(context, ref, serverId: value);
         return true;
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;
@@ -259,6 +305,10 @@ class SettingsController {
         if (entry == null || !context.mounted) return true;
         await signOutOfSavedAccount(context, ref, entry);
         await _refreshSignOutPage();
+        // Its server's page no longer lists it, and goes with its last one.
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail(serverAddressesPageId(entry.server.id));
         return true;
       case nativeAccountSignOutActionId:
         if (context == null) return true;
@@ -448,25 +498,6 @@ class SettingsController {
           return;
         }
         final request = calendarNativeSheetNavigationRequest;
-        unawaited(
-          NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: origin,
-          ),
-        );
-        return;
-      }
-
-      if (event.id == NativeSheetRoutes.chatDataControls) {
-        // As for Scheduled tasks: the sheet was built before this arrived, so
-        // a row that went stale (Advanced turned off, the account signed out)
-        // must not navigate. The page itself opens its file picker only after
-        // the user acts on it, never while this sheet is still up.
-        if (!ref.read(chatDataControlsEntryVisibleProvider)) {
-          _showNativeOptionUnavailable();
-          return;
-        }
-        final request = chatDataControlsNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
             request.routeName,

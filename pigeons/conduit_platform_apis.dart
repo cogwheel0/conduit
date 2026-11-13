@@ -409,6 +409,9 @@ class PlatformNativeSheetItem {
     this.usesProfileAvatar,
     this.filterAllLabel,
     this.confirmMessage,
+    this.disabled,
+    this.keyboard,
+    this.rowActions,
   });
 
   String id;
@@ -457,6 +460,36 @@ class PlatformNativeSheetItem {
   String? filterAllLabel;
 
   /// Asked before the row acts; the row's title confirms.
+  String? confirmMessage;
+
+  /// Shown dimmed, and does nothing when tapped.
+  bool? disabled;
+
+  /// The keyboard a text row brings up: `url`, `email`, `number`, or the
+  /// default when null.
+  String? keyboard;
+
+  /// What else the row can do, besides what a tap does: a long press lists
+  /// them, and a swipe offers them where the page is not reordering.
+  List<PlatformNativeSheetRowAction>? rowActions;
+}
+
+/// One more thing a row can do, sent as its own control id.
+class PlatformNativeSheetRowAction {
+  PlatformNativeSheetRowAction({
+    required this.id,
+    required this.label,
+    this.sfSymbol,
+    required this.destructive,
+    this.confirmMessage,
+  });
+
+  String id;
+  String label;
+  String? sfSymbol;
+  bool destructive;
+
+  /// Asked before it acts; the label confirms.
   String? confirmMessage;
 }
 
@@ -580,6 +613,9 @@ class PlatformNativeSheetDetail {
     this.discardMessage,
     this.discardConfirmLabel,
     this.discardCancelLabel,
+    this.busy,
+    this.announcement,
+    this.edited,
   });
 
   String id;
@@ -601,6 +637,16 @@ class PlatformNativeSheetDetail {
   String? discardMessage;
   String? discardConfirmLabel;
   String? discardCancelLabel;
+
+  /// Working on what Done sent: Done waits, and the rows take no taps.
+  bool? busy;
+
+  /// Read out by assistive technology as the page is described with it.
+  String? announcement;
+
+  /// Holds changes not yet saved, made on this page or on the pages it
+  /// leads to: leaving asks the discard question.
+  bool? edited;
 }
 
 class PlatformNativeProfileSheetConfig {
@@ -738,6 +784,34 @@ class PlatformNativeSheetOptionsSelectorRequest {
   List<PlatformNativeSheetOption> options;
 
   String? filterAllLabel;
+}
+
+/// One answer to a question asked over the sheet.
+class PlatformNativeSheetAlertAction {
+  PlatformNativeSheetAlertAction({
+    required this.id,
+    required this.label,
+    required this.style,
+  });
+
+  String id;
+  String label;
+
+  /// `default`, `cancel` or `destructive`.
+  String style;
+}
+
+/// A question asked over whatever the sheet shows.
+class PlatformNativeSheetAlertRequest {
+  PlatformNativeSheetAlertRequest({
+    required this.title,
+    this.message,
+    required this.actions,
+  });
+
+  String title;
+  String? message;
+  List<PlatformNativeSheetAlertAction> actions;
 }
 
 class PlatformNativeSheetDatePickerRequest {
@@ -1173,6 +1247,12 @@ abstract class NativeSheetHostApi {
   /// Closes the open page [detailId] of the native Settings sheet, going
   /// back to the page that opened it. Returns whether it was open.
   bool closeDetail(String detailId);
+
+  /// Asks [request] over whatever is on screen, the Settings sheet and its
+  /// pages included, without closing them. Answers the id of the action
+  /// chosen, or null when nothing could be shown.
+  @async
+  String? presentAlert(PlatformNativeSheetAlertRequest request);
 }
 
 @FlutterApi()
@@ -1181,6 +1261,9 @@ abstract class NativeSheetFlutterApi {
   void onLogoutRequested();
   void onControlChanged(PlatformNativeSheetControlChangedEvent event);
   void onDetailAppeared(PlatformNativeSheetDetailAppearedEvent event);
+
+  /// Page [event]'s detail is gone: popped, or its sheet closed.
+  void onDetailLeft(PlatformNativeSheetDetailAppearedEvent event);
   void onModelPinToggled(PlatformNativeSheetModelPinToggledEvent event);
   void onReasoningEffortChanged(
     PlatformNativeSheetReasoningEffortChangedEvent event,

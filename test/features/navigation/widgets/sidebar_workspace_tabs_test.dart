@@ -873,8 +873,9 @@ void main() {
         expect(items, hasLength(2));
         for (final item in items) {
           expect(item.title, 'Data Controls');
-          expect(item.dismissOnSelect, isTrue);
-          expect(item.actionId, NativeSheetRoutes.chatDataControls);
+          // A page of Settings's own: it opens inside the sheet.
+          expect(item.dismissOnSelect, isFalse);
+          expect(item.actionId, isNull);
         }
       },
     );

@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io' show File, HandshakeException, HttpException, SocketException;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,27 +11,22 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
+export '../services/server_address_service.dart';
+
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
-import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/auth/openwebui_address_check.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
-    show
-        logoutFenceSuppressesCookies,
-        openWebUiRouteResolverProvider,
-        proxySignInForRouteEditingProvider,
-        reloadAfterRoutesEdited;
+    show proxySignInForRouteEditingProvider;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
-    show
-        accountAdditionOriginProvider,
-        pendingSignInAbandonableProvider;
+    show accountAdditionOriginProvider, pendingSignInAbandonableProvider;
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -44,8 +36,6 @@ import '../../../shared/services/input_validation_service.dart';
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:conduit_core/utils/sensitive_value_utils.dart';
-import 'package:conduit_core/utils/unicode_prefix.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
@@ -56,317 +46,12 @@ import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/auth_grouped_form.dart';
+import '../services/server_address_service.dart';
 import '../../profile/widgets/account_actions.dart'
     show
         abandonAddedAccount,
         confirmChangingAddressInUse,
         confirmLeavingActiveAccount;
-
-const int _maxConnectionProviderDetailCharacters = 300;
-const int _maxConnectionErrorCharacters = 640;
-const int _maxConnectionSecretCharacters = 8 * 1024;
-const int _maxConnectionSecretPatterns = 32;
-const int _maxConnectionSecretTotalCharacters = 32 * 1024;
-
-/// Builds the deliberately credential-free client options used to discover
-/// whether a scheme-less address redirects from HTTP to HTTPS.
-///
-/// This request is the only request sent before the user-selected scheme is
-/// known. Custom headers can contain bearer tokens, cookies, or reverse-proxy
-/// credentials, so they must not be exposed to the initial plaintext origin.
-@visibleForTesting
-BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
-  return BaseOptions(
-    baseUrl: baseUrl,
-    connectTimeout: const Duration(seconds: 2),
-    receiveTimeout: const Duration(seconds: 2),
-    followRedirects: false,
-    validateStatus: (status) => true,
-    headers: ConduitUserAgent.mergeHeaders(),
-  );
-}
-
-/// Whether a failed connection to a server configured with a client
-/// certificate failed in the TLS handshake itself, which is a certificate
-/// problem and nothing else.
-@visibleForTesting
-bool isLikelyMutualTlsRejection(
-  String errorText, {
-  required bool hasMutualTlsInput,
-}) {
-  if (!hasMutualTlsInput) return false;
-  return errorText.contains('HandshakeException') ||
-      errorText.contains('TlsException') ||
-      errorText.contains('CERTIFICATE_VERIFY_FAILED') ||
-      errorText.contains('alert bad certificate');
-}
-
-/// Whether a failed HTTPS connection, to a server configured with a client
-/// certificate, was closed before the first response header arrived.
-///
-/// With TLS 1.3 the client finishes its side of the handshake before the
-/// server checks the certificate, so a refusal does not surface as a
-/// handshake error: the server closes the connection instead. A proxy reset or
-/// a server restart closes it the same way, so this cannot say the certificate
-/// was refused, only that it is worth checking. A plain HTTP request cannot
-/// involve a client certificate.
-@visibleForTesting
-bool isConnectionClosedWithClientCertificate(
-  String errorText, {
-  required bool hasMutualTlsInput,
-}) =>
-    hasMutualTlsInput &&
-    errorText.contains('Connection closed before full header was received') &&
-    errorText.contains('uri = https://');
-
-/// Redacts configured header values before normalizing and bounding text that
-/// came from a server, proxy, or transport error.
-///
-/// The working prefix includes enough Unicode scalars to recognize a secret
-/// that begins inside the visible limit. If the defensive working limit still
-/// cuts through a secret, the partial suffix is dropped before whitespace
-/// normalization can move it back into view.
-@visibleForTesting
-String? sanitizeServerConnectionProviderText(
-  Object? value, {
-  required Iterable<String> sensitiveValues,
-  int maxCharacters = _maxConnectionProviderDetailCharacters,
-}) {
-  if (value == null) return null;
-  if (maxCharacters <= 0) {
-    throw RangeError.value(maxCharacters, 'maxCharacters');
-  }
-
-  final secrets = <String>{};
-  var totalSecretCharacters = 0;
-  for (final configuredValue in sensitiveValues) {
-    final variants = boundedSensitiveValueVariants(
-      configuredValue,
-      maxCharacters: _maxConnectionSecretCharacters,
-      maxVariants: _maxConnectionSecretPatterns,
-    );
-    if (variants == null) return null;
-    for (final candidate in variants) {
-      if (candidate.isEmpty || !secrets.add(candidate)) continue;
-      totalSecretCharacters += candidate.length;
-      if (secrets.length > _maxConnectionSecretPatterns ||
-          totalSecretCharacters > _maxConnectionSecretTotalCharacters) {
-        // Imported configuration is untrusted too. Fail closed rather than
-        // building an unbounded redaction expression or leaking a fragment.
-        return null;
-      }
-    }
-  }
-
-  final orderedSecrets = secrets.toList(growable: false)
-    ..sort((a, b) {
-      final runeLength = b.runes.length.compareTo(a.runes.length);
-      return runeLength != 0 ? runeLength : b.length.compareTo(a.length);
-    });
-  final raw = value.toString();
-  final safe = redactSensitiveValuesInUnicodePrefix(
-    raw,
-    sensitiveValues: orderedSecrets,
-    maxVisibleScalars: maxCharacters,
-  );
-  return _normalizeAndBoundConnectionText(safe, maxCharacters: maxCharacters);
-}
-
-String? _normalizeAndBoundConnectionText(
-  String value, {
-  required int maxCharacters,
-}) {
-  final safe = value
-      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (safe.isEmpty) return null;
-
-  final characters = safe.runes.toList(growable: false);
-  if (characters.length <= maxCharacters) return safe;
-  if (maxCharacters == 1) return '…';
-  return '${String.fromCharCodes(characters.take(maxCharacters - 1))}…';
-}
-
-/// Formats a Dio failure without allowing server-controlled status, redirect,
-/// or response-body text to reflect custom-header credentials into the UI.
-@visibleForTesting
-String formatServerConnectionDioExceptionForDisplay(
-  DioException error, {
-  required Iterable<String> sensitiveValues,
-}) {
-  final response = error.response;
-  if (response != null) {
-    final statusCode = response.statusCode;
-    final statusMessage = sanitizeServerConnectionProviderText(
-      response.statusMessage,
-      sensitiveValues: sensitiveValues,
-      maxCharacters: 120,
-    );
-    final status = [
-      if (statusCode != null) '$statusCode',
-      ?statusMessage,
-    ].join(' ');
-    final wasRedirected =
-        response.headers.value('location')?.trim().isNotEmpty == true;
-    final detail = sanitizeServerConnectionProviderText(
-      _serverConnectionResponseErrorDetail(response.data),
-      sensitiveValues: sensitiveValues,
-    );
-    final parts = [
-      if (status.isNotEmpty) 'HTTP $status',
-      'from the server',
-      if (wasRedirected) 'redirected by server',
-      ?detail,
-    ];
-    return _normalizeAndBoundConnectionText(
-          parts.join(' - '),
-          maxCharacters: _maxConnectionErrorCharacters,
-        ) ??
-        'Could not connect to the server.';
-  }
-
-  final formatted = '${error.type.name} while contacting the server';
-  return _normalizeAndBoundConnectionText(
-        formatted,
-        maxCharacters: _maxConnectionErrorCharacters,
-      ) ??
-      'Could not connect to the server.';
-}
-
-Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
-  {'detail': final Object value} => value,
-  {'message': final Object value} => value,
-  {'error': final Object value} => value,
-  final String value => value,
-  _ => null,
-};
-
-/// A client for checking an address typed into this page, through
-/// [container]'s providers.
-///
-/// An address being edited is checked with the proxy cookie the server's
-/// accounts keep there. An incomplete logout keeps that cookie off every
-/// other client, and a check can outlast the page into one.
-@visibleForTesting
-ApiService buildAddressCheckApi(
-  ProviderContainer container,
-  ServerConfig config, {
-  String? authToken,
-}) => ApiService(
-  serverConfig: config,
-  workerManager: container.read(workerManagerProvider),
-  authToken: authToken,
-  shouldSuppressCookieCustomHeader: logoutFenceSuppressesCookies(
-    container.read,
-  ),
-);
-
-/// Checks that [address] reaches the saved server [serverId]
-/// ([checkOpenWebUiAddress]) with its accounts' sessions: the live one of
-/// the active account and those kept for the others.
-///
-/// Active as storage counts it, which keeps no id for an account only
-/// flagged active or the only one saved; its session is the live one, not
-/// one kept for an inactive account. Returns what the check found and that
-/// account's id. Throws when storage cannot be read.
-@visibleForTesting
-Future<({OpenWebUiAddressCheckResult found, String? activeAccountId})>
-checkSavedServerAddress(
-  ProviderContainer container, {
-  required OpenWebUiRegistry registry,
-  required String serverId,
-  required String address,
-  required Future<bool> Function(Uri address) confirmSendingSession,
-  required Future<String> Function(String accountId, String token) userAt,
-}) async {
-  final storage = container.read(optimizedStorageServiceProvider);
-  final activeAccountId = await storage.getEffectiveActiveServerId();
-  final found = await checkOpenWebUiAddress(
-    registry: registry,
-    serverId: serverId,
-    address: address,
-    activeAccountId: activeAccountId,
-    liveToken: container.read(authTokenProvider3),
-    keptTokenFor: storage.vaultedTokenFor,
-    accountsWithSession: await storage.accountIdsWithSession(),
-    confirmSendingSession: confirmSendingSession,
-    userAt: userAt,
-  );
-  return (found: found, activeAccountId: activeAccountId);
-}
-
-/// Saves [route], an address of the server [serverId] that has just been
-/// checked -- in place of the address of its id, or as a new one when
-/// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
-/// account whose session proved it (see
-/// [OptimizedStorageService.editServerEndpointsWithSession]).
-///
-/// The address and its cookie are saved together: saved without it, an
-/// address behind a proxy would be refused. When the cookie cannot be kept
-/// nothing is saved, and the address in use stays where it was; a failure is
-/// rethrown for the editor to report. Returns false when there is no
-/// [cookieOwner] to keep the cookie for, or storage declined it, a sign-out
-/// having revoked cookies since [sessionRevision].
-@visibleForTesting
-Future<bool> saveCheckedAddress(
-  ProviderContainer container, {
-  required String serverId,
-  required OpenWebUiEndpoint route,
-  required bool adding,
-  required String? cookieOwner,
-  required Map<String, String> headers,
-  required int sessionRevision,
-}) async {
-  final storage = container.read(optimizedStorageServiceProvider);
-  // Onto the routes as stored now, not as read before the check, which can
-  // take a while; an address removed meanwhile stays removed.
-  List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) =>
-      withEditedRoute(endpoints, route, adding: adding);
-  final bool saved;
-  if (headers.keys.any(isCapturedSessionHeader)) {
-    saved =
-        cookieOwner != null &&
-        await storage.editServerEndpointsWithSession(
-          serverId,
-          edit,
-          accountId: cookieOwner,
-          routeId: route.id,
-          headers: headers,
-          sessionRevision: sessionRevision,
-        );
-  } else {
-    await storage.editServerEndpoints(serverId, edit);
-    saved = true;
-  }
-  if (!saved) return false;
-  // The addresses shown and the route in use follow it, and the clients
-  // when the active connection changed.
-  await reloadAfterRoutesEdited(container, serverId, endpointId: route.id);
-  return true;
-}
-
-/// The account of [serverId] a proxy sign-in on one of its addresses is kept
-/// for: the one whose session proved the address, else -- with nothing to
-/// prove -- the active account when it is one of the server's, else the
-/// server's only account. None when it could be any of several.
-///
-/// Accounts still being signed in to are not counted: none is a user yet.
-@visibleForTesting
-String? addressCookieOwner(
-  OpenWebUiRegistry registry, {
-  required String serverId,
-  required String? provedBy,
-  required String? activeAccountId,
-}) {
-  if (provedBy != null) return provedBy;
-  final accounts = [
-    for (final account in registry.accountsOn(serverId))
-      if (account.userId != null) account.id,
-  ];
-  if (accounts.contains(activeAccountId)) return activeAccountId;
-  return accounts.length == 1 ? accounts.single : null;
-}
 
 /// What the account sheet hands the connection page to carry on from.
 ///
@@ -392,6 +77,7 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
     this.serverId,
     this.routesOfServerId,
     this.endpointId,
+    this.routeDraft,
     this.handoff,
     this.onChecked,
     this.header,
@@ -416,6 +102,11 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
 
   /// The address being edited; null adds a new one.
   final String? endpointId;
+
+  /// An address edit handed over by Settings, whose address is behind a
+  /// proxy that wants its own sign-in: the form starts from it and
+  /// connects at once, signing in through the proxy.
+  final ServerAddressDraft? routeDraft;
 
   /// Connecting to sign in to another account while one is signed in. The
   /// form starts empty -- or from [serverId]'s saved route -- rather than
@@ -486,7 +177,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   void initState() {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
-    if (_editingRoutes) {
+    if (_editingRoutes && widget.routeDraft != null) {
+      unawaited(_carryOnRouteDraft(widget.routeDraft!));
+    } else if (_editingRoutes) {
       _prefillFromRoute();
     } else if (_embedded) {
       // A new server: the sheet offers the saved ones itself.
@@ -526,12 +219,37 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     if (!mounted) return;
     final authFlow = handoff.authFlow;
     if (authFlow != null) {
-      unawaited(
-        context.pushNamed(RouteNames.authentication, extra: authFlow),
-      );
+      unawaited(context.pushNamed(RouteNames.authentication, extra: authFlow));
     } else {
       await _connectToServer();
     }
+  }
+
+  /// Starts from the edit Settings handed over, then connects, the proxy's
+  /// sign-in opening as a page of its own.
+  Future<void> _carryOnRouteDraft(ServerAddressDraft draft) async {
+    _routeLabelController.text = draft.label;
+    setState(() {
+      _urlController.text = draft.url;
+      _customHeaders
+        ..clear()
+        ..addAll(draft.headers);
+      _showAdvancedSettings =
+          draft.allowSelfSigned ||
+          draft.headers.isNotEmpty ||
+          (!kIsWeb && draft.hasMutualTlsInput);
+      _allowSelfSignedCertificates = draft.allowSelfSigned;
+      _mtlsCertificateChainPem = kIsWeb ? null : draft.certificatePem;
+      _mtlsCertificateLabel = kIsWeb ? null : draft.certificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : draft.privateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : draft.privateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : draft.privateKeyPassword;
+    });
+    // The proxy's page is pushed from this one, which must be in the tree.
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) await _connectToServer();
   }
 
   Future<void> _prefillFromRoute() async {
@@ -607,16 +325,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     // The editor can be left while a save runs, and the widget's ref is gone
     // with it; what follows the save must still run.
     final container = ProviderScope.containerOf(context, listen: false);
-    final storage = container.read(optimizedStorageServiceProvider);
-    final registry = await storage.getOpenWebUiRegistryStrict();
-    final server = registry.server(widget.routesOfServerId!);
-    if (server == null) throw StateError('That server is no longer saved.');
-
-    final (:found, :activeAccountId) = await checkSavedServerAddress(
+    final outcome = await saveVerifiedServerAddress(
       container,
-      registry: registry,
-      serverId: server.id,
-      address: verified.url,
+      serverId: widget.routesOfServerId!,
+      endpointId: widget.endpointId,
+      addedEndpointId: _addedEndpointId,
+      label: _routeLabelController.text,
+      verified: verified,
+      sessionRevision: sessionRevision,
+      l10n: l10n,
       confirmSendingSession: (address) async {
         if (!mounted) return false;
         return ThemedDialogs.confirm(
@@ -626,103 +343,25 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           confirmText: l10n.accountsAddressConfirmAction,
         );
       },
-      userAt: (accountId, token) async {
-        // Each account's token travels with its own proxy cookie only.
-        final probe = buildAddressCheckApi(
-          container,
-          _withKeptCookie(verified, registry, [accountId]),
-          authToken: token,
-        );
-        try {
-          final user = await probe.getCurrentUser(
-            suppressAuthFailureNotification: true,
-          );
-          return user.id;
-        } finally {
-          probe.dispose();
+      confirmChangingInUse: () async =>
+          mounted && await confirmChangingAddressInUse(context, container),
+      // Left while the address was checked: Back abandons the edit, and the
+      // address the server's accounts use stays as it was.
+      stillWanted: () => mounted,
+    );
+    switch (outcome) {
+      case ServerAddressSaved():
+        if (mounted) {
+          ConduitHaptics.success();
+          context.pop();
         }
-      },
-    );
-    final (result: check, :provedBy) = found;
-    if (check != OpenWebUiAddressCheck.sameServer &&
-        check != OpenWebUiAddressCheck.nothingToProtect) {
-      final refusal = switch (check) {
-        OpenWebUiAddressCheck.differentServer =>
-          l10n.accountsAddressDifferentServer,
-        OpenWebUiAddressCheck.needsSignIn => l10n.accountsAddressNeedsSignIn,
-        // Nothing was sent, as the user chose; the form stays as it is.
-        OpenWebUiAddressCheck.declined ||
-        OpenWebUiAddressCheck.sameServer ||
-        OpenWebUiAddressCheck.nothingToProtect => null,
-      };
-      if (mounted) setState(() => _connectionError = refusal);
-      return false;
+        return true;
+      case ServerAddressNotSaved(:final message):
+        if (message != null && mounted) {
+          setState(() => _connectionError = message);
+        }
+        return false;
     }
-
-    final label = _routeLabelController.text.trim();
-    final route = OpenWebUiEndpoint(
-      id: widget.endpointId ?? _addedEndpointId,
-      url: verified.url,
-      label: label.isEmpty ? null : label,
-      customHeaders: {
-        for (final entry in verified.customHeaders.entries)
-          if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
-      },
-      allowSelfSignedCertificates: verified.allowSelfSignedCertificates,
-      mtlsCertificateChainPem: verified.mtlsCertificateChainPem,
-      mtlsCertificateLabel: verified.mtlsCertificateLabel,
-      mtlsPrivateKeyPem: verified.mtlsPrivateKeyPem,
-      mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
-      mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
-    );
-    // Left while the address was checked: Back abandons the edit, and the
-    // address the server's accounts use stays as it was.
-    if (!mounted) return false;
-    // A proxy sign-in on this address belongs to the account whose session
-    // proved it, which need not be the active one.
-    final cookieOwner = addressCookieOwner(
-      registry,
-      serverId: server.id,
-      provedBy: provedBy,
-      activeAccountId: activeAccountId,
-    );
-    if (cookieOwner == null &&
-        verified.customHeaders.keys.any(isCapturedSessionHeader)) {
-      // Kept for none of them, the address would be saved for the proxy to
-      // refuse. Once one of them is signed in to, it is that one's.
-      setState(() => _connectionError = l10n.accountsAddressNeedsSignIn);
-      return false;
-    }
-    // Saved, the address in use moves the clients off it, ending a reply
-    // arriving through them; that is asked first.
-    final inUse = container.read(openWebUiRouteResolverProvider);
-    if (widget.endpointId != null &&
-        inUse.serverId == server.id &&
-        inUse.endpointId == widget.endpointId &&
-        !await confirmChangingAddressInUse(context, container)) {
-      return false;
-    }
-    if (!mounted) return false;
-    final cookieKept = await saveCheckedAddress(
-      container,
-      serverId: server.id,
-      route: route,
-      adding: widget.endpointId == null,
-      cookieOwner: cookieOwner,
-      headers: verified.customHeaders,
-      sessionRevision: sessionRevision,
-    );
-    if (!cookieKept) {
-      // Not saved: the proxy sign-in that lets requests through it was
-      // revoked; signing in through the proxy again captures a new one.
-      if (mounted) setState(() => _connectionError = l10n.proxyAuthFailed);
-      return false;
-    }
-    if (mounted) {
-      ConduitHaptics.success();
-      context.pop();
-    }
-    return true;
   }
 
   /// [draft] with the proxy cookie kept on the address being edited, the
@@ -736,27 +375,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final registry = await storage.getOpenWebUiRegistryStrict();
     // As storage counts it, as the check of the address does.
     final activeId = await storage.getEffectiveActiveServerId();
-    return _withKeptCookie(draft, registry, [
-      ?activeId,
-      for (final account in registry.accountsOn(serverId)) account.id,
-    ]);
-  }
-
-  ServerConfig _withKeptCookie(
-    ServerConfig draft,
-    OpenWebUiRegistry registry,
-    Iterable<String> accountIds,
-  ) {
-    final kept = keptAddressSessionHeaders(
+    return withKeptAddressCookie(
+      draft,
       registry: registry,
-      serverId: widget.routesOfServerId!,
+      serverId: serverId,
       endpointId: widget.endpointId,
-      draft: draft,
-      accountIds: accountIds,
+      accountIds: [
+        ?activeId,
+        for (final account in registry.accountsOn(serverId)) account.id,
+      ],
     );
-    return kept.isEmpty
-        ? draft
-        : draft.copyWith(customHeaders: {...draft.customHeaders, ...kept});
   }
 
   Future<void> _prefillFromSavedServer() async {
@@ -1369,149 +997,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
   }
 
-  String _validateAndFormatUrl(String input) {
-    if (input.isEmpty) {
-      throw Exception(AppLocalizations.of(context)!.serverUrlEmpty);
-    }
+  String _validateAndFormatUrl(String input) =>
+      formatServerAddressInput(input, AppLocalizations.of(context)!);
 
-    // Clean up the input
-    String url = input.trim();
+  bool _hasExplicitHttpScheme(String input) => hasExplicitHttpScheme(input);
 
-    // Add protocol if missing
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'http://$url';
-    }
-
-    // Remove trailing slash
-    if (url.endsWith('/')) {
-      url = url.substring(0, url.length - 1);
-    }
-
-    // Parse and validate the URI
-    final uri = Uri.tryParse(url);
-    if (uri == null) {
-      throw Exception(AppLocalizations.of(context)!.invalidUrlFormat);
-    }
-
-    // Validate scheme
-    if (uri.scheme != 'http' && uri.scheme != 'https') {
-      throw Exception(AppLocalizations.of(context)!.onlyHttpHttps);
-    }
-
-    // Validate host
-    if (uri.host.isEmpty) {
-      throw Exception(AppLocalizations.of(context)!.serverAddressRequired);
-    }
-
-    // Validate port if specified
-    if (uri.hasPort) {
-      if (uri.port < 1 || uri.port > 65535) {
-        throw Exception(AppLocalizations.of(context)!.portRange);
-      }
-    }
-
-    // Validate IP address format if it looks like an IP
-    if (_isIPAddress(uri.host) && !_isValidIPAddress(uri.host)) {
-      throw Exception(AppLocalizations.of(context)!.invalidIpFormat);
-    }
-
-    return url;
-  }
-
-  bool _hasExplicitHttpScheme(String input) {
-    final normalized = input.trim().toLowerCase();
-    return normalized.startsWith('http://') ||
-        normalized.startsWith('https://');
-  }
-
-  Future<String> _canonicalizeSchemeLessServerUrl(String url) async {
-    final originalUri = Uri.parse(url);
-    if (originalUri.scheme != 'http') {
-      return url;
-    }
-
-    final dio = Dio(buildSchemeLessPlaintextHealthProbeOptions(url));
-    try {
-      final response = await dio.get('/health');
-      final redirectedUrl = _sameHostHttpsRedirectBaseUrl(
-        originalUri,
-        statusCode: response.statusCode,
-        location: response.headers.value('location'),
-      );
-      if (redirectedUrl == null) {
-        return url;
-      }
-
-      DebugLogger.log('scheme-less-url-upgraded', scope: 'auth/connection');
-      return redirectedUrl;
-    } on DioException catch (error) {
-      DebugLogger.log(
-        'Scheme-less HTTPS canonicalization skipped: ${error.type}',
-        scope: 'auth/connection',
-      );
-      return url;
-    } catch (error) {
-      DebugLogger.log(
-        'Scheme-less HTTPS canonicalization skipped: ${error.runtimeType}',
-        scope: 'auth/connection',
-      );
-      return url;
-    } finally {
-      dio.close(force: true);
-    }
-  }
-
-  String? _sameHostHttpsRedirectBaseUrl(
-    Uri originalUri, {
-    required int? statusCode,
-    required String? location,
-  }) {
-    if (location == null || location.isEmpty) {
-      return null;
-    }
-    if (statusCode != 301 &&
-        statusCode != 302 &&
-        statusCode != 303 &&
-        statusCode != 307 &&
-        statusCode != 308) {
-      return null;
-    }
-
-    final redirectUri = originalUri.resolve(location);
-    if (redirectUri.scheme != 'https' ||
-        redirectUri.host.toLowerCase() != originalUri.host.toLowerCase()) {
-      return null;
-    }
-
-    final normalizedPath = originalUri.path == '/'
-        ? ''
-        : originalUri.path.replaceFirst(RegExp(r'/+$'), '');
-    final upgradedPort = redirectUri.hasPort && redirectUri.port != 443
-        ? redirectUri.port
-        : null;
-    final upgradedUri = Uri(
-      scheme: 'https',
-      host: redirectUri.host,
-      port: upgradedPort,
-      path: normalizedPath,
-    );
-    return upgradedUri.toString();
-  }
-
-  bool _isIPAddress(String host) {
-    return RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host);
-  }
-
-  bool _isValidIPAddress(String ip) {
-    final parts = ip.split('.');
-    if (parts.length != 4) return false;
-
-    for (final part in parts) {
-      final num = int.tryParse(part);
-      if (num == null || num < 0 || num > 255) return false;
-    }
-    return true;
-  }
+  Future<String> _canonicalizeSchemeLessServerUrl(String url) =>
+      upgradeSchemeLessServerUrl(url);
 
   /// The saved server's own name while the form still reaches it: saving an
   /// added account's connection renames the server it joins after it, for
@@ -1526,15 +1018,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         )) {
       return saved.name;
     }
-    return _deriveServerNameFromUrl(url);
-  }
-
-  String _deriveServerNameFromUrl(String url) {
-    try {
-      final uri = Uri.parse(url);
-      if (uri.host.isNotEmpty) return uri.host;
-    } catch (_) {}
-    return 'Server';
+    return serverNameFromUrl(url);
   }
 
   String? get _normalizedMtlsPrivateKeyPassword {
@@ -1626,59 +1110,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
   }
 
-  Future<String> _readPickedPemFile(PlatformFile file) async {
-    final l10n = AppLocalizations.of(context)!;
-    final bytes = file.path != null
-        ? await File(file.path!).readAsBytes()
-        : await file.readAsBytes();
-    if (bytes.isEmpty) {
-      throw Exception(l10n.mutualTlsFileReadFailed);
-    }
-
-    try {
-      return utf8.decode(bytes).trim();
-    } catch (_) {
-      throw Exception(l10n.mutualTlsFileReadFailed);
-    }
-  }
+  Future<String> _readPickedPemFile(PlatformFile file) =>
+      readPickedPemFile(file, AppLocalizations.of(context)!);
 
   String _resolvePickedFileLabel(
     PlatformFile file, {
     required String fallback,
-  }) {
-    final trimmedName = file.name.trim();
-    if (trimmedName.isNotEmpty) {
-      return trimmedName;
-    }
-
-    final path = file.path?.trim();
-    if (path != null && path.isNotEmpty) {
-      final normalized = path.replaceAll('\\', '/');
-      final segments = normalized.split('/');
-      if (segments.isNotEmpty && segments.last.isNotEmpty) {
-        return segments.last;
-      }
-    }
-
-    return fallback;
-  }
+  }) => pickedFileLabel(file, fallback: fallback);
 
   String? _validatePickedPemContent(
     String content, {
     required bool isPrivateKey,
-  }) {
-    if (isPrivateKey) {
-      if (content.contains('BEGIN ') && content.contains('PRIVATE KEY')) {
-        return null;
-      }
-      return AppLocalizations.of(context)!.mutualTlsPrivateKeyPemRequired;
-    }
-
-    if (content.contains('BEGIN CERTIFICATE')) {
-      return null;
-    }
-    return AppLocalizations.of(context)!.mutualTlsCertificatePemRequired;
-  }
+  }) => validatePickedPem(
+    content,
+    isPrivateKey: isPrivateKey,
+    l10n: AppLocalizations.of(context)!,
+  );
 
   void _clearMutualTlsCredentials() {
     setState(() {
@@ -1695,107 +1142,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   String _formatConnectionError(
     Object error, {
     Iterable<String>? sensitiveValues,
-  }) {
-    final effectiveSensitiveValues = sensitiveValues ?? _customHeaders.values;
-    // Clean up the error message
-    final errorText = error.toString();
-    final cleanError =
-        sanitizeServerConnectionProviderText(
-          _cleanExceptionPrefix(errorText),
-          sensitiveValues: effectiveSensitiveValues,
-          maxCharacters: _maxConnectionErrorCharacters,
-        ) ??
-        AppLocalizations.of(context)!.couldNotConnectGeneric;
-
-    // Handle specific error types
-    if (errorText.contains('mTLS certificate setup failed')) {
-      return cleanError;
-    } else if (isLikelyMutualTlsRejection(
-      errorText,
-      hasMutualTlsInput: _hasAnyMutualTlsInput,
-    )) {
-      return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
-    } else if (isConnectionClosedWithClientCertificate(
-      errorText,
-      hasMutualTlsInput: _hasAnyMutualTlsInput,
-    )) {
-      return AppLocalizations.of(context)!.mutualTlsConnectionClosed;
-    }
-
-    final exactServerUrlError = _formatExactServerUrlError(
-      error,
-      sensitiveValues: effectiveSensitiveValues,
-    );
-    if (exactServerUrlError != null) {
-      return exactServerUrlError;
-    }
-
-    if (errorText.contains('timeout')) {
-      return cleanError;
-    } else if (errorText.contains('Server URL cannot be empty')) {
-      return AppLocalizations.of(context)!.serverUrlEmpty;
-    } else if (errorText.contains('Invalid URL format')) {
-      return AppLocalizations.of(context)!.invalidUrlFormat;
-    } else if (errorText.contains('Only HTTP and HTTPS')) {
-      return AppLocalizations.of(context)!.useHttpOrHttpsOnly;
-    } else if (errorText.contains('Server address is required')) {
-      return cleanError;
-    } else if (errorText.contains('Port must be between')) {
-      return cleanError;
-    } else if (errorText.contains('Invalid IP address format')) {
-      return cleanError;
-    } else if (errorText.contains(
-      'This does not appear to be an Open-WebUI server',
-    )) {
-      return AppLocalizations.of(context)!.serverNotOpenWebUI;
-    }
-
-    return cleanError.isEmpty
-        ? AppLocalizations.of(context)!.couldNotConnectGeneric
-        : cleanError;
-  }
-
-  String? _formatExactServerUrlError(
-    Object error, {
-    required Iterable<String> sensitiveValues,
-  }) {
-    if (error is DioException) {
-      if (error.response == null) {
-        return error.type == DioExceptionType.badCertificate
-            ? AppLocalizations.of(context)!.securityCertificateError
-            : AppLocalizations.of(context)!.couldNotConnectGeneric;
-      }
-      return _formatDioException(error, sensitiveValues: sensitiveValues);
-    }
-
-    if (error is SocketException) {
-      return AppLocalizations.of(context)!.couldNotConnectGeneric;
-    }
-    if (error is HttpException) {
-      return AppLocalizations.of(context)!.serverErrorGeneric;
-    }
-    if (error is HandshakeException) {
-      return AppLocalizations.of(context)!.securityCertificateError;
-    }
-
-    return null;
-  }
-
-  String _formatDioException(
-    DioException error, {
-    required Iterable<String> sensitiveValues,
-  }) {
-    return formatServerConnectionDioExceptionForDisplay(
-      error,
-      sensitiveValues: sensitiveValues,
-    );
-  }
-
-  String _cleanExceptionPrefix(String error) {
-    return error
-        .replaceFirst('Exception: ', '')
-        .replaceFirst('DioException [', '[');
-  }
+  }) => formatServerConnectionError(
+    error,
+    sensitiveValues: sensitiveValues ?? _customHeaders.values,
+    hasMutualTlsInput: _hasAnyMutualTlsInput,
+    l10n: AppLocalizations.of(context)!,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -2710,65 +2062,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     ConduitHaptics.lightImpact();
   }
 
-  String? _validateHeaderKey(String key) {
-    // Allow empty - header fields are optional
-    if (key.isEmpty) return null;
-    if (key.length > 64) return AppLocalizations.of(context)!.headerNameTooLong;
+  String? _validateHeaderKey(String key) =>
+      validateServerAddressHeaderName(key, AppLocalizations.of(context)!);
 
-    // Check for valid characters (RFC 7230: token characters)
-    if (!RegExp(r'^[a-zA-Z0-9!#$&\-^_`|~]+$').hasMatch(key)) {
-      return AppLocalizations.of(context)!.headerNameInvalidChars;
-    }
-
-    // Check for reserved headers that should not be overridden
-    final lowerKey = key.toLowerCase();
-    final reservedHeaders = {
-      'authorization',
-      'content-type',
-      'content-length',
-      'host',
-      'user-agent',
-      'accept',
-      'accept-encoding',
-      'connection',
-      'transfer-encoding',
-      'upgrade',
-      'via',
-      'warning',
-    };
-
-    if (reservedHeaders.contains(lowerKey)) {
-      return AppLocalizations.of(context)!.headerNameReserved(key);
-    }
-
-    return null;
-  }
-
-  String? _validateHeaderValue(String value) {
-    // Allow empty - header fields are optional
-    if (value.isEmpty) return null;
-    if (value.length > 1024) {
-      return AppLocalizations.of(context)!.headerValueTooLong;
-    }
-
-    // Check for valid characters (no control characters except tab)
-    for (int i = 0; i < value.length; i++) {
-      final char = value.codeUnitAt(i);
-      // Allow printable ASCII (32-126) and tab (9)
-      if (char != 9 && (char < 32 || char > 126)) {
-        return AppLocalizations.of(context)!.headerValueInvalidChars;
-      }
-    }
-
-    // Check for security-sensitive patterns
-    if (value.toLowerCase().contains('script') ||
-        value.contains('<') ||
-        value.contains('>')) {
-      return AppLocalizations.of(context)!.headerValueUnsafe;
-    }
-
-    return null;
-  }
+  String? _validateHeaderValue(String value) =>
+      validateServerAddressHeaderValue(value, AppLocalizations.of(context)!);
 
   void _showHeaderError(String message) {
     AdaptiveSnackBar.show(

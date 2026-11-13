@@ -1,7 +1,9 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'pages/chat_data_settings_pages.dart';
 import 'pages/librechat_memory_settings_pages.dart';
+import 'pages/server_address_settings_pages.dart';
 import 'pages/webhook_settings_pages.dart';
 
 /// A group of Settings pages kept together: which pages it draws, how it
@@ -20,8 +22,20 @@ abstract class SettingsPageModule {
   /// Acts on a row change from one of this module's pages. Returns whether
   /// [id] was one of its rows.
   Future<bool> handleChange(String id, Object? value, AppLocalizations l10n);
+
+  /// Page [detailId] is gone: popped, or closed with Settings. Work it
+  /// started that nobody waits for can stop.
+  void pageLeft(String detailId) {}
+
+  /// Settings closed, every page of it with it.
+  void settingsClosed() {}
 }
 
 final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
-  (ref) => [WebhookSettingsPages(ref), LibreChatMemorySettingsPages(ref)],
+  (ref) => [
+    WebhookSettingsPages(ref),
+    LibreChatMemorySettingsPages(ref),
+    ServerAddressSettingsPages(ref),
+    ChatDataSettingsPages(ref),
+  ],
 );

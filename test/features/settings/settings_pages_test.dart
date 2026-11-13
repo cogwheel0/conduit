@@ -30,6 +30,24 @@ void main() {
     check(state().contains('voice')).isFalse();
   });
 
+  test('a patch of rows keeps the announcement, so it is not read again', () {
+    pages().register([
+      NativeSheetDetailConfig(
+        id: 'chats',
+        title: 'Chats',
+        announcement: 'All chats archived.',
+        items: [NativeSheetItemConfig(id: 'a', title: 'A')],
+      ),
+    ]);
+
+    pages().patch(
+      detailId: 'chats',
+      items: [const NativeSheetItemConfig(id: 'b', title: 'B')],
+    );
+
+    check(state()['chats']!.announcement).equals('All chats archived.');
+  });
+
   test('a patch keeps what it does not name and replaces the rows', () {
     pages().register([
       NativeSheetDetailConfig(

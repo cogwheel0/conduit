@@ -207,13 +207,13 @@ void main() {
       expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
     });
 
-    test('Advanced rows use their own symbols and close the sheet', () {
+    test('Advanced rows use their own symbols; those still Flutter pages '
+        'close the sheet', () {
       final sections = _root(visibility: _everything);
 
       final expected = {
         NativeSheetRoutes.scheduledTasks: 'clock.arrow.circlepath',
         NativeSheetRoutes.personalConnections: 'server.rack',
-        NativeSheetRoutes.chatDataControls: 'externaldrive',
       };
       for (final MapEntry(:key, :value) in expected.entries) {
         final item = _item(sections, key);
@@ -221,6 +221,11 @@ void main() {
         expect(item.dismissOnSelect, isTrue, reason: key);
         expect(item.actionId, key, reason: key);
       }
+      // Data Controls is a page of Settings's own, opened inside it.
+      final dataControls = _item(sections, NativeSheetRoutes.chatDataControls);
+      expect(dataControls.sfSymbol, 'externaldrive');
+      expect(dataControls.dismissOnSelect, isFalse);
+      expect(dataControls.actionId, isNull);
     });
 
     test('the Advanced and places groups go with their last row', () {
@@ -384,22 +389,29 @@ void main() {
       expect(page.trailingActionSfSymbol, isNull);
       expect(_ids(page.sections).take(2), [
         [
-          '$nativeAccountServerActionId:home',
+          '${nativeServerAddressesPagePrefix}home',
           '$nativeAccountSwitchActionId:alex-home',
           '$nativeAccountSwitchActionId:sam-home',
         ],
         [
-          '$nativeAccountServerActionId:work',
+          '${nativeServerAddressesPagePrefix}work',
           '$nativeAccountSwitchActionId:alex-work',
         ],
       ]);
-      final server = _item(page.sections, '$nativeAccountServerActionId:home');
+      final server = _item(
+        page.sections,
+        '${nativeServerAddressesPagePrefix}home',
+      );
       expect(server.title, 'Home Lab');
       expect(server.avatarName, 'Home Lab');
-      expect(server.actionId, nativeAccountServerActionId);
-      expect(server.actionValue, 'home');
+      // It opens the server's page, its accounts and addresses.
+      expect(server.dismissOnSelect, isFalse);
+      expect(server.actionId, isNull);
       expect(
-        _item(page.sections, '$nativeAccountServerActionId:work').avatarName,
+        _item(
+          page.sections,
+          '${nativeServerAddressesPagePrefix}work',
+        ).avatarName,
         'Work',
       );
 
@@ -439,7 +451,10 @@ void main() {
         accounts: [_entry('ada-local', local, name: 'Ada', isActive: true)],
       );
 
-      final server = _item(page.sections, '$nativeAccountServerActionId:local');
+      final server = _item(
+        page.sections,
+        '${nativeServerAddressesPagePrefix}local',
+      );
       expect(server.title, '127.0.0.1');
       expect(server.avatarName, isNull);
       expect(server.sfSymbol, 'server.rack');

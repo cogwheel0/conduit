@@ -257,6 +257,15 @@ class MarkdownCompileService {
       );
       return prepared;
     } catch (error) {
+      // Stopped while it waited: nothing shows it, so the content is not
+      // prepared here instead, on the isolate the app draws on.
+      if (_disposed) {
+        PerformanceProfiler.instance.finishTask(
+          taskKey,
+          data: {'status': 'disposed', 'streaming': streaming},
+        );
+        return content;
+      }
       final fallback = prepareMarkdownContent(content, streaming: streaming);
       if (!streaming) memoizeSettledPrepared(content, fallback);
       debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.fallbackSync);
@@ -318,6 +327,23 @@ class MarkdownCompileService {
       _finishPreparationTask(taskKey, patch, status: 'ok');
       return patch;
     } catch (error) {
+      // Stopped while it waited: a stale answer, prepared nowhere.
+      if (_disposed) {
+        final patch = MarkdownPreparationPatch(
+          sessionId: request.sessionId,
+          revision: request.revision,
+          baseRevision: request.expectedBaseRevision,
+          rawRetainLength: 0,
+          preparedRetainLength: 0,
+          replacementTail: '',
+          logicalPreparedLength: 0,
+          mode: MarkdownPreparationMode.stale,
+          fallbackReason: 'disposed',
+          metrics: const MarkdownPreparationMetrics.empty(),
+        );
+        _finishPreparationTask(taskKey, patch, status: 'disposed');
+        return patch;
+      }
       final patch = _fallbackPrepareEngine.prepare(request);
       debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.fallbackSync);
       debugOnPreparationPatch?.call(patch);

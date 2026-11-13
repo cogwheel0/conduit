@@ -110,6 +110,12 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     ),
     buildNativeLoadingDetail(
       l10n: l10n,
+      id: NativeSheetRoutes.chatDataControls,
+      title: l10n.chatDataControlsTitle,
+      subtitle: l10n.loadingShort,
+    ),
+    buildNativeLoadingDetail(
+      l10n: l10n,
       id: NativeSheetRoutes.helpAbout,
       title: l10n.aboutApp,
       subtitle: l10n.loadingShort,

@@ -1,0 +1,92 @@
+import 'dart:async';
+
+import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+final _dismissChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.dismiss',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final bridge = NativeSheetBridge.instance;
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+  setUp(() {
+    bridge.debugIsIOSOverride = true;
+    bridge.debugSettingsSheetOpen = true;
+  });
+
+  tearDown(() {
+    bridge
+      ..debugIsIOSOverride = null
+      ..debugSettingsSheetOpen = false;
+    messenger.setMockDecodedMessageHandler<Object?>(_dismissChannel, null);
+  });
+
+  test('closing Settings waits until the sheet has gone', () async {
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _dismissChannel,
+      (_) async => <Object?>[true],
+    );
+    var closed = false;
+    final closing = bridge.dismissSettings().then((value) => closed = value);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(closed, isFalse);
+
+    // The sheet's dismissal finished.
+    bridge.onDismissed();
+    await closing;
+
+    expect(closed, isTrue);
+    expect(bridge.settingsSheetOpen, isFalse);
+  });
+
+  test('a sheet still leaving once the wait is over is not taken as '
+      'closed', () async {
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _dismissChannel,
+      (_) async => <Object?>[true],
+    );
+
+    expect(
+      await bridge.dismissSettings(patience: const Duration(milliseconds: 10)),
+      isFalse,
+    );
+  });
+
+  test('a sheet still leaving once the wait is over says when it has '
+      'gone', () async {
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _dismissChannel,
+      (_) async => <Object?>[true],
+    );
+    await bridge.dismissSettings(patience: const Duration(milliseconds: 10));
+    expect(bridge.settingsLeaving, isTrue);
+    var gone = false;
+    unawaited(bridge.untilSettingsClosed().then((_) => gone = true));
+    await Future<void>.delayed(Duration.zero);
+    expect(gone, isFalse);
+
+    bridge.onDismissed();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(gone, isTrue);
+    expect(bridge.settingsLeaving, isFalse);
+  });
+
+  test('a sheet that does not close says so', () async {
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _dismissChannel,
+      (_) async => <Object?>[false],
+    );
+
+    expect(await bridge.dismissSettings(), isFalse);
+    expect(bridge.settingsSheetOpen, isTrue);
+  });
+}

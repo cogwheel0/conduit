@@ -239,6 +239,13 @@ private struct NativeSheetItem {
     let accent: Bool
     /// Draws the row as the sheet's profile summary.
     let usesProfileAvatar: Bool
+    /// Shown dimmed, taking no taps.
+    let disabled: Bool
+    /// The keyboard a text row brings up: url, email, number; nil = default.
+    let keyboard: String?
+    /// What else the row can do: a long press lists them, and a swipe offers
+    /// them where the page is not reordering. Each is sent as its own id.
+    let rowActions: [NativeSheetRowAction]
 
     init?(_ payload: [String: Any]) {
         guard
@@ -299,6 +306,10 @@ private struct NativeSheetItem {
         checked = payload["checked"] as? Bool ?? false
         accent = payload["accent"] as? Bool ?? false
         usesProfileAvatar = payload["usesProfileAvatar"] as? Bool ?? false
+        disabled = payload["disabled"] as? Bool ?? false
+        keyboard = payload["keyboard"] as? String
+        rowActions = (payload["rowActions"] as? [[String: Any]] ?? [])
+            .compactMap(NativeSheetRowAction.init)
     }
 
     private static func optionalDouble(_ value: Any?) -> Double? {
@@ -323,6 +334,40 @@ private struct NativeSheetItem {
         default:
             return nil
         }
+    }
+}
+
+/// One more thing a row can do, sent as its own control id.
+private struct NativeSheetRowAction {
+    let id: String
+    let label: String
+    let sfSymbol: String?
+    let destructive: Bool
+    /// Asked before it acts; the label confirms.
+    let confirmMessage: String?
+
+    init?(_ payload: [String: Any]) {
+        guard let id = payload["id"] as? String, !id.isEmpty,
+              let label = payload["label"] as? String, !label.isEmpty
+        else { return nil }
+        self.id = id
+        self.label = label
+        sfSymbol = payload["sfSymbol"] as? String
+        destructive = payload["destructive"] as? Bool ?? false
+        confirmMessage = payload["confirmMessage"] as? String
+    }
+
+    /// The action as a row of its own, for the sheet to act on as it acts on
+    /// a tapped row: asking first when it has a question, then sending it.
+    var asItem: NativeSheetItem? {
+        var payload: [String: Any] = [
+            "id": id,
+            "title": label,
+            "destructive": destructive,
+            "showsDisclosure": false,
+        ]
+        payload["confirmMessage"] = confirmMessage
+        return NativeSheetItem(payload)
     }
 }
 
@@ -777,6 +822,13 @@ private struct NativeSheetDetail {
     /// What the page asks before its unsaved changes are dropped; nil drops
     /// them without asking.
     let discardPrompt: NativeSheetDiscardPrompt?
+    /// Working on what Done sent: Done waits, and the rows take no taps.
+    let busy: Bool
+    /// Read out by VoiceOver as the page is described with it.
+    let announcement: String?
+    /// Holds changes not yet saved, as Dart counts them, here or on the
+    /// pages it leads to: leaving asks the discard question.
+    let edited: Bool
 
     init(
         id: String,
@@ -789,7 +841,10 @@ private struct NativeSheetDetail {
         maxHeightFraction: CGFloat? = nil,
         trailingActionId: String? = nil,
         trailingActionSfSymbol: String? = nil,
-        discardPrompt: NativeSheetDiscardPrompt? = nil
+        discardPrompt: NativeSheetDiscardPrompt? = nil,
+        busy: Bool = false,
+        announcement: String? = nil,
+        edited: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -802,6 +857,9 @@ private struct NativeSheetDetail {
         self.trailingActionId = trailingActionId
         self.trailingActionSfSymbol = trailingActionSfSymbol
         self.discardPrompt = discardPrompt
+        self.busy = busy
+        self.announcement = announcement
+        self.edited = edited
     }
 
     init?(_ payload: [String: Any]) {
@@ -827,6 +885,9 @@ private struct NativeSheetDetail {
         trailingActionId = payload["trailingActionId"] as? String
         trailingActionSfSymbol = payload["trailingActionSfSymbol"] as? String
         discardPrompt = NativeSheetDiscardPrompt(payload)
+        busy = payload["busy"] as? Bool ?? false
+        announcement = payload["announcement"] as? String
+        edited = payload["edited"] as? Bool ?? false
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -1020,6 +1081,9 @@ private extension PlatformNativeSheetDetail {
         payload["discardMessage"] = discardMessage
         payload["discardConfirmLabel"] = discardConfirmLabel
         payload["discardCancelLabel"] = discardCancelLabel
+        payload["busy"] = busy
+        payload["announcement"] = announcement
+        payload["edited"] = edited
         return payload
     }
 }
@@ -1062,6 +1126,18 @@ private extension PlatformNativeSheetItem {
         payload["usesProfileAvatar"] = usesProfileAvatar
         payload["filterAllLabel"] = filterAllLabel
         payload["confirmMessage"] = confirmMessage
+        payload["disabled"] = disabled
+        payload["keyboard"] = keyboard
+        payload["rowActions"] = rowActions?.map { action -> [String: Any] in
+            var entry: [String: Any] = [
+                "id": action.id,
+                "label": action.label,
+                "destructive": action.destructive,
+            ]
+            entry["sfSymbol"] = action.sfSymbol
+            entry["confirmMessage"] = action.confirmMessage
+            return entry
+        }
         return payload
     }
 }
@@ -1329,6 +1405,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private weak var activeProfileMenuController: NativeProfileMenuTableViewController?
     private var profileChannel: FlutterMethodChannel?
     private var activeSheetMode: ActiveSheetMode = .profileMenu
+    /// Counts the times Settings was presented.
+    private var settingsPresentations = 0
     private var pendingModelSelectorResult: PendingStringResult?
     private var pendingOptionsSelectorResult: PendingStringResult?
     private var pendingDatePickerResult: PendingStringResult?
@@ -1682,11 +1760,30 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 maxHeightFraction: existing.maxHeightFraction,
                 trailingActionId: existing.trailingActionId,
                 trailingActionSfSymbol: existing.trailingActionSfSymbol,
-                discardPrompt: existing.discardPrompt
+                discardPrompt: existing.discardPrompt,
+                busy: existing.busy,
+                // Kept, so the same announcement sent again is not read out
+                // twice.
+                announcement: existing.announcement,
+                edited: existing.edited
             )
             self.detailPayloads[detailId] = patched
-            if self.activeDetailTableController?.detailId == detailId {
-                self.activeDetailTableController?.applyUpdatedDetail(patched)
+            // The page on top, and the same page further down the sheet: one
+            // covered by a page it opened learns of a change made there (an
+            // editor marked edited from its Advanced page), so closing the
+            // sheet can ask about it.
+            var pages: [NativeDetailTableViewController] = []
+            if let active = self.activeDetailTableController,
+               active.detailId == detailId {
+                pages.append(active)
+            }
+            for case let page as NativeDetailTableViewController
+                in self.activeNavigationController?.viewControllers ?? []
+                where page.detailId == detailId && !pages.contains(where: { $0 === page }) {
+                pages.append(page)
+            }
+            for page in pages {
+                page.applyUpdatedDetail(patched)
             }
             return true
         }
@@ -1721,6 +1818,36 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         return closed
     }
 
+    func presentAlert(
+        request: PlatformNativeSheetAlertRequest,
+        completion: @escaping (Result<String?, Error>) -> Void
+    ) {
+        // Over whatever is up -- the Settings sheet and its pages stay where
+        // they are, as an alert from one of their own rows would.
+        whenModalChainIdle { [weak self] in
+            guard let presenter = self?.topViewController() else {
+                completion(.success(nil))
+                return
+            }
+            let alert = UIAlertController(
+                title: request.title,
+                message: request.message,
+                preferredStyle: .alert
+            )
+            for action in request.actions {
+                let style: UIAlertAction.Style = switch action.style {
+                case "cancel": .cancel
+                case "destructive": .destructive
+                default: .default
+                }
+                alert.addAction(UIAlertAction(title: action.label, style: style) { _ in
+                    completion(.success(action.id))
+                })
+            }
+            presenter.present(alert, animated: true)
+        }
+    }
+
     /// Runs [work] on main once no sheet above Flutter is still animating
     /// in or out, so a sheet Flutter asks for straight after another closed
     /// (New Folder chosen in Move to Folder) is presented rather than
@@ -1742,6 +1869,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         let presented = present(navigation, initialDetent: .large)
         if presented {
             activeProfileMenuController = controller
+            settingsPresentations += 1
         }
         return presented
     }
@@ -2079,17 +2207,21 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             onWillDismiss: { [weak self] in
                 self?.flushActiveSheetEditing()
             },
-            // Swiped away with unsaved changes on the page on top, the sheet
-            // stays and asks first.
+            // Swiped away with unsaved changes on any of its pages, the
+            // sheet stays and asks first.
             shouldDismiss: { [weak self] in
                 (self?.activeController as? NativeSheetNavigationController)?
-                    .guardingTopPage == nil
+                    .guardingClosePage == nil
             },
             onAttemptToDismiss: { [weak self] in
-                guard let page = (self?.activeController as? NativeSheetNavigationController)?
-                    .guardingTopPage
+                guard let navigation = self?.activeController
+                    as? NativeSheetNavigationController,
+                    let guarding = navigation.guardingClosePage
                 else { return }
-                page.askBeforeLeaving { [weak self] in self?.dismissActive() }
+                guarding.page.askBeforeLeaving(always: guarding.always) { [weak self] in
+                    navigation.dropUnsavedChanges()
+                    self?.dismissActive()
+                }
             },
             onDismiss: { [weak self] in
                 if let pending = self?.pendingModelSelectorResult {
@@ -2634,7 +2766,20 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private func dismissActive(completion: (() -> Void)? = nil) {
         flushActiveSheetEditing()
         let controller = activeController
-        controller?.dismiss(animated: true, completion: completion)
+        // Closed from Dart, or after its discard question, Settings tells
+        // Flutter as a swipe does: UIKit reports only a swipe, and the
+        // presentation delegate goes below.
+        let notifyDismiss = controller != nil && activeSheetMode == .profileMenu
+        let presentation = settingsPresentations
+        // Told once the sheet has gone, so Dart can present what comes next
+        // (a sign-out question) rather than over a sheet still leaving --
+        // unless Settings has opened again since.
+        controller?.dismiss(animated: true) { [weak self] in
+            completion?()
+            if notifyDismiss, let self, self.settingsPresentations == presentation {
+                self.flutterApi?.onDismissed { _ in }
+            }
+        }
         if controller == nil {
             completion?()
         }
@@ -2699,6 +2844,16 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         activeDetailTableController = controller
         guard activeSheetMode == .profileMenu else { return }
         flutterApi?.onDetailAppeared(
+            event: PlatformNativeSheetDetailAppearedEvent(
+                detailId: controller.detailId
+            )
+        ) { _ in }
+    }
+
+    /// Page [controller] is gone: popped, or its sheet closed.
+    fileprivate func markDetailLeft(_ controller: NativeDetailTableViewController) {
+        guard activeSheetMode == .profileMenu else { return }
+        flutterApi?.onDetailLeft(
             event: PlatformNativeSheetDetailAppearedEvent(
                 detailId: controller.detailId
             )
@@ -4697,6 +4852,24 @@ private final class NativeSheetTextFieldTableViewCell: UITableViewCell {
         textField.textContentType = item.kind == "secureTextField" ? .password : nil
         textField.autocorrectionType = item.kind == "secureTextField" ? .no : .yes
         textField.autocapitalizationType = item.kind == "secureTextField" ? .none : .sentences
+        textField.keyboardType = .default
+        switch item.keyboard {
+        case "url":
+            textField.keyboardType = .URL
+            textField.textContentType = .URL
+            textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
+        case "email":
+            textField.keyboardType = .emailAddress
+            textField.textContentType = .emailAddress
+            textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
+        case "number":
+            textField.keyboardType = .numberPad
+            textField.autocorrectionType = .no
+        default:
+            break
+        }
         textField.accessibilityLabel = item.title
         onChange = onTextChanged
         onDone = onReturn
@@ -5377,17 +5550,27 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     var blocksLeaving: Bool {
         guard detail.discardPrompt != nil else { return false }
         let confirms = detail.confirmActionId.map { !$0.isEmpty } ?? false
-        return !pendingTextValues.isEmpty || (confirms && controlEdits)
+        return detail.edited
+            || !pendingTextValues.isEmpty
+            || (confirms && controlEdits)
     }
 
+    var asksBeforeDiscarding: Bool { detail.discardPrompt != nil }
+
+    var holdsUnfinishedText: Bool { !pendingTextValues.isEmpty }
+
     /// Asks the page's discard question, then runs [leave] once the user
-    /// chooses to discard; leaves at once when nothing would be lost.
-    func askBeforeLeaving(then leave: @escaping () -> Void) {
-        guard blocksLeaving, let prompt = detail.discardPrompt else {
+    /// chooses to discard; leaves at once when nothing would be lost. With
+    /// [always], a page it opened holds the changes, so it asks regardless.
+    func askBeforeLeaving(always: Bool, then leave: @escaping () -> Void) {
+        guard always || blocksLeaving, let prompt = detail.discardPrompt else {
             leave()
             return
         }
-        view.endEditing(true)
+        // The page asking may sit under the page on top; the question shows
+        // over the sheet either way.
+        let presenter: UIViewController = navigationController ?? self
+        presenter.view.endEditing(true)
         let alert = UIAlertController(
             title: prompt.title,
             message: prompt.message,
@@ -5398,16 +5581,25 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             title: prompt.discardLabel,
             style: .destructive
         ) { [weak self] _ in
-            self?.pendingTextValues.removeAll()
-            self?.controlEdits = false
+            self?.dropUnsavedChanges()
             leave()
         })
-        present(alert, animated: true)
+        presenter.present(alert, animated: true)
+    }
+
+    func dropUnsavedChanges() {
+        pendingTextValues.removeAll()
+        controlEdits = false
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         let previousSectionCount = tableSections.count
+        let previousAnnouncement = detail.announcement
         detail = newDetail
+        if let announcement = newDetail.announcement, !announcement.isEmpty,
+           announcement != previousAnnouncement {
+            UIAccessibility.post(notification: .announcement, argument: announcement)
+        }
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
         chosenOptionValues.removeAll()
@@ -5501,7 +5693,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func tableView(
         _ tableView: UITableView,
         editingStyleForRowAt indexPath: IndexPath
-    ) -> UITableViewCell.EditingStyle { .none }
+    ) -> UITableViewCell.EditingStyle {
+        // Reordering shows handles only; outside it a row with actions
+        // offers them on a swipe.
+        tableView.isEditing || item(at: indexPath).rowActions.isEmpty
+            ? .none
+            : .delete
+    }
 
     override func tableView(
         _ tableView: UITableView,
@@ -5536,7 +5734,23 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Popped, a page with no discard question keeps the text typed into
+        // it, as if done: an address's key password typed on its Advanced
+        // page, say, then Back.
+        if isMovingFromParent, detail.discardPrompt == nil {
+            commitPendingTextChanges()
+        }
         view.endEditing(true)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Gone, not covered by a page it opened: popped, or the sheet closed.
+        let sheetClosed = navigationController?.isBeingDismissed == true
+            || navigationController?.presentingViewController == nil
+        if isMovingFromParent || sheetClosed {
+            NativeSheetBridge.shared.markDetailLeft(self)
+        }
     }
 
     override func tableView(
@@ -5580,6 +5794,101 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        let cell = makeCell(tableView, at: indexPath)
+        let item = item(at: indexPath)
+        // A row waiting on another row's action, or on the page's Done,
+        // takes no taps; one disabled outright is dimmed as well.
+        cell.isUserInteractionEnabled = !(item.disabled || detail.busy)
+        cell.contentView.alpha = item.disabled ? 0.4 : 1
+        cell.accessoryView?.alpha = item.disabled ? 0.4 : 1
+        if item.disabled {
+            cell.accessibilityTraits.insert(.notEnabled)
+        } else {
+            cell.accessibilityTraits.remove(.notEnabled)
+        }
+        return cell
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        shouldHighlightRowAt indexPath: IndexPath
+    ) -> Bool {
+        let item = item(at: indexPath)
+        return !(item.disabled || detail.busy)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        canEditRowAt indexPath: IndexPath
+    ) -> Bool {
+        tableSections[indexPath.section].reorderActionId != nil
+            || !item(at: indexPath).rowActions.isEmpty
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        let item = item(at: indexPath)
+        guard !item.rowActions.isEmpty, !item.disabled, !detail.busy else {
+            return nil
+        }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: item.rowActions.map { action in
+                UIAction(
+                    title: action.label,
+                    image: action.sfSymbol.flatMap { UIImage(systemName: $0) },
+                    attributes: action.destructive ? .destructive : []
+                ) { _ in
+                    self?.performRowAction(action)
+                }
+            })
+        }
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        let item = item(at: indexPath)
+        // A page reordering its rows keeps its handles; the long press still
+        // lists what a row can do.
+        guard !tableView.isEditing, !item.rowActions.isEmpty,
+              !item.disabled, !detail.busy
+        else { return nil }
+        // The destructive one outermost, as Mail puts Delete.
+        let ordered = item.rowActions.filter(\.destructive)
+            + item.rowActions.filter { !$0.destructive }
+        let configuration = UISwipeActionsConfiguration(actions: ordered.map { action in
+            let contextual = UIContextualAction(
+                style: action.destructive ? .destructive : .normal,
+                title: action.label
+            ) { [weak self] _, _, done in
+                self?.performRowAction(action)
+                done(true)
+            }
+            contextual.image = action.sfSymbol.flatMap { UIImage(systemName: $0) }
+            return contextual
+        })
+        // Nothing happens on a full swipe that the user did not choose.
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
+    }
+
+    /// Acts on one of a row's other actions as on a tapped row: text typed
+    /// on the page goes first, then the question when it has one, then the
+    /// action's own id.
+    private func performRowAction(_ action: NativeSheetRowAction) {
+        commitPendingTextChanges()
+        guard let actionItem = action.asItem else { return }
+        onSelect(actionItem)
+    }
+
+    private func makeCell(
+        _ tableView: UITableView,
+        at indexPath: IndexPath
     ) -> UITableViewCell {
         let item = item(at: indexPath)
         switch item.kind {
@@ -5686,6 +5995,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = item(at: indexPath)
+        guard !item.disabled, !detail.busy else { return }
         switch item.kind {
         case "toggle":
             NativeSheetHaptics.selection()
@@ -5760,6 +6070,14 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                     ?? (item.url != nil || item.dismissOnSelect || canNavigate(item))
             )
         }
+        // A row whose action is running shows it turning, in place of its
+        // chevron or check.
+        if item.pending, item.kind == "navigation" || item.kind == "info" {
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.startAnimating()
+            cell.accessoryView = spinner
+            cell.editingAccessoryView = spinner
+        }
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -5781,6 +6099,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     }
 
     private func refreshNavigationAction() {
+        if detail.busy {
+            // Done is working: it turns until the page is described again.
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.startAnimating()
+            navigationItem.rightBarButtonItem = UIBarButtonItem(customView: spinner)
+            return
+        }
         navigationItem.leftBarButtonItem = nil
         if let confirmActionId = detail.confirmActionId, !confirmActionId.isEmpty {
             if navigationController?.viewControllers.first === self {

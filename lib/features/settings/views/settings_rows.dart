@@ -1,7 +1,9 @@
+import 'package:conduit_core/utils/profile_avatar.dart' show extractAvatarInitials;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
@@ -38,7 +40,13 @@ class SettingsRowGlyph extends StatelessWidget {
     }
     final avatarName = item.avatarName;
     if (avatarName != null) {
-      return UserAvatar(size: side, imageUrl: null, fallbackText: avatarName);
+      // Its initials, as the native sheet draws them; the whole name does
+      // not fit the circle.
+      return UserAvatar(
+        size: side,
+        imageUrl: null,
+        fallbackText: extractAvatarInitials(avatarName),
+      );
     }
     final color = item.destructive
         ? theme.error
@@ -79,6 +87,9 @@ typedef SettingsRowChanged = void Function(
   Object? value,
 );
 
+/// One of a row's other actions was chosen from its menu.
+typedef SettingsRowAction = void Function(NativeSheetRowAction action);
+
 /// One Settings row, drawn for its [NativeSheetItemConfig.kind].
 ///
 /// [value] is the row's value as the person last set it on this page, which
@@ -96,6 +107,8 @@ class SettingsRow extends StatelessWidget {
     this.onTextChanged,
     this.onTextSubmitted,
     this.leading,
+    this.onAction,
+    this.inactive = false,
   });
 
   final NativeSheetItemConfig item;
@@ -113,10 +126,64 @@ class SettingsRow extends StatelessWidget {
   final ValueChanged<String>? onTextChanged;
   final VoidCallback? onTextSubmitted;
 
+  /// Acts on one of the row's other actions ([NativeSheetItemConfig.rowActions]).
+  final SettingsRowAction? onAction;
+
+  /// Takes no taps, as while the page's Done is working.
+  final bool inactive;
+
   Object? get _value => value ?? item.value;
 
   @override
   Widget build(BuildContext context) {
+    final row = _buildRow(context);
+    if (!item.disabled && !inactive) return row;
+    // Waiting on another row's action, or on the page's Done, the row takes
+    // no taps; one disabled outright is dimmed and read out as unavailable.
+    return Semantics(
+      enabled: !item.disabled,
+      child: IgnorePointer(
+        child: item.disabled ? Opacity(opacity: 0.4, child: row) : row,
+      ),
+    );
+  }
+
+  /// The row's other actions, in a menu at its trailing edge.
+  Widget? _actionsMenu(BuildContext context) {
+    final onAction = this.onAction;
+    if (item.rowActions.isEmpty || onAction == null) return null;
+    final l10n = AppLocalizations.of(context)!;
+    return AdaptivePopupMenuButton.icon<String>(
+      key: ValueKey<String>('settings-row-actions-${item.id}'),
+      icon: Icons.more_vert,
+      semanticLabel: l10n.more,
+      iconColor: context.conduitTheme.iconSecondary,
+      buttonStyle: PopupButtonStyle.plain,
+      size: 40,
+      items: [
+        for (final action in item.rowActions)
+          AdaptivePopupMenuItem<String>(
+            label: action.label,
+            icon: action.sfSymbol == null
+                ? null
+                : settingsMaterialIcon(action.sfSymbol!),
+            isDestructive: action.destructive,
+            value: action.id,
+          ),
+      ],
+      onSelected: (index, _) => onAction(item.rowActions[index]),
+    );
+  }
+
+  /// A small turning mark while the row's action runs.
+  Widget? _pendingMark() => item.pending == true
+      ? const SizedBox.square(
+          dimension: 18,
+          child: AdaptiveProgressIndicator(strokeWidth: 2),
+        )
+      : null;
+
+  Widget _buildRow(BuildContext context) {
     return switch (item.kind) {
       NativeSheetItemKind.toggle => _buildToggle(context),
       NativeSheetItemKind.segment ||
@@ -151,7 +218,7 @@ class SettingsRow extends StatelessWidget {
     final chevron =
         item.showsDisclosure ??
         (item.url != null || item.dismissOnSelect || navigable);
-    final Widget? trailing = item.checked
+    final Widget? mark = item.checked
         ? Icon(Icons.check, color: theme.buttonPrimary, size: IconSize.medium)
         : item.url != null && item.showsDisclosure != true
         ? Icon(
@@ -160,6 +227,22 @@ class SettingsRow extends StatelessWidget {
             size: IconSize.small,
           )
         : null;
+    final status = _pendingMark() ?? mark;
+    final menu = _actionsMenu(context);
+    // A row that opens a page and has a menu shows both: the chevron says
+    // what a tap does, the menu what else the row offers.
+    final trailing = _trailing([
+      status,
+      if (chevron && status == null && menu != null)
+        Icon(
+          context.usesCupertinoChrome
+              ? CupertinoIcons.chevron_right
+              : Icons.chevron_right,
+          color: theme.iconSecondary,
+          size: IconSize.small,
+        ),
+      menu,
+    ]);
     return UtilityRow(
       key: ValueKey<String>('settings-row-${item.id}'),
       leading: leading ?? SettingsRowGlyph(item: item),
@@ -172,6 +255,7 @@ class SettingsRow extends StatelessWidget {
           : null,
       selected: item.checked,
       trailing: trailing,
+      preserveTrailingSemantics: item.rowActions.isNotEmpty,
       showChevron: chevron && trailing == null,
       onTap: () => onSelected(item),
     );
@@ -189,10 +273,27 @@ class SettingsRow extends StatelessWidget {
       hapticType: null,
       // The choice in use, as iOS marks it: a row with nothing to do.
       selected: item.checked,
-      trailing: item.checked
-          ? Icon(Icons.check, color: theme.buttonPrimary, size: IconSize.medium)
-          : null,
+      trailing: _trailing([
+        _pendingMark() ??
+            (item.checked
+                ? Icon(
+                    Icons.check,
+                    color: theme.buttonPrimary,
+                    size: IconSize.medium,
+                  )
+                : null),
+        _actionsMenu(context),
+      ]),
+      preserveTrailingSemantics: item.rowActions.isNotEmpty,
     );
+  }
+
+  /// [parts] side by side at the row's trailing edge, or nothing.
+  static Widget? _trailing(List<Widget?> parts) {
+    final shown = parts.nonNulls.toList();
+    if (shown.isEmpty) return null;
+    if (shown.length == 1) return shown.single;
+    return Row(mainAxisSize: MainAxisSize.min, children: shown);
   }
 
   Widget _buildToggle(BuildContext context) {
@@ -424,6 +525,7 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
     final item = widget.item;
     final secure = item.kind == NativeSheetItemKind.secureTextField;
     final multiline = item.kind == NativeSheetItemKind.multilineTextField;
+    final keyboard = item.keyboard;
     return Padding(
       key: ValueKey<String>('settings-row-${item.id}'),
       padding: const EdgeInsets.symmetric(
@@ -447,11 +549,18 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
             controller: _controller,
             placeholder: item.placeholder ?? item.title,
             obscureText: secure && _obscured,
-            autocorrect: !secure,
-            enableSuggestions: !secure,
+            autocorrect: !secure && keyboard == null,
+            enableSuggestions: !secure && keyboard == null,
             minLines: multiline ? 3 : 1,
             maxLines: multiline ? 12 : 1,
-            keyboardType: multiline ? TextInputType.multiline : null,
+            keyboardType: multiline
+                ? TextInputType.multiline
+                : switch (keyboard) {
+                    NativeSheetKeyboard.url => TextInputType.url,
+                    NativeSheetKeyboard.email => TextInputType.emailAddress,
+                    NativeSheetKeyboard.number => TextInputType.number,
+                    null => null,
+                  },
             textInputAction: multiline
                 ? TextInputAction.newline
                 : TextInputAction.done,
