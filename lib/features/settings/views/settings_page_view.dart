@@ -145,6 +145,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
     final moving =
         _move.movedToColumn(widget.detailId) || (_column?.isMoving ?? false);
     if (!moving) {
+      _move.left(widget.detailId);
       _hydration.stopFollowing(widget.detailId);
       _controller.pageClosed(widget.detailId, modules: _modules);
     }
@@ -190,6 +191,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
   }
 
   void _appeared() {
+    _move.appeared(widget.detailId);
     final l10n = AppLocalizations.of(context);
     // Opened straight from a link, before the root registered it: show it
     // loading so its rows have somewhere to land.
@@ -205,6 +207,14 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
           NativeSheetDetailAppeared(detailId: widget.detailId),
           source: SettingsEventSource.flutter,
         );
+  }
+
+  /// Back from the page this one opened. Moving beside the list as the
+  /// window widened, the page was not returned to: the page above moved
+  /// with it, and describing this one again would drop that page's draft.
+  void _returned() {
+    if (_move.movesToColumn(widget.detailId)) return;
+    _appeared();
   }
 
   /// Goes back to the page that opened this one, closing any page above.
@@ -248,7 +258,7 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         children: const [Center(child: AdaptiveProgressIndicator())],
       );
     }
-    return SettingsPageView(detail: detail, onReturned: _appeared);
+    return SettingsPageView(detail: detail, onReturned: _returned);
   }
 }
 

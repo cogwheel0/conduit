@@ -29,6 +29,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -363,6 +364,155 @@ void main() {
     check(find.text('Lose the outer draft?').evaluate()).isEmpty();
     check(_column(tester)).deepEquals(['test-outer']);
     check(find.text('Outer draft').evaluate()).isNotEmpty();
+  });
+
+  testWidgets('Back on a page above the first asks before dropping its '
+      'unsaved changes', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-list');
+    await tester.tap(_row('test-form'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), 'Draft');
+    await tester.pump();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    check(find.text('Throw it away?').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Keep It'));
+    await tester.pumpAndSettle();
+    check(_column(tester)).deepEquals(['test-list', 'test-form']);
+    check(find.text('Draft').evaluate()).isNotEmpty();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Throw Away'));
+    await tester.pumpAndSettle();
+    check(_column(tester)).deepEquals(['test-list']);
+    check(rig.controller.closed).contains('test-form');
+  });
+
+  testWidgets('the first page closing itself gives way to the first root '
+      "row's page, as on iPad", (tester) async {
+    final rig = await _pump(tester, _tablet);
+    final columns = tester.state<SettingsColumnsState>(
+      find.byType(SettingsColumns),
+    );
+    final first = columns.selectedId!;
+    await _openBeside(tester, 'test-list');
+
+    ProviderScope.containerOf(tester.element(find.byType(SettingsColumns)))
+        .read(settingsPagesProvider.notifier)
+        .requestClose('test-list');
+    await tester.pumpAndSettle();
+
+    check(rig.controller.closed).contains('test-list');
+    check(_column(tester)).deepEquals([first]);
+    check(columns.selectedId).equals(first);
+  });
+
+  testWidgets('a page chosen just before the window narrows describes '
+      'itself where it opens', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    rig.controller.appeared.clear();
+
+    // Chosen, and narrowed past two columns, before it is ever drawn.
+    unawaited(
+      tester
+          .state<SettingsColumnsState>(find.byType(SettingsColumns))
+          .openRootPage('test-note'),
+    );
+    await tester.idle();
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+
+    check(rig.router.state.uri.toString()).equals('/profile/page/test-note');
+    check(rig.controller.appeared).contains('test-note');
+  });
+
+  testWidgets('a root row waits while a sheet a page opened is open beside '
+      'the list', (tester) async {
+    await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-form');
+    unawaited(
+      showDialog<void>(
+        context: tester.element(find.byType(SettingsDetailPage).last),
+        useRootNavigator: false,
+        builder: (_) => const Text('An event being written'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(_row(NativeSheetRoutes.appearance));
+    await tester.tap(_row(NativeSheetRoutes.appearance), warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    // Replacing the page would close the sheet, with what it holds.
+    check(find.text('An event being written').evaluate()).isNotEmpty();
+    check(_column(tester)).deepEquals(['test-form']);
+  });
+
+  testWidgets("Back on the column's only page asks before Settings closes "
+      'over its unsaved changes', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    final calls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        calls.add(call.method);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await _openBeside(tester, 'test-form');
+    await tester.enterText(find.byType(EditableText), 'Draft');
+    await tester.pump();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    check(find.text('Throw it away?').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Keep It'));
+    await tester.pumpAndSettle();
+    check(calls).not((it) => it.contains('SystemNavigator.pop'));
+    check(_column(tester)).deepEquals(['test-form']);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Throw Away'));
+    await tester.pumpAndSettle();
+    // Settings is the app's first page here: Back leaves the app.
+    check(calls).contains('SystemNavigator.pop');
+    check(rig.controller.changed).isEmpty();
+  });
+
+  testWidgets('widening does not describe again a page whose own page moved '
+      'with it', (tester) async {
+    final rig = await _pump(tester, const Size(800, 1280));
+    unawaited(
+      rig.router.pushNamed(
+        RouteNames.settingsPage,
+        pathParameters: {'id': 'test-list'},
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Opened from that page, which waits for it.
+    await tester.tap(_row('test-form'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), 'Draft');
+    await tester.pump();
+    rig.controller.appeared.clear();
+
+    tester.view.physicalSize = _tablet;
+    await tester.pumpAndSettle();
+
+    check(_column(tester)).deepEquals(['test-list', 'test-form']);
+    // Describing the page under it again would start the form over.
+    check(rig.controller.appeared).not((it) => it.contains('test-list'));
+    check(find.text('Draft').evaluate()).isNotEmpty();
   });
 
   testWidgets('narrowing keeps the text typed into a page, not sent', (

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/semantics.dart' show OrdinalSortKey;
+import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -66,6 +67,11 @@ final class SettingsColumnMove {
   final Map<String, SettingsPageDraft> _drafts = {};
   final Set<String> _toColumn = {};
   final Set<String> _arriving = {};
+
+  /// Pages whose visit has described itself: only those, moved, are
+  /// already showing where they arrive. One added a moment before a move,
+  /// never drawn, describes itself where it opens.
+  final Set<String> _shown = {};
   final Map<String, Route<Object?>> _routes = {};
 
   void register(SettingsColumnMember page) => _pages.add(page);
@@ -88,8 +94,14 @@ final class SettingsColumnMove {
     }
     _arriving
       ..clear()
-      ..addAll(moving);
+      ..addAll(moving.where(_shown.contains));
   }
+
+  /// Page [pageId]'s visit described itself.
+  void appeared(String pageId) => _shown.add(pageId);
+
+  /// Page [pageId] was left, its visit over.
+  void left(String pageId) => _shown.remove(pageId);
 
   /// What page [pageId] held before it moved, once.
   SettingsPageDraft? take(String pageId) => _drafts.remove(pageId);
@@ -301,6 +313,10 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
   /// pages there would lose unsaved changes. Its own row again goes back to
   /// its page's top.
   Future<void> openRootPage(String id) async {
+    // A sheet or question one of the pages opened is open beside the list:
+    // replacing the pages would close it, with what it holds, unasked. The
+    // root row waits until it has gone.
+    if (holdsOverPages) return;
     final again = id == _selected && _entries.isNotEmpty;
     if (again && _entries.length == 1) return;
     // Its own row again keeps its page: only the pages above it go.
@@ -361,6 +377,18 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
     return true;
   }
 
+  /// Back on the column's only page: Settings closes, once that page may
+  /// lose what it holds.
+  Future<void> _leaveSettings() async {
+    if (!await _mayLeave(openPageIds.toSet()) || !mounted) return;
+    final outer = Navigator.of(context);
+    if (outer.canPop()) {
+      outer.pop();
+    } else {
+      await SystemNavigator.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // The first root row's page shows until another is chosen; the pages
@@ -378,11 +406,22 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
     final list = widget.buildList(_selected, openRootPage);
     final pane = _entries.isEmpty
         ? const SizedBox.expand()
-        : NavigatorPopHandler(
-            // Back closes the column's top page first; on its first page,
-            // Back leaves Settings.
-            enabled: _entries.length > 1,
-            onPopWithResult: (_) => _pane.currentState?.maybePop(),
+        : PopScope<Object?>(
+            // Back closes what is on top of the column first -- a sheet a
+            // page opened, then the pages above the first; on its first
+            // page, Back leaves Settings, asking first when that page would
+            // lose unsaved changes. A nested navigator alone would let the
+            // window's Back past a page asking nothing of it.
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              final pane = _pane.currentState;
+              if (pane != null && pane.canPop()) {
+                unawaited(pane.maybePop());
+              } else {
+                unawaited(_leaveSettings());
+              }
+            },
             child: Navigator(
               key: _pane,
               observers: [_overPages],
@@ -395,7 +434,13 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
                     .where((entry) => entry.key == page.key)
                     .firstOrNull;
                 if (entry == null) return;
-                setState(() => _entries.remove(entry));
+                setState(() {
+                  _entries.remove(entry);
+                  // Its first page closed itself: the column shows the first
+                  // root row's page, as the iPad's does, opened afresh when
+                  // it was that one.
+                  if (_entries.isEmpty) _selected = null;
+                });
                 entry.close();
               },
             ),
