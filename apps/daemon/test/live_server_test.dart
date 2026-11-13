@@ -11,6 +11,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -507,10 +508,13 @@ void main() {
           final events = EventBus();
           final turns = TurnsService(runtime.container, events);
           addTearDown(turns.dispose);
+          final started = <String>[];
           final completed = <String>[];
           final queues = <QueueState>[];
           events.attach('probe', (envelope) {
-            if (envelope.event == ConduitEvents.turnCompleted) {
+            if (envelope.event == ConduitEvents.turnStarted) {
+              started.add(TurnStarted.fromJson(envelope.payload).messageId);
+            } else if (envelope.event == ConduitEvents.turnCompleted) {
               completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
             } else if (envelope.event == ConduitEvents.queueChanged) {
               queues.add(QueueState.fromJson(envelope.payload));
@@ -561,13 +565,19 @@ void main() {
             QueueDraftRef(chatId: first.chatId, draftId: two.drafts.first.id),
           );
           expect(now.outcome, 'admitted');
-          // The one left goes out once that answer is done.
+          // The one left goes out once that answer is done -- the moment it
+          // ends, while that turn's stored copy is still being fetched --
+          // and the window follows its answer like any other: it starts,
+          // streams and ends here, not only in the stored copy.
           await _waitFor(
             () =>
                 completed.length >= 4 &&
-                turns.queueGet(first.chatId).drafts.isEmpty,
-            seconds: 120,
+                turns.queueGet(first.chatId).drafts.isEmpty &&
+                !turns.isRunning(first.chatId),
+            seconds: 60,
           );
+          expect(completed, hasLength(4));
+          expect(started, completed);
           expect(completed, contains(slow.assistantMessageId));
           expect(turns.queueGet(first.chatId).drafts, isEmpty);
           final detail = await ChatsService(
@@ -584,6 +594,20 @@ void main() {
             'And the east side?',
             'And the south side?',
           ]);
+          // And the chat takes the next message straight away: nothing is
+          // left looking as if it were still being written.
+          final next = await turns.send(
+            SendTurn(
+              chatId: first.chatId,
+              model: turnModel,
+              text: 'Reply with exactly the word: kite',
+            ),
+          );
+          await _waitFor(
+            () => completed.contains(next.assistantMessageId),
+            seconds: 60,
+          );
+          expect(completed, contains(next.assistantMessageId));
         },
         timeout: const Timeout(Duration(minutes: 4)),
       );
@@ -3916,6 +3940,346 @@ void main() {
           expect(restored.icon, isNull);
           expect(restored.systemPrompt, before.systemPrompt);
         }, timeout: const Timeout(Duration(minutes: 2)));
+      });
+
+      group('calendar and scheduled tasks', () {
+        late CalendarService calendar;
+        late AutomationsService tasks;
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+
+        setUpAll(() {
+          calendar = CalendarService(runtime.container, events: EventBus());
+          tasks = AutomationsService(
+            runtime.container,
+            events: EventBus(),
+            pollInterval: const Duration(seconds: 1),
+            pollLimit: 90,
+          );
+        });
+
+        tearDownAll(() {
+          calendar.dispose();
+          tasks.dispose();
+        });
+
+        /// Every item of [agenda] titled [title].
+        List<CalendarItemDto> titled(CalendarAgenda agenda, String title) => [
+          for (final day in agenda.days)
+            for (final item in day.items)
+              if (item.title == title) item,
+        ];
+
+        CalendarWallTime tomorrowAt(CalendarAgenda agenda, int hour) {
+          final today = agenda.today!;
+          final day = DateTime(
+            today.year,
+            today.month,
+            today.day,
+          ).add(const Duration(days: 1));
+          return CalendarWallTime(
+            year: day.year,
+            month: day.month,
+            day: day.day,
+            hour: hour,
+          );
+        }
+
+        test('creates, edits, answers and deletes an event', () async {
+          var agenda = await calendar.agenda(
+            const CalendarAgendaQuery(refresh: true),
+          );
+          expect(agenda.failure, isNull);
+          expect(agenda.available, isTrue);
+          expect(agenda.canCreate, isTrue);
+          expect(agenda.calendars.where((c) => c.writable), isNotEmpty);
+          // The admin may use scheduled tasks: their calendar is listed.
+          expect(agenda.calendars.where((c) => c.scheduled), hasLength(1));
+
+          final title = 'Live seed swap $stamp';
+          final opened = await calendar.editor(const CalendarEditorOpen());
+          expect(opened.isNew, isTrue);
+          expect(opened.fields.calendarId, isNotEmpty);
+          final start = tomorrowAt(agenda, 10).copyWith(minute: 30);
+          final empty = await calendar.save(
+            CalendarDraftEdit(token: opened.token, fields: opened.fields),
+          );
+          expect(empty.saved, isFalse);
+          expect(empty.issues, contains('titleRequired'));
+
+          // Moving the start past the end takes the end along.
+          final moved = await calendar.checkDraft(
+            CalendarDraftEdit(
+              token: opened.token,
+              fields: opened.fields.copyWith(
+                title: title,
+                start: start.copyWith(hour: 9, minute: 0),
+                end: start.copyWith(hour: 10, minute: 0),
+              ),
+              movedStart: start,
+            ),
+          );
+          expect(moved.fields.start, start);
+          expect(moved.fields.end, start.copyWith(hour: 11));
+          expect(moved.issues, isEmpty);
+          expect(moved.changed, isTrue);
+
+          final me = runtime.container.read(currentUserProvider2)!.id;
+          final saved = await calendar.save(
+            CalendarDraftEdit(
+              token: opened.token,
+              fields: moved.fields.copyWith(
+                location: 'Community hall',
+                attendees: [CalendarAttendeeDto(userId: me, name: 'Me')],
+              ),
+            ),
+          );
+          expect(saved.saved, isTrue);
+          agenda = await calendar.agenda(const CalendarAgendaQuery());
+          final item = titled(agenda, title).single;
+          expect(item.location, 'Community hall');
+          expect(item.time.kind, 'range');
+          expect(item.time.start, start);
+          expect(item.editable, isTrue);
+          expect(item.invited, isTrue);
+          expect(item.answer, 'pending');
+          addTearDown(() async {
+            final now = await calendar.agenda(
+              const CalendarAgendaQuery(today: true),
+            );
+            for (final left in titled(now, '$title (moved)')) {
+              await calendar.deleteEvent(CalendarItemRef(key: left.key));
+            }
+          });
+
+          final detail = await calendar.event(CalendarItemRef(key: item.key));
+          expect(detail.status, 'fresh');
+          expect(detail.canEdit, isTrue);
+          expect(detail.attendeeCount, 1);
+
+          final answered = await calendar.respond(
+            CalendarRsvpEdit(key: item.key, answer: 'tentative'),
+          );
+          expect(answered.item.answer, 'tentative');
+
+          final editing = await calendar.editor(
+            CalendarEditorOpen(key: item.key),
+          );
+          expect(editing.isNew, isFalse);
+          expect(editing.fields.title, title);
+          final untouched = await calendar.checkDraft(
+            CalendarDraftEdit(token: editing.token, fields: editing.fields),
+          );
+          expect(untouched.changed, isFalse);
+          final renamed = await calendar.save(
+            CalendarDraftEdit(
+              token: editing.token,
+              fields: editing.fields.copyWith(title: '$title (moved)'),
+            ),
+          );
+          expect(renamed.saved, isTrue);
+          agenda = await calendar.agenda(const CalendarAgendaQuery());
+          expect(titled(agenda, title), isEmpty);
+          final again = titled(agenda, '$title (moved)').single;
+          // An edit keeps the answer the account gave.
+          expect(again.answer, 'tentative');
+
+          // The next page does not hold it; Today brings it back.
+          final later = await calendar.agenda(
+            const CalendarAgendaQuery(shift: 1),
+          );
+          expect(titled(later, '$title (moved)'), isEmpty);
+          expect(later.firstDay, isNot(agenda.firstDay));
+          final back = await calendar.agenda(
+            const CalendarAgendaQuery(today: true),
+          );
+          expect(titled(back, '$title (moved)'), hasLength(1));
+
+          final afterDelete = await calendar.deleteEvent(
+            CalendarItemRef(key: again.key),
+          );
+          expect(titled(afterDelete, '$title (moved)'), isEmpty);
+        }, timeout: const Timeout(Duration(minutes: 2)));
+
+        test('edits a daily series from one of its days', () async {
+          var agenda = await calendar.agenda(
+            const CalendarAgendaQuery(today: true),
+          );
+          final title = 'Live watering $stamp';
+          final opened = await calendar.editor(const CalendarEditorOpen());
+          final start = tomorrowAt(agenda, 7);
+          final saved = await calendar.save(
+            CalendarDraftEdit(
+              token: opened.token,
+              fields: opened.fields.copyWith(
+                title: title,
+                start: start,
+                end: start.copyWith(minute: 30),
+                repeat: 'daily',
+              ),
+            ),
+          );
+          expect(saved.saved, isTrue);
+          agenda = await calendar.agenda(const CalendarAgendaQuery());
+          final days = titled(agenda, title);
+          expect(days.length, greaterThan(3));
+          expect(days.every((d) => d.recurring), isTrue);
+          addTearDown(() async {
+            final now = await calendar.agenda(const CalendarAgendaQuery());
+            final left = [
+              ...titled(now, title),
+              ...titled(now, '$title, earlier'),
+            ];
+            if (left.isNotEmpty) {
+              await calendar.deleteEvent(CalendarItemRef(key: left.first.key));
+            }
+          });
+
+          final third = days[2];
+          final detail = await calendar.event(CalendarItemRef(key: third.key));
+          expect(detail.repeat, 'daily');
+          final editing = await calendar.editor(
+            CalendarEditorOpen(key: third.key),
+          );
+          expect(editing.series, isTrue);
+          // The series starts where it was made, not on the third day.
+          expect(editing.fields.start, start);
+          final renamed = await calendar.save(
+            CalendarDraftEdit(
+              token: editing.token,
+              fields: editing.fields.copyWith(title: '$title, earlier'),
+            ),
+          );
+          expect(renamed.saved, isTrue);
+          agenda = await calendar.agenda(const CalendarAgendaQuery());
+          expect(titled(agenda, title), isEmpty);
+          expect(titled(agenda, '$title, earlier').length, days.length);
+        }, timeout: const Timeout(Duration(minutes: 2)));
+
+        test('hides and shows a calendar', () async {
+          final agenda = await calendar.agenda(const CalendarAgendaQuery());
+          expect(agenda.filterable, isTrue);
+          final scheduled = agenda.calendars.firstWhere((c) => c.scheduled);
+          final hidden = await calendar.setVisible(
+            CalendarVisibility(calendarId: scheduled.id, visible: false),
+          );
+          expect(
+            hidden.calendars.firstWhere((c) => c.id == scheduled.id).visible,
+            isFalse,
+          );
+          final shown = await calendar.setVisible(
+            CalendarVisibility(calendarId: scheduled.id, visible: true),
+          );
+          expect(shown.calendars.every((c) => c.visible), isTrue);
+        });
+
+        test('runs a task now and finds its run, then deletes it', () async {
+          final listed = await tasks.list(const AutomationQuery(refresh: true));
+          expect(listed.failure, isNull);
+          expect(listed.available, isTrue);
+
+          final name = 'Live digest $stamp';
+          final opened = await tasks.editor(const AutomationEditorOpen());
+          expect(opened.isNew, isTrue);
+          expect(opened.models?.map((m) => m.id), contains(turnModel));
+          final weekly = await tasks.checkDraft(
+            AutomationDraftEdit(
+              token: opened.token,
+              fields: opened.fields,
+              chooseKind: 'weekly',
+            ),
+          );
+          expect(weekly.fields.schedule.kind, 'weekly');
+          expect(weekly.fields.schedule.days, hasLength(1));
+          expect(weekly.issues, containsAll(['nameRequired', 'modelRequired']));
+          // A typed rule the controls can write reads back as their kind.
+          final typed = await tasks.checkDraft(
+            AutomationDraftEdit(
+              token: opened.token,
+              fields: weekly.fields.copyWith(
+                schedule: const AutomationScheduleDto(
+                  kind: 'custom',
+                  rrule: 'RRULE:FREQ=DAILY;BYHOUR=6;BYMINUTE=45',
+                ),
+              ),
+            ),
+          );
+          expect(typed.fields.schedule.kind, 'daily');
+          expect(typed.fields.schedule.hour, 6);
+
+          final saved = await tasks.save(
+            AutomationDraftEdit(
+              token: opened.token,
+              fields: typed.fields.copyWith(
+                name: name,
+                prompt: 'Say the word: kestrel',
+                modelId: turnModel,
+              ),
+            ),
+          );
+          expect(saved.failure, isNull);
+          expect(saved.saved, isTrue);
+          final id = saved.id!;
+          addTearDown(() async {
+            try {
+              await tasks.delete(AutomationRef(id: id));
+            } on RpcError {
+              // Deleted by the test.
+            }
+          });
+
+          final list = await tasks.list(const AutomationQuery(query: ''));
+          final row = list.items.firstWhere((t) => t.id == id);
+          expect(row.active, isTrue);
+          expect(row.schedule.kind, 'daily');
+          expect(row.nextRunAt, isNotNull);
+
+          final detail = await tasks.get(AutomationRef(id: id));
+          expect(detail.prompt, 'Say the word: kestrel');
+          expect(detail.target, 'chat');
+          expect(detail.nextRuns, isNotEmpty);
+
+          final started = await tasks.run(AutomationRef(id: id));
+          expect(started.phase, anyOf('waiting', 'finished'));
+          var progress = started;
+          for (var i = 0; i < 120 && progress.phase == 'waiting'; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+            progress = tasks.runState(AutomationRef(id: id));
+          }
+          expect(progress.phase, 'finished', reason: '${progress.failure}');
+          final chatId = progress.run?.resultChatId;
+          expect(chatId, isNotNull);
+          created.add(chatId!);
+
+          final history = await tasks.runs(AutomationRunsQuery(id: id));
+          expect(history.items.first.id, progress.run!.id);
+
+          // The run is on the calendar's scheduled-tasks calendar.
+          final agenda = await calendar.agenda(
+            const CalendarAgendaQuery(today: true),
+          );
+          final entries = [
+            for (final day in agenda.days)
+              for (final item in day.items)
+                if (item.runId == progress.run!.id) item,
+          ];
+          expect(entries, hasLength(1));
+          expect(entries.single.resultChatId, chatId);
+          expect(entries.single.scheduledState, 'finished');
+
+          final paused = await tasks.setActive(
+            AutomationToggle(id: id, active: false),
+          );
+          expect(paused.summary.active, isFalse);
+          expect(paused.nextRuns, isEmpty);
+          final pausedList = await tasks.list(
+            const AutomationQuery(status: 'paused'),
+          );
+          expect(pausedList.items.map((t) => t.id), contains(id));
+
+          final left = await tasks.delete(AutomationRef(id: id));
+          expect(left.items.map((t) => t.id), isNot(contains(id)));
+          await tasks.list(const AutomationQuery(status: 'all'));
+        }, timeout: const Timeout(Duration(minutes: 3)));
       });
     },
   );

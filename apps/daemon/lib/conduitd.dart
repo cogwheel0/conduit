@@ -53,6 +53,8 @@ export 'src/settings_service.dart';
 export 'src/core_settings_service.dart';
 export 'src/data_service.dart';
 export 'src/memories_service.dart';
+export 'src/calendar_service.dart';
+export 'src/automations_service.dart';
 export 'src/profile_service.dart';
 export 'src/release_notes_rpc_service.dart';
 export 'src/system_service.dart';

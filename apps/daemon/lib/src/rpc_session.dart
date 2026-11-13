@@ -29,6 +29,8 @@ import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
+import 'automations_service.dart';
+import 'calendar_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'calls_service.dart';
@@ -88,6 +90,8 @@ final class CoreServices {
     this.speech,
     this.calls,
     this.handoff,
+    this.calendar,
+    this.automations,
   });
 
   final AccountsService? accounts;
@@ -136,6 +140,12 @@ final class CoreServices {
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
+
+  /// `calendar.*`: the account's calendars and agenda.
+  final CalendarService? calendar;
+
+  /// `automations.*`: the account's scheduled tasks.
+  final AutomationsService? automations;
   final DictationService? dictation;
   final RecordingsService? recordings;
 }
@@ -224,6 +234,8 @@ class RpcSession {
   AccessService? get _access => _services().access;
   FolderSettingsService? get _folderSettings => _services().folderSettings;
   HandoffService? get _handoff => _services().handoff;
+  CalendarService? get _calendar => _services().calendar;
+  AutomationsService? get _automations => _services().automations;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -708,6 +720,64 @@ class RpcSession {
       if (handoff == null) return const HandoffAnswered(open: false);
       return handoff.answer(r);
     });
+
+    // calendar.*: the account's Open WebUI calendars and agenda.
+    _on(ConduitMethodSpecs.calendarAgenda, (r) => _need(_calendar).agenda(r));
+    _on(
+      ConduitMethodSpecs.calendarSetVisible,
+      (r) => _need(_calendar).setVisible(r),
+    );
+    _on(
+      ConduitMethodSpecs.calendarMakeDefault,
+      (r) => _need(_calendar).makeDefault(r),
+    );
+    _on(
+      ConduitMethodSpecs.calendarCreateCalendar,
+      (r) => _need(_calendar).createCalendar(r),
+    );
+    _on(ConduitMethodSpecs.calendarEvent, (r) => _need(_calendar).event(r));
+    _on(
+      ConduitMethodSpecs.calendarDeleteEvent,
+      (r) => _need(_calendar).deleteEvent(r),
+    );
+    _on(ConduitMethodSpecs.calendarRespond, (r) => _need(_calendar).respond(r));
+    _on(ConduitMethodSpecs.calendarEditor, (r) => _need(_calendar).editor(r));
+    _on(
+      ConduitMethodSpecs.calendarCheckDraft,
+      (r) => _need(_calendar).checkDraft(r),
+    );
+    _on(ConduitMethodSpecs.calendarSave, (r) => _need(_calendar).save(r));
+
+    // automations.*: the account's Open WebUI scheduled tasks.
+    _on(ConduitMethodSpecs.automationsList, (r) => _need(_automations).list(r));
+    _on(
+      ConduitMethodSpecs.automationsLoadMore,
+      (_) => _need(_automations).loadMore(),
+    );
+    _on(ConduitMethodSpecs.automationsGet, (r) => _need(_automations).get(r));
+    _on(ConduitMethodSpecs.automationsRuns, (r) => _need(_automations).runs(r));
+    _on(
+      ConduitMethodSpecs.automationsSetActive,
+      (r) => _need(_automations).setActive(r),
+    );
+    _on(ConduitMethodSpecs.automationsRun, (r) => _need(_automations).run(r));
+    _on(
+      ConduitMethodSpecs.automationsRunState,
+      (r) async => _need(_automations).runState(r),
+    );
+    _on(
+      ConduitMethodSpecs.automationsDelete,
+      (r) => _need(_automations).delete(r),
+    );
+    _on(
+      ConduitMethodSpecs.automationsEditor,
+      (r) => _need(_automations).editor(r),
+    );
+    _on(
+      ConduitMethodSpecs.automationsCheckDraft,
+      (r) => _need(_automations).checkDraft(r),
+    );
+    _on(ConduitMethodSpecs.automationsSave, (r) => _need(_automations).save(r));
 
     _on(
       ConduitMethodSpecs.turnsRetryQueued,

@@ -1537,21 +1537,8 @@ final class TurnsService implements ChatTurns {
         modelId: model.id,
         userMessageId: null,
         start: (onPlaceholder) async {
-          // A delete that is out puts back the transcript it found if the
-          // server refuses it, without this batch: the batch waits for it
-          // (held, not refused, so no queued message is dropped).
-          while (session.deleting && !session.scope.isDisposed) {
-            await Future<void>.delayed(const Duration(milliseconds: 50));
-          }
-          // As before any turn ([_requireIdle]): the last turn's stored copy
-          // first, then a quiet transcript. A turn started while a pull
-          // adopts the stored rows is dropped by the server's copy, and the
-          // queue's batch follows an answer that has only just ended.
-          final settling = session.settling;
-          if (settling != null) {
-            await settling.timeout(_settleTimeout, onTimeout: () {});
-          }
-          await _settleBeforeTurn(session);
+          // The queue's batch follows an answer that has only just ended.
+          await _afterLastTurn(session);
           final sending = durableSend(
             scope,
             text,
@@ -1670,41 +1657,29 @@ final class TurnsService implements ChatTurns {
     final sent = Completer<void>();
     session.holds++;
     try {
-      // A delete that is out puts back the transcript it found if the
-      // server refuses it, without these words: they wait for it, as the
-      // queue's batch does.
-      while (session.deleting && !session.scope.isDisposed) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-      // As before any turn ([_requireIdle]): the last turn's stored copy
-      // first, then a quiet transcript. Before this turn is pending: the
-      // last one's settling lets go of the pending turn when it ends.
-      final settling = session.settling;
-      if (settling != null) {
-        await settling.timeout(_settleTimeout, onTimeout: () {});
-      }
-      await _settleBeforeTurn(session);
-      // The call's first turn makes its chat: temporary or not, and in the
-      // folder, as the window chose, whatever the call's start reset.
-      final choice = session.callNewChat;
-      if (choice != null && !session.scope.isDisposed) {
-        if (scope.read(activeConversationProvider) == null) {
-          scope
-              .read(temporaryChatEnabledProvider.notifier)
-              .set(choice.temporary);
-          final folderId = choice.folderId;
-          if (folderId != null) {
-            scope.read(pendingFolderIdProvider.notifier).set(folderId);
-          }
-        } else {
-          session.callNewChat = null;
-        }
-      }
       await _run(
         session,
         modelId: model?.id ?? '',
         userMessageId: null,
         start: (onPlaceholder) async {
+          // A reply the user talked over has only just ended.
+          await _afterLastTurn(session);
+          // The call's first turn makes its chat: temporary or not, and in
+          // the folder, as the window chose, whatever the call's start reset.
+          final choice = session.callNewChat;
+          if (choice != null && !session.scope.isDisposed) {
+            if (scope.read(activeConversationProvider) == null) {
+              scope
+                  .read(temporaryChatEnabledProvider.notifier)
+                  .set(choice.temporary);
+              final folderId = choice.folderId;
+              if (folderId != null) {
+                scope.read(pendingFolderIdProvider.notifier).set(folderId);
+              }
+            } else {
+              session.callNewChat = null;
+            }
+          }
           final sending = durableSend(
             scope,
             text,
@@ -3578,6 +3553,25 @@ final class TurnsService implements ChatTurns {
         merging()) {
       refuse();
     }
+  }
+
+  /// What a turn the core starts on its own (the queue's next batch, a voice
+  /// call's words) waits for before its send, as [_requireIdle] waits before
+  /// a window's: the last turn's stored copy, then a quiet transcript. A
+  /// turn started while a pull adopts the stored rows is dropped by the
+  /// server's copy. The turn is pending meanwhile, so the chat is busy.
+  /// And a delete that is out first: if the server refuses it, it puts back
+  /// the transcript it found, without this turn (held, not refused, so no
+  /// queued message is dropped).
+  Future<void> _afterLastTurn(_ChatSession session) async {
+    while (session.deleting && !session.scope.isDisposed) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    final settling = session.settling;
+    if (settling != null) {
+      await settling.timeout(_settleTimeout, onTimeout: () {});
+    }
+    await _settleBeforeTurn(session);
   }
 
   static const Duration _settleBudget = Duration(seconds: 6);

@@ -49,6 +49,8 @@ import 'web_search_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
+import 'automations_service.dart';
+import 'calendar_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'calls_service.dart';
@@ -112,6 +114,8 @@ class DaemonServer {
   SettingsService? _settings;
   ChatsService? _chats;
   HandoffService? _handoff;
+  CalendarService? _calendar;
+  AutomationsService? _automations;
   TurnsService? _turns;
   ModelsService? _models;
   FilesService? _files;
@@ -280,6 +284,8 @@ class DaemonServer {
       events: events,
       accounts: _accounts!,
     );
+    _calendar = CalendarService(core.container, events: events);
+    _automations = AutomationsService(core.container, events: events);
     _releaseNotes = ReleaseNotesRpcService(core.container);
     _data = DataService(core.container, events: events);
     _chatSettings = ChatSettingsService(
@@ -350,6 +356,8 @@ class DaemonServer {
       speech: _readAloud,
       calls: _calls,
       handoff: _handoff,
+      calendar: _calendar,
+      automations: _automations,
     );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.
@@ -1089,6 +1097,10 @@ class DaemonServer {
     _chats = null;
     _core?.handoff.detach();
     _handoff = null;
+    _calendar?.dispose();
+    _calendar = null;
+    _automations?.dispose();
+    _automations = null;
     _capabilities?.dispose();
     _capabilities = null;
     _notes?.dispose();
