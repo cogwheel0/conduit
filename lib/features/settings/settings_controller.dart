@@ -1155,13 +1155,14 @@ class SettingsController {
         outcome = l10n.errorMessage;
       }
     }
+    // The page was left, or opened again, while the change was sent: the
+    // outcome is not put over what that visit shows, nor ends the AutoFill
+    // context of fields that are not the ones it was sent from.
+    if (visit != _passwordVisit) return;
     // AutoFill (Android's, through the Flutter fields) offers to save the
     // new password once its fields' context ends with the change made; a
     // refused change saves nothing.
     TextInput.finishAutofillContext(shouldSave: outcome == null);
-    // The page was left, or opened again, while the change was sent: the
-    // outcome is not put over what that visit shows.
-    if (visit != _passwordVisit) return;
     // Changed, the page says so in place of its fields, with nothing left
     // to send or to lose; refused, it starts over saying why.
     await _surface.applyDetail(
