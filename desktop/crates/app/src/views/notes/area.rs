@@ -1,0 +1,225 @@
+//! What the main window shows for the Notes section: All Notes' list, or a
+//! note's pane.
+//!
+//! A note left for another (or for anything else) is saved first: its pane
+//! is kept until the save has landed, so nothing typed is lost to a quick
+//! click elsewhere. A draft the server refused (the note became read-only,
+//! or its page was removed) cannot be saved where it was: leaving it asks
+//! whether to keep it as a note of its own, as the phone's editor offers.
+//! Quitting waits for the open note's save too.
+
+use std::cell::Cell;
+use std::time::Duration;
+
+use gpui_kit::prelude::*;
+use gpui_kit::{App, Context, Entity, Subscription, Window, div};
+
+use super::list::NotesList;
+use super::pane::{NotePane, PaneEvent};
+use crate::l10n::ActiveL10n as _;
+use crate::shell::sheet::{SheetSpec, present_sheet};
+use crate::stores::Stores;
+use crate::stores::navigation::{AreaItem, NavigationEvent};
+
+thread_local! {
+    /// New Note: the next note pane opened puts the caret in its text.
+    static FOCUS_BODY_NEXT: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The next note pane opened takes the keyboard into its text (New Note).
+pub fn focus_body_next(_: &mut App) {
+    FOCUS_BODY_NEXT.with(|f| f.set(true));
+}
+
+pub struct NotesArea {
+    stores: Stores,
+    pub list: Entity<NotesList>,
+    /// The note shown.
+    pub note: Option<Entity<NotePane>>,
+    /// Notes left that are still saving.
+    retiring: Vec<Entity<NotePane>>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl NotesArea {
+    pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let list = cx.new(|cx| NotesList::new(stores.clone(), window, cx));
+        let subscriptions = vec![
+            cx.subscribe_in(
+                &stores.navigation,
+                window,
+                |this, _, _: &NavigationEvent, window, cx| this.follow(window, cx),
+            ),
+            cx.observe(&list, |_, _, cx| cx.notify()),
+        ];
+        // Quitting saves the note shown first.
+        cx.on_app_quit(|this, cx| {
+            let pending: Vec<_> = this
+                .note
+                .iter()
+                .chain(this.retiring.iter())
+                .map(|pane| pane.update(cx, |p, cx| p.flush(cx)))
+                .collect();
+            async move {
+                let all = futures::future::join_all(pending);
+                let _ = futures::future::select(
+                    Box::pin(all),
+                    Box::pin(smol_timer(Duration::from_secs(3))),
+                )
+                .await;
+            }
+        })
+        .detach();
+        let mut this = Self {
+            stores,
+            list,
+            note: None,
+            retiring: vec![],
+            _subscriptions: subscriptions,
+        };
+        this.follow(window, cx);
+        this
+    }
+
+    /// Shows what the navigation store selected.
+    fn follow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let item = self.stores.navigation.read(cx).selected_item().cloned();
+        match item {
+            Some(AreaItem::Note(id)) => {
+                if self.note.as_ref().is_some_and(|p| p.read(cx).shows(&id)) {
+                    return;
+                }
+                self.leave_current(window, cx);
+                let focus_body = FOCUS_BODY_NEXT.with(|f| f.replace(false));
+                let stores = self.stores.clone();
+                let pane = cx.new(|cx| NotePane::new(stores, id, focus_body, window, cx));
+                let sub =
+                    cx.subscribe_in(&pane, window, |this, pane, e: &PaneEvent, window, cx| {
+                        this.on_pane(pane.clone(), e, window, cx)
+                    });
+                self._subscriptions.push(sub);
+                self.note = Some(pane);
+            }
+            Some(AreaItem::AllNotes) => {
+                self.leave_current(window, cx);
+                self.list.update(cx, |l, cx| l.shown(window, cx));
+            }
+            _ => self.leave_current(window, cx),
+        }
+        cx.notify();
+    }
+
+    /// The note shown is left: it saves, and stays until it has; a refused
+    /// draft asks what to keep.
+    fn leave_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.note.take() else {
+            return;
+        };
+        let refused = pane.read(cx).refused_draft();
+        if let Some(title) = refused.clone() {
+            self.ask_about_refused(pane.clone(), title, window, cx);
+        }
+        let busy = pane.update(cx, |p, cx| {
+            p.leave(cx);
+            p.is_busy()
+        });
+        if busy || refused.is_some() {
+            self.retiring.push(pane);
+        }
+    }
+
+    fn on_pane(
+        &mut self,
+        pane: Entity<NotePane>,
+        e: &PaneEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match e {
+            PaneEvent::Settled => {
+                if !pane.read(cx).has_refused_draft() {
+                    self.retiring.retain(|p| p != &pane);
+                }
+            }
+            PaneEvent::Moved { from, to } => {
+                let (from, to) = (from.clone(), to.clone());
+                self.stores.navigation.update(cx, |n, cx| {
+                    n.replace_item(&AreaItem::Note(from), AreaItem::Note(to), cx)
+                });
+            }
+        }
+    }
+
+    /// A draft that could not be saved where it was, left behind: keep it
+    /// as a note of its own, or go back to it.
+    fn ask_about_refused(
+        &mut self,
+        pane: Entity<NotePane>,
+        title: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let l = cx.l10n().clone();
+        let spec = SheetSpec::new(
+            l.desktop_note_unsaved_title(&title),
+            l.desktop_note_unsaved_message(),
+            l.note_save_as_own_note(),
+            l.desktop_note_show_draft(),
+        );
+        let ask = present_sheet(window, spec, cx);
+        let stores = self.stores.clone();
+        cx.spawn(async move |this, cx| {
+            let keep = ask.await;
+            let _ = this.update(cx, |this, cx| {
+                if keep {
+                    pane.update(cx, |p, cx| p.save_as_own_note(cx));
+                } else {
+                    // Back to the draft, where Discard Changes is.
+                    this.retiring.retain(|p| p != &pane);
+                    let id = pane.read(cx).note_id().to_string();
+                    this.note = None;
+                    this.restore(pane, cx);
+                    stores
+                        .navigation
+                        .update(cx, |n, cx| n.open_item(AreaItem::Note(id), cx));
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Shows `pane` again (a refused draft the user went back to).
+    fn restore(&mut self, pane: Entity<NotePane>, cx: &mut Context<Self>) {
+        self.note = Some(pane);
+        cx.notify();
+    }
+
+    /// The note pane shown, if one is.
+    pub fn note_pane(&self) -> Option<&Entity<NotePane>> {
+        self.note.as_ref()
+    }
+}
+
+/// A timer that needs no executor of GPUI's (the quit hook's).
+async fn smol_timer(after: Duration) {
+    let (tx, rx) = futures::channel::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        std::thread::sleep(after);
+        let _ = tx.send(());
+    });
+    let _ = rx.await;
+}
+
+impl Render for NotesArea {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let item = self.stores.navigation.read(cx).selected_item().cloned();
+        match item {
+            Some(AreaItem::AllNotes) => self.list.clone().into_any_element(),
+            Some(AreaItem::Note(_)) => match &self.note {
+                Some(pane) => pane.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
+            _ => div().into_any_element(),
+        }
+    }
+}

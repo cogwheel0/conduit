@@ -1,5 +1,252 @@
 {
   "@@locale": "en",
+  "desktopAddLinkEllipsis": "Add Link…",
+  "@desktopAddLinkEllipsis": {
+    "description": "Format menu item that asks for an address and links the selected text (⌘K). Title Case, ellipsis because it asks."
+  },
+  "desktopNoteMarkChecked": "Mark as Checked",
+  "@desktopNoteMarkChecked": {
+    "description": "Format menu item that checks or unchecks the selected checklist items (⇧⌘U), as Notes names it. Title Case."
+  },
+  "desktopNewNote": "New Note",
+  "@desktopNewNote": {
+    "description": "File menu item, button and tooltip that make a new note named for today and open it. Title Case."
+  },
+  "desktopSearchNotes": "Search Notes",
+  "@desktopSearchNotes": {
+    "description": "Accessible name of the notes list's search field (its placeholder is Search)."
+  },
+  "desktopSearchNoNotes": "Try fewer or different words.",
+  "@desktopSearchNoNotes": {
+    "description": "Hint under No Notes Found when a search of the notes matches nothing."
+  },
+  "desktopNoteNoText": "No additional text",
+  "@desktopNoteNoText": {
+    "description": "The notes list's second line for a note with nothing but its title (as Notes shows it)."
+  },
+  "desktopShareAccessEllipsis": "Share Access…",
+  "@desktopShareAccessEllipsis": {
+    "description": "Note context menu item and toolbar button that open who may read or edit the note. Title Case, ellipsis because a sheet opens."
+  },
+  "desktopDeleteNoteTitle": "Delete “{title}”?",
+  "@desktopDeleteNoteTitle": {
+    "description": "Title of the alert that asks before deleting a note; title is the note's title.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDeleteNoteMessage": "It’s deleted from the server and your other devices. You can’t undo this.",
+  "@desktopDeleteNoteMessage": {
+    "description": "Body of the alert that asks before deleting a note."
+  },
+  "desktopNoteDeleteFailed": "Couldn’t delete the note. Try again.",
+  "@desktopNoteDeleteFailed": {
+    "description": "Notice when deleting a note failed."
+  },
+  "desktopNoteCreateFailed": "Couldn’t create the note. Try again.",
+  "@desktopNoteCreateFailed": {
+    "description": "Notice when making a new note failed."
+  },
+  "desktopNoteTitlePlaceholder": "Title",
+  "@desktopNoteTitlePlaceholder": {
+    "description": "Placeholder and accessible name of a note's title field."
+  },
+  "desktopNoteBodyPlaceholder": "Write something…",
+  "@desktopNoteBodyPlaceholder": {
+    "description": "Placeholder of an empty note's text."
+  },
+  "desktopNoteBody": "Note Text",
+  "@desktopNoteBody": {
+    "description": "Accessible name of a note's text editor."
+  },
+  "desktopNoteFormat": "Format",
+  "@desktopNoteFormat": {
+    "description": "Accessible name of the note's formatting toolbar."
+  },
+  "desktopNoteStyleTitle": "Title",
+  "@desktopNoteStyleTitle": {
+    "description": "Paragraph style: a title (the largest heading). Title Case."
+  },
+  "desktopNoteStyleHeading": "Heading",
+  "@desktopNoteStyleHeading": {
+    "description": "Paragraph style: a heading. Title Case."
+  },
+  "desktopNoteStyleSubheading": "Subheading",
+  "@desktopNoteStyleSubheading": {
+    "description": "Paragraph style: a subheading. Title Case."
+  },
+  "desktopNoteStyleBody": "Body",
+  "@desktopNoteStyleBody": {
+    "description": "Paragraph style: plain body text. Title Case."
+  },
+  "desktopNoteBold": "Bold",
+  "@desktopNoteBold": {
+    "description": "Formatting button and tooltip."
+  },
+  "desktopNoteItalic": "Italic",
+  "@desktopNoteItalic": {
+    "description": "Formatting button and tooltip."
+  },
+  "desktopNoteStrikethrough": "Strikethrough",
+  "@desktopNoteStrikethrough": {
+    "description": "Formatting button and tooltip."
+  },
+  "desktopNoteCode": "Code",
+  "@desktopNoteCode": {
+    "description": "Formatting button and tooltip: inline code."
+  },
+  "desktopNoteLink": "Link",
+  "@desktopNoteLink": {
+    "description": "Formatting button and tooltip that adds or edits a link."
+  },
+  "desktopNoteBulletedList": "Bulleted List",
+  "@desktopNoteBulletedList": {
+    "description": "Formatting button and tooltip. Title Case."
+  },
+  "desktopNoteNumberedList": "Numbered List",
+  "@desktopNoteNumberedList": {
+    "description": "Formatting button and tooltip. Title Case."
+  },
+  "desktopNoteChecklist": "Checklist",
+  "@desktopNoteChecklist": {
+    "description": "Formatting button and tooltip. Title Case."
+  },
+  "desktopNoteQuote": "Quote",
+  "@desktopNoteQuote": {
+    "description": "Formatting button and tooltip: a quote block."
+  },
+  "desktopNoteCodeBlock": "Code Block",
+  "@desktopNoteCodeBlock": {
+    "description": "Formatting button and tooltip. Title Case."
+  },
+  "desktopLinkPlaceholder": "Web address or email",
+  "@desktopLinkPlaceholder": {
+    "description": "Placeholder of the field where a link's address is typed (⌘K)."
+  },
+  "desktopAddLink": "Add Link",
+  "@desktopAddLink": {
+    "description": "Button that applies the address typed for a link. Title Case."
+  },
+  "desktopRemoveLink": "Remove Link",
+  "@desktopRemoveLink": {
+    "description": "Button that takes the link off the selected text. Title Case."
+  },
+  "desktopFindInNote": "Find in Note",
+  "@desktopFindInNote": {
+    "description": "Placeholder and accessible name of Find in a note (⌘F)."
+  },
+  "desktopAttachFile": "Attach File…",
+  "@desktopAttachFile": {
+    "description": "Toolbar button and tooltip that pick files to attach to a note. Title Case, ellipsis because a panel opens."
+  },
+  "desktopNoteAiActions": "AI Actions",
+  "@desktopNoteAiActions": {
+    "description": "Tooltip and accessible name of the note toolbar's menu of AI actions (Generate Title, Enhance Note). Title Case."
+  },
+  "desktopQuickLook": "Quick Look",
+  "@desktopQuickLook": {
+    "description": "File card button and tooltip that shows the file in Quick Look (macOS's name for it). Title Case."
+  },
+  "desktopTranscribe": "Transcribe",
+  "@desktopTranscribe": {
+    "description": "File card button for a recording: its words go into the note under it. Title Case."
+  },
+  "desktopFileOpenFailed": "Couldn’t open the file. Try again.",
+  "@desktopFileOpenFailed": {
+    "description": "Notice when a note's file could not be opened or shown."
+  },
+  "desktopFileDownloadFailed": "Couldn’t download the file. Try again.",
+  "@desktopFileDownloadFailed": {
+    "description": "Notice when downloading a note's file failed."
+  },
+  "desktopRemoveFileTitle": "Remove “{name}” from this note?",
+  "@desktopRemoveFileTitle": {
+    "description": "Title of the alert that asks before taking a file off a note; name is the file's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRemoveFileMessage": "The file stays on the server.",
+  "@desktopRemoveFileMessage": {
+    "description": "Body of the alert that asks before taking a file off a note."
+  },
+  "desktopStopAndSave": "Stop and Save",
+  "@desktopStopAndSave": {
+    "description": "Button that ends a recording and keeps it in the note. Title Case."
+  },
+  "desktopRecordingsWaiting": "Recordings to Upload",
+  "@desktopRecordingsWaiting": {
+    "description": "Heading over a note's recordings that are not uploaded yet. Title Case."
+  },
+  "desktopRecordingWaiting": "Waiting to upload",
+  "@desktopRecordingWaiting": {
+    "description": "A recording's state: kept on this Mac, uploaded when the server can be reached."
+  },
+  "desktopRecordingUploading": "Uploading…",
+  "@desktopRecordingUploading": {
+    "description": "A recording's state while it uploads and is attached."
+  },
+  "desktopRecordingUploadFailed": "Upload failed. It’s kept on this Mac.",
+  "@desktopRecordingUploadFailed": {
+    "description": "A recording's state when its upload failed; it is kept for another try."
+  },
+  "desktopNoteSaved": "Saved",
+  "@desktopNoteSaved": {
+    "description": "The note footer's save state: everything is saved."
+  },
+  "desktopNoteEdited": "Edited",
+  "@desktopNoteEdited": {
+    "description": "The note footer's save state: there are changes waiting to be saved."
+  },
+  "desktopNoteNotSaved": "Not saved",
+  "@desktopNoteNotSaved": {
+    "description": "The note footer's save state when the changes cannot be saved to this note."
+  },
+  "desktopNoteEnhanced": "Note enhanced. Press ⌘Z to undo.",
+  "@desktopNoteEnhanced": {
+    "description": "Notice after Enhance Note rewrote the note."
+  },
+  "desktopNoteEnhancing": "Enhancing…",
+  "@desktopNoteEnhancing": {
+    "description": "The note footer's status while Enhance Note runs."
+  },
+  "desktopNoteGeneratingTitle": "Generating a title…",
+  "@desktopNoteGeneratingTitle": {
+    "description": "The note footer's status while Generate Title runs."
+  },
+  "desktopNoteLoadFailed": "Couldn’t open this note.",
+  "@desktopNoteLoadFailed": {
+    "description": "Shown in the note's pane when it could not be read."
+  },
+  "desktopNoteMissingMessage": "It may have been deleted on another device.",
+  "@desktopNoteMissingMessage": {
+    "description": "Shown under Note not found: the note is gone."
+  },
+  "desktopNoteRecovered": "This note was deleted on another device. Your changes were kept as a new note.",
+  "@desktopNoteRecovered": {
+    "description": "Notice in a note's pane: the note was deleted elsewhere while it had changes here, which were kept as a new note."
+  },
+  "desktopNoteUnsavedTitle": "Keep your changes to “{title}”?",
+  "@desktopNoteUnsavedTitle": {
+    "description": "Title of the alert when a note whose changes could not be saved is left; title is the note's title.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopNoteUnsavedMessage": "They can’t be saved to this note any more. You can keep them as a note of your own.",
+  "@desktopNoteUnsavedMessage": {
+    "description": "Body of the alert when a note whose changes could not be saved is left."
+  },
+  "desktopNoteShowDraft": "Show Note",
+  "@desktopNoteShowDraft": {
+    "description": "Alert button that goes back to a note whose changes could not be saved. Title Case."
+  },
   "desktopSignIn": "Sign In",
   "@desktopSignIn": {
     "description": "Title and button of the desktop sign-in form, in Title Case as Mac buttons are."
@@ -2388,9 +2635,9 @@
   "@desktopResizeShell": {
     "description": "Accessible name of the draggable divider between the conversation and the shell under it; arrow keys also resize."
   },
-  "desktopAllNotes": "All notes",
+  "desktopAllNotes": "All Notes",
   "@desktopAllNotes": {
-    "description": "Button in the side pane's Notes tab that goes back from a note to the list of notes."
+    "description": "The Notes section's first sidebar row and the title of its pane: every note, searchable, in time groups. Title Case."
   },
   "desktopMenuSettings": "Settings…",
   "@desktopMenuSettings": {

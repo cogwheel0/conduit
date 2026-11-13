@@ -92,6 +92,8 @@ impl WorkspaceSection {
 /// An item of an area other than Chats: what its pane shows.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AreaItem {
+    /// Every note, searchable, in time groups (the notes list pane).
+    AllNotes,
     Note(String),
     Channel(String),
     /// A Hermes session, by its session id: its chat
@@ -109,7 +111,7 @@ pub enum AreaItem {
 impl AreaItem {
     pub fn area(&self) -> Area {
         match self {
-            Self::Note(_) => Area::Notes,
+            Self::AllNotes | Self::Note(_) => Area::Notes,
             Self::Channel(_) => Area::Channels,
             Self::HermesSession(_) | Self::HermesHidden => Area::Hermes,
             Self::Workspace(_) => Area::Workspace,
@@ -293,6 +295,24 @@ impl NavigationStore {
                 None => Selection::Chat(to.to_string()),
             };
             cx.notify();
+        }
+    }
+
+    /// `from` is `to` now (a deleted note's draft kept as a new note): the
+    /// selection and history's steps follow it. Not a step of history.
+    pub fn replace_item(&mut self, from: &AreaItem, to: AreaItem, cx: &mut Context<Self>) {
+        let (from, to) = (Selection::Area(from.clone()), Selection::Area(to));
+        if from == to {
+            return;
+        }
+        for step in self.back.iter_mut().chain(self.forward.iter_mut()) {
+            if *step == from {
+                *step = to.clone();
+            }
+        }
+        if self.selection == from {
+            self.selection = to.clone();
+            self.announce(to, cx);
         }
     }
 

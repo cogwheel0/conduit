@@ -366,6 +366,7 @@ pub fn workspace_label(section: WorkspaceSection, l: &L10n) -> String {
 /// An area item's glyph, as the phone draws its tab or section.
 pub fn item_icon(item: &AreaItem) -> IconName {
     match item {
+        AreaItem::AllNotes => IconName::NotebookPen,
         AreaItem::Note(_) => IconName::FileText,
         AreaItem::Channel(_) => IconName::Hash,
         AreaItem::HermesSession(_) => IconName::Sparkles,
@@ -390,6 +391,7 @@ pub fn item_title(item: &AreaItem, listed: Option<&str>, l: &L10n) -> String {
         AreaItem::Calendar => l.desktop_calendar_upcoming(),
         AreaItem::Automations => l.desktop_scheduled_tasks_all(),
         AreaItem::HermesHidden => l.hermes_hidden_chats_title(),
+        AreaItem::AllNotes => l.desktop_all_notes(),
         AreaItem::HermesSession(_) => named
             .map(String::from)
             .unwrap_or_else(|| l.hermes_session_untitled()),
@@ -1301,6 +1303,13 @@ impl SidebarView {
         // A channel's own menu: Mark as Read, Notifications, Edit, Leave,
         // Delete.
         let menu_item = item.clone();
+        // A note's row has the note's menu (Open, Copy, Pin, Share
+        // Access…, Delete…), as the list pane's rows do.
+        let note = match &row.item {
+            AreaItem::Note(note_id) => self.stores.areas.read(cx).note(note_id).cloned(),
+            _ => None,
+        };
+        let menu_key = key.clone();
         item_row(&line, self.row_state(&key, &id), t)
             .when(row.dimmed, |d| d.opacity(0.6))
             .when(self.is_cursor(&key), |d| d.aria_active_descendant())
@@ -1328,6 +1337,18 @@ impl SidebarView {
                     .navigation
                     .update(cx, |n, cx| n.open_item(item, cx));
             }))
+            .when_some(note, |d, note| {
+                d.on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.cursor = Some(menu_key.clone());
+                        let l = cx.l10n().clone();
+                        crate::views::notes::note_menu(&note, &l).show(ev.position, window, cx);
+                        cx.notify();
+                    }),
+                )
+            })
             .into_any_element()
     }
 
@@ -3739,6 +3760,7 @@ pub fn hermes_title(session: &HermesSessionDto, l: &L10n) -> String {
 /// An area item's id among the rows (hover, AccessKit, the E2E).
 pub fn area_item_id(item: &AreaItem) -> String {
     match item {
+        AreaItem::AllNotes => "all-notes".into(),
         AreaItem::Note(id) => format!("note-{id}"),
         AreaItem::Channel(id) => format!("channel-{id}"),
         AreaItem::HermesSession(id) => format!("hermes-{id}"),

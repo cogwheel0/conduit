@@ -6,8 +6,8 @@
 //! the item's area, one module each, so an area's changes stay in its own
 //! module:
 //!
-//! * [`notes`], [`channels`], [`workspace`], [`terminal`], [`calendar`],
-//!   [`automations`] and [`hermes`].
+//! * notes ([`crate::views::notes`]), [`channels`], [`workspace`],
+//!   [`terminal`], [`calendar`] and [`automations`], [`hermes`].
 //!
 //! An item no module draws shows a neutral page: the item's glyph, its
 //! title and the area it is in.
@@ -16,7 +16,6 @@ pub mod automations;
 pub mod calendar;
 pub mod channels;
 pub mod hermes;
-pub mod notes;
 pub mod terminal;
 pub mod workspace;
 
@@ -39,6 +38,7 @@ use crate::stores::Stores;
 use crate::stores::layout::LayoutStore;
 use crate::stores::navigation::AreaItem;
 use crate::views::main_window::SidebarReveal;
+use crate::views::notes::area::NotesArea;
 use crate::views::sidebar::{area_label, item_icon, item_title};
 
 /// The pane the main window shows for an area item.
@@ -49,11 +49,22 @@ pub struct AreaPane {
     pub workspace: Option<Entity<crate::views::workspace::WorkspacePane>>,
     /// The open channel's pane, while a channel is shown.
     pub channel: Option<Entity<crate::views::channels::ChannelPane>>,
+    /// The Notes section's list and note panes.
+    pub notes: Entity<NotesArea>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AreaPane {
-    pub fn new(stores: Stores, layout: Entity<LayoutStore>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        stores: Stores,
+        layout: Entity<LayoutStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let notes = {
+            let stores = stores.clone();
+            cx.new(|cx| NotesArea::new(stores, window, cx))
+        };
         let subscriptions = vec![
             // Hidden Chats reads its list each time it opens.
             cx.subscribe(&stores.navigation, |this, _, event, cx| {
@@ -73,12 +84,14 @@ impl AreaPane {
             }),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
             cx.observe(&layout, |_, _, cx| cx.notify()),
+            cx.observe(&notes, |_, _, cx| cx.notify()),
         ];
         Self {
             stores,
             layout,
             workspace: None,
             channel: None,
+            notes,
             _subscriptions: subscriptions,
         }
     }
@@ -113,7 +126,10 @@ pub fn title_of(item: &AreaItem, stores: &Stores, cx: &App) -> String {
             .map(|t| t.name.clone())
             .filter(|n| !n.trim().is_empty())
             .or_else(|| Some(id.clone())),
-        AreaItem::Workspace(_) | AreaItem::Calendar | AreaItem::Automations => None,
+        AreaItem::AllNotes
+        | AreaItem::Workspace(_)
+        | AreaItem::Calendar
+        | AreaItem::Automations => None,
     };
     item_title(item, listed.as_deref(), cx.l10n())
 }
@@ -170,9 +186,26 @@ impl Render for AreaPane {
         channels::sync(self, Some(&item), window, cx);
         let title = channels::shown_title(self, &item, cx)
             .unwrap_or_else(|| title_of(&item, &self.stores, cx));
-        let trailing = channels::toolbar_items(self, cx);
+        // The shown item's own buttons, at the toolbar's trailing edge: a
+        // note's or a channel's.
+        let trailing = match &item {
+            AreaItem::Note(_) => self
+                .notes
+                .read(cx)
+                .note_pane()
+                .cloned()
+                .and_then(|p| p.update(cx, |p, cx| p.toolbar(&t, cx)))
+                .map(|trailing| {
+                    toolbar_capsule(&t)
+                        .p(px(2.))
+                        .relative()
+                        .child(trailing)
+                        .into_any_element()
+                }),
+            _ => channels::toolbar_items(self, cx),
+        };
         let body = match &item {
-            AreaItem::Note(id) => notes::pane(id, &title, &t, &l),
+            AreaItem::AllNotes | AreaItem::Note(_) => self.notes.clone().into_any_element(),
             AreaItem::Channel(id) => channels::pane(self, id, &title, &t, &l),
             // Shown in the chat pane; here only while the main window
             // switches over.
@@ -237,6 +270,12 @@ impl Render for AreaPane {
                     .justify_center()
                     .child(
                         div()
+                            .id("area-pane-title")
+                            // The item's name, as VoiceOver's headings list
+                            // finds it (a note's own title is a field).
+                            .role(Role::Heading)
+                            .aria_level(1)
+                            .aria_label(SharedString::from(title.clone()))
                             .truncate()
                             .text_size(px(t.metrics.control))
                             .font_weight(FontWeight::SEMIBOLD)

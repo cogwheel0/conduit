@@ -1,0 +1,2816 @@
+//! A note's pane: its title, the editor ([`NoteEditor`]), and what the
+//! phone's note editor offers around it.
+//!
+//! * **Autosave.** An edit is saved after a pause (the phone's 800 ms), at
+//!   once when the editor loses focus, before a page switch or an AI
+//!   action, when the note is left, and before Conduit quits. The footer
+//!   says Edited, Saving… or Saved, with the word and character counts.
+//!   Saves go to the page shown, with the page as last loaded as the base
+//!   of the phone's file-link merge (`notes.save` `baseOps`), so a
+//!   recording attached meanwhile is kept.
+//! * **Refusals.** A save the server refuses because the account may no
+//!   longer edit the note, or because the page was removed elsewhere,
+//!   keeps the text read-only in place with Save as My Own Note and
+//!   Discard Changes, the phone's choices. A note deleted elsewhere is not
+//!   refused: the daemon keeps the text as a new note
+//!   (`NoteDetail.recoveredFrom`), and the pane says so.
+//! * **Read-only notes** (shared with the account to read) say who shared
+//!   them and cannot be edited.
+//! * **Pages** (Open WebUI 0.12.5): the toolbar's Pages menu shows another
+//!   page; adding, renaming and moving pages is done on the web.
+//! * **Attachments**: Attach File… (or a drop) uploads files and links
+//!   them; a file the note links is a card in the text (Quick Look,
+//!   Download, Transcribe for a recording, Remove); files an older server
+//!   keeps in a list show under the text.
+//! * **Recordings**: Record Audio records through dictation's voice engine; the
+//!   daemon keeps the file until the server has it, then attaches it (the
+//!   core's controller). Recordings not attached yet show with their
+//!   state, Try Again and Remove.
+//! * **Dictation** writes into the text at the caret (the dictation engine), each
+//!   update replacing the run before, as the phone's.
+//! * **AI**: Generate Title and Enhance Note ask the model selected for
+//!   chats (`notes.generateTitle`, `notes.enhance`); an enhancement can be
+//!   undone (⌘Z).
+//! * **Find** (⌘F, ⌘G, ⇧⌘G) searches the note's text.
+
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use conduit_components::ActiveConduitTheme as _;
+use conduit_components::assets::{IconName, icon};
+use conduit_components::theme::ConduitTheme;
+use conduit_components::views::kit::{
+    Button, ClickHandler, IconButton, bare_input, field_frame, raised_fill,
+};
+use conduit_daemon::RpcError;
+use conduit_protocol::{
+    NoteAi, NoteAttach, NoteDetach, NoteDetail, NoteFile, NoteOpen, NotePageDto, NoteRecordingAdd,
+    NoteRecordingDto, NoteRecordingRef, NoteRecordingState, NoteRef, NoteSave, NoticeLevel, events,
+    methods,
+};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::native_menu::NativeMenu;
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    Action, AnyElement, App, AsyncApp, ClickEvent, Context, Entity, EventEmitter, ExternalPaths,
+    FocusHandle, Focusable as _, FontWeight, Role, SharedString, Subscription, Task, WeakEntity,
+    Window, div, px, relative,
+};
+use serde_json::Value;
+
+use super::doc::{BlockKind, Doc, FileLink, Mark};
+use super::editor::{CardLabels, EditorEvent, FileAction, NoteEditor};
+use super::element::is_audio;
+use super::recorder::{Phase as RecordPhase, Recorder, RecorderEvent};
+use crate::actions::{FindInChat, FindNext, FindPrevious, StopGenerating};
+use crate::l10n::{ActiveL10n as _, L10n};
+use crate::shell::sheet::{SheetSpec, present_sheet};
+use crate::stores::Stores;
+use crate::stores::connection::ConnectionEvent;
+use crate::stores::dictation::{DictationEvent, DictationStore, Phase as DictationPhase, Target};
+use crate::stores::files::{FileRef, OpenWith, open_attachment, stage_file};
+use crate::stores::rpc::Rpc;
+use crate::voice::InputOverride;
+
+/// Builds a toolbar button's menu when it is clicked.
+type MenuBuilder = Rc<dyn Fn(&mut Window, &mut App) -> NativeMenu>;
+
+/// The note pane's key context (⌘N is New Note in it).
+pub const NOTE_PANE_CONTEXT: &str = "NotePane";
+
+/// The pause after an edit before it is saved (the phone's).
+const SAVE_DELAY: Duration = Duration::from_millis(800);
+/// A failed save is tried again after this.
+const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// The text column's widest.
+const COLUMN: f32 = 720.;
+
+/// The pane's commands from its toolbar menus (AI, More, Pages, Format).
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit_notes, no_json)]
+pub struct PaneCommand {
+    pub note_id: String,
+    pub command: Command,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Command {
+    GenerateTitle,
+    Enhance,
+    ShowPage(String),
+    Style(BlockKind),
+    AttachFile,
+    RecordAudio,
+    Dictate,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PaneEvent {
+    /// Nothing is waiting to be saved now.
+    Settled,
+    /// The pane shows note `to` now, not `from`: the note was deleted
+    /// elsewhere and its text kept as `to`, or the server created a note
+    /// made here (a `local:` id) as `to`.
+    Moved { from: String, to: String },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Load {
+    Loading,
+    Ready,
+    /// No such note (deleted elsewhere, with nothing unsaved here).
+    Missing,
+    Failed(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveState {
+    Saved,
+    Edited,
+    Saving,
+    Failed,
+}
+
+/// Why the text cannot be saved where it was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The account may no longer edit the note.
+    ReadOnly,
+    /// The page was removed elsewhere.
+    PageMissing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiAction {
+    Title,
+    Enhance,
+}
+
+/// A dictation into the text: where its run starts (flat bytes) and how
+/// long it is now.
+struct DictationRun {
+    anchor: usize,
+    len: usize,
+    started: bool,
+}
+
+/// ⌘K's address field.
+struct LinkPrompt {
+    input: Entity<InputState>,
+    current: Option<String>,
+}
+
+pub struct NotePane {
+    stores: Stores,
+    rpc: Rpc,
+    id: String,
+    pub detail: Option<NoteDetail>,
+    pub load: Load,
+    pub editor: Entity<NoteEditor>,
+    pub title: Entity<InputState>,
+    pub page_id: String,
+    /// The page as last loaded or saved (the file-link merge's base).
+    base_ops: Vec<Value>,
+    /// What the server holds now, as far as this pane knows: the dirty
+    /// check's baseline.
+    saved_ops: Vec<Value>,
+    saved_title: String,
+    pub save: SaveState,
+    pub refused: Option<Refusal>,
+    /// A deleted note's text was kept as this new note.
+    pub recovered: bool,
+    pub recordings: Vec<NoteRecordingDto>,
+    pub ai: Option<AiAction>,
+    pub dictation: Entity<DictationStore>,
+    run: Option<DictationRun>,
+    pub recorder: Option<Entity<Recorder>>,
+    /// What records instead of the microphone (a dev build's WAV; the E2E).
+    pub record_input: Option<InputOverride>,
+    /// Find in Note's field, while open.
+    pub find: Option<Entity<InputState>>,
+    link: Option<LinkPrompt>,
+    focus: FocusHandle,
+    focus_body: bool,
+    leaving: bool,
+    saving_rev: Option<(u64, String)>,
+    save_again: bool,
+    waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    last_own_save: Option<Instant>,
+    /// Saves wait (the E2E).
+    hold: bool,
+    _debounce: Option<Task<()>>,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl EventEmitter<PaneEvent> for NotePane {}
+
+impl NotePane {
+    pub fn new(
+        stores: Stores,
+        id: String,
+        focus_body: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let l = cx.l10n().clone();
+        let rpc = stores.connection.read(cx).rpc();
+        let editor = cx.new(|cx| {
+            let mut e = NoteEditor::new(window, cx);
+            e.set_placeholder(
+                l.desktop_note_body_placeholder().into(),
+                l.desktop_note_body().into(),
+            );
+            e.set_card_labels(CardLabels {
+                quick_look: l.desktop_quick_look().into(),
+                download: l.download().into(),
+                transcribe: l.desktop_transcribe().into(),
+                remove: l.desktop_remove_ellipsis().into(),
+                more: l.more().into(),
+                audio: l.audio_attachment().into(),
+                file: l.attachment_label().into(),
+            });
+            e
+        });
+        let title = cx
+            .new(|cx| InputState::new(window, cx).placeholder(l.desktop_note_title_placeholder()));
+        let dictation = {
+            let connection = stores.connection.clone();
+            cx.new(|cx| {
+                let mut d = DictationStore::for_connection(connection, cx);
+                d.set_input(InputOverride::current());
+                d.set_target(
+                    Target {
+                        keeps_recordings: false,
+                        ..Target::default()
+                    },
+                    cx,
+                );
+                d
+            })
+        };
+        let subscriptions = vec![
+            cx.subscribe_in(&editor, window, |this, _, e: &EditorEvent, window, cx| {
+                this.on_editor(e, window, cx)
+            }),
+            cx.subscribe_in(
+                &title,
+                window,
+                |this, _, e: &InputEvent, window, cx| match e {
+                    InputEvent::Change => this.edited(cx),
+                    InputEvent::PressEnter { .. } => {
+                        let focus = this.editor.read(cx).focus.clone();
+                        window.focus(&focus, cx);
+                    }
+                    InputEvent::Blur => this.save_now(cx),
+                    _ => {}
+                },
+            ),
+            cx.subscribe_in(&dictation, window, |this, _, e: &DictationEvent, _, cx| {
+                this.on_dictation(e, cx)
+            }),
+            cx.observe(&dictation, |_, _, cx| cx.notify()),
+            cx.subscribe(&stores.connection, |this, _, e: &ConnectionEvent, cx| {
+                if let ConnectionEvent::Daemon(event) = e
+                    && let conduit_protocol::Event::NotesChanged(changed) = event.as_ref()
+                    && changed.note_id.as_ref().is_none_or(|n| *n == this.id)
+                {
+                    // Its recordings only when the change names this note.
+                    if changed.note_id.is_some() {
+                        this.refresh_recordings(cx);
+                    }
+                    this.changed_elsewhere(cx);
+                }
+            }),
+        ];
+        stores.connection.update(cx, |c, _| {
+            c.subscribe("note-pane", &[events::NOTES_CHANGED], vec![])
+        });
+        let mut this = Self {
+            stores,
+            rpc,
+            id,
+            detail: None,
+            load: Load::Loading,
+            editor,
+            title,
+            page_id: "main".into(),
+            base_ops: vec![],
+            saved_ops: vec![],
+            saved_title: String::new(),
+            save: SaveState::Saved,
+            refused: None,
+            recovered: false,
+            recordings: vec![],
+            ai: None,
+            dictation,
+            run: None,
+            recorder: None,
+            record_input: InputOverride::current(),
+            find: None,
+            link: None,
+            focus: cx.focus_handle(),
+            focus_body,
+            leaving: false,
+            saving_rev: None,
+            save_again: false,
+            waiters: vec![],
+            last_own_save: None,
+            hold: false,
+            _debounce: None,
+            _subscriptions: subscriptions,
+        };
+        this.open_page(None, window, cx);
+        this
+    }
+
+    pub fn note_id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn shows(&self, id: &str) -> bool {
+        self.id == id
+    }
+
+    fn l(&self, cx: &App) -> L10n {
+        cx.l10n().clone()
+    }
+
+    /// The note may be edited here: loaded, the account may edit it, and
+    /// nothing was refused.
+    pub fn editable(&self) -> bool {
+        self.load == Load::Ready
+            && self.refused.is_none()
+            && self.detail.as_ref().is_some_and(|d| d.summary.can_edit)
+            && self.ai != Some(AiAction::Enhance)
+    }
+
+    fn resolved_title(&self, cx: &App) -> String {
+        let typed = self.title.read(cx).value().trim().to_string();
+        if typed.is_empty() {
+            cx.l10n().untitled()
+        } else {
+            typed
+        }
+    }
+
+    /// Whether the text or title differs from what was saved.
+    pub fn dirty(&self, cx: &App) -> bool {
+        self.load == Load::Ready
+            && (self.editor.read(cx).ops() != self.saved_ops
+                || self.resolved_title(cx) != self.saved_title)
+    }
+
+    /// Still saving, or something to save.
+    pub fn is_busy(&self) -> bool {
+        self.saving_rev.is_some() || self._debounce.is_some()
+    }
+
+    pub fn has_refused_draft(&self) -> bool {
+        self.refused.is_some()
+    }
+
+    /// The title of a draft that could not be saved where it was.
+    pub fn refused_draft(&self) -> Option<String> {
+        self.refused.map(|_| {
+            self.detail
+                .as_ref()
+                .map(|d| d.summary.title.clone())
+                .unwrap_or_default()
+        })
+    }
+
+    // ── Loading ─────────────────────────────────────────────────────────
+
+    /// Reads page `page` (the main page when None) and shows it.
+    fn open_page(&mut self, page: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let call = self.rpc.call::<methods::NotesGet>(&NoteOpen {
+            id: self.id.clone(),
+            page_id: page,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |this, window, cx| match result {
+                Ok(found) => match found.note {
+                    Some(detail) => this.show_detail(detail, true, window, cx),
+                    None => {
+                        this.load = Load::Missing;
+                        cx.notify();
+                    }
+                },
+                Err(e) => {
+                    log::warn!("notes.get: {e}");
+                    this.load = Load::Failed(e.to_string());
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Shows `detail` in the editor: the title, the page's text, whether
+    /// it may be edited. `fresh`: a newly opened note or page (undo starts
+    /// again).
+    fn show_detail(
+        &mut self,
+        detail: NoteDetail,
+        fresh: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = detail.summary.title.clone();
+        self.title
+            .update(cx, |t, cx| t.set_value(title.clone(), window, cx));
+        let doc = Doc::from_ops(&detail.ops);
+        let read_only = !detail.summary.can_edit;
+        self.editor.update(cx, |e, cx| {
+            e.set_doc(doc, true, cx);
+            e.set_read_only(read_only, cx);
+        });
+        self.page_id = detail.page_id.clone();
+        self.base_ops = detail.ops.clone();
+        self.saved_ops = self.editor.read(cx).ops();
+        self.saved_title = if title.trim().is_empty() {
+            cx.l10n().untitled()
+        } else {
+            title.trim().to_string()
+        };
+        self.follow_id(&detail.summary.id, cx);
+        self.detail = Some(detail);
+        self.load = Load::Ready;
+        self.save = SaveState::Saved;
+        if fresh {
+            self.refresh_recordings(cx);
+            if self.focus_body && !read_only {
+                self.focus_body = false;
+                let focus = self.editor.read(cx).focus.clone();
+                window.focus(&focus, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// `notes.changed` for this note (or all notes): the text is read again
+    /// when nothing here is waiting to be saved; the recordings always.
+    fn changed_elsewhere(&mut self, cx: &mut Context<Self>) {
+        if self.load != Load::Ready
+            || self.saving_rev.is_some()
+            || self.dirty(cx)
+            || self.refused.is_some()
+            || self.ai.is_some()
+            || self.run.is_some()
+        {
+            return;
+        }
+        // Just after this pane's own save, the change is most likely that
+        // save's echo: looked at again once it has passed.
+        if let Some(at) = self.last_own_save
+            && at.elapsed() < Duration::from_millis(1500)
+        {
+            let wait = Duration::from_millis(1600) - at.elapsed();
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(wait).await;
+                let _ = this.update(cx, |this, cx| this.changed_elsewhere(cx));
+            })
+            .detach();
+            return;
+        }
+        let call = self.rpc.call::<methods::NotesGet>(&NoteOpen {
+            id: self.id.clone(),
+            page_id: Some(self.page_id.clone()),
+        });
+        let revision = self.editor.read(cx).revision();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.editor.read(cx).revision() != revision || this.dirty(cx) {
+                    return;
+                }
+                match result {
+                    Ok(found) => match found.note {
+                        Some(detail) => this.adopt_quietly(detail, cx),
+                        None => {
+                            // Deleted elsewhere, with nothing unsaved here.
+                            this.load = Load::Missing;
+                            cx.notify();
+                        }
+                    },
+                    Err(e) => log::warn!("notes.get (refresh): {e}"),
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Takes in a stored copy that differs (another device's edit, a
+    /// recording attached), keeping the caret where it can.
+    fn adopt_quietly(&mut self, detail: NoteDetail, cx: &mut Context<Self>) {
+        let doc = Doc::from_ops(&detail.ops);
+        let same_text = doc.to_ops() == self.saved_ops;
+        let title = detail.summary.title.trim().to_string();
+        let same_title = title == self.saved_title || title.is_empty();
+        let read_only = !detail.summary.can_edit;
+        if !same_text {
+            self.editor.update(cx, |e, cx| e.set_doc(doc, true, cx));
+            self.saved_ops = self.editor.read(cx).ops();
+            self.base_ops = detail.ops.clone();
+        }
+        if !same_title {
+            self.saved_title = title.clone();
+            if let Some(window) = cx.windows().first().copied() {
+                let input = self.title.clone();
+                let _ = window.update(cx, |_, window, cx| {
+                    input.update(cx, |t, cx| t.set_value(title.clone(), window, cx))
+                });
+            }
+        }
+        self.editor
+            .update(cx, |e, cx| e.set_read_only(read_only, cx));
+        self.follow_id(&detail.summary.id, cx);
+        self.detail = Some(detail);
+        cx.notify();
+    }
+
+    /// The daemon answers for a `local:` note the outbox has since created
+    /// on the server with the server's id: the pane, and the sidebar's
+    /// selection, go with it (later saves and refreshes, the toolbar's
+    /// title and the note's menu all look the note up by its id).
+    fn follow_id(&mut self, id: &str, cx: &mut Context<Self>) {
+        if id.is_empty() || id == self.id {
+            return;
+        }
+        let from = std::mem::replace(&mut self.id, id.to_string());
+        cx.emit(PaneEvent::Moved {
+            from,
+            to: id.to_string(),
+        });
+    }
+
+    // ── Saving ──────────────────────────────────────────────────────────
+
+    fn on_editor(&mut self, e: &EditorEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match e {
+            EditorEvent::Edited => self.edited(cx),
+            EditorEvent::Selected => cx.notify(),
+            EditorEvent::Blurred => self.save_now(cx),
+            EditorEvent::LinkRequested { current } => self.ask_link(current.clone(), window, cx),
+            EditorEvent::OpenLink(url) => {
+                if url.starts_with("http://")
+                    || url.starts_with("https://")
+                    || url.starts_with("mailto:")
+                {
+                    cx.open_url(url);
+                }
+            }
+            EditorEvent::File(link, action) => self.file_action(link.clone(), *action, window, cx),
+        }
+    }
+
+    /// An edit: Edited now, saved after a pause.
+    fn edited(&mut self, cx: &mut Context<Self>) {
+        if self.load != Load::Ready || self.refused.is_some() {
+            return;
+        }
+        if !self.dirty(cx) {
+            if self.save == SaveState::Edited {
+                self.save = SaveState::Saved;
+                cx.notify();
+            }
+            return;
+        }
+        if self.save != SaveState::Saving {
+            self.save = SaveState::Edited;
+        }
+        self._debounce = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(SAVE_DELAY).await;
+                let _ = this.update(cx, |this, cx| {
+                    this._debounce = None;
+                    this.save_now(cx);
+                });
+            }),
+        );
+        cx.notify();
+    }
+
+    /// Saves now what differs from the server's copy.
+    pub fn save_now(&mut self, cx: &mut Context<Self>) {
+        self._debounce = None;
+        if self.hold {
+            return;
+        }
+        if self.load != Load::Ready
+            || self.refused.is_some()
+            || !self.detail.as_ref().is_some_and(|d| d.summary.can_edit)
+        {
+            self.settle(cx);
+            return;
+        }
+        if self.saving_rev.is_some() {
+            self.save_again = true;
+            return;
+        }
+        if !self.dirty(cx) {
+            if self.save != SaveState::Saved {
+                self.save = SaveState::Saved;
+                cx.notify();
+            }
+            self.settle(cx);
+            return;
+        }
+        let ops = self.editor.read(cx).ops();
+        let title = self.resolved_title(cx);
+        let revision = self.editor.read(cx).revision();
+        self.saving_rev = Some((revision, title.clone()));
+        self.save = SaveState::Saving;
+        cx.notify();
+        let call = self.rpc.call::<methods::NotesSave>(&NoteSave {
+            id: Some(self.id.clone()),
+            title: title.clone(),
+            ops: Some(ops.clone()),
+            page_id: Some(self.page_id.clone()),
+            base_ops: Some(self.base_ops.clone()),
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| this.saved(result, ops, title, revision, cx));
+        })
+        .detach();
+    }
+
+    fn saved(
+        &mut self,
+        result: Result<NoteDetail, RpcError>,
+        ops: Vec<Value>,
+        title: String,
+        revision: u64,
+        cx: &mut Context<Self>,
+    ) {
+        self.saving_rev = None;
+        self.last_own_save = Some(Instant::now());
+        match result {
+            Ok(detail) => {
+                if detail.recovered_from.is_some() {
+                    self.recovered = true;
+                }
+                self.follow_id(&detail.summary.id, cx);
+                self.saved_ops = ops;
+                self.saved_title = title;
+                self.base_ops = detail.ops.clone();
+                // Files the stored page gained meanwhile (a recording
+                // attached) show as cards, as the phone's editor puts them
+                // in: those the save kept that it did not send.
+                let sent: Vec<String> = Doc::from_ops(&self.saved_ops)
+                    .blocks
+                    .iter()
+                    .filter_map(|b| b.file_link().map(|f| f.id))
+                    .collect();
+                let stored = Doc::from_ops(&detail.ops);
+                let gained: Vec<FileLink> = stored
+                    .blocks
+                    .iter()
+                    .filter_map(|b| b.file_link())
+                    .filter(|f| !sent.contains(&f.id))
+                    .collect();
+                self.detail = Some(detail);
+                self.save = SaveState::Saved;
+                if !gained.is_empty() {
+                    self.editor.update(cx, |e, cx| e.append_cards(&gained, cx));
+                }
+                let _ = revision;
+                if self.dirty(cx) {
+                    self.save = SaveState::Edited;
+                    self.save_again = true;
+                }
+            }
+            Err(e) if is_refusal(&e, "readOnly") => {
+                self.refused = Some(Refusal::ReadOnly);
+                self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
+                self.save = SaveState::Failed;
+                self.save_again = false;
+            }
+            Err(e) if is_refusal(&e, "page") => {
+                self.refused = Some(Refusal::PageMissing);
+                self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
+                self.save = SaveState::Failed;
+                self.save_again = false;
+            }
+            Err(e) => {
+                log::warn!("notes.save: {e}");
+                self.save = SaveState::Failed;
+                // Tried again after a while (or on the next edit).
+                self._debounce = Some(cx.spawn(
+                    async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                        cx.background_executor().timer(RETRY_DELAY).await;
+                        let _ = this.update(cx, |this, cx| {
+                            this._debounce = None;
+                            this.save_now(cx);
+                        });
+                    },
+                ));
+            }
+        }
+        cx.notify();
+        if std::mem::take(&mut self.save_again) {
+            self.save_now(cx);
+        } else {
+            self.settle(cx);
+        }
+    }
+
+    /// Nothing is saving: those waiting for it hear so.
+    fn settle(&mut self, cx: &mut Context<Self>) {
+        if self.saving_rev.is_some() {
+            return;
+        }
+        for waiter in self.waiters.drain(..) {
+            let _ = waiter.send(());
+        }
+        cx.emit(PaneEvent::Settled);
+    }
+
+    /// Saves now; resolves once the save has landed (or there was nothing
+    /// to save).
+    pub fn flush(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> impl std::future::Future<Output = ()> + use<> {
+        let (tx, rx) = futures::channel::oneshot::channel();
+        self.waiters.push(tx);
+        self.save_now(cx);
+        async move {
+            let _ = rx.await;
+        }
+    }
+
+    /// The note is left (another note or area shown): dictation and a
+    /// recording end, and what is unsaved is saved.
+    pub fn leave(&mut self, cx: &mut Context<Self>) {
+        self.leaving = true;
+        if self.dictation.read(cx).is_active() {
+            self.dictation.update(cx, |d, cx| d.stop(cx));
+        }
+        if let Some(recorder) = &self.recorder {
+            recorder.update(cx, |r, _| r.stop());
+        }
+        self.save_now(cx);
+    }
+
+    /// The user deleted this note here: what was not saved yet goes with
+    /// it (it is not kept as a new note, as a note deleted elsewhere is).
+    pub fn forget_edits(&mut self, cx: &mut Context<Self>) {
+        self._debounce = None;
+        self.hold = true;
+        self.refused = None;
+        self.saved_ops = self.editor.read(cx).ops();
+        self.saved_title = self.resolved_title(cx);
+        self.save = SaveState::Saved;
+        self.settle(cx);
+    }
+
+    /// Save as My Own Note: the refused text becomes a note of its own,
+    /// which opens.
+    pub fn save_as_own_note(&mut self, cx: &mut Context<Self>) {
+        let ops = self.editor.read(cx).ops();
+        let title = self.resolved_title(cx);
+        let call = self.rpc.call::<methods::NotesSave>(&NoteSave {
+            id: None,
+            title,
+            ops: Some(ops),
+            page_id: None,
+            base_ops: None,
+        });
+        let stores = self.stores.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(detail) => {
+                    // The draft is kept: nothing is left to save here.
+                    this.refused = None;
+                    this.saved_ops = this.editor.read(cx).ops();
+                    this.settle(cx);
+                    let id = detail.summary.id;
+                    stores.navigation.update(cx, |n, cx| {
+                        n.open_item(crate::stores::navigation::AreaItem::Note(id), cx)
+                    });
+                }
+                Err(e) => {
+                    log::warn!("notes.save (own note): {e}");
+                    let text = cx.l10n().error_message();
+                    stores
+                        .toasts
+                        .update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Discard Changes: the refused text goes; the note shows as stored.
+    pub fn discard_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.refused = None;
+        self.save = SaveState::Saved;
+        let page = self.page_id.clone();
+        self.load = Load::Loading;
+        self.open_page(Some(page), window, cx);
+        self.settle(cx);
+        cx.notify();
+    }
+
+    // ── Pages ───────────────────────────────────────────────────────────
+
+    pub fn pages(&self) -> &[NotePageDto] {
+        self.detail.as_ref().map_or(&[], |d| d.pages.as_slice())
+    }
+
+    /// Shows page `page`, after saving the one shown.
+    pub fn show_page(&mut self, page: String, window: &mut Window, cx: &mut Context<Self>) {
+        if page == self.page_id || self.ai.is_some() {
+            return;
+        }
+        if self.dictation.read(cx).is_active() {
+            self.dictation.update(cx, |d, cx| d.stop(cx));
+        }
+        let flushed = self.flush(cx);
+        cx.spawn_in(window, async move |this, cx| {
+            flushed.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                // A refused save keeps the text on its page.
+                if this.refused.is_some() || this.dirty(cx) {
+                    return;
+                }
+                this.open_page(Some(page), window, cx);
+            });
+        })
+        .detach();
+    }
+
+    // ── AI ──────────────────────────────────────────────────────────────
+
+    pub fn generate_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ai.is_some() || !self.editable() {
+            return;
+        }
+        let ops = self.editor.read(cx).ops();
+        self.ai = Some(AiAction::Title);
+        cx.notify();
+        let call = self
+            .rpc
+            .call::<methods::NotesGenerateTitle>(&NoteAi { ops, model: None });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ai = None;
+                let l = this.l(cx);
+                match result {
+                    Ok(t) => {
+                        this.title
+                            .update(cx, |input, cx| input.set_value(t.title, window, cx));
+                        this.edited(cx);
+                    }
+                    Err(e) => {
+                        let text = if is_reason(&e, "empty") {
+                            l.no_content_to_generate_title()
+                        } else {
+                            l.failed_to_generate_title()
+                        };
+                        this.toast(NoticeLevel::Error, text, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub fn enhance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ai.is_some() || !self.editable() {
+            return;
+        }
+        let ops = self.editor.read(cx).ops();
+        self.ai = Some(AiAction::Enhance);
+        self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
+        cx.notify();
+        let call = self
+            .rpc
+            .call::<methods::NotesEnhance>(&NoteAi { ops, model: None });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                this.ai = None;
+                let can_edit = this.detail.as_ref().is_some_and(|d| d.summary.can_edit);
+                this.editor.update(cx, |e, cx| {
+                    e.set_read_only(!can_edit || this.refused.is_some(), cx)
+                });
+                let l = this.l(cx);
+                match result {
+                    Ok(body) => {
+                        // One step: ⌘Z takes the enhancement back.
+                        let doc = Doc::from_ops(&body.ops);
+                        this.editor.update(cx, |e, cx| e.set_doc(doc, false, cx));
+                        this.toast(NoticeLevel::Info, l.desktop_note_enhanced(), cx);
+                    }
+                    Err(e) => {
+                        let text = if is_reason(&e, "empty") {
+                            l.no_content_to_enhance()
+                        } else {
+                            l.failed_to_enhance_note()
+                        };
+                        this.toast(NoticeLevel::Error, text, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn toast(&self, level: NoticeLevel, text: String, cx: &mut App) {
+        self.stores
+            .toasts
+            .update(cx, |t, cx| t.show(level, text, cx));
+    }
+
+    // ── Link ────────────────────────────────────────────────────────────
+
+    fn ask_link(&mut self, current: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let placeholder = cx.l10n().desktop_link_placeholder();
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+        if let Some(url) = &current {
+            input.update(cx, |i, cx| i.set_value(url.clone(), window, cx));
+        }
+        let sub = cx.subscribe_in(&input, window, |this, input, e: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { .. } = e {
+                let url = input.read(cx).value().to_string();
+                this.apply_link(Some(url), window, cx);
+            }
+        });
+        self._subscriptions.push(sub);
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        self.link = Some(LinkPrompt { input, current });
+        cx.notify();
+    }
+
+    fn apply_link(&mut self, url: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.link = None;
+        let url = url.map(normalize_url);
+        self.editor.update(cx, |e, cx| e.set_link(url, cx));
+        let focus = self.editor.read(cx).focus.clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// ⌘K's field, while it asks (the E2E).
+    pub fn link_field_for_tests(&self) -> Option<Entity<InputState>> {
+        self.link.as_ref().map(|l| l.input.clone())
+    }
+
+    /// Types `url` into ⌘K's field and applies it (the E2E).
+    pub fn apply_link_for_tests(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_link(Some(url.to_string()), window, cx);
+    }
+
+    /// Holds autosave (the E2E deletes the note behind a waiting change);
+    /// releasing it saves.
+    pub fn hold_saves_for_tests(&mut self, hold: bool, cx: &mut Context<Self>) {
+        self.hold = hold;
+        if !hold {
+            self.save_now(cx);
+        }
+    }
+
+    fn cancel_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.link = None;
+        let focus = self.editor.read(cx).focus.clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    // ── Find ────────────────────────────────────────────────────────────
+
+    pub fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = match &self.find {
+            Some(input) => input.clone(),
+            None => {
+                let placeholder = cx.l10n().desktop_find_in_note();
+                let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+                let sub =
+                    cx.subscribe_in(
+                        &input,
+                        window,
+                        |this, input, e: &InputEvent, _, cx| match e {
+                            InputEvent::Change => {
+                                let query = input.read(cx).value().to_string();
+                                this.editor.update(cx, |e, cx| e.find(&query, cx));
+                            }
+                            InputEvent::PressEnter { secondary, .. } => {
+                                let forward = !secondary;
+                                this.editor.update(cx, |e, cx| e.find_step(forward, cx));
+                            }
+                            _ => {}
+                        },
+                    );
+                self._subscriptions.push(sub);
+                // The editor's selection seeds it, as ⌘E would.
+                let selected = self.editor.read(cx).selected_text();
+                if !selected.is_empty() && !selected.contains('\n') {
+                    input.update(cx, |i, cx| i.set_value(selected.clone(), window, cx));
+                    self.editor.update(cx, |e, cx| e.find(&selected, cx));
+                }
+                self.find = Some(input.clone());
+                input
+            }
+        };
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Find in Note's query (the E2E types it).
+    pub fn type_find(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_find(window, cx);
+        if let Some(input) = &self.find {
+            input.update(cx, |i, cx| i.set_value(query.to_string(), window, cx));
+        }
+        self.editor.update(cx, |e, cx| e.find(query, cx));
+    }
+
+    pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.find = None;
+        self.editor.update(cx, |e, cx| e.end_find(cx));
+        let focus = self.editor.read(cx).focus.clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    // ── Dictation ───────────────────────────────────────────────────────
+
+    pub fn toggle_dictation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.editable() {
+            return;
+        }
+        if self.dictation.read(cx).is_active() {
+            self.dictation.update(cx, |d, cx| d.stop(cx));
+            return;
+        }
+        let focus = self.editor.read(cx).focus.clone();
+        window.focus(&focus, cx);
+        let (anchor, _) = self.editor.read(cx).run_anchor();
+        self.run = Some(DictationRun {
+            anchor,
+            len: 0,
+            started: false,
+        });
+        self.dictation.update(cx, |d, cx| d.start(cx));
+        cx.notify();
+    }
+
+    fn on_dictation(&mut self, e: &DictationEvent, cx: &mut Context<Self>) {
+        match e {
+            DictationEvent::Text { text, .. } => {
+                let Some(run) = &mut self.run else {
+                    return;
+                };
+                let before = {
+                    let plain = self.editor.read(cx).doc.plain_text();
+                    plain[..run.anchor.min(plain.len())].to_string()
+                };
+                // A space first when the text before does not end in one,
+                // as the phone's run adds it.
+                let spaced = if !before.is_empty()
+                    && !before.ends_with(char::is_whitespace)
+                    && !text.is_empty()
+                {
+                    format!(" {text}")
+                } else {
+                    text.clone()
+                };
+                let (anchor, len, first) = (run.anchor, run.len, !run.started);
+                let new_len = self
+                    .editor
+                    .update(cx, |e, cx| e.replace_run(anchor, len, &spaced, first, cx));
+                if let Some(run) = &mut self.run {
+                    run.len = new_len;
+                    run.started = true;
+                }
+            }
+            DictationEvent::Transcribed(text) => {
+                self.editor.update(cx, |e, cx| e.insert_text(text, cx));
+            }
+            DictationEvent::Heard => {}
+            DictationEvent::Ended { restore } => {
+                if let Some(run) = self.run.take()
+                    && *restore
+                    && run.started
+                {
+                    self.editor.update(cx, |e, cx| {
+                        e.replace_run(run.anchor, run.len, "", false, cx)
+                    });
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    // ── Recordings ──────────────────────────────────────────────────────
+
+    pub fn record_audio(&mut self, cx: &mut Context<Self>) {
+        if !self.editable() || self.recorder.is_some() {
+            return;
+        }
+        let input = self.record_input.clone();
+        let recorder = cx.new(|cx| Recorder::start(input, cx));
+        let page = self.page_id.clone();
+        let sub = cx.subscribe(&recorder, move |this, _, e: &RecorderEvent, cx| {
+            this.recorder = None;
+            let l = this.l(cx);
+            match e {
+                RecorderEvent::Saved(path) => this.keep_recording(path.clone(), page.clone(), cx),
+                RecorderEvent::Denied => {
+                    this.toast(NoticeLevel::Error, l.desktop_microphone_unavailable(), cx)
+                }
+                RecorderEvent::Failed(e) => {
+                    log::warn!("recording: {e}");
+                    this.toast(NoticeLevel::Error, l.recording_failed(), cx)
+                }
+                RecorderEvent::Cancelled => {}
+            }
+            cx.notify();
+        });
+        self._subscriptions.push(sub);
+        self.recorder = Some(recorder.clone());
+        cx.observe(&recorder, |_, _, cx| cx.notify()).detach();
+        cx.notify();
+    }
+
+    fn keep_recording(&mut self, path: std::path::PathBuf, page: String, cx: &mut Context<Self>) {
+        let call = self
+            .rpc
+            .call::<methods::NotesAddRecording>(&NoteRecordingAdd {
+                note_id: self.id.clone(),
+                path: path.to_string_lossy().to_string(),
+                page_id: Some(page),
+            });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| {
+                let l = this.l(cx);
+                match result {
+                    Ok(list) => {
+                        this.recordings = list.recordings;
+                        this.toast(NoticeLevel::Info, l.audio_recording_saved(), cx);
+                    }
+                    Err(e) => {
+                        log::warn!("notes.addRecording: {e}");
+                        this.toast(NoticeLevel::Error, l.desktop_recording_save_failed(), cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn refresh_recordings(&mut self, cx: &mut Context<Self>) {
+        let call = self.rpc.call::<methods::NotesRecordings>(&NoteRef {
+            id: self.id.clone(),
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Ok(list) = result
+                    && list.note_id == this.id
+                    && list.recordings != this.recordings
+                {
+                    this.recordings = list.recordings;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn retry_recording(&mut self, id: String, cx: &mut Context<Self>) {
+        let call = self
+            .rpc
+            .call::<methods::NotesRetryRecording>(&NoteRecordingRef {
+                note_id: self.id.clone(),
+                id,
+            });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if let Ok(list) = call.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.recordings = list.recordings;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    fn remove_recording(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let l = self.l(cx);
+        let spec = SheetSpec::new(
+            l.desktop_discard_recording_title(),
+            l.desktop_discard_recording_body(),
+            l.desktop_discard(),
+            l.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        let rpc = self.rpc.clone();
+        let note_id = self.id.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if !ask.await {
+                return;
+            }
+            let result = rpc
+                .call::<methods::NotesRemoveRecording>(&NoteRecordingRef { note_id, id })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Ok(list) = result {
+                    this.recordings = list.recordings;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    // ── Files ───────────────────────────────────────────────────────────
+
+    fn server_id(&self, cx: &App) -> Option<String> {
+        self.stores
+            .accounts
+            .read(cx)
+            .active()
+            .map(|a| a.connection.id.clone())
+    }
+
+    pub fn file_action_for_tests(
+        &mut self,
+        link: FileLink,
+        action: FileAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_action(link, action, window, cx)
+    }
+
+    fn file_action(
+        &mut self,
+        link: FileLink,
+        action: FileAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(server_id) = self.server_id(cx) else {
+            return;
+        };
+        let file = FileRef {
+            server_id,
+            file_id: link.id.clone(),
+        };
+        match action {
+            FileAction::QuickLook | FileAction::Open => {
+                let how = if action == FileAction::Open {
+                    OpenWith::DefaultApp
+                } else {
+                    OpenWith::QuickLook
+                };
+                let task = open_attachment(file, &link.name, how, cx);
+                let toasts = self.stores.toasts.clone();
+                cx.spawn(async move |_, cx: &mut AsyncApp| {
+                    if let Err(e) = task.await {
+                        log::warn!("opening a note's file: {e}");
+                        cx.update(|cx| {
+                            let text = cx.l10n().desktop_file_open_failed();
+                            toasts.update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                        });
+                    }
+                })
+                .detach();
+            }
+            FileAction::Download => self.download(file, link.name, cx),
+            FileAction::Transcribe => self.transcribe(file, link, cx),
+            FileAction::Remove => self.confirm_remove(link, window, cx),
+        }
+    }
+
+    fn download(&mut self, file: FileRef, name: String, cx: &mut Context<Self>) {
+        let downloads = dirs_downloads();
+        let ask = cx.prompt_for_new_path(&downloads, Some(&name));
+        let staged = stage_file(file, &name, cx);
+        let toasts = self.stores.toasts.clone();
+        cx.spawn(async move |_, cx: &mut AsyncApp| {
+            let Ok(Ok(Some(target))) = ask.await else {
+                return;
+            };
+            let result = match staged.await {
+                Ok(path) => std::fs::copy(&path, &target)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                log::warn!("downloading a note's file: {e}");
+                cx.update(|cx| {
+                    let text = cx.l10n().desktop_file_download_failed();
+                    toasts.update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Transcribe: the recording's words, as a paragraph under its card.
+    fn transcribe(&mut self, file: FileRef, link: FileLink, cx: &mut Context<Self>) {
+        let http = self.stores.connection.read(cx).http().cloned();
+        let staged = stage_file(file, &link.name, cx);
+        let block = self.editor.read(cx).card_block(&link.id);
+        self.ai = None;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result: Result<String, String> = async {
+                let path = staged.await?;
+                let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+                let http = http.ok_or("the daemon is not running")?;
+                let (tx, rx) = futures::channel::oneshot::channel();
+                conduit_daemon::runtime::shared().spawn(async move {
+                    let result = http
+                        .transcribe(bytes.into(), Some("server"), None)
+                        .await
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(result);
+                });
+                let value = rx.await.map_err(|e| e.to_string())??;
+                Ok(value
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string())
+            }
+            .await;
+            let _ = this.update(cx, |this, cx| {
+                let l = this.l(cx);
+                match result {
+                    Ok(text) if !text.trim().is_empty() => {
+                        this.editor
+                            .update(cx, |e, cx| e.insert_after_block(block, &text, cx));
+                    }
+                    Ok(_) => this.toast(NoticeLevel::Info, l.desktop_nothing_heard(), cx),
+                    Err(e) => {
+                        log::warn!("transcribing a note's recording: {e}");
+                        this.toast(NoticeLevel::Error, l.desktop_transcription_failed(), cx);
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn confirm_remove(&mut self, link: FileLink, window: &mut Window, cx: &mut Context<Self>) {
+        let l = self.l(cx);
+        let spec = SheetSpec::new(
+            l.desktop_remove_file_title(&link.name),
+            l.desktop_remove_file_message(),
+            l.desktop_settings_remove_server(),
+            l.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if !ask.await {
+                return;
+            }
+            let _ = this.update(cx, |this, cx| this.remove_file(link, cx));
+        })
+        .detach();
+    }
+
+    /// Takes a file off the note: its card out of the text, and out of an
+    /// older server's file list.
+    fn remove_file(&mut self, link: FileLink, cx: &mut Context<Self>) {
+        if let Some(block) = self.editor.read(cx).card_block(&link.id) {
+            self.editor.update(cx, |e, cx| e.remove_block(block, cx));
+        }
+        let flushed = self.flush(cx);
+        let call_for = {
+            let rpc = self.rpc.clone();
+            let request = NoteDetach {
+                note_id: self.id.clone(),
+                file_id: link.id.clone(),
+                page_id: Some(self.page_id.clone()),
+            };
+            move || rpc.call::<methods::NotesDetach>(&request)
+        };
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            flushed.await;
+            let result = call_for().await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(detail) => {
+                    if let Some(d) = &mut this.detail {
+                        d.files = detail.files;
+                    }
+                    cx.notify();
+                }
+                Err(e) => log::warn!("notes.detach: {e}"),
+            });
+        })
+        .detach();
+    }
+
+    /// Attach File…: picks files, uploads them and links them from the page.
+    pub fn attach_files(&mut self, cx: &mut Context<Self>) {
+        if !self.editable() {
+            return;
+        }
+        let ask = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some(cx.l10n().attach().into()),
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if let Ok(Ok(Some(paths))) = ask.await {
+                let _ = this.update(cx, |this, cx| this.attach_paths(paths, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Uploads `paths` and attaches them, after saving the text.
+    pub fn attach_paths(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+        if !self.editable() || paths.is_empty() {
+            return;
+        }
+        let http = self.stores.connection.read(cx).http().cloned();
+        let rpc = self.rpc.clone();
+        let note_id = self.id.clone();
+        let page_id = self.page_id.clone();
+        let flushed = self.flush(cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            flushed.await;
+            let mut last: Option<NoteDetail> = None;
+            let mut failed = vec![];
+            for path in paths {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "file".into());
+                let uploaded = upload(http.clone(), &path, &name).await;
+                let file = match uploaded {
+                    Ok(file) => file,
+                    Err(e) => {
+                        log::warn!("uploading {name} for a note: {e}");
+                        failed.push(name);
+                        continue;
+                    }
+                };
+                match rpc
+                    .call::<methods::NotesAttach>(&NoteAttach {
+                        note_id: note_id.clone(),
+                        file,
+                        page_id: Some(page_id.clone()),
+                    })
+                    .await
+                {
+                    Ok(detail) => last = Some(detail),
+                    Err(e) => {
+                        log::warn!("notes.attach: {e}");
+                        failed.push(name);
+                    }
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                if let Some(detail) = last {
+                    let links: Vec<FileLink> = Doc::from_ops(&detail.ops)
+                        .blocks
+                        .iter()
+                        .filter_map(|b| b.file_link())
+                        .collect();
+                    this.base_ops = detail.ops.clone();
+                    if let Some(d) = &mut this.detail {
+                        d.files = detail.files.clone();
+                    }
+                    this.editor.update(cx, |e, cx| e.append_cards(&links, cx));
+                }
+                for name in failed {
+                    let text = this.l(cx).desktop_attachment_failed(&name);
+                    this.toast(NoticeLevel::Error, text, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Runs a toolbar menu's command.
+    pub fn run(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        match command {
+            Command::GenerateTitle => self.generate_title(window, cx),
+            Command::Enhance => self.enhance(window, cx),
+            Command::ShowPage(page) => self.show_page(page, window, cx),
+            Command::Style(kind) => self.editor.update(cx, |e, cx| e.toggle_kind(kind, cx)),
+            Command::AttachFile => self.attach_files(cx),
+            Command::RecordAudio => self.record_audio(cx),
+            Command::Dictate => self.toggle_dictation(window, cx),
+        }
+    }
+
+    // ── Rendering ───────────────────────────────────────────────────────
+
+    /// The toolbar's buttons for this note (the area pane draws them at its
+    /// trailing edge).
+    pub fn toolbar(&mut self, t: &ConduitTheme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.load != Load::Ready {
+            return None;
+        }
+        let l = self.l(cx);
+        let editable = self.editable();
+        let id = self.id.clone();
+        let dictating = self.dictation.read(cx).is_active();
+        let menu_button = |key: &'static str, glyph: IconName, label: String, menu: MenuBuilder| {
+            IconButton::new(key, glyph, label)
+                .size(30., 16.)
+                .on_click(Rc::new(
+                    move |e: &ClickEvent, window: &mut Window, cx: &mut App| {
+                        let position = e.position();
+                        menu(window, cx).show(position, window, cx);
+                    },
+                ))
+        };
+        let note_id = id.clone();
+        let ai_menu: MenuBuilder = {
+            let l = l.clone();
+            Rc::new(move |_, _| {
+                NativeMenu::new()
+                    .menu(
+                        l.generate_title(),
+                        Box::new(PaneCommand {
+                            note_id: note_id.clone(),
+                            command: Command::GenerateTitle,
+                        }),
+                    )
+                    .menu(
+                        l.enhance_note(),
+                        Box::new(PaneCommand {
+                            note_id: note_id.clone(),
+                            command: Command::Enhance,
+                        }),
+                    )
+            })
+        };
+        let summary = self.detail.as_ref().map(|d| d.summary.clone());
+        let more_menu: MenuBuilder = {
+            let l = l.clone();
+            Rc::new(move |_, _| match &summary {
+                Some(s) => super::note_menu(s, &l),
+                None => NativeMenu::new(),
+            })
+        };
+        let pages = self.pages().to_vec();
+        let page_title = pages
+            .iter()
+            .find(|p| p.id == self.page_id)
+            .map(|p| p.title.clone());
+        let pages_menu: MenuBuilder = {
+            let (note_id, current) = (id.clone(), self.page_id.clone());
+            let pages = pages.clone();
+            Rc::new(move |_, _| {
+                let mut menu = NativeMenu::new();
+                for page in &pages {
+                    let indent = "    ".repeat(page.depth.max(0) as usize);
+                    menu = menu.menu_with_check(
+                        format!("{indent}{}", page.title),
+                        page.id == current,
+                        Box::new(PaneCommand {
+                            note_id: note_id.clone(),
+                            command: Command::ShowPage(page.id.clone()),
+                        }),
+                    );
+                }
+                menu
+            })
+        };
+        let entity = cx.entity().downgrade();
+        let act = |command: Command| -> ClickHandler {
+            let entity = entity.clone();
+            Rc::new(move |_, window, cx| {
+                let command = command.clone();
+                entity.update(cx, |p, cx| p.run(command, window, cx)).ok();
+            })
+        };
+        let can_share = self.detail.as_ref().is_some_and(|d| d.summary.can_share);
+        let share: ClickHandler = {
+            let (stores, id) = (self.stores.clone(), id.clone());
+            Rc::new(move |_, window, cx| {
+                super::run(&stores, &id, super::NoteCommand::Share, window, cx)
+            })
+        };
+        let r = t.roles;
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .when(!pages.is_empty(), |d| {
+                    d.child(
+                        Button::new("note-pages", page_title.unwrap_or_else(|| l.note_pages()))
+                            .ghost()
+                            .icon(IconName::Layers)
+                            .on_click({
+                                let pages_menu = pages_menu.clone();
+                                Rc::new(move |e: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                    let position = e.position();
+                                    pages_menu(window, cx).show(position, window, cx)
+                                })
+                            }),
+                    )
+                })
+                .when(editable, |d| {
+                    d.child(
+                        IconButton::new(
+                            "note-attach",
+                            IconName::Paperclip,
+                            l.desktop_attach_file(),
+                        )
+                        .size(30., 16.)
+                        .on_click(act(Command::AttachFile)),
+                    )
+                    .child(
+                        IconButton::new(
+                            "note-dictate",
+                            if dictating {
+                                IconName::CircleStop
+                            } else {
+                                IconName::Mic
+                            },
+                            if dictating {
+                                l.desktop_stop_dictation()
+                            } else {
+                                l.start_dictation()
+                            },
+                        )
+                        .size(30., 16.)
+                        .active(dictating)
+                        .shortcut(conduit_components::views::focus::hints(cx).dictate.clone())
+                        .on_click(act(Command::Dictate)),
+                    )
+                    .child(
+                        IconButton::new("note-record", IconName::AudioLines, l.record_audio())
+                            .size(30., 16.)
+                            .disabled(self.recorder.is_some())
+                            .on_click(act(Command::RecordAudio)),
+                    )
+                    .child(menu_button(
+                        "note-ai",
+                        IconName::Sparkles,
+                        l.desktop_note_ai_actions(),
+                        ai_menu,
+                    ))
+                })
+                .when(can_share, |d| {
+                    d.child(
+                        IconButton::new(
+                            "note-share",
+                            IconName::Users,
+                            l.desktop_share_access_ellipsis(),
+                        )
+                        .size(30., 16.)
+                        .on_click(share),
+                    )
+                })
+                .child(menu_button(
+                    "note-more",
+                    IconName::Ellipsis,
+                    l.more(),
+                    more_menu,
+                ))
+                .child(
+                    div()
+                        .w(px(2.))
+                        .h(px(16.))
+                        .bg(r.divider)
+                        .mx(px(2.))
+                        .opacity(0.),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn format_bar(&mut self, t: &ConduitTheme, cx: &mut Context<Self>) -> AnyElement {
+        let l = self.l(cx);
+        let r = t.roles;
+        let marks = self.editor.read(cx).active_marks();
+        let kind = self.editor.read(cx).active_kind();
+        let editor = self.editor.downgrade();
+        let mark = |m: Mark| -> ClickHandler {
+            let editor = editor.clone();
+            Rc::new(move |_, window, cx| {
+                editor
+                    .update(cx, |e, cx| {
+                        e.toggle_mark(m, cx);
+                        let f = e.focus.clone();
+                        window.focus(&f, cx);
+                    })
+                    .ok();
+            })
+        };
+        let style = |k: BlockKind| -> ClickHandler {
+            let editor = editor.clone();
+            Rc::new(move |_, window, cx| {
+                editor
+                    .update(cx, |e, cx| {
+                        e.toggle_kind(k, cx);
+                        let f = e.focus.clone();
+                        window.focus(&f, cx);
+                    })
+                    .ok();
+            })
+        };
+        let link: ClickHandler = {
+            let editor = editor.clone();
+            Rc::new(move |_, _, cx| {
+                editor.update(cx, |e, cx| e.request_link(cx)).ok();
+            })
+        };
+        let button = |key: &'static str,
+                      glyph: IconName,
+                      label: String,
+                      chord: &str,
+                      on: bool,
+                      h: ClickHandler| {
+            IconButton::new(key, glyph, label)
+                .size(28., 15.)
+                .active(on)
+                .shortcut(Some(SharedString::from(chord.to_string())))
+                .on_click(h)
+        };
+        let style_label = match kind {
+            BlockKind::Heading(1) => l.desktop_note_style_title(),
+            BlockKind::Heading(2) => l.desktop_note_style_heading(),
+            BlockKind::Heading(_) => l.desktop_note_style_subheading(),
+            _ => l.desktop_note_style_body(),
+        };
+        let note_id = self.id.clone();
+        let style_menu = move |e: &ClickEvent, window: &mut Window, cx: &mut App| {
+            let l = cx.l10n().clone();
+            let item = |label: String, k: BlockKind| (label, k);
+            let mut menu = NativeMenu::new();
+            for (label, k) in [
+                item(l.desktop_note_style_title(), BlockKind::Heading(1)),
+                item(l.desktop_note_style_heading(), BlockKind::Heading(2)),
+                item(l.desktop_note_style_subheading(), BlockKind::Heading(3)),
+                item(l.desktop_note_style_body(), BlockKind::Paragraph),
+            ] {
+                menu = menu.menu_with_check(
+                    label,
+                    kind.same_style(k)
+                        || (k == BlockKind::Paragraph && !matches!(kind, BlockKind::Heading(_))),
+                    Box::new(PaneCommand {
+                        note_id: note_id.clone(),
+                        command: Command::Style(k),
+                    }),
+                );
+            }
+            menu.show(e.position(), window, cx);
+        };
+        div()
+            .id("note-format-bar")
+            .role(Role::Toolbar)
+            .aria_label(l.desktop_note_format())
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(2.))
+            .px(px(16.))
+            .py(px(4.))
+            .border_b_1()
+            .border_color(r.divider)
+            .child(
+                Button::new("note-style", style_label)
+                    .ghost()
+                    .on_click(Rc::new(style_menu)),
+            )
+            .child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(r.divider))
+            .child(button(
+                "note-bold",
+                IconName::Bold,
+                l.desktop_note_bold(),
+                "⌘B",
+                marks.bold,
+                mark(Mark::Bold),
+            ))
+            .child(button(
+                "note-italic",
+                IconName::Italic,
+                l.desktop_note_italic(),
+                "⌘I",
+                marks.italic,
+                mark(Mark::Italic),
+            ))
+            .child(button(
+                "note-strike",
+                IconName::Strikethrough,
+                l.desktop_note_strikethrough(),
+                "⇧⌘X",
+                marks.strike,
+                mark(Mark::Strike),
+            ))
+            .child(button(
+                "note-code",
+                IconName::Code,
+                l.desktop_note_code(),
+                "⌘E",
+                marks.code,
+                mark(Mark::Code),
+            ))
+            .child(button(
+                "note-link",
+                IconName::Link,
+                l.desktop_note_link(),
+                "⌘K",
+                marks.link.is_some(),
+                link,
+            ))
+            .child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(r.divider))
+            .child(button(
+                "note-bullets",
+                IconName::List,
+                l.desktop_note_bulleted_list(),
+                "⇧⌘7",
+                kind == BlockKind::Bullet,
+                style(BlockKind::Bullet),
+            ))
+            .child(button(
+                "note-numbers",
+                IconName::ListOrdered,
+                l.desktop_note_numbered_list(),
+                "⇧⌘9",
+                kind == BlockKind::Ordered,
+                style(BlockKind::Ordered),
+            ))
+            .child(button(
+                "note-checklist",
+                IconName::ListTodo,
+                l.desktop_note_checklist(),
+                "⇧⌘8",
+                matches!(kind, BlockKind::Check(_)),
+                style(BlockKind::Check(false)),
+            ))
+            .child(button(
+                "note-quote",
+                IconName::TextQuote,
+                l.desktop_note_quote(),
+                "⌘'",
+                kind == BlockKind::Quote,
+                style(BlockKind::Quote),
+            ))
+            .child(button(
+                "note-code-block",
+                IconName::SquareCode,
+                l.desktop_note_code_block(),
+                "⌥⌘C",
+                kind == BlockKind::Code,
+                style(BlockKind::Code),
+            ))
+            .into_any_element()
+    }
+
+    fn banner(
+        &mut self,
+        t: &ConduitTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let l = self.l(cx);
+        let r = t.roles;
+        let entity = cx.entity().downgrade();
+        let (text, actions): (String, Vec<AnyElement>) = if let Some(refusal) = self.refused {
+            let text = match refusal {
+                Refusal::ReadOnly => l.note_access_revoked_notice(),
+                Refusal::PageMissing => l.note_page_missing_notice(),
+            };
+            let (keep, discard) = (entity.clone(), entity.clone());
+            (
+                text,
+                vec![
+                    Button::new("note-save-own", l.note_save_as_own_note())
+                        .primary()
+                        .on_click(Rc::new(move |_, _, cx| {
+                            keep.update(cx, |p, cx| p.save_as_own_note(cx)).ok();
+                        }))
+                        .into_any_element(),
+                    Button::new("note-discard", l.note_discard_changes())
+                        .on_click(Rc::new(move |_, window, cx| {
+                            discard
+                                .update(cx, |p, cx| p.discard_changes(window, cx))
+                                .ok();
+                        }))
+                        .into_any_element(),
+                ],
+            )
+        } else if self.recovered {
+            let dismiss = entity.clone();
+            (
+                l.desktop_note_recovered(),
+                vec![
+                    Button::new("note-recovered-ok", l.desktop_done())
+                        .on_click(Rc::new(move |_, _, cx| {
+                            dismiss
+                                .update(cx, |p, cx| {
+                                    p.recovered = false;
+                                    cx.notify();
+                                })
+                                .ok();
+                        }))
+                        .into_any_element(),
+                ],
+            )
+        } else if let Some(detail) = &self.detail
+            && !detail.summary.can_edit
+        {
+            let text = match &detail.summary.owner {
+                _ if detail.summary.access_unverified => l.note_access_unverified_notice(),
+                Some(owner) => l.library_note_shared_by(owner),
+                None => l.note_read_only_notice(),
+            };
+            (text, vec![])
+        } else {
+            return None;
+        };
+        let _ = window;
+        Some(
+            div()
+                .id("note-banner")
+                .role(Role::Status)
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(16.))
+                .py(px(8.))
+                .bg(raised_fill(t))
+                .border_b_1()
+                .border_color(r.divider)
+                .child(icon(IconName::Info, 15., r.text_subtle))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(t.metrics.control))
+                        .text_color(r.text)
+                        .child(text),
+                )
+                .children(actions)
+                .into_any_element(),
+        )
+    }
+
+    fn find_bar(
+        &mut self,
+        t: &ConduitTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let input = self.find.clone()?;
+        let l = self.l(cx);
+        let r = t.roles;
+        let (count, current) = {
+            let e = self.editor.read(cx);
+            (e.find.matches.len(), e.find.current)
+        };
+        let query = input.read(cx).value().to_string();
+        let status = if query.is_empty() {
+            String::new()
+        } else if count == 0 {
+            l.desktop_find_no_matches()
+        } else {
+            l.desktop_position_of(&(current + 1).to_string(), &count.to_string())
+        };
+        let focused = input.read(cx).focus_handle(cx).is_focused(window);
+        let editor = self.editor.downgrade();
+        let step = |forward: bool| -> ClickHandler {
+            let editor = editor.clone();
+            Rc::new(move |_, _, cx| {
+                editor.update(cx, |e, cx| e.find_step(forward, cx)).ok();
+            })
+        };
+        let entity = cx.entity().downgrade();
+        Some(
+            div()
+                .id("note-find-bar")
+                .role(Role::Search)
+                // Esc is Stop Generating's (bound after Kit's, and its
+                // app listener ends the dispatch): taken first here, as
+                // the chat's Find bar does, so Esc in the field closes it.
+                .capture_action(cx.listener(|this, _: &StopGenerating, window, cx| {
+                    this.close_find(window, cx);
+                    cx.stop_propagation();
+                }))
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(16.))
+                .py(px(6.))
+                .border_b_1()
+                .border_color(r.divider)
+                .child(
+                    div().w(px(260.)).child(
+                        field_frame(focused, t.metrics.control_height - 4., cx)
+                            .child(icon(IconName::Search, 13., r.text_subtle))
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    bare_input(&input, l.desktop_find_in_note(), t.metrics.control)
+                                        .accessibility_id("note-find-field"),
+                                ),
+                            ),
+                    ),
+                )
+                .child(
+                    div()
+                        .min_w(px(80.))
+                        .text_size(px(t.metrics.small + 0.5))
+                        .text_color(r.text_subtle)
+                        .child(status),
+                )
+                .child(
+                    IconButton::new(
+                        "note-find-previous",
+                        IconName::ChevronUp,
+                        l.desktop_find_previous(),
+                    )
+                    .size(26., 14.)
+                    .shortcut(Some("⇧⌘G".into()))
+                    .disabled(count == 0)
+                    .on_click(step(false)),
+                )
+                .child(
+                    IconButton::new(
+                        "note-find-next",
+                        IconName::ChevronDown,
+                        l.desktop_find_next(),
+                    )
+                    .size(26., 14.)
+                    .shortcut(Some("⌘G".into()))
+                    .disabled(count == 0)
+                    .on_click(step(true)),
+                )
+                .child(div().flex_1())
+                .child(
+                    Button::new("note-find-done", l.desktop_done()).on_click(Rc::new(
+                        move |_, window, cx| {
+                            entity.update(cx, |p, cx| p.close_find(window, cx)).ok();
+                        },
+                    )),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn link_bar(
+        &mut self,
+        t: &ConduitTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let prompt = self.link.as_ref()?;
+        let l = self.l(cx);
+        let r = t.roles;
+        let input = prompt.input.clone();
+        let has_link = prompt.current.is_some();
+        let focused = input.read(cx).focus_handle(cx).is_focused(window);
+        let entity = cx.entity().downgrade();
+        let (apply, remove, cancel) = (entity.clone(), entity.clone(), entity.clone());
+        let value = input.clone();
+        Some(
+            div()
+                .id("note-link-bar")
+                .role(Role::Group)
+                // Esc cancels, as in the Find bar (Stop Generating's).
+                .capture_action(cx.listener(|this, _: &StopGenerating, window, cx| {
+                    this.cancel_link(window, cx);
+                    cx.stop_propagation();
+                }))
+                .aria_label(l.desktop_note_link())
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(16.))
+                .py(px(6.))
+                .border_b_1()
+                .border_color(r.divider)
+                .child(icon(IconName::Link, 14., r.text_subtle))
+                .child(
+                    div().flex_1().min_w_0().max_w(px(420.)).child(
+                        field_frame(focused, t.metrics.control_height - 4., cx).child(
+                            div().flex_1().min_w_0().child(
+                                bare_input(&input, l.desktop_link_placeholder(), t.metrics.control)
+                                    .accessibility_id("note-link-field"),
+                            ),
+                        ),
+                    ),
+                )
+                .when(has_link, |d| {
+                    d.child(
+                        Button::new("note-link-remove", l.desktop_remove_link()).on_click(Rc::new(
+                            move |_, window, cx| {
+                                remove
+                                    .update(cx, |p, cx| p.apply_link(None, window, cx))
+                                    .ok();
+                            },
+                        )),
+                    )
+                })
+                .child(
+                    Button::new("note-link-cancel", l.cancel()).on_click(Rc::new(
+                        move |_, window, cx| {
+                            cancel.update(cx, |p, cx| p.cancel_link(window, cx)).ok();
+                        },
+                    )),
+                )
+                .child(
+                    Button::new("note-link-apply", l.desktop_add_link())
+                        .primary()
+                        .on_click(Rc::new(move |_, window, cx| {
+                            let url = value.read(cx).value().to_string();
+                            apply
+                                .update(cx, |p, cx| p.apply_link(Some(url), window, cx))
+                                .ok();
+                        })),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn recording_strip(&mut self, t: &ConduitTheme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let recorder = self.recorder.clone()?;
+        let l = self.l(cx);
+        let r = t.roles;
+        let (phase, level, elapsed) = {
+            let rec = recorder.read(cx);
+            (rec.phase, rec.level, rec.elapsed())
+        };
+        let clock = crate::stores::dictation::clock(elapsed);
+        let label = match phase {
+            RecordPhase::Starting => l.preparing_recording(),
+            RecordPhase::Recording { .. } => l.recording_audio(),
+            RecordPhase::Saving => l.processing_recording(),
+        };
+        let (stop, cancel) = (recorder.downgrade(), recorder.downgrade());
+        Some(
+            div()
+                .id("note-recording")
+                .role(Role::Status)
+                .aria_label(SharedString::from(format!("{label} {clock}")))
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(16.))
+                .py(px(8.))
+                .bg(raised_fill(t))
+                .border_b_1()
+                .border_color(r.divider)
+                .child(div().size(px(9.)).rounded_full().bg(r.danger))
+                .child(div().text_color(r.text).child(label))
+                .child(
+                    div()
+                        .text_color(r.text_subtle)
+                        .font_family("Menlo")
+                        .child(clock),
+                )
+                .child(
+                    div()
+                        .w(px(80.))
+                        .h(px(4.))
+                        .rounded_full()
+                        .bg(r.border)
+                        .child(
+                            div()
+                                .h_full()
+                                .rounded_full()
+                                .bg(r.text_subtle)
+                                .w(relative(level.clamp(0., 1.))),
+                        ),
+                )
+                .child(div().flex_1())
+                .child(
+                    Button::new("note-recording-cancel", l.cancel()).on_click(Rc::new(
+                        move |_, _, cx| {
+                            cancel.update(cx, |r, _| r.cancel()).ok();
+                        },
+                    )),
+                )
+                .child(
+                    Button::new("note-recording-stop", l.desktop_stop_and_save())
+                        .primary()
+                        .disabled(phase == RecordPhase::Saving)
+                        .on_click(Rc::new(move |_, _, cx| {
+                            stop.update(cx, |r, _| r.stop()).ok();
+                        })),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn waiting_recordings(
+        &mut self,
+        t: &ConduitTheme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.recordings.is_empty() {
+            return None;
+        }
+        let l = self.l(cx);
+        let r = t.roles;
+        let entity = cx.entity().downgrade();
+        let rows: Vec<AnyElement> = self
+            .recordings
+            .iter()
+            .map(|rec| {
+                let state = match rec.state {
+                    NoteRecordingState::Waiting | NoteRecordingState::Unknown => {
+                        l.desktop_recording_waiting()
+                    }
+                    NoteRecordingState::Uploading => l.desktop_recording_uploading(),
+                    NoteRecordingState::Failed => l.desktop_recording_upload_failed(),
+                };
+                let (retry, remove) = (entity.clone(), entity.clone());
+                let (retry_id, remove_id) = (rec.id.clone(), rec.id.clone());
+                div()
+                    .id(SharedString::from(format!("note-waiting-{}", rec.id)))
+                    .role(Role::Group)
+                    .aria_label(SharedString::from(format!("{}, {state}", rec.name)))
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(10.))
+                    .py(px(8.))
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(r.border)
+                    .child(icon(IconName::AudioLines, 18., r.text_subtle))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(div().truncate().text_color(r.text).child(rec.name.clone()))
+                            .child(
+                                div()
+                                    .text_size(px(t.metrics.small))
+                                    .text_color(if rec.state == NoteRecordingState::Failed {
+                                        r.danger
+                                    } else {
+                                        r.text_subtle
+                                    })
+                                    .child(state),
+                            ),
+                    )
+                    .when(rec.state == NoteRecordingState::Failed, |d| {
+                        d.child(
+                            Button::new(
+                                SharedString::from(format!("note-waiting-retry-{}", rec.id)),
+                                l.desktop_try_again(),
+                            )
+                            .on_click(Rc::new(move |_, _, cx| {
+                                let id = retry_id.clone();
+                                retry.update(cx, |p, cx| p.retry_recording(id, cx)).ok();
+                            })),
+                        )
+                    })
+                    .when(rec.state != NoteRecordingState::Uploading, |d| {
+                        d.child(
+                            IconButton::new(
+                                SharedString::from(format!("note-waiting-remove-{}", rec.id)),
+                                IconName::X,
+                                l.desktop_discard_recording_menu(),
+                            )
+                            .size(26., 14.)
+                            .on_click(Rc::new(move |_, window, cx| {
+                                let id = remove_id.clone();
+                                remove
+                                    .update(cx, |p, cx| p.remove_recording(id, window, cx))
+                                    .ok();
+                            })),
+                        )
+                    })
+                    .into_any_element()
+            })
+            .collect();
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .pt(px(16.))
+                .child(
+                    div()
+                        .text_size(px(t.metrics.small + 0.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(r.text_subtle)
+                        .child(l.desktop_recordings_waiting()),
+                )
+                .children(rows)
+                .into_any_element(),
+        )
+    }
+
+    /// Files an older server keeps in the note's file list (not linked in
+    /// the text).
+    fn listed_files(&mut self, t: &ConduitTheme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let detail = self.detail.as_ref()?;
+        let shown: Vec<String> = self
+            .editor
+            .read(cx)
+            .cards()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        let files: Vec<NoteFile> = detail
+            .files
+            .iter()
+            .filter(|f| !shown.contains(&f.id))
+            .cloned()
+            .collect();
+        if files.is_empty() {
+            return None;
+        }
+        let l = self.l(cx);
+        let r = t.roles;
+        let entity = cx.entity().downgrade();
+        let editable = self.editable();
+        let rows: Vec<AnyElement> = files
+            .into_iter()
+            .map(|f| {
+                let link = FileLink {
+                    id: f.id.clone(),
+                    name: f.name.clone(),
+                };
+                let act = |action: FileAction| -> ClickHandler {
+                    let (entity, link) = (entity.clone(), link.clone());
+                    Rc::new(move |_, window, cx| {
+                        let link = link.clone();
+                        entity
+                            .update(cx, |p, cx| p.file_action(link, action, window, cx))
+                            .ok();
+                    })
+                };
+                let audio = is_audio(&f.name);
+                div()
+                    .id(SharedString::from(format!("note-listed-file-{}", f.id)))
+                    .role(Role::Group)
+                    .aria_label(SharedString::from(f.name.clone()))
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(10.))
+                    .py(px(8.))
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(r.border)
+                    .child(icon(
+                        if audio {
+                            IconName::AudioLines
+                        } else {
+                            IconName::FileText
+                        },
+                        18.,
+                        r.text_subtle,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(r.text)
+                            .child(f.name.clone()),
+                    )
+                    .child(
+                        IconButton::new(
+                            SharedString::from(format!("note-listed-look-{}", f.id)),
+                            IconName::Eye,
+                            l.desktop_quick_look(),
+                        )
+                        .size(26., 14.)
+                        .on_click(act(FileAction::QuickLook)),
+                    )
+                    .child(
+                        IconButton::new(
+                            SharedString::from(format!("note-listed-download-{}", f.id)),
+                            IconName::Download,
+                            l.download(),
+                        )
+                        .size(26., 14.)
+                        .on_click(act(FileAction::Download)),
+                    )
+                    .when(editable, |d| {
+                        d.child(
+                            IconButton::new(
+                                SharedString::from(format!("note-listed-remove-{}", f.id)),
+                                IconName::X,
+                                l.desktop_remove_ellipsis(),
+                            )
+                            .size(26., 14.)
+                            .on_click(act(FileAction::Remove)),
+                        )
+                    })
+                    .into_any_element()
+            })
+            .collect();
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .pt(px(16.))
+                .child(
+                    div()
+                        .text_size(px(t.metrics.small + 0.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(r.text_subtle)
+                        .child(l.attachments()),
+                )
+                .children(rows)
+                .into_any_element(),
+        )
+    }
+
+    fn footer(&mut self, t: &ConduitTheme, cx: &mut Context<Self>) -> AnyElement {
+        let l = self.l(cx);
+        let r = t.roles;
+        let (words, chars) = self.editor.read(cx).doc.counts();
+        let status = match (self.save, self.refused) {
+            (_, Some(_)) => l.desktop_note_not_saved(),
+            (SaveState::Saved, _) => l.desktop_note_saved(),
+            (SaveState::Edited, _) => l.desktop_note_edited(),
+            (SaveState::Saving, _) => l.desktop_saving(),
+            (SaveState::Failed, _) => l.desktop_note_save_failed(),
+        };
+        let read_only = self.detail.as_ref().is_some_and(|d| !d.summary.can_edit);
+        let ai = match self.ai {
+            Some(AiAction::Title) => Some(l.desktop_note_generating_title()),
+            Some(AiAction::Enhance) => Some(l.desktop_note_enhancing()),
+            None => None,
+        };
+        let listening = matches!(
+            self.dictation.read(cx).phase,
+            DictationPhase::Listening { .. }
+        );
+        let retry: ClickHandler = {
+            let entity = cx.entity().downgrade();
+            Rc::new(move |_, _, cx| {
+                entity.update(cx, |p, cx| p.save_now(cx)).ok();
+            })
+        };
+        div()
+            .id("note-footer")
+            .role(Role::Status)
+            .w_full()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .px(px(20.))
+            .py(px(6.))
+            .border_t_1()
+            .border_color(r.divider)
+            .text_size(px(t.metrics.small + 0.5))
+            .text_color(r.text_subtle)
+            .child(l.word_count(words as i64))
+            .child(l.char_count(chars as i64))
+            .when(listening, |d| {
+                d.child(div().text_color(r.text).child(l.desktop_listening()))
+            })
+            .when_some(ai, |d, text| d.child(div().text_color(r.text).child(text)))
+            .child(div().flex_1())
+            .when(!read_only, |d| {
+                d.child(
+                    div()
+                        .id("note-save-status")
+                        .aria_label(SharedString::from(status.clone()))
+                        .child(status),
+                )
+                .when(
+                    self.save == SaveState::Failed && self.refused.is_none(),
+                    |d| {
+                        d.child(
+                            Button::new("note-save-retry", l.desktop_try_again())
+                                .ghost()
+                                .on_click(retry),
+                        )
+                    },
+                )
+            })
+            .into_any_element()
+    }
+}
+
+/// The error a refusal of `reason` sends.
+fn is_refusal(e: &RpcError, reason: &str) -> bool {
+    is_reason(e, reason)
+}
+
+fn is_reason(e: &RpcError, reason: &str) -> bool {
+    e.args.get("reason").is_some_and(|r| r == reason)
+}
+
+/// An address as a link holds it: one without a scheme is a web address.
+pub fn normalize_url(url: String) -> String {
+    let url = url.trim().to_string();
+    if url.is_empty() || url.contains("://") || url.starts_with("mailto:") || url.starts_with('/') {
+        url
+    } else if url.contains('@') && !url.contains('/') {
+        format!("mailto:{url}")
+    } else {
+        format!("https://{url}")
+    }
+}
+
+fn dirs_downloads() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .map(|h| std::path::PathBuf::from(h).join("Downloads"))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Uploads `path` through the daemon's `/upload`.
+async fn upload(
+    http: Option<conduit_daemon::http::HttpClient>,
+    path: &std::path::Path,
+    name: &str,
+) -> Result<NoteFile, String> {
+    let http = http.ok_or("the daemon is not running")?;
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let size = bytes.len() as i64;
+    let content_type = mime_for(name);
+    let (tx, rx) = futures::channel::oneshot::channel();
+    let request_name = name.to_string();
+    conduit_daemon::runtime::shared().spawn(async move {
+        let result = http
+            .upload(&request_name, content_type, bytes.into(), None, 1)
+            .await
+            .map_err(|e| e.to_string());
+        let _ = tx.send(result);
+    });
+    let value = rx.await.map_err(|e| e.to_string())??;
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or("the upload named no file")?
+        .to_string();
+    Ok(NoteFile {
+        id,
+        name: name.to_string(),
+        size: Some(size),
+        content_type: content_type.map(str::to_string),
+    })
+}
+
+fn mime_for(name: &str) -> Option<&'static str> {
+    let lower = name.to_lowercase();
+    let ext = lower.rsplit('.').next()?;
+    Some(match ext {
+        "pdf" => "application/pdf",
+        "txt" | "md" => "text/plain",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "wav" => "audio/wav",
+        "m4a" => "audio/mp4",
+        "mp3" => "audio/mpeg",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        _ => return None,
+    })
+}
+
+impl Render for NotePane {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = cx.conduit().clone();
+        let l = self.l(cx);
+        let r = t.roles;
+        let body = match &self.load {
+            Load::Loading => div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(r.text_subtle)
+                .child(l.loading_note())
+                .into_any_element(),
+            Load::Missing => div()
+                .id("note-missing")
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(8.))
+                .child(icon(IconName::FileText, 32., r.text_faint))
+                .child(
+                    div()
+                        .text_size(px(t.metrics.body + 4.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(r.text)
+                        .child(l.note_not_found()),
+                )
+                .child(
+                    div()
+                        .text_color(r.text_subtle)
+                        .child(l.desktop_note_missing_message()),
+                )
+                .into_any_element(),
+            Load::Failed(_) => {
+                let entity = cx.entity().downgrade();
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(10.))
+                    .child(div().text_color(r.text).child(l.desktop_note_load_failed()))
+                    .child(
+                        Button::new("note-load-retry", l.desktop_try_again()).on_click(Rc::new(
+                            move |_, window, cx| {
+                                entity
+                                    .update(cx, |p, cx| {
+                                        p.load = Load::Loading;
+                                        let page = p.page_id.clone();
+                                        p.open_page(Some(page), window, cx);
+                                    })
+                                    .ok();
+                            },
+                        )),
+                    )
+                    .into_any_element()
+            }
+            Load::Ready => {
+                let editable = self.editable();
+                let title_size = t.metrics.body + 12.;
+                let title_input = Input::new(&self.title)
+                    .appearance(false)
+                    .bordered(false)
+                    .px_0()
+                    // Kit's field sets a 20 pt line whatever the type's
+                    // size, which cuts the large title's descenders: give
+                    // it a line (and a box) of its own size.
+                    .h(px((title_size * 1.5).round()))
+                    .line_height(px((title_size * 1.3).round()))
+                    .text_size(px(title_size))
+                    .font_weight(FontWeight::BOLD)
+                    .aria_label(l.desktop_note_title_placeholder())
+                    .accessibility_id("note-title-field")
+                    .disabled(!editable);
+                let updated = self
+                    .detail
+                    .as_ref()
+                    .map(|d| d.summary.updated_at_ms)
+                    .unwrap_or_default();
+                let (date, _) = crate::views::dates::stamp(updated, &chrono::Local::now(), &l);
+                let column = div()
+                    .w_full()
+                    .max_w(px(COLUMN))
+                    .flex()
+                    .flex_col()
+                    .px(px(32.))
+                    .pt(px(18.))
+                    .child(
+                        div()
+                            .text_size(px(t.metrics.small))
+                            .text_color(r.text_faint)
+                            .pb(px(4.))
+                            .child(date),
+                    )
+                    .child(div().pb(px(10.)).child(title_input))
+                    .child(self.editor.clone())
+                    .children(self.waiting_recordings(&t, cx))
+                    .children(self.listed_files(&t, cx))
+                    .child(div().h(px(40.)));
+                let scroll = self.editor.read(cx).scroll.clone();
+                let editor_focus = self.editor.read(cx).focus.clone();
+                let editor = self.editor.downgrade();
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .when(editable, |d| d.child(self.format_bar(&t, cx)))
+                    .children(self.find_bar(&t, window, cx))
+                    .children(self.link_bar(&t, window, cx))
+                    .children(self.banner(&t, window, cx))
+                    .children(self.recording_strip(&t, cx))
+                    .child(
+                        div()
+                            .id("note-scroll")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .track_scroll(&scroll)
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            // A click below the text puts the caret at its end.
+                            .on_click(move |e: &ClickEvent, window, cx| {
+                                if !editor_focus.is_focused(window) {
+                                    window.focus(&editor_focus, cx);
+                                }
+                                let at = e.position();
+                                editor
+                                    .update(cx, |ed, cx| {
+                                        let below = ed.layout.borrow().bounds.bottom();
+                                        if at.y > below && !ed.is_read_only() {
+                                            let end = ed.doc.end();
+                                            ed.select_to(end, false, cx);
+                                        }
+                                    })
+                                    .ok();
+                            })
+                            .child(column),
+                    )
+                    .child(self.footer(&t, cx))
+                    .into_any_element()
+            }
+        };
+        let entity = cx.entity().downgrade();
+        div()
+            .id("note-pane")
+            .key_context(NOTE_PANE_CONTEXT)
+            .track_focus(&self.focus)
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(r.content)
+            .on_action(cx.listener(|this, _: &FindInChat, window, cx| this.open_find(window, cx)))
+            .on_action(cx.listener(|this, _: &FindNext, _, cx| {
+                this.editor.update(cx, |e, cx| e.find_step(true, cx))
+            }))
+            .on_action(cx.listener(|this, _: &FindPrevious, _, cx| {
+                this.editor.update(cx, |e, cx| e.find_step(false, cx))
+            }))
+            .on_action(
+                cx.listener(|this, _: &crate::actions::Dictate, window, cx| {
+                    this.toggle_dictation(window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, a: &PaneCommand, window, cx| {
+                if a.note_id == this.id {
+                    this.run(a.command.clone(), window, cx)
+                }
+            }))
+            .on_action(
+                cx.listener(|this, _: &gpui_kit::component::input::Escape, window, cx| {
+                    if this.link.is_some() {
+                        this.cancel_link(window, cx);
+                    } else if this.find.is_some() {
+                        this.close_find(window, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }),
+            )
+            .on_drop(move |paths: &ExternalPaths, _, cx| {
+                let paths = paths.paths().to_vec();
+                entity.update(cx, |p, cx| p.attach_paths(paths, cx)).ok();
+            })
+            .child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addresses_without_a_scheme_become_web_or_mail_links() {
+        assert_eq!(
+            normalize_url("example.com/a".into()),
+            "https://example.com/a"
+        );
+        assert_eq!(
+            normalize_url("https://a.example".into()),
+            "https://a.example"
+        );
+        assert_eq!(
+            normalize_url("ada@example.com".into()),
+            "mailto:ada@example.com"
+        );
+        assert_eq!(normalize_url("  ".into()), "");
+    }
+
+    #[test]
+    fn upload_types_follow_the_extension() {
+        assert_eq!(mime_for("Recording.WAV"), Some("audio/wav"));
+        assert_eq!(mime_for("notes.pdf"), Some("application/pdf"));
+        assert_eq!(mime_for("archive"), None);
+    }
+}

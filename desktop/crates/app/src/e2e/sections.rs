@@ -53,12 +53,13 @@ fn headings(cx: &mut App) -> Vec<(Area, bool)> {
         .collect()
 }
 
-/// The items listed in `area`, in order.
+/// The items listed in `area`, in order (All Notes, which opens the list
+/// pane, is no item of the list).
 fn items(area: Area, cx: &mut App) -> Vec<AreaItem> {
     rows(cx)
         .iter()
         .filter_map(SidebarItem::area_item)
-        .filter(|i| i.area() == area)
+        .filter(|i| i.area() == area && **i != AreaItem::AllNotes)
         .cloned()
         .collect()
 }
@@ -320,10 +321,11 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     press(main, "right", cx);
     settle(cx, 300).await;
     let on_note = cx.update(cursor);
+    // Its first row is All Notes, which opens the notes list.
     pass &= ok(
-        &format!("→ again steps into it, and the note opens ({on_note:?})"),
-        matches!(on_note, Some(KeyRow::Item(AreaItem::Note(_))))
-            && matches!(cx.update(selection), Selection::Area(AreaItem::Note(_))),
+        &format!("→ again steps into it, and its first row opens ({on_note:?})"),
+        on_note == Some(KeyRow::Item(AreaItem::AllNotes))
+            && cx.update(selection) == Selection::Area(AreaItem::AllNotes),
     );
     press(main, "left", cx);
     settle(cx, 200).await;
@@ -426,6 +428,8 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             id: None,
             title: "Kite knots".into(),
             ops: None,
+            page_id: None,
+            base_ops: None,
         },
         cx,
     )

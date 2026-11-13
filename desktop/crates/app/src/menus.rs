@@ -313,6 +313,25 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         bindings.push(b);
     }
     cx.bind_keys(bindings);
+    // Notes: the editor's and the list's own keys, and ⌘N as New
+    // Note while the Notes section is shown (Notes' File › New Note).
+    // Bound after the shortcut table: GPUI ranks a binding without a
+    // context as deep as the focus, and the later of two equals wins, so
+    // bound before, New Chat would take ⌘N and the palette ⌘K (Link).
+    cx.bind_keys(crate::views::notes::editor::bindings());
+    cx.bind_keys(crate::views::notes::list::bindings());
+    cx.bind_keys([
+        KeyBinding::new(
+            "cmd-n",
+            crate::views::notes::NewNote,
+            Some(crate::views::notes::list::NOTES_LIST_CONTEXT),
+        ),
+        KeyBinding::new(
+            "cmd-n",
+            crate::views::notes::NewNote,
+            Some(crate::views::notes::pane::NOTE_PANE_CONTEXT),
+        ),
+    ]);
     cx.set_global(shortcut_hints(keymap, quick_ask_stroke(cx).as_ref()));
 }
 
@@ -628,7 +647,8 @@ pub fn move_to_disabled(state: &MenuState) -> bool {
 /// The menu bar for `state`, in `l`'s words.
 pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
     let zoom = state.zoom;
-    vec![
+    let notes = state.areas.contains(&Area::Notes);
+    let mut menus = vec![
         Menu::new("Conduit").items([
             MenuItem::action(l10n.about_conduit(), About),
             MenuItem::action(l10n.desktop_check_for_updates(), CheckForUpdates),
@@ -719,7 +739,47 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
             MenuItem::action(l10n.desktop_menu_conduit_help(), OpenHelp),
             MenuItem::action(l10n.desktop_menu_keyboard_shortcuts(), ShowShortcuts),
         ]),
-    ]
+    ];
+    if notes {
+        // File › New Note, after New Temporary Chat (⌘N while the Notes
+        // section is shown, as Notes' own).
+        if let Some(file) = menus.get_mut(1) {
+            file.items.insert(
+                2,
+                MenuItem::action(l10n.desktop_new_note(), crate::views::notes::NewNote),
+            );
+        }
+        // Format, after Edit, as Notes' and TextEdit's: greyed unless a
+        // note is being edited (the editor answers its actions).
+        menus.insert(3, format_menu(l10n));
+    }
+    menus
+}
+
+/// The Format menu: a note's paragraph styles, text styles, lists and
+/// blocks, with the editor's keys.
+fn format_menu(l10n: &L10n) -> Menu {
+    use crate::views::notes::editor as e;
+    Menu::new(l10n.desktop_note_format()).items([
+        MenuItem::action(l10n.desktop_note_style_title(), e::Title),
+        MenuItem::action(l10n.desktop_note_style_heading(), e::Heading),
+        MenuItem::action(l10n.desktop_note_style_subheading(), e::Subheading),
+        MenuItem::action(l10n.desktop_note_style_body(), e::Body),
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_note_bold(), e::ToggleBold),
+        MenuItem::action(l10n.desktop_note_italic(), e::ToggleItalic),
+        MenuItem::action(l10n.desktop_note_strikethrough(), e::ToggleStrike),
+        MenuItem::action(l10n.desktop_note_code(), e::ToggleCode),
+        MenuItem::action(l10n.desktop_add_link_ellipsis(), e::AddLink),
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_note_bulleted_list(), e::BulletList),
+        MenuItem::action(l10n.desktop_note_numbered_list(), e::NumberedList),
+        MenuItem::action(l10n.desktop_note_checklist(), e::Checklist),
+        MenuItem::action(l10n.desktop_note_mark_checked(), e::ToggleChecked),
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_note_quote(), e::QuoteBlock),
+        MenuItem::action(l10n.desktop_note_code_block(), e::CodeBlock),
+    ])
 }
 
 /// The Go menu, as Finder's: Back and Forward, then each section the
@@ -1120,6 +1180,37 @@ mod tests {
         ] {
             assert!(chat.iter().any(|t| t == item), "{item} in {chat:?}");
         }
+    }
+
+    #[test]
+    fn notes_add_new_note_and_a_format_menu() {
+        let l = L10n::new("en");
+        let state = MenuState {
+            areas: vec![Area::Chats, Area::Notes],
+            ..MenuState::default()
+        };
+        let menus = build_menus(&l, &state);
+        assert_eq!(
+            titles(menu(&menus, "File"))[..4],
+            ["New Chat", "New Temporary Chat", "New Note", "New Folder"]
+        );
+        let names: Vec<String> = menus.iter().map(|m| m.name.to_string()).collect();
+        let edit = names.iter().position(|n| n == "Edit").unwrap();
+        assert_eq!(names[edit + 1], "Format");
+        let format = titles(menu(&menus, "Format"));
+        for item in [
+            "Title",
+            "Bold",
+            "Add Link…",
+            "Checklist",
+            "Mark as Checked",
+            "Code Block",
+        ] {
+            assert!(format.iter().any(|t| t == item), "{item} in {format:?}");
+        }
+        // Without notes, neither.
+        let none = build_menus(&l, &MenuState::default());
+        assert!(none.iter().all(|m| m.name.as_ref() != "Format"));
     }
 
     #[test]
@@ -1528,6 +1619,50 @@ mod tests {
                 index: usize::from(n),
             }),
         }
+    }
+
+    /// In Notes, ⌘N is New Note and the editor's ⌘K is Add Link, though
+    /// the shortcut table gives both chords to New Chat and the palette
+    /// everywhere else.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn notes_keys_win_over_the_shortcut_table(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(L10n::new("en"));
+            bind_keys(&Keymap::default(), cx);
+            let winner = |stroke: &'static str, stack: &[&str]| -> &'static str {
+                let input = [gpui_kit::Keystroke::parse(stroke).unwrap()];
+                let contexts: Vec<gpui_kit::KeyContext> = stack
+                    .iter()
+                    .map(|c| gpui_kit::KeyContext::parse(c).unwrap())
+                    .collect();
+                let (bindings, _) = cx
+                    .key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &contexts);
+                bindings.first().map_or("", |b| b.action().name())
+            };
+            use crate::views::notes::{editor, list, pane};
+            use gpui_kit::Action as _;
+            let new_note = crate::views::notes::NewNote.name();
+            assert_eq!(
+                winner("cmd-n", &["Window", list::NOTES_LIST_CONTEXT]),
+                new_note
+            );
+            assert_eq!(
+                winner("cmd-n", &["Window", pane::NOTE_PANE_CONTEXT]),
+                new_note
+            );
+            assert_eq!(
+                winner(
+                    "cmd-k",
+                    &["Window", pane::NOTE_PANE_CONTEXT, editor::EDITOR_CONTEXT]
+                ),
+                editor::AddLink.name()
+            );
+            // Elsewhere the table's own.
+            assert_eq!(winner("cmd-n", &["Window"]), NewChat.name());
+        });
     }
 
     /// Settings › Keyboard's fixed chords are the ones bound (it shows

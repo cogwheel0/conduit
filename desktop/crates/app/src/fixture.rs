@@ -169,6 +169,15 @@ fn area_answer(method: &str, n: usize) -> Option<Value> {
             "title": format!("Field note {i}"),
             "updatedAtMs": base - i as i64 * day / 3,
             "pinned": i < 3,
+            // The notes list's groups, spread as dates spread them.
+            "section": match i {
+                0..=5 => "today",
+                6..=9 => "yesterday",
+                10..=30 => "previous7Days",
+                31..=90 => "previous30Days",
+                _ => "older",
+            },
+            "preview": "- [ ] Water the **seedlings**\nCheck the [frost forecast](https://example.com).",
         })).collect::<Vec<_>>()}),
         "channels.list" => json!({"enabled": true, "channels": (0..n).map(|i| json!({
             "id": format!("channel-{i}"),
@@ -279,6 +288,8 @@ impl Daemon for CannedDaemon {
 struct FixtureView {
     sidebar: Entity<SidebarView>,
     palette: Entity<PaletteView>,
+    /// `notes-perf`: All Notes' list pane, scrolled instead of the sidebar.
+    notes: Option<Entity<crate::views::notes::list::NotesList>>,
     material: crate::shell::macos::SidebarMaterial,
     perf: Option<Perf>,
 }
@@ -306,22 +317,41 @@ impl Render for FixtureView {
             perf.last = Some(now);
             perf.work
                 .push(self.sidebar.read(cx).take_work().as_secs_f64() * 1000.);
-            let handle = self.sidebar.read(cx).scroll_handle().clone();
-            let max = f32::from(handle.max_offset().y);
-            perf.y += if perf.down { 90. } else { -90. };
-            if perf.y >= max {
-                perf.y = max;
-                perf.down = false;
-            } else if perf.y <= 0. {
-                perf.y = 0.;
-                perf.down = true;
+            if let Some(notes) = &self.notes {
+                // The notes list, by 90 pt a frame, down and back.
+                let list = notes.read(cx).list_state().clone();
+                let max = f32::from(list.max_offset_for_scrollbar().y);
+                perf.y += if perf.down { 90. } else { -90. };
+                if perf.y >= max {
+                    perf.y = max;
+                    perf.down = false;
+                } else if perf.y <= 0. {
+                    perf.y = 0.;
+                    perf.down = true;
+                }
+                list.set_offset_from_scrollbar(point(px(0.), px(-perf.y)));
+            } else {
+                let handle = self.sidebar.read(cx).scroll_handle().clone();
+                let max = f32::from(handle.max_offset().y);
+                perf.y += if perf.down { 90. } else { -90. };
+                if perf.y >= max {
+                    perf.y = max;
+                    perf.down = false;
+                } else if perf.y <= 0. {
+                    perf.y = 0.;
+                    perf.down = true;
+                }
+                handle.set_offset(point(px(0.), px(-perf.y)));
             }
-            handle.set_offset(point(px(0.), px(-perf.y)));
             if perf.started.elapsed() < Duration::from_secs(20) {
                 window.request_animation_frame();
             }
         }
-        let mut frame = MainWindowFrame::new(div().size_full()).sidebar(self.sidebar.clone());
+        let main = match &self.notes {
+            Some(notes) => div().size_full().child(notes.clone()),
+            None => div().size_full(),
+        };
+        let mut frame = MainWindowFrame::new(main).sidebar(self.sidebar.clone());
         if self.palette.read(cx).is_open(cx) {
             frame = frame.overlay(self.palette.clone());
         }
@@ -333,8 +363,15 @@ impl Render for FixtureView {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mode {
     A11y,
-    Perf { comfortable: bool },
-    Shell { shots: Option<PathBuf> },
+    Perf {
+        comfortable: bool,
+    },
+    /// All Notes' list pane over 5,000 notes, scrolled while frames are
+    /// timed.
+    NotesPerf,
+    Shell {
+        shots: Option<PathBuf>,
+    },
 }
 
 impl Mode {
@@ -342,6 +379,7 @@ impl Mode {
         let i = args.iter().position(|a| a == "--fixture")?;
         match args.get(i + 1).map(String::as_str) {
             Some("a11y") => Some(Self::A11y),
+            Some("notes-perf") => Some(Self::NotesPerf),
             Some("perf") => Some(Self::Perf {
                 comfortable: args.get(i + 2).is_some_and(|a| a == "comfortable"),
             }),
@@ -455,10 +493,13 @@ pub fn run(mode: Mode) {
         } else {
             40
         };
+        let notes_perf = mode == Mode::NotesPerf;
         // The perf pass's sidebar holds every area too, long ones listed in
         // full (Show All), below the 5,000 chats.
         let areas = if matches!(mode, Mode::Perf { .. }) {
             400
+        } else if notes_perf {
+            5_000
         } else {
             0
         };
@@ -502,9 +543,14 @@ pub fn run(mode: Mode) {
         let opened = cw::open_window_clear_root(options, cx, |window, cx| {
             let sidebar = cx.new(|cx| SidebarView::new(stores.clone(), window, cx));
             let palette = cx.new(|cx| PaletteView::new(stores.clone(), window, cx));
+            let notes = notes_perf.then(|| {
+                let stores = stores.clone();
+                cx.new(|cx| crate::views::notes::list::NotesList::new(stores, window, cx))
+            });
             cx.new(|_| FixtureView {
                 sidebar,
                 palette,
+                notes,
                 material: Default::default(),
                 perf: None,
             })
@@ -524,7 +570,7 @@ pub fn run(mode: Mode) {
                     a11y(handle, &view, &stores, &scratch, cx).await
                         && crate::e2e::unlabelled_seen() == 0
                 }
-                Mode::Perf { .. } => perf(&view, cx).await,
+                Mode::Perf { .. } | Mode::NotesPerf => perf(&view, cx).await,
                 Mode::Shell { .. } => false,
             };
             println!("FIXTURE {}", if passed { "passed" } else { "FAILED" });
@@ -535,7 +581,10 @@ pub fn run(mode: Mode) {
 }
 
 async fn perf(view: &Entity<FixtureView>, cx: &mut AsyncApp) -> bool {
-    let rows = cx.update(|cx| view.read(cx).sidebar.read(cx).rows().len());
+    let rows = cx.update(|cx| match &view.read(cx).notes {
+        Some(notes) => notes.read(cx).rows().len(),
+        None => view.read(cx).sidebar.read(cx).rows().len(),
+    });
     view.update(cx, |v, cx| {
         v.perf = Some(Perf {
             started: Instant::now(),

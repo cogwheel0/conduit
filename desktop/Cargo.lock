@@ -1188,6 +1188,7 @@ dependencies = [
  "tokio",
  "tray-icon",
  "unic-langid",
+ "unicode-segmentation",
  "url",
 ]
 

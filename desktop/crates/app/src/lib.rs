@@ -642,6 +642,35 @@ fn register_actions(cx: &mut App) {
             view.run_hermes(&id, command, window, cx)
         });
     });
+    // Notes: a note's menu, New Note, and the note pane's toolbar
+    // menus, wherever the focus is.
+    cx.on_action(|a: &views::notes::NoteMenu, cx| {
+        let (id, command) = (a.note_id.clone(), a.command);
+        with_main_view(cx, |view, window, cx| {
+            let stores = view.stores.clone();
+            views::notes::run(&stores, &id, command, window, cx)
+        });
+    });
+    cx.on_action(|_: &views::notes::NewNote, cx| {
+        let Some(stores) = cx.try_global::<AppState>().map(|s| s.stores.clone()) else {
+            return;
+        };
+        // Only where the account has notes.
+        if stores.session.read(cx).capabilities().notes {
+            views::notes::new_note(&stores, cx);
+        }
+    });
+    cx.on_action(|a: &views::notes::pane::PaneCommand, cx| {
+        let (id, command) = (a.note_id.clone(), a.command.clone());
+        with_main_view(cx, |view, window, cx| {
+            let pane = view.area_pane.read(cx).notes.read(cx).note_pane().cloned();
+            if let Some(pane) = pane
+                && pane.read(cx).shows(&id)
+            {
+                pane.update(cx, |p, cx| p.run(command, window, cx));
+            }
+        });
+    });
     cx.on_action(|a: &views::sidebar::FolderMenu, cx| {
         let (id, command) = (a.folder_id.clone(), a.command.clone());
         with_main_view(cx, |view, window, cx| {
