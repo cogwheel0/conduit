@@ -288,9 +288,15 @@ final class CoreRuntime {
           () => unawaited(_pullAfterCertification()),
         ),
         // A Mac always has a hardware keyboard: Enter sends until the user
-        // turns Send with Enter off (mobile's default stays off).
+        // turns Send with Enter off (mobile's default stays off). A Mac app
+        // asks for notification permission the first time one would show,
+        // so notifications start on (the phone asks when they are turned
+        // on, so its default stays off).
         appSettingsHostDefaultsProvider.overrideWithValue(
-          const AppSettingsHostDefaults(sendOnEnter: true),
+          const AppSettingsHostDefaults(
+            sendOnEnter: true,
+            notificationsEnabled: true,
+          ),
         ),
         // The Mac's voices read aloud live, reporting each word, and the
         // reading moves from sentence to sentence (the phone renders clips).

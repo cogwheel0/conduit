@@ -14,6 +14,9 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart'
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesSecretsLoadingProvider;
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/features/integrations/personal_connection_display.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -67,6 +70,12 @@ final class ComposerService {
       DebugLogger.error('tools-failed', scope: 'daemon/composer', error: error);
       tools = const <ToolSummary>[];
     }
+
+    // The account's personal tool servers, as the phone's tool list offers
+    // them: each enabled one, chosen by its `direct_server:` id. A turn that
+    // chooses one sends it to Open WebUI, which asks this session to run its
+    // calls (core's `execute:tool` handler).
+    tools = <ToolSummary>[...tools, ...await _personalToolServers()];
 
     // Listed without connecting to them: opening every server to count
     // its tools would make the composer wait on the slowest one.
@@ -166,6 +175,37 @@ final class ComposerService {
   /// the phone's launcher reads it. Hermes' secrets load at start; a Hermes
   /// model waits for them (as the launcher does) rather than reading
   /// "still loading" as "no".
+  /// The enabled personal tool servers of the signed-in account, when it
+  /// may use them; none while its list cannot be read.
+  Future<List<ToolSummary>> _personalToolServers() async {
+    if (!_container.read(personalConnectionsAccessProvider).available) {
+      return const <ToolSummary>[];
+    }
+    try {
+      final snapshot = await readSettled(
+        _container,
+        personalConnectionsProvider.future,
+      );
+      if (snapshot == null) return const <ToolSummary>[];
+      return <ToolSummary>[
+        for (final entry in snapshot.toolServers)
+          if (entry.enabled)
+            ToolSummary(
+              id: personalToolServerSelectionId(entry.list, entry.index),
+              name: entry.displayName,
+              description: personalToolServerSubtitle(entry.raw, entry.url),
+            ),
+      ];
+    } on Object catch (error) {
+      DebugLogger.error(
+        'personal-tools-failed',
+        scope: 'daemon/composer',
+        error: error,
+      );
+      return const <ToolSummary>[];
+    }
+  }
+
   Future<bool> _voiceCallAdmitted(Model? model) async {
     if (model != null && isHermesModel(model)) {
       final deadline = DateTime.now().add(const Duration(seconds: 3));

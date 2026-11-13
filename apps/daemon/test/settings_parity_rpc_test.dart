@@ -112,7 +112,10 @@ void main() {
       peer,
       ConduitMethods.eventsSubscribe,
       params: const EventSubscription(
-        events: <String>[ConduitEvents.settingsChanged],
+        events: <String>[
+          ConduitEvents.settingsChanged,
+          ConduitEvents.notificationsChanged,
+        ],
       ).toJson(),
       decodeResult: EventSubscription.fromJson,
     );
@@ -138,6 +141,118 @@ void main() {
 
   Matcher rpcCode(String code) =>
       throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
+
+  group('notifications.*, webhooks.* and integrations.*', () {
+    test(
+      'notifications start on here, change, persist and announce it',
+      () async {
+        final start = await call(
+          ConduitMethods.notificationsGet,
+          NotificationSettingsDto.fromJson,
+        );
+        // The desktop's host default (the phone's stays off).
+        expect(start.enabled, isTrue);
+        expect(start.answers, isTrue);
+        expect(start.channels, isTrue);
+        expect(start.mentionsOnly, isFalse);
+        // Nothing to mirror to without an account.
+        expect(start.synced, isFalse);
+
+        events.clear();
+        final after = await call(
+          ConduitMethods.notificationsSet,
+          NotificationSettingsDto.fromJson,
+          const NotificationSettingsPatch(
+            inAppBanner: false,
+            answers: false,
+          ).toJson(),
+        );
+        expect(after.inAppBanner, isFalse);
+        expect(after.answers, isFalse);
+        expect(after.system, isTrue);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(
+          events.map((e) => e.event),
+          contains(ConduitEvents.notificationsChanged),
+        );
+
+        Future<NotificationRoute> route(NotificationRouteParams p) => call(
+          ConduitMethods.notificationsRoute,
+          NotificationRoute.fromJson,
+          p.toJson(),
+        );
+        // Answers are off now.
+        expect(
+          (await route(const NotificationRouteParams(kind: NotifyKind.answer)))
+              .surface,
+          NotifySurface.suppressed,
+        );
+        // A channel message in front with the banner off: silent.
+        expect(
+          (await route(
+            const NotificationRouteParams(
+              kind: NotifyKind.channelMessage,
+              foreground: true,
+            ),
+          )).surface,
+          NotifySurface.silent,
+        );
+        // Behind: a system notification with its sound.
+        final behind = await route(
+          const NotificationRouteParams(kind: NotifyKind.channelMessage),
+        );
+        expect(behind.surface, NotifySurface.system);
+        expect(behind.systemSound, isTrue);
+
+        await call(
+          ConduitMethods.notificationsSet,
+          NotificationSettingsDto.fromJson,
+          const NotificationSettingsPatch(
+            inAppBanner: true,
+            answers: true,
+          ).toJson(),
+        );
+      },
+    );
+
+    test(
+      'webhooks and personal connections need an Open WebUI account',
+      () async {
+        final hooks = await call(
+          ConduitMethods.webhooksList,
+          WebhookList.fromJson,
+        );
+        expect(hooks.available, isFalse);
+        final connections = await call(
+          ConduitMethods.integrationsList,
+          PersonalConnections.fromJson,
+        );
+        expect(connections.access, PersonalAccess.noAccount);
+        // An owner no list handed out is refused before anything is sent.
+        await expectLater(
+          call(
+            ConduitMethods.webhooksDelete,
+            WebhookList.fromJson,
+            const WebhookRef(owner: 'w9', id: 'x').toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.conflict),
+        );
+        await expectLater(
+          call(
+            ConduitMethods.integrationsSave,
+            PersonalConnections.fromJson,
+            const PersonalConnectionSave(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.remove,
+              identity: 'x',
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.conflict),
+        );
+      },
+    );
+  });
 
   group('settings.get and settings.set', () {
     test("start at core's defaults, with the message action catalog", () async {

@@ -12,6 +12,7 @@ import 'composer_service.dart';
 import 'drafts_service.dart';
 import 'direct_service.dart';
 import 'web_search_service.dart';
+import 'webhooks_service.dart';
 import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
@@ -49,7 +50,9 @@ import 'data_service.dart';
 import 'access_service.dart';
 import 'chat_settings_service.dart';
 import 'folder_settings_service.dart';
+import 'integrations_service.dart';
 import 'memories_service.dart';
+import 'notifications_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
 
@@ -86,6 +89,9 @@ final class CoreServices {
     this.coreSettings,
     this.profile,
     this.memories,
+    this.notifications,
+    this.webhooks,
+    this.integrations,
     this.libreChat,
     this.releaseNotes,
     this.data,
@@ -134,6 +140,11 @@ final class CoreServices {
   final CoreSettingsService? coreSettings;
   final ProfileService? profile;
   final MemoriesService? memories;
+
+  /// `notifications.*`, `webhooks.*` and `integrations.*`.
+  final NotificationsService? notifications;
+  final WebhooksService? webhooks;
+  final IntegrationsService? integrations;
 
   /// `librechat.*`: LibreChat sign-in, composer tools, memories, Duplicate.
   final LibreChatService? libreChat;
@@ -242,6 +253,9 @@ class RpcSession {
   CoreSettingsService? get _coreSettings => _services().coreSettings;
   ProfileService? get _profile => _services().profile;
   MemoriesService? get _memories => _services().memories;
+  NotificationsService? get _notifications => _services().notifications;
+  WebhooksService? get _webhooks => _services().webhooks;
+  IntegrationsService? get _integrations => _services().integrations;
   LibreChatService? get _libreChat => _services().libreChat;
   ChatPromptsService? get _chatPrompts => _services().chatPrompts;
   McpAppsService? get _mcpApps => _services().mcpApps;
@@ -585,6 +599,43 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.memoriesSetEnabled,
       (p) => _need(_memories).setEnabled(p),
+    );
+    _on(
+      ConduitMethodSpecs.notificationsGet,
+      (_) async => _need(_notifications).get(),
+    );
+    _on(
+      ConduitMethodSpecs.notificationsSet,
+      (p) => _need(_notifications).set(p),
+    );
+    _on(
+      ConduitMethodSpecs.notificationsRoute,
+      (p) async => _need(_notifications).route(p),
+    );
+    _on(ConduitMethodSpecs.webhooksList, (_) => _need(_webhooks).list());
+    _on(ConduitMethodSpecs.webhooksCreate, (p) => _need(_webhooks).create(p));
+    _on(ConduitMethodSpecs.webhooksUpdate, (p) => _need(_webhooks).update(p));
+    _on(
+      ConduitMethodSpecs.webhooksMakeDefault,
+      (p) => _need(_webhooks).makeDefault(p),
+    );
+    _on(ConduitMethodSpecs.webhooksTest, (p) => _need(_webhooks).test(p));
+    _on(ConduitMethodSpecs.webhooksDelete, (p) => _need(_webhooks).delete(p));
+    _on(
+      ConduitMethodSpecs.integrationsList,
+      (_) => _need(_integrations).list(),
+    );
+    _on(
+      ConduitMethodSpecs.integrationsSave,
+      (p) => _need(_integrations).save(p),
+    );
+    _on(
+      ConduitMethodSpecs.integrationsTest,
+      (p) => _need(_integrations).test(p),
+    );
+    _on(
+      ConduitMethodSpecs.integrationsClearNotice,
+      (_) => _need(_integrations).clearNotice(),
     );
   }
 

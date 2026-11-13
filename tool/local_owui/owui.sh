@@ -305,11 +305,13 @@ start() {
       OPENAI_API_KEY=sk-local-fake \
       ENABLE_TOOL_CALL_LABELS=true \
       ENABLE_DIRECT_CONNECTIONS=true \
+      ENABLE_DIRECT_INTEGRATIONS=true \
       TOOL_SERVER_CONNECTIONS="[{\"type\":\"mcp\",\"url\":\"http://127.0.0.1:$MODEL_PORT/mcp\",\"path\":\"\",\"auth_type\":\"none\",\"key\":\"\",\"config\":{\"enable\":true},\"info\":{\"id\":\"harbour\",\"name\":\"Harbour\",\"description\":\"A synthetic MCP server with one app.\"}}]" \
       ENABLE_TOOL_SERVERS=true \
       TERMINAL_SERVER_CONNECTIONS="[{\"id\":\"buildbox\",\"name\":\"Build box\",\"url\":\"http://127.0.0.1:$TERMINAL_PORT\",\"auth_type\":\"bearer\",\"key\":\"$(cat "$STATE/terminal_key")\",\"enabled\":true,\"config\":{}}]" \
       ENABLE_CHANNELS=true \
       ENABLE_APPS=true \
+      ENABLE_USER_WEBHOOKS=true \
       ENABLE_LOCAL_WEB_FETCH=true \
       CODE_INTERPRETER_ENGINE=jupyter \
       CODE_INTERPRETER_JUPYTER_URL=http://127.0.0.1:9 \

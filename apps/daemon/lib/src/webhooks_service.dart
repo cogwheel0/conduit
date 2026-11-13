@@ -1,0 +1,222 @@
+import 'dart:collection';
+
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:riverpod/riverpod.dart';
+
+import 'settled.dart';
+
+/// `webhooks.*`: the account's webhook destinations on its Open WebUI server,
+/// through core's `NotificationTargets`, as the phone's Notifications page
+/// manages them.
+///
+/// The account a list was read for is captured when the list is read and
+/// handed to the window as an opaque `owner`; every change sends it back.
+/// Once another account is signed in, the change is refused before anything
+/// is sent, and the window keeps what the user typed.
+final class WebhooksService {
+  WebhooksService(this._container);
+
+  final ProviderContainer _container;
+
+  /// Owners handed out, newest last; the oldest go first.
+  final LinkedHashMap<String, NotificationTargetsOwner> _owners =
+      LinkedHashMap<String, NotificationTargetsOwner>();
+  int _nextOwner = 0;
+  static const int _maxOwners = 16;
+
+  NotificationTargets get _targets =>
+      _container.read(notificationTargetsProvider.notifier);
+
+  /// Whether the account may manage destinations, once the server's config
+  /// and the account's permissions have loaded (nothing watches them here,
+  /// so the synchronous rule would read them as still loading).
+  Future<bool> _available() async {
+    if (_container.read(apiServiceProvider) == null) return false;
+    for (final source in <Future<Object?>>[
+      readSettled(_container, backendConfigProvider.future),
+      readSettled(_container, userPermissionsProvider.future),
+    ]) {
+      try {
+        await source;
+      } on Object {
+        // A failed read is a denial, as core's rule has it.
+      }
+    }
+    if (_container.read(notificationTargetsAvailableProvider)) return true;
+    // The config cached at connect time was read before sign-in, when the
+    // server leaves its feature flags out: read it once more.
+    try {
+      await _container.read(backendConfigProvider.notifier).refresh();
+    } on Object {
+      // Still off, then.
+    }
+    return _container.read(notificationTargetsAvailableProvider);
+  }
+
+  String _remember(NotificationTargetsOwner owner) {
+    for (final entry in _owners.entries) {
+      if (identical(entry.value, owner)) return entry.key;
+    }
+    final token = 'w${++_nextOwner}';
+    _owners[token] = owner;
+    while (_owners.length > _maxOwners) {
+      _owners.remove(_owners.keys.first);
+    }
+    return token;
+  }
+
+  NotificationTargetsOwner _owner(String token) {
+    final owner = _owners[token];
+    if (owner == null || !_targets.isCurrentOwner(owner)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'another account is signed in now',
+        args: <String, String>{'reason': 'accountChanged'},
+      );
+    }
+    return owner;
+  }
+
+  static WebhookList _list(
+    NotificationTargetsData data,
+    String owner, {
+    bool stale = false,
+  }) => WebhookList(
+    available: true,
+    owner: owner,
+    items: <WebhookDto>[
+      for (final target in data.targets)
+        if (target.isWebhook)
+          WebhookDto(
+            id: target.id,
+            enabled: target.enabled,
+            isDefault: target.isDefault == true,
+            events: List<String>.of(target.events),
+            delivery: target.delivery,
+            maskedUrl: target.maskedUrl,
+          ),
+    ],
+    events: <WebhookEventDto>[
+      for (final event in data.events)
+        WebhookEventDto(
+          event: event.event,
+          label: event.label,
+          description: event.description,
+        ),
+    ],
+    stale: stale || data.stale,
+  );
+
+  /// The destinations, read again from the server.
+  Future<WebhookList> list() async {
+    if (!await _available()) return const WebhookList();
+    final owner = _targets.captureOwner();
+    if (owner == null) return const WebhookList();
+    final token = _remember(owner);
+    try {
+      if (_container.read(notificationTargetsProvider).hasValue) {
+        await _targets.refresh(owner: owner);
+      }
+      final data = await readSettled(
+        _container,
+        notificationTargetsProvider.future,
+      );
+      return _list(data, token);
+    } on Object {
+      return WebhookList(available: true, owner: token, failed: true);
+    }
+  }
+
+  /// The list as the notifier holds it after a change (it reads it back).
+  WebhookList _current(String token) {
+    final data = _container.read(notificationTargetsProvider).asData?.value;
+    if (data == null) {
+      return WebhookList(available: true, owner: token, stale: true);
+    }
+    return _list(data, token);
+  }
+
+  Future<WebhookList> _run(
+    String token,
+    Future<void> Function(NotificationTargetsOwner owner) action,
+  ) async {
+    final owner = _owner(token);
+    try {
+      await action(owner);
+    } on NotificationTargetsOwnerChangedException {
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'another account is signed in now',
+        args: <String, String>{'reason': 'accountChanged'},
+      );
+    } on NotificationTargetsUnavailableException {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'webhook destinations are not available',
+        args: <String, String>{'reason': 'unavailable'},
+      );
+    } on RpcError {
+      rethrow;
+    } on Object catch (error) {
+      // The server's own words ("Webhook URL is required"), never the URL.
+      final detail = notificationTargetErrorDetail(error);
+      throw RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the server refused the change',
+        args: <String, String>{'detail': ?detail},
+      );
+    }
+    return _current(token);
+  }
+
+  Future<WebhookList> create(WebhookCreate params) {
+    final url = params.url.trim();
+    if (url.isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a destination needs a URL',
+        args: <String, String>{'reason': 'urlRequired'},
+      );
+    }
+    return _run(
+      params.owner,
+      (owner) => _targets.create(
+        url: url,
+        id: params.name.trim().isEmpty ? null : params.name.trim(),
+        enabled: params.enabled,
+        events: params.events,
+        delivery: params.delivery,
+        owner: owner,
+      ),
+    );
+  }
+
+  Future<WebhookList> update(WebhookUpdate params) => _run(
+    params.owner,
+    (owner) => _targets.updateTarget(
+      params.id,
+      enabled: params.enabled,
+      events: params.events,
+      delivery: params.delivery,
+      replacementUrl: switch (params.url?.trim()) {
+        final url? when url.isNotEmpty => url,
+        _ => null,
+      },
+      owner: owner,
+    ),
+  );
+
+  Future<WebhookList> makeDefault(WebhookRef params) => _run(
+    params.owner,
+    (owner) => _targets.makeDefault(params.id, owner: owner),
+  );
+
+  /// One real test notification: the server contacts the destination.
+  Future<WebhookList> test(WebhookRef params) =>
+      _run(params.owner, (owner) => _targets.sendTest(params.id, owner: owner));
+
+  Future<WebhookList> delete(WebhookRef params) =>
+      _run(params.owner, (owner) => _targets.remove(params.id, owner: owner));
+}
