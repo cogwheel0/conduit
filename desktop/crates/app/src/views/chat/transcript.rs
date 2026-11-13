@@ -37,7 +37,7 @@ pub use find::{FindMatch, FindPart, find_ranges};
 use std::collections::{HashMap, HashSet};
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::assets::{IconName, icon};
+
 use conduit_components::motion::{self, Chase, specs};
 use conduit_components::views::shell::CHAT_COLUMN;
 use conduit_protocol::ChatSourceDto;
@@ -57,6 +57,9 @@ struct Citation {
     key: String,
     numbers: Vec<usize>,
     position: Point<Pixels>,
+    /// Opened by hovering the pill: it closes once the pointer leaves the
+    /// pill and the preview. A click keeps it open.
+    by_hover: bool,
 }
 
 /// What a row's popover shows.
@@ -133,6 +136,11 @@ pub struct Transcript {
     action_prefs: Option<Vec<String>>,
     /// Show All Branches… in the version list: the chat pane opens them.
     on_branches: Option<super::popovers::ShowBranches>,
+    /// A hover on a citation pill: the preview opens after a moment, and
+    /// one opened by hover closes a moment after the pointer leaves.
+    citation_hover: Option<gpui_kit::Task<()>>,
+    /// The pointer is over the preview.
+    citation_preview_hovered: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -176,6 +184,11 @@ const ROW_CACHE: usize = 400;
 
 /// The fade at the top that earlier messages slide under.
 const TOP_FADE: f32 = 20.;
+/// How long a pointer rests on a citation before its preview opens, and how
+/// long a preview opened that way stays once the pointer has left.
+const CITATION_HOVER_MS: u64 = 450;
+const CITATION_LEAVE_MS: u64 = 250;
+
 /// The citation popover's width, and its tail's height.
 const POPOVER_WIDTH: f32 = 320.;
 const TAIL_HEIGHT: f32 = 8.;
@@ -296,6 +309,8 @@ impl Transcript {
             seen: (u64::MAX, u64::MAX),
             citation: None,
             leaving_citation: None,
+            citation_hover: None,
+            citation_preview_hovered: false,
             bounds: Default::default(),
             at_top: false,
             chase: None,
@@ -537,6 +552,17 @@ impl Transcript {
         });
     }
 
+    /// Every rich content view the drawn answers hold (the E2E pass opens
+    /// them).
+    pub fn embed_views(&self, cx: &App) -> Vec<Entity<super::embed::EmbedView>> {
+        self.rows.values().flat_map(|r| r.embeds(cx)).collect()
+    }
+
+    /// Whether the citation preview is open.
+    pub fn citation_open(&self) -> bool {
+        self.citation.is_some()
+    }
+
     /// A citation pill or link was clicked.
     pub fn show_citation(
         &mut self,
@@ -546,12 +572,102 @@ impl Transcript {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.citation_hover = None;
         self.citation = Some(Citation {
             key,
             numbers,
             position,
+            by_hover: false,
         });
         cx.notify();
+    }
+
+    /// The pointer came onto (`hovered`) or left a citation pill: the
+    /// preview opens after a moment's hover, and one opened that way
+    /// closes a moment after the pointer has left it and the pill.
+    pub fn hover_citation(
+        &mut self,
+        key: String,
+        numbers: Vec<usize>,
+        position: Point<Pixels>,
+        hovered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if hovered {
+            if self
+                .citation
+                .as_ref()
+                .is_some_and(|c| c.key == key && c.numbers == numbers)
+            {
+                self.citation_hover = None;
+                return;
+            }
+            self.citation_hover = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(CITATION_HOVER_MS))
+                    .await;
+                let _ = this.update(cx, |t, cx| {
+                    t.citation = Some(Citation {
+                        key,
+                        numbers,
+                        position,
+                        by_hover: true,
+                    });
+                    cx.notify();
+                });
+            }));
+        } else {
+            self.citation_hover = None;
+            self.close_hovered_citation(cx);
+        }
+    }
+
+    /// Closes a preview opened by hover, a moment from now, unless the
+    /// pointer is on it by then.
+    fn close_hovered_citation(&mut self, cx: &mut Context<Self>) {
+        if !self.citation.as_ref().is_some_and(|c| c.by_hover) {
+            return;
+        }
+        self.citation_hover = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(CITATION_LEAVE_MS))
+                .await;
+            let _ = this.update(cx, |t, cx| {
+                if !t.citation_preview_hovered && t.citation.as_ref().is_some_and(|c| c.by_hover) {
+                    t.close_citation(cx);
+                }
+            });
+        }));
+    }
+
+    /// What a citation pill reads: its first source's site (or title, with
+    /// Settings › Chat › Show Citation Titles), with "+N" for more, and
+    /// whether it sits on a filled badge (Citation Background).
+    pub fn citation_label(
+        &self,
+        key: &str,
+        numbers: &[usize],
+        cx: &App,
+    ) -> Option<(String, Option<usize>, bool)> {
+        let (show_titles, background) = cx
+            .try_global::<crate::AppState>()
+            .map(|s| {
+                let settings = s.stores.app_settings.read(cx).settings();
+                (settings.citation_show_titles, settings.citation_background)
+            })
+            .unwrap_or((false, true));
+        // The row's own view, by its key: a pill draws every frame, so no
+        // walk over the transcript and no copy of the answer.
+        let sources = match self.rows.get(key) {
+            Some(row) => row.sources(cx)?,
+            // A regenerate's answer keeps the row of the one it replaced.
+            None => {
+                let store = self.store.read(cx);
+                store.item(store.row_for_key(key)?)?.sources
+            }
+        };
+        let (label, more) = super::sources::inline_label(&sources, numbers, show_titles)?;
+        Some((label, more, background))
     }
 
     pub fn close_citation(&mut self, cx: &mut Context<Self>) {
@@ -663,35 +779,46 @@ impl Transcript {
             .border_color(r.border_strong)
             .bg(r.overlay)
             .shadow(conduit_components::views::kit::overlay_shadow(&t))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.citation_preview_hovered = *hovered;
+                if *hovered {
+                    this.citation_hover = None;
+                } else {
+                    this.close_hovered_citation(cx);
+                }
+            }))
             .on_mouse_down_out(move |_, _, cx| {
                 let _ = weak.update(cx, |t, cx| t.close_citation(cx));
             })
             .children(sources.into_iter().map(|(n, s)| {
+                // The phone's preview: the source's name, its site, a
+                // short excerpt; here also its address, and Open.
+                let (title, site, excerpt) = super::sources::preview(&s);
                 let url = s.url.clone();
-                let host = url
-                    .as_deref()
-                    .and_then(|u| url::Url::parse(u).ok())
-                    .and_then(|u| {
-                        u.host_str()
-                            .map(|h| h.trim_start_matches("www.").to_string())
-                    })
-                    .unwrap_or_default();
                 let close = cx.entity().downgrade();
+                let open = url.clone().map(|u| {
+                    let close = close.clone();
+                    conduit_components::views::kit::Button::new(
+                        ElementId::Name(format!("citation-open-{n}").into()),
+                        l10n.citation_preview_open(),
+                    )
+                    .on_click(std::rc::Rc::new(move |_, _, cx| {
+                        super::markdown::open_web_link(&u, cx);
+                        let _ = close.update(cx, |t, cx| t.close_citation(cx));
+                    }))
+                });
                 div()
                     .id(ElementId::Name(format!("citation-source-{n}").into()))
-                    .role(Role::Link)
+                    .role(Role::Group)
                     .aria_label(SharedString::from(
-                        l10n.desktop_source_label(n as i64, &s.label),
+                        l10n.desktop_source_label(n as i64, &title),
                     ))
                     .px(px(8.))
                     .py(px(6.))
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
+                    .gap(px(3.))
                     .rounded(px(7.))
-                    .when(url.is_some(), |d| {
-                        d.cursor_pointer().hover(|s| s.bg(r.overlay_hover))
-                    })
                     .child(
                         div()
                             .flex()
@@ -713,34 +840,38 @@ impl Transcript {
                                     .text_size(px(m.control))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(r.text)
-                                    .child(SharedString::from(s.label.clone())),
-                            )
-                            .when(url.is_some(), |d| {
-                                d.child(icon(IconName::ArrowUpRight, 12., r.text_faint))
-                            }),
+                                    .child(SharedString::from(title)),
+                            ),
                     )
-                    .when(!host.is_empty(), |d| {
+                    .when_some(site, |d, site| {
                         d.child(
                             div()
                                 .text_size(px(m.caption))
                                 .text_color(r.text_subtle)
-                                .child(SharedString::from(host)),
+                                .child(SharedString::from(site)),
                         )
                     })
-                    .when_some(s.snippet.clone().filter(|s| !s.is_empty()), |d, snippet| {
-                        let short: String = snippet.chars().take(180).collect();
+                    .when_some(excerpt, |d, excerpt| {
                         d.child(
                             div()
                                 .text_size(px(m.small))
+                                .line_height(gpui_kit::relative(1.4))
                                 .text_color(r.text_subtle)
-                                .child(SharedString::from(short)),
+                                .child(SharedString::from(excerpt)),
                         )
                     })
-                    .on_click(move |_, _, cx| {
-                        if let Some(u) = &url {
-                            super::markdown::open_web_link(u, cx);
-                        }
-                        let _ = close.update(cx, |t, cx| t.close_citation(cx));
+                    .when_some(url.clone(), |d, url| {
+                        d.child(
+                            div()
+                                .id(ElementId::Name(format!("citation-url-{n}").into()))
+                                .truncate()
+                                .text_size(px(m.caption))
+                                .text_color(r.text_faint)
+                                .child(SharedString::from(url)),
+                        )
+                    })
+                    .when_some(open, |d, open| {
+                        d.child(div().pt(px(2.)).flex().justify_end().child(open))
                     })
             }));
         // Hung from the pill by a tail, below it (above when the column
@@ -1373,7 +1504,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
-                tasks: Default::default(),
+                tasks: vec![],
             }),
         });
         let subscribe: Subscribe = Rc::new(|_, _| {});
@@ -1662,7 +1793,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
-                tasks: Default::default(),
+                tasks: vec![],
             }),
         };
         daemon.returns::<methods::ChatsGet>(detail(vec![
@@ -1746,7 +1877,7 @@ mod tests {
                 },
                 messages: vec![message("u1", "user", "How far is the moon?"), answer],
                 system_prompt: None,
-                tasks: Default::default(),
+                tasks: vec![],
             }),
         };
         daemon.returns::<methods::ChatsGet>(detail(finished.clone()));

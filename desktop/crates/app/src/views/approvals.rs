@@ -505,6 +505,45 @@ impl ApprovalsView {
                         .on_click(deny_cb.clone()),
                 ],
             ),
+            Card::McpAppTool {
+                server,
+                tool,
+                arguments,
+            } => (
+                ApprovalCard::new(
+                    id.clone(),
+                    tool_question(&tool, l10n),
+                    l10n.mcp_app_tool_call_message(&server, &tool),
+                    source,
+                    ApprovalKind::Code {
+                        caption: l10n.desktop_tool_input().into(),
+                        code: if arguments.trim().is_empty() || arguments.trim() == "{}" {
+                            SharedString::default()
+                        } else {
+                            arguments.into()
+                        },
+                    },
+                )
+                .tile(IconName::AppWindow),
+                vec![
+                    secondary(l10n.direct_mcp_approval_deny()),
+                    primary(l10n.mcp_app_tool_call_allow()),
+                ],
+            ),
+            Card::OpenLink { url } => (
+                ApprovalCard::new(
+                    id.clone(),
+                    l10n.mcp_app_open_link_title(),
+                    url,
+                    source,
+                    ApprovalKind::Message,
+                )
+                .tile(IconName::ExternalLink),
+                vec![
+                    secondary(l10n.cancel()),
+                    primary(l10n.mcp_app_open_link_confirm()),
+                ],
+            ),
         }
     }
 }
@@ -542,7 +581,12 @@ fn top_tool(top: &UiRequest) -> String {
 impl ApprovalsView {
     /// The card in its dock: `shown` opens its height and fades it; `gap`
     /// is the room under it, which opens and closes with it.
-    fn docked(card: AnyElement, shown: motion::Appear, gap: f32, reduce: bool) -> AnyElement {
+    pub(crate) fn docked(
+        card: AnyElement,
+        shown: motion::Appear,
+        gap: f32,
+        reduce: bool,
+    ) -> AnyElement {
         let dock = dock_motion(shown, reduce);
         let slot = div()
             .w_full()

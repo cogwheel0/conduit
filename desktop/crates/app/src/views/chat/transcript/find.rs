@@ -505,7 +505,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
-                tasks: Default::default(),
+                tasks: vec![],
             }),
         });
         let subscribe: Subscribe = Rc::new(|_, _| {});

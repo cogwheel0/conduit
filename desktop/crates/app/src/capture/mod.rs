@@ -1083,7 +1083,7 @@ pub fn run(options: CaptureOptions, cx: &mut App) {
         // moves to the setup window and back to the main one.
         let Some(main) = cx.update(crate::windows::front_window) else {
             log("FAILED no window");
-            cx.update(|cx| cx.quit());
+            cx.update(crate::views::sheet::quit);
             return;
         };
         let is_main = cx.update(|cx| cx.global::<AppState>().main_window == Some(main));
@@ -1092,7 +1092,7 @@ pub fn run(options: CaptureOptions, cx: &mut App) {
         // Ask) then blur synthetic pixels, never another app's windows.
         let Some(backdrop) = backdrop else {
             log("FAILED no backdrop window");
-            cx.update(|cx| cx.quit());
+            cx.update(crate::views::sheet::quit);
             return;
         };
         if is_main {
@@ -1128,7 +1128,7 @@ pub fn run(options: CaptureOptions, cx: &mut App) {
             run.notes.problems.len(),
         ));
         cx.update(|cx| set_mode(ThemeMode::System, cx));
-        cx.update(|cx| cx.quit());
+        cx.update(crate::views::sheet::quit);
     })
     .detach();
 }

@@ -92,7 +92,7 @@ fn navigation(cx: &mut App) -> Entity<crate::stores::navigation::NavigationStore
     cx.global::<AppState>().stores.navigation.clone()
 }
 
-async fn open_chat(id: &str, cx: &mut AsyncApp) -> bool {
+pub(super) async fn open_chat(id: &str, cx: &mut AsyncApp) -> bool {
     let id = id.to_string();
     let nav = cx.update(navigation);
     let want = id.clone();
@@ -106,7 +106,7 @@ async fn open_chat(id: &str, cx: &mut AsyncApp) -> bool {
     .await
 }
 
-async fn new_chat(cx: &mut AsyncApp) {
+pub(super) async fn new_chat(cx: &mut AsyncApp) {
     let nav = cx.update(navigation);
     nav.update(cx, |n, cx| n.new_chat(false, cx));
     settle(cx, 300).await;

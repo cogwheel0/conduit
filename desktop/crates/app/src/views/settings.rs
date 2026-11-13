@@ -342,6 +342,8 @@ impl AddSheet {
 /// Ends a sheet's window (it slides up) and closes it, between GPUI
 /// borrows (AppKit calls back into GPUI as the parent takes the keyboard).
 pub fn end_sheet_window(handle: gpui_kit::AnyWindowHandle, cx: &mut App) {
+    // The main window's sheet host no longer has it down.
+    crate::views::sheet::forget(handle, cx);
     #[cfg(target_os = "macos")]
     let ns = handle
         .update(cx, |_, w, _| crate::shell::macos::ns_window(w))

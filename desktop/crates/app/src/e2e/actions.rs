@@ -12,7 +12,9 @@
 //!   on the other one, then Merge Responses;
 //! * Export as a JSON backup and a Markdown transcript, into a throwaway
 //!   folder;
-//! * Share Chat: link, who has access, update, delete;
+//! * Share Chat: link; Who Has Access in the access sheet (a person and
+//!   the seeded group, then Anyone with the Link), back to Share Chat;
+//!   update, delete;
 //! * Generate Title, Mark as Unread (the sidebar's dot, gone on opening),
 //!   and Save Chat for a temporary chat.
 //!
@@ -21,7 +23,10 @@
 use std::path::Path;
 use std::time::Duration;
 
-use conduit_protocol::{AppSettingsPatch, ChatExportFormat, ChatRef, ShareAudience, methods};
+use conduit_protocol::{
+    AccessAudience, AccessEdit, AccessRef, AccessResourceKind, AppSettingsPatch, ChatExportFormat,
+    ChatRef, ShareAudience, methods,
+};
 use gpui_kit::{AsyncApp, Entity, point, px};
 
 use super::chat::{chat_store, in_pane, pane, send, sign_in, wait_answer, wait_models};
@@ -206,7 +211,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= delete(&chat_id, cx).await;
     pass &= compare(&chat_id, main, dir, cx).await;
     pass &= export(&chat_id, dir, cx).await;
-    pass &= share(&chat_id, dir, cx).await;
+    pass &= share(&chat_id, inputs, &rpc, dir, cx).await;
     pass &= title_and_unread(&chat_id, main, dir, cx).await;
     pass &= save_temporary(&mut made, main, dir, cx).await;
 
@@ -598,8 +603,15 @@ async fn export(chat_id: &str, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass
 }
 
-/// Share Chat: make the link, choose who may open it, update it, delete it.
-async fn share(chat_id: &str, dir: &Path, cx: &mut AsyncApp) -> bool {
+/// Share Chat: make the link, choose who may open it in the access sheet
+/// (the one chat settings use, kind chat), update it, delete it.
+async fn share(
+    chat_id: &str,
+    inputs: &E2eInputs,
+    rpc: &crate::stores::rpc::Rpc,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> bool {
     let id = chat_id.to_string();
     let sheet = in_main(cx, move |_, window, cx| {
         crate::views::chat::share_sheet::open(id, window, cx)
@@ -637,17 +649,14 @@ async fn share(chat_id: &str, dir: &Path, cx: &mut AsyncApp) -> bool {
         let controls = ax(handle, "actions-share", dir, cx).await;
         pass &= ok(
             "Share Chat's controls are labelled",
-            has(&controls, "Button", "Update and Copy Link")
-                && has(&controls, "ComboBox", "Who Has Access"),
+            has(&controls, "Button", "Update and Copy Link") && has(&controls, "Button", "Edit…"),
         );
     }
-    sheet.update(cx, |s, cx| s.set_audience(ShareAudience::Open, cx));
-    let open = wait_until(cx, Duration::from_secs(20), |cx| {
-        let s = sheet.read(cx);
-        !s.busy && s.share.as_ref().and_then(|s| s.audience) == Some(ShareAudience::Open)
-    })
-    .await;
-    pass &= ok("Who Has Access: Anyone with the Link", open);
+    let (access, sheet) = who_has_access(chat_id, inputs, rpc, &sheet, dir, cx).await;
+    pass &= access;
+    let Some(sheet) = sheet else {
+        return ok("Share Chat comes back after Who Has Access", false);
+    };
     let first = cx.update(|cx| {
         sheet
             .read(cx)
@@ -695,6 +704,180 @@ async fn share(chat_id: &str, dir: &Path, cx: &mut AsyncApp) -> bool {
     cx.update(crate::views::chat::sheets::close);
     settle(cx, 500).await;
     pass
+}
+
+/// Who Has Access › Edit…: Share Chat gives way to the access sheet for the
+/// chat; the seeded second user and group are added, Anyone with the Link
+/// is chosen, Save keeps them on the server, and Share Chat comes back with
+/// the new audience. Returns the pass and the Share Chat that came back.
+async fn who_has_access(
+    chat_id: &str,
+    inputs: &E2eInputs,
+    rpc: &crate::stores::rpc::Rpc,
+    share: &Entity<crate::views::chat::share_sheet::ShareSheet>,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> (
+    bool,
+    Option<Entity<crate::views::chat::share_sheet::ShareSheet>>,
+) {
+    use crate::views::access_sheet::AccessSheet;
+    use crate::views::sheet;
+    let (Some(second), Some(group)) = (
+        inputs.get("OWUI_SECOND_NAME"),
+        inputs.get("OWUI_GROUP_NAME"),
+    ) else {
+        return (
+            ok(
+                "OWUI_SECOND_NAME and OWUI_GROUP_NAME in the env file (owui.sh reset)",
+                false,
+            ),
+            None,
+        );
+    };
+    share.update(cx, |s, cx| s.edit_access(cx));
+    let loaded = wait_until(cx, Duration::from_secs(20), |cx| {
+        sheet::current::<AccessSheet>(cx).is_some_and(|s| s.read(cx).state.is_some())
+    })
+    .await;
+    let mut pass = ok(
+        "Who Has Access › Edit… opens the access sheet in Share Chat's place",
+        loaded,
+    );
+    let Some(access) = cx.update(|cx| sheet::current::<AccessSheet>(cx)) else {
+        return (pass, None);
+    };
+    let state = cx.update(|cx| access.read(cx).state.clone());
+    pass &= ok(
+        "it is the chat's, read only for those added (no Can Edit)",
+        state.as_ref().is_some_and(|s| {
+            s.kind == AccessResourceKind::Chat && s.id == chat_id && !s.allow_write
+        }),
+    );
+    pass &= ok(
+        "the account may open it to everyone and by link",
+        state
+            .as_ref()
+            .is_some_and(|s| s.can_edit && s.allow_public && s.allow_open),
+    );
+    settle(cx, 500).await;
+    if let Some(handle) = cx.update(|cx| sheet::current_window(cx)) {
+        shoot_both_modes(handle, dir, "actions-share-access", cx).await;
+        let controls = ax(handle, "actions-share-access", dir, cx).await;
+        pass &= ok(
+            "the access sheet offers General Access and Save",
+            has(&controls, "ComboBox", "General Access") && has(&controls, "Button", "Save"),
+        );
+    }
+    // The second user, found by name.
+    let first_name = second.split(' ').next().unwrap_or(&second).to_string();
+    in_access(cx, move |s, _, cx| s.find(first_name, cx));
+    let found = wait_until(cx, Duration::from_secs(15), |cx| {
+        sheet::current::<AccessSheet>(cx)
+            .is_some_and(|s| s.read(cx).results.iter().any(|p| p.r#type == "user"))
+    })
+    .await;
+    pass &= ok("people are found by name", found);
+    in_access(cx, |s, w, cx| {
+        if let Some(p) = s.results.iter().find(|p| p.r#type == "user").cloned() {
+            s.add(&p, w, cx);
+        }
+    });
+    // And the seeded group (listed once the field is empty again).
+    let listed = wait_until(cx, Duration::from_secs(15), |cx| {
+        sheet::current::<AccessSheet>(cx)
+            .is_some_and(|s| s.read(cx).results.iter().any(|p| p.r#type == "group"))
+    })
+    .await;
+    pass &= ok("the account's groups are listed", listed);
+    in_access(cx, |s, w, cx| {
+        if let Some(p) = s.results.iter().find(|p| p.r#type == "group").cloned() {
+            s.add(&p, w, cx);
+        }
+        s.set_audience(AccessAudience::Open, cx);
+    });
+    settle(cx, 400).await;
+    let chosen = cx.update(|cx| {
+        let s = access.read(cx);
+        s.audience() == AccessAudience::Open && s.grants.len() == 2 && s.is_dirty()
+    });
+    pass &= ok(
+        "a person, a group and Anyone with the Link are chosen",
+        chosen,
+    );
+    if let Some(handle) = cx.update(|cx| sheet::current_window(cx)) {
+        shoot_both_modes(handle, dir, "actions-share-access-chosen", cx).await;
+    }
+    in_access(cx, |s, w, cx| s.save(w, cx));
+    // Saved, the access sheet goes and Share Chat comes back.
+    let back = wait_until(cx, Duration::from_secs(25), |cx| {
+        crate::views::chat::sheets::is_open(cx)
+            && sheet::current::<crate::views::chat::share_sheet::ShareSheet>(cx).is_some_and(|s| {
+                let s = s.read(cx);
+                !s.busy && s.share.is_some()
+            })
+    })
+    .await;
+    pass &= ok("Save brings Share Chat back", back);
+    let again = cx.update(|cx| sheet::current::<crate::views::chat::share_sheet::ShareSheet>(cx));
+    let shown = again.as_ref().is_some_and(|s| {
+        cx.update(|cx| s.read(cx).share.as_ref().and_then(|s| s.audience))
+            == Some(ShareAudience::Open)
+    });
+    pass &= ok("Share Chat shows Anyone with the Link", shown);
+    let saved = rpc
+        .call::<methods::AccessGet>(&AccessRef {
+            kind: AccessResourceKind::Chat,
+            id: chat_id.to_string(),
+        })
+        .await;
+    pass &= ok(
+        &format!("access.get: {second} and the group {group} may open the chat, by link too"),
+        saved.as_ref().is_ok_and(|s| {
+            s.audience == AccessAudience::Open
+                && s.grants
+                    .iter()
+                    .any(|g| g.principal_type == "user" && g.name == second && !g.write)
+                && s.grants
+                    .iter()
+                    .any(|g| g.principal_type == "group" && g.name == group && !g.write)
+        }),
+    );
+    // Back to no one named (the link's audience stays for the steps after).
+    let cleared = rpc
+        .call::<methods::AccessSet>(&AccessEdit {
+            kind: AccessResourceKind::Chat,
+            id: chat_id.to_string(),
+            grants: vec![],
+            audience: None,
+        })
+        .await;
+    pass &= ok(
+        "and the people are removed again",
+        cleared.is_ok_and(|s| s.grants.is_empty() && s.audience == AccessAudience::Open),
+    );
+    (pass, again)
+}
+
+/// Runs `f` on the access sheet down now, in its window.
+fn in_access<R>(
+    cx: &mut AsyncApp,
+    f: impl FnOnce(
+        &mut crate::views::access_sheet::AccessSheet,
+        &mut gpui_kit::Window,
+        &mut gpui_kit::Context<crate::views::access_sheet::AccessSheet>,
+    ) -> R,
+) -> Option<R> {
+    use crate::views::sheet;
+    let handle = cx.update(|cx| sheet::current_window(cx))?;
+    let entity = cx.update(|cx| sheet::current::<crate::views::access_sheet::AccessSheet>(cx))?;
+    cx.update(|cx| {
+        handle
+            .update(cx, |_, window, cx| {
+                entity.update(cx, |v, cx| f(v, window, cx))
+            })
+            .ok()
+    })
 }
 
 /// Generate Title; Mark as Unread with the sidebar's dot, gone on opening.

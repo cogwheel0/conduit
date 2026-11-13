@@ -652,6 +652,116 @@
     "description": "Label of the collapsible list of sources under an answer in the desktop app.",
     "placeholders": { "count": { "type": "int", "example": "3" } }
   },
+  "desktopPromptPrevious": "Previous",
+  "@desktopPromptPrevious": {
+    "description": "Button on an Open WebUI question card that goes back to the question before (mobile's \"Prev\"). Title Case."
+  },
+  "desktopPromptQuestion": "Open WebUI",
+  "@desktopPromptQuestion": {
+    "description": "Who asks, in the corner of an Open WebUI question or approval card docked above the composer: the server, by its product name."
+  },
+  "desktopEmbedTitle": "Embedded Content",
+  "@desktopEmbedTitle": {
+    "description": "Title of a card in an answer for web content the answer carries (HTML a tool returned, or a page), before it is opened. Title Case."
+  },
+  "desktopEmbedToolTitle": "Tool Output",
+  "@desktopEmbedToolTitle": {
+    "description": "Title of the same card when a tool call returned the content. Title Case."
+  },
+  "desktopEmbedDescription": "Interactive content from this answer. Open it to show it here.",
+  "@desktopEmbedDescription": {
+    "description": "Body of the card for embedded HTML before it is opened; sentence case."
+  },
+  "desktopEmbedClose": "Close Preview",
+  "@desktopEmbedClose": {
+    "description": "Button on an opened embedded preview or app in an answer that closes it again. Title Case."
+  },
+  "desktopEmbedLoadFailed": "Couldn’t show this content.",
+  "@desktopEmbedLoadFailed": {
+    "description": "Shown in place of embedded content in an answer that could not be shown."
+  },
+  "desktopImageViewerZoomIn": "Zoom In",
+  "@desktopImageViewerZoomIn": {
+    "description": "Toolbar button and menu item of the image viewer window. Title Case."
+  },
+  "desktopImageViewerZoomOut": "Zoom Out",
+  "@desktopImageViewerZoomOut": {
+    "description": "Toolbar button and menu item of the image viewer window. Title Case."
+  },
+  "desktopImageViewerActualSize": "Actual Size",
+  "@desktopImageViewerActualSize": {
+    "description": "Image viewer: show the picture at its own size (as Preview's View menu says). Title Case."
+  },
+  "desktopImageViewerZoomToFit": "Zoom to Fit",
+  "@desktopImageViewerZoomToFit": {
+    "description": "Image viewer: fit the picture to the window (as Preview's View menu says). Title Case."
+  },
+  "desktopImageViewerShare": "Share…",
+  "@desktopImageViewerShare": {
+    "description": "Toolbar button of the image viewer that opens the system Share menu. Title Case with an ellipsis, as it asks where."
+  },
+  "desktopImageViewerNext": "Next Image",
+  "@desktopImageViewerNext": {
+    "description": "Image viewer: show the next picture of the same message. Title Case."
+  },
+  "desktopImageViewerPrevious": "Previous Image",
+  "@desktopImageViewerPrevious": {
+    "description": "Image viewer: show the picture before. Title Case."
+  },
+  "desktopImageViewerTitle": "Image",
+  "@desktopImageViewerTitle": {
+    "description": "Image viewer window title when the picture has no name. Title Case."
+  },
+  "desktopImageViewerPosition": "{index} of {count}",
+  "@desktopImageViewerPosition": {
+    "description": "Image viewer window subtitle: which picture of the message this is.",
+    "placeholders": {
+      "index": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopVideoLabel": "Video {name}",
+  "@desktopVideoLabel": {
+    "description": "VoiceOver label of a video attached to a message.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopVideoPlay": "Play Video",
+  "@desktopVideoPlay": {
+    "description": "Button on a video attachment in a message that loads and plays it. Title Case."
+  },
+  "desktopVideoLoadFailed": "Couldn’t load this video.",
+  "@desktopVideoLoadFailed": {
+    "description": "Shown on a video attachment that could not be loaded."
+  },
+  "desktopVideoFullScreen": "Enter Full Screen",
+  "@desktopVideoFullScreen": {
+    "description": "Button on a playing video in a message. Title Case, as the View menu item."
+  },
+  "desktopQueuedRemove": "Remove",
+  "@desktopQueuedRemove": {
+    "description": "Button on an answer waiting to be sent (offline or failed) that removes it before it goes out. Title Case."
+  },
+  "desktopQueuedFailedMessage": "Retry the response, or remove it.",
+  "@desktopQueuedFailedMessage": {
+    "description": "Body of the banner on an answer whose request stopped retrying; offers Retry and Remove."
+  },
+  "desktopCitationMore": "+{count}",
+  "@desktopCitationMore": {
+    "description": "After the first source's name on an inline citation that cites several sources: how many more.",
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "desktopGoodResponse": "Good Answer",
   "@desktopGoodResponse": {
     "description": "Thumbs-up button under an answer in the desktop app. Rates the answer as good."
@@ -2623,6 +2733,10 @@
   "@desktopAccessNoResults": {
     "description": "The Share Folder sheet's search when nothing matches."
   },
+  "desktopAccessPublicNotAllowed": "You don't have permission to share with everyone on this server.",
+  "@desktopAccessPublicNotAllowed": {
+    "description": "The access sheet's General Access footer when the account may not open the chat or note to everyone on the server. Sentence case."
+  },
   "desktopDiscardChangesTitle": "Discard your changes?",
   "@desktopDiscardChangesTitle": {
     "description": "Title of the alert when a settings sheet with unsaved edits is closed."
@@ -2992,18 +3106,6 @@
   "desktopBranchesFailed": "The branches could not be loaded.",
   "@desktopBranchesFailed": {
     "description": "Shown in the Branches sheet when the chat's branches would not load."
-  },
-  "desktopShareAudiencePrivate": "Only People Given Access",
-  "@desktopShareAudiencePrivate": {
-    "description": "Choice in Share Chat's Who Has Access pop-up: only the people and groups the chat is shared with may open its link. Title Case."
-  },
-  "desktopShareAudiencePublic": "Everyone on This Server",
-  "@desktopShareAudiencePublic": {
-    "description": "Choice in Share Chat's Who Has Access pop-up: every user of the Open WebUI server may open the link. Title Case."
-  },
-  "desktopShareAudienceOpen": "Anyone with the Link",
-  "@desktopShareAudienceOpen": {
-    "description": "Choice in Share Chat's Who Has Access pop-up: anyone who has the link may open it, signed in or not. Title Case."
   },
   "desktopUnread": "Unread",
   "@desktopUnread": {

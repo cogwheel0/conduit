@@ -173,7 +173,6 @@ pub struct CopyAnswerMarkdown {
 /// Registers the rows' menu actions on the app.
 pub fn register_actions(cx: &mut App) {
     super::actions::register(cx);
-    super::share_sheet::register(cx);
     super::composer::register_actions(cx);
     cx.on_action(|a: &RateAnswer, cx| {
         let (key, rating) = (a.key.clone(), a.rating);
@@ -423,7 +422,6 @@ pub struct AssistantRow {
     /// Disclosures opening or closing: their height and chevron.
     opening: HashMap<String, Tween>,
     hovered: bool,
-    sources_open: bool,
     /// The action row's focus scope, once drawn (the transcript scrolls a
     /// row Tab reaches into view).
     actions_focus: Option<gpui_kit::FocusHandle>,
@@ -452,6 +450,9 @@ pub struct AssistantRow {
     compare: Vec<(String, Entity<AssistantRow>)>,
     /// This view draws one column of a comparison.
     column_of: Option<ColumnOf>,
+    /// Rich content in the answer, by its place (kept across frames, so
+    /// an opened page stays open).
+    embeds: HashMap<String, Entity<super::embed::EmbedView>>,
 }
 
 /// One column of a Compare Models answer.
@@ -474,6 +475,14 @@ struct Leaving {
     start: Instant,
 }
 
+/// What a queued answer's button does.
+#[derive(Clone, Copy)]
+enum QueuedAction {
+    Retry,
+    RetryWithout,
+    Remove,
+}
+
 /// Every answer view's own motion key.
 static ROW_SERIAL: AtomicU64 = AtomicU64::new(0);
 
@@ -487,7 +496,6 @@ impl AssistantRow {
             expanded: HashSet::new(),
             opening: HashMap::new(),
             hovered: false,
-            sources_open: false,
             actions_focus: None,
             finished: None,
             _settle: None,
@@ -499,6 +507,7 @@ impl AssistantRow {
             row_focus: None,
             compare: vec![],
             column_of: None,
+            embeds: HashMap::new(),
         }
     }
 
@@ -537,7 +546,6 @@ impl AssistantRow {
             });
             self.opening.clear();
             self.paces.clear();
-            self.sources_open = false;
         }
         self.item = item;
         self.flags = flags;
@@ -629,6 +637,27 @@ impl AssistantRow {
     }
 
     /// The TextView state for `key`, made or updated with `markdown`.
+    /// The view for rich content at `id` in the answer: kept while the
+    /// row is, so an opened page stays open as the answer redraws.
+    pub(super) fn embed_view(
+        &mut self,
+        id: &str,
+        embed: &conduit_protocol::EmbedDto,
+        tool: bool,
+        cx: &mut Context<Self>,
+    ) -> Entity<super::embed::EmbedView> {
+        if let Some(view) = self.embeds.get(id) {
+            view.update(cx, |v, cx| v.set(embed, cx));
+            return view.clone();
+        }
+        let key = format!("{}-{id}", self.item.key);
+        let store = self.host.store.clone();
+        let embed = embed.clone();
+        let view = cx.new(|cx| super::embed::EmbedView::new(key, embed, tool, store, cx));
+        self.embeds.insert(id.to_string(), view.clone());
+        view
+    }
+
     pub(super) fn text_state(
         &mut self,
         key: &str,
@@ -732,7 +761,6 @@ impl AssistantRow {
             .id(ElementId::Name(format!("sources-pill-{key}").into()))
             .role(Role::Button)
             .aria_label(SharedString::from(label.clone()))
-            .aria_expanded(self.sources_open)
             .h(px(24.))
             .px(px(9.))
             .ml(px(4.))
@@ -742,7 +770,6 @@ impl AssistantRow {
             .rounded_full()
             .border_1()
             .border_color(r.border)
-            .when(self.sources_open, |d| d.bg(r.selected))
             .hover(|s| s.bg(r.hover))
             .active(|s| s.bg(conduit_components::views::focus::pressed_fill(r.hover, t)))
             .cursor_pointer()
@@ -751,10 +778,12 @@ impl AssistantRow {
             .text_color(r.text_subtle)
             .child(icon(IconName::Globe, 12., r.text_subtle))
             .child(SharedString::from(label))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.sources_open = !this.sources_open;
-                cx.notify();
-            }))
+            .on_click({
+                let sources = sources.to_vec();
+                move |_, window, cx| {
+                    super::sources::open_sheet(sources.clone(), window, cx);
+                }
+            })
             .into_any_element()
     }
 }
@@ -1030,106 +1059,6 @@ fn version_pager(
                 let _ = next_store.update(cx, |s, cx| s.step_version(&next_key, 1, cx));
             })),
         )
-        .into_any_element()
-}
-
-/// The sources an answer cites, as a list of links.
-pub fn source_list(id: &str, sources: &[ChatSourceDto], cx: &App) -> AnyElement {
-    let t = cx.conduit().clone();
-    let l10n = cx.l10n().clone();
-    let r = t.roles;
-    let m = t.metrics;
-    // A heading over the list, as Suggestions has one.
-    let heading = div()
-        .id(ElementId::Name(format!("sources-heading-{id}").into()))
-        .role(Role::Heading)
-        .aria_label(SharedString::from(l10n.desktop_sources()))
-        .px(px(6.))
-        .pb(px(2.))
-        .text_size(px(m.small))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(r.text_subtle)
-        .child(SharedString::from(l10n.desktop_sources()));
-    let list = div()
-        .id(ElementId::Name(format!("sources-{id}").into()))
-        .role(Role::List)
-        .aria_label(SharedString::from(l10n.desktop_sources()))
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .children(sources.iter().enumerate().map(|(n, s)| {
-            let url = s.url.clone();
-            let host = url
-                .as_deref()
-                .and_then(|u| url::Url::parse(u).ok())
-                .and_then(|u| {
-                    u.host_str()
-                        .map(|h| h.trim_start_matches("www.").to_string())
-                })
-                .unwrap_or_default();
-            let label = l10n.desktop_source_label(n as i64 + 1, &s.label);
-            div()
-                .id(ElementId::Name(format!("source-{id}-{n}").into()))
-                .role(Role::Link)
-                .aria_label(SharedString::from(label))
-                .min_h(px(28.))
-                .px(px(6.))
-                .py(px(3.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(t.control_radius())
-                .when(url.is_some(), |d| {
-                    d.cursor_pointer().hover(|s| s.bg(r.hover))
-                })
-                .child(
-                    div()
-                        .size(px(18.))
-                        .flex_none()
-                        .rounded_full()
-                        .bg(with_alpha(r.text, if t.dark { 0.14 } else { 0.07 }))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(10.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(r.text_subtle)
-                        .child(SharedString::from((n + 1).to_string())),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .truncate()
-                                .text_size(px(m.small))
-                                .text_color(r.text)
-                                .child(SharedString::from(s.label.clone())),
-                        )
-                        .when(!host.is_empty(), |d| {
-                            d.child(
-                                div()
-                                    .text_size(px(m.caption))
-                                    .text_color(r.text_subtle)
-                                    .child(SharedString::from(host)),
-                            )
-                        }),
-                )
-                .on_click(move |_, _, cx| {
-                    if let Some(u) = &url {
-                        super::markdown::open_web_link(u, cx)
-                    }
-                })
-        }));
-    div()
-        .ml(px(-6.))
-        .flex()
-        .flex_col()
-        .child(heading)
-        .child(list)
         .into_any_element()
 }
 
@@ -1489,22 +1418,23 @@ impl AssistantRow {
 
         let merged = (!leaving && (item.merged.is_some() || item.merging))
             .then(|| self.merged_panel(&item, window, cx));
+        // An answer waiting to go out says so, with Retry and Remove, and
+        // has no actions until it has gone (as on the phone).
+        let queued = (!leaving)
+            .then(|| item.queued.clone())
+            .flatten()
+            .map(|q| self.queued_banner(&key, &q, &t, cx));
+        let actions = if queued.is_some() { None } else { actions };
         div()
             .flex()
             .flex_col()
             .gap(px(rhythm::BLOCK_GAP))
             .children(body)
             .children(merged)
+            .children(queued)
             .children(actions)
             .children(column_actions)
             .children(waiting_slot)
-            .when(!leaving && self.sources_open && !sources.is_empty(), |d| {
-                d.child(
-                    div()
-                        .pb(px(rhythm::AFTER_LIST))
-                        .child(source_list(&key, &sources, cx)),
-                )
-            })
             .when_some(follow_ups, |d, items| {
                 let list = div()
                     .relative()
@@ -1534,6 +1464,138 @@ impl AssistantRow {
                     list,
                 ))
             })
+            .into_any_element()
+    }
+
+    /// The banner on an answer waiting to go out (the phone's
+    /// `_buildQueuedCompletionBanner`): queued while offline, waiting to be
+    /// sent, or failed; Retry (and Retry Without Reasoning Effort when the
+    /// provider refused it) and Remove.
+    fn queued_banner(
+        &self,
+        key: &str,
+        queued: &conduit_protocol::QueuedCompletionDto,
+        t: &ConduitTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let l10n = cx.l10n().clone();
+        let r = t.roles;
+        let m = t.metrics;
+        let (title, message, glyph) = if queued.failed {
+            (
+                l10n.chat_queued_failed_title(),
+                l10n.desktop_queued_failed_message(),
+                IconName::CircleAlert,
+            )
+        } else if queued.offline {
+            (
+                l10n.chat_queued_offline_title(),
+                l10n.chat_queued_offline_message(),
+                IconName::CloudOff,
+            )
+        } else {
+            (
+                l10n.chat_queued_pending_title(),
+                l10n.chat_queued_pending_message(),
+                IconName::Clock,
+            )
+        };
+        let accent = if queued.failed { r.danger } else { r.text };
+        let busy = self
+            .host
+            .store
+            .upgrade()
+            .is_some_and(|s| s.read(cx).queued_busy.contains(key));
+        let button = |id: &str, label: String, glyph: Option<IconName>, run: QueuedAction| {
+            let store = self.host.store.clone();
+            let message = key.to_string();
+            let mut b = conduit_components::views::kit::Button::new(
+                ElementId::Name(format!("queued-{id}-{key}").into()),
+                label,
+            )
+            .disabled(busy)
+            .on_click(std::rc::Rc::new(move |_, _, cx| {
+                let _ = store.update(cx, |s, cx| match run {
+                    QueuedAction::Retry => s.retry_queued(&message, false, cx),
+                    QueuedAction::RetryWithout => s.retry_queued(&message, true, cx),
+                    QueuedAction::Remove => s.remove_queued(&message, cx),
+                });
+            }));
+            if let Some(g) = glyph {
+                b = b.icon(g);
+            }
+            b.into_any_element()
+        };
+        let mut buttons = vec![button(
+            "retry",
+            l10n.retry(),
+            Some(IconName::RotateCcw),
+            QueuedAction::Retry,
+        )];
+        if queued.reasoning_effort_rejected {
+            buttons.push(button(
+                "retry-without",
+                l10n.retry_without_reasoning_effort(),
+                None,
+                QueuedAction::RetryWithout,
+            ));
+        }
+        buttons.push(button(
+            "remove",
+            l10n.desktop_queued_remove(),
+            Some(IconName::X),
+            QueuedAction::Remove,
+        ));
+        div()
+            .id(ElementId::Name(format!("queued-{key}").into()))
+            .role(Role::Status)
+            .aria_label(SharedString::from(format!("{title}. {message}")))
+            .max_w(px(560.))
+            .p(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(with_alpha(accent, 0.22))
+            .bg(with_alpha(accent, if t.dark { 0.10 } else { 0.05 }))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(8.))
+                    .child(div().pt(px(1.)).child(icon(glyph, 16., accent)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(
+                                div()
+                                    .text_size(px(m.control))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(r.text)
+                                    .child(SharedString::from(title)),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(m.small))
+                                    .text_color(r.text_subtle)
+                                    .child(SharedString::from(message)),
+                            )
+                            .when_some(queued.error.clone().filter(|_| queued.failed), |d, e| {
+                                d.child(
+                                    div()
+                                        .text_size(px(m.caption))
+                                        .text_color(r.text_faint)
+                                        .child(SharedString::from(e)),
+                                )
+                            }),
+                    ),
+            )
+            .child(div().flex().flex_wrap().gap(px(6.)).children(buttons))
             .into_any_element()
     }
 
@@ -2216,6 +2278,22 @@ pub enum RowView {
 }
 
 impl RowView {
+    /// What an answer row's `[n]` cite, as it draws them.
+    pub fn sources(&self, cx: &App) -> Option<Vec<ChatSourceDto>> {
+        match self {
+            Self::Assistant(row) => Some(row.read(cx).item().sources.clone()),
+            Self::User(_) => None,
+        }
+    }
+
+    /// The rich content views an answer row holds (for the E2E pass).
+    pub fn embeds(&self, cx: &App) -> Vec<Entity<super::embed::EmbedView>> {
+        match self {
+            Self::Assistant(row) => row.read(cx).embeds.values().cloned().collect(),
+            Self::User(_) => vec![],
+        }
+    }
+
     pub fn new(host: RowHost, item: RowItem, flags: RowFlags, cx: &mut App) -> Self {
         match item.role {
             MessageRole::Assistant => {
@@ -2415,6 +2493,7 @@ mod activity_tests {
             stored: true,
             last_answer: true,
             stale: false,
+            queued: None,
         }
     }
 

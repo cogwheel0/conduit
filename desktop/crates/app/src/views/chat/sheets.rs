@@ -1,7 +1,9 @@
 //! The chat's window sheets: Branches and Share Chat, each a window of its
 //! own hung from the main window's title bar by AppKit's `beginSheet:`, as
-//! Add Account and the release notes are. One shows at a time; Esc, ⌘. and
-//! ⌘W close it, and Done does.
+//! Add Account and the release notes are. Esc, ⌘. and ⌘W close it, and Done
+//! does. They are registered with [`crate::views::sheet`], the host of the
+//! settings sheets, so one sheet shows at a time whichever kind it is, and
+//! quitting ends it first.
 
 use conduit_components::theme::{ConduitTheme, UI_FONT};
 use conduit_components::views::kit::grouped_tones;
@@ -12,7 +14,8 @@ use gpui_kit::{
     px, relative, size,
 };
 
-/// The sheet showing now, if one is.
+/// The chat sheet opened last; it is the one showing while the sheet host
+/// still has it down.
 #[derive(Default)]
 struct ChatSheet(Option<AnyWindowHandle>);
 
@@ -45,12 +48,13 @@ fn options(width: f32, height: f32) -> WindowOptions {
 
 /// The chat sheet's window, while one shows.
 pub fn handle(cx: &App) -> Option<AnyWindowHandle> {
-    cx.try_global::<ChatSheet>().and_then(|s| s.0)
+    let mine = cx.try_global::<ChatSheet>().and_then(|s| s.0)?;
+    (crate::views::sheet::current_window(cx) == Some(mine)).then_some(mine)
 }
 
 /// Whether a chat sheet is showing.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<ChatSheet>().is_some_and(|s| s.0.is_some())
+    handle(cx).is_some()
 }
 
 /// Opens `build`'s view as a sheet on `parent`, `width` by `height`
@@ -62,7 +66,7 @@ pub fn open<V: Render + 'static>(
     cx: &mut App,
     build: impl FnOnce(&mut gpui_kit::Window, &mut Context<V>) -> V + 'static,
 ) -> Option<Entity<V>> {
-    if is_open(cx) {
+    if crate::views::sheet::refuse_another(cx) {
         return None;
     }
     let opened = conduit_components::window::open_window_clear_root(
@@ -78,30 +82,16 @@ pub fn open<V: Render + 'static>(
         }
     };
     cx.set_global(ChatSheet(Some(handle)));
-    #[cfg(target_os = "macos")]
-    {
-        let parent = crate::shell::macos::ns_window(parent);
-        let sheet = handle
-            .update(cx, |_, w, _| crate::shell::macos::ns_window(w))
-            .ok()
-            .flatten();
-        if let (Some(parent), Some(sheet)) = (parent, sheet) {
-            cx.foreground_executor()
-                .spawn(async move { crate::shell::macos::begin_sheet(&parent, &sheet) })
-                .detach();
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = parent;
+    crate::views::sheet::adopt(handle, view.clone().into_any(), cx);
+    crate::views::sheet::begin(parent, handle, cx);
     Some(view)
 }
 
 /// Closes the chat sheet showing, if one is.
 pub fn close(cx: &mut App) {
-    let handle = cx.try_global::<ChatSheet>().and_then(|s| s.0);
-    if let Some(handle) = handle {
+    if is_open(cx) {
         cx.set_global(ChatSheet(None));
-        crate::views::settings::end_sheet_window(handle, cx);
+        crate::views::sheet::dismiss(cx);
     }
 }
 

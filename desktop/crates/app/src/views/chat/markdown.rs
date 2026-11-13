@@ -33,6 +33,7 @@ use gpui_kit::{
 
 use super::CitationTarget;
 use super::preview;
+use crate::l10n::ActiveL10n as _;
 
 /// The TextView for one message's markdown. `key` names the message, so a
 /// citation knows whose sources it points into.
@@ -175,6 +176,29 @@ impl MarkdownPlugin for CitePlugin {
         let h = size + 6.;
         let key = self.key.to_string();
         let numbers = cite.numbers.clone();
+        // The phone's badge: the source's site (or title), "+N" for more;
+        // the numbers when there is nothing to name it by.
+        let target = cx.try_global::<CitationTarget>().map(|t| t.0.clone());
+        let named = target
+            .as_ref()
+            .and_then(|t| t.upgrade())
+            .and_then(|t| t.read(cx).citation_label(&key, &numbers, cx));
+        let (label, background) = match &named {
+            Some((label, more, background)) => (
+                match more {
+                    Some(n) => format!(
+                        "{label} {}",
+                        cx.l10n().desktop_citation_more(&n.to_string())
+                    ),
+                    None => label.clone(),
+                },
+                *background,
+            ),
+            None => (cite.label.clone(), true),
+        };
+        let hover_key = key.clone();
+        let hover_numbers = numbers.clone();
+        let hover_target = target.clone();
         let pill = div()
             .id(ElementId::Name(
                 format!("cite-{}-{}", self.key, cite.label).into(),
@@ -183,19 +207,33 @@ impl MarkdownPlugin for CitePlugin {
             .aria_label(format!("Source {}", cite.label))
             .h(px(h))
             .min_w(px(h))
-            .px(px(4.))
+            .max_w(px(220.))
+            .px(px(if named.is_some() { 7. } else { 4. }))
             .mx(px(1.))
             .flex()
             .items_center()
             .justify_center()
             .rounded(px(h / 2.))
-            .bg(with_alpha(r.text, if t.dark { 0.14 } else { 0.08 }))
+            .when(background, |d| {
+                d.bg(with_alpha(r.text, if t.dark { 0.14 } else { 0.08 }))
+            })
             .hover(|s| s.bg(with_alpha(r.text, if t.dark { 0.22 } else { 0.14 })))
             .cursor_pointer()
             .text_size(px(size))
             .font_weight(FontWeight::MEDIUM)
             .text_color(r.text_subtle)
-            .child(SharedString::from(cite.label.clone()))
+            .child(div().truncate().child(SharedString::from(label)))
+            .on_hover(move |hovered: &bool, window, cx| {
+                let Some(transcript) = hover_target.as_ref().and_then(|t| t.upgrade()) else {
+                    return;
+                };
+                let position = window.mouse_position();
+                let (key, numbers) = (hover_key.clone(), hover_numbers.clone());
+                let hovered = *hovered;
+                transcript.update(cx, |t, cx| {
+                    t.hover_citation(key, numbers, position, hovered, cx)
+                });
+            })
             .on_click(move |event: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 show_citation(&key, numbers.clone(), event.position(), window, cx)

@@ -1,16 +1,18 @@
 //! Share Chat, as the phone's share sheet (`chat_share_sheet.dart`): the
 //! chat's public link, made or updated to the chat as it is now and copied
 //! (Copy Link / Update and Copy Link); the system Share menu for it; who
-//! may open it (Who Has Access: only the people given access, everyone on
-//! the server, or anyone with the link); and Delete This Link.
+//! may open it (Who Has Access); and Delete This Link.
 //!
 //! Who has access is the chat's own access grants (the core's
 //! `ResourceAccessController`, kind chat), offered once the chat has a
-//! link. This sheet offers the audience only; naming people and groups is
-//! the generic access sheet's.
+//! link. Edit… there swaps this sheet for the access sheet
+//! ([`crate::views::access_sheet`]), where people and groups are added and
+//! the general access is chosen (only the people added, everyone on the
+//! server, anyone with the link); Share Chat comes back when it is done,
+//! as on the phone.
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::assets::{IconName, icon};
+
 use conduit_components::views::kit::Button;
 use conduit_protocol::{ChatShare, NoticeLevel, ShareAudience};
 use gpui_kit::prelude::*;
@@ -38,30 +40,15 @@ pub fn open(
     })
 }
 
-/// The audience's label.
+/// The audience's label, as the access sheet's General Access names it.
 pub fn audience_label(a: ShareAudience, l10n: &L10n) -> String {
     match a {
-        ShareAudience::Private => l10n.desktop_share_audience_private(),
+        ShareAudience::Private => l10n.library_access_only_people_added(),
         // Never "private" when it could not be read: a link may be open.
         ShareAudience::Unknown => l10n.resource_sharing_load_failed(),
-        ShareAudience::Public => l10n.desktop_share_audience_public(),
-        ShareAudience::Open => l10n.desktop_share_audience_open(),
+        ShareAudience::Public => l10n.library_access_everyone_on_server(),
+        ShareAudience::Open => l10n.library_access_anyone_with_link(),
     }
-}
-
-/// The sheet's audience pop-up chose `audience`.
-#[derive(Clone, Debug, PartialEq, gpui_kit::Action)]
-#[action(namespace = conduit_chat, no_json)]
-pub struct ChooseAudience {
-    pub sheet: gpui_kit::WeakEntity<ShareSheet>,
-    pub audience: ShareAudience,
-}
-
-pub fn register(cx: &mut App) {
-    cx.on_action(|a: &ChooseAudience, cx: &mut App| {
-        let audience = a.audience;
-        let _ = a.sheet.update(cx, |s, cx| s.set_audience(audience, cx));
-    });
 }
 
 pub struct ShareSheet {
@@ -144,13 +131,30 @@ impl ShareSheet {
         self.call(true, None, true, cx);
     }
 
-    /// Who Has Access.
-    pub fn set_audience(&mut self, audience: ShareAudience, cx: &mut Context<Self>) {
-        // One change at a time: what shows is what the server last said.
-        if self.busy {
-            return;
-        }
-        self.call(false, Some(audience), false, cx);
+    /// Who Has Access › Edit…: this sheet goes and the access sheet for the
+    /// chat comes down in its place (one sheet hangs from a window at a
+    /// time); Share Chat comes back once that one is saved or cancelled.
+    pub fn edit_access(&mut self, cx: &mut Context<Self>) {
+        let stores = self.stores.clone();
+        let id = self.chat_id.clone();
+        let title = stores
+            .chat_list
+            .read(cx)
+            .find(&id)
+            .map(|c| c.title.clone())
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| cx.l10n().new_chat());
+        super::sheets::close(cx);
+        cx.defer(move |cx| {
+            let main = cx
+                .try_global::<crate::AppState>()
+                .and_then(|s| s.main_window);
+            if let Some(main) = main {
+                let _ = main.update(cx, |_, window, cx| {
+                    crate::views::access_sheet::open_for_chat(stores, &id, title, window, cx)
+                });
+            }
+        });
     }
 
     /// Share…: the system Share menu with the link (made first if needed).
@@ -271,52 +275,12 @@ impl Render for ShareSheet {
                 )
         };
         let audience_button = {
-            // A link whose audience could not be read may be open: never
-            // shown as private.
-            let label = audience
-                .map(|a| audience_label(a, &l10n))
-                .unwrap_or_else(|| l10n.resource_sharing_load_failed());
             let sheet = weak.clone();
-            let l = l10n.clone();
-            div()
-                .id("share-audience")
-                .role(Role::ComboBox)
-                .aria_label(SharedString::from(format!(
-                    "{}: {label}",
-                    l10n.chat_share_audience()
-                )))
-                .h(px(24.))
-                .px(px(8.))
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .rounded(px(6.))
-                .border_1()
-                .border_color(r.border)
-                .bg(r.content)
-                .cursor_pointer()
-                .hover(|s| s.bg(r.hover))
-                .text_size(px(m.control))
-                .child(SharedString::from(label))
-                .child(icon(IconName::ChevronsUpDown, 11., r.text_subtle))
-                .on_click(move |e, window, cx| {
-                    let mut menu = gpui_kit::component::native_menu::NativeMenu::new();
-                    for a in [
-                        ShareAudience::Private,
-                        ShareAudience::Public,
-                        ShareAudience::Open,
-                    ] {
-                        menu = menu.menu_with_check(
-                            audience_label(a, &l),
-                            audience == Some(a),
-                            Box::new(ChooseAudience {
-                                sheet: sheet.clone(),
-                                audience: a,
-                            }),
-                        );
-                    }
-                    menu.show(e.position(), window, cx);
-                })
+            Button::new("share-audience", l10n.desktop_edit_ellipsis())
+                .disabled(self.busy)
+                .on_click(std::rc::Rc::new(move |_, _, cx| {
+                    let _ = sheet.update(cx, |s, cx| s.edit_access(cx));
+                }))
         };
         let body = div()
             .flex()
@@ -386,8 +350,16 @@ impl Render for ShareSheet {
                         row(
                             "share-audience-row",
                             l10n.chat_share_audience(),
-                            Some(l10n.chat_share_audience_description()),
+                            Some(
+                                // A link whose audience could not be read
+                                // may be open: never shown as private.
+                                audience
+                                    .map(|a| audience_label(a, &l10n))
+                                    .unwrap_or_else(|| l10n.resource_sharing_load_failed()),
+                            ),
                         )
+                        .role(Role::Group)
+                        .aria_label(SharedString::from(l10n.chat_share_audience()))
                         .child(audience_button),
                     )
                     .child(

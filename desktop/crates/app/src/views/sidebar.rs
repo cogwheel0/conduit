@@ -2343,12 +2343,13 @@ impl SidebarView {
         self.context_menu_with(chat_id, vec![], position, window, cx)
     }
 
-    /// [`Self::context_menu`] with `leading` items first (the chat's More
-    /// menu adds Chat Settings… and Tool Settings…).
+    /// [`Self::context_menu`] with the open chat's own items (the toolbar's
+    /// More menu adds Chat Settings…, Tool Settings… and Show Branches…), in
+    /// a group just before Delete…, where the Chat menu has them.
     pub fn context_menu_with(
         &mut self,
         chat_id: &str,
-        leading: Vec<(String, Box<dyn Action>)>,
+        open_items: Vec<(String, Box<dyn Action>)>,
         position: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2370,15 +2371,7 @@ impl SidebarView {
             }
             self.end_selection(cx);
         }
-        let mut menu = NativeMenu::new();
-        let lead = !leading.is_empty();
-        for (label, action) in leading {
-            menu = menu.menu(label, action);
-        }
-        if lead {
-            menu = menu.separator();
-        }
-        let menu = self.menu_for(menu, &chat, cx);
+        let menu = self.menu_for(NativeMenu::new(), &chat, open_items, cx);
         self.context_target = Some(chat_id.to_string());
         cx.notify();
         menu.show(position, window, cx);
@@ -2454,7 +2447,14 @@ impl SidebarView {
         items
     }
 
-    fn menu_for(&self, menu: NativeMenu, chat: &ChatSummary, cx: &App) -> NativeMenu {
+    fn menu_for(
+        &self,
+        menu: NativeMenu,
+        chat: &ChatSummary,
+        open_items: Vec<(String, Box<dyn Action>)>,
+        cx: &App,
+    ) -> NativeMenu {
+        let mut open_items = Some(open_items);
         let l = cx.l10n();
         let action = |command: ChatCommand| -> Box<dyn Action> {
             Box::new(ChatMenu {
@@ -2501,6 +2501,13 @@ impl SidebarView {
             }
             if command == ChatCommand::Delete {
                 menu = menu.separator();
+                let open = open_items.take().unwrap_or_default();
+                if !open.is_empty() {
+                    for (label, item) in open {
+                        menu = menu.menu(label, item);
+                    }
+                    menu = menu.separator();
+                }
             }
             menu = menu.menu(label, action(command));
         }

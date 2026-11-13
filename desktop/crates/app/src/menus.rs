@@ -671,8 +671,10 @@ fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
 }
 
 /// The Chat menu: the open chat's commands in [`CHAT_COMMAND_ORDER`] (as its
-/// context menu lists them), then the model and the message field, then the
-/// answer's.
+/// context menu lists them), then its sheets (Chat Settings…, Tool
+/// Settings…, Show Branches…, Save Chat) just before Delete…, as the
+/// toolbar's More menu has them, then the model and the message field, then
+/// the answer's.
 fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     let no_chat = state.chat.is_none();
     let chat = state.chat.clone();
@@ -769,10 +771,25 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
             // Selecting is the sidebar's own mode: its menus only.
             ChatCommandSlot::Select => {}
             ChatCommandSlot::Delete => {
-                items.push(MenuItem::separator());
-                items.push(
+                items.extend([
+                    MenuItem::separator(),
+                    MenuItem::action(
+                        l10n.desktop_chat_settings_menu(),
+                        crate::actions::ChatSettings,
+                    )
+                    .disabled(!state.chat_settings),
+                    MenuItem::action(
+                        l10n.desktop_tool_settings_menu(),
+                        crate::actions::ToolSettings,
+                    )
+                    .disabled(!state.tool_settings),
+                    MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches)
+                        .disabled(no_chat),
+                    MenuItem::action(l10n.save_chat(), SaveTemporaryChat)
+                        .disabled(!state.save_chat),
+                    MenuItem::separator(),
                     MenuItem::action(l10n.desktop_menu_delete_chat(), DeleteChat).disabled(no_chat),
-                );
+                ]);
             }
         }
     }
@@ -784,22 +801,9 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.desktop_menu_next_chat(), NextChat),
         MenuItem::separator(),
         MenuItem::action(l10n.desktop_menu_choose_model(), FocusModelPicker),
-        MenuItem::action(
-            l10n.desktop_chat_settings_menu(),
-            crate::actions::ChatSettings,
-        )
-        .disabled(!state.chat_settings),
-        MenuItem::action(
-            l10n.desktop_tool_settings_menu(),
-            crate::actions::ToolSettings,
-        )
-        .disabled(!state.tool_settings),
         MenuItem::action(l10n.desktop_shortcut_focus_composer(), FocusComposer),
         MenuItem::action(l10n.desktop_expand_editor(), crate::actions::ExpandEditor),
         MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
-        MenuItem::separator(),
-        MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches).disabled(no_chat),
-        MenuItem::action(l10n.save_chat(), SaveTemporaryChat).disabled(!state.save_chat),
         MenuItem::separator(),
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
@@ -1034,20 +1038,20 @@ mod tests {
                 "Remove from Folder",
                 "Archive",
                 "—",
+                "Chat Settings…",
+                "Tool Settings…",
+                "Show Branches…",
+                "Save Chat",
+                "—",
                 "Delete…",
                 "—",
                 "Previous Chat",
                 "Next Chat",
                 "—",
                 "Choose a Model…",
-                "Chat Settings…",
-                "Tool Settings…",
                 "Go to Message Field",
                 "Expand Editor",
                 "Ask Conduit",
-                "—",
-                "Show Branches…",
-                "Save Chat",
                 "—",
                 "Regenerate",
                 "Stop Generating",

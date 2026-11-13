@@ -64,6 +64,7 @@ mod chat_settings;
 mod composer;
 mod integration;
 mod offline;
+mod rendering;
 mod sections;
 mod settings;
 pub mod shell;
@@ -722,6 +723,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "offline" => offline::run(&inputs, &dir, cx).await,
         "settings" => settings::run(&inputs, &dir, cx).await,
         "actions" => actions::run(&inputs, &dir, cx).await,
+        "rendering" => rendering::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

@@ -8,7 +8,9 @@
 //! keyboard. Esc, ⌘. and ⌘W go to the body's [`SheetBody::cancel`], which
 //! asks before throwing edits away. The window follows the body's height,
 //! up to what fits under the main window's title bar, and scrolls beyond
-//! that. One sheet at a time, as AppKit allows one per window.
+//! that. One sheet at a time, as AppKit allows one per window: the chat's
+//! own sheets (Branches, Share Chat, in [`crate::views::chat::sheets`]) are
+//! registered here too, so no sheet is ever begun under another.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -68,11 +70,8 @@ pub struct SheetHost<V: SheetBody> {
     overflowing: Rc<Cell<bool>>,
 }
 
-/// The sheet on the main window now, if any.
-#[derive(Default)]
-struct OpenSheet(Option<(AnyWindowHandle, AnyEntity)>);
-
-impl Global for OpenSheet {}
+/// What runs once a sheet has been dismissed (see [`after_dismiss`]).
+type AfterDismiss = Box<dyn FnOnce(&mut App)>;
 
 /// Whether the sheet down now holds unsaved edits, and its body's
 /// [`SheetBody::cancel`] (which asks before throwing them away).
@@ -82,11 +81,16 @@ struct Unsaved {
     ask: Rc<dyn Fn(&mut App)>,
 }
 
-/// The [`Unsaved`] of the sheet down now (one opened by [`open`]).
+/// The sheet on the main window now, if any, and what runs once it has
+/// gone.
 #[derive(Default)]
-struct OpenUnsaved(Option<Unsaved>);
+struct OpenSheet {
+    current: Option<(AnyWindowHandle, AnyEntity)>,
+    after: Option<AfterDismiss>,
+    unsaved: Option<Unsaved>,
+}
 
-impl Global for OpenUnsaved {}
+impl Global for OpenSheet {}
 
 fn window_options(width: f32) -> WindowOptions {
     WindowOptions {
@@ -120,11 +124,7 @@ pub fn open<V: SheetBody>(
     cx: &mut App,
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
 ) -> Option<Entity<V>> {
-    if let Some((handle, _)) = cx.default_global::<OpenSheet>().0.clone() {
-        // Already down: it keeps the keyboard.
-        cx.defer(move |cx| {
-            let _ = handle.update(cx, |_, window, _| window.activate_window());
-        });
+    if refuse_another(cx) {
         return None;
     }
     let opened = conduit_components::window::open_window_clear_root(
@@ -149,9 +149,9 @@ pub fn open<V: SheetBody>(
         }
     };
     let body = host.read(cx).body.clone();
-    cx.global_mut::<OpenSheet>().0 = Some((handle, body.clone().into_any()));
+    adopt(handle, body.clone().into_any(), cx);
     let (weak, asked) = (body.downgrade(), body.downgrade());
-    cx.default_global::<OpenUnsaved>().0 = Some(Unsaved {
+    cx.default_global::<OpenSheet>().unsaved = Some(Unsaved {
         edits: Rc::new(move |cx: &App| weak.upgrade().is_some_and(|b| b.read(cx).unsaved(cx))),
         ask: Rc::new(move |cx: &mut App| {
             let Some(body) = asked.upgrade() else { return };
@@ -161,6 +161,34 @@ pub fn open<V: SheetBody>(
             });
         }),
     });
+    begin(parent, handle, cx);
+    Some(body)
+}
+
+/// A sheet is down already: it keeps the keyboard (brought forward), and
+/// another may not open.
+pub fn refuse_another(cx: &mut App) -> bool {
+    let Some((handle, _)) = cx.default_global::<OpenSheet>().current.clone() else {
+        return false;
+    };
+    cx.defer(move |cx| {
+        let _ = handle.update(cx, |_, window, _| window.activate_window());
+    });
+    true
+}
+
+/// Records `handle` (whose view is `body`) as the sheet down now, for a
+/// sheet opened outside [`open`].
+pub fn adopt(handle: AnyWindowHandle, body: AnyEntity, cx: &mut App) {
+    let open = cx.default_global::<OpenSheet>();
+    open.current = Some((handle, body));
+    open.after = None;
+    open.unsaved = None;
+}
+
+/// Hangs the sheet window `handle` from `parent` with `beginSheet:`, once
+/// `parent` has no other sheet sliding away.
+pub fn begin(parent: &Window, handle: AnyWindowHandle, cx: &mut App) {
     #[cfg(target_os = "macos")]
     {
         let parent = crate::shell::macos::ns_window(parent);
@@ -193,14 +221,38 @@ pub fn open<V: SheetBody>(
         }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = parent;
-    Some(body)
+    let _ = (parent, handle, cx);
+}
+
+/// Forgets `handle` as the sheet down now, when it is: it is being ended
+/// some other way ([`crate::views::settings::end_sheet_window`]), and what
+/// was to run after it does not.
+pub fn forget(handle: AnyWindowHandle, cx: &mut App) {
+    let current = cx
+        .try_global::<OpenSheet>()
+        .and_then(|o| o.current.as_ref().map(|(h, _)| *h));
+    if current == Some(handle) {
+        let open = cx.global_mut::<OpenSheet>();
+        open.current = None;
+        open.after = None;
+        open.unsaved = None;
+    }
+}
+
+/// Runs `then` once the sheet down now has been dismissed (saved or
+/// cancelled), not when the app quits: Share Chat comes back after Who Has
+/// Access, as the phone's share flow returns to its sheet.
+pub fn after_dismiss(cx: &mut App, then: impl FnOnce(&mut App) + 'static) {
+    let open = cx.default_global::<OpenSheet>();
+    if open.current.is_some() {
+        open.after = Some(Box::new(then));
+    }
 }
 
 /// The body of the sheet down now, when it is a `V`.
 pub fn current<V: 'static>(cx: &App) -> Option<Entity<V>> {
     cx.try_global::<OpenSheet>()?
-        .0
+        .current
         .as_ref()?
         .1
         .clone()
@@ -210,19 +262,23 @@ pub fn current<V: 'static>(cx: &App) -> Option<Entity<V>> {
 
 /// The window of the sheet down now.
 pub fn current_window(cx: &App) -> Option<AnyWindowHandle> {
-    cx.try_global::<OpenSheet>()?.0.as_ref().map(|(h, _)| *h)
+    cx.try_global::<OpenSheet>()?
+        .current
+        .as_ref()
+        .map(|(h, _)| *h)
 }
 
 /// Whether the sheet down now holds edits not saved yet.
 pub fn has_unsaved(cx: &App) -> bool {
-    cx.try_global::<OpenUnsaved>()
-        .and_then(|s| s.0.clone())
+    cx.try_global::<OpenSheet>()
+        .and_then(|s| s.unsaved.clone())
         .is_some_and(|unsaved| (unsaved.edits)(cx))
 }
 
 /// Whether a sheet is down on the main window.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<OpenSheet>().is_some_and(|s| s.0.is_some())
+    cx.try_global::<OpenSheet>()
+        .is_some_and(|s| s.current.is_some())
 }
 
 /// Quits the app, first ending a sheet that is down (AppKit keeps a
@@ -235,11 +291,12 @@ pub fn quit(cx: &mut App) {
     // Unsaved edits: the sheet comes forward and asks, as Esc does; Quit
     // again once it has gone.
     if has_unsaved(cx) {
-        if let Some(unsaved) = cx.try_global::<OpenUnsaved>().and_then(|s| s.0.clone()) {
+        if let Some(unsaved) = cx.try_global::<OpenSheet>().and_then(|s| s.unsaved.clone()) {
             cx.defer(move |cx| (unsaved.ask)(cx));
         }
         return;
     }
+    cx.default_global::<OpenSheet>().after = None;
     dismiss(cx);
     cx.spawn(async move |cx| {
         cx.background_executor()
@@ -253,7 +310,7 @@ pub fn quit(cx: &mut App) {
 /// Closes the sheet whose body `cx` is once another account is active (a
 /// switch in Settings, which has its own window): what it shows and would
 /// save belongs to the account it opened for, never to the next one. Edits
-/// go with it.
+/// go with it, and nothing it was to reopen ([`after_dismiss`]) opens.
 pub fn close_with_account<V: SheetBody>(
     stores: &crate::stores::Stores,
     cx: &mut Context<V>,
@@ -268,6 +325,7 @@ pub fn close_with_account<V: SheetBody>(
             return;
         }
         if current::<V>(cx).is_some_and(|body| body == cx.entity()) {
+            cx.default_global::<OpenSheet>().after = None;
             dismiss(cx);
         }
     })
@@ -275,13 +333,18 @@ pub fn close_with_account<V: SheetBody>(
 
 /// Closes the sheet down now (it slides up), from its body or anywhere.
 pub fn dismiss(cx: &mut App) {
-    let Some((handle, _)) = cx.default_global::<OpenSheet>().0.take() else {
+    let open = cx.default_global::<OpenSheet>();
+    let Some((handle, _)) = open.current.take() else {
         return;
     };
-    cx.default_global::<OpenUnsaved>().0 = None;
+    open.unsaved = None;
+    let after = open.after.take();
     // The main window takes the keyboard back as AppKit ends the sheet, its
     // focus where it was.
     crate::views::settings::end_sheet_window(handle, cx);
+    if let Some(after) = after {
+        cx.defer(after);
+    }
 }
 
 impl<V: SheetBody> Focusable for SheetHost<V> {

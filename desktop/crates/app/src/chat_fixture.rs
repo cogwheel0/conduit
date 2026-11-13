@@ -183,7 +183,7 @@ fn chat_value() -> Value {
             },
             messages,
             system_prompt: None,
-            tasks: Default::default(),
+            tasks: vec![],
         }),
     })
     .unwrap()

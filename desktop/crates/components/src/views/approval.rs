@@ -63,6 +63,20 @@ pub enum ApprovalKind {
         caption: SharedString,
         code: SharedString,
     },
+    /// A question with choices (Open WebUI's `ask_user`): pick one, or
+    /// answer in your own words in `other`.
+    Question {
+        /// The question itself, over the choices.
+        question: SharedString,
+        options: Vec<SelectOption>,
+        /// The choice picked; none while nothing is, or while the own
+        /// words are.
+        selected: Option<usize>,
+        /// The own-words field, when the question takes one, and its label.
+        other: Option<(Entity<InputState>, SharedString)>,
+        /// The own words are the answer.
+        other_selected: bool,
+    },
 }
 
 /// One button of a card.
@@ -352,6 +366,172 @@ impl RenderOnce for ApprovalCard {
                     ],
                 )
             }
+            ApprovalKind::Question {
+                question,
+                options,
+                selected,
+                other,
+                other_selected,
+            } => {
+                let count = options.len() + usize::from(other.is_some());
+                let group_id = ElementId::Name(format!("approval-question-{id}").into());
+                let focus = full_keyboard_access(cx)
+                    .then(|| control_focus_handle(&group_id, window, cx).tab_stop(true));
+                let focused = focus.as_ref().is_some_and(|f| f.is_focused(window));
+                // The arrows walk the choices; the own-words field is the
+                // last stop of the group.
+                let current = if *other_selected {
+                    options.len()
+                } else {
+                    selected.unwrap_or(0)
+                };
+                let keys = radio_keys(current, count, on_option.clone());
+                let row = |i: usize,
+                           on: bool,
+                           label: SharedString,
+                           detail: Option<SharedString>,
+                           extra: Option<AnyElement>| {
+                    div()
+                        .id(ElementId::Name(format!("approval-choice-{id}-{i}").into()))
+                        .role(Role::RadioButton)
+                        .aria_label(match &detail {
+                            Some(d) => SharedString::from(format!("{label}. {d}")),
+                            None => label.clone(),
+                        })
+                        .aria_selected(on)
+                        .aria_position_in_set(i + 1)
+                        .aria_size_of_set(count)
+                        .when(on && focused, |d| d.aria_active_descendant())
+                        .min_h(px(m.row_height + 10.))
+                        .px(px(10.))
+                        .py(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .rounded(px(8.))
+                        .when(on, |d| d.bg(r.selected))
+                        .when(!on, |d| d.hover(|s| s.bg(r.hover)))
+                        .cursor_pointer()
+                        .relative()
+                        .when(on && focused, |d| {
+                            d.child(ring_overlay(Ring::Inset(8.), &t))
+                        })
+                        .child(radio_dot(on, &t))
+                        .child(match extra {
+                            Some(field) => field,
+                            None => div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(m.control))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(r.text)
+                                        .child(label.clone()),
+                                )
+                                .when_some(detail.clone(), |d, s| {
+                                    d.child(
+                                        div()
+                                            .text_size(px(m.small))
+                                            .text_color(r.text_subtle)
+                                            .child(s),
+                                    )
+                                })
+                                .into_any_element(),
+                        })
+                        .on_click({
+                            let handler = on_option.clone();
+                            move |_, window, cx| {
+                                if let Some(h) = &handler {
+                                    h(i, window, cx)
+                                }
+                            }
+                        })
+                };
+                let mut rows: Vec<AnyElement> = options
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| {
+                        row(
+                            i,
+                            !*other_selected && *selected == Some(i),
+                            o.label.clone(),
+                            o.detail.clone(),
+                            None,
+                        )
+                        .on_any_mouse_down(|_, window, _| window.prevent_default())
+                        .into_any_element()
+                    })
+                    .collect();
+                if let Some((state, label)) = other {
+                    let field = field_frame(false, m.control_height + 4., cx)
+                        .flex_1()
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(bare_input(state, label.clone(), m.control)),
+                        )
+                        .into_any_element();
+                    rows.push(
+                        row(
+                            options.len(),
+                            *other_selected,
+                            label.clone(),
+                            None,
+                            Some(field),
+                        )
+                        .into_any_element(),
+                    );
+                }
+                (
+                    IconName::MessageSquare,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .when(!question.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(m.control))
+                                    .line_height(relative(1.4))
+                                    .text_color(r.text)
+                                    .child(question.clone()),
+                            )
+                        })
+                        .child(
+                            div()
+                                .id(group_id)
+                                .role(Role::RadioGroup)
+                                .aria_label(question.clone())
+                                .when_some(focus, |d, focus| {
+                                    d.track_focus(&focus).on_key_down(keys)
+                                })
+                                .max_h(px(320.))
+                                .overflow_y_scroll()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .children(rows),
+                        )
+                        .into_any_element(),
+                    vec![
+                        Button::new(
+                            ElementId::Name(format!("cancel-{id}").into()),
+                            st.cancel.clone(),
+                        )
+                        .shortcut(DENY_KEYS)
+                        .into_any_element(),
+                        Button::new(
+                            ElementId::Name(format!("submit-{id}").into()),
+                            st.submit.clone(),
+                        )
+                        .primary()
+                        .shortcut(ALLOW_KEYS)
+                        .into_any_element(),
+                    ],
+                )
+            }
             ApprovalKind::Message => (
                 IconName::ShieldAlert,
                 div().into_any_element(),
@@ -453,7 +633,13 @@ impl RenderOnce for ApprovalCard {
             Some(actions) => render_actions(actions),
             None => buttons,
         };
-        let has_body = !matches!(self.kind, ApprovalKind::Message);
+        // A tool called with no arguments has no input to show: no caption
+        // over an empty box.
+        let has_body = match &self.kind {
+            ApprovalKind::Message => false,
+            ApprovalKind::Code { code, .. } => !code.is_empty(),
+            _ => true,
+        };
         // Docked on the composer, it is drawn as the composer is: the same
         // fill, outline, corner radius and shadow (and, docked, its width),
         // so the two read as one stack. The request's glyph is neutral, as
@@ -499,13 +685,15 @@ impl RenderOnce for ApprovalCard {
                                     .text_color(r.text)
                                     .child(self.title.clone()),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(m.small))
-                                    .line_height(relative(1.4))
-                                    .text_color(r.text_subtle)
-                                    .child(self.detail.clone()),
-                            ),
+                            .when(!self.detail.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .text_size(px(m.small))
+                                        .line_height(relative(1.4))
+                                        .text_color(r.text_subtle)
+                                        .child(self.detail.clone()),
+                                )
+                            }),
                     )
                     .child(
                         div()

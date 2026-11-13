@@ -207,6 +207,51 @@ pub fn staged_path(staging: &Path, file: &FileRef, name: &str) -> PathBuf {
         .join(safe_name(name))
 }
 
+/// Downloads `file` into the staging directory (the image viewer's Share
+/// and Save…, a video to play). Resolves with where it was saved; a file
+/// already staged is not fetched again.
+pub fn stage_file(file: FileRef, name: &str, cx: &mut App) -> Task<Result<PathBuf, String>> {
+    let access = cx.try_global::<FileAccess>().cloned().unwrap_or_default();
+    let (Some(http), Some(staging)) = (access.http, access.staging) else {
+        return Task::ready(Err("the daemon is not running".into()));
+    };
+    let path = staged_path(&staging, &file, name);
+    cx.spawn(async move |cx| {
+        if path.is_file() {
+            return Ok(path);
+        }
+        let (bytes, _) = fetch(http, file).await?;
+        let target = path.clone();
+        cx.background_executor()
+            .spawn(async move {
+                if let Some(dir) = target.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(&target, bytes).map_err(|e| e.to_string())
+            })
+            .await?;
+        Ok(path)
+    })
+}
+
+/// Writes `bytes` (an image an answer carried inline) into the staging
+/// directory as `name`, for Share and Save…
+pub fn stage_bytes(bytes: Vec<u8>, key: &str, name: &str, cx: &App) -> Result<PathBuf, String> {
+    let staging = cx
+        .try_global::<FileAccess>()
+        .and_then(|a| a.staging.clone())
+        .unwrap_or_else(std::env::temp_dir);
+    let path = staging
+        .join("open")
+        .join(safe_name(key))
+        .join(safe_name(name));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 /// Downloads `file` into the staging directory and opens it. Resolves with
 /// where it was saved.
 pub fn open_attachment(
