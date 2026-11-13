@@ -1,3 +1,6 @@
 {
-  "channelId": "c1"
+  "channelId": "c1",
+  "upserts": [],
+  "removed": [],
+  "full": false
 }

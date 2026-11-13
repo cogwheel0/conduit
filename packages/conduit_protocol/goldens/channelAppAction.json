@@ -1,0 +1,6 @@
+{
+  "channelId": "c1",
+  "messageId": "m3",
+  "actionId": "approve",
+  "parentId": "m1"
+}

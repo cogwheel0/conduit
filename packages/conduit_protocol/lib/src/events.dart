@@ -41,6 +41,14 @@ abstract final class ConduitEvents {
   /// unread count. No payload.
   static const String channelsChanged = 'channels.changed';
 
+  /// An app answered the user alone, under one of a channel's messages.
+  /// Payload [ChannelAppReplyEvent], scoped to `channel:<id>`.
+  static const String channelsAppReply = 'channels.appReply';
+
+  /// Someone else posted in a channel that is not in front of the user.
+  /// Payload [ChannelPosted], unscoped (for notifications).
+  static const String channelsPosted = 'channels.posted';
+
   static const String syncStatus = 'sync.status';
 
   /// The realtime socket's health changed (connected, transport, latency,
@@ -156,6 +164,8 @@ abstract final class ConduitEvents {
     channelsMessage,
     channelsTyping,
     channelsChanged,
+    channelsAppReply,
+    channelsPosted,
     syncStatus,
     socketHealth,
     notifyShow,

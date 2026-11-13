@@ -1,0 +1,25 @@
+{
+  "channelId": "c1",
+  "parentId": "m1",
+  "upserts": [
+    {
+      "id": "m4",
+      "channelId": "c1",
+      "content": "",
+      "pinned": false,
+      "replyCount": 0,
+      "createdAtMs": 2,
+      "reactions": [],
+      "mine": false,
+      "senderKey": "",
+      "senderKind": "user",
+      "display": "",
+      "files": []
+    }
+  ],
+  "removed": [
+    "m2"
+  ],
+  "full": false,
+  "hasOlder": false
+}

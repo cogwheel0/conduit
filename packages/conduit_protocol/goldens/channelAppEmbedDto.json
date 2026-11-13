@@ -1,0 +1,15 @@
+{
+  "title": "Build 42",
+  "description": "All checks passed",
+  "url": "https://example.com/builds/42",
+  "color": 3066993,
+  "authorName": "Builder",
+  "footerText": "Today",
+  "fields": [
+    {
+      "name": "Status",
+      "value": "Green",
+      "inline": true
+    }
+  ]
+}
