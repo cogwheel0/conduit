@@ -2,6 +2,7 @@ import 'access.dart';
 import 'accounts.dart';
 import 'auth.dart';
 import 'capabilities.dart';
+import 'chat_prompts.dart';
 import 'channels.dart';
 import 'chat_settings.dart';
 import 'chats.dart';
@@ -13,6 +14,7 @@ import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
 import 'mcp.dart';
+import 'mcp_apps.dart';
 import 'memories.dart';
 import 'messages.dart';
 import 'methods.dart';
@@ -954,6 +956,60 @@ abstract final class ConduitMethodSpecs {
         params: HandoffAnswer.fromJson,
         result: HandoffAnswered.fromJson,
       );
+  static const turnsRetryQueued = ConduitMethodSpec<QueuedTurnRef, OkResult>(
+    ConduitMethods.turnsRetryQueued,
+    params: QueuedTurnRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const turnsRemoveQueued = ConduitMethodSpec<QueuedTurnRef, OkResult>(
+    ConduitMethods.turnsRemoveQueued,
+    params: QueuedTurnRef.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  // chatPrompts.*
+
+  static const chatPromptsGet =
+      ConduitMethodSpec<ChatPromptRef, ChatPromptState>(
+        ConduitMethods.chatPromptsGet,
+        params: ChatPromptRef.fromJson,
+        result: ChatPromptState.fromJson,
+      );
+  static const chatPromptsAnswer =
+      ConduitMethodSpec<ChatPromptAnswer, AcceptedResult>(
+        ConduitMethods.chatPromptsAnswer,
+        params: ChatPromptAnswer.fromJson,
+        result: AcceptedResult.fromJson,
+      );
+  static const chatPromptsDecide =
+      ConduitMethodSpec<ChatPromptDecision, AcceptedResult>(
+        ConduitMethods.chatPromptsDecide,
+        params: ChatPromptDecision.fromJson,
+        result: AcceptedResult.fromJson,
+      );
+
+  // mcpApps.*
+
+  static const mcpAppsOpen = ConduitMethodSpec<McpAppOpen, McpAppSession>(
+    ConduitMethods.mcpAppsOpen,
+    params: McpAppOpen.fromJson,
+    result: McpAppSession.fromJson,
+  );
+  static const mcpAppsMessage = ConduitMethodSpec<McpAppMessage, OkResult>(
+    ConduitMethods.mcpAppsMessage,
+    params: McpAppMessage.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const mcpAppsContext = ConduitMethodSpec<McpAppContext, OkResult>(
+    ConduitMethods.mcpAppsContext,
+    params: McpAppContext.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const mcpAppsClose = ConduitMethodSpec<McpAppRef, OkResult>(
+    ConduitMethods.mcpAppsClose,
+    params: McpAppRef.fromJson,
+    result: OkResult.fromJson,
+  );
 
   // notes.*
 
@@ -1548,6 +1604,15 @@ abstract final class ConduitMethodSpecs {
         turnsRate,
         turnsMerge,
         handoffAnswer,
+        turnsRetryQueued,
+        turnsRemoveQueued,
+        chatPromptsGet,
+        chatPromptsAnswer,
+        chatPromptsDecide,
+        mcpAppsOpen,
+        mcpAppsMessage,
+        mcpAppsContext,
+        mcpAppsClose,
         notesList,
         notesGet,
         notesSave,
@@ -1796,6 +1861,18 @@ abstract final class ConduitEventSpecs {
     scoped: false,
   );
 
+  static const chatPromptsChanged = ConduitEventSpec<ChatPromptState>(
+    ConduitEvents.chatPromptsChanged,
+    payload: ChatPromptState.fromJson,
+    scoped: true,
+  );
+
+  static const mcpAppsEvent = ConduitEventSpec<McpAppEvent>(
+    ConduitEvents.mcpAppsEvent,
+    payload: McpAppEvent.fromJson,
+    scoped: true,
+  );
+
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
       <ConduitEventSpec<Object?>>[
@@ -1829,6 +1906,8 @@ abstract final class ConduitEventSpecs {
         messagesMerge,
         handoffRequested,
         handoffSettled,
+        chatPromptsChanged,
+        mcpAppsEvent,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

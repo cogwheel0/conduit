@@ -1,0 +1,16 @@
+{
+  "id": "call_b1",
+  "name": "tide_board",
+  "arguments": "{}",
+  "result": "Shown",
+  "done": true,
+  "pending": false,
+  "isError": false,
+  "shownEmbeds": [
+    {
+      "kind": "html",
+      "source": "<p>Board</p>",
+      "argsText": "{}"
+    }
+  ]
+}

@@ -15,5 +15,6 @@
   "allowGroups": true,
   "allowWrite": true,
   "allowPublic": true,
+  "allowOpen": false,
   "ownerName": "Ada Example"
 }

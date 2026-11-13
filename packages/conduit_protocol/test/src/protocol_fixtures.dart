@@ -362,6 +362,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       ),
       MessageBlockDto(kind: MessageBlockKind.text, markdown: 'The outbox'),
     ],
+    tasks: <ChatTaskDto>[ChatTaskDto(id: '1', content: 'Read the DAO')],
   ),
   'turnFinished': const TurnFinished(
     chatId: 'chat-7c1f0b2a',
@@ -401,6 +402,15 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     label: 'dart.dev',
     url: 'https://dart.dev/overview',
     snippet: 'Dart is a client-optimized language',
+    inlineLabel: 'dart.dev',
+    inlineTitle: 'Dart overview',
+  ),
+  'chatSourceFile': const ChatSourceDto(
+    label: 'tide-notes.pdf',
+    snippet: 'Spring tides follow a full moon.',
+    inlineLabel: 'tide-notes.pdf',
+    inlineTitle: 'tide-notes.pdf',
+    type: 'file',
   ),
   'directConnectionSummary': const DirectConnectionSummary(
     id: 'openrouter',
@@ -1622,6 +1632,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
     usage: ChatUsageDto(generationTokens: 7, totalSeconds: 0.5),
     rating: 1,
+    queued: QueuedCompletionDto(offline: true),
     blocks: <MessageBlockDto>[
       MessageBlockDto(
         kind: MessageBlockKind.text,
@@ -1653,6 +1664,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
         content: 'How does the outbox order writes?',
         timestampMs: 1758412700000,
       ),
+    ],
+    tasks: <ChatTaskDto>[
+      ChatTaskDto(id: '1', content: 'Read the DAO', status: 'completed'),
+      ChatTaskDto(id: '2', content: 'Draw the order', status: 'in_progress'),
     ],
   ),
   'chatRef': const ChatRef(id: 'chat-7c1f0b2a'),
@@ -1942,6 +1957,156 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     messages: 12,
     index: 1,
   ),
+  'messageBlockAlert': const MessageBlockDto(
+    kind: MessageBlockKind.alert,
+    type: 'warning',
+    markdown: 'Check the **tide table** before you sail.',
+  ),
+  'messageBlockEmbeds': const MessageBlockDto(
+    kind: MessageBlockKind.embeds,
+    embeds: <EmbedDto>[
+      EmbedDto(kind: EmbedKind.html, source: '<h1>Tide board</h1>'),
+      EmbedDto(kind: EmbedKind.url, source: 'https://example.com/tides'),
+      EmbedDto(
+        kind: EmbedKind.mcpApp,
+        app: McpAppDto(
+          serverId: 'harbour',
+          toolName: 'show_tides',
+          binding: 'b1nd1ng',
+        ),
+      ),
+    ],
+  ),
+  'toolCallWithEmbeds': const ToolCallDto(
+    id: 'call_b1',
+    name: 'tide_board',
+    arguments: '{}',
+    result: 'Shown',
+    done: true,
+    shownEmbeds: <EmbedDto>[
+      EmbedDto(kind: EmbedKind.html, source: '<p>Board</p>', argsText: '{}'),
+    ],
+  ),
+  'embed': const EmbedDto(
+    kind: EmbedKind.url,
+    source: 'https://example.com/harbour-cam',
+  ),
+  'queuedCompletion': const QueuedCompletionDto(
+    failed: true,
+    error: 'reasoning_effort is not supported',
+    reasoningEffortRejected: true,
+  ),
+  'chatTask': const ChatTaskDto(
+    id: '3',
+    content: 'Check the harbour',
+    status: 'cancelled',
+  ),
+  'queuedTurnRef': const QueuedTurnRef(
+    chatId: 'chat-7c1f0b2a',
+    messageId: 'msg-assistant-1',
+    withoutReasoningEffort: true,
+  ),
+  'chatPromptOption': const ChatPromptOptionDto(
+    label: 'Morning',
+    description: 'Before the tide turns',
+  ),
+  'chatPromptQuestion': const ChatPromptQuestionDto(
+    id: 'when',
+    header: 'Departure',
+    question: 'When should the boat leave?',
+    options: <ChatPromptOptionDto>[
+      ChatPromptOptionDto(label: 'Morning', description: 'Before the tide'),
+      ChatPromptOptionDto(label: 'Evening', description: 'After the wind'),
+    ],
+    allowOther: false,
+  ),
+  'chatPromptAskUser': const ChatPromptDto(
+    id: 'live:42',
+    chatId: 'chat-7c1f0b2a',
+    kind: ChatPromptKind.askUser,
+    questions: <ChatPromptQuestionDto>[
+      ChatPromptQuestionDto(
+        id: 'when',
+        header: 'Departure',
+        question: 'When should the boat leave?',
+        options: <ChatPromptOptionDto>[
+          ChatPromptOptionDto(label: 'Morning'),
+          ChatPromptOptionDto(label: 'Evening'),
+        ],
+      ),
+    ],
+    expiresAtMs: 1758412920000,
+  ),
+  'chatPromptToolApproval': const ChatPromptDto(
+    id: 'saved:msg-assistant-1:call_a1',
+    chatId: 'chat-7c1f0b2a',
+    kind: ChatPromptKind.toolApproval,
+    title: 'tide_table',
+    message: '{}',
+  ),
+  'chatPromptRef': const ChatPromptRef(chatId: 'chat-7c1f0b2a'),
+  'chatPromptState': const ChatPromptState(
+    chatId: 'chat-7c1f0b2a',
+    prompt: ChatPromptDto(
+      id: 'live:43',
+      chatId: 'chat-7c1f0b2a',
+      kind: ChatPromptKind.confirmation,
+      title: 'Overwrite the plan?',
+      message: 'The agent wants to replace plan.md.',
+    ),
+  ),
+  'chatPromptStateEmpty': const ChatPromptState(chatId: 'chat-7c1f0b2a'),
+  'chatPromptAnswerItem': const ChatPromptAnswerItem(
+    questionId: 'when',
+    optionIndex: 1,
+  ),
+  'chatPromptAnswer': const ChatPromptAnswer(
+    chatId: 'chat-7c1f0b2a',
+    promptId: 'live:42',
+    answers: <ChatPromptAnswerItem>[
+      ChatPromptAnswerItem(questionId: 'when', text: 'At noon'),
+    ],
+  ),
+  'chatPromptDecision': const ChatPromptDecision(
+    chatId: 'chat-7c1f0b2a',
+    promptId: 'saved:msg-assistant-1:call_a1',
+    approved: true,
+  ),
+  'mcpApp': const McpAppDto(
+    serverId: 'harbour',
+    toolName: 'show_tides',
+    binding: 'b1nd1ng',
+  ),
+  'mcpAppOpen': const McpAppOpen(
+    chatId: 'chat-7c1f0b2a',
+    app: McpAppDto(serverId: 'harbour', toolName: 'show_tides', binding: 'b'),
+    theme: 'dark',
+    locale: 'de',
+    width: 640,
+  ),
+  'mcpAppSession': const McpAppSession(
+    appId: 'app-1',
+    document: '<p>Tides</p>',
+    connectDomains: <String>['https://api.example.com'],
+    resourceDomains: <String>['https://cdn.example.com'],
+  ),
+  'mcpAppMessage': const McpAppMessage(appId: 'app-1', payload: '{}'),
+  'mcpAppContext': const McpAppContext(appId: 'app-1', theme: 'light'),
+  'mcpAppRef': const McpAppRef(appId: 'app-1'),
+  'mcpAppEvent': const McpAppEvent(
+    appId: 'app-1',
+    kind: McpAppEventKind.resize,
+    height: 320,
+  ),
+  'uiRequestMcpAppToolCall': const UiRequest(
+    requestId: 'req-mcp-app-1',
+    kind: UiRequestKind.mcpAppToolCall,
+    messageCode: 'mcpApp.toolCall',
+    messageArgs: <String, String>{
+      'serverName': 'harbour',
+      'toolName': 'refresh_tides',
+    },
+  ),
   'connectionHealth': const ConnectionHealth(
     available: true,
     connected: true,
@@ -2087,6 +2252,18 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     canEdit: true,
     allowPublic: true,
     ownerName: 'Ada Example',
+  ),
+  'accessStateChat': const AccessState(
+    kind: AccessResourceKind.chat,
+    id: 'chat-1',
+    grants: <AccessGrantDto>[
+      AccessGrantDto(principalId: 'user-2', name: 'Rowan Vale'),
+    ],
+    audience: AccessAudience.open,
+    canEdit: true,
+    allowWrite: false,
+    allowPublic: true,
+    allowOpen: true,
   ),
   'accessEdit': const AccessEdit(
     kind: AccessResourceKind.folder,
@@ -2758,6 +2935,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'accessRef': AccessRef.fromJson,
       'accessGrantDto': AccessGrantDto.fromJson,
       'accessState': AccessState.fromJson,
+      'accessStateChat': AccessState.fromJson,
       'accessEdit': AccessEdit.fromJson,
       'accessPrincipal': AccessPrincipal.fromJson,
       'accessPrincipalQuery': AccessPrincipalQuery.fromJson,
@@ -2809,6 +2987,32 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'handoffAnswer': HandoffAnswer.fromJson,
       'handoffAnswered': HandoffAnswered.fromJson,
       'handoffSettled': HandoffSettled.fromJson,
+      'chatSourceFile': ChatSourceDto.fromJson,
+      'messageBlockAlert': MessageBlockDto.fromJson,
+      'messageBlockEmbeds': MessageBlockDto.fromJson,
+      'toolCallWithEmbeds': ToolCallDto.fromJson,
+      'embed': EmbedDto.fromJson,
+      'queuedCompletion': QueuedCompletionDto.fromJson,
+      'chatTask': ChatTaskDto.fromJson,
+      'queuedTurnRef': QueuedTurnRef.fromJson,
+      'chatPromptOption': ChatPromptOptionDto.fromJson,
+      'chatPromptQuestion': ChatPromptQuestionDto.fromJson,
+      'chatPromptAskUser': ChatPromptDto.fromJson,
+      'chatPromptToolApproval': ChatPromptDto.fromJson,
+      'chatPromptRef': ChatPromptRef.fromJson,
+      'chatPromptState': ChatPromptState.fromJson,
+      'chatPromptStateEmpty': ChatPromptState.fromJson,
+      'chatPromptAnswerItem': ChatPromptAnswerItem.fromJson,
+      'chatPromptAnswer': ChatPromptAnswer.fromJson,
+      'chatPromptDecision': ChatPromptDecision.fromJson,
+      'mcpApp': McpAppDto.fromJson,
+      'mcpAppOpen': McpAppOpen.fromJson,
+      'mcpAppSession': McpAppSession.fromJson,
+      'mcpAppMessage': McpAppMessage.fromJson,
+      'mcpAppContext': McpAppContext.fromJson,
+      'mcpAppRef': McpAppRef.fromJson,
+      'mcpAppEvent': McpAppEvent.fromJson,
+      'uiRequestMcpAppToolCall': UiRequest.fromJson,
     };
 
 /// Every fixture's `toJson`, so the checker can encode without `dynamic`.

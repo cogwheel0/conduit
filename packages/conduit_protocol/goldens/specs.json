@@ -807,6 +807,51 @@
       "result": "HandoffAnswered"
     },
     {
+      "name": "turns.retryQueued",
+      "params": "QueuedTurnRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "turns.removeQueued",
+      "params": "QueuedTurnRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "chatPrompts.get",
+      "params": "ChatPromptRef",
+      "result": "ChatPromptState"
+    },
+    {
+      "name": "chatPrompts.answer",
+      "params": "ChatPromptAnswer",
+      "result": "AcceptedResult"
+    },
+    {
+      "name": "chatPrompts.decide",
+      "params": "ChatPromptDecision",
+      "result": "AcceptedResult"
+    },
+    {
+      "name": "mcpApps.open",
+      "params": "McpAppOpen",
+      "result": "McpAppSession"
+    },
+    {
+      "name": "mcpApps.message",
+      "params": "McpAppMessage",
+      "result": "OkResult"
+    },
+    {
+      "name": "mcpApps.context",
+      "params": "McpAppContext",
+      "result": "OkResult"
+    },
+    {
+      "name": "mcpApps.close",
+      "params": "McpAppRef",
+      "result": "OkResult"
+    },
+    {
       "name": "notes.list",
       "params": "NoteQuery",
       "result": "NoteList"
@@ -1347,6 +1392,16 @@
       "name": "handoff.settled",
       "payload": "HandoffSettled",
       "scoped": false
+    },
+    {
+      "name": "chatPrompts.changed",
+      "payload": "ChatPromptState",
+      "scoped": true
+    },
+    {
+      "name": "mcpApps.event",
+      "payload": "McpAppEvent",
+      "scoped": true
     }
   ]
 }

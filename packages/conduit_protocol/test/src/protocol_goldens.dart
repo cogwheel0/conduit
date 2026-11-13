@@ -699,6 +699,13 @@ const Map<String, String> protocolGoldens = <String, String>{
       "kind": "text",
       "markdown": "The outbox"
     }
+  ],
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "pending"
+    }
   ]
 }''',
 
@@ -755,7 +762,18 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "label": "dart.dev",
   "url": "https://dart.dev/overview",
-  "snippet": "Dart is a client-optimized language"
+  "snippet": "Dart is a client-optimized language",
+  "inlineLabel": "dart.dev",
+  "inlineTitle": "Dart overview"
+}''',
+
+  'chatSourceFile': r'''
+{
+  "label": "tide-notes.pdf",
+  "snippet": "Spring tides follow a full moon.",
+  "inlineLabel": "tide-notes.pdf",
+  "inlineTitle": "tide-notes.pdf",
+  "type": "file"
 }''',
 
   'directConnectionSummary': r'''
@@ -2761,7 +2779,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "pending": false,
       "status": "completed",
       "isError": false,
-      "files": "[]"
+      "files": "[]",
+      "shownEmbeds": []
     },
     {
       "id": "call_a2",
@@ -2771,7 +2790,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "done": false,
       "pending": true,
       "status": "pending",
-      "isError": false
+      "isError": false,
+      "shownEmbeds": []
     }
   ]
 }''',
@@ -2922,7 +2942,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "done": true,
   "pending": false,
   "status": "failed",
-  "isError": true
+  "isError": true,
+  "shownEmbeds": []
 }''',
 
   'messageStatus': r'''
@@ -3233,7 +3254,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "retryWithoutEffort": false,
   "comparison": [],
   "mergeableIds": [],
-  "siblingIds": []
+  "siblingIds": [],
+  "queued": {
+    "failed": false,
+    "offline": true,
+    "reasoningEffortRejected": false
+  }
 }''',
 
   'chatDetail': r'''
@@ -3279,7 +3305,19 @@ const Map<String, String> protocolGoldens = <String, String>{
     "saveTemporary": false,
     "compare": false
   },
-  "temporary": false
+  "temporary": false,
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "completed"
+    },
+    {
+      "id": "2",
+      "content": "Draw the order",
+      "status": "in_progress"
+    }
+  ]
 }''',
 
   'chatRef': r'''
@@ -3584,7 +3622,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "saveTemporary": false,
       "compare": false
     },
-    "temporary": false
+    "temporary": false,
+    "tasks": []
   }
 }''',
 
@@ -3955,6 +3994,273 @@ const Map<String, String> protocolGoldens = <String, String>{
   "index": 1
 }''',
 
+  'messageBlockAlert': r'''
+{
+  "kind": "alert",
+  "markdown": "Check the **tide table** before you sail.",
+  "type": "warning"
+}''',
+
+  'messageBlockEmbeds': r'''
+{
+  "kind": "embeds",
+  "embeds": [
+    {
+      "kind": "html",
+      "source": "<h1>Tide board</h1>",
+      "argsText": ""
+    },
+    {
+      "kind": "url",
+      "source": "https://example.com/tides",
+      "argsText": ""
+    },
+    {
+      "kind": "mcpApp",
+      "argsText": "",
+      "app": {
+        "serverId": "harbour",
+        "toolName": "show_tides",
+        "binding": "b1nd1ng",
+        "arguments": "{}",
+        "result": "{}"
+      }
+    }
+  ]
+}''',
+
+  'toolCallWithEmbeds': r'''
+{
+  "id": "call_b1",
+  "name": "tide_board",
+  "arguments": "{}",
+  "result": "Shown",
+  "done": true,
+  "pending": false,
+  "isError": false,
+  "shownEmbeds": [
+    {
+      "kind": "html",
+      "source": "<p>Board</p>",
+      "argsText": "{}"
+    }
+  ]
+}''',
+
+  'embed': r'''
+{
+  "kind": "url",
+  "source": "https://example.com/harbour-cam",
+  "argsText": ""
+}''',
+
+  'queuedCompletion': r'''
+{
+  "failed": true,
+  "offline": false,
+  "error": "reasoning_effort is not supported",
+  "reasoningEffortRejected": true
+}''',
+
+  'chatTask': r'''
+{
+  "id": "3",
+  "content": "Check the harbour",
+  "status": "cancelled"
+}''',
+
+  'queuedTurnRef': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "withoutReasoningEffort": true
+}''',
+
+  'chatPromptOption': r'''
+{
+  "label": "Morning",
+  "description": "Before the tide turns"
+}''',
+
+  'chatPromptQuestion': r'''
+{
+  "id": "when",
+  "header": "Departure",
+  "question": "When should the boat leave?",
+  "options": [
+    {
+      "label": "Morning",
+      "description": "Before the tide"
+    },
+    {
+      "label": "Evening",
+      "description": "After the wind"
+    }
+  ],
+  "allowOther": false
+}''',
+
+  'chatPromptAskUser': r'''
+{
+  "id": "live:42",
+  "chatId": "chat-7c1f0b2a",
+  "kind": "askUser",
+  "title": "",
+  "message": "",
+  "questions": [
+    {
+      "id": "when",
+      "header": "Departure",
+      "question": "When should the boat leave?",
+      "options": [
+        {
+          "label": "Morning",
+          "description": ""
+        },
+        {
+          "label": "Evening",
+          "description": ""
+        }
+      ],
+      "allowOther": true
+    }
+  ],
+  "expiresAtMs": 1758412920000
+}''',
+
+  'chatPromptToolApproval': r'''
+{
+  "id": "saved:msg-assistant-1:call_a1",
+  "chatId": "chat-7c1f0b2a",
+  "kind": "toolApproval",
+  "title": "tide_table",
+  "message": "{}",
+  "questions": []
+}''',
+
+  'chatPromptRef': r'''
+{
+  "chatId": "chat-7c1f0b2a"
+}''',
+
+  'chatPromptState': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "prompt": {
+    "id": "live:43",
+    "chatId": "chat-7c1f0b2a",
+    "kind": "confirmation",
+    "title": "Overwrite the plan?",
+    "message": "The agent wants to replace plan.md.",
+    "questions": []
+  }
+}''',
+
+  'chatPromptStateEmpty': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "prompt": null
+}''',
+
+  'chatPromptAnswerItem': r'''
+{
+  "questionId": "when",
+  "optionIndex": 1
+}''',
+
+  'chatPromptAnswer': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "promptId": "live:42",
+  "answers": [
+    {
+      "questionId": "when",
+      "text": "At noon"
+    }
+  ]
+}''',
+
+  'chatPromptDecision': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "promptId": "saved:msg-assistant-1:call_a1",
+  "approved": true
+}''',
+
+  'mcpApp': r'''
+{
+  "serverId": "harbour",
+  "toolName": "show_tides",
+  "binding": "b1nd1ng",
+  "arguments": "{}",
+  "result": "{}"
+}''',
+
+  'mcpAppOpen': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "app": {
+    "serverId": "harbour",
+    "toolName": "show_tides",
+    "binding": "b",
+    "arguments": "{}",
+    "result": "{}"
+  },
+  "theme": "dark",
+  "locale": "de",
+  "width": 640.0
+}''',
+
+  'mcpAppSession': r'''
+{
+  "appId": "app-1",
+  "document": "<p>Tides</p>",
+  "connectDomains": [
+    "https://api.example.com"
+  ],
+  "resourceDomains": [
+    "https://cdn.example.com"
+  ],
+  "frameDomains": []
+}''',
+
+  'mcpAppMessage': r'''
+{
+  "appId": "app-1",
+  "payload": "{}"
+}''',
+
+  'mcpAppContext': r'''
+{
+  "appId": "app-1",
+  "theme": "light"
+}''',
+
+  'mcpAppRef': r'''
+{
+  "appId": "app-1"
+}''',
+
+  'mcpAppEvent': r'''
+{
+  "appId": "app-1",
+  "kind": "resize",
+  "height": 320.0
+}''',
+
+  'uiRequestMcpAppToolCall': r'''
+{
+  "requestId": "req-mcp-app-1",
+  "kind": "mcpAppToolCall",
+  "messageCode": "mcpApp.toolCall",
+  "messageArgs": {
+    "serverName": "harbour",
+    "toolName": "refresh_tides"
+  },
+  "detail": {},
+  "defaultChoice": "deny"
+}''',
+
   'connectionHealth': r'''
 {
   "available": true,
@@ -4225,7 +4531,29 @@ const Map<String, String> protocolGoldens = <String, String>{
   "allowGroups": true,
   "allowWrite": true,
   "allowPublic": true,
+  "allowOpen": false,
   "ownerName": "Ada Example"
+}''',
+
+  'accessStateChat': r'''
+{
+  "kind": "chat",
+  "id": "chat-1",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "user-2",
+      "write": false,
+      "name": "Rowan Vale"
+    }
+  ],
+  "audience": "open",
+  "canEdit": true,
+  "allowUsers": true,
+  "allowGroups": true,
+  "allowWrite": false,
+  "allowPublic": true,
+  "allowOpen": true
 }''',
 
   'accessEdit': r'''
@@ -4628,7 +4956,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "compare": false
   },
   "temporary": false,
-  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f"
+  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "tasks": []
 }''',
 
   'chatCurrentAlternative': r'''
@@ -4739,7 +5068,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "saveTemporary": false,
       "compare": false
     },
-    "temporary": false
+    "temporary": false,
+    "tasks": []
   }
 }''',
 

@@ -26,6 +26,7 @@
       "saveTemporary": false,
       "compare": false
     },
-    "temporary": false
+    "temporary": false,
+    "tasks": []
   }
 }

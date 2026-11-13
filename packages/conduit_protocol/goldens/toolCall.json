@@ -6,5 +6,6 @@
   "done": true,
   "pending": false,
   "status": "failed",
-  "isError": true
+  "isError": true,
+  "shownEmbeds": []
 }

@@ -74,6 +74,18 @@ enum UiRequestKind {
   /// A plain confirm/cancel.
   @JsonValue('confirm')
   confirm,
+
+  /// An MCP App in a chat wants to call one of its server's tools:
+  /// `messageArgs` has `serverName` and `toolName`, `detail.arguments` the
+  /// arguments as pretty-printed JSON. `allow` runs it; anything else
+  /// refuses.
+  @JsonValue('mcpAppToolCall')
+  mcpAppToolCall,
+
+  /// An MCP App in a chat asks to open a web page: `messageArgs.url`.
+  /// `allow` opens it in the browser (the window does, on `openUrl`).
+  @JsonValue('mcpAppOpenLink')
+  mcpAppOpenLink,
 }
 
 /// How an [UiRequestKind.inputPrompt] wants its value entered.

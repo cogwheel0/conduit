@@ -109,6 +109,10 @@ pub struct AccessState {
     /// folder, which has none.
     #[serde(default)]
     pub allow_public: bool,
+    /// "Anyone with the link" may be chosen too: a chat only, when the
+    /// account may share chats openly (`sharing.open_chats`).
+    #[serde(default)]
+    pub allow_open: bool,
     /// Who owns the resource, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_name: Option<String>,
@@ -452,13 +456,15 @@ pub struct ReviewerMode {
 /// mobile app draws them (its `AssistantMessageWidget`, top to bottom):
 ///
 /// 1. `files` -- at most one;
-/// 2. `status` -- at most one;
-/// 3. the content, in the order it was written: `text`, `reasoning`,
-///    `toolCalls`, `codeInterpreter` and `details`, any number of each;
-/// 4. `error` -- at most one;
-/// 5. `codeExecution` -- one per execution;
-/// 6. `sources` -- at most one;
-/// 7. `followUps` -- at most one, only once the answer is finished.
+/// 2. `embeds` -- at most one;
+/// 3. `status` -- at most one;
+/// 4. the content, in the order it was written: `text`, `alert`,
+///    `reasoning`, `toolCalls`, `codeInterpreter` and `details`, any number
+///    of each;
+/// 5. `error` -- at most one;
+/// 6. `codeExecution` -- one per execution;
+/// 7. `sources` -- at most one;
+/// 8. `followUps` -- at most one, only once the answer is finished.
 ///
 /// A kind this build does not know (from a newer daemon) is skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -520,10 +526,56 @@ pub enum MessageBlockKind {
     /// The mobile app offers them under the last answer of a chat only.
     #[serde(rename = "followUps")]
     FollowUps,
+    /// A GitHub-style alert written at the top level of the answer
+    /// (`> [!NOTE]`): its kind in `MessageBlockDto.type` (`note`, `tip`,
+    /// `important`, `warning` or `caution`) and its body in
+    /// `MessageBlockDto.markdown`. Hosts label it in their own words.
+    #[serde(rename = "alert")]
+    Alert,
+    /// Rich content the answer carries: tool-returned HTML, a page to embed,
+    /// or an MCP App (`MessageBlockDto.embeds`). Each loads only when the
+    /// user opens it.
+    #[serde(rename = "embeds")]
+    Embeds,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
     Unknown,
+}
+
+/// What an `EmbedDto` shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EmbedKind {
+    /// Inline HTML (or SVG) a tool returned: `EmbedDto.source`.
+    #[serde(rename = "html")]
+    Html,
+    /// A web page to embed: `EmbedDto.source` is its http(s) address.
+    #[serde(rename = "url")]
+    Url,
+    /// An MCP App: `EmbedDto.app`.
+    #[serde(rename = "mcpApp")]
+    McpApp,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One piece of rich content in an answer or a tool call's result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedDto {
+    pub kind: EmbedKind,
+    /// `EmbedKind.html`: the markup. `EmbedKind.url`: the address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// A tool call's arguments as written, which an HTML embed may read as
+    /// `window.args`; empty for an answer's own embeds.
+    #[serde(default)]
+    pub args_text: String,
+    /// `EmbedKind.mcpApp`: the app, to open with `mcpApps.open`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<McpAppDto>,
 }
 
 /// What a reasoning block's header reads.
@@ -560,7 +612,7 @@ pub enum ReasoningTitle {
 #[serde(rename_all = "camelCase")]
 pub struct MessageBlockDto {
     pub kind: MessageBlockKind,
-    /// `text`: the markdown.
+    /// `text`: the markdown. `alert`: its body, as markdown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub markdown: Option<String>,
     /// `reasoning`, `details`: the `<summary>` text (may be empty).
@@ -616,6 +668,8 @@ pub struct MessageBlockDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     /// `details`: the section's `type` attribute; empty when absent.
+    /// `alert`: its kind (`note`, `tip`, `important`, `warning`,
+    /// `caution`).
     /// `error`: why, when hosts should say something other than `error`:
     /// `directToolsUnsupported` (the model refused tool definitions; advise
     /// turning web search off). Absent otherwise.
@@ -633,6 +687,9 @@ pub struct MessageBlockDto {
     /// `followUps`: the suggestions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_ups: Option<Vec<String>>,
+    /// `embeds`: what the answer carries, in order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embeds: Option<Vec<EmbedDto>>,
 }
 
 /// One tool call in a `toolCalls` block.
@@ -671,6 +728,10 @@ pub struct ToolCallDto {
     /// Embeds the tool returned, as the JSON array Open WebUI wrote.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embeds: Option<String>,
+    /// `embeds`, read: what to show under the call, in order (HTML with
+    /// the call's arguments, a page, or an MCP App).
+    #[serde(default)]
+    pub shown_embeds: Vec<EmbedDto>,
 }
 
 /// One line of a `status` block's timeline.
@@ -1004,6 +1065,145 @@ pub struct ChannelMessagesChanged {
 pub struct ChannelMembers {
     #[serde(default)]
     pub users: Vec<ChannelUser>,
+}
+
+/// What an Open WebUI prompt asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatPromptKind {
+    /// Questions for the user (Open WebUI's `ask_user`, or a coding agent's
+    /// own questions): `ChatPromptDto.questions`, answered with
+    /// `chatPrompts.answer`.
+    #[serde(rename = "askUser")]
+    AskUser,
+    /// A tool wants to run: `ChatPromptDto.title` is the tool's name and
+    /// `ChatPromptDto.message` its arguments, pretty-printed. Answered with
+    /// `chatPrompts.decide`.
+    #[serde(rename = "toolApproval")]
+    ToolApproval,
+    /// The server (or a coding agent) asks for a yes or a no:
+    /// `ChatPromptDto.title` and `ChatPromptDto.message` are its words.
+    /// Answered with `chatPrompts.decide`.
+    #[serde(rename = "confirmation")]
+    Confirmation,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One choice of a `ChatPromptQuestionDto`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptOptionDto {
+    pub label: String,
+    /// What choosing it means; a coding agent's choices can come without
+    /// one.
+    #[serde(default)]
+    pub description: String,
+}
+
+/// One question of an `ChatPromptKind.askUser` prompt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptQuestionDto {
+    /// The key its answer goes under. A coding agent's can be the whole
+    /// question.
+    pub id: String,
+    /// A short title ("Question 1" when the server gave none).
+    pub header: String,
+    pub question: String,
+    /// The choices, the recommended one first; none for a question that
+    /// can only be answered in words.
+    #[serde(default)]
+    pub options: Vec<ChatPromptOptionDto>,
+    /// An answer of the user's own words is accepted.
+    #[serde(default = "default_chat_prompt_question_dto_allow_other")]
+    pub allow_other: bool,
+}
+
+fn default_chat_prompt_question_dto_allow_other() -> bool {
+    true
+}
+
+/// A question or approval Open WebUI is waiting on in a chat: the card
+/// docked above that chat's composer.
+///
+/// Server and agent text is prose as written; the window words the rest.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptDto {
+    /// This prompt; an answer names it, so an answer to one that has gone
+    /// does not count.
+    pub id: String,
+    pub chat_id: String,
+    pub kind: ChatPromptKind,
+    /// `ChatPromptKind.toolApproval`: the tool's name ("Tool" when it has
+    /// none). `ChatPromptKind.confirmation`: the server's title; may be
+    /// empty.
+    #[serde(default)]
+    pub title: String,
+    /// The tool's arguments, or the confirmation's message; may be empty.
+    #[serde(default)]
+    pub message: String,
+    /// `ChatPromptKind.askUser`: the questions, in order.
+    #[serde(default)]
+    pub questions: Vec<ChatPromptQuestionDto>,
+    /// When the server stops waiting (milliseconds since the epoch), for a
+    /// prompt asked over the live connection; null for one saved in the
+    /// chat, which waits until answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<i64>,
+}
+
+/// Params for `chatPrompts.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptRef {
+    pub chat_id: String,
+}
+
+/// Reply to `chatPrompts.get`, and the payload of `chatPrompts.changed`
+/// (scoped to the chat): the prompt waiting in `chatId`, or none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptState {
+    pub chat_id: String,
+    #[serde(default)]
+    pub prompt: Option<ChatPromptDto>,
+}
+
+/// The answer to one question: an option by its index, or the user's own
+/// `text`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptAnswerItem {
+    pub question_id: String,
+    /// The chosen option's index in the question's options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub option_index: Option<i64>,
+    /// The user's own words, when the question accepts them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// Params for `chatPrompts.answer`: every question's answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptAnswer {
+    pub chat_id: String,
+    pub prompt_id: String,
+    #[serde(default)]
+    pub answers: Vec<ChatPromptAnswerItem>,
+}
+
+/// Params for `chatPrompts.decide`: an approval or confirmation answered,
+/// or questions declined (`approved` false).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptDecision {
+    pub chat_id: String,
+    pub prompt_id: String,
+    pub approved: bool,
 }
 
 /// What a chat's More menu offers for its own settings (Open WebUI only).
@@ -1448,6 +1648,11 @@ pub struct ChatMessageDto {
     /// versions.
     #[serde(default)]
     pub sibling_ids: Vec<String>,
+    /// An assistant answer whose request is waiting to go out: sent while
+    /// offline, or retried after failing. Null once it has gone (or for
+    /// any other message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<QueuedCompletionDto>,
 }
 
 /// One model's column of a Compare Models answer.
@@ -1479,6 +1684,19 @@ pub struct ChatSourceDto {
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snippet: Option<String>,
+    /// What an inline citation reads: the source's site, shortened as the
+    /// mobile app shortens it. Absent from older daemons; hosts then use
+    /// the number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_label: Option<String>,
+    /// What an inline citation reads with "show citation titles" on: the
+    /// source's own title where it has one, else `inlineLabel`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_title: Option<String>,
+    /// The kind of source Open WebUI recorded (`file`, `collection`, …),
+    /// shown where there is no address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
 }
 
 /// A file on a message.
@@ -1600,6 +1818,10 @@ pub struct ChatDetail {
     /// The public link's share id, when the chat has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share_id: Option<String>,
+    /// Open WebUI's task checklist for this chat, in order; empty when it
+    /// has none. A running turn sends newer ones with `turn.blocks`.
+    #[serde(default)]
+    pub tasks: Vec<ChatTaskDto>,
 }
 
 /// What one open chat offers right now, from the core's own rules (the
@@ -1642,6 +1864,42 @@ pub struct ChatAbilities {
     /// on, a stored Open WebUI chat).
     #[serde(default)]
     pub compare: bool,
+}
+
+/// What a queued answer is waiting for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedCompletionDto {
+    /// It stopped retrying: only Retry (or Remove) moves it on.
+    #[serde(default)]
+    pub failed: bool,
+    /// It waits for the connection to come back, and goes out on its own
+    /// then.
+    #[serde(default)]
+    pub offline: bool,
+    /// The last failure, in the server's or the core's words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The provider refused the reasoning effort it was sent with: Retry
+    /// Without Reasoning Effort is offered.
+    #[serde(default)]
+    pub reasoning_effort_rejected: bool,
+}
+
+/// One item of Open WebUI's task checklist.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTaskDto {
+    #[serde(default)]
+    pub id: String,
+    pub content: String,
+    /// `pending`, `in_progress`, `completed` or `cancelled`.
+    #[serde(default = "default_chat_task_dto_status")]
+    pub status: String,
+}
+
+fn default_chat_task_dto_status() -> String {
+    "pending".to_owned()
 }
 
 /// One message in a conversation's tree, for the overview.
@@ -3802,6 +4060,143 @@ pub struct CancelledResult {
     pub cancelled: bool,
 }
 
+/// An MCP App a tool call showed in an Open WebUI chat (0.13 and later), as
+/// the server recorded it. Sent back as is to `mcpApps.open`: the server
+/// reads the app again through its app RPC, which accepts only the
+/// `binding` it signed for this server and tool.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppDto {
+    pub server_id: String,
+    pub tool_name: String,
+    pub binding: String,
+    /// The arguments the tool was called with: a JSON object, as text.
+    #[serde(default = "default_mcp_app_dto_arguments")]
+    pub arguments: String,
+    /// The tool's MCP `CallToolResult`: a JSON object, as text.
+    #[serde(default = "default_mcp_app_dto_result")]
+    pub result: String,
+}
+
+fn default_mcp_app_dto_arguments() -> String {
+    "{}".to_owned()
+}
+
+fn default_mcp_app_dto_result() -> String {
+    "{}".to_owned()
+}
+
+/// Params for `mcpApps.open`: run `app` for the chat `chatId`, in a page
+/// `width` points wide.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppOpen {
+    pub chat_id: String,
+    pub app: McpAppDto,
+    /// `light` or `dark`.
+    #[serde(default = "default_mcp_app_open_theme")]
+    pub theme: String,
+    /// A BCP 47 tag, such as `en` or `pt-BR`.
+    #[serde(default = "default_mcp_app_open_locale")]
+    pub locale: String,
+    #[serde(default)]
+    pub width: f64,
+}
+
+fn default_mcp_app_open_theme() -> String {
+    "light".to_owned()
+}
+
+fn default_mcp_app_open_locale() -> String {
+    "en".to_owned()
+}
+
+/// Reply to `mcpApps.open`: the page to load, sealed, and what it may
+/// reach. The page talks to its host with `mcpApps.message`, and hears back
+/// through `mcpApps.event`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppSession {
+    /// This run of the app; every later call and event names it.
+    pub app_id: String,
+    /// The whole page: the server's content security policy and the
+    /// host's tags first, then the app's HTML.
+    pub document: String,
+    /// The origins the app declared, by kind; its policy already holds
+    /// them, these let a host refuse anything else it can see.
+    #[serde(default)]
+    pub connect_domains: Vec<String>,
+    #[serde(default)]
+    pub resource_domains: Vec<String>,
+    #[serde(default)]
+    pub frame_domains: Vec<String>,
+}
+
+/// Params for `mcpApps.message`: one message the page posted to its host
+/// (a JSON-RPC 2.0 object, as text).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppMessage {
+    pub app_id: String,
+    pub payload: String,
+}
+
+/// Params for `mcpApps.context`: what changed about the app's place.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppContext {
+    pub app_id: String,
+    /// `light` or `dark`, when the window's appearance changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// The page's new width in points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+}
+
+/// Params for `mcpApps.close`: the app's view is going.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppRef {
+    pub app_id: String,
+}
+
+/// What an `McpAppEvent` tells the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum McpAppEventKind {
+    /// Deliver `McpAppEvent.message` to the page.
+    #[serde(rename = "deliver")]
+    Deliver,
+    /// The page asked for `McpAppEvent.height` points.
+    #[serde(rename = "resize")]
+    Resize,
+    /// The app finished its handshake: its view can show.
+    #[serde(rename = "started")]
+    Started,
+    /// The host stopped answering the app (it did not start in time, or the
+    /// account changed): show it as closed.
+    #[serde(rename = "closed")]
+    Closed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Payload of `mcpApps.event`, scoped to the app's chat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppEvent {
+    pub app_id: String,
+    pub kind: McpAppEventKind,
+    /// `McpAppEventKind.deliver`: a JSON-RPC 2.0 message, as text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// `McpAppEventKind.resize`: the content's height in points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f64>,
+}
+
 /// One of the account's memories on its Open WebUI server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -5343,6 +5738,16 @@ pub enum UiRequestKind {
     /// A plain confirm/cancel.
     #[serde(rename = "confirm")]
     Confirm,
+    /// An MCP App in a chat wants to call one of its server's tools:
+    /// `messageArgs` has `serverName` and `toolName`, `detail.arguments` the
+    /// arguments as pretty-printed JSON. `allow` runs it; anything else
+    /// refuses.
+    #[serde(rename = "mcpAppToolCall")]
+    McpAppToolCall,
+    /// An MCP App in a chat asks to open a web page: `messageArgs.url`.
+    /// `allow` opens it in the browser (the window does, on `openUrl`).
+    #[serde(rename = "mcpAppOpenLink")]
+    McpAppOpenLink,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -5888,6 +6293,10 @@ pub struct TurnBlocks {
     /// The answer's blocks, in order (see `MessageBlockKind`).
     #[serde(default)]
     pub blocks: Vec<MessageBlockDto>,
+    /// The chat's task checklist as the turn left it (`ChatDetail.tasks`);
+    /// null when the turn has not touched it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<Vec<ChatTaskDto>>,
 }
 
 /// Payload of `turn.finished`: an answer ended, in whichever chat.
@@ -5987,6 +6396,19 @@ pub struct SteerResult {
     /// the text and says so, without sending it again.
     #[serde(default)]
     pub uncertain: bool,
+}
+
+/// Params for `turns.retryQueued` and `turns.removeQueued`: the queued
+/// answer `messageId` in `chatId` (`ChatMessageDto.queued`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedTurnRef {
+    pub chat_id: String,
+    pub message_id: String,
+    /// `turns.retryQueued` only: send it again without the reasoning
+    /// effort the provider refused.
+    #[serde(default)]
+    pub without_reasoning_effort: bool,
 }
 
 /// What a valve set belongs to: a tool, or a function (a filter or the
@@ -9242,6 +9664,119 @@ pub mod methods {
         type Result = super::HandoffAnswered;
     }
 
+    /// Sends a queued answer again now (`QueuedTurnRef`): one waiting for
+    /// the connection, or one that stopped retrying. Optionally without the
+    /// reasoning effort the provider refused.
+    ///
+    /// `turns.retryQueued`: QueuedTurnRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct TurnsRetryQueued;
+
+    impl RpcMethod for TurnsRetryQueued {
+        const NAME: &'static str = "turns.retryQueued";
+        type Params = super::QueuedTurnRef;
+        type Result = super::OkResult;
+    }
+
+    /// Removes a queued answer before it goes out: its request, and the
+    /// empty answer waiting for it.
+    ///
+    /// `turns.removeQueued`: QueuedTurnRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct TurnsRemoveQueued;
+
+    impl RpcMethod for TurnsRemoveQueued {
+        const NAME: &'static str = "turns.removeQueued";
+        type Params = super::QueuedTurnRef;
+        type Result = super::OkResult;
+    }
+
+    /// The prompt waiting in a chat, if any (`ChatPromptState`): asked over
+    /// the live connection, or saved in the chat by the server.
+    ///
+    /// `chatPrompts.get`: ChatPromptRef -> ChatPromptState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatPromptsGet;
+
+    impl RpcMethod for ChatPromptsGet {
+        const NAME: &'static str = "chatPrompts.get";
+        type Params = super::ChatPromptRef;
+        type Result = super::ChatPromptState;
+    }
+
+    /// Answers an `askUser` prompt's questions; the turn goes on.
+    ///
+    /// `chatPrompts.answer`: ChatPromptAnswer -> AcceptedResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatPromptsAnswer;
+
+    impl RpcMethod for ChatPromptsAnswer {
+        const NAME: &'static str = "chatPrompts.answer";
+        type Params = super::ChatPromptAnswer;
+        type Result = super::AcceptedResult;
+    }
+
+    /// Approves or refuses a tool approval or confirmation, or declines an
+    /// `askUser` prompt.
+    ///
+    /// `chatPrompts.decide`: ChatPromptDecision -> AcceptedResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatPromptsDecide;
+
+    impl RpcMethod for ChatPromptsDecide {
+        const NAME: &'static str = "chatPrompts.decide";
+        type Params = super::ChatPromptDecision;
+        type Result = super::AcceptedResult;
+    }
+
+    /// Loads an app's page through the server's app RPC and starts its host.
+    ///
+    /// `mcpApps.open`: McpAppOpen -> McpAppSession.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct McpAppsOpen;
+
+    impl RpcMethod for McpAppsOpen {
+        const NAME: &'static str = "mcpApps.open";
+        type Params = super::McpAppOpen;
+        type Result = super::McpAppSession;
+    }
+
+    /// One message the page posted to its host.
+    ///
+    /// `mcpApps.message`: McpAppMessage -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct McpAppsMessage;
+
+    impl RpcMethod for McpAppsMessage {
+        const NAME: &'static str = "mcpApps.message";
+        type Params = super::McpAppMessage;
+        type Result = super::OkResult;
+    }
+
+    /// The app's place changed: the window's appearance, the page's width.
+    ///
+    /// `mcpApps.context`: McpAppContext -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct McpAppsContext;
+
+    impl RpcMethod for McpAppsContext {
+        const NAME: &'static str = "mcpApps.context";
+        type Params = super::McpAppContext;
+        type Result = super::OkResult;
+    }
+
+    /// The app's view is going: tells the app, then stops its host.
+    ///
+    /// `mcpApps.close`: McpAppRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct McpAppsClose;
+
+    impl RpcMethod for McpAppsClose {
+        const NAME: &'static str = "mcpApps.close";
+        type Params = super::McpAppRef;
+        type Result = super::OkResult;
+    }
+
     /// Every note, or those matching a query; pinned first.
     ///
     /// `notes.list`: NoteQuery -> NoteList.
@@ -10924,6 +11459,51 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HandoffAnswered"),
     },
     MethodSpec {
+        name: "turns.retryQueued",
+        params: Some("QueuedTurnRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "turns.removeQueued",
+        params: Some("QueuedTurnRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "chatPrompts.get",
+        params: Some("ChatPromptRef"),
+        result: Some("ChatPromptState"),
+    },
+    MethodSpec {
+        name: "chatPrompts.answer",
+        params: Some("ChatPromptAnswer"),
+        result: Some("AcceptedResult"),
+    },
+    MethodSpec {
+        name: "chatPrompts.decide",
+        params: Some("ChatPromptDecision"),
+        result: Some("AcceptedResult"),
+    },
+    MethodSpec {
+        name: "mcpApps.open",
+        params: Some("McpAppOpen"),
+        result: Some("McpAppSession"),
+    },
+    MethodSpec {
+        name: "mcpApps.message",
+        params: Some("McpAppMessage"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "mcpApps.context",
+        params: Some("McpAppContext"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "mcpApps.close",
+        params: Some("McpAppRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "notes.list",
         params: Some("NoteQuery"),
         result: Some("NoteList"),
@@ -11401,6 +11981,13 @@ pub mod events {
     /// A `handoff.requested` was answered or ran out of time. Payload
     /// `HandoffSettled`.
     pub const HANDOFF_SETTLED: &str = "handoff.settled";
+    /// The Open WebUI prompt waiting in a chat came or went. Payload
+    /// `ChatPromptState`, scoped to the chat.
+    pub const CHAT_PROMPTS_CHANGED: &str = "chatPrompts.changed";
+    /// An MCP App's host has something for its view: a message for the
+    /// page, a new height, a start or an end. Payload `McpAppEvent`, scoped
+    /// to the app's chat.
+    pub const MCP_APPS_EVENT: &str = "mcpApps.event";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -11555,6 +12142,16 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("HandoffSettled"),
         scoped: false,
     },
+    EventSpec {
+        name: "chatPrompts.changed",
+        payload: Some("ChatPromptState"),
+        scoped: true,
+    },
+    EventSpec {
+        name: "mcpApps.event",
+        payload: Some("McpAppEvent"),
+        scoped: true,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -11699,6 +12296,17 @@ pub enum Event {
     ///
     /// `handoff.settled`.
     HandoffSettled(HandoffSettled),
+    /// The Open WebUI prompt waiting in a chat came or went. Payload
+    /// `ChatPromptState`, scoped to the chat.
+    ///
+    /// `chatPrompts.changed`, scoped.
+    ChatPromptsChanged(ChatPromptState),
+    /// An MCP App's host has something for its view: a message for the
+    /// page, a new height, a start or an end. Payload `McpAppEvent`, scoped
+    /// to the app's chat.
+    ///
+    /// `mcpApps.event`, scoped.
+    McpAppsEvent(McpAppEvent),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -11746,6 +12354,10 @@ impl Event {
             events::MESSAGES_MERGE => Self::MessagesMerge(serde_json::from_value(payload)?),
             events::HANDOFF_REQUESTED => Self::HandoffRequested(serde_json::from_value(payload)?),
             events::HANDOFF_SETTLED => Self::HandoffSettled(serde_json::from_value(payload)?),
+            events::CHAT_PROMPTS_CHANGED => {
+                Self::ChatPromptsChanged(serde_json::from_value(payload)?)
+            }
+            events::MCP_APPS_EVENT => Self::McpAppsEvent(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -11786,6 +12398,8 @@ impl Event {
             Self::MessagesMerge(_) => events::MESSAGES_MERGE,
             Self::HandoffRequested(_) => events::HANDOFF_REQUESTED,
             Self::HandoffSettled(_) => events::HANDOFF_SETTLED,
+            Self::ChatPromptsChanged(_) => events::CHAT_PROMPTS_CHANGED,
+            Self::McpAppsEvent(_) => events::MCP_APPS_EVENT,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -11817,6 +12431,8 @@ impl Event {
             Self::MessagesMerge(payload) => serde_json::to_value(payload),
             Self::HandoffRequested(payload) => serde_json::to_value(payload),
             Self::HandoffSettled(payload) => serde_json::to_value(payload),
+            Self::ChatPromptsChanged(payload) => serde_json::to_value(payload),
+            Self::McpAppsEvent(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -11899,6 +12515,14 @@ pub mod conformance {
         "ChatList",
         "ChatMessageDto",
         "ChatMessageVersionDto",
+        "ChatPromptAnswer",
+        "ChatPromptAnswerItem",
+        "ChatPromptDecision",
+        "ChatPromptDto",
+        "ChatPromptOptionDto",
+        "ChatPromptQuestionDto",
+        "ChatPromptRef",
+        "ChatPromptState",
         "ChatRef",
         "ChatResult",
         "ChatSearchHit",
@@ -11915,6 +12539,7 @@ pub mod conformance {
         "ChatSummary",
         "ChatSystemPrompt",
         "ChatTagEdit",
+        "ChatTaskDto",
         "ChatTree",
         "ChatTreeNode",
         "ChatUsageDto",
@@ -11949,6 +12574,7 @@ pub mod conformance {
         "DraftRef",
         "DraftSave",
         "EditTurn",
+        "EmbedDto",
         "EventEnvelope",
         "EventSubscription",
         "ExportChat",
@@ -11993,6 +12619,13 @@ pub mod conformance {
         "KnowledgeQuery",
         "KnowledgeSummary",
         "MarkUnread",
+        "McpAppContext",
+        "McpAppDto",
+        "McpAppEvent",
+        "McpAppMessage",
+        "McpAppOpen",
+        "McpAppRef",
+        "McpAppSession",
         "McpApprovalSummary",
         "McpContent",
         "McpContentPreview",
@@ -12068,7 +12701,9 @@ pub mod conformance {
         "QueueEdit",
         "QueueSendNowResult",
         "QueueState",
+        "QueuedCompletionDto",
         "QueuedDraftDto",
+        "QueuedTurnRef",
         "QuickPillOption",
         "QuickPillOptions",
         "RateTurn",
@@ -12278,6 +12913,14 @@ pub mod conformance {
             "ChatList" => roundtrip::<super::ChatList>(json),
             "ChatMessageDto" => roundtrip::<super::ChatMessageDto>(json),
             "ChatMessageVersionDto" => roundtrip::<super::ChatMessageVersionDto>(json),
+            "ChatPromptAnswer" => roundtrip::<super::ChatPromptAnswer>(json),
+            "ChatPromptAnswerItem" => roundtrip::<super::ChatPromptAnswerItem>(json),
+            "ChatPromptDecision" => roundtrip::<super::ChatPromptDecision>(json),
+            "ChatPromptDto" => roundtrip::<super::ChatPromptDto>(json),
+            "ChatPromptOptionDto" => roundtrip::<super::ChatPromptOptionDto>(json),
+            "ChatPromptQuestionDto" => roundtrip::<super::ChatPromptQuestionDto>(json),
+            "ChatPromptRef" => roundtrip::<super::ChatPromptRef>(json),
+            "ChatPromptState" => roundtrip::<super::ChatPromptState>(json),
             "ChatRef" => roundtrip::<super::ChatRef>(json),
             "ChatResult" => roundtrip::<super::ChatResult>(json),
             "ChatSearchHit" => roundtrip::<super::ChatSearchHit>(json),
@@ -12294,6 +12937,7 @@ pub mod conformance {
             "ChatSummary" => roundtrip::<super::ChatSummary>(json),
             "ChatSystemPrompt" => roundtrip::<super::ChatSystemPrompt>(json),
             "ChatTagEdit" => roundtrip::<super::ChatTagEdit>(json),
+            "ChatTaskDto" => roundtrip::<super::ChatTaskDto>(json),
             "ChatTree" => roundtrip::<super::ChatTree>(json),
             "ChatTreeNode" => roundtrip::<super::ChatTreeNode>(json),
             "ChatUsageDto" => roundtrip::<super::ChatUsageDto>(json),
@@ -12328,6 +12972,7 @@ pub mod conformance {
             "DraftRef" => roundtrip::<super::DraftRef>(json),
             "DraftSave" => roundtrip::<super::DraftSave>(json),
             "EditTurn" => roundtrip::<super::EditTurn>(json),
+            "EmbedDto" => roundtrip::<super::EmbedDto>(json),
             "EventEnvelope" => roundtrip::<super::EventEnvelope>(json),
             "EventSubscription" => roundtrip::<super::EventSubscription>(json),
             "ExportChat" => roundtrip::<super::ExportChat>(json),
@@ -12372,6 +13017,13 @@ pub mod conformance {
             "KnowledgeQuery" => roundtrip::<super::KnowledgeQuery>(json),
             "KnowledgeSummary" => roundtrip::<super::KnowledgeSummary>(json),
             "MarkUnread" => roundtrip::<super::MarkUnread>(json),
+            "McpAppContext" => roundtrip::<super::McpAppContext>(json),
+            "McpAppDto" => roundtrip::<super::McpAppDto>(json),
+            "McpAppEvent" => roundtrip::<super::McpAppEvent>(json),
+            "McpAppMessage" => roundtrip::<super::McpAppMessage>(json),
+            "McpAppOpen" => roundtrip::<super::McpAppOpen>(json),
+            "McpAppRef" => roundtrip::<super::McpAppRef>(json),
+            "McpAppSession" => roundtrip::<super::McpAppSession>(json),
             "McpApprovalSummary" => roundtrip::<super::McpApprovalSummary>(json),
             "McpContent" => roundtrip::<super::McpContent>(json),
             "McpContentPreview" => roundtrip::<super::McpContentPreview>(json),
@@ -12447,7 +13099,9 @@ pub mod conformance {
             "QueueEdit" => roundtrip::<super::QueueEdit>(json),
             "QueueSendNowResult" => roundtrip::<super::QueueSendNowResult>(json),
             "QueueState" => roundtrip::<super::QueueState>(json),
+            "QueuedCompletionDto" => roundtrip::<super::QueuedCompletionDto>(json),
             "QueuedDraftDto" => roundtrip::<super::QueuedDraftDto>(json),
+            "QueuedTurnRef" => roundtrip::<super::QueuedTurnRef>(json),
             "QuickPillOption" => roundtrip::<super::QuickPillOption>(json),
             "QuickPillOptions" => roundtrip::<super::QuickPillOptions>(json),
             "RateTurn" => roundtrip::<super::RateTurn>(json),
