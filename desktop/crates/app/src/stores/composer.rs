@@ -1865,6 +1865,10 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("k", "Kestrel"), model("b", "B")],
             selected_id: None,
+            featured_ids: Default::default(),
+            more_sections: Default::default(),
+            can_pin: false,
+            default_id: None,
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
         let store = store(&daemon, Arc::default(), cx);
@@ -1877,6 +1881,10 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("b", "B")],
             selected_id: Some("gone".into()),
+            featured_ids: Default::default(),
+            more_sections: Default::default(),
+            can_pin: false,
+            default_id: None,
         });
         store.update(cx, |s, cx| s.refresh_models(cx));
         cx.run_until_parked();
@@ -1891,6 +1899,10 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("a", "A")],
             selected_id: Some("a".into()),
+            featured_ids: Default::default(),
+            more_sections: Default::default(),
+            can_pin: false,
+            default_id: None,
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
         let store = store(&daemon, Arc::default(), cx);
@@ -1938,6 +1950,10 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("a", "A"), model("b", "B")],
             selected_id: Some("a".into()),
+            featured_ids: Default::default(),
+            more_sections: Default::default(),
+            can_pin: false,
+            default_id: None,
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions {
             web_search: true,
@@ -1952,6 +1968,10 @@ mod tests {
         daemon.returns::<methods::ModelsSelect>(ModelList {
             models: vec![model("a", "A"), model("b", "B")],
             selected_id: Some("b".into()),
+            featured_ids: Default::default(),
+            more_sections: Default::default(),
+            can_pin: false,
+            default_id: None,
         });
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| s.refresh_models(cx));

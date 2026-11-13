@@ -317,6 +317,21 @@ final class TurnsService {
             ? request.temporary
             : temporary.contains(request.chatId!),
       );
+      if (request.chatId == null) {
+        // A new chat: made in its folder ("New Chat in Folder"), so the
+        // folder's prompt and knowledge apply from the first answer, and
+        // with the settings its window kept for it (`chatSettings.*`).
+        final folderId = request.folderId;
+        if (folderId != null && folderId.isNotEmpty) {
+          scope.read(pendingFolderIdProvider.notifier).set(folderId);
+        }
+        final params = request.chatParams;
+        if (params != null && params.isNotEmpty) {
+          scope
+              .read(pendingOpenWebUiChatSettingsProvider.notifier)
+              .replace(params);
+        }
+      }
       // Knowledge bases chosen with `#`: the composer's context attachments,
       // which the core sends as Open WebUI's own client does.
       final knowledge = <ChatContextAttachment>[
@@ -1875,6 +1890,20 @@ final class TurnsService {
     if (temporary != null) {
       scope.read(temporaryChatEnabledProvider.notifier).set(temporary);
     }
+    // Hermes' Fast tier, as the window's picker last set it
+    // (`models.setFastTier`): the scope's own resets with its model.
+    scope
+        .read(hermesFastTierSelectionProvider.notifier)
+        .set(_container.read(hermesFastTierSelectionProvider));
+  }
+
+  /// The container [chatId]'s live scope runs in, or null when the chat has
+  /// none open: `chatSettings.*` saves there, so the open chat follows.
+  ProviderContainer? scopeOf(String chatId) {
+    final session = _sessionOf(chatId);
+    return session == null || session.scope.isDisposed
+        ? null
+        : session.scope.container;
   }
 
   /// The model a turn runs with.

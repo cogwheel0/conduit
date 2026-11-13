@@ -28,8 +28,11 @@ Open WebUI's background tasks (title, tags, follow-ups) get JSON answers,
 and a note sent as `<notes>...</notes>` comes back as a markdown list.
 `/audio/transcriptions` answers with a fixed sentence and `/audio/speech`
 with a tenth of a second of silence (WAV), for the server's speech
-features. Every answer is invented. The log gets each request's roles, tool names and
-whether it streamed, never the message text.
+features. Every answer is invented. The log gets each request's roles, tool names,
+whether it streamed, its system text, its last user text and its generation
+params (temperature, seed, reasoning effort, ...): what a test needs to check
+that a chat's or a folder's settings reached the model. The text is the seed's
+or a test's own, all synthetic.
 """
 
 import argparse
@@ -41,6 +44,9 @@ import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = 'fake-model'
+# Request keys the log keeps: what a chat's settings may send.
+LOGGED_PARAMS = ('temperature', 'top_p', 'top_k', 'min_p', 'max_tokens', 'seed', 'stop',
+                 'frequency_penalty', 'presence_penalty', 'reasoning_effort', 'format')
 REFUSED_MODEL = 'fake-refused'
 REFUSAL = 'fake-refused is not available on this plan (a synthetic refusal).'
 
@@ -276,9 +282,15 @@ class Handler(BaseHTTPRequestHandler):
         tool_names = [((t.get('function') or {}).get('name')) for t in tools]
         stream = bool(body.get('stream'))
         if self.log_path:
+            # The system text and the generation params too, so a test can
+            # check what a chat's or a folder's settings sent.
+            system = [text_of(m) for m in messages if m.get('role') == 'system']
+            users = [text_of(m) for m in messages if m.get('role') == 'user']
+            params = {k: body[k] for k in LOGGED_PARAMS if k in body}
             with open(self.log_path, 'a') as log:
                 log.write(json.dumps({'model': body.get('model'), 'roles': [m.get('role') for m in messages],
-                                      'tools': tool_names, 'stream': stream}) + '\n')
+                                      'tools': tool_names, 'stream': stream, 'system': system,
+                                      'user': users[-1] if users else '', 'params': params}) + '\n')
 
         model = str(body.get('model') or MODEL)
         if model.endswith(REFUSED_MODEL):

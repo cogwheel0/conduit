@@ -41,12 +41,16 @@ import 'settings_service.dart';
 import 'capabilities_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
+import 'valves_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
 import 'core_settings_service.dart';
 import 'data_service.dart';
+import 'access_service.dart';
+import 'chat_settings_service.dart';
+import 'folder_settings_service.dart';
 import 'memories_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
@@ -115,6 +119,10 @@ class DaemonServer {
   CoreSettingsService? _coreSettings;
   ProfileService? _profile;
   MemoriesService? _memories;
+  ChatSettingsService? _chatSettings;
+  ValvesService? _valves;
+  AccessService? _access;
+  FolderSettingsService? _folderSettings;
   ReleaseNotesRpcService? _releaseNotes;
   DataService? _data;
 
@@ -215,6 +223,14 @@ class DaemonServer {
     _memories = MemoriesService(core.container);
     _releaseNotes = ReleaseNotesRpcService(core.container);
     _data = DataService(core.container, events: events);
+    _chatSettings = ChatSettingsService(
+      core.container,
+      scopeOf: (chatId) => _turns?.scopeOf(chatId),
+    );
+    _chats?.chatSettings = _chatSettings;
+    _valves = ValvesService(core.container);
+    _access = AccessService(core.container);
+    _folderSettings = FolderSettingsService(core.container, events: events);
     // Every session reads this, including one that connected before now.
     _coreServices = CoreServices(
       accounts: _accounts,
@@ -241,6 +257,10 @@ class DaemonServer {
       releaseNotes: _releaseNotes,
       data: _data,
       drafts: _drafts,
+      chatSettings: _chatSettings,
+      valves: _valves,
+      access: _access,
+      folderSettings: _folderSettings,
     );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.

@@ -124,6 +124,7 @@ fn folder(id: &str, name: &str, parent: Option<&str>, expanded: bool) -> FolderS
         shared: false,
         owner_name: None,
         can_write: true,
+        icon: None,
     }
 }
 

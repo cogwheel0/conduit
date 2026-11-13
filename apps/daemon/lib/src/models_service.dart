@@ -1,7 +1,24 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show captureOpenWebUiReasoningPickTargetFor, selectReasoningEffortForModel;
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart'
+    show kOllamaAdapterKey;
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directModelRegistryProvider;
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesFastTierSelectionProvider;
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatModelSection;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart'
+    show appSettingsProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
@@ -15,6 +32,9 @@ import 'settled.dart';
 /// reach is retried for much longer than a window should wait for its model
 /// list, so past this the answer is "nothing chosen yet".
 const _defaultModelWait = Duration(seconds: 5);
+
+/// How long `models.list` waits for the account's pins to load.
+const _listSettingsWait = Duration(milliseconds: 1500);
 
 /// The model a turn that names none runs with: the account's selection, or
 /// else its default.
@@ -110,13 +130,226 @@ final class ModelsService {
 
   Future<ModelList> list() async {
     final models = await _models();
-    return ModelList(
+    await _accountSettings(wait: _listSettingsWait);
+    // The model the next turn runs with, not the first in the list: the
+    // composer shows this, and showing a model the next turn would not
+    // actually use is worse than showing none.
+    final selectedId = (await currentModel(_container))?.id;
+    final plain = ModelList(
       models: models.map(_summarize).toList(growable: false),
-      // The model the next turn runs with, not the first in the list: the
-      // composer shows this, and showing a model the next turn would not
-      // actually use is worse than showing none.
-      selectedId: (await currentModel(_container))?.id,
+      selectedId: selectedId,
     );
+    try {
+      return _arranged(models, plain);
+    } on Object catch (error) {
+      // The pins and the default come from the account's settings; a list
+      // without them still lets the user pick.
+      DebugLogger.warning(
+        'models-unarranged',
+        scope: 'daemon/models',
+        data: <String, Object?>{'error': error.runtimeType.toString()},
+      );
+      return plain;
+    }
+  }
+
+  /// [plain] with mobile's picker layout: the pinned models, the default,
+  /// and what goes under "More Models".
+  ModelList _arranged(List<core.Model> models, ModelList plain) {
+    final pinned = _container.read(effectivePinnedModelIdsProvider);
+    final defaultId = _defaultModelId();
+    final layout = buildModelSelectorLayout(
+      models: models,
+      pinnedModelIds: pinned,
+      defaultModelId: defaultId,
+      selectedModelId: plain.selectedId,
+      sectionOf: libreChatModelSection,
+    );
+    final pinnedSet = pinned.toSet();
+    return plain.copyWith(
+      models: <ModelSummary>[
+        for (final model in plain.models)
+          model.copyWith(pinned: pinnedSet.contains(model.id)),
+      ],
+      featuredIds: <String>[for (final model in layout.featured) model.id],
+      moreSections: <ModelSection>[
+        if (layout.more.isNotEmpty)
+          ModelSection(ids: <String>[for (final m in layout.more) m.id]),
+        for (final section in layout.sections)
+          ModelSection(
+            label: section.label,
+            ids: <String>[for (final m in section.models) m.id],
+          ),
+      ],
+      canPin: _container.read(canTogglePinnedModelsProvider),
+      defaultId: defaultId,
+    );
+  }
+
+  /// The account's default model, as mobile's picker marks it.
+  String? _defaultModelId() {
+    final local = _container.read(appSettingsProvider).defaultModel;
+    if (!_container.read(openWebUiAccountAvailableProvider)) return local;
+    return _container
+            .read(personalizationSettingsProvider)
+            .value
+            ?.defaultModelId ??
+        local;
+  }
+
+  /// The account's settings (pins, default model), which the picker reads,
+  /// once they arrive; a server out of reach leaves the device's copy.
+  ///
+  /// The list waits briefly ([_listSettingsWait]), and only while they are
+  /// still loading: offline it must answer with what it has.
+  Future<void> _accountSettings({Duration wait = _defaultModelWait}) async {
+    try {
+      if (_container.read(apiServiceProvider) == null) return;
+      if (!_container.read(personalizationSettingsProvider).isLoading) return;
+      await readSettled(
+        _container,
+        personalizationSettingsProvider.future,
+      ).timeout(wait);
+    } on Object {
+      // The local pins stand in.
+    }
+  }
+
+  /// `models.setPinned`: in the account's settings, as mobile's picker pins.
+  Future<ModelList> setPinned(SetModelPinned request) async {
+    await _accountSettings();
+    final pinned = _container.read(effectivePinnedModelIdsProvider);
+    if (pinned.contains(request.id) != request.pinned) {
+      if (!_container.read(canTogglePinnedModelsProvider)) {
+        throw const RpcError(
+          code: ConduitErrorCodes.unsupported,
+          debugMessage: 'the account settings are not loaded yet',
+        );
+      }
+      await _container
+          .read(personalizationSettingsProvider.notifier)
+          .togglePinnedModel(request.id);
+    }
+    return list();
+  }
+
+  /// `models.options`: reasoning effort (an Ollama model's thinking level)
+  /// and Hermes' Fast tier for one model.
+  Future<ModelOptionsDto> options(ModelOptionsQuery query) async {
+    final model = await _model(query.modelId);
+    return _options(model);
+  }
+
+  /// `models.setReasoningEffort`: the picker's pick, through the core's one
+  /// entry point. For an Open WebUI model the pick is also the chat's saved
+  /// override; a new chat's lands in the window's draft instead, as mobile's
+  /// lands in its pending settings.
+  Future<ModelOptionsDto> setReasoningEffort(SetReasoningEffort request) async {
+    final model = await _model(request.modelId);
+    if (model == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'id': request.modelId},
+        debugMessage: 'this server does not offer ${request.modelId}',
+      );
+    }
+    final String effort;
+    try {
+      effort = normalizeReasoningEffort(request.effort);
+    } on FormatException catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'format'},
+        debugMessage: error.message,
+      );
+    }
+    final chatId = request.chatId;
+    Map<String, dynamic>? draft;
+    try {
+      if (chatId == null) {
+        await setReasoningEffortForModel(_container.read, model, effort);
+        if (_savedOnChat(model)) {
+          draft = <String, dynamic>{
+            ...openWebUiChatParamsFrom(request.draft),
+            kChatParamReasoningEffort: effort == kAutomaticReasoningEffort
+                ? null
+                : effort,
+          };
+        }
+      } else {
+        final conversation = await _conversation(chatId);
+        await selectReasoningEffortForModel(
+          _container,
+          model,
+          effort,
+          target: captureOpenWebUiReasoningPickTargetFor(
+            _container,
+            conversation,
+          ),
+        );
+      }
+    } on FormatException catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'unsupported'},
+        debugMessage: error.message,
+      );
+    }
+    return (await _options(model)).copyWith(draft: draft);
+  }
+
+  /// `models.setFastTier`: Hermes' Fast tier for the next turns, until the
+  /// model changes (the core resets it then, as on mobile). A turn's scope
+  /// takes it when the turn starts.
+  Future<ModelOptionsDto> setFastTier(SetFastTier request) async {
+    final model = await _model(request.modelId);
+    _container.read(hermesFastTierSelectionProvider.notifier).set(request.on);
+    return _options(model);
+  }
+
+  bool _savedOnChat(core.Model model) =>
+      !isHermesModel(model) &&
+      _container.read(directModelRegistryProvider).resolve(model) == null;
+
+  Future<ModelOptionsDto> _options(core.Model? model) async {
+    final read = _container.read;
+    final policy = reasoningEffortPolicyForModel(read, model);
+    final binding = model == null
+        ? null
+        : read(directModelRegistryProvider).resolve(model);
+    final selectedId = (await currentModel(_container))?.id;
+    final offersFast =
+        model != null &&
+        model.metadata?['hermesFast'] == true &&
+        model.id == selectedId;
+    return ModelOptionsDto(
+      modelId: model?.id,
+      reasoning: ReasoningOptions(
+        visible: policy.visible,
+        options: policy.options,
+        allowsCustom: policy.allowsCustom,
+        current: reasoningEffortForModel(read, model),
+        ollama: binding?.adapterKey == kOllamaAdapterKey,
+      ),
+      fastTier: offersFast ? read(hermesFastTierSelectionProvider) : null,
+    );
+  }
+
+  Future<core.Model?> _model(String? id) async {
+    if (id == null) return currentModel(_container);
+    final models = await _models();
+    return models.where((candidate) => candidate.id == id).firstOrNull;
+  }
+
+  Future<Conversation?> _conversation(String chatId) async {
+    try {
+      return await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+    } on Object {
+      return null;
+    }
   }
 
   Future<ModelList> select(String id) async {

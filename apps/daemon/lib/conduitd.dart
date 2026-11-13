@@ -5,11 +5,13 @@
 /// exposes it to the desktop app over a loopback JSON-RPC WebSocket.
 library;
 
+export 'src/access_service.dart';
 export 'src/accounts_service.dart';
 export 'src/auth_service.dart';
 export 'src/bootstrap.dart';
 export 'src/capabilities_service.dart';
 export 'src/channels_service.dart';
+export 'src/chat_settings_service.dart';
 export 'src/chats_service.dart';
 export 'src/composer_service.dart';
 export 'src/prompts_service.dart';
@@ -24,6 +26,7 @@ export 'src/daemon_server.dart';
 export 'src/direct_service.dart';
 export 'src/event_bus.dart';
 export 'src/files_service.dart';
+export 'src/folder_settings_service.dart';
 export 'src/diagnostics.dart';
 export 'src/drafts_service.dart';
 export 'src/composer_wire.dart';
@@ -47,3 +50,4 @@ export 'src/system_service.dart';
 export 'src/temporary_chats.dart';
 export 'src/turns_service.dart';
 export 'src/ui_requests_service.dart';
+export 'src/valves_service.dart';

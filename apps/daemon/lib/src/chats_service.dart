@@ -8,6 +8,9 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
     show currentUserProvider2;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/folder_icons.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show kChatParamSystem;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart'
     show connectivityPortProvider;
@@ -21,6 +24,7 @@ import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'chat_settings_service.dart';
 import 'event_bus.dart';
 import 'message_blocks.dart';
 import 'settled.dart';
@@ -62,6 +66,7 @@ FolderSummary folderSummaryOf(Folder folder) => FolderSummary(
   shared: folder.shared,
   ownerName: folder.shared ? folder.ownerName : null,
   canWrite: folder.canWrite,
+  icon: folderIconOptionForAlias(folder.meta?['icon']?.toString())?.emoji,
 );
 
 /// [rootId] and every folder under it, at any depth: what deleting it
@@ -440,7 +445,12 @@ final class ChatsService {
     final conversation = full ?? summary;
     if (conversation == null) return null;
 
-    final prompt = conversation.systemPrompt?.trim();
+    // The chat's own prompt: `params.system` when set, else the legacy
+    // `chat.system` (what mobile's request sends ahead of the user's own).
+    final saved = conversation.chatParams[kChatParamSystem];
+    final prompt = saved is String && saved.trim().isNotEmpty
+        ? saved.trim()
+        : conversation.systemPrompt?.trim();
     final opened = _summarize(conversation);
     return ChatDetail(
       summary: opened,
@@ -815,13 +825,26 @@ final class ChatsService {
   /// WebUI merges the chat's top-level keys, so sending `system` alone
   /// leaves the transcript as it was.
   Future<ChatDetail?> setSystemPrompt(ChatSystemPrompt request) async {
-    await _api.updateConversation(
-      request.chatId,
-      systemPrompt: request.prompt.trim(),
-    );
-    await _afterEnvelopeChange(request.chatId);
+    final settings = _chatSettings;
+    if (settings == null) {
+      // No settings service (tests): the legacy field, as before.
+      await _api.updateConversation(
+        request.chatId,
+        systemPrompt: request.prompt.trim(),
+      );
+      await _afterEnvelopeChange(request.chatId);
+      return get(request.chatId);
+    }
+    // The chat's own prompt is `params.system`, as mobile's Chat Settings
+    // and Open WebUI's web client save it; the legacy `chat.system` still
+    // reads back when no params prompt is set.
+    await settings.setSystemPrompt(request.chatId, request.prompt);
     return get(request.chatId);
   }
+
+  /// `chats.setSystemPrompt` writes through it once the daemon wires it.
+  ChatSettingsService? _chatSettings;
+  set chatSettings(ChatSettingsService? value) => _chatSettings = value;
 
   // -----------------------------------------------------------------------
   // Folders
