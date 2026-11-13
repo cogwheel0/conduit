@@ -112,6 +112,7 @@ mod sections;
 mod settings;
 mod share;
 pub mod shell;
+mod sign_in;
 mod tasks;
 mod terminal;
 mod voice_call;
@@ -152,8 +153,9 @@ pub struct E2eInputs {
 /// The env file's server addresses: every server a pass signs in to, or
 /// sends credentials, messages or settings to. Each must be this Mac's own
 /// (loopback), or the env file is not used.
-const SERVER_URLS: [&str; 6] = [
+const SERVER_URLS: [&str; 7] = [
     "OWUI_URL",
+    "OWUI_PROXY_URL",
     "LIBRECHAT_URL",
     "HERMES_GATEWAY_URL",
     "HERMES_DESKTOP_URL",
@@ -424,8 +426,20 @@ pub(crate) async fn ax(
             break;
         }
     }
-    let Some(tree) = tree.and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
-        ok(&format!("ax {name}: tree"), false);
+    let parsed = tree.as_deref().map(serde_json::from_str::<Value>);
+    let Some(Ok(tree)) = parsed else {
+        // Say why, and keep what came, for the next look.
+        let why = match &parsed {
+            None => "no tree".to_string(),
+            Some(Err(e)) => e.to_string(),
+            Some(Ok(_)) => String::new(),
+        };
+        if let Some(raw) = &tree {
+            let out = dir.join("ax");
+            std::fs::create_dir_all(&out).ok();
+            std::fs::write(out.join(format!("{name}.raw.json")), raw).ok();
+        }
+        ok(&format!("ax {name}: tree ({why})"), false);
         return vec![];
     };
     let mut controls = vec![];
@@ -810,8 +824,11 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "intents" => intents::run(&inputs, &dir, cx).await,
         "terminal" => terminal::run(&inputs, &dir, cx).await,
         "apple-only" => apple::only(&inputs, &dir, cx).await,
+        "onboarding-apple" => apple::onboarding(&inputs, &dir, cx).await,
         "notifications" => notifications::run(&inputs, &dir, cx).await,
         "integrations" => integrations::run(&inputs, &dir, cx).await,
+        "sign-in-two-step" => sign_in::two_step(&inputs, &dir, cx).await,
+        "sign-in-proxy" => sign_in::proxy(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

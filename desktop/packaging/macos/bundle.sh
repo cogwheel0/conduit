@@ -250,6 +250,10 @@ assemble() {
   # Services menu titles in every language (share/build.sh).
   share_build "$app" "$bundle_id" Conduit "$version" "$build"
   services_strings "$app"
+  # The privacy prompts (microphone, speech recognition, local network)
+  # in every language.
+  python3 "$PACKAGING_DIR/native_strings.py" infoplist "$REPO_ROOT/lib/l10n" \
+    "$app/Contents/Info.plist" "$app/Contents/Resources" >&2
 
   # conduitd: the `dart build cli` bundle (bin/conduitd, lib/libsqlite3)
   # plus the whisper library next to libsqlite3, where conduitd looks.
@@ -518,6 +522,11 @@ do_verify() {
     ok "Share extension: embedded, sandboxed, signed; Services: 2 items, 14 languages"
   else
     failed=1
+  fi
+  if v="$(python3 "$PACKAGING_DIR/native_strings.py" infoplist --verify "$REPO_ROOT/lib/l10n" "$app" 2>&1)"; then
+    ok "privacy prompts: ${v#native_strings: ok: }"
+  else
+    fail "privacy prompts: $v"
   fi
   if "$PACKAGING_DIR/intents.sh" verify "$app" >"$out/intents-verify.txt" 2>&1; then
     ok "App Intents: $(sed -n 's/^native_strings: ok: //p' "$out/intents-verify.txt")"

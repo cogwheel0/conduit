@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "これらの項目はどれもチャットに追加できません。",
   "desktopShareSheetFailed": "Conduitを開けませんでした。もう一度お試しください。",
   "desktopServicesNewChat": "選択部分で新しいConduitチャットを作成",
-  "desktopShareSheetUnavailable": "共有された項目を開けませんでした。もう一度共有してください。"
+  "desktopShareSheetUnavailable": "共有された項目を開けませんでした。もう一度共有してください。",
+  "desktopSignInTokenRequired": "サインインするにはトークンを貼り付けてください。",
+  "desktopProxySessionEnded": "このサーバーの前段にあるサインインプロキシのセッションが終了しました。このアカウントを引き続き使うには、プロキシ経由で再度サインインしてください。",
+  "desktopProxySignInFailed": "プロキシ経由でサインインできませんでした。もう一度お試しください。",
+  "desktopUsageMicrophone": "Conduit は、メッセージを音声入力するときや音声通話で話すときに聞き取ります。音声入力の録音は、送信するまで下書きと一緒に保存されます。",
+  "desktopUsageSpeechRecognition": "「設定」›「オーディオ」で「この Mac」を選ぶと、Conduit は音声入力した内容をこの Mac 上でテキストに変換します。",
+  "desktopUsageLocalNetwork": "Conduit はローカルネットワークを使って、モデルプロバイダや設定済みの MCP ツールサーバに接続します。",
+  "desktopBackendAppleOnDeviceSubtitle": "Apple のプライベートなモデルをこの Mac で実行します。オフラインでも使えます。"
 }

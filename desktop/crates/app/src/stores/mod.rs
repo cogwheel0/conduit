@@ -122,6 +122,7 @@ pub const SESSION_EVENTS: &[&str] = &[
     events::ROUTE_REMAP,
     events::HERMES_CHANGED,
     events::CAPABILITIES_CHANGED,
+    events::AUTH_CHANGED,
 ];
 
 impl Stores {
@@ -322,6 +323,9 @@ impl Stores {
                 self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
             }
             Event::HermesChanged(_) => self.session.update(cx, |s, cx| s.refresh(cx)),
+            // A second step, or a kept session turned away by its server:
+            // the account list stays the same, so the session asks again.
+            Event::AuthChanged => self.session.update(cx, |s, cx| s.refresh(cx)),
             // What decides the route may have changed with them: Apple's
             // on-device model, which answers only once the window's engine
             // says so (after launch, and after the core's first onboarding

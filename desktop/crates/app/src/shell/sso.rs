@@ -241,19 +241,59 @@ pub fn run_librechat_sso(
     }
 }
 
+/// Whether `url` is one of Open WebUI's own sign-in pages on the server at
+/// `server_url` (under its path prefix): `/auth`, `/auth/…`, `/oauth/…` or
+/// `/api/v1/auths/…`, as the phone's proxy sign-in reads it
+/// (`isKnownOpenWebUiProxyAuthPath`). Reaching one means a sign-in proxy in
+/// front of the server let the window through.
+pub fn is_open_webui_auth_page(url: &str, server_url: &str) -> bool {
+    let (Ok(page), Ok(server)) = (url::Url::parse(url), url::Url::parse(server_url)) else {
+        return false;
+    };
+    if page.origin() != server.origin() {
+        return false;
+    }
+    let prefix = server.path().trim_end_matches('/');
+    let path = page.path().to_ascii_lowercase();
+    let Some(path) = path.strip_prefix(&prefix.to_ascii_lowercase()) else {
+        return false;
+    };
+    path == "/auth"
+        || path.starts_with("/auth/")
+        || path.contains("/oauth/")
+        || path.contains("/api/v1/auths/")
+}
+
 /// Opens the sign-in window for `server_url` and resolves when it is done,
 /// closed or out of time. `title` is the window's title.
 pub fn run_sso(server_url: &str, title: String, cx: &mut App) -> Task<SsoOutcome> {
+    run_sign_in_window(server_url, title, false, cx)
+}
+
+/// The sign-in window again for a sign-in proxy whose session expired: done
+/// as soon as the proxy lets it through to Open WebUI's own sign-in page,
+/// with the proxy's new cookies (and Open WebUI's token, if it signed in
+/// there too).
+pub fn run_proxy_sso(server_url: &str, title: String, cx: &mut App) -> Task<SsoOutcome> {
+    run_sign_in_window(server_url, title, true, cx)
+}
+
+fn run_sign_in_window(
+    server_url: &str,
+    title: String,
+    proxy: bool,
+    cx: &mut App,
+) -> Task<SsoOutcome> {
     let (Some(origin), Some(start)) = (origin_of(server_url), start_url(server_url)) else {
         return Task::ready(SsoOutcome::Failed("not an http(s) server address".into()));
     };
     #[cfg(target_os = "macos")]
     {
-        macos::run(origin, start, server_url.to_string(), title, cx)
+        macos::run(origin, start, server_url.to_string(), title, proxy, cx)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (origin, start, title, cx);
+        let _ = (origin, start, title, proxy, cx);
         Task::ready(SsoOutcome::Failed("SSO needs macOS for now".into()))
     }
 }
@@ -302,11 +342,14 @@ mod macos {
         }
     }
 
+    /// `proxy`: the window renews a sign-in proxy's session
+    /// ([`super::run_proxy_sso`]) and is done once the proxy lets it through.
     pub fn run(
         origin: String,
         start: String,
         server_url: String,
         title: String,
+        proxy: bool,
         cx: &mut App,
     ) -> Task<SsoOutcome> {
         let (loads_tx, mut loads) = mpsc::unbounded::<String>();
@@ -414,7 +457,10 @@ mod macos {
                     left_origin = false;
                     continue;
                 }
-                if is_done(&url, &origin, left_origin, token.is_some()) {
+                let through_proxy = proxy
+                    && !cookies.is_empty()
+                    && super::is_open_webui_auth_page(&url, &server_url);
+                if through_proxy || is_done(&url, &origin, left_origin, token.is_some()) {
                     log::info!(
                         "sso: done ({} cookies, token: {})",
                         cookies.len(),
@@ -784,6 +830,38 @@ mod tests {
             nav("https://example.com/oauth/librechat/oauth/github/callback"),
             LibreChatNav::ProviderReturned
         );
+    }
+
+    #[test]
+    fn a_proxy_lets_the_window_through_to_open_webuis_sign_in() {
+        let server = "https://chat.example.org";
+        for page in [
+            "https://chat.example.org/auth",
+            "https://chat.example.org/auth?redirect=%2F",
+            "https://chat.example.org/auth/",
+            "https://chat.example.org/oauth/oidc/callback",
+            "https://chat.example.org/api/v1/auths/",
+        ] {
+            assert!(is_open_webui_auth_page(page, server), "{page}");
+        }
+        for page in [
+            "https://chat.example.org/",
+            "https://chat.example.org/oauth2/sign_in",
+            "https://login.example.org/auth",
+            "http://chat.example.org/auth",
+            "not a url",
+        ] {
+            assert!(!is_open_webui_auth_page(page, server), "{page}");
+        }
+        // Under a path prefix.
+        assert!(is_open_webui_auth_page(
+            "https://example.org/owui/auth",
+            "https://example.org/owui/"
+        ));
+        assert!(!is_open_webui_auth_page(
+            "https://example.org/auth",
+            "https://example.org/owui"
+        ));
     }
 
     #[test]

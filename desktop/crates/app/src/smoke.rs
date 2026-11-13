@@ -260,6 +260,7 @@ fn status_name(status: &Status, route: Route) -> &'static str {
         (Status::Connected, Route::Main) => "connected-main",
         (Status::Connected, Route::Onboarding) => "connected-onboarding",
         (Status::Connected, Route::SignIn) => "connected-sign-in",
+        (Status::Connected, Route::ConnectionIssue) => "connected-connection-issue",
         (Status::Failed { .. }, _) => "connection-failed",
         (Status::StoreUnreadable, _) => "store-unreadable",
         (Status::VersionMismatch { .. }, _) => "version-mismatch",

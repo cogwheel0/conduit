@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "Ни один из этих объектов нельзя добавить в чат.",
   "desktopShareSheetFailed": "Не удалось открыть Conduit. Повторите попытку.",
   "desktopServicesNewChat": "Новый чат Conduit с выбранным текстом",
-  "desktopShareSheetUnavailable": "Не удалось открыть переданные объекты. Поделитесь ими ещё раз."
+  "desktopShareSheetUnavailable": "Не удалось открыть переданные объекты. Поделитесь ими ещё раз.",
+  "desktopSignInTokenRequired": "Вставьте токен, чтобы войти.",
+  "desktopProxySessionEnded": "Ваш сеанс на прокси входа перед этим сервером завершился. Войдите через прокси ещё раз, чтобы продолжить пользоваться этой учётной записью.",
+  "desktopProxySignInFailed": "Не удалось войти через прокси. Попробуйте ещё раз.",
+  "desktopUsageMicrophone": "Conduit слушает, когда вы диктуете сообщение или говорите в голосовом звонке. Запись диктовки хранится вместе с черновиком, пока вы его не отправите.",
+  "desktopUsageSpeechRecognition": "Conduit превращает надиктованное в текст на этом Mac, если в «Настройки» › «Аудио» выбрано «На этом Mac».",
+  "desktopUsageLocalNetwork": "Conduit использует локальную сеть, чтобы подключаться к поставщикам моделей и настроенным серверам инструментов MCP.",
+  "desktopBackendAppleOnDeviceSubtitle": "Запускайте частную модель Apple на этом Mac — даже без сети."
 }

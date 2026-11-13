@@ -6,8 +6,10 @@
 //! channel, nothing with Channel Messages off, only a direct message with
 //! Only Mentions and Direct Messages, silence with In-App Banners off, the
 //! cue with Always Play Sound, a system notification (delivered, clicked)
-//! when the app counts as behind, nothing with Chat Responses or Allow
-//! Notifications off. Last, Webhook Destinations behind Advanced: one added
+//! when the app counts as behind, the same for an answer finished on
+//! another device (`owui.sh chat`: the server's socket, as the phone hears
+//! it) and only one for this Mac's own, nothing with Chat Responses or
+//! Allow Notifications off. Last, Webhook Destinations behind Advanced: one added
 //! through the sheet, tested against the fake model's receiver, made the
 //! default and deleted. Every pane and sheet is shot in light and dark.
 
@@ -45,6 +47,29 @@ fn peer(args: &[&str]) -> Option<serde_json::Value> {
     }
     let text = String::from_utf8_lossy(&out.stdout);
     serde_json::from_str(text.lines().last().unwrap_or("null")).ok()
+}
+
+/// An answer finished on "another device": the local server's web-client
+/// driver signs in as the same user and runs one chat turn (`owui.sh
+/// chat`). Its chat's id.
+fn answer_elsewhere(dir: &Path, prompt: &str) -> Option<String> {
+    let script =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../tool/local_owui/owui.sh");
+    let out = std::process::Command::new(script)
+        .arg("chat")
+        .arg(dir.join("elsewhere"))
+        .arg(prompt)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        println!("SMOKE note owui.sh chat failed");
+        return None;
+    }
+    // Its summary line (JSON) comes first, then what the chat stored.
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find_map(|v| v["chat_id"].as_str().map(str::to_string))
 }
 
 fn settings_view(cx: &mut App) -> Option<(AnyWindowHandle, Entity<SettingsView>)> {
@@ -471,6 +496,46 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         cx.update(|cx| desktop::remove_all_notifications(cx));
     } else {
         println!("SMOKE info notifications are denied for this bundle; delivery not checked");
+    }
+    // The server says the same answer finished on its socket: no second
+    // notification for it (the daemon announced it as its own).
+    settle(cx, 3000).await;
+    let own = cx.update(|cx| {
+        desktop::routed_notifications(cx)
+            .into_iter()
+            .skip(mark)
+            .filter(|r| r.id == chat_key)
+            .count()
+    });
+    pass &= ok(
+        &format!("this Mac's own answer notified once ({own})"),
+        own == 1,
+    );
+
+    // ── An answer finished on another device: notified as the phone does ──
+    let mark = routed_len(cx);
+    match answer_elsewhere(dir, "Reply with exactly the word: kelp") {
+        Some(elsewhere) => {
+            let key = crate::shell::notify::identifier(&elsewhere);
+            let r = routed_after(mark, &key, cx).await;
+            pass &= ok(
+                &format!(
+                    "an answer finished on another device notifies, as the core routes it ({r:?})"
+                ),
+                r.as_ref()
+                    .is_some_and(|r| r.surface == NotifySurface::System && r.system_sound),
+            );
+            settle(cx, 3000).await;
+            let count = cx.update(|cx| {
+                desktop::routed_notifications(cx)
+                    .into_iter()
+                    .skip(mark)
+                    .filter(|r| r.id == key)
+                    .count()
+            });
+            pass &= ok(&format!("…once ({count})"), count == 1);
+        }
+        None => pass &= ok("an answer finished on another device (owui.sh chat)", false),
     }
 
     // ── Chat Responses off: nothing for an answer ─────────────────────

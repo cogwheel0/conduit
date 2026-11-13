@@ -698,7 +698,7 @@ fn route_readiness(route: Route) -> Readiness {
     match route {
         Route::Main => Readiness::Ready,
         Route::Unknown => Readiness::Waiting,
-        Route::Onboarding | Route::SignIn => Readiness::SignedOut,
+        Route::Onboarding | Route::SignIn | Route::ConnectionIssue => Readiness::SignedOut,
     }
 }
 

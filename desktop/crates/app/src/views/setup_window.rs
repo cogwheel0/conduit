@@ -4,7 +4,10 @@
 //! * While the daemon starts (or when it fails), its status card.
 //! * [`Route::Onboarding`]: the backend chooser and its three paths.
 //! * [`Route::SignIn`]: sign-in for the active account (first run, an
-//!   account added from Settings, or a session that expired).
+//!   account added from Settings, or a session that expired), with its
+//!   second step when the server asks for one.
+//! * [`Route::ConnectionIssue`]: the account kept its session but the
+//!   server turns it away (an expired sign-in proxy): renew or retry it.
 //!
 //! The content sits in one 460 pt column, centred a little above the
 //! middle when it fits and scrolling when it doesn't (the server form with
@@ -27,6 +30,7 @@ use crate::stores::Stores;
 use crate::stores::connection::Status;
 use crate::stores::session::Route;
 use crate::views::approvals::ApprovalsView;
+use crate::views::connection_issue::ConnectionIssueView;
 use crate::views::librechat_sign_in::LibreChatSignInView;
 use crate::views::onboarding::OnboardingView;
 use crate::views::sign_in::SignInView;
@@ -51,17 +55,23 @@ pub enum Page {
     SignIn,
     /// The LibreChat account in charge needs a sign-in (its session ended).
     LibreChatSignIn,
+    /// The account's session is kept but turned away.
+    ConnectionIssue,
 }
 
 /// The page for a route and status (`holding`: a server is being checked,
-/// so the form stays whatever the route says meanwhile).
-pub fn page_for(route: Route, blocked: bool, holding: bool) -> Page {
+/// so the form stays whatever the route says meanwhile; `issue_held`: the
+/// connection issue is being tried again, and the session reads as loading
+/// meanwhile, so the issue stays).
+pub fn page_for(route: Route, blocked: bool, holding: bool, issue_held: bool) -> Page {
     if blocked {
         Page::Status
     } else if holding || route == Route::Onboarding {
         Page::Onboarding
     } else if route == Route::SignIn {
         Page::SignIn
+    } else if route == Route::ConnectionIssue || (issue_held && route == Route::Unknown) {
+        Page::ConnectionIssue
     } else {
         Page::Status
     }
@@ -71,6 +81,7 @@ pub struct SetupWindow {
     pub stores: Stores,
     pub onboarding: Entity<OnboardingView>,
     pub sign_in: Entity<SignInView>,
+    pub connection_issue: Entity<ConnectionIssueView>,
     /// Signing in again to the LibreChat account in charge.
     pub librechat: Entity<LibreChatSignInView>,
     /// The LibreChat account `librechat` was started for.
@@ -86,6 +97,7 @@ impl SetupWindow {
     pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let onboarding = cx.new(|cx| OnboardingView::new(stores.clone(), window, cx));
         let sign_in = cx.new(|cx| SignInView::new(stores.clone(), window, cx));
+        let connection_issue = cx.new(|cx| ConnectionIssueView::new(stores.clone(), window, cx));
         let librechat = cx.new(|cx| {
             let mut view = LibreChatSignInView::new(stores.clone(), window, cx);
             view.sheet = false;
@@ -98,6 +110,7 @@ impl SetupWindow {
             cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
             cx.observe(&onboarding, |_, _, cx| cx.notify()),
+            cx.observe(&connection_issue, |_, _, cx| cx.notify()),
             cx.observe(&librechat, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             // Keyboard Navigation may have been switched in System Settings.
@@ -113,6 +126,7 @@ impl SetupWindow {
             stores,
             onboarding,
             sign_in,
+            connection_issue,
             librechat,
             librechat_for: None,
             approvals,
@@ -130,7 +144,23 @@ impl SetupWindow {
     /// The page the window shows now.
     pub fn page(&self, cx: &App) -> Page {
         let (_, blocked) = self.status(cx);
-        let page = page_for(self.route(cx), blocked, self.onboarding.read(cx).holds(cx));
+        // A try at the issue reads as loading until it settles; so does a
+        // check that never settles behind a proxy still turning it away.
+        let issue_held = self.connection_issue.read(cx).holds()
+            || (self.page == Some(Page::ConnectionIssue)
+                && self
+                    .stores
+                    .session
+                    .read(cx)
+                    .auth
+                    .as_ref()
+                    .is_some_and(|a| a.has_token && !a.is_authenticated));
+        let page = page_for(
+            self.route(cx),
+            blocked,
+            self.onboarding.read(cx).holds(cx),
+            issue_held,
+        );
         if page == Page::SignIn
             && self
                 .stores
@@ -213,6 +243,7 @@ impl Render for SetupWindow {
         let page = self.page(cx);
         let label: SharedString = match page {
             Page::SignIn | Page::LibreChatSignIn => l10n.desktop_sign_in().into(),
+            Page::ConnectionIssue => l10n.connection_issue_title().into(),
             _ => l10n.desktop_set_up_conduit().into(),
         };
         let content = match page {
@@ -229,6 +260,12 @@ impl Render for SetupWindow {
                 setup_frame(self.librechat.clone().into_any_element(), label.clone(), cx)
                     .into_any_element()
             }
+            Page::ConnectionIssue => setup_frame(
+                self.connection_issue.clone().into_any_element(),
+                label.clone(),
+                cx,
+            )
+            .into_any_element(),
         };
         // The LibreChat account whose session ended: its server's sign-in,
         // saying so, started once per account.
@@ -250,6 +287,9 @@ impl Render for SetupWindow {
         } else {
             self.librechat_for = None;
         }
+        if self.page != Some(page) && page == Page::ConnectionIssue {
+            self.connection_issue.update(cx, |v, cx| v.reset(cx));
+        }
         if self.page != Some(page) {
             // Titled for what it holds (the Window menu, Mission Control).
             window.set_window_title(&label);
@@ -257,12 +297,12 @@ impl Render for SetupWindow {
             // does when a window's content is swapped); sign-in starts in
             // its first field, as Mail's account sheet does.
             let root = self.focus.clone();
-            // The field the method shows first: the key alone for an API
-            // key, else the email.
+            // The field the method shows first: the token alone for a
+            // Token, else the email.
             let first = (page == Page::SignIn).then(|| {
                 let s = self.sign_in.read(cx);
-                if s.method == crate::views::sign_in::Method::ApiKey {
-                    s.api_key.clone()
+                if s.method == crate::views::sign_in::Method::Token {
+                    s.token.clone()
                 } else {
                     s.email.clone()
                 }
@@ -324,15 +364,35 @@ mod tests {
 
     #[test]
     fn the_page_follows_the_route() {
-        assert_eq!(page_for(Route::Onboarding, false, false), Page::Onboarding);
-        assert_eq!(page_for(Route::SignIn, false, false), Page::SignIn);
+        assert_eq!(
+            page_for(Route::Onboarding, false, false, false),
+            Page::Onboarding
+        );
+        assert_eq!(page_for(Route::SignIn, false, false, false), Page::SignIn);
+        assert_eq!(
+            page_for(Route::ConnectionIssue, false, false, false),
+            Page::ConnectionIssue
+        );
         // Before the daemon answers, and once there is a session (the main
         // window is about to take over), the status card.
-        assert_eq!(page_for(Route::Unknown, false, false), Page::Status);
-        assert_eq!(page_for(Route::Main, false, false), Page::Status);
+        assert_eq!(page_for(Route::Unknown, false, false, false), Page::Status);
+        assert_eq!(page_for(Route::Main, false, false, false), Page::Status);
         // A server being checked keeps its form, whatever the route says.
-        assert_eq!(page_for(Route::SignIn, false, true), Page::Onboarding);
+        assert_eq!(
+            page_for(Route::SignIn, false, true, false),
+            Page::Onboarding
+        );
+        // The issue tried again keeps its page while the session loads, and
+        // gives way once it is signed in.
+        assert_eq!(
+            page_for(Route::Unknown, false, false, true),
+            Page::ConnectionIssue
+        );
+        assert_eq!(page_for(Route::Main, false, false, true), Page::Status);
         // A daemon that failed shows why, over anything.
-        assert_eq!(page_for(Route::Onboarding, true, false), Page::Status);
+        assert_eq!(
+            page_for(Route::Onboarding, true, false, false),
+            Page::Status
+        );
     }
 }

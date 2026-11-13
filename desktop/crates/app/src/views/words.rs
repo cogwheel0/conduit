@@ -46,17 +46,28 @@ pub fn server_problem(status: &ServerStatus, l10n: &L10n) -> Option<String> {
     }
 }
 
-/// A failed sign-in, from the call's error or the snapshot's code.
+/// A failed sign-in (or second step), from the call's error or the
+/// snapshot's code, in the phone's words where it has specific ones.
 pub fn sign_in_error(code: &str, l10n: &L10n) -> String {
     match code {
         "auth.invalidCredentials" => l10n.desktop_wrong_credentials(),
         "auth.sessionExpired" => l10n.desktop_sign_in_again_body(),
+        "auth.pendingApproval" => l10n.sign_in_account_pending_approval(),
+        "auth.apiKeyNotSupported" => l10n.api_key_not_supported(),
+        "auth.apiKeyNoLongerSupported" => l10n.api_key_no_longer_supported(),
+        "auth.tokenTooShort" => l10n.token_too_short(),
+        "auth.ldapNotEnabled" | "capability.unsupported" => l10n.desktop_ldap_not_enabled(),
+        "auth.twoStepRequired" => l10n.sign_in_two_step_verification_required(),
+        "auth.twoStepInvalidCode" => l10n.two_step_invalid_code(),
+        "auth.twoStepExpired" => l10n.two_step_expired(),
+        "auth.twoStepTooManyAttempts" => l10n.two_step_too_many_attempts(),
+        "auth.twoStepFailed" => l10n.two_step_failed(),
+        "net.serverRedirect" => l10n.server_redirecting_https(),
         "net.connectionFailed" | "net.offline" | "net.serverError" => {
             l10n.desktop_couldnt_reach_server()
         }
         "net.tlsUntrusted" => l10n.desktop_certificate_untrusted(),
         "rpc.timeout" => l10n.connection_timed_out(),
-        "capability.unsupported" => l10n.desktop_ldap_not_enabled(),
         _ => l10n.desktop_sign_in_failed(),
     }
 }
@@ -167,5 +178,35 @@ mod tests {
             "Enter an address that starts with http:// or https://."
         );
         assert_eq!(sign_in_error("weird", &l10n), l10n.desktop_sign_in_failed());
+        assert_eq!(
+            sign_in_error("auth.signInFailed", &l10n),
+            l10n.desktop_sign_in_failed()
+        );
+        // The phone's words, never the generic failure, where it has them.
+        for code in [
+            "auth.pendingApproval",
+            "auth.apiKeyNotSupported",
+            "auth.apiKeyNoLongerSupported",
+            "auth.tokenTooShort",
+            "auth.ldapNotEnabled",
+            "auth.twoStepRequired",
+            "auth.twoStepInvalidCode",
+            "auth.twoStepExpired",
+            "auth.twoStepTooManyAttempts",
+            "auth.twoStepFailed",
+            "net.serverRedirect",
+        ] {
+            let text = sign_in_error(code, &l10n);
+            assert_ne!(text, l10n.desktop_sign_in_failed(), "{code}");
+            assert!(!text.is_empty() && !text.contains('{'), "{code}: {text}");
+        }
+        assert_eq!(
+            sign_in_error("auth.pendingApproval", &l10n),
+            "Your account is waiting for an administrator to approve it. Try again once it's approved."
+        );
+        assert_eq!(
+            sign_in_error("auth.apiKeyNotSupported", &l10n),
+            l10n.api_key_not_supported()
+        );
     }
 }

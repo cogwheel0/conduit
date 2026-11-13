@@ -225,6 +225,18 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
                 let posted = posted.clone();
                 cx.defer(move |cx| on_channel_posted(&posted, cx));
             }
+            // An Open WebUI answer this Mac did not run (another device, a
+            // scheduled task): notified as an answer of its own would be.
+            Event::NotificationsAnswered(notice) => {
+                let finished = TurnFinished {
+                    chat_id: notice.chat_id.clone(),
+                    message_id: notice.message_id.clone(),
+                    ok: true,
+                    code: None,
+                    queued: false,
+                };
+                cx.defer(move |cx| on_turn_finished(&finished, cx));
+            }
             _ => {}
         }
     })
@@ -709,7 +721,7 @@ fn snapshot_for(
 ) -> Option<Snapshot> {
     let snapshot = match route {
         Route::Unknown => return None,
-        Route::Onboarding | Route::SignIn => Snapshot::signed_out(locale),
+        Route::Onboarding | Route::SignIn | Route::ConnectionIssue => Snapshot::signed_out(locale),
         Route::Main => match recent {
             Some(recent) => Snapshot::signed_in(recent, locale, untitled),
             // Loading again for the same account: what the widget shows
@@ -1028,12 +1040,17 @@ pub fn open_notification_settings(cx: &mut App) {
 
 /// What notifies: `turn.finished` is unscoped (it comes for chats that are
 /// not open), `channels.posted` too (someone else posted in a channel not in
-/// front).
+/// front), and `notifications.answered` (an answer finished on another
+/// device).
 pub(crate) fn follow_alerts(connection: &Entity<ConnectionStore>, cx: &mut App) {
     connection.update(cx, |c, _| {
         c.subscribe(
             NOTIFICATIONS_KEY,
-            &[events::TURN_FINISHED, events::CHANNELS_POSTED],
+            &[
+                events::TURN_FINISHED,
+                events::CHANNELS_POSTED,
+                events::NOTIFICATIONS_ANSWERED,
+            ],
             vec![],
         )
     });

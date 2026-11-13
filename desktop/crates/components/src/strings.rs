@@ -129,7 +129,8 @@ pub struct Strings {
     pub or: SharedString,
     pub sso: SharedString,
     pub ldap: SharedString,
-    pub api_key: SharedString,
+    /// The sign-in method that takes a session token (the phone's Token).
+    pub token: SharedString,
     pub change: SharedString,
     /// `{name}`
     pub server_chip: SharedString,
@@ -259,7 +260,7 @@ impl Default for Strings {
             or: s("or"),
             sso: s("Sign In with SSO"),
             ldap: s("Sign In with LDAP"),
-            api_key: s("API Key"),
+            token: s("Token"),
             change: s("Change"),
             server_chip: s("Server: {name}. Change"),
             sync_now: s("Sync Now"),

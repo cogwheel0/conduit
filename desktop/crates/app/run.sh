@@ -41,6 +41,9 @@ sed -e 's/@BUNDLE_ID@/app.cogwheel.conduit.desktop.dev/' \
 # E2E pass calls the provider itself (desktop::services_provider).
 /usr/libexec/PlistBuddy -c 'Delete :NSServices' "$app/Contents/Info.plist" >/dev/null
 plutil -lint -s "$app/Contents/Info.plist"
+# The privacy prompts in every language, as in a release bundle.
+python3 packaging/macos/native_strings.py infoplist ../lib/l10n \
+  "$app/Contents/Info.plist" "$app/Contents/Resources" >/dev/null
 # The desktop widget, only when asked: every dev bundle would otherwise
 # register an extension with the system. Without it, an earlier build's
 # widget is moved aside.

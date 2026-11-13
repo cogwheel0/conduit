@@ -9,6 +9,7 @@ pub mod channels;
 pub mod chat;
 pub mod chat_pane;
 pub mod chat_settings;
+pub mod connection_issue;
 #[cfg(test)]
 mod controls_tests;
 pub mod dates;
@@ -51,6 +52,7 @@ pub mod status;
 pub mod tasks;
 pub mod terminal;
 pub mod toasts;
+pub mod two_step;
 pub mod valves;
 pub mod words;
 pub mod workspace;

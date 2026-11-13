@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "이 항목 중 채팅에 추가할 수 있는 항목이 없습니다.",
   "desktopShareSheetFailed": "Conduit을(를) 열 수 없습니다. 다시 시도하세요.",
   "desktopServicesNewChat": "선택 항목으로 새 Conduit 채팅 만들기",
-  "desktopShareSheetUnavailable": "공유된 항목을 열 수 없습니다. 다시 공유하세요."
+  "desktopShareSheetUnavailable": "공유된 항목을 열 수 없습니다. 다시 공유하세요.",
+  "desktopSignInTokenRequired": "로그인하려면 토큰을 붙여넣으세요.",
+  "desktopProxySessionEnded": "이 서버 앞의 로그인 프록시 세션이 종료되었습니다. 이 계정을 계속 사용하려면 프록시를 통해 다시 로그인하세요.",
+  "desktopProxySignInFailed": "프록시를 통해 로그인하지 못했습니다. 다시 시도하세요.",
+  "desktopUsageMicrophone": "Conduit는 메시지를 받아쓰거나 음성 통화에서 말할 때 듣습니다. 받아쓰기 녹음은 보낼 때까지 초안과 함께 보관됩니다.",
+  "desktopUsageSpeechRecognition": "설정 › 오디오에서 ‘이 Mac에서’를 선택하면 Conduit가 받아쓴 내용을 이 Mac에서 텍스트로 바꿉니다.",
+  "desktopUsageLocalNetwork": "Conduit는 로컬 네트워크를 사용해 모델 제공자와 설정된 MCP 도구 서버에 연결합니다.",
+  "desktopBackendAppleOnDeviceSubtitle": "Apple의 비공개 모델을 이 Mac에서 실행합니다. 오프라인에서도 작동합니다."
 }

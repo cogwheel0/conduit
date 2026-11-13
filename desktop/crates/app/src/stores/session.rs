@@ -97,6 +97,11 @@ pub enum Route {
     /// an addition, or an expired session), or the LibreChat account in
     /// charge needs one (its session ended).
     SignIn,
+    /// The active Open WebUI account kept its session, but the server turns
+    /// it away (a sign-in proxy whose session expired, or a refused
+    /// request): the phone's Connection Issue, with Try Again, Sign In to
+    /// Proxy Again and Sign Out, never a sign-out of its own.
+    ConnectionIssue,
     /// Ready: signed in, or a Direct-only or Hermes-only setup.
     Main,
 }
@@ -157,6 +162,9 @@ pub fn derive_route(inputs: RouteInputs<'_>) -> Route {
             // Restoring a session: wait rather than flash the sign-in form.
             AuthPhase::Initial | AuthPhase::Loading => Route::Unknown,
             _ if auth.is_loading => Route::Unknown,
+            // The session is kept: a connection issue, as the phone's router
+            // reads an error with a token.
+            AuthPhase::Error if auth.has_token => Route::ConnectionIssue,
             _ => Route::SignIn,
         };
     }
@@ -732,6 +740,8 @@ pub(crate) mod tests {
             error_code: None,
             error_args: BTreeMap::new(),
             is_reviewer_mode: false,
+            two_step: None,
+            can_renew_proxy: false,
         }
     }
 
@@ -789,6 +799,27 @@ pub(crate) mod tests {
                 Route::Unknown
             );
         }
+    }
+
+    #[test]
+    fn a_kept_session_the_server_turns_away_is_a_connection_issue() {
+        let one = list(vec![account("a", "Avery", true, true)]);
+        let mut issue = auth(AuthPhase::Error, false);
+        issue.has_token = true;
+        assert_eq!(
+            route(Some(false), Some(&one), Some(&issue)),
+            Route::ConnectionIssue
+        );
+        // Without the session it is a sign-in, as before.
+        issue.has_token = false;
+        assert_eq!(route(Some(false), Some(&one), Some(&issue)), Route::SignIn);
+        // A session expired outright asks for the sign-in again.
+        let mut expired = auth(AuthPhase::TokenExpired, false);
+        expired.has_token = true;
+        assert_eq!(
+            route(Some(false), Some(&one), Some(&expired)),
+            Route::SignIn
+        );
     }
 
     #[test]

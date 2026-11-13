@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "Aucun de ces éléments ne peut être ajouté à un chat.",
   "desktopShareSheetFailed": "Impossible d'ouvrir Conduit. Veuillez réessayer.",
   "desktopServicesNewChat": "Nouveau chat Conduit avec la sélection",
-  "desktopShareSheetUnavailable": "Impossible d'ouvrir les éléments partagés. Veuillez les partager à nouveau."
+  "desktopShareSheetUnavailable": "Impossible d'ouvrir les éléments partagés. Veuillez les partager à nouveau.",
+  "desktopSignInTokenRequired": "Collez un jeton pour vous connecter.",
+  "desktopProxySessionEnded": "Votre session auprès du proxy de connexion placé devant ce serveur a expiré. Reconnectez-vous via le proxy pour continuer à utiliser ce compte.",
+  "desktopProxySignInFailed": "Impossible de se connecter via le proxy. Réessayez.",
+  "desktopUsageMicrophone": "Conduit écoute quand vous dictez un message ou parlez pendant un appel vocal. L’enregistrement d’une dictée reste avec votre brouillon jusqu’à ce que vous l’envoyiez.",
+  "desktopUsageSpeechRecognition": "Conduit transforme ce que vous dictez en texte sur ce Mac lorsque vous choisissez « Sur ce Mac » dans Paramètres › Audio.",
+  "desktopUsageLocalNetwork": "Conduit utilise votre réseau local pour se connecter aux fournisseurs de modèles et aux serveurs d’outils MCP configurés.",
+  "desktopBackendAppleOnDeviceSubtitle": "Exécutez le modèle privé d’Apple sur ce Mac, même hors ligne."
 }

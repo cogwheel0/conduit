@@ -417,7 +417,8 @@ pub fn form_error(
                 .pt(px(2.))
                 .child(icon(IconName::CircleAlert, 14., color)),
         )
-        .child(div().flex_1().child(message))
+        // Wraps rather than running past the form's edge.
+        .child(div().flex_1().min_w_0().child(message))
 }
 
 /// A status line under a form (a test result, "Saved").

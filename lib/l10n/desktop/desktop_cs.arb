@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "Žádnou z těchto položek nelze přidat do chatu.",
   "desktopShareSheetFailed": "Conduit se nepodařilo otevřít. Zkuste to znovu.",
   "desktopServicesNewChat": "Nový chat v Conduitu s výběrem",
-  "desktopShareSheetUnavailable": "Sdílené položky se nepodařilo otevřít. Sdílejte je znovu."
+  "desktopShareSheetUnavailable": "Sdílené položky se nepodařilo otevřít. Sdílejte je znovu.",
+  "desktopSignInTokenRequired": "Pro přihlášení vložte token.",
+  "desktopProxySessionEnded": "Vaše relace u přihlašovací proxy před tímto serverem skončila. Chcete-li tento účet dál používat, znovu se přihlaste přes proxy.",
+  "desktopProxySignInFailed": "Přihlášení přes proxy se nezdařilo. Zkuste to znovu.",
+  "desktopUsageMicrophone": "Conduit poslouchá, když diktujete zprávu nebo mluvíte v hlasovém hovoru. Záznam diktování zůstane u konceptu, dokud ho neodešlete.",
+  "desktopUsageSpeechRecognition": "Conduit převádí diktovaný text na text přímo v tomto Macu, když v Nastavení › Zvuk zvolíte „V tomto Macu“.",
+  "desktopUsageLocalNetwork": "Conduit používá vaši místní síť k připojení k poskytovatelům modelů a nastaveným serverům nástrojů MCP.",
+  "desktopBackendAppleOnDeviceSubtitle": "Spouštějte soukromý model Apple v tomto Macu, i offline."
 }
