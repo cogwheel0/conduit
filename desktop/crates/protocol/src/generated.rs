@@ -1279,6 +1279,11 @@ pub struct ChatSummary {
     /// or rating (issue #710).
     #[serde(default)]
     pub read_only: bool,
+    /// Something arrived since the account last read it, or it was marked
+    /// unread (the core's `isConversationUnread`). Never true while the chat
+    /// is answering; a window draws no dot on the chat it shows.
+    #[serde(default)]
+    pub unread: bool,
 }
 
 /// A folder as the sidebar shows it.
@@ -1410,6 +1415,54 @@ pub struct ChatMessageDto {
     /// `MessageBlockKind` gives. Empty for the user's messages.
     #[serde(default)]
     pub blocks: Vec<MessageBlockDto>,
+    /// The message this one answers or follows; null for the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// The model column (Open WebUI's `modelIdx`) of an answer whose
+    /// question more than one model answered (Compare Models); null for an
+    /// ordinary answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<i64>,
+    /// The merged response saved on this answer (Merge Responses), when it
+    /// has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged: Option<String>,
+    /// The answer failed on the reasoning effort the chat or the picker sent
+    /// it, and a retry without one would go out differently (the core's
+    /// `isReasoningEffortRejection`): Retry Without Reasoning Effort applies.
+    #[serde(default)]
+    pub retry_without_effort: bool,
+    /// When the question was answered by more than one model: each column,
+    /// in order, with its answers (this message and its `versions` by id).
+    /// Empty for an ordinary answer, whose versions are regenerations.
+    #[serde(default)]
+    pub comparison: Vec<ComparisonSlotDto>,
+    /// Of `comparison`'s answers, those a merge may read: finished, without
+    /// an error, with text. The current answer of each column, as the core
+    /// picks them.
+    #[serde(default)]
+    pub mergeable_ids: Vec<String>,
+    /// This message and its `versions`, by id, in the order the server keeps
+    /// them (its parent's `childrenIds`), so a window shows where the one on
+    /// screen stands (`2 / 3`) whichever is current. Empty when it has no
+    /// versions.
+    #[serde(default)]
+    pub sibling_ids: Vec<String>,
+}
+
+/// One model's column of a Compare Models answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonSlotDto {
+    /// Open WebUI's `modelIdx`.
+    pub index: i64,
+    /// The column's answers, oldest first: regenerating one column adds to
+    /// its own. The last is the one it shows.
+    #[serde(default)]
+    pub answer_ids: Vec<String>,
+    /// The model that answered, by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// One source an answer cites.
@@ -1475,6 +1528,18 @@ pub struct ChatUsageDto {
     pub queue_seconds: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_seconds: Option<f64>,
+    /// The context window of the model that answered, in tokens, when the
+    /// model says (or one is set for a Direct model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_length: Option<i64>,
+    /// How much of that window the reply used (the core's
+    /// `UsageSummary.contextTokens`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<i64>,
+    /// Some steps of the reply (a tool round, say) reported no usage, so
+    /// the figures may be low.
+    #[serde(default)]
+    pub incomplete: bool,
 }
 
 /// One alternative answer to the prompt a message answers.
@@ -1495,6 +1560,19 @@ pub struct ChatMessageVersionDto {
     /// keeps no status timeline.
     #[serde(default)]
     pub blocks: Vec<MessageBlockDto>,
+    /// Its model column, as `ChatMessageDto.slot`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<i64>,
+    /// Its saved merged response, as `ChatMessageDto.merged`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged: Option<String>,
+    /// The server still reports it as being written (another column of a
+    /// comparison that is still answering).
+    #[serde(default)]
+    pub streaming: bool,
+    /// Set when this answer failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 /// Reply to `chats.get`: one conversation with its transcript.
@@ -1513,6 +1591,57 @@ pub struct ChatDetail {
     /// before it is ever listed).
     #[serde(default)]
     pub read_only: bool,
+    /// What this chat offers, as the core decides it for a phone.
+    #[serde(default)]
+    pub abilities: ChatAbilities,
+    /// A temporary chat: never stored, until Save Chat makes it a normal one.
+    #[serde(default)]
+    pub temporary: bool,
+    /// The public link's share id, when the chat has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_id: Option<String>,
+}
+
+/// What one open chat offers right now, from the core's own rules (the
+/// account, the server's permissions, the backend). A window hides what is
+/// false rather than offering something the daemon would refuse.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAbilities {
+    /// Fork Chat: a new chat from a message (Open WebUI's fork, which needs
+    /// the account's `chat.import`).
+    #[serde(default)]
+    pub fork: bool,
+    /// Export: a JSON backup or a Markdown transcript (`chat.export`).
+    #[serde(default)]
+    pub export: bool,
+    /// Merge Responses on a Compare Models answer (Advanced is on).
+    #[serde(default)]
+    pub merge: bool,
+    /// Switching versions and branches on the server, and Continue from
+    /// This Response: the account's own stored Open WebUI chat.
+    #[serde(default)]
+    pub branch: bool,
+    /// Deleting messages.
+    #[serde(default)]
+    pub delete_messages: bool,
+    /// Mark as Unread (the server keeps read state).
+    #[serde(default)]
+    pub mark_unread: bool,
+    /// Generate Title (the server holds the chat).
+    #[serde(default)]
+    pub generate_title: bool,
+    /// Share: a public link and who may open it.
+    #[serde(default)]
+    pub share: bool,
+    /// Save Chat: a temporary chat with messages, which can become a
+    /// normal one.
+    #[serde(default)]
+    pub save_temporary: bool,
+    /// Compare Models: one question to two models side by side (Advanced is
+    /// on, a stored Open WebUI chat).
+    #[serde(default)]
+    pub compare: bool,
 }
 
 /// One message in a conversation's tree, for the overview.
@@ -1551,6 +1680,11 @@ pub struct ChatTree {
 pub struct ChatCurrent {
     pub chat_id: String,
     pub message_id: String,
+    /// The message the window shows in `messageId`'s place (Continue from
+    /// This Response, a version's arrows): `messageId` must then be another
+    /// answer to the same message in the same role, or nothing changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternative_to: Option<String>,
 }
 
 /// Params for `chats.folder`.
@@ -1892,16 +2026,56 @@ pub struct SetChatFlag {
     pub value: bool,
 }
 
-/// Reply to `chats.share`.
+/// Who may open a chat's link, beyond the people and groups given access:
+/// nobody else, every user on the server, or anyone with the link (the
+/// core's `ResourceAudience`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ShareAudience {
+    #[serde(rename = "private")]
+    Private,
+    #[serde(rename = "public")]
+    Public,
+    #[serde(rename = "open")]
+    Open,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `chats.share`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareChat {
+    pub id: String,
+    /// Makes the link, or updates it to the chat as it is now. False only
+    /// reads what the chat has (and sets `audience`, when given).
+    #[serde(default = "default_share_chat_publish")]
+    pub publish: bool,
+    /// Who may open it, chosen on purpose; null leaves it as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<ShareAudience>,
+}
+
+fn default_share_chat_publish() -> bool {
+    true
+}
+
+/// Reply to `chats.share` and `chats.unshare`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatShare {
     pub chat_id: String,
-    /// The share id, or null once unshared. The renderer builds the URL from
-    /// the active server rather than receiving one, so a stale link cannot
-    /// outlive a server change.
+    /// The share id, or null once unshared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share_id: Option<String>,
+    /// The link to copy, built by the core from the account's server (Open
+    /// WebUI serves it at `/s/{shareId}`); null without a link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Who may open it, when the server said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<ShareAudience>,
 }
 
 /// Params for `chats.setArchivedVisible`.
@@ -1993,6 +2167,100 @@ pub struct ChatResult {
     /// Null when there is no such chat. Always on the wire, as `null`.
     #[serde(default)]
     pub chat: Option<ChatDetail>,
+}
+
+/// Params for `chats.fork`: a new chat from the start of `chatId` to
+/// `messageId`, as Open WebUI's fork makes it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkChat {
+    pub chat_id: String,
+    pub message_id: String,
+}
+
+/// Reply to `chats.fork` and `chats.saveTemporary`: the new chat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatForked {
+    pub chat_id: String,
+}
+
+/// What `chats.export` writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatExportFormat {
+    /// The whole chat, every branch, as the JSON Open WebUI imports.
+    #[serde(rename = "json")]
+    Json,
+    /// The branch the transcript shows, as readable Markdown.
+    #[serde(rename = "markdown")]
+    Markdown,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `chats.export`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportChat {
+    pub chat_id: String,
+    pub format: ChatExportFormat,
+}
+
+/// Reply to `chats.export`: the file to save, read from the chat's stored
+/// copy. The window asks where to save it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatExportFile {
+    /// The name the save panel suggests: the title, then a stamp.
+    pub file_name: String,
+    pub content: String,
+    pub mime_type: String,
+    /// Edits made here that have not reached the server yet are in it.
+    #[serde(default)]
+    pub has_unsynced_changes: bool,
+}
+
+/// How `chats.generateTitle` ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GenerateTitleOutcome {
+    /// A new title was saved.
+    #[serde(rename = "saved")]
+    Saved,
+    /// The model wrote the title the chat already had.
+    #[serde(rename = "unchanged")]
+    Unchanged,
+    /// The model wrote no title.
+    #[serde(rename = "none")]
+    None,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `chats.generateTitle`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedTitle {
+    pub outcome: GenerateTitleOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Params for `chats.markUnread`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkUnread {
+    pub chat_id: String,
+    /// False marks it read, as opening it does.
+    #[serde(default = "default_mark_unread_unread")]
+    pub unread: bool,
+}
+
+fn default_mark_unread_unread() -> bool {
+    true
 }
 
 /// A tool the server offers for a turn.
@@ -2852,6 +3120,53 @@ pub struct UploadedFile {
     pub content_type: Option<String>,
 }
 
+/// Payload of `handoff.requested`: the server (an Open WebUI function, with
+/// `chat:handoff`) suggests carrying on in a new chat with another model.
+/// Nothing happens unless the user agrees, and then only this: a new chat
+/// on that model with `prompt` in its message field, unsent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffRequest {
+    pub request_id: String,
+    /// The chat it came from.
+    pub chat_id: String,
+    pub model_id: String,
+    /// The model's name, for the question.
+    pub model_name: String,
+    /// What the new chat's message field starts with; may be empty.
+    #[serde(default)]
+    pub prompt: String,
+}
+
+/// Params for `handoff.answer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffAnswer {
+    pub request_id: String,
+    pub accept: bool,
+}
+
+/// Reply to `handoff.answer`: whether the window that answered opens the new
+/// chat, and with what. False when another window answered first or the
+/// question ran out of time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffAnswered {
+    pub open: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+}
+
+/// Payload of `handoff.settled`: `requestId` was answered (or ran out of
+/// time). Windows that did not answer close their question.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffSettled {
+    pub request_id: String,
+}
+
 /// Which window opened this RPC connection.
 ///
 /// Several renderer windows share one daemon, and the daemon broadcasts
@@ -3548,6 +3863,82 @@ pub struct MemoryRef {
 #[serde(rename_all = "camelCase")]
 pub struct MemoryToggle {
     pub enabled: bool,
+}
+
+/// Params for `messages.delete`.
+///
+/// Open WebUI deletes a message with its direct children (the answers to a
+/// question) and gives their children to its parent; the core does the same
+/// to the transcript.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteMessages {
+    pub chat_id: String,
+    pub message_ids: Vec<String>,
+    /// Only counts what would go, for the confirmation, and deletes nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// Reply to `messages.delete`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessagesDeleted {
+    /// How many messages the delete removes (or removed).
+    pub count: i64,
+    /// The chat afterwards; null for a dry run. Always on the wire.
+    #[serde(default)]
+    pub chat: Option<ChatDetail>,
+}
+
+/// Params for `turns.merge`: Merge Responses (mixture of agents) on a
+/// Compare Models answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeTurn {
+    pub chat_id: String,
+    /// The transcript message the answers belong to.
+    pub message_id: String,
+    /// The answer the merge is saved on: the one the window shows.
+    pub target_id: String,
+    /// The answers merged, two or more, in column order.
+    #[serde(default)]
+    pub source_ids: Vec<String>,
+    /// Stops the merge running in this chat; what arrived is kept.
+    #[serde(default)]
+    pub stop: bool,
+}
+
+/// Reply to `turns.merge`: the merge has started (or, for a stop, was asked
+/// to end). Its text arrives as `messages.merge`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeStarted {
+    pub target_id: String,
+}
+
+/// Payload of `messages.merge`, scoped to the chat: the merged response so
+/// far. The whole text each time, coalesced like `turn.delta`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeProgress {
+    pub chat_id: String,
+    pub message_id: String,
+    pub target_id: String,
+    #[serde(default)]
+    pub text: String,
+    /// False once it has ended, whichever way.
+    #[serde(default = "default_merge_progress_running")]
+    pub running: bool,
+    /// Why it ended without a merge: `unavailable` (the server has no
+    /// merge), `notMergeable`, `ownerChanged`, `failed`. Absent on success
+    /// and while running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+fn default_merge_progress_running() -> bool {
+    true
 }
 
 /// A model the active server offers.
@@ -5413,6 +5804,11 @@ pub struct RegenerateTurn {
     /// is how "try this again with a better model" works.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Retry Without Reasoning Effort: the reasoning effort the chat saved
+    /// and the picker's pick for the model are set back to automatic first,
+    /// so the retry sends none.
+    #[serde(default)]
+    pub without_reasoning_effort: bool,
 }
 
 /// Params for `turns.rate`: a thumb up or down on an answer.
@@ -5452,6 +5848,11 @@ pub struct TurnStarted {
     pub chat_id: String,
     pub message_id: String,
     pub model: String,
+    /// A Compare Models turn: the other models' answers, written at the same
+    /// time under their own ids (their `turn.delta` and `turn.blocks` name
+    /// them). Empty for an ordinary turn.
+    #[serde(default)]
+    pub companion_ids: Vec<String>,
 }
 
 /// Payload of `turn.delta`.
@@ -7948,15 +8349,16 @@ pub mod methods {
         type Result = super::ChatList;
     }
 
-    /// Creates or removes a public share link.
+    /// Creates or updates a public share link, or reads it (and sets who
+    /// may open it); `chats.unshare` deletes it.
     ///
-    /// `chats.share`: ChatRef -> ChatShare.
+    /// `chats.share`: ShareChat -> ChatShare.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct ChatsShare;
 
     impl RpcMethod for ChatsShare {
         const NAME: &'static str = "chats.share";
-        type Params = super::ChatRef;
+        type Params = super::ShareChat;
         type Result = super::ChatShare;
     }
 
@@ -7968,6 +8370,82 @@ pub mod methods {
         const NAME: &'static str = "chats.unshare";
         type Params = super::ChatRef;
         type Result = super::ChatShare;
+    }
+
+    /// A new chat from the start of one to a message in it (Open WebUI's
+    /// fork); answers with the new chat's id.
+    ///
+    /// `chats.fork`: ForkChat -> ChatForked.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatsFork;
+
+    impl RpcMethod for ChatsFork {
+        const NAME: &'static str = "chats.fork";
+        type Params = super::ForkChat;
+        type Result = super::ChatForked;
+    }
+
+    /// A chat as a file to save: a JSON backup Open WebUI imports (every
+    /// branch), or a Markdown transcript of the branch shown.
+    ///
+    /// `chats.export`: ExportChat -> ChatExportFile.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatsExport;
+
+    impl RpcMethod for ChatsExport {
+        const NAME: &'static str = "chats.export";
+        type Params = super::ExportChat;
+        type Result = super::ChatExportFile;
+    }
+
+    /// Asks the server's model for a title and saves it, unless the chat was
+    /// renamed meanwhile.
+    ///
+    /// `chats.generateTitle`: ChatRef -> GeneratedTitle.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatsGenerateTitle;
+
+    impl RpcMethod for ChatsGenerateTitle {
+        const NAME: &'static str = "chats.generateTitle";
+        type Params = super::ChatRef;
+        type Result = super::GeneratedTitle;
+    }
+
+    /// Marks a chat unread, or read again.
+    ///
+    /// `chats.markUnread`: MarkUnread -> ChatList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatsMarkUnread;
+
+    impl RpcMethod for ChatsMarkUnread {
+        const NAME: &'static str = "chats.markUnread";
+        type Params = super::MarkUnread;
+        type Result = super::ChatList;
+    }
+
+    /// Makes a temporary chat a normal, stored one (Save Chat); answers with
+    /// its new id, and windows showing it hear `route.remap`.
+    ///
+    /// `chats.saveTemporary`: ChatRef -> ChatForked.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatsSaveTemporary;
+
+    impl RpcMethod for ChatsSaveTemporary {
+        const NAME: &'static str = "chats.saveTemporary";
+        type Params = super::ChatRef;
+        type Result = super::ChatForked;
+    }
+
+    /// Deletes messages (with the answers to them), or counts what would go.
+    ///
+    /// `messages.delete`: DeleteMessages -> MessagesDeleted.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MessagesDelete;
+
+    impl RpcMethod for MessagesDelete {
+        const NAME: &'static str = "messages.delete";
+        type Params = super::DeleteMessages;
+        type Result = super::MessagesDeleted;
     }
 
     /// Every model the server offers, and which one is selected.
@@ -8736,6 +9214,32 @@ pub mod methods {
         const NAME: &'static str = "turns.rate";
         type Params = super::RateTurn;
         type Result = super::RatedResult;
+    }
+
+    /// Merge Responses: the answers of a Compare Models turn merged into one,
+    /// saved on the answer shown; or stops the merge running. The text
+    /// arrives as `messages.merge`.
+    ///
+    /// `turns.merge`: MergeTurn -> MergeStarted.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct TurnsMerge;
+
+    impl RpcMethod for TurnsMerge {
+        const NAME: &'static str = "turns.merge";
+        type Params = super::MergeTurn;
+        type Result = super::MergeStarted;
+    }
+
+    /// The user's answer to `handoff.requested`.
+    ///
+    /// `handoff.answer`: HandoffAnswer -> HandoffAnswered.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HandoffAnswer;
+
+    impl RpcMethod for HandoffAnswer {
+        const NAME: &'static str = "handoff.answer";
+        type Params = super::HandoffAnswer;
+        type Result = super::HandoffAnswered;
     }
 
     /// Every note, or those matching a query; pinned first.
@@ -10061,13 +10565,43 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "chats.share",
-        params: Some("ChatRef"),
+        params: Some("ShareChat"),
         result: Some("ChatShare"),
     },
     MethodSpec {
         name: "chats.unshare",
         params: Some("ChatRef"),
         result: Some("ChatShare"),
+    },
+    MethodSpec {
+        name: "chats.fork",
+        params: Some("ForkChat"),
+        result: Some("ChatForked"),
+    },
+    MethodSpec {
+        name: "chats.export",
+        params: Some("ExportChat"),
+        result: Some("ChatExportFile"),
+    },
+    MethodSpec {
+        name: "chats.generateTitle",
+        params: Some("ChatRef"),
+        result: Some("GeneratedTitle"),
+    },
+    MethodSpec {
+        name: "chats.markUnread",
+        params: Some("MarkUnread"),
+        result: Some("ChatList"),
+    },
+    MethodSpec {
+        name: "chats.saveTemporary",
+        params: Some("ChatRef"),
+        result: Some("ChatForked"),
+    },
+    MethodSpec {
+        name: "messages.delete",
+        params: Some("DeleteMessages"),
+        result: Some("MessagesDeleted"),
     },
     MethodSpec {
         name: "models.list",
@@ -10378,6 +10912,16 @@ pub const METHODS: &[MethodSpec] = &[
         name: "turns.rate",
         params: Some("RateTurn"),
         result: Some("RatedResult"),
+    },
+    MethodSpec {
+        name: "turns.merge",
+        params: Some("MergeTurn"),
+        result: Some("MergeStarted"),
+    },
+    MethodSpec {
+        name: "handoff.answer",
+        params: Some("HandoffAnswer"),
+        result: Some("HandoffAnswered"),
     },
     MethodSpec {
         name: "notes.list",
@@ -10848,6 +11392,15 @@ pub mod events {
     /// A chat's queued messages changed. Payload `QueueState`, scoped to the
     /// chat.
     pub const QUEUE_CHANGED: &str = "queue.changed";
+    /// A merged response so far (Merge Responses). Payload `MergeProgress`,
+    /// scoped to the chat.
+    pub const MESSAGES_MERGE: &str = "messages.merge";
+    /// The server suggests carrying on in a new chat with another model.
+    /// Payload `HandoffRequest`; answered with `handoff.answer`.
+    pub const HANDOFF_REQUESTED: &str = "handoff.requested";
+    /// A `handoff.requested` was answered or ran out of time. Payload
+    /// `HandoffSettled`.
+    pub const HANDOFF_SETTLED: &str = "handoff.settled";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -10987,6 +11540,21 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("QueueState"),
         scoped: true,
     },
+    EventSpec {
+        name: "messages.merge",
+        payload: Some("MergeProgress"),
+        scoped: true,
+    },
+    EventSpec {
+        name: "handoff.requested",
+        payload: Some("HandoffRequest"),
+        scoped: false,
+    },
+    EventSpec {
+        name: "handoff.settled",
+        payload: Some("HandoffSettled"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -11116,6 +11684,21 @@ pub enum Event {
     ///
     /// `queue.changed`, scoped.
     QueueChanged(QueueState),
+    /// A merged response so far (Merge Responses). Payload `MergeProgress`,
+    /// scoped to the chat.
+    ///
+    /// `messages.merge`, scoped.
+    MessagesMerge(MergeProgress),
+    /// The server suggests carrying on in a new chat with another model.
+    /// Payload `HandoffRequest`; answered with `handoff.answer`.
+    ///
+    /// `handoff.requested`.
+    HandoffRequested(HandoffRequest),
+    /// A `handoff.requested` was answered or ran out of time. Payload
+    /// `HandoffSettled`.
+    ///
+    /// `handoff.settled`.
+    HandoffSettled(HandoffSettled),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -11160,6 +11743,9 @@ impl Event {
             }
             events::SETTINGS_CHANGED => Self::SettingsChanged,
             events::QUEUE_CHANGED => Self::QueueChanged(serde_json::from_value(payload)?),
+            events::MESSAGES_MERGE => Self::MessagesMerge(serde_json::from_value(payload)?),
+            events::HANDOFF_REQUESTED => Self::HandoffRequested(serde_json::from_value(payload)?),
+            events::HANDOFF_SETTLED => Self::HandoffSettled(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -11197,6 +11783,9 @@ impl Event {
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
             Self::SettingsChanged => events::SETTINGS_CHANGED,
             Self::QueueChanged(_) => events::QUEUE_CHANGED,
+            Self::MessagesMerge(_) => events::MESSAGES_MERGE,
+            Self::HandoffRequested(_) => events::HANDOFF_REQUESTED,
+            Self::HandoffSettled(_) => events::HANDOFF_SETTLED,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -11225,6 +11814,9 @@ impl Event {
             Self::VoiceChanged(payload) => serde_json::to_value(payload),
             Self::TerminalDisplayFile(payload) => serde_json::to_value(payload),
             Self::QueueChanged(payload) => serde_json::to_value(payload),
+            Self::MessagesMerge(payload) => serde_json::to_value(payload),
+            Self::HandoffRequested(payload) => serde_json::to_value(payload),
+            Self::HandoffSettled(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -11297,10 +11889,13 @@ pub mod conformance {
         "ChannelTyping",
         "ChannelTypingUsers",
         "ChannelUser",
+        "ChatAbilities",
         "ChatCurrent",
         "ChatDataSummary",
         "ChatDetail",
+        "ChatExportFile",
         "ChatFileDto",
+        "ChatForked",
         "ChatList",
         "ChatMessageDto",
         "ChatMessageVersionDto",
@@ -11324,6 +11919,7 @@ pub mod conformance {
         "ChatTreeNode",
         "ChatUsageDto",
         "ChatsChanged",
+        "ComparisonSlotDto",
         "ComposerMentionDto",
         "ComposerOptions",
         "ComposerSearch",
@@ -11337,6 +11933,7 @@ pub mod conformance {
         "DataDeleteAll",
         "DataExportRequest",
         "DataImportRequest",
+        "DeleteMessages",
         "DeletedResult",
         "DiagnosticsExport",
         "DirectConnectionEdit",
@@ -11354,6 +11951,7 @@ pub mod conformance {
         "EditTurn",
         "EventEnvelope",
         "EventSubscription",
+        "ExportChat",
         "ExternalAuthCompletion",
         "FetchUrl",
         "FetchedUrl",
@@ -11367,6 +11965,12 @@ pub mod conformance {
         "FolderSettings",
         "FolderSummary",
         "FolderUpdate",
+        "ForkChat",
+        "GeneratedTitle",
+        "HandoffAnswer",
+        "HandoffAnswered",
+        "HandoffRequest",
+        "HandoffSettled",
         "HandshakeRequest",
         "HandshakeResponse",
         "HermesCapabilitiesDto",
@@ -11388,6 +11992,7 @@ pub mod conformance {
         "KnowledgeList",
         "KnowledgeQuery",
         "KnowledgeSummary",
+        "MarkUnread",
         "McpApprovalSummary",
         "McpContent",
         "McpContentPreview",
@@ -11411,8 +12016,12 @@ pub mod conformance {
         "MemoryToggle",
         "MentionList",
         "MentionTarget",
+        "MergeProgress",
+        "MergeStarted",
+        "MergeTurn",
         "MessageBlockDto",
         "MessageStatusDto",
+        "MessagesDeleted",
         "ModelList",
         "ModelOptionsDto",
         "ModelOptionsQuery",
@@ -11490,6 +12099,7 @@ pub mod conformance {
         "SetFastTier",
         "SetModelPinned",
         "SetReasoningEffort",
+        "ShareChat",
         "ShutdownResult",
         "SignOutAll",
         "SkillList",
@@ -11658,10 +12268,13 @@ pub mod conformance {
             "ChannelTyping" => roundtrip::<super::ChannelTyping>(json),
             "ChannelTypingUsers" => roundtrip::<super::ChannelTypingUsers>(json),
             "ChannelUser" => roundtrip::<super::ChannelUser>(json),
+            "ChatAbilities" => roundtrip::<super::ChatAbilities>(json),
             "ChatCurrent" => roundtrip::<super::ChatCurrent>(json),
             "ChatDataSummary" => roundtrip::<super::ChatDataSummary>(json),
             "ChatDetail" => roundtrip::<super::ChatDetail>(json),
+            "ChatExportFile" => roundtrip::<super::ChatExportFile>(json),
             "ChatFileDto" => roundtrip::<super::ChatFileDto>(json),
+            "ChatForked" => roundtrip::<super::ChatForked>(json),
             "ChatList" => roundtrip::<super::ChatList>(json),
             "ChatMessageDto" => roundtrip::<super::ChatMessageDto>(json),
             "ChatMessageVersionDto" => roundtrip::<super::ChatMessageVersionDto>(json),
@@ -11685,6 +12298,7 @@ pub mod conformance {
             "ChatTreeNode" => roundtrip::<super::ChatTreeNode>(json),
             "ChatUsageDto" => roundtrip::<super::ChatUsageDto>(json),
             "ChatsChanged" => roundtrip::<super::ChatsChanged>(json),
+            "ComparisonSlotDto" => roundtrip::<super::ComparisonSlotDto>(json),
             "ComposerMentionDto" => roundtrip::<super::ComposerMentionDto>(json),
             "ComposerOptions" => roundtrip::<super::ComposerOptions>(json),
             "ComposerSearch" => roundtrip::<super::ComposerSearch>(json),
@@ -11698,6 +12312,7 @@ pub mod conformance {
             "DataDeleteAll" => roundtrip::<super::DataDeleteAll>(json),
             "DataExportRequest" => roundtrip::<super::DataExportRequest>(json),
             "DataImportRequest" => roundtrip::<super::DataImportRequest>(json),
+            "DeleteMessages" => roundtrip::<super::DeleteMessages>(json),
             "DeletedResult" => roundtrip::<super::DeletedResult>(json),
             "DiagnosticsExport" => roundtrip::<super::DiagnosticsExport>(json),
             "DirectConnectionEdit" => roundtrip::<super::DirectConnectionEdit>(json),
@@ -11715,6 +12330,7 @@ pub mod conformance {
             "EditTurn" => roundtrip::<super::EditTurn>(json),
             "EventEnvelope" => roundtrip::<super::EventEnvelope>(json),
             "EventSubscription" => roundtrip::<super::EventSubscription>(json),
+            "ExportChat" => roundtrip::<super::ExportChat>(json),
             "ExternalAuthCompletion" => roundtrip::<super::ExternalAuthCompletion>(json),
             "FetchUrl" => roundtrip::<super::FetchUrl>(json),
             "FetchedUrl" => roundtrip::<super::FetchedUrl>(json),
@@ -11728,6 +12344,12 @@ pub mod conformance {
             "FolderSettings" => roundtrip::<super::FolderSettings>(json),
             "FolderSummary" => roundtrip::<super::FolderSummary>(json),
             "FolderUpdate" => roundtrip::<super::FolderUpdate>(json),
+            "ForkChat" => roundtrip::<super::ForkChat>(json),
+            "GeneratedTitle" => roundtrip::<super::GeneratedTitle>(json),
+            "HandoffAnswer" => roundtrip::<super::HandoffAnswer>(json),
+            "HandoffAnswered" => roundtrip::<super::HandoffAnswered>(json),
+            "HandoffRequest" => roundtrip::<super::HandoffRequest>(json),
+            "HandoffSettled" => roundtrip::<super::HandoffSettled>(json),
             "HandshakeRequest" => roundtrip::<super::HandshakeRequest>(json),
             "HandshakeResponse" => roundtrip::<super::HandshakeResponse>(json),
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
@@ -11749,6 +12371,7 @@ pub mod conformance {
             "KnowledgeList" => roundtrip::<super::KnowledgeList>(json),
             "KnowledgeQuery" => roundtrip::<super::KnowledgeQuery>(json),
             "KnowledgeSummary" => roundtrip::<super::KnowledgeSummary>(json),
+            "MarkUnread" => roundtrip::<super::MarkUnread>(json),
             "McpApprovalSummary" => roundtrip::<super::McpApprovalSummary>(json),
             "McpContent" => roundtrip::<super::McpContent>(json),
             "McpContentPreview" => roundtrip::<super::McpContentPreview>(json),
@@ -11772,8 +12395,12 @@ pub mod conformance {
             "MemoryToggle" => roundtrip::<super::MemoryToggle>(json),
             "MentionList" => roundtrip::<super::MentionList>(json),
             "MentionTarget" => roundtrip::<super::MentionTarget>(json),
+            "MergeProgress" => roundtrip::<super::MergeProgress>(json),
+            "MergeStarted" => roundtrip::<super::MergeStarted>(json),
+            "MergeTurn" => roundtrip::<super::MergeTurn>(json),
             "MessageBlockDto" => roundtrip::<super::MessageBlockDto>(json),
             "MessageStatusDto" => roundtrip::<super::MessageStatusDto>(json),
+            "MessagesDeleted" => roundtrip::<super::MessagesDeleted>(json),
             "ModelList" => roundtrip::<super::ModelList>(json),
             "ModelOptionsDto" => roundtrip::<super::ModelOptionsDto>(json),
             "ModelOptionsQuery" => roundtrip::<super::ModelOptionsQuery>(json),
@@ -11851,6 +12478,7 @@ pub mod conformance {
             "SetFastTier" => roundtrip::<super::SetFastTier>(json),
             "SetModelPinned" => roundtrip::<super::SetModelPinned>(json),
             "SetReasoningEffort" => roundtrip::<super::SetReasoningEffort>(json),
+            "ShareChat" => roundtrip::<super::ShareChat>(json),
             "ShutdownResult" => roundtrip::<super::ShutdownResult>(json),
             "SignOutAll" => roundtrip::<super::SignOutAll>(json),
             "SkillList" => roundtrip::<super::SkillList>(json),

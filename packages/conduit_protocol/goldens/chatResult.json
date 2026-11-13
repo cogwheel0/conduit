@@ -8,10 +8,24 @@
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false
     },
     "messages": [],
     "systemPrompt": "Answer briefly.",
-    "readOnly": false
+    "readOnly": false,
+    "abilities": {
+      "fork": false,
+      "export": false,
+      "merge": false,
+      "branch": false,
+      "deleteMessages": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "share": false,
+      "saveTemporary": false,
+      "compare": false
+    },
+    "temporary": false
   }
 }

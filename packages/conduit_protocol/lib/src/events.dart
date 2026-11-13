@@ -100,6 +100,18 @@ abstract final class ConduitEvents {
   /// chat.
   static const String queueChanged = 'queue.changed';
 
+  /// A merged response so far (Merge Responses). Payload [MergeProgress],
+  /// scoped to the chat.
+  static const String messagesMerge = 'messages.merge';
+
+  /// The server suggests carrying on in a new chat with another model.
+  /// Payload [HandoffRequest]; answered with `handoff.answer`.
+  static const String handoffRequested = 'handoff.requested';
+
+  /// A `handoff.requested` was answered or ran out of time. Payload
+  /// [HandoffSettled].
+  static const String handoffSettled = 'handoff.settled';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -129,6 +141,9 @@ abstract final class ConduitEvents {
     terminalDisplayFile,
     settingsChanged,
     queueChanged,
+    messagesMerge,
+    handoffRequested,
+    handoffSettled,
   };
 }
 

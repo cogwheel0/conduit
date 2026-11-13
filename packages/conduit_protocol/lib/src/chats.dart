@@ -30,6 +30,11 @@ abstract class ChatSummary with _$ChatSummary {
     /// server, so a window offers no composer, follow-ups, edit, regenerate
     /// or rating (issue #710).
     @Default(false) bool readOnly,
+
+    /// Something arrived since the account last read it, or it was marked
+    /// unread (the core's `isConversationUnread`). Never true while the chat
+    /// is answering; a window draws no dot on the chat it shows.
+    @Default(false) bool unread,
   }) = _ChatSummary;
 
   factory ChatSummary.fromJson(Map<String, dynamic> json) =>
@@ -150,10 +155,62 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     /// error, code executions, sources and follow-ups, in the order
     /// [MessageBlockKind] gives. Empty for the user's messages.
     @Default(<MessageBlockDto>[]) List<MessageBlockDto> blocks,
+
+    /// The message this one answers or follows; null for the first.
+    String? parentId,
+
+    /// The model column (Open WebUI's `modelIdx`) of an answer whose
+    /// question more than one model answered (Compare Models); null for an
+    /// ordinary answer.
+    int? slot,
+
+    /// The merged response saved on this answer (Merge Responses), when it
+    /// has one.
+    String? merged,
+
+    /// The answer failed on the reasoning effort the chat or the picker sent
+    /// it, and a retry without one would go out differently (the core's
+    /// `isReasoningEffortRejection`): Retry Without Reasoning Effort applies.
+    @Default(false) bool retryWithoutEffort,
+
+    /// When the question was answered by more than one model: each column,
+    /// in order, with its answers (this message and its [versions] by id).
+    /// Empty for an ordinary answer, whose versions are regenerations.
+    @Default(<ComparisonSlotDto>[]) List<ComparisonSlotDto> comparison,
+
+    /// Of [comparison]'s answers, those a merge may read: finished, without
+    /// an error, with text. The current answer of each column, as the core
+    /// picks them.
+    @Default(<String>[]) List<String> mergeableIds,
+
+    /// This message and its [versions], by id, in the order the server keeps
+    /// them (its parent's `childrenIds`), so a window shows where the one on
+    /// screen stands (`2 / 3`) whichever is current. Empty when it has no
+    /// versions.
+    @Default(<String>[]) List<String> siblingIds,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>
       _$ChatMessageDtoFromJson(json);
+}
+
+/// One model's column of a Compare Models answer.
+@freezed
+abstract class ComparisonSlotDto with _$ComparisonSlotDto {
+  const factory ComparisonSlotDto({
+    /// Open WebUI's `modelIdx`.
+    required int index,
+
+    /// The column's answers, oldest first: regenerating one column adds to
+    /// its own. The last is the one it shows.
+    @Default(<String>[]) List<String> answerIds,
+
+    /// The model that answered, by id.
+    String? model,
+  }) = _ComparisonSlotDto;
+
+  factory ComparisonSlotDto.fromJson(Map<String, dynamic> json) =>
+      _$ComparisonSlotDtoFromJson(json);
 }
 
 /// One source an answer cites.
@@ -213,6 +270,18 @@ abstract class ChatUsageDto with _$ChatUsageDto {
     double? totalSeconds,
     double? queueSeconds,
     double? loadSeconds,
+
+    /// The context window of the model that answered, in tokens, when the
+    /// model says (or one is set for a Direct model).
+    int? contextLength,
+
+    /// How much of that window the reply used (the core's
+    /// `UsageSummary.contextTokens`).
+    int? contextTokens,
+
+    /// Some steps of the reply (a tool round, say) reported no usage, so
+    /// the figures may be low.
+    @Default(false) bool incomplete,
   }) = _ChatUsageDto;
 
   factory ChatUsageDto.fromJson(Map<String, dynamic> json) =>
@@ -235,6 +304,19 @@ abstract class ChatMessageVersionDto with _$ChatMessageVersionDto {
     /// This answer, ready to draw, as [ChatMessageDto.blocks]. A version
     /// keeps no status timeline.
     @Default(<MessageBlockDto>[]) List<MessageBlockDto> blocks,
+
+    /// Its model column, as [ChatMessageDto.slot].
+    int? slot,
+
+    /// Its saved merged response, as [ChatMessageDto.merged].
+    String? merged,
+
+    /// The server still reports it as being written (another column of a
+    /// comparison that is still answering).
+    @Default(false) bool streaming,
+
+    /// Set when this answer failed.
+    String? errorCode,
   }) = _ChatMessageVersionDto;
 
   factory ChatMessageVersionDto.fromJson(Map<String, dynamic> json) =>
@@ -256,10 +338,64 @@ abstract class ChatDetail with _$ChatDetail {
     /// was opened (its owner is known once the server's copy is loaded,
     /// before it is ever listed).
     @Default(false) bool readOnly,
+
+    /// What this chat offers, as the core decides it for a phone.
+    @Default(ChatAbilities()) ChatAbilities abilities,
+
+    /// A temporary chat: never stored, until Save Chat makes it a normal one.
+    @Default(false) bool temporary,
+
+    /// The public link's share id, when the chat has one.
+    String? shareId,
   }) = _ChatDetail;
 
   factory ChatDetail.fromJson(Map<String, dynamic> json) =>
       _$ChatDetailFromJson(json);
+}
+
+/// What one open chat offers right now, from the core's own rules (the
+/// account, the server's permissions, the backend). A window hides what is
+/// false rather than offering something the daemon would refuse.
+@freezed
+abstract class ChatAbilities with _$ChatAbilities {
+  const factory ChatAbilities({
+    /// Fork Chat: a new chat from a message (Open WebUI's fork, which needs
+    /// the account's `chat.import`).
+    @Default(false) bool fork,
+
+    /// Export: a JSON backup or a Markdown transcript (`chat.export`).
+    @Default(false) bool export,
+
+    /// Merge Responses on a Compare Models answer (Advanced is on).
+    @Default(false) bool merge,
+
+    /// Switching versions and branches on the server, and Continue from
+    /// This Response: the account's own stored Open WebUI chat.
+    @Default(false) bool branch,
+
+    /// Deleting messages.
+    @Default(false) bool deleteMessages,
+
+    /// Mark as Unread (the server keeps read state).
+    @Default(false) bool markUnread,
+
+    /// Generate Title (the server holds the chat).
+    @Default(false) bool generateTitle,
+
+    /// Share: a public link and who may open it.
+    @Default(false) bool share,
+
+    /// Save Chat: a temporary chat with messages, which can become a
+    /// normal one.
+    @Default(false) bool saveTemporary,
+
+    /// Compare Models: one question to two models side by side (Advanced is
+    /// on, a stored Open WebUI chat).
+    @Default(false) bool compare,
+  }) = _ChatAbilities;
+
+  factory ChatAbilities.fromJson(Map<String, dynamic> json) =>
+      _$ChatAbilitiesFromJson(json);
 }
 
 /// One message in a conversation's tree, for the overview.
@@ -304,6 +440,11 @@ abstract class ChatCurrent with _$ChatCurrent {
   const factory ChatCurrent({
     required String chatId,
     required String messageId,
+
+    /// The message the window shows in [messageId]'s place (Continue from
+    /// This Response, a version's arrows): [messageId] must then be another
+    /// answer to the same message in the same role, or nothing changes.
+    String? alternativeTo,
   }) = _ChatCurrent;
 
   factory ChatCurrent.fromJson(Map<String, dynamic> json) =>
@@ -679,16 +820,44 @@ abstract class SetChatFlag with _$SetChatFlag {
       _$SetChatFlagFromJson(json);
 }
 
-/// Reply to `chats.share`.
+/// Who may open a chat's link, beyond the people and groups given access:
+/// nobody else, every user on the server, or anyone with the link (the
+/// core's `ResourceAudience`).
+enum ShareAudience { private, public, open }
+
+/// Params for `chats.share`.
+@freezed
+abstract class ShareChat with _$ShareChat {
+  const factory ShareChat({
+    required String id,
+
+    /// Makes the link, or updates it to the chat as it is now. False only
+    /// reads what the chat has (and sets [audience], when given).
+    @Default(true) bool publish,
+
+    /// Who may open it, chosen on purpose; null leaves it as it is.
+    ShareAudience? audience,
+  }) = _ShareChat;
+
+  factory ShareChat.fromJson(Map<String, dynamic> json) =>
+      _$ShareChatFromJson(json);
+}
+
+/// Reply to `chats.share` and `chats.unshare`.
 @freezed
 abstract class ChatShare with _$ChatShare {
   const factory ChatShare({
     required String chatId,
 
-    /// The share id, or null once unshared. The renderer builds the URL from
-    /// the active server rather than receiving one, so a stale link cannot
-    /// outlive a server change.
+    /// The share id, or null once unshared.
     String? shareId,
+
+    /// The link to copy, built by the core from the account's server (Open
+    /// WebUI serves it at `/s/{shareId}`); null without a link.
+    String? url,
+
+    /// Who may open it, when the server said.
+    ShareAudience? audience,
   }) = _ChatShare;
 
   factory ChatShare.fromJson(Map<String, dynamic> json) =>
@@ -780,4 +949,101 @@ abstract class ChatResult with _$ChatResult {
 
   factory ChatResult.fromJson(Map<String, dynamic> json) =>
       _$ChatResultFromJson(json);
+}
+
+/// Params for `chats.fork`: a new chat from the start of [chatId] to
+/// [messageId], as Open WebUI's fork makes it.
+@freezed
+abstract class ForkChat with _$ForkChat {
+  const factory ForkChat({required String chatId, required String messageId}) =
+      _ForkChat;
+
+  factory ForkChat.fromJson(Map<String, dynamic> json) =>
+      _$ForkChatFromJson(json);
+}
+
+/// Reply to `chats.fork` and `chats.saveTemporary`: the new chat.
+@freezed
+abstract class ChatForked with _$ChatForked {
+  const factory ChatForked({required String chatId}) = _ChatForked;
+
+  factory ChatForked.fromJson(Map<String, dynamic> json) =>
+      _$ChatForkedFromJson(json);
+}
+
+/// What `chats.export` writes.
+enum ChatExportFormat {
+  /// The whole chat, every branch, as the JSON Open WebUI imports.
+  json,
+
+  /// The branch the transcript shows, as readable Markdown.
+  markdown,
+}
+
+/// Params for `chats.export`.
+@freezed
+abstract class ExportChat with _$ExportChat {
+  const factory ExportChat({
+    required String chatId,
+    required ChatExportFormat format,
+  }) = _ExportChat;
+
+  factory ExportChat.fromJson(Map<String, dynamic> json) =>
+      _$ExportChatFromJson(json);
+}
+
+/// Reply to `chats.export`: the file to save, read from the chat's stored
+/// copy. The window asks where to save it.
+@freezed
+abstract class ChatExportFile with _$ChatExportFile {
+  const factory ChatExportFile({
+    /// The name the save panel suggests: the title, then a stamp.
+    required String fileName,
+    required String content,
+    required String mimeType,
+
+    /// Edits made here that have not reached the server yet are in it.
+    @Default(false) bool hasUnsyncedChanges,
+  }) = _ChatExportFile;
+
+  factory ChatExportFile.fromJson(Map<String, dynamic> json) =>
+      _$ChatExportFileFromJson(json);
+}
+
+/// How `chats.generateTitle` ended.
+enum GenerateTitleOutcome {
+  /// A new title was saved.
+  saved,
+
+  /// The model wrote the title the chat already had.
+  unchanged,
+
+  /// The model wrote no title.
+  none,
+}
+
+/// Reply to `chats.generateTitle`.
+@freezed
+abstract class GeneratedTitle with _$GeneratedTitle {
+  const factory GeneratedTitle({
+    required GenerateTitleOutcome outcome,
+    String? title,
+  }) = _GeneratedTitle;
+
+  factory GeneratedTitle.fromJson(Map<String, dynamic> json) =>
+      _$GeneratedTitleFromJson(json);
+}
+
+/// Params for `chats.markUnread`.
+@freezed
+abstract class MarkUnread with _$MarkUnread {
+  const factory MarkUnread({
+    required String chatId,
+
+    /// False marks it read, as opening it does.
+    @Default(true) bool unread,
+  }) = _MarkUnread;
+
+  factory MarkUnread.fromJson(Map<String, dynamic> json) =>
+      _$MarkUnreadFromJson(json);
 }

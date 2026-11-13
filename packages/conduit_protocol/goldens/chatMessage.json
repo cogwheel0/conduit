@@ -14,7 +14,8 @@
   ],
   "usage": {
     "generationTokens": 7,
-    "totalSeconds": 0.5
+    "totalSeconds": 0.5,
+    "incomplete": false
   },
   "rating": 1,
   "files": [],
@@ -32,5 +33,9 @@
         }
       ]
     }
-  ]
+  ],
+  "retryWithoutEffort": false,
+  "comparison": [],
+  "mergeableIds": [],
+  "siblingIds": []
 }

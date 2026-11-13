@@ -448,13 +448,43 @@
     },
     {
       "name": "chats.share",
-      "params": "ChatRef",
+      "params": "ShareChat",
       "result": "ChatShare"
     },
     {
       "name": "chats.unshare",
       "params": "ChatRef",
       "result": "ChatShare"
+    },
+    {
+      "name": "chats.fork",
+      "params": "ForkChat",
+      "result": "ChatForked"
+    },
+    {
+      "name": "chats.export",
+      "params": "ExportChat",
+      "result": "ChatExportFile"
+    },
+    {
+      "name": "chats.generateTitle",
+      "params": "ChatRef",
+      "result": "GeneratedTitle"
+    },
+    {
+      "name": "chats.markUnread",
+      "params": "MarkUnread",
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.saveTemporary",
+      "params": "ChatRef",
+      "result": "ChatForked"
+    },
+    {
+      "name": "messages.delete",
+      "params": "DeleteMessages",
+      "result": "MessagesDeleted"
     },
     {
       "name": "models.list",
@@ -765,6 +795,16 @@
       "name": "turns.rate",
       "params": "RateTurn",
       "result": "RatedResult"
+    },
+    {
+      "name": "turns.merge",
+      "params": "MergeTurn",
+      "result": "MergeStarted"
+    },
+    {
+      "name": "handoff.answer",
+      "params": "HandoffAnswer",
+      "result": "HandoffAnswered"
     },
     {
       "name": "notes.list",
@@ -1292,6 +1332,21 @@
       "name": "queue.changed",
       "payload": "QueueState",
       "scoped": true
+    },
+    {
+      "name": "messages.merge",
+      "payload": "MergeProgress",
+      "scoped": true
+    },
+    {
+      "name": "handoff.requested",
+      "payload": "HandoffRequest",
+      "scoped": false
+    },
+    {
+      "name": "handoff.settled",
+      "payload": "HandoffSettled",
+      "scoped": false
     }
   ]
 }

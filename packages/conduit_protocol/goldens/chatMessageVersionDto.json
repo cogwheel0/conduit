@@ -9,5 +9,6 @@
       "kind": "text",
       "markdown": "The first answer."
     }
-  ]
+  ],
+  "streaming": false
 }

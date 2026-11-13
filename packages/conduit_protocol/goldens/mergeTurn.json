@@ -1,0 +1,10 @@
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "sourceIds": [
+    "msg-a1",
+    "msg-b1"
+  ],
+  "stop": false
+}

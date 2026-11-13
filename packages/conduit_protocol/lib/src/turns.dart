@@ -106,6 +106,11 @@ abstract class RegenerateTurn with _$RegenerateTurn {
     /// Null keeps the model the conversation is already using. Passing one
     /// is how "try this again with a better model" works.
     String? model,
+
+    /// Retry Without Reasoning Effort: the reasoning effort the chat saved
+    /// and the picker's pick for the model are set back to automatic first,
+    /// so the retry sends none.
+    @Default(false) bool withoutReasoningEffort,
   }) = _RegenerateTurn;
 
   factory RegenerateTurn.fromJson(Map<String, dynamic> json) =>
@@ -159,6 +164,11 @@ abstract class TurnStarted with _$TurnStarted {
     required String chatId,
     required String messageId,
     required String model,
+
+    /// A Compare Models turn: the other models' answers, written at the same
+    /// time under their own ids (their `turn.delta` and `turn.blocks` name
+    /// them). Empty for an ordinary turn.
+    @Default(<String>[]) List<String> companionIds,
   }) = _TurnStarted;
 
   factory TurnStarted.fromJson(Map<String, dynamic> json) =>

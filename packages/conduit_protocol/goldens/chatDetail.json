@@ -7,7 +7,8 @@
     "archived": false,
     "tags": [],
     "shared": false,
-    "readOnly": true
+    "readOnly": true,
+    "unread": false
   },
   "messages": [
     {
@@ -19,8 +20,25 @@
       "versions": [],
       "sources": [],
       "files": [],
-      "blocks": []
+      "blocks": [],
+      "retryWithoutEffort": false,
+      "comparison": [],
+      "mergeableIds": [],
+      "siblingIds": []
     }
   ],
-  "readOnly": true
+  "readOnly": true,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false
+  },
+  "temporary": false
 }
