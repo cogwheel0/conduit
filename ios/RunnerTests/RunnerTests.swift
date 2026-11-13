@@ -44,6 +44,32 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
+  func testNativeSheetDateRowKeepsTheDateSetWhenDrawnAgain() throws {
+    let controller = try XCTUnwrap(
+      makeNativeDetailPageForTesting([
+        "id": "test-dates", "title": "Dates",
+        "items": [
+          ["id": "test-day", "title": "Day", "kind": "date", "value": "2026-01-02T00:00:00"]
+        ],
+      ]))
+    let table = try XCTUnwrap(controller.tableView)
+    let source = try XCTUnwrap(table.dataSource)
+    func picker() throws -> UIDatePicker {
+      let cell = source.tableView(table, cellForRowAt: IndexPath(row: 0, section: 0))
+      return try XCTUnwrap(cell.accessoryView as? UIDatePicker)
+    }
+    let chosen = try XCTUnwrap(
+      Calendar(identifier: .gregorian).date(
+        from: DateComponents(year: 2026, month: 3, day: 4)))
+    let first = try picker()
+    first.date = chosen
+    first.sendActions(for: .valueChanged)
+
+    // Scrolled away and back: the row is drawn again with the date set.
+    XCTAssertEqual(try picker().date, chosen)
+  }
+
+  @MainActor
   func testIconBarButtonsSayWhatTheyDo() {
     let action = UIAction { _ in }
     // Given a label, VoiceOver reads it, not the symbol.

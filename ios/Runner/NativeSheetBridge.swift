@@ -5612,6 +5612,11 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
     }
 }
 
+/// A Settings page drawn from [payload], acting on nothing, for tests.
+func makeNativeDetailPageForTesting(_ payload: [String: Any]) -> UITableViewController? {
+    NativeDetailTableViewController.makeForTesting(payload)
+}
+
 private final class NativeDetailTableViewController: UITableViewController, NativeSheetLeaveGuarding {
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
@@ -5630,6 +5635,10 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// any new rows arrive, and a speed is not sent back at all, so the rows
     /// draw this rather than the value they came with.
     private var chosenOptionValues: [String: String] = [:]
+    /// Dates and times set in their pickers since Dart last sent the page. A
+    /// result sheet keeps them without sending the page back, so a row drawn
+    /// again (scrolled away and back) shows this, not the value it came with.
+    private var chosenDateValues: [String: String] = [:]
 
     /// The page's search bar, kept above its rows as the list's filter.
     private var searchController: UISearchController?
@@ -5689,6 +5698,21 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    fileprivate static func makeForTesting(_ payload: [String: Any]) -> UITableViewController? {
+        guard let detail = NativeSheetDetail(payload) else { return nil }
+        let controller = NativeDetailTableViewController(
+            detail: detail,
+            canNavigate: { _ in false },
+            onSelect: { _ in },
+            onControlChanged: { _, _ in },
+            onReorder: { _, _ in },
+            onConfirmAction: { _ in },
+            onClose: {}
+        )
+        controller.loadViewIfNeeded()
+        return controller
     }
 
     private func onControlChanged(_ item: NativeSheetItem, _ value: Any?) {
@@ -5869,6 +5893,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         pendingTextValues = keptText
         committedTextValues.removeAll()
         chosenOptionValues.removeAll()
+        chosenDateValues.removeAll()
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
@@ -6339,12 +6364,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             picker.maximumDate = item.sliderMax.map {
                 Date(timeIntervalSince1970: $0 / 1000)
             }
-            picker.date = NativeSheetDateValue.date(from: item.value) ?? Date()
+            picker.date = NativeSheetDateValue.date(
+                from: chosenDateValues[item.id] ?? item.value
+            ) ?? Date()
             picker.isEnabled = !item.disabled && !detail.busy
             picker.accessibilityLabel = item.title
             picker.addAction(UIAction { [weak self, weak picker] _ in
                 guard let picker else { return }
-                self?.onControlChanged(item, NativeSheetDateValue.string(from: picker.date))
+                let value = NativeSheetDateValue.string(from: picker.date)
+                self?.chosenDateValues[item.id] = value
+                self?.onControlChanged(item, value)
             }, for: .valueChanged)
             picker.sizeToFit()
             cell.accessoryView = picker
