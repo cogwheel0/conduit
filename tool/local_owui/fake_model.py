@@ -59,6 +59,16 @@ NOTES = re.compile(r'<notes>(.*?)</notes>', re.DOTALL)
 TRANSCRIPT = 'A synthetic transcript from the fake model.'
 
 
+def fake_embedding(text, size=16):
+    """A unit vector of [size] numbers from [text]'s bytes: deterministic, so
+    the same memory always embeds the same."""
+    values = [0.0] * size
+    for i, byte in enumerate(text.encode('utf-8')):
+        values[i % size] += (byte % 31) + 1
+    norm = sum(v * v for v in values) ** 0.5 or 1.0
+    return [v / norm for v in values]
+
+
 def silence_wav():
     out = io.BytesIO()
     with wave.open(out, 'wb') as w:
@@ -219,6 +229,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+            return
+        if path.endswith('/embeddings'):
+            # Memories need an embedding to be saved: a small vector made
+            # from the text's bytes, the same for the same text.
+            try:
+                texts = json.loads(raw or b'{}').get('input') or []
+            except ValueError:
+                texts = []
+            if isinstance(texts, str):
+                texts = [texts]
+            self._json(200, {'object': 'list', 'model': 'fake-embedding', 'data': [
+                {'object': 'embedding', 'index': i, 'embedding': fake_embedding(str(text))}
+                for i, text in enumerate(texts)
+            ]})
             return
         if not path.endswith('/chat/completions'):
             self._json(404, {'error': 'not found'})
