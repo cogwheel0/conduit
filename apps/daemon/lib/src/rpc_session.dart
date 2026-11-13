@@ -11,6 +11,7 @@ import 'chats_service.dart';
 import 'composer_service.dart';
 import 'drafts_service.dart';
 import 'direct_service.dart';
+import 'web_search_service.dart';
 import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
@@ -63,6 +64,7 @@ final class CoreServices {
     this.prompts,
     this.direct,
     this.mcp,
+    this.webSearch,
     this.notes,
     this.channels,
     this.workspace,
@@ -101,6 +103,7 @@ final class CoreServices {
   final PromptsService? prompts;
   final DirectService? direct;
   final McpService? mcp;
+  final WebSearchService? webSearch;
   final NotesService? notes;
   final ChannelsService? channels;
   final WorkspaceService? workspace;
@@ -191,6 +194,7 @@ class RpcSession {
   PromptsService? get _prompts => _services().prompts;
   DirectService? get _direct => _services().direct;
   McpService? get _mcp => _services().mcp;
+  WebSearchService? get _webSearch => _services().webSearch;
   NotesService? get _notes => _services().notes;
   ChannelsService? get _channels => _services().channels;
   WorkspaceService? get _workspace => _services().workspace;
@@ -794,6 +798,23 @@ class RpcSession {
       ConduitMethodSpecs.directOllamaThinking,
       (a) => _requireDirect().ollamaThinking(a),
     );
+    _on(ConduitMethodSpecs.directReload, (_) => _requireDirect().reload());
+    _on(ConduitMethodSpecs.directOptions, (_) => _requireDirect().options());
+    _on(
+      ConduitMethodSpecs.directSetImagesPerRequest,
+      (r) => _requireDirect().setImagesPerRequest(r.count),
+    );
+    _on(
+      ConduitMethodSpecs.directSetContextLimit,
+      (r) => _requireDirect().setContextLimit(r),
+    );
+
+    // webSearch.*.
+    _on(
+      ConduitMethodSpecs.webSearchGet,
+      (_) async => _requireWebSearch().get(),
+    );
+    _on(ConduitMethodSpecs.webSearchSet, (p) => _requireWebSearch().set(p));
 
     // channels.*.
     const ok = OkResult(ok: true);
@@ -1256,6 +1277,13 @@ class RpcSession {
 
   NotesService _requireNotes() =>
       _notes ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  WebSearchService _requireWebSearch() =>
+      _webSearch ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

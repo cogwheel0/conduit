@@ -372,6 +372,16 @@ final class McpService {
         hasBearerToken: (server.bearerToken ?? '').isNotEmpty,
         customHeaderNames: server.customHeaders.keys.toList(growable: false),
         oauthConnected: server.oauthTokens != null,
+        oauthIssuerHost: switch (server.oauthTokens) {
+          null => null,
+          final tokens => Uri.tryParse(tokens.authorizationServerIssuer)?.host,
+        },
+        oauthScopes: <String>[
+          for (final scope in (server.oauthTokens?.grantedScope ?? '').split(
+            RegExp(r'\s+'),
+          ))
+            if (scope.isNotEmpty) scope,
+        ],
         allowInsecureCredentials: server.allowInsecureCredentials,
         approvals: <McpApprovalSummary>[
           for (final approval in server.rememberedApprovals)

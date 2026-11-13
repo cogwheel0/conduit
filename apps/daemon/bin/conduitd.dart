@@ -138,6 +138,9 @@ Future<int> _run(List<String> args) async {
     ..redactExactly(<String>[config.sessionToken, config.masterKey])
     ..attachFile(RotatingLogFile(Directory(directories.paths.logs)));
   DebugLogger.sink = DaemonLogSink(log);
+  if (!installModelLogoCatalog()) {
+    log.info('no model logo catalog; direct models show their initials');
+  }
 
   final server = DaemonServer(
     config: config,

@@ -3,7 +3,10 @@ import 'package:conduit_core/features/direct_connections/models/openwebui_direct
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -56,7 +59,84 @@ final class DirectService {
             (profile.adapterKey == kOpenAiCompatibleAdapterKey ||
                 profile.adapterKey == kOllamaAdapterKey),
       ),
+      openWebUiLoadFailed: _openWebUiFailed,
     );
+  }
+
+  /// The Open WebUI account's connections read again, as mobile does when
+  /// its page opens, then the list.
+  Future<DirectConnectionList> reload() async {
+    if (_container.read(openWebUiDirectConnectionsAvailableProvider)) {
+      try {
+        await _container
+            .read(openWebUiDirectConnectionsProvider.notifier)
+            .reload();
+      } on Object {
+        // The list says so; the last connections read stay listed.
+      }
+    }
+    return list();
+  }
+
+  /// What applies to every connection's models: images per request, and
+  /// the context limits of the models that report no window of their own
+  /// (mobile's Context Compaction).
+  Future<DirectOptions> options() async {
+    List<Model> models;
+    try {
+      models = (await readSettled(
+        _container,
+        directModelDiscoveryProvider.future,
+      )).models;
+    } on Object {
+      // No models listed now; the images setting still applies.
+      models = const <Model>[];
+    }
+    final overrides = _container.read(directContextLengthOverridesProvider);
+    return DirectOptions(
+      imagesPerRequest: _container.read(directMaxImagesPerRequestProvider),
+      imagesPerRequestChoices: kDirectMaxImagesPerRequestOptions,
+      contextModels: <DirectContextModel>[
+        for (final model in models)
+          if (directModelAdvertisedContextLength(model) == null)
+            DirectContextModel(
+              id: model.id,
+              name: model.name,
+              connection: model.metadata?['profileName'] as String?,
+              limit: overrides[model.id] ?? kDefaultDirectContextLength,
+              ollama: model.metadata?['adapterKey'] == kOllamaAdapterKey,
+              logo: directModelLogoAvatarUrl(model)
+                  ?.substring(kModelLogoUrlScheme.length),
+            ),
+      ],
+      contextLimitChoices: kDirectContextLengthOptions,
+    );
+  }
+
+  Future<DirectOptions> setImagesPerRequest(int count) async {
+    if (!kDirectMaxImagesPerRequestOptions.contains(count)) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: '$count is not one of the choices',
+      );
+    }
+    await _container
+        .read(directMaxImagesPerRequestProvider.notifier)
+        .set(count);
+    return options();
+  }
+
+  Future<DirectOptions> setContextLimit(DirectContextLimit request) async {
+    if (request.modelId.trim().isEmpty || request.tokens <= 0) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a model and a positive limit',
+      );
+    }
+    await _container
+        .read(directContextLengthOverridesProvider.notifier)
+        .set(request.modelId, request.tokens);
+    return options();
   }
 
   /// Waits for what decides whether the account can hold connections: the
@@ -89,21 +169,32 @@ final class DirectService {
     }
   }
 
+  /// Whether the last read of the Open WebUI account's connections failed.
+  bool _openWebUiFailed = false;
+
   /// The connections kept in the Open WebUI account, when the server
   /// allows them and they could be read.
   Future<OpenWebUiDirectConnectionsSnapshot?> _openWebUi() async {
     if (!_container.read(openWebUiDirectConnectionsAvailableProvider)) {
+      _openWebUiFailed = false;
       return null;
     }
     try {
-      return await readSettled(
+      final snapshot = await readSettled(
         _container,
         openWebUiDirectConnectionsProvider.future,
       );
+      // A failed reload keeps the last snapshot as data, with the error.
+      _openWebUiFailed = _container
+          .read(openWebUiDirectConnectionsProvider)
+          .hasError;
+      return snapshot;
     } on Object {
       // Unreadable account settings should not hide this computer's own
       // connections.
-      return null;
+      _openWebUiFailed = true;
+      final last = _container.read(openWebUiDirectConnectionsProvider).value;
+      return last;
     }
   }
 
@@ -289,6 +380,11 @@ final class DirectService {
             loaded: loaded?.contains(model.id),
             keepAlive: profile.ollamaKeepAliveFor(model.id),
             thinking: profile.ollamaThinkingFor(model.id)?.storageValue,
+            logo: installedModelLogoCatalog?.logoFor(
+              remoteModelId: model.id,
+              baseHost: Uri.tryParse(profile.baseUrl)?.host,
+              adapterKey: profile.adapterKey,
+            ),
           ),
       ],
     );

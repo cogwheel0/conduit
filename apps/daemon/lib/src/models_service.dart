@@ -8,6 +8,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
     show kOllamaAdapterKey;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show directModelRegistryProvider;
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
@@ -479,5 +480,14 @@ final class ModelsService {
     connection: model.metadata?['direct'] == true
         ? (model.metadata?['directProfileName'] as String?)
         : null,
+    logo: _logo(model),
   );
+
+  /// The models.dev logo the core picks for a direct model, by id; none
+  /// for the server's own models, which have their own pictures.
+  static String? _logo(core.Model model) {
+    if (model.metadata?['direct'] != true) return null;
+    final url = directModelLogoAvatarUrl(model);
+    return url?.substring(kModelLogoUrlScheme.length);
+  }
 }
