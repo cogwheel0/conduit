@@ -568,7 +568,11 @@ void main() {
       await rig.open(_alpha);
 
       await rig.change(_row('test'));
-      expect(rig.row(_alpha, '$_alpha-test-result'), isNotNull);
+      // Failed, not passed or still waiting.
+      expect(
+        rig.row(_alpha, '$_alpha-test-result')?.sfSymbol,
+        'exclamationmark.triangle',
+      );
 
       await rig.change(_row('name'), 'Alpha renamed');
       expect(rig.row(_alpha, '$_alpha-test-result'), isNull);
