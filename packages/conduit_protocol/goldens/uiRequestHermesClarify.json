@@ -1,0 +1,28 @@
+{
+  "requestId": "ui-41",
+  "kind": "hermesClarify",
+  "messageCode": "hermes.clarify",
+  "messageArgs": {
+    "prompt": "A few details first"
+  },
+  "detail": {
+    "chatId": "local:hermes_s-4f2a",
+    "questions": [
+      {
+        "id": "colour",
+        "text": "Which colour?",
+        "choices": [
+          {
+            "value": "Teal",
+            "label": "Teal",
+            "recommended": true
+          }
+        ],
+        "multiSelect": false,
+        "locked": false
+      }
+    ]
+  },
+  "timeoutMs": 290000,
+  "defaultChoice": "deny"
+}

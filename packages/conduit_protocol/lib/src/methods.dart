@@ -894,6 +894,33 @@ abstract final class ConduitMethods {
 
   /// The agent's skills and toolsets.
   static const String hermesCatalog = 'hermes.catalog';
+
+  // hermes.work.*, hermes.context.*, hermes.decisions.*: what a Hermes
+  // chat's agent is doing, its context window, and what it asks.
+
+  /// Follows a chat's agent work (subagents, processes, plan) while the
+  /// window shows it; changes come as `hermes.work.changed`.
+  static const String hermesWorkWatch = 'hermes.work.watch';
+  static const String hermesWorkUnwatch = 'hermes.work.unwatch';
+
+  /// New instructions for a running subagent.
+  static const String hermesWorkSteer = 'hermes.work.steer';
+
+  /// Stops a subagent.
+  static const String hermesWorkStop = 'hermes.work.stop';
+
+  /// Kills a background process.
+  static const String hermesWorkKill = 'hermes.work.kill';
+
+  /// A Hermes chat's context window, token totals and plan usage.
+  static const String hermesContextGet = 'hermes.context.get';
+
+  /// Summarizes a Hermes chat's older messages on the server.
+  static const String hermesContextCompact = 'hermes.context.compact';
+
+  /// Answers a clarify form, a sudo password, a secret or a set-up card,
+  /// and waits for Hermes to take it.
+  static const String hermesDecisionsAnswer = 'hermes.decisions.answer';
   static const String terminalPrefix = 'terminal.';
 
   // terminal.*. The shell itself is `WS /terminal/{handle}`.

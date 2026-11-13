@@ -24,7 +24,9 @@
     "saveTemporary": false,
     "compare": false,
     "branchFromHere": false,
-    "undoLastTurn": false
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
   },
   "temporary": false,
   "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",

@@ -1,0 +1,79 @@
+{
+  "model": "demo-model",
+  "contextUsed": 18400,
+  "contextMax": 131072,
+  "contextEstimated": false,
+  "estimatedTotal": 18900,
+  "categories": [
+    {
+      "id": "system_prompt",
+      "label": "System prompt",
+      "tokens": 2100
+    },
+    {
+      "id": "tool_definitions",
+      "label": "Tool definitions",
+      "tokens": 9300
+    },
+    {
+      "id": "subagent_definitions",
+      "label": "Subagent definitions",
+      "tokens": 800
+    },
+    {
+      "id": "conversation",
+      "label": "Conversation",
+      "tokens": 6200
+    }
+  ],
+  "totals": {
+    "input": 52000,
+    "output": 4100,
+    "reasoning": 900,
+    "cacheRead": 30000,
+    "cacheWrite": 12000,
+    "cacheHitPercent": 58,
+    "total": 56100,
+    "calls": 7,
+    "compressions": 1,
+    "costUsd": 0.42,
+    "costEstimated": true
+  },
+  "planGauges": [
+    {
+      "id": "day",
+      "usedFraction": 0.25,
+      "resetsAtMs": 1762905600000
+    },
+    {
+      "id": "surge",
+      "title": "Surge pool",
+      "usedFraction": 0.5
+    }
+  ],
+  "creditsLines": [
+    "12 credits left this month"
+  ],
+  "usageBars": {
+    "planName": "Harbour plan",
+    "renews": "Renews 1 Dec",
+    "plan": {
+      "kind": "plan",
+      "fill": 0.3,
+      "remaining": "$14.00",
+      "total": "$20.00",
+      "usedPercent": 30
+    },
+    "totalSpendable": "$14.00"
+  },
+  "providerPlan": {
+    "provider": "custom",
+    "planName": "Local",
+    "gauges": [],
+    "rateLimited": true,
+    "rateLimitedUntilMs": 1762851000000,
+    "usageLevel": "low"
+  },
+  "canCompact": true,
+  "compacting": false
+}

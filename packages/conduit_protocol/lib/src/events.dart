@@ -130,6 +130,11 @@ abstract final class ConduitEvents {
   /// [SpeechCommand]; answered with `speech.report`.
   static const String speechCommand = 'speech.command';
 
+  /// A watched Hermes chat's agent work changed: its subagents, processes,
+  /// plan or the output a window reads. Payload [HermesWork], scoped to the
+  /// chat.
+  static const String hermesWorkChanged = 'hermes.work.changed';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -166,6 +171,7 @@ abstract final class ConduitEvents {
     mcpAppsEvent,
     speechChanged,
     speechCommand,
+    hermesWorkChanged,
   };
 }
 

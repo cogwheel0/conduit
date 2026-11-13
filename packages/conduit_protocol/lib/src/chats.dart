@@ -427,6 +427,13 @@ abstract class ChatAbilities with _$ChatAbilities {
     /// Undo Last Turn on a Hermes chat's last reply: a Desktop Gateway
     /// session, whose transcript the gateway keeps (`hermes.history.undo`).
     @Default(false) bool undoLastTurn,
+    /// A Hermes agent works in this chat: its subagents, processes and plan
+    /// can be watched (`hermes.work.watch`).
+    @Default(false) bool hermesWork,
+
+    /// Context & Usage: the chat is a Hermes session whose context window
+    /// and usage can be read (`hermes.context.get`).
+    @Default(false) bool hermesContext,
   }) = _ChatAbilities;
 
   factory ChatAbilities.fromJson(Map<String, dynamic> json) =>

@@ -1,0 +1,13 @@
+{
+  "kind": "error",
+  "error": "HTTP 429",
+  "hermesError": {
+    "kind": "contextOverflow",
+    "blocking": true,
+    "partial": false,
+    "actions": [
+      "compact",
+      "newChat"
+    ]
+  }
+}

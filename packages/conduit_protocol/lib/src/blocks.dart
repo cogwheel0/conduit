@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'chats.dart';
+import 'hermes_work.dart';
 import 'mcp_apps.dart';
 
 part 'blocks.freezed.dart';
@@ -60,7 +61,8 @@ enum MessageBlockKind {
   status,
 
   /// The error banner under the content: [MessageBlockDto.error] and
-  /// [MessageBlockDto.type].
+  /// [MessageBlockDto.type]. A Hermes turn that Hermes classified also
+  /// carries [MessageBlockDto.hermesError], drawn as its error card.
   error,
 
   /// One code execution, a header that opens to its code and result:
@@ -91,6 +93,11 @@ enum MessageBlockKind {
   /// or an MCP App ([MessageBlockDto.embeds]). Each loads only when the
   /// user opens it.
   embeds,
+
+  /// The files a Hermes reply's tools changed, with their added and removed
+  /// lines ([MessageBlockDto.changedFiles]): a card that opens each file's
+  /// coloured diff.
+  changedFiles,
 }
 
 /// What an [EmbedDto] shows.
@@ -232,6 +239,13 @@ abstract class MessageBlockDto with _$MessageBlockDto {
 
     /// `embeds`: what the answer carries, in order.
     List<EmbedDto>? embeds,
+
+    /// `changedFiles`: each changed file, in the order the tools changed
+    /// them.
+    List<ChangedFileDto>? changedFiles,
+
+    /// `error`: a Hermes failure as Hermes classified it, for its card.
+    HermesErrorDto? hermesError,
   }) = _MessageBlockDto;
 
   factory MessageBlockDto.fromJson(Map<String, dynamic> json) =>

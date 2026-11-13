@@ -3466,7 +3466,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     "saveTemporary": false,
     "compare": false,
     "branchFromHere": false,
-    "undoLastTurn": false
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
   },
   "temporary": false,
   "tasks": [
@@ -3785,7 +3787,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "saveTemporary": false,
       "compare": false,
       "branchFromHere": false,
-      "undoLastTurn": false
+      "undoLastTurn": false,
+      "hermesWork": false,
+      "hermesContext": false
     },
     "temporary": false,
     "tasks": []
@@ -5092,7 +5096,9 @@ const Map<String, String> protocolGoldens = <String, String>{
   "saveTemporary": true,
   "compare": true,
   "branchFromHere": true,
-  "undoLastTurn": true
+  "undoLastTurn": true,
+  "hermesWork": false,
+  "hermesContext": false
 }''',
 
   'chatDetailHermes': r'''
@@ -5122,7 +5128,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     "saveTemporary": false,
     "compare": false,
     "branchFromHere": true,
-    "undoLastTurn": false
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
   },
   "temporary": false,
   "tasks": [],
@@ -5160,7 +5168,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     "saveTemporary": false,
     "compare": false,
     "branchFromHere": false,
-    "undoLastTurn": false
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
   },
   "temporary": false,
   "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
@@ -5275,7 +5285,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "saveTemporary": false,
       "compare": false,
       "branchFromHere": false,
-      "undoLastTurn": false
+      "undoLastTurn": false,
+      "hermesWork": false,
+      "hermesContext": false
     },
     "temporary": false,
     "tasks": []
@@ -5511,6 +5523,495 @@ const Map<String, String> protocolGoldens = <String, String>{
   "state": "ready",
   "index": 1,
   "positionMs": 800
+}''',
+
+  'hermesWorkWatch': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "subagentId": "sa-2"
+}''',
+
+  'hermesWork': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "loaded": true,
+  "subagents": [
+    {
+      "id": "sa-1",
+      "goal": "Survey the tide tables for next week",
+      "depth": 0,
+      "model": "demo-model",
+      "startedAtMs": 1762850000000,
+      "status": "running",
+      "running": true,
+      "toolCount": 3,
+      "lastTool": "web_search",
+      "acceptingSteer": true
+    },
+    {
+      "id": "sa-2",
+      "goal": "Draft the harbour notice",
+      "parentId": "sa-1",
+      "depth": 1,
+      "status": "completed",
+      "running": false,
+      "toolCount": 0,
+      "acceptingSteer": false
+    }
+  ],
+  "processes": [
+    {
+      "id": "proc-9",
+      "command": "python -m http.server 8765",
+      "running": true,
+      "startedAtMs": 1762850010000,
+      "output": "Serving HTTP on 127.0.0.1 port 8765"
+    }
+  ],
+  "plan": {
+    "items": [
+      {
+        "id": "1",
+        "content": "Read the tide tables",
+        "status": "completed",
+        "depth": 0
+      },
+      {
+        "id": "2",
+        "content": "Draft the notice",
+        "status": "in_progress",
+        "depth": 0
+      },
+      {
+        "id": "3",
+        "content": "Check the wording",
+        "status": "pending",
+        "depth": 1
+      }
+    ],
+    "done": 1,
+    "active": true,
+    "currentId": "2",
+    "revision": 4
+  },
+  "output": {
+    "subagentId": "sa-2",
+    "loaded": true,
+    "failed": false,
+    "available": true,
+    "text": "Notice drafted: the pier closes at six.",
+    "truncated": true
+  },
+  "workingDirectory": "/home/u/projects/harbour"
+}''',
+
+  'hermesWorkEmpty': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "loaded": false,
+  "subagents": [],
+  "processes": []
+}''',
+
+  'hermesSubagent': r'''
+{
+  "id": "sa-3",
+  "goal": "",
+  "depth": 0,
+  "running": true,
+  "toolCount": 0,
+  "acceptingSteer": true
+}''',
+
+  'hermesProcess': r'''
+{
+  "id": "proc-2",
+  "command": "sleep 120",
+  "running": false,
+  "exitCode": 0
+}''',
+
+  'hermesPlan': r'''
+{
+  "items": [],
+  "done": 0,
+  "active": false,
+  "revision": 0
+}''',
+
+  'hermesPlanItem': r'''
+{
+  "id": "7",
+  "content": "Tidy up",
+  "status": "pending",
+  "depth": 0
+}''',
+
+  'hermesSubagentOutput': r'''
+{
+  "subagentId": "sa-3",
+  "loaded": true,
+  "failed": true,
+  "available": false,
+  "text": "",
+  "truncated": false
+}''',
+
+  'hermesContextCategory': r'''
+{
+  "id": "conversation",
+  "label": "",
+  "tokens": 640
+}''',
+
+  'hermesTokenTotals': r'''
+{
+  "input": 300,
+  "output": 40,
+  "costEstimated": false
+}''',
+
+  'hermesPlanGauge': r'''
+{
+  "id": "week",
+  "usedFraction": 0.75
+}''',
+
+  'hermesUsageBar': r'''
+{
+  "kind": "topup",
+  "fill": 1.0
+}''',
+
+  'hermesUsageBars': r'''
+{
+  "planName": "Harbour plan"
+}''',
+
+  'hermesProviderPlan': r'''
+{
+  "gauges": [
+    {
+      "id": "month",
+      "usedFraction": 0.1
+    }
+  ],
+  "rateLimited": false
+}''',
+
+  'hermesWorkChat': r'''
+{
+  "chatId": "local:hermes_s-4f2a"
+}''',
+
+  'hermesSteerSubagent': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "subagentId": "sa-1",
+  "text": "Only the north pier"
+}''',
+
+  'hermesSubagentRef': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "subagentId": "sa-1"
+}''',
+
+  'hermesProcessRef': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "processId": "proc-9"
+}''',
+
+  'hermesProcessKill': r'''
+{
+  "status": "killed",
+  "output": "Keyboard interrupt received, exiting."
+}''',
+
+  'hermesProcessKillFailed': r'''
+{
+  "status": "failed",
+  "error": "permission denied"
+}''',
+
+  'hermesContextRef': r'''
+{
+  "chatId": "local:hermes_s-4f2a"
+}''',
+
+  'hermesContextReport': r'''
+{
+  "model": "demo-model",
+  "contextUsed": 18400,
+  "contextMax": 131072,
+  "contextEstimated": false,
+  "estimatedTotal": 18900,
+  "categories": [
+    {
+      "id": "system_prompt",
+      "label": "System prompt",
+      "tokens": 2100
+    },
+    {
+      "id": "tool_definitions",
+      "label": "Tool definitions",
+      "tokens": 9300
+    },
+    {
+      "id": "subagent_definitions",
+      "label": "Subagent definitions",
+      "tokens": 800
+    },
+    {
+      "id": "conversation",
+      "label": "Conversation",
+      "tokens": 6200
+    }
+  ],
+  "totals": {
+    "input": 52000,
+    "output": 4100,
+    "reasoning": 900,
+    "cacheRead": 30000,
+    "cacheWrite": 12000,
+    "cacheHitPercent": 58,
+    "total": 56100,
+    "calls": 7,
+    "compressions": 1,
+    "costUsd": 0.42,
+    "costEstimated": true
+  },
+  "planGauges": [
+    {
+      "id": "day",
+      "usedFraction": 0.25,
+      "resetsAtMs": 1762905600000
+    },
+    {
+      "id": "surge",
+      "title": "Surge pool",
+      "usedFraction": 0.5
+    }
+  ],
+  "creditsLines": [
+    "12 credits left this month"
+  ],
+  "usageBars": {
+    "planName": "Harbour plan",
+    "renews": "Renews 1 Dec",
+    "plan": {
+      "kind": "plan",
+      "fill": 0.3,
+      "remaining": "$14.00",
+      "total": "$20.00",
+      "usedPercent": 30
+    },
+    "totalSpendable": "$14.00"
+  },
+  "providerPlan": {
+    "provider": "custom",
+    "planName": "Local",
+    "gauges": [],
+    "rateLimited": true,
+    "rateLimitedUntilMs": 1762851000000,
+    "usageLevel": "low"
+  },
+  "canCompact": true,
+  "compacting": false
+}''',
+
+  'hermesContextReportEmpty': r'''
+{
+  "contextEstimated": false,
+  "categories": [],
+  "totals": {
+    "costEstimated": false
+  },
+  "planGauges": [],
+  "creditsLines": [],
+  "canCompact": false,
+  "compacting": false
+}''',
+
+  'hermesCompact': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "focus": "the pier schedule"
+}''',
+
+  'hermesCompactResult': r'''
+{
+  "outcome": "compacted",
+  "beforeTokens": 18400,
+  "afterTokens": 6100,
+  "beforeMessages": 24,
+  "afterMessages": 6
+}''',
+
+  'hermesDecisionAnswerForm': r'''
+{
+  "requestId": "ui-41",
+  "answers": [
+    {
+      "questionId": "colour",
+      "answer": "Teal"
+    },
+    {
+      "questionId": "pages"
+    }
+  ]
+}''',
+
+  'hermesDecisionAnswerValue': r'''
+{
+  "requestId": "ui-42",
+  "answers": [],
+  "value": "synthetic-value"
+}''',
+
+  'hermesClarifyAnswer': r'''
+{
+  "questionId": "pages",
+  "answer": "About"
+}''',
+
+  'hermesDecisionResult': r'''
+{
+  "status": "answered"
+}''',
+
+  'changedFile': r'''
+{
+  "path": "/home/u/projects/harbour/notes/pier.md",
+  "added": 2,
+  "removed": 1,
+  "lines": [
+    {
+      "kind": "hunk",
+      "text": "@@ -1,2 +1,3 @@"
+    },
+    {
+      "kind": "context",
+      "text": "# Pier",
+      "oldNumber": 1,
+      "newNumber": 1
+    },
+    {
+      "kind": "removed",
+      "text": "Open until five",
+      "oldNumber": 2
+    },
+    {
+      "kind": "added",
+      "text": "Open until six",
+      "newNumber": 2
+    },
+    {
+      "kind": "added",
+      "text": "Closed on Mondays",
+      "newNumber": 3
+    }
+  ]
+}''',
+
+  'diffLine': r'''
+{
+  "kind": "note",
+  "text": "3 more lines"
+}''',
+
+  'messageBlockChangedFiles': r'''
+{
+  "kind": "changedFiles",
+  "changedFiles": [
+    {
+      "path": "pier.md",
+      "added": 1,
+      "removed": 0,
+      "lines": []
+    }
+  ]
+}''',
+
+  'hermesError': r'''
+{
+  "kind": "rateLimit",
+  "blocking": false,
+  "message": "The provider is rate limiting this key.",
+  "provider": "Custom",
+  "model": "demo-model",
+  "resetsAtMs": 1762851000000,
+  "partial": false,
+  "actions": [
+    "retry"
+  ]
+}''',
+
+  'messageBlockHermesError': r'''
+{
+  "kind": "error",
+  "error": "HTTP 429",
+  "hermesError": {
+    "kind": "contextOverflow",
+    "blocking": true,
+    "partial": false,
+    "actions": [
+      "compact",
+      "newChat"
+    ]
+  }
+}''',
+
+  'hermesModelChoice': r'''
+{
+  "modelId": "hermes:agent:demo-model-mini",
+  "label": "Demo Mini"
+}''',
+
+  'uiRequestHermesClarify': r'''
+{
+  "requestId": "ui-41",
+  "kind": "hermesClarify",
+  "messageCode": "hermes.clarify",
+  "messageArgs": {
+    "prompt": "A few details first"
+  },
+  "detail": {
+    "chatId": "local:hermes_s-4f2a",
+    "questions": [
+      {
+        "id": "colour",
+        "text": "Which colour?",
+        "choices": [
+          {
+            "value": "Teal",
+            "label": "Teal",
+            "recommended": true
+          }
+        ],
+        "multiSelect": false,
+        "locked": false
+      }
+    ]
+  },
+  "timeoutMs": 290000,
+  "defaultChoice": "deny"
+}''',
+
+  'uiRequestHermesSecret': r'''
+{
+  "requestId": "ui-42",
+  "kind": "hermesSecret",
+  "messageCode": "hermes.secret",
+  "messageArgs": {
+    "prompt": "Paste the tide service key"
+  },
+  "detail": {
+    "chatId": "local:hermes_s-4f2a"
+  },
+  "timeoutMs": 290000,
+  "defaultChoice": "deny"
 }''',
 
 };

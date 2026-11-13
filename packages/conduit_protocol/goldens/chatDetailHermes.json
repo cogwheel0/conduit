@@ -24,7 +24,9 @@
     "saveTemporary": false,
     "compare": false,
     "branchFromHere": true,
-    "undoLastTurn": false
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
   },
   "temporary": false,
   "tasks": [],
