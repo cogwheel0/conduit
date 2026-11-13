@@ -17,6 +17,7 @@ import 'package:conduit_core/features/workspace/providers/workspace_knowledge_fi
 import 'package:conduit_core/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
+import 'package:conduit_core/features/workspace/services/workspace_model_avatar_source.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -1329,6 +1330,14 @@ final class WorkspaceService {
         baseModelId: draft.baseModelId,
         description: draft.description,
         imageUrl: draft.profileImageUrl,
+        imageSource: switch (workspaceModelAvatarSource(
+          draft.profileImageUrl,
+          serverBaseUrl: _container.read(apiServiceProvider)?.serverConfig.url,
+        )) {
+          WorkspaceModelAvatarSource.inline => WorkspaceImageSource.inline,
+          WorkspaceModelAvatarSource.server => WorkspaceImageSource.server,
+          WorkspaceModelAvatarSource.remote => WorkspaceImageSource.remote,
+        },
         tags: draft.tags,
         system: draft.system,
         stop: draft.stop,
@@ -1346,6 +1355,7 @@ final class WorkspaceService {
         defaultFeatureIds: draft.defaultFeatureIds,
         ttsVoice: draft.ttsVoice,
         terminalId: draft.terminalId,
+        builtinTools: draft.builtinTools,
         active: draft.isActive,
         hidden: draft.hidden,
         params: draft.advancedParams,
@@ -1431,6 +1441,7 @@ final class WorkspaceService {
       ..defaultFeatureIds = [...dto.defaultFeatureIds]
       ..ttsVoice = dto.ttsVoice
       ..terminalId = dto.terminalId
+      ..builtinTools = {...dto.builtinTools}
       ..isActive = dto.active
       ..hidden = dto.hidden
       ..advancedParams = {...dto.params};

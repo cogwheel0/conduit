@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
@@ -768,6 +769,50 @@ final class NotesService {
     await recorder.controller.removePending(request.id);
     _requireRecordingStill(request.noteId, account);
     return _recordingsOf(request.noteId, recorder);
+  }
+
+  /// One of [noteId]'s recordings still waiting to go to the server, as
+  /// it was recorded, for `GET /recordings/{id}?noteId=` (the window plays
+  /// it, as the phone plays a recording before it is uploaded).
+  Future<({Uint8List bytes, String contentType})> waitingRecording(
+    String noteId,
+    String id,
+  ) async {
+    // Played only under the account the note was opened under, and only
+    // while it is still the one active (checked again after each wait).
+    final account = _recordingAccount(noteId);
+    final recorder = await _recorderFor(noteId);
+    _requireRecordingStill(noteId, account);
+    final item = recorder.controller.pending
+        .where((p) => p.id == id)
+        .firstOrNull;
+    final file = item == null ? null : File(item.localPath);
+    if (file == null || !await file.exists()) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no waiting recording $id',
+      );
+    }
+    final bytes = await file.readAsBytes();
+    _requireRecordingStill(noteId, account);
+    return (bytes: bytes, contentType: audioTypeOf(item!.fileName));
+  }
+
+  /// A recording's type by its name, as players take it.
+  static String audioTypeOf(String name) {
+    final dot = name.lastIndexOf('.');
+    final ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+    return switch (ext) {
+      'm4a' || 'mp4' => 'audio/mp4',
+      'wav' => 'audio/wav',
+      'mp3' => 'audio/mpeg',
+      'aac' => 'audio/aac',
+      'caf' => 'audio/x-caf',
+      'flac' => 'audio/flac',
+      'ogg' || 'oga' => 'audio/ogg',
+      'webm' => 'audio/webm',
+      _ => 'application/octet-stream',
+    };
   }
 
   Future<_NoteRecorder> _recorderFor(String noteId) async {

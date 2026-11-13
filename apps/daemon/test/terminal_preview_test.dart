@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:conduitd/conduitd.dart';
@@ -226,6 +227,194 @@ void main() {
       expect(
         previewLocation('https://id.example.test/sign-in', upstream, boxPrefix),
         'https://id.example.test/sign-in',
+      );
+    });
+  });
+
+  group("a port preview's WebSocket", () {
+    late HttpServer terminal;
+    late PortPreview preview;
+    final seen = <String, String?>{};
+    late StreamController<String> pushes;
+
+    setUp(() async {
+      seen.clear();
+      pushes = StreamController<String>.broadcast();
+      // The terminal's proxy for port 5173, with a dev server behind it
+      // whose live-reload socket echoes and pushes.
+      terminal = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      terminal.listen((request) async {
+        final path = request.uri.path;
+        if (path == '/api/v1/terminals/box/proxy/5173/__moved') {
+          // Out of the port, to the terminal's own API on its host.
+          request.response
+            ..statusCode = HttpStatus.found
+            ..headers.set(HttpHeaders.locationHeader, '/api/v1/files/read');
+          await request.response.close();
+          return;
+        }
+        if (path != '/api/v1/terminals/box/proxy/5173/__hmr') {
+          seen['other'] = path;
+        }
+        if (path == '/api/v1/terminals/box/proxy/5173/__hmr' &&
+            WebSocketTransformer.isUpgradeRequest(request)) {
+          seen['authorization'] = request.headers.value('authorization');
+          seen['cookie'] = request.headers.value('cookie');
+          seen['x-access'] = request.headers.value('x-access');
+          seen['query'] = request.uri.query;
+          final socket = await WebSocketTransformer.upgrade(
+            request,
+            protocolSelector: (offered) => 'vite-hmr',
+          );
+          final sub = pushes.stream.listen(socket.add);
+          socket.listen(
+            (message) => socket.add('echo:$message'),
+            onDone: () {
+              seen['closed'] = '${socket.closeCode}';
+              unawaited(sub.cancel());
+            },
+          );
+          return;
+        }
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      });
+      preview = await PortPreview.start(
+        upstream: Uri.parse(
+          'http://127.0.0.1:${terminal.port}/api/v1/terminals/box/proxy/5173/',
+        ),
+        token: 'terminal-token',
+        key: 'visit-key',
+        cookies: const {'gate': 'open'},
+        headers: const {'x-access': 'harbour'},
+      );
+    });
+
+    tearDown(() async {
+      await preview.close();
+      await terminal.close(force: true);
+      await pushes.close();
+    });
+
+    /// The cookie the preview gives the first visit.
+    Future<String> visit() async {
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request = await client.getUrl(Uri.parse(preview.entryUrl));
+      request.followRedirects = false;
+      final response = await request.close();
+      await response.drain<void>();
+      final cookie = response.cookies.single;
+      return '${cookie.name}=${cookie.value}';
+    }
+
+    String socketUrl(String path) => preview.entryUrl
+        .replaceFirst(RegExp(r'^http'), 'ws')
+        .replaceFirst(RegExp(r'/\.conduit-preview/.*$'), path);
+
+    test('reaches the port with the credential, both ways', () async {
+      final cookie = await visit();
+      final socket = await WebSocket.connect(
+        socketUrl('/__hmr?token=abc'),
+        protocols: ['vite-hmr'],
+        headers: {HttpHeaders.cookieHeader: cookie},
+      );
+      final received = StreamIterator(socket);
+      expect(socket.protocol, 'vite-hmr');
+
+      socket.add('ping');
+      expect(await received.moveNext(), isTrue);
+      expect(received.current, 'echo:ping');
+
+      // The dev server says a file changed.
+      pushes.add('{"type":"full-reload"}');
+      expect(await received.moveNext(), isTrue);
+      expect(received.current, '{"type":"full-reload"}');
+
+      expect(seen['authorization'], 'Bearer terminal-token');
+      expect(seen['cookie'], 'gate=open');
+      expect(seen['x-access'], 'harbour');
+      expect(seen['query'], 'token=abc');
+
+      await socket.close(WebSocketStatus.normalClosure);
+      await received.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(seen['closed'], '${WebSocketStatus.normalClosure}');
+    });
+
+    test('the prefix Open WebUI wrote into the page is dropped', () async {
+      final cookie = await visit();
+      final socket = await WebSocket.connect(
+        socketUrl('/api/v1/terminals/box/proxy/5173/__hmr'),
+        headers: {HttpHeaders.cookieHeader: cookie},
+      );
+      socket.add('hello');
+      expect(await socket.first, 'echo:hello');
+    });
+
+    test('is refused without the visit\'s cookie', () async {
+      await expectLater(
+        WebSocket.connect(socketUrl('/__hmr')),
+        throwsA(isA<WebSocketException>()),
+      );
+      expect(seen, isEmpty);
+    });
+
+    test('is refused, not followed, when the port redirects it', () async {
+      final cookie = await visit();
+      await expectLater(
+        WebSocket.connect(
+          socketUrl('/__moved'),
+          headers: {HttpHeaders.cookieHeader: cookie},
+        ),
+        throwsA(isA<WebSocketException>()),
+      );
+      expect(seen['other'], isNull);
+      expect(seen['authorization'], isNull);
+    });
+
+    test('is refused from another page on this computer', () async {
+      final cookie = await visit();
+      await expectLater(
+        WebSocket.connect(
+          socketUrl('/__hmr'),
+          headers: {
+            HttpHeaders.cookieHeader: cookie,
+            'origin': 'http://127.0.0.1:9',
+          },
+        ),
+        throwsA(isA<WebSocketException>()),
+      );
+      expect(seen, isEmpty);
+      final own = Uri.parse(preview.entryUrl).origin;
+      final socket = await WebSocket.connect(
+        socketUrl('/__hmr'),
+        headers: {HttpHeaders.cookieHeader: cookie, 'origin': own},
+      );
+      socket.add('mine');
+      expect(await socket.first, 'echo:mine');
+    });
+
+    test('is refused when its path would climb out of the port', () async {
+      final cookie = await visit();
+      await expectLater(
+        WebSocket.connect(
+          socketUrl('/..%252F..%252Ffiles/read'),
+          headers: {HttpHeaders.cookieHeader: cookie},
+        ),
+        throwsA(isA<WebSocketException>()),
+      );
+      expect(seen, isEmpty);
+    });
+
+    test('is refused when the port refuses it', () async {
+      final cookie = await visit();
+      await expectLater(
+        WebSocket.connect(
+          socketUrl('/nothing-here'),
+          headers: {HttpHeaders.cookieHeader: cookie},
+        ),
+        throwsA(isA<WebSocketException>()),
       );
     });
   });

@@ -429,7 +429,9 @@ seed() {
     --url "$URL" --state "$STATE" --data "$DATA" --env-file "$ENV_FILE" \
     --fake-model-url "http://127.0.0.1:$MODEL_PORT/v1" \
     --fake-hermes-url "http://127.0.0.1:$HERMES_PORT/v1" \
-    --fake-hermes-key-file "$STATE/hermes_key"
+    --fake-hermes-key-file "$STATE/hermes_key" \
+    --fake-terminal-url "http://127.0.0.1:$TERMINAL_PORT" \
+    --fake-terminal-key-file "$STATE/terminal_key"
   date -u +%FT%TZ > "$STATE/seeded"
   echo "env file: $ENV_FILE"
 }

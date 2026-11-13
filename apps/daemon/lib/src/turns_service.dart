@@ -3193,7 +3193,8 @@ final class TurnsService implements ChatTurns {
     if (chatId == null || path.isEmpty) return;
     _events.emit(
       ConduitEventSpecs.terminalDisplayFile,
-      TerminalDisplayFile(chatId: chatId, path: path),
+      // The page a model named for a PDF: the window opens it there.
+      TerminalDisplayFile(chatId: chatId, path: path, page: request?.page),
       scope: chatId,
     );
   }

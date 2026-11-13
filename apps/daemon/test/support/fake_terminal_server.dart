@@ -19,9 +19,12 @@ import 'fake_desktop_frame.dart';
 ///   `cat`, `stty size`, `colors`, `seq`, `yes`, `clear`, `help`), keeps a
 ///   history (Up), and stops a running command on Ctrl-C;
 /// * `/events` reports file and port changes, as Open Terminal 0.13 does;
-/// * `/openapi.json` offers a `display_file` tool, which Open WebUI turns
-///   into a `terminal:display_file` event;
-/// * a dev server answers on port 5173 behind `/proxy/5173/`;
+/// * `/openapi.json` offers a `display_file` tool (a path, and a PDF's
+///   page), which Open WebUI turns into a `terminal:display_file` event;
+/// * `/home/demo/tides.pdf` is a three-page PDF, read back as one;
+/// * a dev server answers on port 5173 behind `/proxy/5173/`, and its page
+///   opens a live-reload socket (`/proxy/5173/__hmr`) whose first message
+///   sends the page to `/reloaded`, as a dev server's reload does;
 /// * the Computer desktop streams frames (`/desktop/stream`).
 ///
 /// Nothing here is real: every name, file and frame is invented.
@@ -52,7 +55,61 @@ final class FakeTerminalServer {
     '/home/demo/notes.txt': utf8.encode(
       'Tide tables arrive on Thursday.\nRepaint the north railing.\n',
     ),
+    '/home/demo/tides.pdf': tidesPdf,
   };
+
+  /// A three-page PDF, one line of invented tide times on each page.
+  static final List<int> tidesPdf = pdf(<String>[
+    'North pier tides, page 1: high water 06:12',
+    'North pier tides, page 2: high water 18:40',
+    'North pier tides, page 3: low water 12:25',
+  ]);
+
+  /// A PDF with one line of Helvetica on each of [pages] (US Letter).
+  static List<int> pdf(List<String> pages) {
+    final objects = <String>[];
+    final kids = <String>[];
+    // 1 catalog, 2 pages, 3 font, then a page and its contents each.
+    for (var i = 0; i < pages.length; i++) {
+      kids.add('${4 + i * 2} 0 R');
+    }
+    objects
+      ..add('<< /Type /Catalog /Pages 2 0 R >>')
+      ..add('<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pages.length} >>')
+      ..add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+    for (var i = 0; i < pages.length; i++) {
+      final text = pages[i].replaceAll('(', '').replaceAll(')', '');
+      final stream = 'BT /F1 24 Tf 72 700 Td ($text) Tj ET';
+      objects
+        ..add(
+          '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+          '/Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>',
+        )
+        ..add(
+          '<< /Length ${stream.length} >>\nstream\n$stream\nendstream',
+        );
+    }
+    final out = StringBuffer('%PDF-1.4\n');
+    final offsets = <int>[];
+    for (var i = 0; i < objects.length; i++) {
+      offsets.add(out.length);
+      out.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+    }
+    final xref = out.length;
+    out.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+    for (final offset in offsets) {
+      out.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+    }
+    out.write(
+      'trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+      'startxref\n$xref\n%%EOF\n',
+    );
+    return latin1.encode(out.toString());
+  }
+
+  /// Live-reload sockets opened through the port proxy, with the
+  /// credential and subprotocol they came with.
+  final List<Map<String, String?>> hmrRequests = <Map<String, String?>>[];
 
   /// Text frames the shell received after auth: `resize`, `ping`.
   final List<Map<String, dynamic>> controlFrames = <Map<String, dynamic>>[];
@@ -122,6 +179,28 @@ final class FakeTerminalServer {
       }
       if (interactive && path == '/desktop/stream') {
         _desktop(await WebSocketTransformer.upgrade(request));
+        return;
+      }
+      // The dev server's live-reload socket, behind the port proxy.
+      if (interactive && path == '/proxy/5173/__hmr') {
+        hmrRequests.add(<String, String?>{
+          'authorization': request.headers.value('authorization'),
+          'protocol': request.headers.value('sec-websocket-protocol'),
+        });
+        final socket = await WebSocketTransformer.upgrade(
+          request,
+          protocolSelector: (offered) => offered.first,
+        );
+        socket.listen((message) {
+          // The page says hello; the "server" answers with a reload.
+          socket.add(
+            jsonEncode(<String, dynamic>{
+              'type': 'full-reload',
+              'path': '/reloaded',
+              'heard': message,
+            }),
+          );
+        });
         return;
       }
     }
@@ -205,6 +284,13 @@ final class FakeTerminalServer {
       case ('GET', '/files/read'):
         final content = files[query['path']];
         if (content == null) break;
+        // A PDF is read back as itself, as Open Terminal reads binary files.
+        if (query['path']!.endsWith('.pdf')) {
+          response.headers.contentType = ContentType('application', 'pdf');
+          response.add(content);
+          await response.close();
+          return;
+        }
         return json(<String, dynamic>{'content': utf8.decode(content)});
       case ('GET', '/files/view'):
         final content = files[query['path']];
@@ -291,7 +377,26 @@ final class FakeTerminalServer {
           page(
             'Lighthouse Log',
             '<h1>Lighthouse Log</h1><p>Tonight: clear skies, light swell.</p>'
-                '<p><a id="about" href="/about">About this log</a></p>',
+                '<p><a id="about" href="/about">About this log</a></p>'
+                '<p><button id="live">Watch for changes</button></p>'
+                // Live reload, as a dev server's client script does it:
+                // a socket to the page's own host; a reload message moves
+                // the page.
+                '<script>document.getElementById("live").onclick=function(){'
+                'var ws=new WebSocket(location.origin.replace(/^http/,"ws")'
+                '+"/__hmr",["vite-hmr"]);'
+                'ws.onopen=function(){ws.send("hello")};'
+                'ws.onmessage=function(e){var m=JSON.parse(e.data);'
+                'if(m.type==="full-reload")location.assign(m.path)}};'
+                '</script>',
+          ),
+        );
+      case '/reloaded':
+        response.headers.contentType = ContentType.html;
+        response.write(
+          page(
+            'Reloaded',
+            '<h1>Reloaded</h1><p>The dev server sent a reload.</p>',
           ),
         );
       case '/about':
@@ -426,6 +531,10 @@ final class FakeTerminalServer {
                   'type': 'object',
                   'properties': <String, dynamic>{
                     'path': <String, dynamic>{'type': 'string'},
+                    'page': <String, dynamic>{
+                      'type': 'integer',
+                      'description': 'For a PDF, the 1-based page to open at.',
+                    },
                   },
                   'required': <String>['path'],
                 },

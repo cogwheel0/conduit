@@ -19,7 +19,8 @@ offers three models:
     message, which the app must refuse;
   - "display" with a terminal selected: a call to the terminal's
     `display_file` for `/home/demo/notes.txt` (which Open WebUI turns into
-    a `terminal:display_file` event), then a short answer;
+    a `terminal:display_file` event), then a short answer; "tide table"
+    asks for `/home/demo/tides.pdf` at page 2 instead;
   - "ask me": a call to Open WebUI's `ask_user` with two questions, then,
     answered, "You chose X and Y.";
   - "plan the tasks": a call to `create_tasks` with three tasks, then a
@@ -1058,6 +1059,10 @@ class Handler(BaseHTTPRequestHandler):
             text = ''
         elif 'plan the tasks' in lower and 'create_tasks' in tool_names:
             call = tool_call('create_tasks', server_fields(tools, 'create_tasks', {'tasks': TASKS}))
+            text = ''
+        elif 'tide table' in lower and 'display_file' in tool_names:
+            call = tool_call('display_file', server_fields(
+                tools, 'display_file', {'path': '/home/demo/tides.pdf', 'page': 2}))
             text = ''
         elif 'display' in lower and 'display_file' in tool_names:
             call = tool_call('display_file', server_fields(
