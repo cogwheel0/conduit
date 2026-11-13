@@ -2103,6 +2103,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "Helper",
   "baseModelId": "gemma3:1b",
   "description": "Answers briefly",
+  "imageSource": "inline",
   "tags": [
     "short"
   ],
@@ -2143,6 +2144,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "ttsVoice": "alloy",
   "terminalId": "http://127.0.0.1:8000",
+  "builtinTools": {
+    "time": true,
+    "memory": false
+  },
   "active": true,
   "hidden": true,
   "params": {

@@ -13318,6 +13318,29 @@ pub enum WorkspaceKind {
     Unknown,
 }
 
+/// Where a model's profile image comes from, by the address the model
+/// keeps (`WorkspaceModelDto.imageUrl`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WorkspaceImageSource {
+    /// A `data:` URL: the picture is in the address itself.
+    #[serde(rename = "inline")]
+    Inline,
+    /// The model's server: the window loads it from the daemon's
+    /// `/files/{serverId}/models/{modelId}`, which asks the server with the
+    /// account's credential (the image the model keeps, or a picture at an
+    /// address on the server itself). None at all draws the model's initial.
+    #[serde(rename = "server")]
+    Server,
+    /// An address on another site: fetching it would tell that site the
+    /// user opened the model, so it is not loaded on its own.
+    #[serde(rename = "remote")]
+    Remote,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 /// What the signed-in user may do in one section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -13476,6 +13499,10 @@ pub struct WorkspaceModelDto {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// Where `imageUrl`'s picture comes from; output only (the daemon
+    /// decides it, and ignores it in a save).
+    #[serde(default = "default_workspace_model_dto_image_source")]
+    pub image_source: WorkspaceImageSource,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -13505,6 +13532,11 @@ pub struct WorkspaceModelDto {
     /// The terminal chats with this model use, selected when the model is.
     #[serde(default)]
     pub terminal_id: String,
+    /// Open WebUI's built-in tools for the model, by name (`time`,
+    /// `memory`, `web_search`, ...): on or off, as its own editor keeps
+    /// them; empty for the server's defaults.
+    #[serde(default = "default_workspace_model_dto_builtin_tools")]
+    pub builtin_tools: serde_json::Value,
     #[serde(default = "default_workspace_model_dto_active")]
     pub active: bool,
     #[serde(default)]
@@ -13523,6 +13555,7 @@ impl Default for WorkspaceModelDto {
             base_model_id: None,
             description: Default::default(),
             image_url: None,
+            image_source: default_workspace_model_dto_image_source(),
             tags: Default::default(),
             system: Default::default(),
             stop: Default::default(),
@@ -13537,11 +13570,20 @@ impl Default for WorkspaceModelDto {
             default_feature_ids: Default::default(),
             tts_voice: Default::default(),
             terminal_id: Default::default(),
+            builtin_tools: default_workspace_model_dto_builtin_tools(),
             active: default_workspace_model_dto_active(),
             hidden: Default::default(),
             params: default_workspace_model_dto_params(),
         }
     }
+}
+
+fn default_workspace_model_dto_image_source() -> WorkspaceImageSource {
+    WorkspaceImageSource::Server
+}
+
+fn default_workspace_model_dto_builtin_tools() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
 }
 
 fn default_workspace_model_dto_active() -> bool {
