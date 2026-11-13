@@ -278,6 +278,62 @@ void main() {
         });
   });
 
+  test("a page's month calendar, its bar button's page and a row's symbol "
+      'colour go to the sheet with the page', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+    final page = NativeSheetDetailConfig(
+      id: 'month',
+      title: 'Calendar',
+      trailingActionDetailId: 'new-event',
+      trailingActionSfSymbol: 'plus',
+      items: const [
+        NativeSheetItemConfig(
+          id: 'event',
+          title: 'Planning',
+          symbolColor: 0xFF3366FF,
+        ),
+        NativeSheetItemConfig(id: 'plain', title: 'Plain'),
+      ],
+      calendar: const NativeSheetMonthCalendarConfig(
+        id: 'grid',
+        month: '2026-10-01',
+        selectedDay: '2026-10-06',
+        marks: [
+          NativeSheetCalendarMark(day: '2026-10-06', colors: [0xFF3366FF]),
+        ],
+      ),
+    );
+
+    await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: page.id,
+      items: page.items,
+      whole: page,
+    );
+
+    final calendar = received!.whole!.calendar!;
+    check(calendar.id).equals('grid');
+    check(calendar.month).equals('2026-10-01');
+    check(calendar.selectedDay).equals('2026-10-06');
+    check(calendar.marks.single.day).equals('2026-10-06');
+    check(calendar.marks.single.colors).deepEquals([0xFF3366FF]);
+    check({for (final item in received!.items) item.id: item.symbolColor})
+        .deepEquals({'event': 0xFF3366FF, 'plain': null});
+    check(page.calendar!.monthChangedId).equals('grid:month');
+    check(received!.whole!.trailingActionDetailId).equals('new-event');
+    check(page.toMap()['trailingActionDetailId']).equals('new-event');
+    check(page.calendar!.daySelectedId).equals('grid:day');
+  });
+
   test(
     'a date or time row goes to the sheet as one, with its bounds',
     () async {

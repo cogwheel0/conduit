@@ -4710,6 +4710,7 @@
   "scheduledTasksFilterLabel": "표시",
   "personalConnectionsTurnOn": "켜기",
   "personalConnectionsTurnOff": "끄기",
+  "calendarDayEmpty": "일정 없음",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "새 알림",
   "pushReplyTitle": "새 응답",

@@ -11065,6 +11065,10 @@
   "@personalConnectionsTurnOff": {
     "description": "Menu action on a personal tool server or terminal row that turns it off."
   },
+  "calendarDayEmpty": "No events",
+  "@calendarDayEmpty": {
+    "description": "Row on the calendar's month page in Settings when the chosen day holds no events."
+  },
   "pushFallbackTitle": "Conduit",
   "@pushFallbackTitle": {
     "description": "Title of a push notification that could not be decrypted on this device, or that has no title. Usually the app name."

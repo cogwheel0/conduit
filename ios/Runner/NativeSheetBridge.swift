@@ -250,6 +250,8 @@ private struct NativeSheetItem {
     /// What else the row can do: a long press lists them, and a swipe offers
     /// them where the page is not reordering. Each is sent as its own id.
     let rowActions: [NativeSheetRowAction]
+    /// The colour the row's symbol is drawn in, in place of the page's tint.
+    let symbolColor: UIColor?
 
     init?(_ payload: [String: Any]) {
         guard
@@ -315,6 +317,8 @@ private struct NativeSheetItem {
         passwordRole = payload["passwordRole"] as? String
         rowActions = (payload["rowActions"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetRowAction.init)
+        symbolColor = (payload["symbolColor"] as? NSNumber)
+            .map { nativeSheetColor($0.int64Value) }
     }
 
     private static func optionalDouble(_ value: Any?) -> Double? {
@@ -794,6 +798,110 @@ private struct NativeResultSheetConfiguration {
 }
 
 /// The question a page asks before its unsaved changes are dropped.
+/// A page's month calendar: the system's month grid above the rows, the
+/// rows being the chosen day's.
+private struct NativeSheetMonthCalendar: Equatable {
+    let id: String
+    /// The first day of the month to show.
+    let month: DateComponents
+    let selectedDay: DateComponents
+    /// The colours each marked day is marked in, by `yyyy-MM-dd`.
+    let marks: [String: [Int64]]
+    /// The app's language, which the grid's month and weekday names
+    /// follow; nil for the device's.
+    let locale: Locale?
+
+    init?(_ payload: Any?) {
+        guard let payload = payload as? [String: Any],
+              let id = payload["id"] as? String,
+              !id.isEmpty,
+              let month = (payload["month"] as? String).flatMap(Self.components),
+              let day = (payload["selectedDay"] as? String)
+                  .flatMap(Self.components)
+        else { return nil }
+        self.id = id
+        self.month = month
+        selectedDay = day
+        locale = (payload["locale"] as? String)
+            .flatMap { $0.isEmpty ? nil : Locale(identifier: $0) }
+        var marks: [String: [Int64]] = [:]
+        for entry in payload["marks"] as? [[String: Any]] ?? [] {
+            guard let day = entry["day"] as? String,
+                  Self.components(day) != nil
+            else { continue }
+            let colors = (entry["colors"] as? [Any] ?? []).compactMap {
+                ($0 as? NSNumber)?.int64Value
+            }
+            if !colors.isEmpty { marks[day] = colors }
+        }
+        self.marks = marks
+    }
+
+    /// The calendar Dart's `yyyy-MM-dd` days are in: Gregorian, whatever
+    /// the device's own calendar, so the grid's days are the rows' days.
+    static let gregorian: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = .autoupdatingCurrent
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }()
+
+    /// `yyyy-MM-dd` as a Gregorian day.
+    static func components(_ text: String) -> DateComponents? {
+        let parts = text.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return DateComponents(
+            calendar: gregorian,
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        )
+    }
+
+    /// [components]'s day as `yyyy-MM-dd`.
+    static func key(_ components: DateComponents) -> String? {
+        guard let year = components.year,
+              let month = components.month,
+              let day = components.day
+        else { return nil }
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+/// Up to three dots under a day of a month calendar, one per colour.
+private final class NativeCalendarDotsView: UIView {
+    private static let diameter: CGFloat = 5
+    private static let spacing: CGFloat = 2
+    private let count: Int
+
+    init(colors: [UIColor]) {
+        count = colors.count
+        super.init(frame: .zero)
+        isAccessibilityElement = false
+        for (index, color) in colors.enumerated() {
+            let dot = UIView(frame: CGRect(
+                x: CGFloat(index) * (Self.diameter + Self.spacing),
+                y: 0,
+                width: Self.diameter,
+                height: Self.diameter
+            ))
+            dot.backgroundColor = color
+            dot.layer.cornerRadius = Self.diameter / 2
+            addSubview(dot)
+        }
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(
+            width: CGFloat(count) * Self.diameter
+                + CGFloat(max(count - 1, 0)) * Self.spacing,
+            height: Self.diameter
+        )
+    }
+}
+
 /// A page's search field, filtering its rows as the person types.
 private struct NativeSheetSearch: Equatable {
     let id: String
@@ -844,6 +952,9 @@ private struct NativeSheetDetail {
     /// A bar button that closes the sheet and then sends this action.
     let trailingActionId: String?
     let trailingActionSfSymbol: String?
+    /// With it, the bar button pushes this page, as a row leading to it
+    /// would.
+    let trailingActionDetailId: String?
     /// What the page asks before its unsaved changes are dropped; nil drops
     /// them without asking.
     let discardPrompt: NativeSheetDiscardPrompt?
@@ -856,6 +967,8 @@ private struct NativeSheetDetail {
     let edited: Bool
     /// A search field above the rows, as a long list's filter.
     let search: NativeSheetSearch?
+    /// A month calendar above the rows, the rows being the chosen day's.
+    let calendar: NativeSheetMonthCalendar?
 
     init(
         id: String,
@@ -868,11 +981,13 @@ private struct NativeSheetDetail {
         maxHeightFraction: CGFloat? = nil,
         trailingActionId: String? = nil,
         trailingActionSfSymbol: String? = nil,
+        trailingActionDetailId: String? = nil,
         discardPrompt: NativeSheetDiscardPrompt? = nil,
         busy: Bool = false,
         announcement: String? = nil,
         edited: Bool = false,
-        search: NativeSheetSearch? = nil
+        search: NativeSheetSearch? = nil,
+        calendar: NativeSheetMonthCalendar? = nil
     ) {
         self.id = id
         self.title = title
@@ -884,11 +999,13 @@ private struct NativeSheetDetail {
         self.maxHeightFraction = maxHeightFraction
         self.trailingActionId = trailingActionId
         self.trailingActionSfSymbol = trailingActionSfSymbol
+        self.trailingActionDetailId = trailingActionDetailId
         self.discardPrompt = discardPrompt
         self.busy = busy
         self.announcement = announcement
         self.edited = edited
         self.search = search
+        self.calendar = calendar
     }
 
     init?(_ payload: [String: Any]) {
@@ -913,11 +1030,13 @@ private struct NativeSheetDetail {
         maxHeightFraction = NativeSheetDetail.parseMaxHeightFraction(payload["maxHeightFraction"])
         trailingActionId = payload["trailingActionId"] as? String
         trailingActionSfSymbol = payload["trailingActionSfSymbol"] as? String
+        trailingActionDetailId = payload["trailingActionDetailId"] as? String
         discardPrompt = NativeSheetDiscardPrompt(payload)
         busy = payload["busy"] as? Bool ?? false
         announcement = payload["announcement"] as? String
         edited = payload["edited"] as? Bool ?? false
         search = NativeSheetSearch(payload["search"])
+        calendar = NativeSheetMonthCalendar(payload["calendar"])
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -1107,6 +1226,7 @@ private extension PlatformNativeSheetDetail {
         payload["maxHeightFraction"] = maxHeightFraction
         payload["trailingActionId"] = trailingActionId
         payload["trailingActionSfSymbol"] = trailingActionSfSymbol
+        payload["trailingActionDetailId"] = trailingActionDetailId
         payload["discardTitle"] = discardTitle
         payload["discardMessage"] = discardMessage
         payload["discardConfirmLabel"] = discardConfirmLabel
@@ -1118,6 +1238,17 @@ private extension PlatformNativeSheetDetail {
             var entry: [String: Any] = ["id": search.id, "value": search.value]
             entry["placeholder"] = search.placeholder
             payload["search"] = entry
+        }
+        if let calendar {
+            payload["calendar"] = [
+                "id": calendar.id,
+                "month": calendar.month,
+                "selectedDay": calendar.selectedDay,
+                "marks": calendar.marks.map { mark -> [String: Any] in
+                    ["day": mark.day, "colors": mark.colors]
+                },
+                "locale": calendar.locale ?? "",
+            ] as [String: Any]
         }
         return payload
     }
@@ -1164,6 +1295,7 @@ private extension PlatformNativeSheetItem {
         payload["disabled"] = disabled
         payload["keyboard"] = keyboard
         payload["passwordRole"] = passwordRole
+        payload["symbolColor"] = symbolColor
         payload["rowActions"] = rowActions?.map { action -> [String: Any] in
             var entry: [String: Any] = [
                 "id": action.id,
@@ -1798,13 +1930,15 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 maxHeightFraction: existing.maxHeightFraction,
                 trailingActionId: existing.trailingActionId,
                 trailingActionSfSymbol: existing.trailingActionSfSymbol,
+                trailingActionDetailId: existing.trailingActionDetailId,
                 discardPrompt: existing.discardPrompt,
                 busy: existing.busy,
                 // Kept, so the same announcement sent again is not read out
                 // twice.
                 announcement: existing.announcement,
                 edited: existing.edited,
-                search: existing.search
+                search: existing.search,
+                calendar: existing.calendar
             )
             self.detailPayloads[detailId] = patched
             // The page on top, and the same page further down the sheet: one
@@ -4203,7 +4337,10 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         titleLabel.numberOfLines = 0
         titleLabel.isAccessibilityElement = false
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // At large text sizes the title keeps its words and the value gives
+        // way first, truncating ("Does Not Re…"), rather than the title
+        // being squeezed to a letter a line.
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.adjustsFontForContentSizeCategory = true
@@ -4216,7 +4353,10 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         valueButton.changesSelectionAsPrimaryAction = true
         valueButton.translatesAutoresizingMaskIntoConstraints = false
         valueButton.setContentHuggingPriority(.required, for: .horizontal)
-        valueButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        valueButton.setContentCompressionResistancePriority(
+            UILayoutPriority(UILayoutPriority.defaultHigh.rawValue - 1),
+            for: .horizontal
+        )
 
         contentView.addSubview(iconView)
         contentView.addSubview(textStack)
@@ -4291,8 +4431,10 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         let theme = NativeSheetTheme.shared
         titleLabel.textColor = theme.foreground
         subtitleLabel.textColor = theme.secondaryForeground
-        // The symbol at the size, weight and tint of every row's.
-        iconView.tintColor = NativeSheetSettingsStyle.iconForeground
+        // The symbol at the size, weight and tint of every row's, unless the
+        // row has a colour of its own (a calendar's, say).
+        iconView.tintColor = item.symbolColor
+            ?? NativeSheetSettingsStyle.iconForeground
         iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: NativeSheetSettingsStyle.symbolPointSize(for: item.sfSymbol),
@@ -5683,6 +5825,18 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// its wait: a swipe let go of sends it after all.
     private var pendingSearchQuery: String?
 
+    /// The page's month grid, the table's header, with its single-day
+    /// selection.
+    private var calendarView: UICalendarView?
+    private var calendarSelection: UICalendarSelectionSingleDate?
+    /// The month Dart last asked for (`yyyy-MM-dd`); the month the person
+    /// paged to since stays until Dart asks for another.
+    private var askedCalendarMonth: String?
+    /// The month the grid shows now.
+    private var visibleCalendarMonth: String?
+    /// The width the header was last sized for.
+    private var calendarHeaderWidth: CGFloat = 0
+
     var detailId: String { detail.id }
 
     private var tableSections: [NativeSheetSection] {
@@ -5874,6 +6028,161 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         }
     }
 
+    /// Keeps the page's month grid above its rows, as the table's header:
+    /// the month Dart asks for, the chosen day selected, and a mark under
+    /// each day that holds something. [previous] is what the page showed
+    /// before, so only days whose marks changed are drawn again.
+    private func configureCalendar(previous: NativeSheetMonthCalendar?) {
+        guard let calendar = detail.calendar else {
+            if calendarView != nil {
+                tableView.tableHeaderView = nil
+                calendarView = nil
+                calendarSelection = nil
+                askedCalendarMonth = nil
+                visibleCalendarMonth = nil
+            }
+            return
+        }
+        let animated = !UIAccessibility.isReduceMotionEnabled
+            && view.window != nil
+        let grid: UICalendarView
+        if let existing = calendarView {
+            grid = existing
+        } else {
+            grid = UICalendarView()
+            grid.fontDesign = .default
+            grid.backgroundColor = .clear
+            grid.delegate = self
+            let selection = UICalendarSelectionSingleDate(delegate: self)
+            grid.selectionBehavior = selection
+            calendarSelection = selection
+            grid.translatesAutoresizingMaskIntoConstraints = false
+            let header = UIView()
+            header.backgroundColor = .clear
+            header.addSubview(grid)
+            NSLayoutConstraint.activate([
+                grid.topAnchor.constraint(equalTo: header.topAnchor),
+                grid.bottomAnchor.constraint(equalTo: header.bottomAnchor),
+                grid.leadingAnchor.constraint(
+                    equalTo: header.leadingAnchor,
+                    constant: 16
+                ),
+                grid.trailingAnchor.constraint(
+                    equalTo: header.trailingAnchor,
+                    constant: -16
+                ),
+            ])
+            calendarView = grid
+            calendarHeaderWidth = 0
+            tableView.tableHeaderView = header
+        }
+        // The app's language for the month and weekday names, which may not
+        // be the device's; the days stay Gregorian, as the rows' are.
+        let gridLocale = calendar.locale ?? Locale.current
+        var gridCalendar = NativeSheetMonthCalendar.gregorian
+        gridCalendar.locale = gridLocale
+        if grid.locale != gridLocale { grid.locale = gridLocale }
+        if grid.calendar != gridCalendar { grid.calendar = gridCalendar }
+        let asked = NativeSheetMonthCalendar.key(calendar.month)
+        if asked != askedCalendarMonth {
+            askedCalendarMonth = asked
+            if asked != visibleCalendarMonth {
+                // Shown before the grid says so, so the change it reports
+                // for this is not sent back as the person's.
+                visibleCalendarMonth = asked
+                grid.setVisibleDateComponents(
+                    calendar.month,
+                    animated: animated && calendarHeaderWidth > 0
+                )
+            }
+        }
+        let selected = calendarSelection?.selectedDate
+            .flatMap(NativeSheetMonthCalendar.key)
+        if selected != NativeSheetMonthCalendar.key(calendar.selectedDay) {
+            calendarSelection?.setSelected(calendar.selectedDay, animated: animated)
+        }
+        if let previous {
+            let changed = Set(previous.marks.keys)
+                .union(calendar.marks.keys)
+                .filter { previous.marks[$0] != calendar.marks[$0] }
+                .compactMap(NativeSheetMonthCalendar.components)
+            if !changed.isEmpty {
+                grid.reloadDecorations(forDateComponents: changed, animated: animated)
+            }
+        }
+        layoutCalendarHeader(force: true)
+    }
+
+    /// Sizes the month grid's header to the table's width, as its height
+    /// follows the width and the text size.
+    private func layoutCalendarHeader(force: Bool = false) {
+        guard calendarView != nil, let header = tableView.tableHeaderView else {
+            return
+        }
+        let width = tableView.bounds.width
+        guard width > 0, force || width != calendarHeaderWidth else { return }
+        calendarHeaderWidth = width
+        let height = header.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        guard header.frame.size != CGSize(width: width, height: height) else {
+            return
+        }
+        header.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        tableView.tableHeaderView = header
+    }
+
+    /// Sends a change of the month grid: `:month` with the month paged to,
+    /// or `:day` with the day chosen.
+    fileprivate func sendCalendarChange(_ suffix: String, _ day: String) {
+        guard let calendar = detail.calendar,
+              let item = NativeSheetItem([
+                  "id": calendar.id + suffix,
+                  "title": calendar.id,
+                  "kind": "calendar",
+              ])
+        else { return }
+        sendControlChange(item, day)
+    }
+
+    /// The grid shows another month: one the person paged to is sent; the
+    /// one Dart just asked for is not.
+    fileprivate func calendarMonthPaged(_ components: DateComponents) {
+        var month = components
+        month.day = 1
+        guard let key = NativeSheetMonthCalendar.key(month),
+              key != visibleCalendarMonth
+        else { return }
+        visibleCalendarMonth = key
+        sendCalendarChange(":month", key)
+    }
+
+    fileprivate func calendarMarkColors(
+        _ components: DateComponents
+    ) -> [UIColor] {
+        guard let key = NativeSheetMonthCalendar.key(components),
+              let colors = detail.calendar?.marks[key]
+        else { return [] }
+        return colors.prefix(3).map(nativeSheetColor)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutCalendarHeader()
+    }
+
+    override func traitCollectionDidChange(
+        _ previousTraitCollection: UITraitCollection?
+    ) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.preferredContentSizeCategory
+            != traitCollection.preferredContentSizeCategory {
+            layoutCalendarHeader(force: true)
+        }
+    }
+
     /// Sends [query] as the page's search, as a change of its search id.
     fileprivate func sendSearch(_ query: String) {
         searchDebounce?.invalidate()
@@ -5934,6 +6243,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         let previousSectionCount = tableSections.count
         let previousAnnouncement = detail.announcement
+        let previousCalendar = detail.calendar
         // Its owner had it edited and says it no longer is: what was
         // changed on it has been saved.
         if detail.edited && !newDetail.edited {
@@ -5954,6 +6264,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         }
         detail = newDetail
         configureSearch()
+        configureCalendar(previous: previousCalendar)
         if let announcement = newDetail.announcement, !announcement.isEmpty,
            announcement != previousAnnouncement {
             UIAccessibility.post(notification: .announcement, argument: announcement)
@@ -6005,6 +6316,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         }
         refreshNavigationAction()
         configureSearch()
+        configureCalendar(previous: nil)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(
             NativeSheetChoiceMenuTableViewCell.self,
@@ -6459,6 +6771,20 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                 self?.onControlChanged(item, value)
             }, for: .valueChanged)
             picker.sizeToFit()
+            // A compact picker sizes itself far wider than its pill, which
+            // squeezes the row's title onto two lines ("Start Time"). The
+            // accessory takes the pill's own width; the title gets the rest.
+            let pill = picker.systemLayoutSizeFitting(
+                UIView.layoutFittingCompressedSize,
+                withHorizontalFittingPriority: .fittingSizeLevel,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            if pill.width > 0, pill.width < picker.frame.width {
+                picker.frame.size = CGSize(
+                    width: ceil(pill.width),
+                    height: max(picker.frame.height, ceil(pill.height))
+                )
+            }
             cell.accessoryView = picker
             cell.editingAccessoryView = picker
             cell.selectionStyle = .none
@@ -6522,6 +6848,15 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         }
 
         if pendingTextValues.isEmpty {
+            if let detailId = detail.trailingActionDetailId, !detailId.isEmpty,
+               let page = NativeSheetItem(["id": detailId, "title": detailId]) {
+                // Handled as a row leading to the page: it pushes it.
+                navigationItem.rightBarButtonItem = iconBarButton(
+                    systemName: detail.trailingActionSfSymbol ?? "plus",
+                    action: UIAction { [weak self] _ in self?.onSelect(page) }
+                )
+                return
+            }
             if let trailingActionId = detail.trailingActionId, !trailingActionId.isEmpty,
                let action = NativeSheetItem([
                    "id": trailingActionId,
@@ -9045,6 +9380,9 @@ private func configureNavigationCell(
         content.image = nativeSettingsSymbolImage(item.sfSymbol)
     }
     NativeSheetSettingsStyle.applyContentStyle(&content, symbol: item.sfSymbol)
+    if avatar == nil, let symbolColor = item.symbolColor {
+        content.imageProperties.tintColor = symbolColor
+    }
     if avatar != nil {
         // A picture keeps its own colors, at the size a symbol takes.
         content.imageProperties.tintColor = nil
@@ -9578,6 +9916,49 @@ final class NativeWebSignInViewController: UIViewController,
             ?? webView?.url
             ?? failedURL
         failureLabel.isHidden = false
+    }
+}
+
+extension NativeDetailTableViewController: UICalendarViewDelegate,
+    UICalendarSelectionSingleDateDelegate {
+    func calendarView(
+        _ calendarView: UICalendarView,
+        decorationFor dateComponents: DateComponents
+    ) -> UICalendarView.Decoration? {
+        let colors = calendarMarkColors(dateComponents)
+        switch colors.count {
+        case 0:
+            return nil
+        case 1:
+            return .default(color: colors[0], size: .medium)
+        default:
+            return .customView { NativeCalendarDotsView(colors: colors) }
+        }
+    }
+
+    func calendarView(
+        _ calendarView: UICalendarView,
+        didChangeVisibleDateComponentsFrom previousDateComponents: DateComponents
+    ) {
+        calendarMonthPaged(calendarView.visibleDateComponents)
+    }
+
+    func dateSelection(
+        _ selection: UICalendarSelectionSingleDate,
+        didSelectDate dateComponents: DateComponents?
+    ) {
+        guard let dateComponents else {
+            // The chosen day tapped again deselects it; the page still
+            // shows that day, so the grid keeps it chosen.
+            if let day = detail.calendar?.selectedDay {
+                selection.setSelected(day, animated: false)
+            }
+            return
+        }
+        guard let key = NativeSheetMonthCalendar.key(dateComponents) else {
+            return
+        }
+        sendCalendarChange(":day", key)
     }
 }
 

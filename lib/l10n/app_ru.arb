@@ -4976,6 +4976,7 @@
   "scheduledTasksFilterLabel": "Показать",
   "personalConnectionsTurnOn": "Включить",
   "personalConnectionsTurnOff": "Выключить",
+  "calendarDayEmpty": "Нет событий",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Новое уведомление",
   "pushReplyTitle": "Новый ответ",

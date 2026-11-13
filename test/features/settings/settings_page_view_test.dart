@@ -190,6 +190,32 @@ void main() {
     check(controller.changes).isEmpty();
   });
 
+  testWidgets("a bar button naming a page pushes it, as a row leading to it "
+      'would, and sends nothing', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      NativeSheetDetailConfig(
+        id: 'month',
+        title: 'Calendar',
+        trailingActionDetailId: 'new-event',
+        trailingActionSfSymbol: 'plus',
+        items: const [NativeSheetItemConfig(id: 'row', title: 'Row')],
+      ),
+      known: [NativeSheetDetailConfig(id: 'new-event', title: 'New Event')],
+    );
+
+    // Read by what it does, not by its symbol.
+    await tester.tap(
+      find.bySemanticsLabel(
+        lookupAppLocalizations(const Locale('en')).settingsAddAction,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(find.text('page new-event').evaluate()).isNotEmpty();
+    check(controller.changes).isEmpty();
+  });
+
   testWidgets('a row the native sheet closes before acting sends its action '
       'here, under the page', (tester) async {
     final controller = await _pumpPage(

@@ -13,6 +13,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../calendar_text.dart';
 import 'calendar_color_dot.dart';
 import 'calendar_format.dart';
 import 'calendar_sheet_frame.dart';
@@ -48,14 +49,7 @@ Future<String?> showCalendarPickerSheet(
 
 /// The few colours a new calendar can take, with the name each is announced
 /// by.
-const _calendarColors = <({String hex, String name})>[
-  (hex: '#3b82f6', name: 'blue'),
-  (hex: '#22c55e', name: 'green'),
-  (hex: '#f59e0b', name: 'amber'),
-  (hex: '#ef4444', name: 'red'),
-  (hex: '#8b5cf6', name: 'purple'),
-  (hex: '#14b8a6', name: 'teal'),
-];
+const _calendarColors = calendarColorPalette;
 
 /// [color] as the `#rrggbb` form the presets use; the picker gives no alpha.
 String _calendarHex(Color color) =>

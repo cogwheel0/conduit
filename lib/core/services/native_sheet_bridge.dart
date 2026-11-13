@@ -1230,6 +1230,94 @@ class NativeSheetSearchConfig {
   };
 }
 
+/// A day of a [NativeSheetMonthCalendarConfig] that holds something: a dot
+/// under it in each of [colors] (ARGB), up to three.
+@immutable
+class NativeSheetCalendarMark {
+  const NativeSheetCalendarMark({required this.day, required this.colors});
+
+  /// `yyyy-MM-dd`.
+  final String day;
+  final List<int> colors;
+
+  Map<String, Object?> toMap() => {'day': day, 'colors': colors};
+
+  @override
+  bool operator ==(Object other) =>
+      other is NativeSheetCalendarMark &&
+      other.day == day &&
+      listEquals(other.colors, colors);
+
+  @override
+  int get hashCode => Object.hash(day, Object.hashAll(colors));
+}
+
+/// A month calendar a page keeps above its rows, the rows being the chosen
+/// day's. On iOS it is the system's month grid (`UICalendarView`).
+///
+/// Paging to another month goes back as a change of [monthChangedId] with
+/// that month's first day, and choosing a day as a change of
+/// [daySelectedId] with the day, each as `yyyy-MM-dd`. Described again, the
+/// grid keeps the month the person paged to unless [month] changes.
+@immutable
+class NativeSheetMonthCalendarConfig {
+  const NativeSheetMonthCalendarConfig({
+    required this.id,
+    required this.month,
+    required this.selectedDay,
+    this.marks = const [],
+    this.locale,
+  });
+
+  final String id;
+
+  /// The language of the grid's month and weekday names, as a BCP 47 tag:
+  /// the app's own. Null for the device's.
+  final String? locale;
+
+  /// The first day of the month to show, `yyyy-MM-dd`.
+  final String month;
+
+  /// The chosen day, `yyyy-MM-dd`.
+  final String selectedDay;
+
+  /// The days that hold something.
+  final List<NativeSheetCalendarMark> marks;
+
+  String get monthChangedId => '$id:month';
+  String get daySelectedId => '$id:day';
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    'month': month,
+    'selectedDay': selectedDay,
+    'marks': [for (final mark in marks) mark.toMap()],
+    if (locale != null) 'locale': locale,
+  };
+}
+
+/// [day] as a month calendar names it: `yyyy-MM-dd`.
+String nativeSheetCalendarDay(DateTime day) =>
+    '${day.year.toString().padLeft(4, '0')}-'
+    '${day.month.toString().padLeft(2, '0')}-'
+    '${day.day.toString().padLeft(2, '0')}';
+
+/// The day a month calendar sent, or null for anything else.
+DateTime? parseNativeSheetCalendarDay(Object? value) {
+  if (value is! String) return null;
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+  if (match == null) return null;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final date = DateTime(year, month, day);
+  // 2026-02-30 is no day.
+  if (date.year != year || date.month != month || date.day != day) {
+    return null;
+  }
+  return date;
+}
+
 class NativeSheetDetailConfig {
   const NativeSheetDetailConfig({
     required this.id,
@@ -1246,11 +1334,13 @@ class NativeSheetDetailConfig {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.trailingActionDetailId,
     this.discardPrompt,
     this.busy = false,
     this.announcement,
     this.edited = false,
     this.search,
+    this.calendar,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1271,6 +1361,11 @@ class NativeSheetDetailConfig {
   /// and then sends this action.
   final String? trailingActionId;
   final String? trailingActionSfSymbol;
+
+  /// A bar button, drawn as [trailingActionSfSymbol], that pushes this page
+  /// inside Settings, as a row leading to it would: the "+" of a list that
+  /// adds to it. The page must be known, as a row's page must.
+  final String? trailingActionDetailId;
 
   /// What the page asks before its unsaved changes are dropped -- by Back,
   /// a swipe back, or the sheet swiped away. Null drops them without asking.
@@ -1293,6 +1388,10 @@ class NativeSheetDetailConfig {
   /// A search field above the rows, filtering them as the person types.
   final NativeSheetSearchConfig? search;
 
+  /// A month calendar above the rows, the rows being the chosen day's. Only
+  /// the native iOS sheet draws it.
+  final NativeSheetMonthCalendarConfig? calendar;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1307,6 +1406,8 @@ class NativeSheetDetailConfig {
       if (trailingActionId != null) 'trailingActionId': trailingActionId,
       if (trailingActionSfSymbol != null)
         'trailingActionSfSymbol': trailingActionSfSymbol,
+      if (trailingActionDetailId != null)
+        'trailingActionDetailId': trailingActionDetailId,
       if (discardPrompt case final prompt?) ...{
         'discardTitle': prompt.title,
         'discardMessage': prompt.message,
@@ -1317,6 +1418,7 @@ class NativeSheetDetailConfig {
       if (announcement != null) 'announcement': announcement,
       if (edited) 'edited': edited,
       if (search case final search?) 'search': search.toMap(),
+      if (calendar case final calendar?) 'calendar': calendar.toMap(),
     };
   }
 }
@@ -1422,6 +1524,7 @@ class NativeSheetItemConfig {
     this.keyboard,
     this.passwordRole,
     this.rowActions = const [],
+    this.symbolColor,
   });
 
   final String id;
@@ -1497,8 +1600,13 @@ class NativeSheetItemConfig {
   /// control id.
   final List<NativeSheetRowAction> rowActions;
 
+  /// The colour the row's symbol is drawn in, as ARGB, in place of the
+  /// page's tint: a calendar's own colour, say.
+  final int? symbolColor;
+
   Map<String, Object?> toMap() {
     return {
+      if (symbolColor != null) 'symbolColor': symbolColor,
       if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
       if (confirmMessage != null) 'confirmMessage': confirmMessage,
       if (disabled) 'disabled': disabled,
@@ -1910,6 +2018,7 @@ extension on NativeSheetDetailConfig {
       maxHeightFraction: maxHeightFraction,
       trailingActionId: trailingActionId,
       trailingActionSfSymbol: trailingActionSfSymbol,
+      trailingActionDetailId: trailingActionDetailId,
       discardTitle: discardPrompt?.title,
       discardMessage: discardPrompt?.message,
       discardConfirmLabel: discardPrompt?.discardLabel,
@@ -1923,6 +2032,22 @@ extension on NativeSheetDetailConfig {
           id: search.id,
           placeholder: search.placeholder,
           value: search.value,
+        ),
+      },
+      calendar: switch (calendar) {
+        null => null,
+        final calendar => PlatformNativeSheetMonthCalendar(
+          id: calendar.id,
+          locale: calendar.locale,
+          month: calendar.month,
+          selectedDay: calendar.selectedDay,
+          marks: [
+            for (final mark in calendar.marks)
+              PlatformNativeSheetCalendarMark(
+                day: mark.day,
+                colors: mark.colors,
+              ),
+          ],
         ),
       },
     );
@@ -1982,6 +2107,7 @@ extension on NativeSheetItemConfig {
       rowActions: rowActions.isEmpty
           ? null
           : [for (final action in rowActions) action.toPlatform()],
+      symbolColor: symbolColor,
     );
   }
 }

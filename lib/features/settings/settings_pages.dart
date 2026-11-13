@@ -82,12 +82,14 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         maxHeightFraction: existing.maxHeightFraction,
         trailingActionId: existing.trailingActionId,
         trailingActionSfSymbol: existing.trailingActionSfSymbol,
+        trailingActionDetailId: existing.trailingActionDetailId,
         discardPrompt: existing.discardPrompt,
         busy: existing.busy,
         edited: existing.edited,
         // Kept, so the same announcement sent again is not read out twice.
         announcement: existing.announcement,
         search: existing.search,
+        calendar: existing.calendar,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {

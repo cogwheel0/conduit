@@ -4938,6 +4938,7 @@
   "scheduledTasksFilterLabel": "Tonen",
   "personalConnectionsTurnOn": "Inschakelen",
   "personalConnectionsTurnOff": "Uitschakelen",
+  "calendarDayEmpty": "Geen afspraken",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nieuwe melding",
   "pushReplyTitle": "Nieuw antwoord",

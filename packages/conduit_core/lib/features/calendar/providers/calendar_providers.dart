@@ -220,6 +220,12 @@ class CalendarAgenda extends _$CalendarAgenda {
   late CalendarRange _range;
   Set<String> _filter = const <String>{};
 
+  /// The account each agenda this notifier made was read for, kept on the
+  /// data itself. Riverpod keeps the last published value while a rebuild
+  /// for another account loads, and a build superseded by a newer one never
+  /// publishes what it read: only the value shown says whose it is.
+  final _readFor = Expando<CalendarOwner>('calendar agenda account');
+
   @override
   Future<CalendarAgendaData> build() async {
     ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
@@ -251,6 +257,18 @@ class CalendarAgenda extends _$CalendarAgenda {
 
   /// Whether [owner] is still the signed-in account.
   bool isCurrentOwner(CalendarOwner owner) => _isCurrent(owner);
+
+  /// The agenda shown now when it was read for [owner], still signed in;
+  /// otherwise null. The last account's, kept while the next one's first
+  /// read is under way, is never [owner]'s.
+  CalendarAgendaData? agendaOf(CalendarOwner owner) {
+    final data = state.value;
+    final readFor = data == null ? null : _readFor[data];
+    if (readFor == null || !_isCurrent(readFor) || !_isCurrent(owner)) {
+      return null;
+    }
+    return data;
+  }
 
   /// Reloads the agenda for [owner], optionally over another [range] or limited
   /// to other calendars. A result that arrives after the account has changed is
@@ -596,7 +614,7 @@ class CalendarAgenda extends _$CalendarAgenda {
         final byStart = a.startAtNs.compareTo(b.startAtNs);
         return byStart != 0 ? byStart : a.key.compareTo(b.key);
       });
-    return CalendarAgendaData(
+    final data = CalendarAgendaData(
       range: range,
       calendars: List<CalendarModel>.unmodifiable(calendars),
       access: CalendarAccess(
@@ -608,6 +626,8 @@ class CalendarAgenda extends _$CalendarAgenda {
       items: List<CalendarAgendaItem>.unmodifiable(items),
       scheduledTasksVisible: operation.scheduledTasksAllowed,
     );
+    _readFor[data] = owner;
+    return data;
   }
 
   /// Replaces the agenda with the server's, unless a newer load started or the
@@ -622,9 +642,14 @@ class CalendarAgenda extends _$CalendarAgenda {
       state = AsyncData(data);
     } catch (error, stackTrace) {
       if (generation != _loadGeneration || !_isCurrent(owner)) return;
-      state = shown == null || restart
-          ? AsyncError<CalendarAgendaData>(error, stackTrace)
-          : AsyncData(shown.copyWith(stale: true));
+      if (shown == null || restart) {
+        state = AsyncError<CalendarAgendaData>(error, stackTrace);
+      } else {
+        final stale = shown.copyWith(stale: true);
+        // Still the account the shown agenda was read for.
+        _readFor[stale] = _readFor[shown];
+        state = AsyncData(stale);
+      }
     }
   }
 

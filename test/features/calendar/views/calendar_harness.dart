@@ -24,6 +24,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -474,6 +475,7 @@ Future<CalendarSession> pumpCalendar(
   String role = 'user',
   bool alwaysUse24HourFormat = false,
   void Function(CalendarWire wire)? configureWire,
+  List<Override> overrides = const [],
 }) async {
   tester.view
     ..physicalSize = const Size(800, 3200)
@@ -536,6 +538,7 @@ Future<CalendarSession> pumpCalendar(
 
   final container = ProviderContainer(
     overrides: [
+      ...overrides,
       // Advanced stays off: the calendar does not depend on it.
       appSettingsProvider.overrideWith(() => _Settings(const AppSettings())),
       apiServiceProvider.overrideWithValue(api),

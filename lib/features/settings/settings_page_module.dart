@@ -1,6 +1,7 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'pages/calendar_settings_pages.dart';
 import 'pages/chat_data_settings_pages.dart';
 import 'pages/direct_connection_settings_pages.dart';
 import 'pages/hermes_job_settings_pages.dart';
@@ -49,5 +50,6 @@ final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
     HermesMcpSettingsPages(ref),
     ScheduledTaskSettingsPages(ref),
     PersonalConnectionSettingsPages(ref),
+    CalendarSettingsPages(ref),
   ],
 );

@@ -420,6 +420,7 @@ class PlatformNativeSheetItem {
     this.keyboard,
     this.passwordRole,
     this.rowActions,
+    this.symbolColor,
   });
 
   String id;
@@ -485,6 +486,10 @@ class PlatformNativeSheetItem {
   /// What else the row can do, besides what a tap does: a long press lists
   /// them, and a swipe offers them where the page is not reordering.
   List<PlatformNativeSheetRowAction>? rowActions;
+
+  /// The colour the row's symbol is drawn in, as ARGB, in place of the
+  /// page's tint: a calendar's own colour, say.
+  int? symbolColor;
 }
 
 /// One more thing a row can do, sent as its own control id.
@@ -622,6 +627,7 @@ class PlatformNativeSheetDetail {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.trailingActionDetailId,
     this.discardTitle,
     this.discardMessage,
     this.discardConfirmLabel,
@@ -630,6 +636,7 @@ class PlatformNativeSheetDetail {
     this.announcement,
     this.edited,
     this.search,
+    this.calendar,
   });
 
   String id;
@@ -644,6 +651,10 @@ class PlatformNativeSheetDetail {
   /// A bar button that closes the sheet and then sends this action.
   String? trailingActionId;
   String? trailingActionSfSymbol;
+
+  /// With it, the bar button pushes this page, as a row leading to it
+  /// would, rather than sending [trailingActionId].
+  String? trailingActionDetailId;
 
   /// What the page asks before its unsaved changes are dropped, by Back,
   /// a swipe back, or the sheet swiped away. Null drops them without asking.
@@ -664,6 +675,50 @@ class PlatformNativeSheetDetail {
 
   /// A search field above the rows, filtering them as the person types.
   PlatformNativeSheetSearch? search;
+
+  /// A month calendar above the rows, the rows being the chosen day's.
+  PlatformNativeSheetMonthCalendar? calendar;
+}
+
+/// A page's month calendar: the system's month grid, with marks under the
+/// days that hold something. Paging to another month goes back as a change
+/// of `<id>:month` with the month's first day, and choosing a day as a
+/// change of `<id>:day` with that day, each as `yyyy-MM-dd`.
+class PlatformNativeSheetMonthCalendar {
+  PlatformNativeSheetMonthCalendar({
+    required this.id,
+    required this.month,
+    required this.selectedDay,
+    required this.marks,
+    this.locale,
+  });
+
+  String id;
+
+  /// The language the grid's month and weekday names are in, as a BCP 47
+  /// tag: the app's own, which may not be the device's. Null for the
+  /// device's.
+  String? locale;
+
+  /// The first day of the month to show, `yyyy-MM-dd`. The grid keeps the
+  /// month the person paged to unless this changes.
+  String month;
+
+  /// The chosen day, `yyyy-MM-dd`.
+  String selectedDay;
+
+  /// The days that hold something, with the colours to mark them in.
+  List<PlatformNativeSheetCalendarMark> marks;
+}
+
+/// A day of a month calendar that holds something: a dot under it in each
+/// of [colors] (ARGB), up to three.
+class PlatformNativeSheetCalendarMark {
+  PlatformNativeSheetCalendarMark({required this.day, required this.colors});
+
+  /// `yyyy-MM-dd`.
+  String day;
+  List<int> colors;
 }
 
 /// A page's search field: what is typed goes back as a change of [id] a

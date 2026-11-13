@@ -6552,6 +6552,7 @@
   "scheduledTasksFilterLabel": "表示",
   "personalConnectionsTurnOn": "オンにする",
   "personalConnectionsTurnOff": "オフにする",
+  "calendarDayEmpty": "予定はありません",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新しい通知",
   "pushReplyTitle": "新しい返信",

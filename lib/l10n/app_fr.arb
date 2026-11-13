@@ -4938,6 +4938,7 @@
   "scheduledTasksFilterLabel": "Afficher",
   "personalConnectionsTurnOn": "Activer",
   "personalConnectionsTurnOff": "Désactiver",
+  "calendarDayEmpty": "Aucun événement",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nouvelle notification",
   "pushReplyTitle": "Nouvelle réponse",
