@@ -1,0 +1,21 @@
+{
+  "available": true,
+  "owner": "w1",
+  "items": [
+    {
+      "id": "ferry-desk",
+      "enabled": false,
+      "isDefault": false,
+      "events": [],
+      "delivery": "away"
+    }
+  ],
+  "events": [
+    {
+      "event": "channel.message",
+      "label": "Channel message"
+    }
+  ],
+  "stale": true,
+  "failed": false
+}

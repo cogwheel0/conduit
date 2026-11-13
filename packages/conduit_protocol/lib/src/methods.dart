@@ -569,6 +569,55 @@ abstract final class ConduitMethods {
   static const String mcpAppsClose = 'mcpApps.close';
 
   // ---------------------------------------------------------------------
+  // notifications.* -- what notifies, and how (the phone's Notifications
+  // page). The master toggle and sounds mirror to the Open WebUI account.
+  // ---------------------------------------------------------------------
+
+  /// The settings ([NotificationSettingsDto]).
+  static const String notificationsGet = 'notifications.get';
+
+  /// Changes them ([NotificationSettingsPatch]); replies with all of them.
+  static const String notificationsSet = 'notifications.set';
+
+  /// What one notification does ([NotificationRouteParams] →
+  /// [NotificationRoute]): the core's gating chain, given what the window
+  /// knows (in front, looking at it).
+  static const String notificationsRoute = 'notifications.route';
+
+  // ---------------------------------------------------------------------
+  // webhooks.* -- the account's webhook destinations on its Open WebUI
+  // server (Advanced, `features.webhooks`). Each reply is the [WebhookList].
+  // ---------------------------------------------------------------------
+
+  static const String webhooksList = 'webhooks.list';
+  static const String webhooksCreate = 'webhooks.create';
+  static const String webhooksUpdate = 'webhooks.update';
+  static const String webhooksMakeDefault = 'webhooks.makeDefault';
+
+  /// Asks the server to deliver one real test notification.
+  static const String webhooksTest = 'webhooks.test';
+  static const String webhooksDelete = 'webhooks.delete';
+
+  // ---------------------------------------------------------------------
+  // integrations.* -- the account's personal connections: tool servers
+  // (OpenAPI) and terminals, kept in its Open WebUI settings. A chat that
+  // selects one has the daemon run its tool calls (`execute:tool`).
+  // ---------------------------------------------------------------------
+
+  /// The connections ([PersonalConnections]).
+  static const String integrationsList = 'integrations.list';
+
+  /// Adds, changes, switches or deletes one ([PersonalConnectionSave]).
+  static const String integrationsSave = 'integrations.save';
+
+  /// Reads the OpenAPI document, or checks the terminal, without saving
+  /// ([PersonalConnectionTest]).
+  static const String integrationsTest = 'integrations.test';
+
+  /// The cleared-selection notice was read.
+  static const String integrationsClearNotice = 'integrations.clearNotice';
+
+  // ---------------------------------------------------------------------
   // settings.* -- the app's own preferences.
   // ---------------------------------------------------------------------
 
@@ -1376,6 +1425,9 @@ abstract final class ConduitMethods {
   static const String accessPrefix = 'access.';
   static const String messagesPrefix = 'messages.';
   static const String handoffPrefix = 'handoff.';
+  static const String notificationsPrefix = 'notifications.';
+  static const String webhooksPrefix = 'webhooks.';
+  static const String integrationsPrefix = 'integrations.';
 
   /// Every namespace the protocol reserves. A method outside these prefixes
   /// is a typo, and the daemon's fallback handler says so.
@@ -1424,6 +1476,9 @@ abstract final class ConduitMethods {
     accessPrefix,
     messagesPrefix,
     handoffPrefix,
+    notificationsPrefix,
+    webhooksPrefix,
+    integrationsPrefix,
     chatPromptsPrefix,
     mcpAppsPrefix,
     speechPrefix,
