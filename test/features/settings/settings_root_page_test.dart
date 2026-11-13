@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/settings/settings_controller.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/features/settings/views/settings_root_page.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -22,7 +23,9 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/navigation/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -95,10 +98,19 @@ Future<_RecordingController> _pumpRoot(
         hermesEnabledProvider.overrideWithValue(false),
         appLocaleProvider.overrideWithValue(null),
       ],
-      child: MaterialApp(
+      child: MaterialApp.router(
+        routerConfig: GoRouter(
+          routes: [
+            GoRoute(path: '/', builder: (_, _) => const SettingsRootPage()),
+            GoRoute(
+              path: Routes.settingsPage,
+              name: RouteNames.settingsPage,
+              builder: (_, state) => Text('page ${state.pathParameters['id']}'),
+            ),
+          ],
+        ),
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const SettingsRootPage(),
       ),
     ),
   );
@@ -110,7 +122,7 @@ Finder _row(String id) => find.byKey(ValueKey<String>('settings-row-$id'));
 
 void main() {
   testWidgets('the root offers Workspace to an account that may manage it, '
-      'and the row opens it', (tester) async {
+      'as a page of Settings', (tester) async {
     final controller = await _pumpRoot(
       tester,
       capabilities: const WorkspaceCapabilities(
@@ -119,10 +131,23 @@ void main() {
     );
 
     await tester.scrollUntilVisible(_row(NativeSheetRoutes.workspace), 300);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsRootPage)),
+    );
+    check(
+      container
+          .read(settingsPagesProvider)
+          .contains(NativeSheetRoutes.workspace),
+    ).isTrue();
+
     await tester.tap(_row(NativeSheetRoutes.workspace));
     await tester.pumpAndSettle();
 
-    check(controller.changes).deepEquals([(NativeSheetRoutes.workspace, true)]);
+    // It opens the Workspace's page inside Settings, sending nothing that
+    // would close Settings.
+    check(find.text('page ${NativeSheetRoutes.workspace}').evaluate()).length
+        .equals(1);
+    check(controller.changes).isEmpty();
   });
 
   testWidgets('the root leaves Workspace out without access to it', (

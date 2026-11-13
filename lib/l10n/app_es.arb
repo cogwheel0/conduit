@@ -2337,10 +2337,6 @@
   "@workspaceModelDelete": {
     "description": "Action that deletes the model."
   },
-  "workspaceModelDeleteConfirmTitle": "¿Eliminar el modelo?",
-  "@workspaceModelDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a model."
-  },
   "workspaceModelDeleteConfirmMessage": "Esto elimina {name} de forma permanente.",
   "@workspaceModelDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a model.",
@@ -2385,10 +2381,6 @@
   "workspaceModelDeleted": "Modelo eliminado.",
   "@workspaceModelDeleted": {
     "description": "Confirmation that the model was deleted."
-  },
-  "workspaceModelAddAction": "Añadir",
-  "@workspaceModelAddAction": {
-    "description": "Confirm button in a small add-text dialog."
   },
   "workspaceKnowledgeCreateTitle": "Nueva base de conocimientos",
   "@workspaceKnowledgeCreateTitle": {
@@ -2715,18 +2707,6 @@
   "@workspacePromptContentRequired": {
     "description": "Validation error when the prompt content is empty."
   },
-  "workspacePromptWriteTab": "Escribir",
-  "@workspacePromptWriteTab": {
-    "description": "Toggle label for the editable prompt content view."
-  },
-  "workspacePromptPreviewTab": "Vista previa",
-  "@workspacePromptPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the prompt content."
-  },
-  "workspacePromptPreviewEmpty": "Aún no hay nada que previsualizar.",
-  "@workspacePromptPreviewEmpty": {
-    "description": "Empty-state text shown in the prompt preview when there is no content."
-  },
   "workspacePromptTags": "Etiquetas",
   "@workspacePromptTags": {
     "description": "Label for the prompt tags field."
@@ -2786,10 +2766,6 @@
   "workspacePromptDelete": "Eliminar prompt",
   "@workspacePromptDelete": {
     "description": "Overflow action that deletes a prompt."
-  },
-  "workspacePromptDeleteConfirmTitle": "¿Eliminar el prompt?",
-  "@workspacePromptDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt."
   },
   "workspacePromptDeleteConfirmMessage": "«{name}» se eliminará de forma permanente.",
   "@workspacePromptDeleteConfirmMessage": {
@@ -2883,10 +2859,6 @@
   "workspacePromptHistoryDelete": "Eliminar versión",
   "@workspacePromptHistoryDelete": {
     "description": "Action that deletes a prompt history entry."
-  },
-  "workspacePromptHistoryDeleteConfirmTitle": "¿Eliminar la versión?",
-  "@workspacePromptHistoryDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a prompt version."
   },
   "workspacePromptHistoryDeleteConfirmMessage": "Se quitará esta instantánea de la versión. Esta acción no se puede deshacer.",
   "@workspacePromptHistoryDeleteConfirmMessage": {
@@ -4939,6 +4911,40 @@
   "personalConnectionsTurnOn": "Activar",
   "personalConnectionsTurnOff": "Desactivar",
   "calendarDayEmpty": "No hay eventos",
+  "workspaceModelCapabilityVision": "Visión",
+  "@workspaceModelCapabilityVision": {
+    "description": "Model capability: understands images it is given."
+  },
+  "workspaceModelCapabilityFileUpload": "Carga de archivos",
+  "@workspaceModelCapabilityFileUpload": {
+    "description": "Model capability: accepts uploaded files."
+  },
+  "workspaceModelCapabilityCitations": "Citas",
+  "@workspaceModelCapabilityCitations": {
+    "description": "Model capability: cites its sources."
+  },
+  "workspaceModelCapabilityUsage": "Uso",
+  "@workspaceModelCapabilityUsage": {
+    "description": "Model capability: reports token usage."
+  },
+  "workspacePromptHistoryDiffRemovedLine": "Eliminado: {line}",
+  "@workspacePromptHistoryDiffRemovedLine": {
+    "description": "What a screen reader says for a line removed in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
+  "workspacePromptHistoryDiffAddedLine": "Añadido: {line}",
+  "@workspacePromptHistoryDiffAddedLine": {
+    "description": "What a screen reader says for a line added in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nueva notificación",
   "pushReplyTitle": "Nueva respuesta",

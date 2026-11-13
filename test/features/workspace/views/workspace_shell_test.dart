@@ -165,17 +165,17 @@ void main() {
 
     expect(find.byKey(const Key('workspace-section-tabs')), findsOneWidget);
     expect(find.byKey(const Key('workspace-section-rail')), findsNothing);
-    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-list-skills')), findsOneWidget);
     // The permission-gated create affordance renders for a manageable section.
-    expect(find.byKey(const Key('workspace-create-models')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-search-models')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-create-skills')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-search-skills')), findsOneWidget);
     expect(find.text('Active'), findsOneWidget);
     expect(find.text('Read-only'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-section-tabs')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Models'), findsWidgets);
+    expect(find.text('Skills'), findsWidgets);
     expect(find.text('Tools'), findsOneWidget);
   });
 
@@ -192,7 +192,7 @@ void main() {
 
     final activeSectionLabel = find.descendant(
       of: find.byKey(const Key('workspace-section-tabs')),
-      matching: find.text('Models'),
+      matching: find.text('Skills'),
     );
     check(activeSectionLabel.evaluate()).length.equals(1);
 
@@ -231,9 +231,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-list-skills')), findsOneWidget);
     expect(
-      tester.getSize(find.byKey(const Key('workspace-create-models'))).height,
+      tester.getSize(find.byKey(const Key('workspace-create-skills'))).height,
       greaterThanOrEqualTo(TouchTarget.minimum),
     );
     expect(tester.takeException(), isNull);
@@ -349,9 +349,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final router = GoRouter(
-      initialLocation: WorkspaceSection.models.path,
+      initialLocation: WorkspaceSection.skills.path,
       routes: [
-        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+        for (final section in [WorkspaceSection.skills, WorkspaceSection.tools])
           GoRoute(
             path: section.path,
             builder: (_, _) => WorkspacePage(section: section),
@@ -366,7 +366,7 @@ void main() {
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => _capabilities,
           ),
-          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceSkillsProvider.overrideWith(_TestWorkspaceSkills.new),
           workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
         ],
         child: MaterialApp.router(
@@ -378,7 +378,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-list-skills')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-section-tabs')));
     await tester.pumpAndSettle();
@@ -386,7 +386,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('workspace-list-tools')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-list-models')), findsNothing);
+    expect(find.byKey(const Key('workspace-list-skills')), findsNothing);
     expect(find.text('0 functions'), findsOneWidget);
   });
 
@@ -439,7 +439,7 @@ void main() {
           path: '/origin',
           builder: (_, _) => const Scaffold(body: Text('origin')),
         ),
-        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+        for (final section in [WorkspaceSection.skills, WorkspaceSection.tools])
           GoRoute(
             path: section.path,
             builder: (_, _) => WorkspacePage(section: section),
@@ -454,7 +454,7 @@ void main() {
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => _capabilities,
           ),
-          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceSkillsProvider.overrideWith(_TestWorkspaceSkills.new),
           workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
         ],
         child: MaterialApp.router(
@@ -466,7 +466,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    router.push(WorkspaceSection.models.path);
+    router.push(WorkspaceSection.skills.path);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('workspace-exit')), findsOneWidget);
@@ -502,7 +502,7 @@ void main() {
           path: Routes.profile,
           builder: (_, _) => const Scaffold(body: Text('settings')),
         ),
-        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+        for (final section in [WorkspaceSection.skills, WorkspaceSection.tools])
           GoRoute(
             path: section.path,
             builder: (_, state) => WorkspacePage(
@@ -520,7 +520,7 @@ void main() {
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => _capabilities,
           ),
-          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceSkillsProvider.overrideWith(_TestWorkspaceSkills.new),
           workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
         ],
         child: MaterialApp.router(
@@ -533,7 +533,7 @@ void main() {
     await tester.pumpAndSettle();
 
     router.push(
-      WorkspaceSection.models.path,
+      WorkspaceSection.skills.path,
       extra: const NativeSheetNavigationOrigin(),
     );
     await tester.pumpAndSettle();
@@ -560,7 +560,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('workspace-section-rail')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-list-skills')), findsOneWidget);
     expect(
       find.byKey(const Key('workspace-select-placeholder')),
       findsOneWidget,
@@ -576,7 +576,7 @@ void main() {
     await tester.pumpWidget(
       _workspaceHarness(
         mode: WorkspaceRouteMode.detail,
-        resourceId: 'missing-model',
+        resourceId: 'missing-skill',
         detailError: StateError('missing'),
       ),
     );
@@ -588,7 +588,7 @@ void main() {
       find.byType(AdaptiveRouteShell),
     );
     expect(shell.appBar?.title, 'Workspace');
-    expect(shell.appBar?.subtitle, 'Models');
+    expect(shell.appBar?.subtitle, 'Skills');
   });
 
   testWidgets('gate never builds protected content for a denied section', (
@@ -600,7 +600,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('workspace-denied')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-list-models')), findsNothing);
+    expect(find.byKey(const Key('workspace-list-skills')), findsNothing);
   });
 }
 
@@ -615,10 +615,10 @@ Widget _workspaceHarness({
     overrides: [
       reviewerModeProvider.overrideWithValue(false),
       workspaceCapabilitiesProvider.overrideWith((ref) async => capabilities),
-      workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+      workspaceSkillsProvider.overrideWith(_TestWorkspaceSkills.new),
       if (detailError != null && resourceId != null)
-        workspaceModelDetailProvider(resourceId).overrideWith(
-          (ref) => Future<WorkspaceModelDetail>.error(detailError),
+        workspaceSkillDetailProvider(resourceId).overrideWith(
+          (ref) => Future<WorkspaceSkillDetail>.error(detailError),
         ),
     ],
     child: MaterialApp(
@@ -631,7 +631,7 @@ Widget _workspaceHarness({
               child: child!,
             ),
       home: WorkspacePage(
-        section: WorkspaceSection.models,
+        section: WorkspaceSection.skills,
         mode: mode,
         resourceId: resourceId,
       ),
@@ -640,16 +640,16 @@ Widget _workspaceHarness({
 }
 
 const _capabilities = WorkspaceCapabilities(
-  models: WorkspaceSectionCapabilities.all,
+  skills: WorkspaceSectionCapabilities.all,
   tools: WorkspaceSectionCapabilities.all,
 );
 
-class _TestWorkspaceModels extends WorkspaceModels {
+class _TestWorkspaceSkills extends WorkspaceSkills {
   @override
-  Future<WorkspaceCollectionState<WorkspaceModelSummary>> build() async {
+  Future<WorkspaceCollectionState<WorkspaceSkillSummary>> build() async {
     return const WorkspaceCollectionState(
       items: [
-        WorkspaceModelSummary(id: 'model-1', name: 'Model 1', userId: 'user-1'),
+        WorkspaceSkillSummary(id: 'skill-1', name: 'Skill 1', userId: 'user-1'),
       ],
       total: 1,
     );

@@ -3,12 +3,7 @@ import 'dart:async';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_sections.dart';
 import 'package:conduit/features/hermes/widgets/hermes_jobs_sheet.dart';
-import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
-import 'package:conduit/features/workspace/views/models/workspace_model_advanced_section.dart';
-import 'package:conduit/features/workspace/views/models/workspace_model_editor_controller.dart';
-import 'package:conduit/features/workspace/views/prompts/workspace_prompt_editor_sections.dart';
 import 'package:conduit/features/workspace/widgets/workspace_valve_form.dart';
-import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
@@ -77,39 +72,6 @@ void main() {
           false,
           rowOwnsSemantics: true,
         );
-      }, variant: TargetPlatformVariant.only(configuration.platform));
-
-      testWidgets('model capability labels only its switch', (tester) async {
-        final controller = WorkspaceModelEditorController(
-          mode: WorkspaceRouteMode.create,
-          initialDraft: WorkspaceModelDraft.empty()
-            ..capabilities = {'Orbit capability': true},
-          writeAccess: true,
-        )..setAdvancedExpanded(true);
-        addTearDown(controller.dispose);
-        await _pump(
-          tester,
-          WorkspaceModelAdvancedSection(controller: controller),
-        );
-        _expectSwitch(tester, 'Orbit capability', true);
-      }, variant: TargetPlatformVariant.only(configuration.platform));
-
-      testWidgets('prompt production labels only its switch', (tester) async {
-        final commit = TextEditingController();
-        addTearDown(commit.dispose);
-        await _pump(
-          tester,
-          WorkspacePromptVersionSection(
-            readOnly: false,
-            expanded: true,
-            isProduction: true,
-            commitController: commit,
-            onExpandedChanged: (_) {},
-            onCommitChanged: () {},
-            onProductionChanged: (_) {},
-          ),
-        );
-        _expectSwitch(tester, _l10n(tester).workspacePromptSetProduction, true);
       }, variant: TargetPlatformVariant.only(configuration.platform));
 
       for (final required in [false, true]) {

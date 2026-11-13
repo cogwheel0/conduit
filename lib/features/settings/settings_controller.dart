@@ -39,8 +39,6 @@ import '../profile/widgets/stt_language_picker.dart'
 import '../push/widgets/push_target_actions.dart'
     show setPushEnabledFromNativeSheet;
 import '../push/widgets/push_target_detail_sheet.dart';
-import '../workspace/providers/workspace_capabilities_provider.dart';
-import '../workspace/workspace_navigation.dart';
 import 'settings_page_module.dart';
 import 'pages/server_address_settings_pages.dart'
     show serverAddressesAddAccountActionId, serverAddressesPageId;
@@ -55,6 +53,9 @@ enum SettingsEventSource {
   /// The Flutter Settings pages, which stay under any page opened from them.
   flutter;
 
+  /// How a page push's rows open arrives: from the native sheet as it slides
+  /// away, without a second transition; from a Flutter Settings page as any
+  /// page does.
   NativeSheetNavigationOrigin? get navigationOrigin => switch (this) {
     nativeSheet => const NativeSheetNavigationOrigin(),
     flutter => null,
@@ -413,10 +414,6 @@ class SettingsController {
     final event = isMemoryRetry ? _memoryRetryChange(sent.id) : sent;
     if (event == null) return;
     final value = event.value;
-    // A page opened from the native sheet arrives as it slides away, without
-    // a second transition; one opened from a Flutter Settings page pushes as
-    // any page does.
-    final origin = source.navigationOrigin;
     try {
       // Accountless (Hermes, Direct, Apple) "Connect to Open WebUI" row.
       // Dismiss the native sheet and route into the OWUI connect flow (the
@@ -450,7 +447,7 @@ class SettingsController {
       }
 
       if (event.id == nativePushTargetActionId && value is String) {
-        _openPushTarget(value, origin);
+        _openPushTarget(value, source.navigationOrigin);
         return;
       }
 
@@ -458,7 +455,7 @@ class SettingsController {
         unawaited(
           NavigationService.router.pushNamed<void>(
             RouteNames.pushPrivacy,
-            extra: origin,
+            extra: source.navigationOrigin,
           ),
         );
         return;
@@ -616,17 +613,6 @@ class SettingsController {
       }
 
       switch (event.id) {
-        case NativeSheetRoutes.workspace:
-          final capabilities = ref.read(workspaceCapabilitiesProvider).value;
-          final permitted = capabilities == null
-              ? const <WorkspaceSection>[]
-              : permittedWorkspaceSections(capabilities);
-          final destination = permitted.isEmpty
-              ? Routes.workspace
-              : permitted.first.path;
-          unawaited(
-            NavigationService.router.push<void>(destination, extra: origin),
-          );
         case 'default-model':
           if (value is String) {
             final modelId = value == 'auto-select' ? null : value;

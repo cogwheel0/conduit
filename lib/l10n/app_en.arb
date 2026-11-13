@@ -5096,8 +5096,6 @@
   "@workspaceModelUnhide": {"description":"Action that unhides the model in model selectors."},
   "workspaceModelDelete": "Delete Model",
   "@workspaceModelDelete": {"description":"Action that deletes the model."},
-  "workspaceModelDeleteConfirmTitle": "Delete model?",
-  "@workspaceModelDeleteConfirmTitle": {"description":"Confirmation dialog title for deleting a model."},
   "workspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
   "@workspaceModelDeleteConfirmMessage": {"description":"Confirmation dialog body for deleting a model.","placeholders":{"name":{"type":"String"}}},
   "workspaceModelExport": "Export Model",
@@ -5118,8 +5116,6 @@
   "@workspaceModelSaveFailed": {"description":"Error when saving the model fails."},
   "workspaceModelDeleted": "Model deleted.",
   "@workspaceModelDeleted": {"description":"Confirmation that the model was deleted."},
-  "workspaceModelAddAction": "Add",
-  "@workspaceModelAddAction": {"description":"Confirm button in a small add-text dialog."},
   "workspaceKnowledgeCreateTitle": "New Knowledge Base",
   "@workspaceKnowledgeCreateTitle": {"description":"Title of the create form for a new knowledge base."},
   "workspaceKnowledgeName": "Name",
@@ -5270,12 +5266,6 @@
   "@workspacePromptContentHint": {"description":"Placeholder text for the empty prompt content field."},
   "workspacePromptContentRequired": "Prompt content is required.",
   "@workspacePromptContentRequired": {"description":"Validation error when the prompt content is empty."},
-  "workspacePromptWriteTab": "Write",
-  "@workspacePromptWriteTab": {"description":"Toggle label for the editable prompt content view."},
-  "workspacePromptPreviewTab": "Preview",
-  "@workspacePromptPreviewTab": {"description":"Toggle label for the rendered markdown preview of the prompt content."},
-  "workspacePromptPreviewEmpty": "Nothing to preview yet.",
-  "@workspacePromptPreviewEmpty": {"description":"Empty-state text shown in the prompt preview when there is no content."},
   "workspacePromptTags": "Tags",
   "@workspacePromptTags": {"description":"Label for the prompt tags field."},
   "workspacePromptTagAdd": "Add Tag",
@@ -5306,8 +5296,6 @@
   "@workspacePromptDeactivate": {"description":"Overflow action that disables a prompt."},
   "workspacePromptDelete": "Delete Prompt",
   "@workspacePromptDelete": {"description":"Overflow action that deletes a prompt."},
-  "workspacePromptDeleteConfirmTitle": "Delete prompt?",
-  "@workspacePromptDeleteConfirmTitle": {"description":"Confirmation dialog title for deleting a prompt."},
   "workspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
   "@workspacePromptDeleteConfirmMessage": {"description":"Confirmation dialog body for deleting a prompt.","placeholders":{"name":{"type":"String"}}},
   "workspacePromptDeleted": "Prompt deleted",
@@ -5352,8 +5340,6 @@
   "@workspacePromptHistoryProductionSet": {"description":"Confirmation that the production version was changed."},
   "workspacePromptHistoryDelete": "Delete Version",
   "@workspacePromptHistoryDelete": {"description":"Action that deletes a prompt history entry."},
-  "workspacePromptHistoryDeleteConfirmTitle": "Delete version?",
-  "@workspacePromptHistoryDeleteConfirmTitle": {"description":"Confirmation dialog title for deleting a prompt version."},
   "workspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
   "@workspacePromptHistoryDeleteConfirmMessage": {"description":"Confirmation dialog body for deleting a prompt version."},
   "workspacePromptHistoryDeleted": "Version deleted",
@@ -11068,6 +11054,40 @@
   "calendarDayEmpty": "No events",
   "@calendarDayEmpty": {
     "description": "Row on the calendar's month page in Settings when the chosen day holds no events."
+  },
+  "workspaceModelCapabilityVision": "Vision",
+  "@workspaceModelCapabilityVision": {
+    "description": "Model capability: understands images it is given."
+  },
+  "workspaceModelCapabilityFileUpload": "File Upload",
+  "@workspaceModelCapabilityFileUpload": {
+    "description": "Model capability: accepts uploaded files."
+  },
+  "workspaceModelCapabilityCitations": "Citations",
+  "@workspaceModelCapabilityCitations": {
+    "description": "Model capability: cites its sources."
+  },
+  "workspaceModelCapabilityUsage": "Usage",
+  "@workspaceModelCapabilityUsage": {
+    "description": "Model capability: reports token usage."
+  },
+  "workspacePromptHistoryDiffRemovedLine": "Removed: {line}",
+  "@workspacePromptHistoryDiffRemovedLine": {
+    "description": "What a screen reader says for a line removed in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
+  },
+  "workspacePromptHistoryDiffAddedLine": "Added: {line}",
+  "@workspacePromptHistoryDiffAddedLine": {
+    "description": "What a screen reader says for a line added in a comparison of two prompt versions; {line} is the line.",
+    "placeholders": {
+      "line": {
+        "type": "String"
+      }
+    }
   },
   "pushFallbackTitle": "Conduit",
   "@pushFallbackTitle": {

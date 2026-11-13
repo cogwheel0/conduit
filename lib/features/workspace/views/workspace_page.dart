@@ -214,9 +214,14 @@ class WorkspaceScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final permitted = permittedWorkspaceSectionsOf(
-      ref.watch(workspaceCapabilitiesProvider),
-    );
+    // Models and Prompts are pages of Settings now; these pages offer the
+    // sections they still show.
+    final permitted = [
+      for (final item in permittedWorkspaceSectionsOf(
+        ref.watch(workspaceCapabilitiesProvider),
+      ))
+        if (workspaceSectionsInFlutter.contains(item)) item,
+    ];
     // The three-pane layout reserves 184px for the rail and 320px for the
     // collection list (plus dividers); anything below the Material expanded
     // breakpoint leaves the detail/editor pane too narrow to render forms, so
