@@ -1,5 +1,6 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'hermes_admin.dart';
 import 'hermes_rooms.dart';
 
 part 'hermes.freezed.dart';
@@ -295,6 +296,32 @@ abstract class HermesJobDto with _$HermesJobDto {
     String? lastError,
     int? lastRunAtMs,
     int? nextRunAtMs,
+
+    /// Hermes's own word for where the job is (`scheduled`, `paused`,
+    /// `completed`), when it says.
+    String? state,
+
+    /// Where each run goes, in the stored order (a Desktop Gateway's; an
+    /// API server's runs are saved in Hermes).
+    @Default(<HermesDeliveryTargetDto>[])
+    List<HermesDeliveryTargetDto> deliver,
+
+    /// Why the last run's delivery failed, when it did.
+    String? lastDeliveryError,
+
+    /// Runs missed while Hermes was not running: `default` (Hermes's
+    /// policy), `runOnce` or `skip`.
+    @Default('default') String catchUp,
+
+    /// A run is in flight, or a Run Now is waiting for its run.
+    @Default(false) bool running,
+
+    /// A Stop was sent and the run has not ended yet.
+    @Default(false) bool stopping,
+
+    /// The last run was stopped: why (empty when Hermes gave no reason).
+    /// Null when it was not stopped.
+    String? lastCancelReason,
   }) = _HermesJobDto;
 
   factory HermesJobDto.fromJson(Map<String, dynamic> json) =>
@@ -306,6 +333,18 @@ abstract class HermesJobDto with _$HermesJobDto {
 abstract class HermesJobs with _$HermesJobs {
   const factory HermesJobs({
     @Default(<HermesJobDto>[]) List<HermesJobDto> jobs,
+
+    /// The server lets jobs be created and changed (its `jobs_admin`):
+    /// otherwise the list is read-only.
+    @Default(true) bool writable,
+
+    /// A Desktop Gateway: jobs have delivery targets, a missed-run policy,
+    /// a run history, and a running one can be stopped.
+    @Default(false) bool scheduling,
+
+    /// What happened since the last read that the window says once: a
+    /// Stop that settled, a Run Now that failed.
+    @Default(<HermesJobNotice>[]) List<HermesJobNotice> notices,
   }) = _HermesJobs;
 
   factory HermesJobs.fromJson(Map<String, dynamic> json) =>
@@ -320,6 +359,14 @@ abstract class HermesJobEdit with _$HermesJobEdit {
     String? name,
     required String prompt,
     required String schedule,
+
+    /// The delivery targets, comma-separated as Hermes stores them (a
+    /// Desktop Gateway's); null leaves an edited job's as they are.
+    String? deliver,
+
+    /// `default`, `runOnce` or `skip` (a Desktop Gateway's); null leaves
+    /// an edited job's as it is.
+    String? catchUp,
   }) = _HermesJobEdit;
 
   factory HermesJobEdit.fromJson(Map<String, dynamic> json) =>
@@ -359,13 +406,18 @@ abstract class HermesToolsetDto with _$HermesToolsetDto {
       _$HermesToolsetDtoFromJson(json);
 }
 
-/// Reply to `hermes.catalog`: the agent's skills (its `/` commands) and
-/// toolsets.
+/// Reply to `hermes.catalog`: the agent's skills and toolsets, and the
+/// `/` commands a Hermes chat's composer offers.
 @freezed
 abstract class HermesCatalog with _$HermesCatalog {
   const factory HermesCatalog({
     @Default(<HermesSkillDto>[]) List<HermesSkillDto> skills,
     @Default(<HermesToolsetDto>[]) List<HermesToolsetDto> toolsets,
+
+    /// What `/` lists in a Hermes chat, as on a phone: each sent as
+    /// `/<name> ` (a Desktop Gateway's command catalog, an API server's
+    /// skills). Empty when the server offers none.
+    @Default(<HermesSkillDto>[]) List<HermesSkillDto> commands,
   }) = _HermesCatalog;
 
   factory HermesCatalog.fromJson(Map<String, dynamic> json) =>

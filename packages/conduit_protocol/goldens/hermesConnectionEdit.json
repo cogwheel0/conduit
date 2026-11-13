@@ -1,0 +1,12 @@
+{
+  "id": "c1",
+  "name": "Home",
+  "baseUrl": "https://agent.example.test",
+  "mode": "desktop",
+  "desktopAuthKind": "legacyToken",
+  "desktopProfile": "default",
+  "apiKey": "sk-demo",
+  "legacyToken": "demo-token",
+  "allowSelfSignedCertificates": true,
+  "allowPlainHttp": true
+}

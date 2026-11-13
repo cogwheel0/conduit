@@ -3225,7 +3225,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   "lastStatus": "ok",
   "lastError": "none",
   "lastRunAtMs": 1767225600000,
-  "nextRunAtMs": 1767312000000
+  "nextRunAtMs": 1767312000000,
+  "deliver": [],
+  "catchUp": "default",
+  "running": false,
+  "stopping": false
 }''',
 
   'hermesJobs': r'''
@@ -3235,9 +3239,16 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "j2",
       "prompt": "",
       "schedule": "",
-      "enabled": true
+      "enabled": true,
+      "deliver": [],
+      "catchUp": "default",
+      "running": false,
+      "stopping": false
     }
-  ]
+  ],
+  "writable": true,
+  "scheduling": false,
+  "notices": []
 }''',
 
   'hermesJobEdit': r'''
@@ -3286,6 +3297,251 @@ const Map<String, String> protocolGoldens = <String, String>{
       "enabled": true,
       "tools": []
     }
+  ],
+  "commands": [
+    {
+      "name": "packing-list",
+      "description": "Packs a bag"
+    }
+  ]
+}''',
+
+  'hermesJobDtoScheduled': r'''
+{
+  "id": "j3",
+  "name": "Standup",
+  "prompt": "Write a standup summary",
+  "schedule": "0 9 * * 1-5",
+  "enabled": true,
+  "state": "scheduled",
+  "deliver": [
+    {
+      "target": "local",
+      "kind": "local",
+      "name": "",
+      "available": true
+    },
+    {
+      "target": "bot-chat:helper",
+      "kind": "botChat",
+      "name": "Helper",
+      "available": true
+    }
+  ],
+  "lastDeliveryError": "no home channel",
+  "catchUp": "runOnce",
+  "running": true,
+  "stopping": true,
+  "lastCancelReason": "Stopped by the user"
+}''',
+
+  'hermesJobsScheduling': r'''
+{
+  "jobs": [
+    {
+      "id": "j3",
+      "prompt": "",
+      "schedule": "",
+      "enabled": true,
+      "deliver": [],
+      "catchUp": "default",
+      "running": true,
+      "stopping": false
+    }
+  ],
+  "writable": false,
+  "scheduling": true,
+  "notices": [
+    {
+      "jobId": "j3",
+      "kind": "stopped"
+    }
+  ]
+}''',
+
+  'hermesJobEditDelivery': r'''
+{
+  "prompt": "Summarise",
+  "schedule": "every 2h",
+  "deliver": "local,telegram",
+  "catchUp": "skip"
+}''',
+
+  'hermesDeliveryTargetDto': r'''
+{
+  "target": "telegram",
+  "kind": "platform",
+  "name": "Telegram",
+  "available": false
+}''',
+
+  'hermesDeliveryOptions': r'''
+{
+  "available": true,
+  "options": [
+    {
+      "target": "local",
+      "kind": "local",
+      "name": "",
+      "available": true
+    }
+  ]
+}''',
+
+  'hermesJobNotice': r'''
+{
+  "jobId": "j1",
+  "kind": "runFailed"
+}''',
+
+  'hermesConnectionDto': r'''
+{
+  "id": "9d2f7c1e-0a4b-4c3d-8e5f-6a7b8c9d0e1f",
+  "name": "Studio agent",
+  "baseUrl": "http://127.0.0.1:19303",
+  "mode": "desktop",
+  "desktopAuthKind": "nativePkce",
+  "desktopProfile": "writer",
+  "allowSelfSignedCertificates": true,
+  "active": true,
+  "plainHttp": true,
+  "hasApiKey": true,
+  "hasLegacyToken": true,
+  "desktopSignedIn": true
+}''',
+
+  'hermesConnections': r'''
+{
+  "enabled": true,
+  "activeId": "c1",
+  "connections": [
+    {
+      "id": "c1",
+      "name": "Home",
+      "baseUrl": "",
+      "mode": "responses",
+      "desktopAuthKind": "legacyToken",
+      "desktopProfile": "default",
+      "allowSelfSignedCertificates": false,
+      "active": false,
+      "plainHttp": false,
+      "hasApiKey": false,
+      "hasLegacyToken": false,
+      "desktopSignedIn": false
+    }
+  ],
+  "canAdd": false,
+  "savedId": "c1"
+}''',
+
+  'hermesConnectionEdit': r'''
+{
+  "id": "c1",
+  "name": "Home",
+  "baseUrl": "https://agent.example.test",
+  "mode": "desktop",
+  "desktopAuthKind": "legacyToken",
+  "desktopProfile": "default",
+  "apiKey": "sk-demo",
+  "legacyToken": "demo-token",
+  "allowSelfSignedCertificates": true,
+  "allowPlainHttp": true
+}''',
+
+  'hermesConnectionTestResult': r'''
+{
+  "ok": true,
+  "reason": "unauthorized",
+  "suggestedName": "Studio agent"
+}''',
+
+  'hermesToggle': r'''
+{
+  "enabled": false
+}''',
+
+  'hermesMcpServerDto': r'''
+{
+  "name": "notes",
+  "description": "http://127.0.0.1:9000/mcp",
+  "enabled": false,
+  "auth": "oauth",
+  "tools": [
+    "search",
+    "fetch"
+  ],
+  "toolFilter": "only search"
+}''',
+
+  'hermesMcpServers': r'''
+{
+  "available": true,
+  "servers": [
+    {
+      "name": "notes",
+      "description": "",
+      "enabled": true,
+      "tools": []
+    }
+  ],
+  "canSetApiKey": true
+}''',
+
+  'hermesMcpCatalogEntryDto': r'''
+{
+  "name": "calendar",
+  "description": "Events from a calendar"
+}''',
+
+  'hermesMcpCatalog': r'''
+{
+  "entries": [
+    {
+      "name": "calendar",
+      "description": ""
+    }
+  ]
+}''',
+
+  'hermesMcpAdd': r'''
+{
+  "name": "shop",
+  "url": "http://127.0.0.1:9000/mcp",
+  "command": "python3",
+  "args": [
+    "server.py",
+    "--demo"
+  ],
+  "apiKey": "demo-key"
+}''',
+
+  'hermesMcpRef': r'''
+{
+  "name": "shop"
+}''',
+
+  'hermesMcpApiKey': r'''
+{
+  "name": "shop",
+  "apiKey": "demo-key"
+}''',
+
+  'hermesMcpToggle': r'''
+{
+  "name": "shop",
+  "enabled": true
+}''',
+
+  'hermesMcpTestResultDto': r'''
+{
+  "ok": true,
+  "tools": 2,
+  "resources": 1,
+  "prompts": 3,
+  "error": "none",
+  "toolNames": [
+    "search",
+    "fetch"
   ]
 }''',
 

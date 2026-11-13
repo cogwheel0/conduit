@@ -1063,8 +1063,66 @@ abstract final class ConduitMethods {
   static const String hermesRunJob = 'hermes.runJob';
   static const String hermesDeleteJob = 'hermes.deleteJob';
 
-  /// The agent's skills and toolsets.
+  /// The agent's skills and toolsets, and a Hermes chat's `/` commands.
   static const String hermesCatalog = 'hermes.catalog';
+
+  /// The sessions a scheduled agent's runs wrote, newest first (a Desktop
+  /// Gateway's).
+  static const String hermesJobsRuns = 'hermes.jobs.runs';
+
+  /// Stops a scheduled agent's running run (its schedule stays); answers
+  /// with the jobs, and how the Stop settles comes in their notices.
+  static const String hermesJobsStop = 'hermes.jobs.stop';
+
+  /// Where the connection's scheduled agents can deliver.
+  static const String hermesJobsDelivery = 'hermes.jobs.delivery';
+
+  // hermes.connections.*: Hermes's switch and its saved connections.
+
+  static const String hermesConnectionsList = 'hermes.connections.list';
+
+  /// Saves a connection, new or edited; the first one saved is put in use.
+  static const String hermesConnectionsSave = 'hermes.connections.save';
+
+  /// Tries a connection's form without saving it.
+  static const String hermesConnectionsTest = 'hermes.connections.test';
+
+  /// Puts a saved connection in use: Hermes's sessions, jobs and servers
+  /// follow it.
+  static const String hermesConnectionsActivate = 'hermes.connections.activate';
+
+  /// Deletes a saved connection and its credentials; deleting the one in
+  /// use puts the most recently used other one in use.
+  static const String hermesConnectionsDelete = 'hermes.connections.delete';
+
+  /// Turns Hermes on or off, its connections kept.
+  static const String hermesConnectionsSetEnabled =
+      'hermes.connections.setEnabled';
+
+  // hermes.mcp.*: the MCP servers a Desktop Gateway connects its agent to.
+
+  static const String hermesMcpList = 'hermes.mcp.list';
+
+  /// The ready-made servers Hermes offers.
+  static const String hermesMcpCatalog = 'hermes.mcp.catalog';
+
+  /// Adds a server of the user's own (an HTTP address or a command).
+  static const String hermesMcpAdd = 'hermes.mcp.add';
+
+  /// Adds a server from Hermes's catalog, by its name there.
+  static const String hermesMcpAddFromCatalog = 'hermes.mcp.addFromCatalog';
+  static const String hermesMcpSetApiKey = 'hermes.mcp.setApiKey';
+  static const String hermesMcpRemove = 'hermes.mcp.remove';
+
+  /// Connects to a server once and lists what it offers.
+  static const String hermesMcpTest = 'hermes.mcp.test';
+
+  /// Offers a server's tools to the agent, or stops offering them.
+  static const String hermesMcpSetEnabled = 'hermes.mcp.setEnabled';
+
+  /// Signs in to a server with OAuth in the browser; answers once it is
+  /// done (or after two minutes).
+  static const String hermesMcpAuthenticate = 'hermes.mcp.authenticate';
 
   // hermes.work.*, hermes.context.*, hermes.decisions.*: what a Hermes
   // chat's agent is doing, its context window, and what it asks.

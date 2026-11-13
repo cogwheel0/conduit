@@ -5972,18 +5972,74 @@ pub struct HermesJobDto {
     pub last_run_at_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_run_at_ms: Option<i64>,
+    /// Hermes's own word for where the job is (`scheduled`, `paused`,
+    /// `completed`), when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// Where each run goes, in the stored order (a Desktop Gateway's; an
+    /// API server's runs are saved in Hermes).
+    #[serde(default)]
+    pub deliver: Vec<HermesDeliveryTargetDto>,
+    /// Why the last run's delivery failed, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_delivery_error: Option<String>,
+    /// Runs missed while Hermes was not running: `default` (Hermes's
+    /// policy), `runOnce` or `skip`.
+    #[serde(default = "default_hermes_job_dto_catch_up")]
+    pub catch_up: String,
+    /// A run is in flight, or a Run Now is waiting for its run.
+    #[serde(default)]
+    pub running: bool,
+    /// A Stop was sent and the run has not ended yet.
+    #[serde(default)]
+    pub stopping: bool,
+    /// The last run was stopped: why (empty when Hermes gave no reason).
+    /// Null when it was not stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_cancel_reason: Option<String>,
 }
 
 fn default_hermes_job_dto_enabled() -> bool {
     true
 }
 
+fn default_hermes_job_dto_catch_up() -> String {
+    "default".to_owned()
+}
+
 /// Reply to `hermes.jobs`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HermesJobs {
     #[serde(default)]
     pub jobs: Vec<HermesJobDto>,
+    /// The server lets jobs be created and changed (its `jobs_admin`):
+    /// otherwise the list is read-only.
+    #[serde(default = "default_hermes_jobs_writable")]
+    pub writable: bool,
+    /// A Desktop Gateway: jobs have delivery targets, a missed-run policy,
+    /// a run history, and a running one can be stopped.
+    #[serde(default)]
+    pub scheduling: bool,
+    /// What happened since the last read that the window says once: a
+    /// Stop that settled, a Run Now that failed.
+    #[serde(default)]
+    pub notices: Vec<HermesJobNotice>,
+}
+
+impl Default for HermesJobs {
+    fn default() -> Self {
+        Self {
+            jobs: Default::default(),
+            writable: default_hermes_jobs_writable(),
+            scheduling: Default::default(),
+            notices: Default::default(),
+        }
+    }
+}
+
+fn default_hermes_jobs_writable() -> bool {
+    true
 }
 
 /// Params for `hermes.saveJob`: a new job when `id` is null.
@@ -5996,6 +6052,14 @@ pub struct HermesJobEdit {
     pub name: Option<String>,
     pub prompt: String,
     pub schedule: String,
+    /// The delivery targets, comma-separated as Hermes stores them (a
+    /// Desktop Gateway's); null leaves an edited job's as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliver: Option<String>,
+    /// `default`, `runOnce` or `skip` (a Desktop Gateway's); null leaves
+    /// an edited job's as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catch_up: Option<String>,
 }
 
 /// Params for `hermes.setJobEnabled`.
@@ -6032,8 +6096,8 @@ fn default_hermes_toolset_dto_enabled() -> bool {
     true
 }
 
-/// Reply to `hermes.catalog`: the agent's skills (its `/` commands) and
-/// toolsets.
+/// Reply to `hermes.catalog`: the agent's skills and toolsets, and the
+/// `/` commands a Hermes chat's composer offers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HermesCatalog {
@@ -6041,6 +6105,334 @@ pub struct HermesCatalog {
     pub skills: Vec<HermesSkillDto>,
     #[serde(default)]
     pub toolsets: Vec<HermesToolsetDto>,
+    /// What `/` lists in a Hermes chat, as on a phone: each sent as
+    /// `/<name> ` (a Desktop Gateway's command catalog, an API server's
+    /// skills). Empty when the server offers none.
+    #[serde(default)]
+    pub commands: Vec<HermesSkillDto>,
+}
+
+/// One place a scheduled agent's runs can go.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDeliveryTargetDto {
+    /// The token Hermes stores (`local`, `telegram`, `bot-chat:<profile>`,
+    /// `room:<id>@<profile>`).
+    pub target: String,
+    /// `local` (saved in Hermes), `platform` (a messaging app's home
+    /// channel), `botChat`, `room` (a group chat) or `other` (shown as
+    /// stored).
+    #[serde(default = "default_hermes_delivery_target_dto_kind")]
+    pub kind: String,
+    /// Its name without the kind: a platform's, bot's or room's; the
+    /// token itself for `other`; empty for `local`.
+    #[serde(default)]
+    pub name: String,
+    /// False for a messaging app without a home channel: Hermes has
+    /// nowhere to send.
+    #[serde(default = "default_hermes_delivery_target_dto_available")]
+    pub available: bool,
+}
+
+fn default_hermes_delivery_target_dto_kind() -> String {
+    "other".to_owned()
+}
+
+fn default_hermes_delivery_target_dto_available() -> bool {
+    true
+}
+
+/// Reply to `hermes.jobs.delivery`: where the connection's jobs can
+/// deliver, in display order (saved in Hermes, messaging apps, bot chats,
+/// group chats).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDeliveryOptions {
+    /// False on an API server, which lists no targets: its runs are saved
+    /// in Hermes.
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub options: Vec<HermesDeliveryTargetDto>,
+}
+
+/// Something about a job the window says once (`HermesJobs.notices`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesJobNotice {
+    pub job_id: String,
+    /// `stopped` (the run a Stop was sent to ended stopped),
+    /// `finishedBeforeStop`, `nothingToStop`, `stopUnsupported` (the
+    /// server predates Stop), `stopFailed`, or `runFailed` (a Run Now
+    /// Hermes refused or that failed on its way).
+    pub kind: String,
+}
+
+/// A saved Hermes connection. Its secrets never leave the daemon: only
+/// whether they are set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesConnectionDto {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub base_url: String,
+    /// `responses` (the API server) or `desktop` (the Desktop Gateway).
+    #[serde(default = "default_hermes_connection_dto_mode")]
+    pub mode: String,
+    /// `legacyToken`, `nativePkce` or `dashboardCookie`.
+    #[serde(default = "default_hermes_connection_dto_desktop_auth_kind")]
+    pub desktop_auth_kind: String,
+    #[serde(default = "default_hermes_connection_dto_desktop_profile")]
+    pub desktop_profile: String,
+    #[serde(default)]
+    pub allow_self_signed_certificates: bool,
+    /// The one Hermes is used through now.
+    #[serde(default)]
+    pub active: bool,
+    /// Its credentials travel unencrypted (plain HTTP to a server off this
+    /// Mac).
+    #[serde(default)]
+    pub plain_http: bool,
+    #[serde(default)]
+    pub has_api_key: bool,
+    #[serde(default)]
+    pub has_legacy_token: bool,
+    /// Signed in natively (a Desktop Gateway with `nativePkce`).
+    #[serde(default)]
+    pub desktop_signed_in: bool,
+}
+
+fn default_hermes_connection_dto_mode() -> String {
+    "responses".to_owned()
+}
+
+fn default_hermes_connection_dto_desktop_auth_kind() -> String {
+    "legacyToken".to_owned()
+}
+
+fn default_hermes_connection_dto_desktop_profile() -> String {
+    "default".to_owned()
+}
+
+/// Reply to `hermes.connections.*`: Hermes's switch and its saved
+/// connections, in the order they were added.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesConnections {
+    /// Hermes is turned on (whether or not a connection is usable).
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_id: Option<String>,
+    #[serde(default)]
+    pub connections: Vec<HermesConnectionDto>,
+    /// Another connection can be saved (there is a limit).
+    #[serde(default = "default_hermes_connections_can_add")]
+    pub can_add: bool,
+    /// The connection a save wrote (`hermes.connections.save`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_id: Option<String>,
+}
+
+impl Default for HermesConnections {
+    fn default() -> Self {
+        Self {
+            enabled: Default::default(),
+            active_id: None,
+            connections: Default::default(),
+            can_add: default_hermes_connections_can_add(),
+            saved_id: None,
+        }
+    }
+}
+
+fn default_hermes_connections_can_add() -> bool {
+    true
+}
+
+/// Params for `hermes.connections.save` and `hermes.connections.test`: a
+/// connection's form. A null secret keeps the one saved for the same
+/// server; an empty one clears it. Secrets never follow a connection to
+/// another server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesConnectionEdit {
+    /// The connection edited; null saves a new one (the first is made the
+    /// active one, the others are saved beside it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Null keeps the saved name; empty names it after the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub base_url: String,
+    #[serde(default = "default_hermes_connection_edit_mode")]
+    pub mode: String,
+    #[serde(default = "default_hermes_connection_edit_desktop_auth_kind")]
+    pub desktop_auth_kind: String,
+    #[serde(default = "default_hermes_connection_edit_desktop_profile")]
+    pub desktop_profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_token: Option<String>,
+    #[serde(default)]
+    pub allow_self_signed_certificates: bool,
+    /// The user agreed to send this connection's credentials unencrypted
+    /// (asked when the daemon refuses with `hermes.plainHttpConsent`).
+    #[serde(default)]
+    pub allow_plain_http: bool,
+}
+
+fn default_hermes_connection_edit_mode() -> String {
+    "responses".to_owned()
+}
+
+fn default_hermes_connection_edit_desktop_auth_kind() -> String {
+    "legacyToken".to_owned()
+}
+
+fn default_hermes_connection_edit_desktop_profile() -> String {
+    "default".to_owned()
+}
+
+/// Reply to `hermes.connections.test`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesConnectionTestResult {
+    #[serde(default)]
+    pub ok: bool,
+    /// A code the window words: `unreachable`, `unauthorized`, `invalid`,
+    /// `keyRequired`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The name the server suggests for the connection (its model or
+    /// profile), when it reached it and offers one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_name: Option<String>,
+}
+
+/// Params for `hermes.connections.setEnabled`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesToggle {
+    pub enabled: bool,
+}
+
+/// An MCP server Hermes connects its agent to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpServerDto {
+    pub name: String,
+    /// Where it is: an HTTP address, or the command Hermes runs.
+    #[serde(default)]
+    pub description: String,
+    /// Its tools are offered to the agent.
+    #[serde(default = "default_hermes_mcp_server_dto_enabled")]
+    pub enabled: bool,
+    /// How it signs in, as Hermes says (`oauth`, `bearer`), when it does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<String>,
+    /// Its tools, when Hermes lists them (or a test found them).
+    #[serde(default)]
+    pub tools: Vec<String>,
+    /// Which tools Hermes registers, in words, when it filters them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_filter: Option<String>,
+}
+
+fn default_hermes_mcp_server_dto_enabled() -> bool {
+    true
+}
+
+/// Reply to `hermes.mcp.*`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpServers {
+    /// The connection manages MCP servers (a Desktop Gateway).
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub servers: Vec<HermesMcpServerDto>,
+    /// An API key can be set on a server (Hermes 0.23 and later).
+    #[serde(default)]
+    pub can_set_api_key: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpCatalogEntryDto {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// Reply to `hermes.mcp.catalog`: the servers Hermes offers ready-made,
+/// those already added left out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpCatalog {
+    #[serde(default)]
+    pub entries: Vec<HermesMcpCatalogEntryDto>,
+}
+
+/// Params for `hermes.mcp.add`: a server of the user's own, at an HTTP
+/// address or run as a command.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpAdd {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Sent as its bearer token; never kept by the daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+}
+
+/// Params naming an MCP server (or a catalog entry) by name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpRef {
+    pub name: String,
+}
+
+/// Params for `hermes.mcp.setApiKey`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpApiKey {
+    pub name: String,
+    pub api_key: String,
+}
+
+/// Params for `hermes.mcp.setEnabled`: offer a server's tools or not.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpToggle {
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// Reply to `hermes.mcp.test`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpTestResultDto {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub tools: i64,
+    #[serde(default)]
+    pub resources: i64,
+    #[serde(default)]
+    pub prompts: i64,
+    /// What went wrong, as Hermes says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub tool_names: Vec<String>,
 }
 
 /// A Bot Mode bot: a Hermes profile the gateway marks as a bot, with its
@@ -16026,7 +16418,7 @@ pub mod methods {
         type Result = super::HermesJobs;
     }
 
-    /// The agent's skills and toolsets.
+    /// The agent's skills and toolsets, and a Hermes chat's `/` commands.
     ///
     /// `hermes.catalog`: no params -> HermesCatalog.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -16036,6 +16428,219 @@ pub mod methods {
         const NAME: &'static str = "hermes.catalog";
         type Params = NoParams;
         type Result = super::HermesCatalog;
+    }
+
+    /// The sessions a scheduled agent's runs wrote, newest first (a Desktop
+    /// Gateway's).
+    ///
+    /// `hermes.jobs.runs`: HermesRef -> HermesSessions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesJobsRuns;
+
+    impl RpcMethod for HermesJobsRuns {
+        const NAME: &'static str = "hermes.jobs.runs";
+        type Params = super::HermesRef;
+        type Result = super::HermesSessions;
+    }
+
+    /// Stops a scheduled agent's running run (its schedule stays); answers
+    /// with the jobs, and how the Stop settles comes in their notices.
+    ///
+    /// `hermes.jobs.stop`: HermesRef -> HermesJobs.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesJobsStop;
+
+    impl RpcMethod for HermesJobsStop {
+        const NAME: &'static str = "hermes.jobs.stop";
+        type Params = super::HermesRef;
+        type Result = super::HermesJobs;
+    }
+
+    /// Where the connection's scheduled agents can deliver.
+    ///
+    /// `hermes.jobs.delivery`: no params -> HermesDeliveryOptions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesJobsDelivery;
+
+    impl RpcMethod for HermesJobsDelivery {
+        const NAME: &'static str = "hermes.jobs.delivery";
+        type Params = NoParams;
+        type Result = super::HermesDeliveryOptions;
+    }
+
+    /// `hermes.connections.list`: no params -> HermesConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsList;
+
+    impl RpcMethod for HermesConnectionsList {
+        const NAME: &'static str = "hermes.connections.list";
+        type Params = NoParams;
+        type Result = super::HermesConnections;
+    }
+
+    /// Saves a connection, new or edited; the first one saved is put in use.
+    ///
+    /// `hermes.connections.save`: HermesConnectionEdit -> HermesConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsSave;
+
+    impl RpcMethod for HermesConnectionsSave {
+        const NAME: &'static str = "hermes.connections.save";
+        type Params = super::HermesConnectionEdit;
+        type Result = super::HermesConnections;
+    }
+
+    /// Tries a connection's form without saving it.
+    ///
+    /// `hermes.connections.test`: HermesConnectionEdit -> HermesConnectionTestResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsTest;
+
+    impl RpcMethod for HermesConnectionsTest {
+        const NAME: &'static str = "hermes.connections.test";
+        type Params = super::HermesConnectionEdit;
+        type Result = super::HermesConnectionTestResult;
+    }
+
+    /// Puts a saved connection in use: Hermes's sessions, jobs and servers
+    /// follow it.
+    ///
+    /// `hermes.connections.activate`: HermesRef -> HermesConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsActivate;
+
+    impl RpcMethod for HermesConnectionsActivate {
+        const NAME: &'static str = "hermes.connections.activate";
+        type Params = super::HermesRef;
+        type Result = super::HermesConnections;
+    }
+
+    /// Deletes a saved connection and its credentials; deleting the one in
+    /// use puts the most recently used other one in use.
+    ///
+    /// `hermes.connections.delete`: HermesRef -> HermesConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsDelete;
+
+    impl RpcMethod for HermesConnectionsDelete {
+        const NAME: &'static str = "hermes.connections.delete";
+        type Params = super::HermesRef;
+        type Result = super::HermesConnections;
+    }
+
+    /// Turns Hermes on or off, its connections kept.
+    ///
+    /// `hermes.connections.setEnabled`: HermesToggle -> HermesConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsSetEnabled;
+
+    impl RpcMethod for HermesConnectionsSetEnabled {
+        const NAME: &'static str = "hermes.connections.setEnabled";
+        type Params = super::HermesToggle;
+        type Result = super::HermesConnections;
+    }
+
+    /// `hermes.mcp.list`: no params -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpList;
+
+    impl RpcMethod for HermesMcpList {
+        const NAME: &'static str = "hermes.mcp.list";
+        type Params = NoParams;
+        type Result = super::HermesMcpServers;
+    }
+
+    /// The ready-made servers Hermes offers.
+    ///
+    /// `hermes.mcp.catalog`: no params -> HermesMcpCatalog.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpCatalog;
+
+    impl RpcMethod for HermesMcpCatalog {
+        const NAME: &'static str = "hermes.mcp.catalog";
+        type Params = NoParams;
+        type Result = super::HermesMcpCatalog;
+    }
+
+    /// Adds a server of the user's own (an HTTP address or a command).
+    ///
+    /// `hermes.mcp.add`: HermesMcpAdd -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpAdd;
+
+    impl RpcMethod for HermesMcpAdd {
+        const NAME: &'static str = "hermes.mcp.add";
+        type Params = super::HermesMcpAdd;
+        type Result = super::HermesMcpServers;
+    }
+
+    /// Adds a server from Hermes's catalog, by its name there.
+    ///
+    /// `hermes.mcp.addFromCatalog`: HermesMcpRef -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpAddFromCatalog;
+
+    impl RpcMethod for HermesMcpAddFromCatalog {
+        const NAME: &'static str = "hermes.mcp.addFromCatalog";
+        type Params = super::HermesMcpRef;
+        type Result = super::HermesMcpServers;
+    }
+
+    /// `hermes.mcp.setApiKey`: HermesMcpApiKey -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpSetApiKey;
+
+    impl RpcMethod for HermesMcpSetApiKey {
+        const NAME: &'static str = "hermes.mcp.setApiKey";
+        type Params = super::HermesMcpApiKey;
+        type Result = super::HermesMcpServers;
+    }
+
+    /// `hermes.mcp.remove`: HermesMcpRef -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpRemove;
+
+    impl RpcMethod for HermesMcpRemove {
+        const NAME: &'static str = "hermes.mcp.remove";
+        type Params = super::HermesMcpRef;
+        type Result = super::HermesMcpServers;
+    }
+
+    /// Connects to a server once and lists what it offers.
+    ///
+    /// `hermes.mcp.test`: HermesMcpRef -> HermesMcpTestResultDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpTest;
+
+    impl RpcMethod for HermesMcpTest {
+        const NAME: &'static str = "hermes.mcp.test";
+        type Params = super::HermesMcpRef;
+        type Result = super::HermesMcpTestResultDto;
+    }
+
+    /// Offers a server's tools to the agent, or stops offering them.
+    ///
+    /// `hermes.mcp.setEnabled`: HermesMcpToggle -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpSetEnabled;
+
+    impl RpcMethod for HermesMcpSetEnabled {
+        const NAME: &'static str = "hermes.mcp.setEnabled";
+        type Params = super::HermesMcpToggle;
+        type Result = super::HermesMcpServers;
+    }
+
+    /// Signs in to a server with OAuth in the browser; answers once it is
+    /// done (or after two minutes).
+    ///
+    /// `hermes.mcp.authenticate`: HermesMcpRef -> HermesMcpServers.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesMcpAuthenticate;
+
+    impl RpcMethod for HermesMcpAuthenticate {
+        const NAME: &'static str = "hermes.mcp.authenticate";
+        type Params = super::HermesMcpRef;
+        type Result = super::HermesMcpServers;
     }
 
     /// Follows a chat's agent work (subagents, processes, plan) while the
@@ -18281,6 +18886,96 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesCatalog"),
     },
     MethodSpec {
+        name: "hermes.jobs.runs",
+        params: Some("HermesRef"),
+        result: Some("HermesSessions"),
+    },
+    MethodSpec {
+        name: "hermes.jobs.stop",
+        params: Some("HermesRef"),
+        result: Some("HermesJobs"),
+    },
+    MethodSpec {
+        name: "hermes.jobs.delivery",
+        params: None,
+        result: Some("HermesDeliveryOptions"),
+    },
+    MethodSpec {
+        name: "hermes.connections.list",
+        params: None,
+        result: Some("HermesConnections"),
+    },
+    MethodSpec {
+        name: "hermes.connections.save",
+        params: Some("HermesConnectionEdit"),
+        result: Some("HermesConnections"),
+    },
+    MethodSpec {
+        name: "hermes.connections.test",
+        params: Some("HermesConnectionEdit"),
+        result: Some("HermesConnectionTestResult"),
+    },
+    MethodSpec {
+        name: "hermes.connections.activate",
+        params: Some("HermesRef"),
+        result: Some("HermesConnections"),
+    },
+    MethodSpec {
+        name: "hermes.connections.delete",
+        params: Some("HermesRef"),
+        result: Some("HermesConnections"),
+    },
+    MethodSpec {
+        name: "hermes.connections.setEnabled",
+        params: Some("HermesToggle"),
+        result: Some("HermesConnections"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.list",
+        params: None,
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.catalog",
+        params: None,
+        result: Some("HermesMcpCatalog"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.add",
+        params: Some("HermesMcpAdd"),
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.addFromCatalog",
+        params: Some("HermesMcpRef"),
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.setApiKey",
+        params: Some("HermesMcpApiKey"),
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.remove",
+        params: Some("HermesMcpRef"),
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.test",
+        params: Some("HermesMcpRef"),
+        result: Some("HermesMcpTestResultDto"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.setEnabled",
+        params: Some("HermesMcpToggle"),
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
+        name: "hermes.mcp.authenticate",
+        params: Some("HermesMcpRef"),
+        result: Some("HermesMcpServers"),
+    },
+    MethodSpec {
         name: "hermes.work.watch",
         params: Some("HermesWorkWatch"),
         result: Some("HermesWork"),
@@ -19623,17 +20318,33 @@ pub mod conformance {
         "HermesClarifyAnswer",
         "HermesCompact",
         "HermesCompactResultDto",
+        "HermesConnectionDto",
+        "HermesConnectionEdit",
+        "HermesConnectionTestResult",
+        "HermesConnections",
         "HermesContextCategoryDto",
         "HermesContextRef",
         "HermesContextReportDto",
         "HermesContinue",
         "HermesDecisionAnswer",
         "HermesDecisionResult",
+        "HermesDeliveryOptions",
+        "HermesDeliveryTargetDto",
         "HermesErrorDto",
         "HermesJobDto",
         "HermesJobEdit",
+        "HermesJobNotice",
         "HermesJobToggle",
         "HermesJobs",
+        "HermesMcpAdd",
+        "HermesMcpApiKey",
+        "HermesMcpCatalog",
+        "HermesMcpCatalogEntryDto",
+        "HermesMcpRef",
+        "HermesMcpServerDto",
+        "HermesMcpServers",
+        "HermesMcpTestResultDto",
+        "HermesMcpToggle",
         "HermesModelChoiceDto",
         "HermesPlanDto",
         "HermesPlanGaugeDto",
@@ -19673,6 +20384,7 @@ pub mod conformance {
         "HermesSubagentOutputDto",
         "HermesSubagentRef",
         "HermesTestResult",
+        "HermesToggle",
         "HermesTokenTotalsDto",
         "HermesToolsetDto",
         "HermesUsageBarDto",
@@ -20210,17 +20922,33 @@ pub mod conformance {
             "HermesClarifyAnswer" => roundtrip::<super::HermesClarifyAnswer>(json),
             "HermesCompact" => roundtrip::<super::HermesCompact>(json),
             "HermesCompactResultDto" => roundtrip::<super::HermesCompactResultDto>(json),
+            "HermesConnectionDto" => roundtrip::<super::HermesConnectionDto>(json),
+            "HermesConnectionEdit" => roundtrip::<super::HermesConnectionEdit>(json),
+            "HermesConnectionTestResult" => roundtrip::<super::HermesConnectionTestResult>(json),
+            "HermesConnections" => roundtrip::<super::HermesConnections>(json),
             "HermesContextCategoryDto" => roundtrip::<super::HermesContextCategoryDto>(json),
             "HermesContextRef" => roundtrip::<super::HermesContextRef>(json),
             "HermesContextReportDto" => roundtrip::<super::HermesContextReportDto>(json),
             "HermesContinue" => roundtrip::<super::HermesContinue>(json),
             "HermesDecisionAnswer" => roundtrip::<super::HermesDecisionAnswer>(json),
             "HermesDecisionResult" => roundtrip::<super::HermesDecisionResult>(json),
+            "HermesDeliveryOptions" => roundtrip::<super::HermesDeliveryOptions>(json),
+            "HermesDeliveryTargetDto" => roundtrip::<super::HermesDeliveryTargetDto>(json),
             "HermesErrorDto" => roundtrip::<super::HermesErrorDto>(json),
             "HermesJobDto" => roundtrip::<super::HermesJobDto>(json),
             "HermesJobEdit" => roundtrip::<super::HermesJobEdit>(json),
+            "HermesJobNotice" => roundtrip::<super::HermesJobNotice>(json),
             "HermesJobToggle" => roundtrip::<super::HermesJobToggle>(json),
             "HermesJobs" => roundtrip::<super::HermesJobs>(json),
+            "HermesMcpAdd" => roundtrip::<super::HermesMcpAdd>(json),
+            "HermesMcpApiKey" => roundtrip::<super::HermesMcpApiKey>(json),
+            "HermesMcpCatalog" => roundtrip::<super::HermesMcpCatalog>(json),
+            "HermesMcpCatalogEntryDto" => roundtrip::<super::HermesMcpCatalogEntryDto>(json),
+            "HermesMcpRef" => roundtrip::<super::HermesMcpRef>(json),
+            "HermesMcpServerDto" => roundtrip::<super::HermesMcpServerDto>(json),
+            "HermesMcpServers" => roundtrip::<super::HermesMcpServers>(json),
+            "HermesMcpTestResultDto" => roundtrip::<super::HermesMcpTestResultDto>(json),
+            "HermesMcpToggle" => roundtrip::<super::HermesMcpToggle>(json),
             "HermesModelChoiceDto" => roundtrip::<super::HermesModelChoiceDto>(json),
             "HermesPlanDto" => roundtrip::<super::HermesPlanDto>(json),
             "HermesPlanGaugeDto" => roundtrip::<super::HermesPlanGaugeDto>(json),
@@ -20260,6 +20988,7 @@ pub mod conformance {
             "HermesSubagentOutputDto" => roundtrip::<super::HermesSubagentOutputDto>(json),
             "HermesSubagentRef" => roundtrip::<super::HermesSubagentRef>(json),
             "HermesTestResult" => roundtrip::<super::HermesTestResult>(json),
+            "HermesToggle" => roundtrip::<super::HermesToggle>(json),
             "HermesTokenTotalsDto" => roundtrip::<super::HermesTokenTotalsDto>(json),
             "HermesToolsetDto" => roundtrip::<super::HermesToolsetDto>(json),
             "HermesUsageBarDto" => roundtrip::<super::HermesUsageBarDto>(json),

@@ -1,0 +1,11 @@
+{
+  "available": true,
+  "options": [
+    {
+      "target": "local",
+      "kind": "local",
+      "name": "",
+      "available": true
+    }
+  ]
+}

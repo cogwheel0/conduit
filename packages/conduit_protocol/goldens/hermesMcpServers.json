@@ -1,0 +1,12 @@
+{
+  "available": true,
+  "servers": [
+    {
+      "name": "notes",
+      "description": "",
+      "enabled": true,
+      "tools": []
+    }
+  ],
+  "canSetApiKey": true
+}

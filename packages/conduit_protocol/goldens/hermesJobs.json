@@ -4,7 +4,14 @@
       "id": "j2",
       "prompt": "",
       "schedule": "",
-      "enabled": true
+      "enabled": true,
+      "deliver": [],
+      "catchUp": "default",
+      "running": false,
+      "stopping": false
     }
-  ]
+  ],
+  "writable": true,
+  "scheduling": false,
+  "notices": []
 }
