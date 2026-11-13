@@ -6404,6 +6404,7 @@
   "scheduledTaskTerminalRequired": "このエージェントを実行するターミナルを選択してください。",
   "scheduledTaskAgentNeedsChat": "エージェントの結果は新しいチャットに送られます。",
   "scheduledTaskAgentsLoading": "このターミナルのエージェントを読み込み中…",
+  "personalizationMemoryGone": "このメモリはサーバー上にありません。戻ってメモリの一覧を確認してください。",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新しい通知",
   "pushReplyTitle": "新しい返信",

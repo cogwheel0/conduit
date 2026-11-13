@@ -72,4 +72,37 @@ void main() {
     check(applied).isFalse();
     check(state().contains('memory-manage')).isTrue();
   });
+
+  test('a page sent whole replaces its bar actions too, which a patch of '
+      'rows keeps', () {
+    pages().register([_page('webhook:ops', title: 'Loading')]);
+
+    pages().patch(
+      detailId: 'webhook:ops',
+      items: const [],
+      whole: NativeSheetDetailConfig(
+        id: 'webhook:ops',
+        title: 'Destination',
+        confirmActionId: 'webhook.save:webhook:ops',
+        discardPrompt: const NativeSheetDiscardPrompt(
+          title: 'Discard changes?',
+          message: 'Unsaved changes will be lost.',
+          discardLabel: 'Discard',
+          keepLabel: 'Keep Editing',
+        ),
+        items: const [NativeSheetItemConfig(id: 'url', title: 'URL')],
+      ),
+    );
+    final whole = state()['webhook:ops']!;
+    check(whole.confirmActionId).equals('webhook.save:webhook:ops');
+    check(whole.discardPrompt).isNotNull();
+
+    pages().patch(
+      detailId: 'webhook:ops',
+      items: const [NativeSheetItemConfig(id: 'url', title: 'URL')],
+      title: 'Destination',
+    );
+    check(state()['webhook:ops']!.confirmActionId)
+        .equals('webhook.save:webhook:ops');
+  });
 }

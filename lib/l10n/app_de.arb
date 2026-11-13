@@ -4787,6 +4787,7 @@
   "scheduledTaskTerminalRequired": "Wähle das Terminal, auf dem dieser Agent läuft.",
   "scheduledTaskAgentNeedsChat": "Die Ergebnisse eines Agenten landen in einem neuen Chat.",
   "scheduledTaskAgentsLoading": "Agenten dieses Terminals werden geladen…",
+  "personalizationMemoryGone": "Diese Erinnerung ist nicht mehr auf dem Server. Geh zurück, um deine Erinnerungen zu sehen.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Neue Benachrichtigung",
   "pushReplyTitle": "Neue Antwort",

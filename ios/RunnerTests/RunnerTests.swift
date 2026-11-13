@@ -935,15 +935,6 @@ class RunnerTests: XCTestCase {
     }
   }
 
-  func testNativeSheetMemoryEditorWaitsForTheSheetToLeave() {
-    // The memory editor takes keyboard focus, so it opens only once the
-    // sheet has gone.
-    XCTAssertTrue(nativeSheetSelectionWaitsForDismiss(actionId: "memory-editor-new"))
-    XCTAssertTrue(
-      nativeSheetSelectionWaitsForDismiss(actionId: "memory-editor:abc%20123")
-    )
-  }
-
   func testNativeSheetAccountQuestionsWaitForTheSheetToLeave() {
     // Switching, adding or signing out of an account may ask in a sheet of
     // its own, and editing a Direct provider opens one; a server's page only

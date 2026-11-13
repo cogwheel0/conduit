@@ -178,6 +178,7 @@ class SettingsRow extends StatelessWidget {
   }
 
   Widget _buildInfo(BuildContext context) {
+    final theme = context.conduitTheme;
     return UtilityRow(
       key: ValueKey<String>('settings-row-${item.id}'),
       leading: SettingsRowGlyph(item: item),
@@ -186,6 +187,11 @@ class SettingsRow extends StatelessWidget {
       subtitleMaxLines: 12,
       destructive: item.destructive,
       hapticType: null,
+      // The choice in use, as iOS marks it: a row with nothing to do.
+      selected: item.checked,
+      trailing: item.checked
+          ? Icon(Icons.check, color: theme.buttonPrimary, size: IconSize.medium)
+          : null,
     );
   }
 

@@ -12,9 +12,16 @@ import '../../core/services/native_sheet_bridge.dart';
 /// native sheet only pushes a page it was given.
 @immutable
 class SettingsPagesState {
-  const SettingsPagesState({this.pages = const {}});
+  const SettingsPagesState({
+    this.pages = const {},
+    this.closeRequests = const {},
+  });
 
   final Map<String, NativeSheetDetailConfig> pages;
+
+  /// How many times each page was asked to close; a page that sees its
+  /// count go up goes back to the page that opened it.
+  final Map<String, int> closeRequests;
 
   NativeSheetDetailConfig? operator [](String id) => pages[id];
 
@@ -28,11 +35,14 @@ class SettingsPages extends Notifier<SettingsPagesState> {
   @override
   SettingsPagesState build() => const SettingsPagesState();
 
-  /// Makes [details] known, replacing any earlier copy of each.
+  /// Makes [details] known, replacing any earlier copy of each. Close
+  /// requests carry on, so a page open now does not take a reset count for
+  /// a new one.
   void register(Iterable<NativeSheetDetailConfig> details) {
     if (details.isEmpty) return;
     state = SettingsPagesState(
       pages: {...state.pages, for (final detail in details) detail.id: detail},
+      closeRequests: state.closeRequests,
     );
   }
 
@@ -48,13 +58,16 @@ class SettingsPages extends Notifier<SettingsPagesState> {
     String? subtitle,
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
+    NativeSheetDetailConfig? whole,
   }) {
     final existing = state.pages[detailId];
     final pages = {
       ...state.pages,
       for (final detail in detailSheets) detail.id: detail,
     };
-    if (existing != null) {
+    if (existing != null && whole != null) {
+      pages[detailId] = whole;
+    } else if (existing != null) {
       pages[detailId] = NativeSheetDetailConfig(
         id: existing.id,
         title: title ?? existing.title,
@@ -66,12 +79,28 @@ class SettingsPages extends Notifier<SettingsPagesState> {
         maxHeightFraction: existing.maxHeightFraction,
         trailingActionId: existing.trailingActionId,
         trailingActionSfSymbol: existing.trailingActionSfSymbol,
+        discardPrompt: existing.discardPrompt,
       );
     }
     if (existing != null || detailSheets.isNotEmpty) {
-      state = SettingsPagesState(pages: pages);
+      state = SettingsPagesState(
+        pages: pages,
+        closeRequests: state.closeRequests,
+      );
     }
     return existing != null;
+  }
+
+  /// Asks page [detailId], when it is open, to go back to the page that
+  /// opened it.
+  void requestClose(String detailId) {
+    state = SettingsPagesState(
+      pages: state.pages,
+      closeRequests: {
+        ...state.closeRequests,
+        detailId: (state.closeRequests[detailId] ?? 0) + 1,
+      },
+    );
   }
 
   /// Forgets every page, as the native sheet does when it closes.
@@ -97,6 +126,7 @@ class SettingsSurface {
     String? subtitle,
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
+    NativeSheetDetailConfig? whole,
   }) async {
     if (items.isNotEmpty && sections.isNotEmpty) {
       throw ArgumentError(
@@ -113,6 +143,7 @@ class SettingsSurface {
           subtitle: subtitle,
           clearSubtitle: clearSubtitle,
           detailSheets: detailSheets,
+          whole: whole,
         );
     final native = await NativeSheetBridge.instance.applyDetailPatch(
       detailId: detailId,
@@ -122,11 +153,20 @@ class SettingsSurface {
       subtitle: subtitle,
       clearSubtitle: clearSubtitle,
       detailSheets: detailSheets,
+      whole: whole,
     );
     return native || flutter;
   }
 
-  /// Sends page [detail] as a whole, and the pages it leads to.
+  /// Closes page [detailId] wherever it is open, back to the page that
+  /// opened it: after a save, or once what it showed is gone.
+  Future<void> closeDetail(String detailId) async {
+    _ref.read(settingsPagesProvider.notifier).requestClose(detailId);
+    await NativeSheetBridge.instance.closeDetail(detailId);
+  }
+
+  /// Sends page [detail] as a whole -- its bar actions and discard question
+  /// too -- and the pages it leads to.
   Future<bool> applyDetail(
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
@@ -138,5 +178,6 @@ class SettingsSurface {
     items: detail.items,
     sections: detail.sections,
     detailSheets: detailSheets,
+    whole: detail,
   );
 }

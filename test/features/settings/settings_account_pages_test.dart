@@ -8,8 +8,10 @@ import 'package:conduit/features/settings/views/settings_page_view.dart';
 import 'package:conduit/features/settings/views/settings_profile_editors.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/services/app_package_info.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'dart:async';
 
@@ -28,6 +30,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter/foundation.dart' show LicenseRegistry;
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -185,14 +189,24 @@ Future<_Rig> _pump(
   );
   final profile = _Profile(cached: cached, fresh: fresh);
   final container = ProviderContainer(
+    // A read that fails stays failed, as the tests expect.
+    retry: (_, _) => null,
     overrides: [
       currentUserProvider2.overrideWith((ref) => ref.watch(signedIn)),
       apiServiceProvider.overrideWithValue(_Api()),
       accountProfileProvider.overrideWith(() => profile),
-      // The server allows a password change.
       // By default the server allows a password change.
       serverAboutInfoProvider.overrideWith(
         (ref) => (serverAbout ?? () async => null)(),
+      ),
+      hermesOnlyModeProvider.overrideWithValue(false),
+      packageInfoProvider.overrideWith(
+        (ref) async => PackageInfo(
+          appName: 'Conduit',
+          packageName: 'app.example.settings',
+          version: '1.0.0',
+          buildNumber: '7',
+        ),
       ),
     ],
   );
@@ -373,6 +387,66 @@ void main() {
     check(rig.page(page)).identicalTo(next);
   });
 
+  testWidgets("About keeps the rows that need no server when the server's "
+      'details cannot be read', (tester) async {
+    final rig = await _pump(
+      tester,
+      serverAbout: () async => throw StateError('offline'),
+    );
+    rig.pages.register([
+      buildNativeLoadingDetail(
+        l10n: _l10n,
+        id: NativeSheetRoutes.about,
+        title: '',
+      ),
+    ]);
+
+    await rig.container
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.about);
+
+    final rows = rig.rows(NativeSheetRoutes.about);
+    check(rows.singleWhere((row) => row.id == 'server-name').subtitle)
+        .equals(_l10n.serverInfoUnavailable);
+    check(rows.map((row) => row.id)).deepEquals([
+      'app-version',
+      'server-name',
+      'server-version',
+      NativeSheetRoutes.releaseNotesManual,
+      'github',
+      NativeSheetRoutes.openSourceLicenses,
+    ]);
+  });
+
+  testWidgets('licenses that cannot be read say so, and are read again on '
+      'the next visit', (tester) async {
+    LicenseRegistry.addLicense(() => Stream.error(StateError('unreadable')));
+    addTearDown(LicenseRegistry.reset);
+    final rig = await _pump(tester);
+    rig.pages.register([
+      buildNativeLoadingDetail(
+        l10n: _l10n,
+        id: NativeSheetRoutes.openSourceLicenses,
+        title: '',
+      ),
+    ]);
+    final hydration = rig.container.read(nativeSheetHydrationServiceProvider);
+
+    await tester.runAsync(
+      () => hydration.hydrateDetail(NativeSheetRoutes.openSourceLicenses),
+    );
+    check(rig.rows(NativeSheetRoutes.openSourceLicenses).single.title)
+        .equals(_l10n.errorMessage);
+
+    LicenseRegistry.reset();
+    await tester.runAsync(
+      () => hydration.hydrateDetail(NativeSheetRoutes.openSourceLicenses),
+    );
+    check(
+      rig.rows(NativeSheetRoutes.openSourceLicenses).map((row) => row.title),
+    ).not((titles) => titles.contains(_l10n.errorMessage));
+  });
+
   group('Change Password', () {
     testWidgets('nothing is sent until Done, and Done sends it once', (
       tester,
@@ -401,8 +475,10 @@ void main() {
 
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
-      // The second Done found nothing typed: the outcome stays.
-      check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
+      // The second Done found nothing typed: the outcome stays, with no
+      // Done left to tap.
+      check(rig.rows('password').single.title).equals(_l10n.passwordUpdated);
+      check(rig.page('password')!.confirmActionId).isNull();
     });
 
     testWidgets('a Done with nothing typed leaves what the page says', (
@@ -469,6 +545,28 @@ void main() {
           .not((ids) => ids.contains('current-password'));
     });
 
+    testWidgets('a typed field asks before it is left; a page whose change '
+        'went through has nothing to lose', (tester) async {
+      final rig = await _pump(tester);
+      final form = buildNativePasswordDetail(
+        _l10n,
+        passwordChangeEnabled: true,
+      );
+      rig.pages.register([form]);
+      check(form.discardPrompt).isNotNull();
+
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
+
+      final changed = rig.page('password')!;
+      check(changed.discardPrompt).isNull();
+      check(changed.confirmActionId).isNull();
+      check(changed.items.map((row) => row.title))
+          .deepEquals([_l10n.passwordUpdated]);
+    });
+
     testWidgets('Settings forgets the pages it drew once the sheet closes, '
         'as the sheet does', (tester) async {
       final rig = await _pump(tester);
@@ -498,6 +596,11 @@ void main() {
 
       check(rig.profile.passwordChanges).isEmpty();
       check(rig.page('password')!.subtitle).equals(_l10n.passwordsDoNotMatch);
+      // Refused, the form stays for another try, Done and all.
+      check(rig.page('password')!.confirmActionId)
+          .equals(nativePasswordSaveActionId);
+      check(rig.rows('password').map((row) => row.id))
+          .contains('current-password');
     });
 
     testWidgets('a password typed on an earlier visit is not used', (
@@ -527,7 +630,7 @@ void main() {
       await rig.change(nativePasswordSaveActionId, true);
       check(rig.profile.passwordChanges)
           .deepEquals([(password: 'old', newPassword: 'next')]);
-      check(rig.page('password')!.subtitle).equals(_l10n.passwordUpdated);
+      check(rig.rows('password').single.title).equals(_l10n.passwordUpdated);
     });
 
     testWidgets('a change sent on a visit since left does not report on the '

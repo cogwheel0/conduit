@@ -188,12 +188,49 @@ enum NativeSheetHaptics {
     }
 }
 
-final class NativeSheetNavigationController: UINavigationController {
+/// A page that may hold unsaved changes, and asks before they are dropped.
+protocol NativeSheetLeaveGuarding: AnyObject {
+    /// Whether leaving now would drop unsaved changes.
+    var blocksLeaving: Bool { get }
+    /// Asks, then runs [leave] once the user chooses to discard.
+    func askBeforeLeaving(then leave: @escaping () -> Void)
+}
+
+final class NativeSheetNavigationController: UINavigationController, UIGestureRecognizerDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         modalPresentationStyle = .pageSheet
         navigationBar.prefersLargeTitles = false
         NativeSheetTheme.shared.apply(to: self)
+        // A swipe back asks first, as Back does, when it would drop unsaved
+        // changes.
+        interactivePopGestureRecognizer?.delegate = self
+        if #available(iOS 26.0, *) {
+            interactiveContentPopGestureRecognizer?.delegate = self
+        }
+    }
+
+    /// The page on top that would drop unsaved changes if it left, if any.
+    var guardingTopPage: NativeSheetLeaveGuarding? {
+        guard let page = topViewController as? NativeSheetLeaveGuarding,
+              page.blocksLeaving
+        else { return nil }
+        return page
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // The delegate is ours now, so it keeps UIKit's own rules: nothing to
+        // go back to, or a push still running, starts no swipe.
+        guard viewControllers.count > 1, transitionCoordinator == nil else {
+            return false
+        }
+        if let page = guardingTopPage {
+            page.askBeforeLeaving { [weak self] in
+                _ = self?.popViewController(animated: true)
+            }
+            return false
+        }
+        return true
     }
 
     override func viewWillLayoutSubviews() {

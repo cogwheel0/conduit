@@ -41,6 +41,7 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
   return [
     readNativeAccountsDetail(read, l10n),
     readNativeAccountSignOutDetail(read, l10n),
+    readNativeAddAccountDetail(read, l10n),
     if (hasOpenWebUiUser && profilePending)
       buildNativeLoadingDetail(
         l10n: l10n,
@@ -73,6 +74,7 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     NativeSheetDetailConfig(
       id: NativeSheetRoutes.voice,
       title: l10n.voice,
+      discardPrompt: nativeDiscardPrompt(l10n),
       sections: nativeAudio.mainSections,
     ),
     nativeAudio.voicePickerDetail,
@@ -100,6 +102,11 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
       id: NativeSheetRoutes.dataConnection,
       title: nativeDataConnectionTitle(l10n),
       subtitle: l10n.loadingShort,
+    ),
+    buildNativeLoadingDetail(
+      l10n: l10n,
+      id: nativeLibreChatPersonalizationActionId,
+      title: l10n.personalization,
     ),
     buildNativeLoadingDetail(
       l10n: l10n,

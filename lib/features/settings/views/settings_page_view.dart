@@ -13,6 +13,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/discard_changes.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
@@ -84,6 +85,15 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         );
   }
 
+  /// Goes back to the page that opened this one, closing any page above.
+  void _close() {
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return;
+    final navigator = Navigator.of(context);
+    navigator.popUntil((candidate) => candidate == route);
+    navigator.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     // Forgotten while open, as when another account takes over: the page
@@ -95,6 +105,16 @@ class _SettingsDetailPageState extends ConsumerState<SettingsDetailPage> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _appeared();
         });
+      },
+    );
+    ref.listen(
+      settingsPagesProvider.select(
+        (pages) => pages.closeRequests[widget.detailId],
+      ),
+      (previous, next) {
+        // Only a new request closes the page; a count forgotten (Settings
+        // cleared) is not one.
+        if (next != null && next > (previous ?? 0) && mounted) _close();
       },
     );
     final detail = ref.watch(
@@ -152,6 +172,20 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
   /// the new values.
   int _generation = 0;
 
+  /// Whether anything changed on the page since it appeared. On a page that
+  /// confirms with Done the changes wait as a draft until then, so a page
+  /// described again (with why a save failed) still holds them.
+  bool _controlEdits = false;
+
+  /// Unsaved changes, by the native sheet's rule: text not yet done, or, on
+  /// a page that confirms with Done, anything changed since it appeared.
+  bool get _hasUnsavedChanges {
+    final detail = widget.detail;
+    if (detail.discardPrompt == null) return false;
+    final confirms = detail.confirmActionId?.isNotEmpty ?? false;
+    return _pendingText.isNotEmpty || (confirms && _controlEdits);
+  }
+
   @override
   void didUpdateWidget(covariant SettingsPageView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -194,7 +228,13 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
   }
 
   void _changed(NativeSheetItemConfig item, Object? value) {
-    setState(() => _chosen[item.id] = value);
+    // Text typed on the page goes first: the change can describe the page
+    // again, which would drop it.
+    _commitPendingText();
+    setState(() {
+      _chosen[item.id] = value;
+      _controlEdits = true;
+    });
     _send(item.id, value);
   }
 
@@ -223,6 +263,7 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     setState(() {
       _pendingText.clear();
       _committedText.addAll(changes);
+      _controlEdits = true;
     });
     for (final MapEntry(:key, :value) in changes.entries) {
       _send(key, value);
@@ -279,6 +320,18 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       if (keepServerDetails == null || !mounted) return;
       _send(item.id, keepServerDetails);
       return;
+    }
+
+    final question = item.confirmMessage;
+    if (question != null && question.isNotEmpty) {
+      final confirmed = await ThemedDialogs.confirm(
+        context,
+        title: item.title,
+        message: question,
+        confirmText: item.title,
+        isDestructive: item.destructive,
+      );
+      if (!confirmed || !mounted) return;
     }
 
     if (item.dismissOnSelect) {
@@ -447,7 +500,7 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     // Rows that open pages gain their chevron once the page is known.
     ref.watch(settingsPagesProvider);
     final sections = _sections;
-    return UtilityPageScaffold.settings(
+    final page = UtilityPageScaffold.settings(
       title: widget.detail.title,
       trailing: _barAction(context),
       children: [
@@ -457,6 +510,22 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
           _section(sections[index]),
         ],
       ],
+    );
+    // A form asks before Back or a swipe drops its unsaved changes; closing
+    // it after a save does not ask.
+    if (widget.detail.discardPrompt == null) return page;
+    final prompt = widget.detail.discardPrompt!;
+    return DiscardChangesScope(
+      dirty: _hasUnsavedChanges,
+      confirm: (context) => ThemedDialogs.confirm(
+        context,
+        title: prompt.title,
+        message: prompt.message,
+        confirmText: prompt.discardLabel,
+        cancelText: prompt.keepLabel,
+        isDestructive: true,
+      ),
+      child: page,
     );
   }
 }

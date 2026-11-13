@@ -1,17 +1,12 @@
-import 'package:conduit/features/notifications/views/notification_settings_page.dart';
 import 'package:conduit/features/profile/widgets/account_actions.dart'
     show ActiveCheckmark;
 import 'package:conduit/features/push/views/push_privacy_page.dart';
 import 'package:conduit/features/push/widgets/push_install_sheet.dart'
     show confirmPushInstall;
 import 'package:conduit/features/push/widgets/push_target_detail_sheet.dart'
-    show PushTargetDetailSheet;
-import 'package:conduit/shared/widgets/utility_components.dart'
-    show UtilityRow;
+    show PushTargetDetailSheet, showPushTargetDetailSheet;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart'
-    show ConduitLoadingIndicator;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
     show AdaptiveButton, AdaptiveSwitch;
 import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
@@ -24,7 +19,6 @@ import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
-import 'package:conduit_core/ports/push_platform_port.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -33,7 +27,6 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:conduit_core/services/settings_service.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -88,7 +81,7 @@ Future<FakePushCoordinator> _pump(
       GoRoute(
         path: Routes.notificationSettings,
         name: RouteNames.notificationSettings,
-        builder: (_, _) => const NotificationSettingsPage(),
+        builder: (_, _) => const _TargetsPage(),
       ),
       GoRoute(
         path: Routes.pushPrivacy,
@@ -122,6 +115,40 @@ Future<FakePushCoordinator> _pump(
   return fake;
 }
 
+/// Each target as a row that opens its detail sheet, as the Notifications
+/// page's Accounts list does.
+class _TargetsPage extends ConsumerWidget {
+  const _TargetsPage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final push = ref.watch(pushStateIfUsedProvider);
+    return Scaffold(
+      body: ListView(
+        children: [
+          for (final target in push?.targets.values ?? const <PushTargetState>[])
+            GestureDetector(
+              key: Key('push-target-${target.scope}'),
+              onTap: () => showPushTargetDetailSheet(context, target.scope),
+              child: Text(target.target.label),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Opens [scope]'s detail sheet and taps its one-tap fix.
+Future<void> _fix(WidgetTester tester, String scope) async {
+  await tester.tap(find.byKey(Key('push-target-$scope')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('push-detail-action')));
+  await tester.pumpAndSettle();
+}
+
+Finder _inSheet(Finder finder) =>
+    find.descendant(of: find.byType(PushTargetDetailSheet), matching: finder);
+
 Finder _inRow(String scope, Finder finder) => find.descendant(
   of: find.byKey(Key('push-target-$scope')),
   matching: finder,
@@ -133,83 +160,6 @@ PushTargetState _owui(PushStatus status, {PushFailure? failure}) =>
 void main() {
   setUp(() => PreferencesStore.debugOverride(InMemoryKeyValueStore()));
   tearDown(PreferencesStore.debugReset);
-
-  group('the switch', () {
-    testWidgets('turns push on', (tester) async {
-      final fake = await _pump(tester, pushStateWith(const [], enabled: false));
-
-      expect(find.text('Push Notifications'), findsWidgets);
-      expect(
-        find.text(
-          'Get notified while Conduit is closed. End-to-end encrypted.',
-        ),
-        findsOneWidget,
-      );
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const Key('push-enabled')),
-          matching: find.byType(AdaptiveSwitch),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(fake.calls, ['setEnabled true']);
-    });
-
-    testWidgets('is off with a reason in an iOS build without a relay', (
-      tester,
-    ) async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      try {
-        final fake = await _pump(
-          tester,
-          pushStateWith(const [], enabled: false, relayConfigured: false),
-        );
-        expect(find.text('Not available in this build'), findsOneWidget);
-        await tester.tap(find.byKey(const Key('push-enabled')));
-        await tester.pumpAndSettle();
-        expect(fake.calls, isEmpty);
-      } finally {
-        debugDefaultTargetPlatformOverride = null;
-      }
-    });
-
-    testWidgets('points Android without a relay at UnifiedPush', (
-      tester,
-    ) async {
-      await _pump(
-        tester,
-        pushStateWith(
-          const [],
-          enabled: false,
-          relayConfigured: false,
-          transports: const [PushTransport.fcm],
-        ),
-      );
-      expect(
-        find.text(
-          'Not available in this build without a UnifiedPush distributor',
-        ),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('push-get-distributor')), findsOneWidget);
-    });
-
-    testWidgets('offers system settings when notifications are blocked', (
-      tester,
-    ) async {
-      await _pump(
-        tester,
-        pushStateWith([
-          _owui(PushStatus.permissionDenied),
-        ], permissionDenied: true),
-      );
-      expect(find.byKey(const Key('push-permission-denied')), findsOneWidget);
-      expect(
-        find.text('Allow notifications for Conduit in system settings.'),
-        findsOneWidget,
-      );
-    });
-  });
 
   group('each status shows its fix', () {
     final cases = <String, (PushTargetState, String status, String? action)>{
@@ -275,54 +225,21 @@ void main() {
         in cases.entries) {
       testWidgets(name, (tester) async {
         await _pump(tester, pushStateWith([target]));
-        expect(_inRow(target.scope, find.text(status)), findsOneWidget);
-        final buttons = _inRow(target.scope, find.byType(AdaptiveButton));
+        await tester.tap(find.byKey(Key('push-target-${target.scope}')));
+        await tester.pumpAndSettle();
+        expect(_inSheet(find.text(status)), findsWidgets);
+        final button = find.byKey(const Key('push-detail-action'));
         if (action == null) {
-          expect(buttons, findsNothing);
+          expect(button, findsNothing);
         } else {
           expect(
-            _inRow(target.scope, find.widgetWithText(AdaptiveButton, action)),
+            _inSheet(find.widgetWithText(AdaptiveButton, action)),
             findsOneWidget,
           );
         }
       });
     }
 
-    for (final (status, text) in [
-      (PushStatus.verifying, 'Sending a test notification…'),
-      (PushStatus.settingUp, 'Setting up…'),
-    ]) {
-      testWidgets('${status.name} shows a spinner', (tester) async {
-        await _pump(tester, pushStateWith([_owui(status)]), settle: false);
-        expect(_inRow(_owuiScope, find.text(text)), findsOneWidget);
-        expect(
-          _inRow(_owuiScope, find.byType(ConduitLoadingIndicator)),
-          findsOneWidget,
-        );
-      });
-    }
-
-    testWidgets('restartHermes shows a spinner and what to do', (tester) async {
-      const target = PushTargetState(
-        target: pushHermesDesktopTarget,
-        status: PushStatus.restartHermes,
-      );
-      await _pump(tester, pushStateWith([target]), settle: false);
-      expect(
-        _inRow(target.scope, find.text('Restart Hermes to finish')),
-        findsOneWidget,
-      );
-      expect(
-        _inRow(target.scope, find.byType(ConduitLoadingIndicator)),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('on shows a check mark', (tester) async {
-      await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
-      expect(_inRow(_owuiScope, find.text('On')), findsOneWidget);
-      expect(_inRow(_owuiScope, find.byType(ActiveCheckmark)), findsOneWidget);
-    });
   });
 
   group('one-tap fixes', () {
@@ -334,8 +251,7 @@ void main() {
         pushStateWith([_owui(PushStatus.canInstall)]),
       );
 
-      await tester.tap(_inRow(_owuiScope, find.text('Set Up')));
-      await tester.pumpAndSettle();
+      await _fix(tester, _owuiScope);
       expect(find.text('Install Conduit Push?'), findsOneWidget);
       expect(find.text('View Source'), findsOneWidget);
       expect(
@@ -349,7 +265,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(fake.calls, isEmpty);
 
-      await tester.tap(_inRow(_owuiScope, find.text('Set Up')));
+      await tester.tap(find.byKey(const Key('push-detail-action')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('push-install-confirm')));
       await tester.pumpAndSettle();
@@ -403,8 +319,7 @@ void main() {
       );
       final fake = await _pump(tester, pushStateWith([target]));
 
-      await tester.tap(_inRow(target.scope, find.text('Install')));
-      await tester.pumpAndSettle();
+      await _fix(tester, target.scope);
       expect(find.text('Install the Conduit plugin?'), findsOneWidget);
       await tester.tap(find.byKey(const Key('push-install-confirm')));
       await tester.pumpAndSettle();
@@ -435,8 +350,7 @@ void main() {
       );
       await _pump(tester, pushStateWith([target]));
 
-      await tester.tap(_inRow(target.scope, find.text('Copy Command')));
-      await tester.pumpAndSettle();
+      await _fix(tester, target.scope);
       expect(copied, 'hermes plugins install x --enable');
       expect(find.text('Copied to clipboard'), findsOneWidget);
     });
@@ -460,8 +374,7 @@ void main() {
       );
       await _pump(tester, pushStateWith([_owui(PushStatus.needsAdminSetup)]));
 
-      await tester.tap(_inRow(_owuiScope, find.text('Ask Your Admin')));
-      await tester.pumpAndSettle();
+      await _fix(tester, _owuiScope);
       final text = (shared.single! as Map)['text'] as String;
       expect(
         text,
@@ -484,8 +397,7 @@ void main() {
           ),
         ]),
       );
-      await tester.tap(_inRow(_owuiScope, find.text('Retry')));
-      await tester.pumpAndSettle();
+      await _fix(tester, _owuiScope);
       expect(fake.calls, ['retry $_owuiScope']);
     });
   });
@@ -584,124 +496,6 @@ void main() {
     });
   });
 
-  group('advanced', () {
-    testWidgets('Android picks its delivery service and distributor', (
-      tester,
-    ) async {
-      final fake = await _pump(
-        tester,
-        pushStateWith(
-          [_owui(PushStatus.on)],
-          transports: const [PushTransport.fcm, PushTransport.unifiedPush],
-        ),
-        advanced: true,
-        distributors: const ['io.heckel.ntfy', 'org.unifiedpush.distributor'],
-      );
-
-      expect(find.text('Push Delivery'), findsOneWidget);
-      expect(find.byKey(const Key('push-delivery-fcm')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('push-delivery-unifiedpush')));
-      await tester.pumpAndSettle();
-      expect(fake.calls, ['setAndroidTransport unifiedPush io.heckel.ntfy']);
-
-      await tester.tap(
-        find.byKey(const Key('push-distributor-org.unifiedpush.distributor')),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        fake.calls.last,
-        'setAndroidTransport unifiedPush org.unifiedpush.distributor',
-      );
-    });
-
-    testWidgets('without a distributor it says where to get one', (
-      tester,
-    ) async {
-      await _pump(
-        tester,
-        pushStateWith(
-          [_owui(PushStatus.failed)],
-          transports: const [PushTransport.fcm],
-          androidTransport: PushAndroidTransport.unifiedPush,
-        ),
-        advanced: true,
-      );
-      expect(
-        find.text('No UnifiedPush distributor is installed.'),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('push-get-distributor')), findsOneWidget);
-    });
-
-    testWidgets('resetting keys asks first', (tester) async {
-      final fake = await _pump(
-        tester,
-        pushStateWith([_owui(PushStatus.on)]),
-        advanced: true,
-      );
-      await tester.tap(find.byKey(const Key('push-reset-keys')));
-      await tester.pumpAndSettle();
-      expect(find.text('Reset push keys?'), findsOneWidget);
-      await tester.tap(find.text('Reset').last);
-      await tester.pumpAndSettle();
-      expect(fake.calls, ['resetKeys']);
-    });
-
-    testWidgets('is hidden without Advanced', (tester) async {
-      await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
-      expect(find.text('Push Delivery'), findsNothing);
-      expect(find.byKey(const Key('push-reset-keys')), findsNothing);
-    });
-  });
-
-  testWidgets('the privacy row opens the explainer', (tester) async {
-    await _pump(tester, pushStateWith(const [], enabled: false));
-    await tester.tap(find.byKey(const Key('push-privacy')));
-    await tester.pumpAndSettle();
-    expect(find.text('How Push Stays Private'), findsWidgets);
-    expect(find.text('The Conduit Relay'), findsOneWidget);
-    expect(find.byKey(const Key('push-privacy-read-more')), findsOneWidget);
-  });
-
-  testWidgets('push that can no longer work here can still be turned off', (
-    tester,
-  ) async {
-    final fake = await _pump(
-      tester,
-      pushStateWith([_owui(PushStatus.failed)], transports: const []),
-    );
-    final row = tester.widget<UtilityRow>(
-      find.byKey(const Key('push-enabled')),
-    );
-    expect(row.enabled, isTrue);
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const Key('push-enabled')),
-        matching: find.byType(AdaptiveSwitch),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(fake.calls, ['setEnabled false']);
-    // Off, it cannot be turned back on here.
-    expect(
-      tester.widget<UtilityRow>(find.byKey(const Key('push-enabled'))).enabled,
-      isFalse,
-    );
-  });
-
-  testWidgets('a switch that fails says so', (tester) async {
-    final fake = await _pump(tester, pushStateWith(const [], enabled: false));
-    fake.setEnabledError = StateError('platform');
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const Key('push-enabled')),
-        matching: find.byType(AdaptiveSwitch),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Something went wrong. Please try again.'), findsOneWidget);
-  });
-
   testWidgets('a detail sheet whose target is gone closes', (tester) async {
     final fake = await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
     await tester.tap(_inRow(_owuiScope, find.text('ada@example.com')));
@@ -733,11 +527,10 @@ void main() {
       );
       // As in the app, the session was loaded long before this screen.
       ProviderScope.containerOf(
-        tester.element(find.byType(NotificationSettingsPage)),
+        tester.element(find.byType(_TargetsPage)),
       ).read(authStateManagerProvider);
       await tester.pump();
-      await tester.tap(find.byKey(const Key('push-action-$_owuiScope')));
-      await tester.pumpAndSettle();
+      await _fix(tester, _owuiScope);
       return (fake, auth);
     }
 
@@ -757,29 +550,6 @@ void main() {
       expect(auth.invalidations, 0);
       expect(fake.calls, ['retry $_owuiScope']);
     });
-  });
-
-  testWidgets('without an Open WebUI account its channels go', (tester) async {
-    await _pump(
-      tester,
-      pushStateWith(const [], enabled: false),
-      hasOpenWebUiAccount: false,
-    );
-    expect(find.text('Channel Messages'), findsNothing);
-    expect(find.text('Scheduled Tasks'), findsOneWidget);
-    expect(find.byKey(const Key('push-enabled')), findsOneWidget);
-
-    await _pump(tester, pushStateWith(const [], enabled: false));
-    expect(find.text('Channel Messages'), findsOneWidget);
-  });
-
-  testWidgets('the kinds include scheduled tasks', (tester) async {
-    await _pump(tester, pushStateWith(const [], enabled: false));
-    expect(find.text('Scheduled Tasks'), findsOneWidget);
-    expect(
-      find.text('Notify when a Hermes scheduled task delivers its result.'),
-      findsOneWidget,
-    );
   });
 }
 

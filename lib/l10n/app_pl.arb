@@ -9147,6 +9147,8 @@
   "@scheduledTaskAgentNeedsChat": {"description": "Shown on the destination of a scheduled task whose model is a coding agent (such as Codex) when a channel is chosen: Open WebUI posts an agent's results only to a new chat."},
   "scheduledTaskAgentsLoading": "Wczytywanie agentów tego terminala…",
   "@scheduledTaskAgentsLoading": {"description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."},
+  "personalizationMemoryGone": "Tego wspomnienia nie ma już na serwerze. Wróć, aby zobaczyć swoje wspomnienia.",
+  "@personalizationMemoryGone": {"description": "Shown on a memory's page when that memory is no longer on the server (cleared or deleted meanwhile), so a change to it cannot be saved."},
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nowe powiadomienie",
   "pushReplyTitle": "Nowa odpowiedź",

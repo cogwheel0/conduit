@@ -25,9 +25,11 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart' show Scaffold, TextField;
+import 'package:material_ui/material_ui.dart' show Scaffold;
+import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -79,6 +81,12 @@ final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+/// Closing a page of the sheet, which the sheet always does.
+final _closeDetailChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.closeDetail',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 ServerMemory _memory({String? type, String? path}) => ServerMemory(
   id: 'm1',
   userId: 'user-1',
@@ -96,6 +104,12 @@ final class _MemoriesApi extends ApiService {
   _MemoriesApi() : super(serverConfig: _server, workerManager: WorkerManager());
 
   Map<String, dynamic> permissions = const {};
+
+  /// How many writes the server refuses before it takes one.
+  int failingWrites = 0;
+
+  /// Holds each write back until completed, when set.
+  Completer<void>? writeGate;
   final adds = <_Write>[];
   final updates = <_Write>[];
   final deleted = <String>[];
@@ -117,6 +131,7 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    await _refuseIfFailing();
     adds.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
   }
@@ -129,8 +144,17 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    await _refuseIfFailing();
     updates.add((content: content, type: type, path: path));
     return _memory(type: type, path: path);
+  }
+
+  Future<void> _refuseIfFailing() async {
+    await writeGate?.future;
+    if (failingWrites > 0) {
+      failingWrites--;
+      throw StateError('server unavailable');
+    }
   }
 
   @override
@@ -138,6 +162,7 @@ final class _MemoriesApi extends ApiService {
     String memoryId, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    await _refuseIfFailing();
     deleted.add(memoryId);
   }
 }
@@ -246,6 +271,11 @@ Future<_NativeSettings> _pumpApp(
         );
         return <Object?>[true];
       });
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockDecodedMessageHandler<Object?>(
+        _closeDetailChannel,
+        (_) async => <Object?>[true],
+      );
 
   await tester.pumpWidget(
     UncontrolledProviderScope(container: container, child: const ConduitApp()),
@@ -254,12 +284,6 @@ Future<_NativeSettings> _pumpApp(
   await container.read(activeServerProvider.future);
   return native;
 }
-
-/// A segment of the memory editor's type control, by its label.
-Finder _typeSegment(String label) => find.descendant(
-  of: find.byKey(const Key('memory-type')),
-  matching: find.text(label),
-);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -277,6 +301,8 @@ void main() {
     NativeSheetBridge.instance.debugIsIOSOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_closeDetailChannel, null);
   });
 
   group('with Advanced off', () {
@@ -286,16 +312,18 @@ void main() {
 
       await native.detailAppeared('memory-manage');
       final add = native
-          .items('memory-manage')
-          .singleWhere((item) => item.id == 'memory-add');
-      expect(add.dismissOnSelect, isFalse);
-      final details = native.patch('memory-manage').detailSheets!;
-      expect(details.map((detail) => detail.id), contains('memory-add'));
+          .patch('memory-manage')
+          .detailSheets!
+          .singleWhere((detail) => detail.id == 'memory-add');
+      expect(add.confirmActionId, isNull);
+      expect(add.items.map((item) => item.id), ['memory-add-content']);
+      final edit = native
+          .patch('memory-manage')
+          .detailSheets!
+          .singleWhere((detail) => detail.id == 'memory-edit:m1');
       expect(
-        details
-            .expand((detail) => detail.items)
-            .where((item) => item.id.startsWith('memory-classification:')),
-        isEmpty,
+        edit.sections.expand((section) => section.items).map((item) => item.id),
+        isNot(contains('memory-type:m1')),
       );
 
       await native.control('memory-add-content', 'I prefer metric units');
@@ -306,39 +334,251 @@ void main() {
     });
   });
 
+  group('a write the server refuses', () {
+    testWidgets('keeps Add Memory open with the text, and Retry sends it '
+        'again', (tester) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+
+      await native.control('memory-add-content', 'I prefer metric units');
+
+      final rows = native.items('memory-add');
+      expect(rows.first.title, AppLocalizationsEn().errorMessage);
+      final retry = rows.singleWhere((row) => row.id == nativeMemoryAddRetryId);
+      expect(retry.value, isNull);
+      expect(
+        native.container.read(settingsPagesProvider).closeRequests.keys,
+        isNot(contains('memory-add')),
+      );
+
+      // The Retry row sends the text that failed, as the page's own row does.
+      await native.control(retry.id, retry.value);
+      expect(native.api.adds.map((write) => write.content), [
+        'I prefer metric units',
+      ]);
+    });
+
+    testWidgets('Retry sends nothing more once text typed since went in', (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+      await native.control('memory-add-content', 'I prefer metric units');
+
+      // Retry tapped with new text in the field: the text is sent first,
+      // then the row tapped.
+      final retry = native
+          .items('memory-add')
+          .singleWhere((row) => row.id == nativeMemoryAddRetryId);
+      await native.control('memory-add-content', 'I prefer imperial units');
+      await native.control(retry.id, retry.value);
+
+      expect(native.api.adds.map((write) => write.content), [
+        'I prefer imperial units',
+      ]);
+    });
+
+    testWidgets("a memory's page says why a save failed, and Retry saves "
+        'that text', (tester) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+
+      await native.control('memory-save:m1', 'Prefers metric units always');
+      final rows = native.items('memory-edit:m1');
+      expect(rows.first.title, AppLocalizationsEn().errorMessage);
+      final retry = rows.singleWhere((row) => row.id == 'memory-save-retry:m1');
+
+      await native.control(retry.id, retry.value);
+
+      expect(native.api.updates.map((write) => write.content), [
+        'Prefers metric units always',
+      ]);
+      // Saved, the page no longer says it failed.
+      expect(
+        native.items('memory-edit:m1').map((row) => row.id),
+        isNot(contains('memory-save-retry:m1')),
+      );
+    });
+
+    testWidgets('an outcome that lands after the memory list was opened again '
+        'stays off the pages opened since', (tester) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api
+        ..failingWrites = 1
+        ..writeGate = Completer<void>();
+      final drawn = native.patches.length;
+      await native.control('memory-add-content', 'I prefer metric units');
+
+      // Back on the list, and Add Memory opened again, before it fails.
+      await native.detailAppeared('memory-manage');
+      final listed = native.patches.length;
+      native.api.writeGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(listed, greaterThan(drawn));
+      expect(
+        native.patches.skip(listed).map((patch) => patch.detailId),
+        isNot(contains('memory-add')),
+      );
+    });
+
+    testWidgets("a memory's failed text and its Retry stay after its type is "
+        'saved', (tester) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+      await native.control('memory-save:m1', 'Prefers metric units always');
+
+      await native.control('memory-type:m1', 'user');
+
+      expect(native.api.updates.map((write) => write.type), ['user']);
+      expect(
+        native.items('memory-edit:m1').map((row) => row.id),
+        contains('memory-save-retry:m1'),
+      );
+    });
+
+    testWidgets("a memory's failed text stays when its delete fails too", (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 2;
+      await native.control('memory-save:m1', 'Prefers metric units always');
+
+      await native.control('memory-delete:m1', true);
+
+      expect(
+        native
+            .items('memory-edit:m1')
+            .singleWhere((row) => row.id == 'memory-save:m1')
+            .value,
+        'Prefers metric units always',
+      );
+    });
+
+    testWidgets("a change to a memory no longer on the server says so", (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+
+      await native.control('memory-type:gone', 'user');
+
+      expect(native.api.updates, isEmpty);
+      expect(
+        native.items('memory-edit:gone').single.title,
+        AppLocalizationsEn().personalizationMemoryGone,
+      );
+    });
+
+    testWidgets("a memory's Retry does not put back text replaced since", (
+      tester,
+    ) async {
+      final native = await _pumpApp(tester);
+      await native.detailAppeared('memory-manage');
+      native.api.failingWrites = 1;
+      await native.control('memory-save:m1', 'Prefers metric units always');
+
+      // Retry tapped with new text in the field: the text is sent first,
+      // then the row tapped.
+      final retry = native
+          .items('memory-edit:m1')
+          .singleWhere((row) => row.id == 'memory-save-retry:m1');
+      await native.control('memory-save:m1', 'Prefers imperial units');
+      await native.control(retry.id, retry.value);
+
+      expect(native.api.updates.map((write) => write.content), [
+        'Prefers imperial units',
+      ]);
+      expect(
+        native.items('memory-edit:m1').map((row) => row.id),
+        isNot(contains('memory-save-retry:m1')),
+      );
+    });
+  });
+
   group('with Advanced on', () {
-    testWidgets('Add memory opens the editor with the type and path', (
+    testWidgets('Add memory holds the text, type and path until Done', (
       tester,
     ) async {
       final native = await _pumpApp(tester, advanced: true);
 
       await native.detailAppeared('memory-manage');
       final add = native
-          .items('memory-manage')
-          .singleWhere((item) => item.id == 'memory-add');
-      expect(add.dismissOnSelect, isTrue);
-      expect(add.actionId, 'memory-editor-new');
+          .patch('memory-manage')
+          .detailSheets!
+          .singleWhere((detail) => detail.id == 'memory-add');
+      expect(add.confirmActionId, nativeMemoryNewSaveId);
       expect(
-        native.patch('memory-manage').detailSheets!.map((detail) => detail.id),
-        isNot(contains('memory-add')),
+        add.sections.expand((section) => section.items).map((item) => item.id),
+        [
+          nativeMemoryNewContentId,
+          nativeMemoryNewTypeId,
+          nativeMemoryNewPathId,
+        ],
       );
 
-      await native.control('memory-editor-new', true);
-
-      expect(find.byKey(const Key('memory-type')), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, 'Repo notes');
-      await tester.tap(_typeSegment('Context'));
-      await tester.pump();
-      await tester.enterText(find.byKey(const Key('memory-path')), 'repos/a');
-      await tester.tap(find.text('Save').last);
-      await tester.pumpAndSettle();
+      await native.control(nativeMemoryNewContentId, 'Repo notes');
+      await native.control(nativeMemoryNewTypeId, 'context');
+      await native.control(nativeMemoryNewPathId, 'repos/a');
+      expect(native.api.adds, isEmpty);
+      await native.control(nativeMemoryNewSaveId, true);
 
       expect(native.api.adds, [
         (content: 'Repo notes', type: 'context', path: 'repos/a'),
       ]);
     });
 
-    testWidgets('a memory row offers its type and path and edits them', (
+    testWidgets('an Add Memory page left without Done starts empty the next '
+        'time', (tester) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+
+      await native.control(nativeMemoryNewContentId, 'Left behind');
+      await native.control(nativeMemoryNewTypeId, 'context');
+      // Back on the list, then Add Memory again.
+      await native.detailAppeared('memory-manage');
+      await native.control(nativeMemoryNewSaveId, true);
+      expect(native.api.adds, isEmpty);
+
+      await native.control(nativeMemoryNewContentId, 'Fresh');
+      await native.control(nativeMemoryNewSaveId, true);
+      expect(native.api.adds, [(content: 'Fresh', type: 'user', path: null)]);
+    });
+
+    testWidgets('an Add Memory change queued before the page was left is '
+        'not kept', (tester) async {
+      final native = await _pumpApp(tester, advanced: true);
+      await native.detailAppeared('memory-manage');
+      // A save still on its way holds the changes after it.
+      native.api.writeGate = Completer<void>();
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'memory-save:m1',
+          value: 'Prefers metric units always',
+        ),
+      );
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: nativeMemoryNewContentId,
+          value: 'Left behind',
+        ),
+      );
+      // Back on the list, then Add Memory again, before the save lands.
+      await native.detailAppeared('memory-manage');
+      native.api.writeGate!.complete();
+      await tester.pumpAndSettle();
+
+      await native.control(nativeMemoryNewSaveId, true);
+      expect(native.api.adds, isEmpty);
+    });
+
+    testWidgets("a memory's page saves its type and path as they change", (
       tester,
     ) async {
       final native = await _pumpApp(tester, advanced: true);
@@ -348,19 +588,16 @@ void main() {
           .patch('memory-manage')
           .detailSheets!
           .singleWhere((detail) => detail.id == 'memory-edit:m1');
-      final row = detail.items.singleWhere(
-        (item) => item.id == 'memory-classification:m1',
+      final rows = detail.sections.expand((section) => section.items);
+      final type = rows.singleWhere((item) => item.id == 'memory-type:m1');
+      expect(type.value, 'context');
+      expect(
+        rows.singleWhere((item) => item.id == 'memory-path:m1').value,
+        'projects/conduit',
       );
-      expect(row.dismissOnSelect, isTrue);
-      expect(row.subtitle, 'Context · projects/conduit');
-      // Delete stays in the native detail.
-      expect(detail.items.map((item) => item.id), contains('memory-delete:m1'));
+      expect(rows.map((item) => item.id), contains('memory-delete:m1'));
 
-      await native.control(row.actionId!, true);
-      await tester.tap(_typeSegment('User'));
-      await tester.pump();
-      await tester.tap(find.text('Save').last);
-      await tester.pumpAndSettle();
+      await native.control('memory-type:m1', 'user');
 
       expect(native.api.updates, [
         (content: 'Prefers metric units', type: 'user', path: null),
@@ -385,12 +622,12 @@ void main() {
         isNot(contains('personalization-memory')),
       );
 
-      await native.control('memory-editor-new', true);
+      await native.control(nativeMemoryNewContentId, 'denied');
+      await native.control(nativeMemoryNewSaveId, true);
       await native.control('memory-add-content', 'denied');
       await native.control('memory-save:m1', 'denied');
       await native.control('memory-delete:m1', true);
 
-      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);
@@ -405,17 +642,31 @@ void main() {
 
       native.switchAccount();
       await tester.pumpAndSettle();
-      await native.control('memory-editor-new', true);
-      await native.control('memory-editor:m1', true);
+      await native.control(nativeMemoryNewContentId, 'from account A');
+      await native.control(nativeMemoryNewSaveId, true);
+      await native.control('memory-type:m1', 'user');
       await native.control('memory-add-content', 'from account A');
       await native.control('memory-save:m1', 'from account A');
       await native.control('memory-delete:m1', true);
       await native.control('memory-clear-all', true);
 
-      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);
+
+      // The pages stay open with what was typed, and say why.
+      final changed = AppLocalizationsEn().personalizationMemoryAccountChanged;
+      final add = native.items('memory-add');
+      expect(add.first.title, changed);
+      expect(
+        add.singleWhere((row) => row.id == 'memory-add-content').value,
+        'from account A',
+      );
+      expect(native.items('memory-edit:m1').first.title, changed);
+      expect(
+        native.container.read(settingsPagesProvider).closeRequests.keys,
+        isNot(anyOf(contains('memory-add'), contains('memory-edit:m1'))),
+      );
 
       // The next account's own list works.
       await native.detailAppeared('memory-manage');

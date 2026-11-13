@@ -291,8 +291,12 @@ void main() {
         .items(_detail)
         .singleWhere((item) => item.id == 'notification-targets');
     expect(row.title, 'Webhook Destinations');
-    expect(row.dismissOnSelect, isTrue);
-    expect(row.actionId, 'notification-targets');
+    // The row opens the destinations' page inside the sheet.
+    expect(row.dismissOnSelect, isFalse);
+    expect(
+      native.patches.last.detailSheets!.map((page) => page.id),
+      contains('notification-targets'),
+    );
     expect(row.sfSymbol, 'bell.and.waves.left.and.right');
     expect(row.subtitle, 'None');
     // What destinations are lives under the row, not in its subtitle.
@@ -347,16 +351,17 @@ void main() {
     await native.detailAppeared(_detail);
 
     final patch = native.patches.lastWhere((p) => p.detailId == _detail);
-    expect(patch.sections.single.items.map((item) => item.id), [
+    expect(patch.sections.first.items.map((item) => item.id), [
       'notifications-enabled',
       'notification-system-settings',
     ]);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   // With notifications off the options under the switch could not do
-  // anything, so only the switch shows, as in Settings.
-  testWidgets('with notifications off only the switch shows, explained by '
-      'its footer', (tester) async {
+  // anything, so only the switch shows, as in Settings, and push, which is
+  // turned off on its own.
+  testWidgets('with notifications off only the switch and push show, the '
+      'switch explained by its footer', (tester) async {
     final native = await _pumpApp(
       tester,
       advanced: false,
@@ -366,8 +371,9 @@ void main() {
     await native.detailAppeared(_detail);
 
     final patch = native.patches.lastWhere((p) => p.detailId == _detail);
-    expect(patch.sections, hasLength(1));
-    final master = patch.sections.single;
+    expect(patch.sections, hasLength(2));
+    expect(patch.sections.last.items.first.id, 'push-enabled');
+    final master = patch.sections.first;
     expect(master.items.map((item) => item.id), ['notifications-enabled']);
     expect(master.items.single.value, isFalse);
     expect(master.items.single.subtitle, isNull);
@@ -384,19 +390,6 @@ void main() {
     final row = native.items(_detail).last;
     expect(row.id, 'notification-targets');
     expect(row.subtitle, isNull);
-  });
-
-  testWidgets('tapping it closes the sheet and opens the Notifications page '
-      'with the native-sheet origin', (tester) async {
-    final native = await _pumpApp(tester);
-    await native.detailAppeared(_detail);
-
-    await native.control('notification-targets', true);
-
-    expect(find.text('notifications page'), findsOneWidget);
-    expect(native.pushed, hasLength(1));
-    expect(native.pushed.single.path, Routes.notificationSettings);
-    expect(native.pushed.single.extra, isA<NativeSheetNavigationOrigin>());
   });
 
   group('without a row', () {
@@ -447,13 +440,13 @@ void main() {
         expect(ids, containsAll(_localToggles));
         expect(ids, isNot(contains('notification-targets')));
 
-        await native.control('notification-targets', true);
+        // A page opened from a row gone stale says so and reads nothing.
+        await native.detailAppeared('notification-targets');
 
-        expect(find.text('notifications page'), findsNothing);
         expect(native.pushed, isEmpty);
         expect(
-          find.text("That option isn't available right now."),
-          findsOneWidget,
+          native.items('notification-targets').map((item) => item.title),
+          ["That option isn't available right now."],
         );
       });
     }

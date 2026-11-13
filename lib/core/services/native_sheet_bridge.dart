@@ -658,6 +658,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     String? subtitle,
     bool clearSubtitle = false,
     List<NativeSheetDetailConfig> detailSheets = const [],
+    NativeSheetDetailConfig? whole,
   }) async {
     if (items.isNotEmpty && sections.isNotEmpty) {
       throw ArgumentError(
@@ -677,6 +678,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           detailSheets: detailSheets.isEmpty
               ? null
               : detailSheets.map((detail) => detail.toPlatform()).toList(),
+          whole: whole?.toPlatform(),
         ),
       );
     } on PlatformException catch (error, stackTrace) {
@@ -712,6 +714,23 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           false;
     } catch (error, stackTrace) {
       _logNativeSheetBridgeError('updateProfile', error, stackTrace);
+      return false;
+    }
+  }
+
+  /// Closes page [detailId] of the open Settings sheet, back to the page
+  /// that opened it. Returns false when it was not open.
+  Future<bool> closeDetail(String detailId) async {
+    if (!_isIOS) return false;
+    try {
+      return await _api.closeDetail(detailId);
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'closeDetail',
+        error,
+        stackTrace,
+        data: {'detailId': detailId},
+      );
       return false;
     }
   }
@@ -1029,6 +1048,7 @@ class NativeSheetDetailConfig {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.discardPrompt,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1050,6 +1070,12 @@ class NativeSheetDetailConfig {
   final String? trailingActionId;
   final String? trailingActionSfSymbol;
 
+  /// What the page asks before its unsaved changes are dropped -- by Back,
+  /// a swipe back, or the sheet swiped away. Null drops them without asking.
+  /// Changes are text not yet done, or, on a page with a confirm action,
+  /// anything changed since it appeared.
+  final NativeSheetDiscardPrompt? discardPrompt;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1064,8 +1090,30 @@ class NativeSheetDetailConfig {
       if (trailingActionId != null) 'trailingActionId': trailingActionId,
       if (trailingActionSfSymbol != null)
         'trailingActionSfSymbol': trailingActionSfSymbol,
+      if (discardPrompt case final prompt?) ...{
+        'discardTitle': prompt.title,
+        'discardMessage': prompt.message,
+        'discardConfirmLabel': prompt.discardLabel,
+        'discardCancelLabel': prompt.keepLabel,
+      },
     };
   }
+}
+
+/// The question a page asks before its unsaved changes are dropped.
+@immutable
+class NativeSheetDiscardPrompt {
+  const NativeSheetDiscardPrompt({
+    required this.title,
+    required this.message,
+    required this.discardLabel,
+    required this.keepLabel,
+  });
+
+  final String title;
+  final String message;
+  final String discardLabel;
+  final String keepLabel;
 }
 
 class NativeSheetLinkConfig {
@@ -1115,6 +1163,7 @@ class NativeSheetItemConfig {
     this.accent = false,
     this.usesProfileAvatar = false,
     this.filterAllLabel,
+    this.confirmMessage,
   });
 
   final String id;
@@ -1167,9 +1216,14 @@ class NativeSheetItemConfig {
   /// Enables the picker filter pill; this is its unfiltered label.
   final String? filterAllLabel;
 
+  /// Asked before the row acts, with the row's title as the answer that
+  /// goes ahead: Delete, Sign Out. Null acts at once.
+  final String? confirmMessage;
+
   Map<String, Object?> toMap() {
     return {
       if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
+      if (confirmMessage != null) 'confirmMessage': confirmMessage,
       'id': id,
       'title': title,
       'subtitle': subtitle,
@@ -1500,6 +1554,10 @@ extension on NativeSheetDetailConfig {
       maxHeightFraction: maxHeightFraction,
       trailingActionId: trailingActionId,
       trailingActionSfSymbol: trailingActionSfSymbol,
+      discardTitle: discardPrompt?.title,
+      discardMessage: discardPrompt?.message,
+      discardConfirmLabel: discardPrompt?.discardLabel,
+      discardCancelLabel: discardPrompt?.keepLabel,
     );
   }
 }
@@ -1550,6 +1608,7 @@ extension on NativeSheetItemConfig {
       accent: accent,
       usesProfileAvatar: usesProfileAvatar,
       filterAllLabel: filterAllLabel,
+      confirmMessage: confirmMessage,
     );
   }
 }

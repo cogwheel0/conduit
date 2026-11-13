@@ -57,6 +57,18 @@ void main() {
     PreferencesStore.debugReset();
   });
 
+  test(
+    'a distributor read that fails counts as none, or says so when asked',
+    () async {
+      h = await _Harness.start(targets: [_owui]);
+      h.platform.distributorsError = StateError('unreadable');
+
+      check(await h.coordinator.distributors()).isEmpty();
+      await check(h.coordinator.distributors(throwOnFailure: true))
+          .throws<StateError>();
+    },
+  );
+
   group('setting up', () {
     test('turning push on sets up every target and verifies it', () async {
       h = await _Harness.start(targets: [_owui, _hermes]);
@@ -2254,8 +2266,15 @@ final class _Platform implements PushPlatformPort {
   Future<List<String>> takeVerifiedNonces(String sid) async =>
       nonces.remove(sid) ?? const [];
 
+  /// Thrown by [unifiedPushDistributors], when set.
+  Object? distributorsError;
+
   @override
-  Future<List<String>> unifiedPushDistributors() async => distributors;
+  Future<List<String>> unifiedPushDistributors() async {
+    final error = distributorsError;
+    if (error != null) throw error;
+    return distributors;
+  }
 
   @override
   Future<String?> registerUnifiedPush(String sid, String distributor) async {

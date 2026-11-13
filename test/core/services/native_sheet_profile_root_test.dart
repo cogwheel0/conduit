@@ -12,6 +12,7 @@ import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter/widgets.dart' show Locale;
+import 'package:conduit_core/features/release_notes/models/release_note.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _l10n = lookupAppLocalizations(const Locale('en'));
@@ -301,7 +302,7 @@ void main() {
       expect(_ids(sections).first, [nativeAccountsDetailId]);
     });
 
-    test('with LibreChat in charge, Personalization opens its Flutter page',
+    test('with LibreChat in charge, Personalization opens its memories page',
         () {
       const libreChat = NativeProfileRootVisibility(
         showLibreChatPersonalization: true,
@@ -311,8 +312,9 @@ void main() {
         nativeLibreChatPersonalizationActionId,
       );
       expect(item.title, _l10n.personalization);
-      expect(item.dismissOnSelect, isTrue);
-      expect(item.actionId, nativeLibreChatPersonalizationActionId);
+      // The page is Settings's own, inside the sheet.
+        expect(item.dismissOnSelect, isFalse);
+      expect(item.actionId, isNull);
       // An Open WebUI account signed in has its own AI & Memory instead.
       expect(
         _ids(_root(visibility: libreChat)).expand((ids) => ids),
@@ -577,12 +579,38 @@ void main() {
       expect(add.title, _l10n.accountsAddAccount);
       expect(add.sfSymbol, 'plus.circle');
       expect(add.accent, isTrue);
-      expect(add.dismissOnSelect, isTrue);
-      // An action, not a page: no chevron.
-      expect(add.showsDisclosure, isFalse);
-      expect(add.actionId, nativeAccountAddActionId);
-      // Any kind: the sheet opens on Open WebUI.
-      expect(add.actionValue, isTrue);
+      // It opens the kinds to choose from, a page of Settings's own.
+      expect(add.dismissOnSelect, isFalse);
+      expect(add.showsDisclosure, isTrue);
+    });
+
+    test('Add Account lists each kind, each opening its own sign-in', () {
+      List<NativeSheetItemConfig> kinds({required bool libreChat}) =>
+          buildNativeAddAccountDetail(
+            _l10n,
+            libreChatEnabled: libreChat,
+          ).sections.single.items;
+
+      expect(kinds(libreChat: false).map((row) => row.actionValue), [
+        'openWebUi',
+        'hermes',
+        'direct',
+      ]);
+      final rows = kinds(libreChat: true);
+      expect(rows.map((row) => row.actionValue), [
+        'openWebUi',
+        'libreChat',
+        'hermes',
+        'direct',
+      ]);
+      // The sign-in is a flow of its own, opened as the sheet closes.
+      expect(
+        rows.every(
+          (row) =>
+              row.dismissOnSelect && row.actionId == nativeAccountAddActionId,
+        ),
+        isTrue,
+      );
     });
 
     test('an empty card offers to add its first, on its own tab', () {
@@ -657,7 +685,7 @@ void main() {
     });
   });
 
-  test('About rows that open Flutter pages close the sheet with a chevron', () {
+  test("What's New and the licenses are pages of Settings's own", () {
     final items = buildNativeAboutItems(_l10n, appVersion: '1.0');
 
     for (final id in [
@@ -665,9 +693,57 @@ void main() {
       NativeSheetRoutes.openSourceLicenses,
     ]) {
       final item = items.singleWhere((item) => item.id == id);
-      expect(item.dismissOnSelect, isTrue, reason: id);
-      expect(item.showsDisclosure, isTrue, reason: id);
+      expect(item.dismissOnSelect, isFalse, reason: id);
+      expect(item.url, isNull, reason: id);
     }
+  });
+
+  test("What's New lists each release's highlights, then rating and support",
+      () {
+    final page = buildNativeReleaseNotesDetail(
+      _l10n,
+      notes: [
+        ReleaseNote(
+          version: '2.0.0',
+          title: 'New',
+          intro: 'Hello.',
+          bullets: const ['Faster', 'Hermes'],
+          bulletIcons: const ['direct', 'hermes'],
+        ),
+      ],
+      reviewUrl: 'https://example.com/review',
+      supportUrl: 'https://example.com/support',
+    );
+
+    final release = page.sections.first;
+    expect(release.title, '2.0.0');
+    expect(release.items.first.kind, NativeSheetItemKind.readOnlyText);
+    expect(release.items.first.value, 'Hello.');
+    expect(release.items[1].title, 'Faster');
+    expect(release.items[1].sfSymbol, 'bolt');
+    expect(release.items[2].iconAsset, 'assets/icons/hermes_agent.png');
+    expect(page.sections.last.items.map((item) => item.url), [
+      'https://example.com/review',
+      'https://example.com/support',
+    ]);
+  });
+
+  test('the licenses list each package once, in order, opening its texts', () {
+    final list = buildNativeLicensesDetail(_l10n, {'zeta': 1, 'Alpha': 2});
+    final rows = list.sections.single.items;
+    expect(rows.map((row) => row.title), ['Alpha', 'zeta']);
+    expect(rows.first.id, '${nativeLicensePagePrefix}Alpha');
+    expect(rows.first.subtitle, '2');
+
+    final texts = buildNativeLicenseDetail('Alpha', ['MIT', 'BSD']);
+    expect(texts.id, rows.first.id);
+    expect(texts.items.map((item) => item.value), ['MIT', 'BSD']);
+    // Every row has a title: the native sheet draws none without one.
+    expect(texts.items.map((item) => item.title), ['Alpha (1)', 'Alpha (2)']);
+    expect(
+      texts.items.every((item) => item.kind == NativeSheetItemKind.readOnlyText),
+      isTrue,
+    );
   });
 
   group('Webhook destinations row', () {
@@ -687,8 +763,9 @@ void main() {
       expect(section.footer, _l10n.notificationTargetsDescription);
       final item = section.items.single;
       expect(item.sfSymbol, 'bell.and.waves.left.and.right');
-      expect(item.dismissOnSelect, isTrue);
-      expect(item.actionId, nativeNotificationTargetsActionId);
+      // It opens the destinations' own page, inside Settings.
+      expect(item.id, nativeNotificationTargetsActionId);
+      expect(item.dismissOnSelect, isFalse);
     });
   });
 

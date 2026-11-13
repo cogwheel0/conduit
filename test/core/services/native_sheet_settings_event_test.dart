@@ -33,7 +33,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_ui/material_ui.dart' show LicensePage, Scaffold;
+import 'package:material_ui/material_ui.dart' show Scaffold;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -750,30 +750,5 @@ void main() {
     await tester.pumpAndSettle();
     check(saved()).isFalse();
     check((await SettingsService.loadSettings()).citationBackground).isFalse();
-  });
-
-  testWidgets('Licenses open as the sheet closes itself, with no second '
-      'dismiss or wait', (tester) async {
-    var dismissCalls = 0;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockDecodedMessageHandler<Object?>(_dismissChannel, (_) async {
-          dismissCalls++;
-          return <Object?>[true];
-        });
-    await pumpApp(tester);
-
-    NativeSheetBridge.instance.onControlChanged(
-      PlatformNativeSheetControlChangedEvent(
-        id: NativeSheetRoutes.openSourceLicenses,
-        value: true,
-      ),
-    );
-    // The page is pushed straight away, well inside the old fixed delay.
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-
-    expect(find.byType(LicensePage), findsOneWidget);
-    check(dismissCalls).equals(0);
   });
 }

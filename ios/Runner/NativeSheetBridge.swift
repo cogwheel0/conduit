@@ -216,6 +216,8 @@ private struct NativeSheetItem {
     let placeholder: String?
     let options: [NativeSheetOption]
     let filterAllLabel: String?
+    /// Asked before the row acts; its title is the answer that goes ahead.
+    let confirmMessage: String?
     let sourceIndex: Int?
     let sourceUrl: String?
     let sourceType: String?
@@ -270,6 +272,7 @@ private struct NativeSheetItem {
         options = (payload["options"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetOption.init)
         filterAllLabel = payload["filterAllLabel"] as? String
+        confirmMessage = payload["confirmMessage"] as? String
         sourceIndex = NativeSheetItem.optionalInt(payload["sourceIndex"])
         sourceUrl = payload["sourceUrl"] as? String
         sourceType = payload["sourceType"] as? String
@@ -738,6 +741,26 @@ private struct NativeResultSheetConfiguration {
     }
 }
 
+/// The question a page asks before its unsaved changes are dropped.
+private struct NativeSheetDiscardPrompt {
+    let title: String
+    let message: String
+    let discardLabel: String
+    let keepLabel: String
+
+    init?(_ payload: [String: Any]) {
+        guard let title = payload["discardTitle"] as? String, !title.isEmpty,
+              let message = payload["discardMessage"] as? String,
+              let discardLabel = payload["discardConfirmLabel"] as? String,
+              let keepLabel = payload["discardCancelLabel"] as? String
+        else { return nil }
+        self.title = title
+        self.message = message
+        self.discardLabel = discardLabel
+        self.keepLabel = keepLabel
+    }
+}
+
 private struct NativeSheetDetail {
     let id: String
     let title: String
@@ -751,6 +774,9 @@ private struct NativeSheetDetail {
     /// A bar button that closes the sheet and then sends this action.
     let trailingActionId: String?
     let trailingActionSfSymbol: String?
+    /// What the page asks before its unsaved changes are dropped; nil drops
+    /// them without asking.
+    let discardPrompt: NativeSheetDiscardPrompt?
 
     init(
         id: String,
@@ -762,7 +788,8 @@ private struct NativeSheetDetail {
         confirmActionLabel: String? = nil,
         maxHeightFraction: CGFloat? = nil,
         trailingActionId: String? = nil,
-        trailingActionSfSymbol: String? = nil
+        trailingActionSfSymbol: String? = nil,
+        discardPrompt: NativeSheetDiscardPrompt? = nil
     ) {
         self.id = id
         self.title = title
@@ -774,6 +801,7 @@ private struct NativeSheetDetail {
         self.maxHeightFraction = maxHeightFraction
         self.trailingActionId = trailingActionId
         self.trailingActionSfSymbol = trailingActionSfSymbol
+        self.discardPrompt = discardPrompt
     }
 
     init?(_ payload: [String: Any]) {
@@ -798,6 +826,7 @@ private struct NativeSheetDetail {
         maxHeightFraction = NativeSheetDetail.parseMaxHeightFraction(payload["maxHeightFraction"])
         trailingActionId = payload["trailingActionId"] as? String
         trailingActionSfSymbol = payload["trailingActionSfSymbol"] as? String
+        discardPrompt = NativeSheetDiscardPrompt(payload)
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -987,6 +1016,10 @@ private extension PlatformNativeSheetDetail {
         payload["maxHeightFraction"] = maxHeightFraction
         payload["trailingActionId"] = trailingActionId
         payload["trailingActionSfSymbol"] = trailingActionSfSymbol
+        payload["discardTitle"] = discardTitle
+        payload["discardMessage"] = discardMessage
+        payload["discardConfirmLabel"] = discardConfirmLabel
+        payload["discardCancelLabel"] = discardCancelLabel
         return payload
     }
 }
@@ -1028,6 +1061,7 @@ private extension PlatformNativeSheetItem {
         payload["accent"] = accent
         payload["usesProfileAvatar"] = usesProfileAvatar
         payload["filterAllLabel"] = filterAllLabel
+        payload["confirmMessage"] = confirmMessage
         return payload
     }
 }
@@ -1198,13 +1232,31 @@ private final class NativeSheetPresentationDelegate:
 {
     private let onWillDismiss: () -> Void
     private let onDismiss: () -> Void
+    private let shouldDismiss: () -> Bool
+    private let onAttemptToDismiss: () -> Void
 
     init(
         onWillDismiss: @escaping () -> Void = {},
+        shouldDismiss: @escaping () -> Bool = { true },
+        onAttemptToDismiss: @escaping () -> Void = {},
         onDismiss: @escaping () -> Void
     ) {
         self.onWillDismiss = onWillDismiss
+        self.shouldDismiss = shouldDismiss
+        self.onAttemptToDismiss = onAttemptToDismiss
         self.onDismiss = onDismiss
+    }
+
+    func presentationControllerShouldDismiss(
+        _ presentationController: UIPresentationController
+    ) -> Bool {
+        shouldDismiss()
+    }
+
+    func presentationControllerDidAttemptToDismiss(
+        _ presentationController: UIPresentationController
+    ) {
+        onAttemptToDismiss()
     }
 
     func presentationControllerWillDismiss(
@@ -1243,14 +1295,11 @@ let nativeSheetProfileMenuDetailId = "profile-menu"
 
 /// Whether a row that closes the sheet waits for it to finish leaving before
 /// telling Flutter. Rows that open a Flutter page send at once, so the page is
-/// already underneath as the sheet slides away. The memory editor waits: it
-/// opens a Flutter sheet that takes keyboard focus, which must not be asked
-/// for while this sheet still holds it.
+/// already underneath as the sheet slides away. Account actions wait.
 func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
-    actionId == "memory-editor-new" || actionId.hasPrefix("memory-editor:")
-        // Switching, adding or signing out of an account can ask a question
-        // in a sheet of its own, which cannot present over this one.
-        || actionId == "account-switch" || actionId == "account-add"
+    // Switching, adding or signing out of an account can ask a question in
+    // a sheet of its own, which cannot present over this one.
+    actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-sign-out-of"
         || actionId == "account-direct-edit"
         || actionId == "account-librechat-use"
@@ -1617,7 +1666,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             for detail in relatedDetails {
                 self.detailPayloads[detail.id] = detail
             }
-            let patched = NativeSheetDetail(
+            // A page sent whole replaces everything it was, its bar actions
+            // and discard question too; a patch of rows keeps them.
+            let whole = request.whole.flatMap { NativeSheetDetail($0.asPayload()) }
+            let patched = whole ?? NativeSheetDetail(
                 id: existing.id,
                 title: request.title ?? existing.title,
                 subtitle: request.clearSubtitle
@@ -1629,7 +1681,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 confirmActionLabel: existing.confirmActionLabel,
                 maxHeightFraction: existing.maxHeightFraction,
                 trailingActionId: existing.trailingActionId,
-                trailingActionSfSymbol: existing.trailingActionSfSymbol
+                trailingActionSfSymbol: existing.trailingActionSfSymbol,
+                discardPrompt: existing.discardPrompt
             )
             self.detailPayloads[detailId] = patched
             if self.activeDetailTableController?.detailId == detailId {
@@ -1644,6 +1697,28 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         var applied = false
         DispatchQueue.main.sync { applied = apply() }
         return applied
+    }
+
+    func closeDetail(detailId: String) throws -> Bool {
+        let close = { () -> Bool in
+            guard let navigation = self.activeNavigationController,
+                  let index = navigation.viewControllers.firstIndex(where: {
+                      ($0 as? NativeDetailTableViewController)?.detailId == detailId
+                  }),
+                  index > 0
+            else { return false }
+            navigation.popToViewController(
+                navigation.viewControllers[index - 1],
+                animated: true
+            )
+            return true
+        }
+        if Thread.isMainThread {
+            return close()
+        }
+        var closed = false
+        DispatchQueue.main.sync { closed = close() }
+        return closed
     }
 
     /// Runs [work] on main once no sheet above Flutter is still animating
@@ -2003,6 +2078,18 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         presentationDelegate = NativeSheetPresentationDelegate(
             onWillDismiss: { [weak self] in
                 self?.flushActiveSheetEditing()
+            },
+            // Swiped away with unsaved changes on the page on top, the sheet
+            // stays and asks first.
+            shouldDismiss: { [weak self] in
+                (self?.activeController as? NativeSheetNavigationController)?
+                    .guardingTopPage == nil
+            },
+            onAttemptToDismiss: { [weak self] in
+                guard let page = (self?.activeController as? NativeSheetNavigationController)?
+                    .guardingTopPage
+                else { return }
+                page.askBeforeLeaving { [weak self] in self?.dismissActive() }
             },
             onDismiss: { [weak self] in
                 if let pending = self?.pendingModelSelectorResult {
@@ -2371,7 +2458,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = true
     }
 
-    private func handleSelection(_ item: NativeSheetItem) {
+    private func handleSelection(_ item: NativeSheetItem, confirmed: Bool = false) {
         if item.kind == "searchablePicker" {
             presentInlineOptionsSelector(for: item)
             return
@@ -2379,6 +2466,13 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
 
         if item.id == "sign-out" {
             presentSignOutOptions(for: item)
+            return
+        }
+
+        if !confirmed, let message = item.confirmMessage, !message.isEmpty {
+            presentConfirmation(for: item, message: message) { [weak self] in
+                self?.handleSelection(item, confirmed: true)
+            }
             return
         }
 
@@ -2432,6 +2526,32 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
 
         sendControlChanged(id: item.id, value: item.value ?? true)
+    }
+
+    /// Asks [message] before the row acts, the row's title being the answer
+    /// that goes ahead, in red when the row is destructive.
+    private func presentConfirmation(
+        for item: NativeSheetItem,
+        message: String,
+        onConfirm: @escaping () -> Void
+    ) {
+        guard let presenter = activeNavigationController?.visibleViewController else {
+            onConfirm()
+            return
+        }
+        let alert = UIAlertController(
+            title: item.title,
+            message: message,
+            preferredStyle: .alert
+        )
+        let cancelTitle = configuration?.editProfileSheet.cancelLabel
+            ?? nativeLocalized("native.cancel", "Cancel")
+        alert.addAction(UIAlertAction(title: cancelTitle, style: .cancel))
+        alert.addAction(UIAlertAction(
+            title: item.title,
+            style: item.destructive ? .destructive : .default
+        ) { _ in onConfirm() })
+        presenter.present(alert, animated: true)
     }
 
     private func presentSignOutOptions(for item: NativeSheetItem) {
@@ -5170,11 +5290,14 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
     }
 }
 
-private final class NativeDetailTableViewController: UITableViewController {
+private final class NativeDetailTableViewController: UITableViewController, NativeSheetLeaveGuarding {
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
     private let onSelect: (NativeSheetItem) -> Void
-    private let onControlChanged: (NativeSheetItem, Any?) -> Void
+    private let sendControlChange: (NativeSheetItem, Any?) -> Void
+    /// Whether anything changed on the page since it appeared. On a page
+    /// that confirms with Done, those changes wait in Dart until then.
+    private var controlEdits = false
     private let onReorder: (String, [String]) -> Void
     private let onConfirmAction: (String) -> Void
     private let onClose: () -> Void
@@ -5223,7 +5346,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         self.detail = detail
         self.canNavigate = canNavigate
         self.onSelect = onSelect
-        self.onControlChanged = onControlChanged
+        self.sendControlChange = onControlChanged
         self.onReorder = onReorder
         self.onConfirmAction = onConfirmAction
         self.onClose = onClose
@@ -5232,6 +5355,54 @@ private final class NativeDetailTableViewController: UITableViewController {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    private func onControlChanged(_ item: NativeSheetItem, _ value: Any?) {
+        controlEdits = true
+        // Text typed on the page goes first: the change can describe the
+        // page again, which would drop it.
+        if !Self.textKinds.contains(item.kind) {
+            commitPendingTextChanges()
+        }
+        sendControlChange(item, value)
+    }
+
+    private static let textKinds: Set<String> = [
+        "textField", "secureTextField", "multilineTextField",
+    ]
+
+    /// Unsaved changes: text not yet done, or, on a page that confirms with
+    /// Done, anything changed since it appeared. Only a page with a discard
+    /// question holds them back.
+    var blocksLeaving: Bool {
+        guard detail.discardPrompt != nil else { return false }
+        let confirms = detail.confirmActionId.map { !$0.isEmpty } ?? false
+        return !pendingTextValues.isEmpty || (confirms && controlEdits)
+    }
+
+    /// Asks the page's discard question, then runs [leave] once the user
+    /// chooses to discard; leaves at once when nothing would be lost.
+    func askBeforeLeaving(then leave: @escaping () -> Void) {
+        guard blocksLeaving, let prompt = detail.discardPrompt else {
+            leave()
+            return
+        }
+        view.endEditing(true)
+        let alert = UIAlertController(
+            title: prompt.title,
+            message: prompt.message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: prompt.keepLabel, style: .cancel))
+        alert.addAction(UIAlertAction(
+            title: prompt.discardLabel,
+            style: .destructive
+        ) { [weak self] _ in
+            self?.pendingTextValues.removeAll()
+            self?.controlEdits = false
+            leave()
+        })
+        present(alert, animated: true)
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
@@ -5272,6 +5443,12 @@ private final class NativeDetailTableViewController: UITableViewController {
         super.viewDidLoad()
         title = detail.title
         navigationItem.largeTitleDisplayMode = .never
+        // Back asks first when it would drop unsaved changes.
+        navigationItem.backAction = UIAction { [weak self] _ in
+            self?.askBeforeLeaving { [weak self] in
+                _ = self?.navigationController?.popViewController(animated: true)
+            }
+        }
         refreshNavigationAction()
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(

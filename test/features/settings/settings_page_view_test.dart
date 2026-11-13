@@ -102,6 +102,40 @@ void main() {
     check(controller.changes.last).equals(('send-on-enter', false));
   });
 
+  testWidgets('a choice in use is marked, as iOS marks it', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail(const [
+        NativeSheetItemConfig(
+          id: 'delivery-auto',
+          title: 'Automatic',
+          kind: NativeSheetItemKind.info,
+          checked: true,
+        ),
+        NativeSheetItemConfig(
+          id: 'delivery-fcm',
+          title: 'Google',
+          kind: NativeSheetItemKind.info,
+        ),
+      ]),
+    );
+
+    expect(
+      find.descendant(
+        of: _row('delivery-auto'),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: _row('delivery-fcm'),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('a row naming a known page opens that page rather than '
       'sending a change', (tester) async {
     final controller = await _pumpPage(
@@ -245,6 +279,43 @@ void main() {
         .deepEquals([('stt-language-code', 'fr'), ('tts-voice', 'verse')]);
   });
 
+  testWidgets('text typed on the page is sent before a switch is flipped', (
+    tester,
+  ) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'webhook.url:webhook-new',
+          title: 'URL',
+          kind: NativeSheetItemKind.textField,
+          value: '',
+        ),
+        const NativeSheetItemConfig(
+          id: 'webhook.enabled:webhook-new',
+          title: 'Enabled',
+          kind: NativeSheetItemKind.toggle,
+          value: true,
+        ),
+      ]),
+    );
+
+    await tester.enterText(
+      find.descendant(
+        of: _row('webhook.url:webhook-new'),
+        matching: find.byType(EditableText),
+      ),
+      'https://hooks.example.com/a',
+    );
+    await tester.tap(_row('webhook.enabled:webhook-new'));
+    await tester.pumpAndSettle();
+
+    check(controller.changes).deepEquals([
+      ('webhook.url:webhook-new', 'https://hooks.example.com/a'),
+      ('webhook.enabled:webhook-new', false),
+    ]);
+  });
+
   testWidgets('a page described again drops the values set on the last one', (
     tester,
   ) async {
@@ -302,5 +373,151 @@ void main() {
     await tester.pumpAndSettle();
 
     check(switchOn()).isFalse();
+  });
+
+  testWidgets('a page opened again after an earlier close stays open when '
+      'Settings registers its pages again', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        settingsControllerProvider.overrideWithValue(_RecordingController()),
+      ],
+    );
+    addTearDown(container.dispose);
+    final pages = container.read(settingsPagesProvider.notifier);
+    pages.register([
+      NativeSheetDetailConfig(
+        id: 'memory-add',
+        title: 'Add Memory',
+        items: [const NativeSheetItemConfig(id: 'content', title: 'Text')],
+      ),
+    ]);
+    // An earlier Add Memory, saved and closed.
+    pages.requestClose('memory-add');
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('settings root'),
+          routes: [
+            GoRoute(
+              path: 'add',
+              builder: (_, _) =>
+                  const SettingsDetailPage(detailId: 'memory-add'),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    router.push('/add');
+    await tester.pumpAndSettle();
+
+    // The root describes its pages again, as after a profile refresh.
+    pages.register([
+      NativeSheetDetailConfig(
+        id: 'voice',
+        title: 'Voice',
+        items: [const NativeSheetItemConfig(id: 'speed', title: 'Speed')],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isEmpty();
+
+    // A save that closes it now does.
+    pages.requestClose('memory-add');
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isNotEmpty();
+  });
+
+  testWidgets('a form asks before Back drops what was changed, and not when '
+      'nothing was', (tester) async {
+    NativeSheetDetailConfig form() => NativeSheetDetailConfig(
+      id: 'webhook-new',
+      title: 'New Destination',
+      confirmActionId: 'webhook.save:webhook-new',
+      discardPrompt: const NativeSheetDiscardPrompt(
+        title: 'Drop this destination?',
+        message: 'It has not been saved.',
+        discardLabel: 'Drop',
+        keepLabel: 'Stay',
+      ),
+      sections: [
+        const NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'webhook.enabled:webhook-new',
+              title: 'Enabled',
+              kind: NativeSheetItemKind.toggle,
+              value: true,
+            ),
+          ],
+        ),
+      ],
+    );
+    final controller = _RecordingController();
+    final container = ProviderContainer(
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('settings root'),
+          routes: [
+            GoRoute(
+              path: 'form',
+              builder: (_, _) => SettingsPageView(detail: form()),
+            ),
+          ],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    // Untouched, Back leaves at once.
+    router.push('/form');
+    await tester.pumpAndSettle();
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isNotEmpty();
+
+    // Changed, Back asks; keeping the edits stays on the form.
+    router.push('/form');
+    await tester.pumpAndSettle();
+    await tester.tap(_row('webhook.enabled:webhook-new'));
+    await tester.pumpAndSettle();
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    // The page's own question.
+    check(find.text('Drop this destination?').evaluate()).isNotEmpty();
+    check(find.text('It has not been saved.').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Stay'));
+    await tester.pumpAndSettle();
+    check(find.text('New Destination').evaluate()).isNotEmpty();
+
+    // Dropping the changes leaves.
+    await router.routerDelegate.navigatorKey.currentState!.maybePop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Drop'));
+    await tester.pumpAndSettle();
+    check(find.text('settings root').evaluate()).isNotEmpty();
   });
 }

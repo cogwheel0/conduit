@@ -408,6 +408,7 @@ class PlatformNativeSheetItem {
     this.accent,
     this.usesProfileAvatar,
     this.filterAllLabel,
+    this.confirmMessage,
   });
 
   String id;
@@ -454,6 +455,9 @@ class PlatformNativeSheetItem {
   bool? usesProfileAvatar;
 
   String? filterAllLabel;
+
+  /// Asked before the row acts; the row's title confirms.
+  String? confirmMessage;
 }
 
 class PlatformNativeSheetLink {
@@ -572,6 +576,10 @@ class PlatformNativeSheetDetail {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.discardTitle,
+    this.discardMessage,
+    this.discardConfirmLabel,
+    this.discardCancelLabel,
   });
 
   String id;
@@ -586,6 +594,13 @@ class PlatformNativeSheetDetail {
   /// A bar button that closes the sheet and then sends this action.
   String? trailingActionId;
   String? trailingActionSfSymbol;
+
+  /// What the page asks before its unsaved changes are dropped, by Back,
+  /// a swipe back, or the sheet swiped away. Null drops them without asking.
+  String? discardTitle;
+  String? discardMessage;
+  String? discardConfirmLabel;
+  String? discardCancelLabel;
 }
 
 class PlatformNativeProfileSheetConfig {
@@ -784,6 +799,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     this.subtitle,
     required this.clearSubtitle,
     this.detailSheets,
+    this.whole,
   });
 
   String detailId;
@@ -793,6 +809,10 @@ class PlatformNativeSheetApplyDetailPatchRequest {
   String? subtitle;
   bool clearSubtitle;
   List<PlatformNativeSheetDetail>? detailSheets;
+
+  /// The page in full, replacing everything it was -- its bar actions and
+  /// discard question too, which a patch of rows keeps.
+  PlatformNativeSheetDetail? whole;
 }
 
 class PlatformNativeSheetControlChangedEvent {
@@ -1149,6 +1169,10 @@ abstract class NativeSheetHostApi {
   );
 
   bool applyDetailPatch(PlatformNativeSheetApplyDetailPatchRequest request);
+
+  /// Closes the open page [detailId] of the native Settings sheet, going
+  /// back to the page that opened it. Returns whether it was open.
+  bool closeDetail(String detailId);
 }
 
 @FlutterApi()

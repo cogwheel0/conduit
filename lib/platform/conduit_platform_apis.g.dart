@@ -1619,6 +1619,7 @@ class PlatformNativeSheetItem {
     this.accent,
     this.usesProfileAvatar,
     this.filterAllLabel,
+    this.confirmMessage,
   });
 
   String id;
@@ -1693,6 +1694,9 @@ class PlatformNativeSheetItem {
 
   String? filterAllLabel;
 
+  /// Asked before the row acts; the row's title confirms.
+  String? confirmMessage;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -1728,6 +1732,7 @@ class PlatformNativeSheetItem {
       accent,
       usesProfileAvatar,
       filterAllLabel,
+      confirmMessage,
     ];
   }
 
@@ -1771,6 +1776,7 @@ class PlatformNativeSheetItem {
       accent: result[30] as bool?,
       usesProfileAvatar: result[31] as bool?,
       filterAllLabel: result[32] as String?,
+      confirmMessage: result[33] as String?,
     );
   }
 
@@ -1815,7 +1821,8 @@ class PlatformNativeSheetItem {
         _deepEquals(checked, other.checked) &&
         _deepEquals(accent, other.accent) &&
         _deepEquals(usesProfileAvatar, other.usesProfileAvatar) &&
-        _deepEquals(filterAllLabel, other.filterAllLabel);
+        _deepEquals(filterAllLabel, other.filterAllLabel) &&
+        _deepEquals(confirmMessage, other.confirmMessage);
   }
 
   @override
@@ -1824,7 +1831,7 @@ class PlatformNativeSheetItem {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel)';
+    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel, confirmMessage: $confirmMessage)';
   }
 }
 
@@ -2246,6 +2253,10 @@ class PlatformNativeSheetDetail {
     this.maxHeightFraction,
     this.trailingActionId,
     this.trailingActionSfSymbol,
+    this.discardTitle,
+    this.discardMessage,
+    this.discardConfirmLabel,
+    this.discardCancelLabel,
   });
 
   String id;
@@ -2269,6 +2280,16 @@ class PlatformNativeSheetDetail {
 
   String? trailingActionSfSymbol;
 
+  /// What the page asks before its unsaved changes are dropped, by Back,
+  /// a swipe back, or the sheet swiped away. Null drops them without asking.
+  String? discardTitle;
+
+  String? discardMessage;
+
+  String? discardConfirmLabel;
+
+  String? discardCancelLabel;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -2281,6 +2302,10 @@ class PlatformNativeSheetDetail {
       maxHeightFraction,
       trailingActionId,
       trailingActionSfSymbol,
+      discardTitle,
+      discardMessage,
+      discardConfirmLabel,
+      discardCancelLabel,
     ];
   }
 
@@ -2302,6 +2327,10 @@ class PlatformNativeSheetDetail {
       maxHeightFraction: result[7] as double?,
       trailingActionId: result[8] as String?,
       trailingActionSfSymbol: result[9] as String?,
+      discardTitle: result[10] as String?,
+      discardMessage: result[11] as String?,
+      discardConfirmLabel: result[12] as String?,
+      discardCancelLabel: result[13] as String?,
     );
   }
 
@@ -2324,7 +2353,11 @@ class PlatformNativeSheetDetail {
         _deepEquals(confirmActionLabel, other.confirmActionLabel) &&
         _deepEquals(maxHeightFraction, other.maxHeightFraction) &&
         _deepEquals(trailingActionId, other.trailingActionId) &&
-        _deepEquals(trailingActionSfSymbol, other.trailingActionSfSymbol);
+        _deepEquals(trailingActionSfSymbol, other.trailingActionSfSymbol) &&
+        _deepEquals(discardTitle, other.discardTitle) &&
+        _deepEquals(discardMessage, other.discardMessage) &&
+        _deepEquals(discardConfirmLabel, other.discardConfirmLabel) &&
+        _deepEquals(discardCancelLabel, other.discardCancelLabel);
   }
 
   @override
@@ -2333,7 +2366,7 @@ class PlatformNativeSheetDetail {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol)';
+    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol, discardTitle: $discardTitle, discardMessage: $discardMessage, discardConfirmLabel: $discardConfirmLabel, discardCancelLabel: $discardCancelLabel)';
   }
 }
 
@@ -3077,6 +3110,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
     this.subtitle,
     required this.clearSubtitle,
     this.detailSheets,
+    this.whole,
   });
 
   String detailId;
@@ -3093,6 +3127,10 @@ class PlatformNativeSheetApplyDetailPatchRequest {
 
   List<PlatformNativeSheetDetail>? detailSheets;
 
+  /// The page in full, replacing everything it was -- its bar actions and
+  /// discard question too, which a patch of rows keeps.
+  PlatformNativeSheetDetail? whole;
+
   List<Object?> _toList() {
     return <Object?>[
       detailId,
@@ -3102,6 +3140,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
       subtitle,
       clearSubtitle,
       detailSheets,
+      whole,
     ];
   }
 
@@ -3121,6 +3160,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
       clearSubtitle: result[5]! as bool,
       detailSheets: (result[6] as List<Object?>?)
           ?.cast<PlatformNativeSheetDetail>(),
+      whole: result[7] as PlatformNativeSheetDetail?,
     );
   }
 
@@ -3140,7 +3180,8 @@ class PlatformNativeSheetApplyDetailPatchRequest {
         _deepEquals(title, other.title) &&
         _deepEquals(subtitle, other.subtitle) &&
         _deepEquals(clearSubtitle, other.clearSubtitle) &&
-        _deepEquals(detailSheets, other.detailSheets);
+        _deepEquals(detailSheets, other.detailSheets) &&
+        _deepEquals(whole, other.whole);
   }
 
   @override
@@ -3149,7 +3190,7 @@ class PlatformNativeSheetApplyDetailPatchRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetApplyDetailPatchRequest(detailId: $detailId, items: $items, sections: $sections, title: $title, subtitle: $subtitle, clearSubtitle: $clearSubtitle, detailSheets: $detailSheets)';
+    return 'PlatformNativeSheetApplyDetailPatchRequest(detailId: $detailId, items: $items, sections: $sections, title: $title, subtitle: $subtitle, clearSubtitle: $clearSubtitle, detailSheets: $detailSheets, whole: $whole)';
   }
 }
 
@@ -6158,6 +6199,29 @@ class NativeSheetHostApi {
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
       <Object?>[request],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Closes the open page [detailId] of the native Settings sheet, going
+  /// back to the page that opened it. Returns whether it was open.
+  Future<bool> closeDetail(String detailId) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.closeDetail$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[detailId],
     );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 

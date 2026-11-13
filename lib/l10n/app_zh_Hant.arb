@@ -4787,6 +4787,7 @@
   "scheduledTaskTerminalRequired": "請選擇執行此代理的終端機。",
   "scheduledTaskAgentNeedsChat": "代理的結果會傳送到新聊天。",
   "scheduledTaskAgentsLoading": "正在載入此終端機的代理…",
+  "personalizationMemoryGone": "此記憶已不在伺服器上。請返回查看您的記憶。",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新通知",
   "pushReplyTitle": "新回覆",

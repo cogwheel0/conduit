@@ -17,7 +17,6 @@ export 'src/placeholder_caret_gap.dart';
 export 'src/adaptive_search_bar.dart';
 export 'src/ios_text_magnifier.dart';
 export 'src/adaptive_layout.dart';
-export 'src/adaptive_license_page.dart';
 export 'src/adaptive_mapped_scrollbar.dart';
 export 'src/platform_ui_capabilities.dart';
 
