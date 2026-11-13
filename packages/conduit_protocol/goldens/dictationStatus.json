@@ -1,0 +1,10 @@
+{
+  "engine": "server",
+  "serverAvailable": true,
+  "serverSource": "openWebUi",
+  "localAvailable": true,
+  "localReady": false,
+  "localModel": "tiny.en",
+  "language": "de",
+  "silenceMs": 1500
+}

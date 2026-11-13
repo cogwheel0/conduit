@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.59.0",
+  "protocolVersion": "1.60.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -1240,6 +1240,41 @@
       "name": "voice.deleteModel",
       "params": "VoiceModelRef",
       "result": "VoiceModels"
+    },
+    {
+      "name": "dictation.status",
+      "params": "DictationTarget",
+      "result": "DictationStatus"
+    },
+    {
+      "name": "recordings.list",
+      "params": "RecordingTarget",
+      "result": "RecordingList"
+    },
+    {
+      "name": "recordings.begin",
+      "params": "RecordingTarget",
+      "result": "RecordingStarted"
+    },
+    {
+      "name": "recordings.append",
+      "params": "RecordingChunk",
+      "result": "RecordingSaved"
+    },
+    {
+      "name": "recordings.close",
+      "params": "RecordingRef",
+      "result": "RecordingSaved"
+    },
+    {
+      "name": "recordings.discard",
+      "params": "RecordingRef",
+      "result": "RecordingList"
+    },
+    {
+      "name": "recordings.transcribe",
+      "params": "RecordingTranscribe",
+      "result": "VoiceTranscript"
     }
   ],
   "events": [
