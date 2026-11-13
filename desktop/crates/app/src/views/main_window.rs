@@ -1,0 +1,648 @@
+//! The main window's root: the routing gate over the session.
+//!
+//! * A blocking [`Status`] (fatal, or nothing routed yet) replaces the
+//!   content with its status card.
+//! * [`Route::Main`]: the main frame, the [`SidebarView`] beside the
+//!   [`ChatPane`], with the ⌘K [`PaletteView`] over both.
+//!   First run and sign-in live in the setup window ([`crate::windows`]);
+//!   the main window closes when a session ends, so it shows its status
+//!   card only for the moment before.
+//! * Over the content: the card for the oldest `ui.request` (answered with
+//!   ⌥⌘↩ / ⌥⌘⌫), toasts, and the reconnect banner.
+//! * Actions handled here: New Chat (⌘N) and New Temporary Chat (⇧⌘N),
+//!   the palette (⌘K), Find in Chat (⌘F, ⌘G, ⇧⌘G) and Search Chats (⌥⌘F),
+//!   ⌘W (which only hides the window with "Close to the menu bar" on), and
+//!   the sidebar's context-menu commands ([`ChatMenu`], [`MoveSelected`]).
+//!
+//! The sidebar's NSVisualEffectView follows the sidebar setting, the
+//! density's width and the sidebar's visibility.
+//!
+//! Hiding or showing the sidebar slides it over 220 ms on AppKit's
+//! ease-in-ease-out, as NSSplitView collapses a pane
+//! (`motion::specs::SIDEBAR`), interruptible, with the content reflowing
+//! beside it; the toolbar's traffic-light room follows the same progress
+//! ([`SidebarReveal`]). Under Reduce Motion it is instant.
+
+use conduit_components::ActiveConduitTheme as _;
+use conduit_components::motion::{self, Reduced, specs};
+use conduit_components::theme::SidebarStyle;
+use conduit_components::views::shell::MainWindowFrame;
+use conduit_protocol::BulkChatAction;
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, Global, Subscription, Window, div, px,
+};
+
+use crate::actions::{
+    AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, FindChats, FindInChat,
+    FindNext, FindPrevious, MoveChatTo, NewChat, NewFolder, NewTemporaryChat, NextChat,
+    OpenPalette, PreviousChat, RegenerateLastAnswer, RenameChat, ShareChat, TogglePinChat,
+};
+use crate::l10n::ActiveL10n as _;
+use crate::stores::Stores;
+use crate::stores::connection::Status;
+use crate::stores::layout::LayoutStore;
+use crate::stores::session::Route;
+use crate::stores::settings::SettingsStore;
+use crate::views::approvals::ApprovalsView;
+use crate::views::chat_pane::ChatPane;
+use crate::views::palette::PaletteView;
+use crate::views::sidebar::{
+    ActOnSelected, ChatCommand, ChatMenu, FolderMenu, MoveSelected, SidebarView,
+};
+use crate::views::status::{offline_banner, reconnect_banner, status_screen};
+use crate::views::toasts::toast_overlay;
+
+/// How much of the sidebar shows (0…1) this frame, set by the main window
+/// before its content draws: the chat toolbar keeps the traffic lights'
+/// room as the sidebar slides away.
+#[derive(Clone, Copy, Debug)]
+pub struct SidebarReveal(pub f32);
+
+impl Global for SidebarReveal {}
+
+impl SidebarReveal {
+    /// This frame's share, or the setting's when nothing set one.
+    pub fn of(visible: bool, cx: &App) -> f32 {
+        cx.try_global::<Self>()
+            .map_or(if visible { 1. } else { 0. }, |r| r.0)
+    }
+}
+
+/// What the window shows. When it changes, focus leaves the page that went
+/// (as AppKit's first responder does when a window's content is swapped).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Page {
+    Status,
+    Main,
+}
+
+pub struct MainWindow {
+    pub stores: Stores,
+    layout: Entity<LayoutStore>,
+    pub chat_pane: Entity<ChatPane>,
+    pub sidebar: Entity<SidebarView>,
+    pub palette: Entity<PaletteView>,
+    pub approvals: Entity<ApprovalsView>,
+    focus: FocusHandle,
+    /// The page drawn last.
+    page: Option<Page>,
+    #[cfg(target_os = "macos")]
+    material: crate::shell::macos::SidebarMaterial,
+    /// Frames drawn without the sidebar while its material is still up.
+    material_hold: MaterialHold,
+    _subscriptions: Vec<Subscription>,
+}
+
+/// The sidebar's material leaves only after [`MaterialHold::FRAMES`] frames
+/// drawn without the sidebar. AppKit shows a view's removal at once, while
+/// GPUI's frames reach the screen a frame or more later: taken off in the
+/// frame the sidebar went, the material left the sidebar GPUI still showed
+/// over bare wallpaper for a frame (seen with Reduce Motion's instant hide).
+/// Behind the content's opaque fill, a material kept a little longer shows
+/// nothing; one asked for again meanwhile simply stays.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MaterialHold(u8);
+
+/// What to do with the material this frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MaterialStep {
+    /// Show it this wide, or take it off.
+    Sync(Option<f64>),
+    /// Keep it up, and draw again next frame.
+    Hold,
+}
+
+impl MaterialHold {
+    pub const FRAMES: u8 = 3;
+
+    /// `want`: the material's width this frame (`None`: no sidebar);
+    /// `shown`: whether it is up.
+    pub fn step(&mut self, want: Option<f64>, shown: bool) -> MaterialStep {
+        if want.is_some() || !shown || self.0 >= Self::FRAMES {
+            self.0 = 0;
+            return MaterialStep::Sync(want);
+        }
+        self.0 += 1;
+        MaterialStep::Hold
+    }
+}
+
+impl MainWindow {
+    pub fn new(
+        stores: Stores,
+        settings: Entity<SettingsStore>,
+        layout: Entity<LayoutStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let approvals = cx.new(|cx| ApprovalsView::new(stores.clone(), window, cx));
+        let chat_pane = {
+            let (stores, layout, approvals) = (stores.clone(), layout.clone(), approvals.clone());
+            cx.new(|cx| ChatPane::new(stores, layout, approvals, window, cx))
+        };
+        let sidebar = cx.new(|cx| SidebarView::new(stores.clone(), window, cx));
+        let palette = cx.new(|cx| PaletteView::new(stores.clone(), window, cx));
+        let subscriptions = vec![
+            cx.observe(&stores.connection, |_, _, cx| cx.notify()),
+            cx.observe(&stores.session, |_, _, cx| cx.notify()),
+            cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
+            cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
+            cx.observe(&approvals, |_, _, cx| cx.notify()),
+            cx.observe(&stores.palette, |_, _, cx| cx.notify()),
+            cx.observe(&settings, |_, _, cx| cx.notify()),
+            cx.observe(&layout, |_, _, cx| cx.notify()),
+            // Geometry and the system's light/dark.
+            cx.observe_window_bounds(window, |this, window, cx| {
+                let bounds = window.window_bounds();
+                this.layout.update(cx, |l, cx| l.set_bounds(bounds, cx));
+                // View › Enter or Exit Full Screen.
+                crate::menus::set_full_screen(window.is_fullscreen(), cx);
+            }),
+            // Keyboard Navigation may have been switched in System Settings.
+            cx.observe_window_activation(window, |_, window, cx| {
+                if window.is_window_active() {
+                    crate::sync_keyboard_access(cx);
+                }
+            }),
+            cx.observe_window_appearance(window, move |_, window, cx| {
+                let dark = matches!(
+                    window.appearance(),
+                    gpui_kit::WindowAppearance::Dark | gpui_kit::WindowAppearance::VibrantDark
+                );
+                settings.update(cx, |s, cx| s.set_system_dark(dark, cx));
+            }),
+        ];
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
+        Self {
+            stores,
+            layout,
+            chat_pane,
+            sidebar,
+            palette,
+            approvals,
+            focus,
+            page: None,
+            #[cfg(target_os = "macos")]
+            material: Default::default(),
+            material_hold: MaterialHold::default(),
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// The route, as the window shows it.
+    pub fn route(&self, cx: &App) -> Route {
+        self.stores.session.read(cx).route(cx)
+    }
+
+    /// Whether the main frame shows (routed there, nothing blocking).
+    pub fn shows_main(&self, cx: &App) -> bool {
+        let route = self.route(cx);
+        let error = self
+            .stores
+            .session
+            .read(cx)
+            .error
+            .as_ref()
+            .map(|e| e.to_string());
+        let status = self
+            .stores
+            .connection
+            .read(cx)
+            .status(route != Route::Unknown, error.as_deref());
+        route == Route::Main && !status.blocks(route != Route::Unknown)
+    }
+
+    /// ⌘K: opens the palette (or closes it when open).
+    pub fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        self.palette.update(cx, |p, cx| {
+            if p.is_open(cx) {
+                p.close(window, cx)
+            } else {
+                p.open(window, cx)
+            }
+        });
+    }
+
+    /// New Chat (⌘N, File › New Chat, the sidebar's button, the palette):
+    /// a new chat, with the composer focused to type into.
+    pub fn new_chat(&mut self, temporary: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        self.stores
+            .navigation
+            .update(cx, |n, cx| n.new_chat(temporary, cx));
+        self.chat_pane
+            .update(cx, |p, cx| p.focus_composer(window, cx));
+    }
+
+    /// The open chat's id, when the Chat menu can act on it (not another
+    /// user's).
+    fn menu_chat(&self, cx: &App) -> Option<String> {
+        let id = self.stores.navigation.read(cx).selected_chat()?;
+        self.stores
+            .chat_list
+            .read(cx)
+            .find(id)
+            .filter(|c| !c.read_only)
+            .map(|c| c.id.clone())
+    }
+
+    /// A Chat menu command on the open chat (the sidebar carries it out, as
+    /// its context menu's).
+    fn chat_command(
+        &mut self,
+        command: impl FnOnce(&conduit_protocol::ChatSummary) -> ChatCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.menu_chat(cx) else {
+            return;
+        };
+        let Some(chat) = self.stores.chat_list.read(cx).find(&id).cloned() else {
+            return;
+        };
+        let command = command(&chat);
+        // With several chats selected in the sidebar, Archive, Move to and
+        // Delete… act on all of them (as Mail's Message menu does).
+        if self
+            .sidebar
+            .update(cx, |s, cx| s.run_on_selection(&command, window, cx))
+        {
+            return;
+        }
+        // Renaming happens in the sidebar's row: show it first.
+        if command == ChatCommand::Rename && !self.layout.read(cx).state.sidebar_visible {
+            self.layout.update(cx, |l, cx| l.toggle_sidebar(cx));
+        }
+        self.sidebar
+            .update(cx, |s, cx| s.run(&id, command, window, cx));
+    }
+
+    /// Chat › Next Chat (⌃⇥) or Previous Chat (⌃⇧⇥): opens the chat after
+    /// or before the open one in the sidebar's order, wrapping at the ends
+    /// (from a new chat, the first or the last). A multiple selection ends,
+    /// as an arrow ends Finder's.
+    pub fn step_chat(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        let open = self
+            .stores
+            .navigation
+            .read(cx)
+            .selected_chat()
+            .map(String::from);
+        let next = crate::views::sidebar_keys::step_chat(
+            self.sidebar.read(cx).rows(),
+            open.as_deref(),
+            forward,
+        );
+        let Some(id) = next.filter(|n| open.as_deref() != Some(n.as_str())) else {
+            return;
+        };
+        self.sidebar.update(cx, |s, cx| s.end_selection(cx));
+        self.stores.navigation.update(cx, |n, cx| n.open(id, cx));
+    }
+
+    /// Edit › Find › Search Chats (⌥⌘F): the sidebar's search field (the
+    /// sidebar shown first).
+    pub fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        if !self.layout.read(cx).state.sidebar_visible {
+            self.layout.update(cx, |l, cx| l.toggle_sidebar(cx));
+        }
+        self.sidebar.update(cx, |s, cx| s.focus_search(window, cx));
+    }
+
+    /// File › New Folder: the sidebar shown first, then a new folder named
+    /// in place at the top of its Folders.
+    pub fn new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        if !self.layout.read(cx).state.sidebar_visible {
+            self.layout.update(cx, |l, cx| l.toggle_sidebar(cx));
+        }
+        self.sidebar
+            .update(cx, |s, cx| s.start_new_folder(None, window, cx));
+    }
+
+    fn main_frame(&self, reveal: f32) -> AnyElement {
+        let mut frame = MainWindowFrame::new(self.chat_pane.clone()).sidebar_reveal(reveal);
+        if reveal > 0. {
+            frame = frame.sidebar(self.sidebar.clone());
+        }
+        // Always drawn: it fades out after it closes (and draws nothing
+        // once gone).
+        frame = frame.overlay(self.palette.clone());
+        frame.into_any_element()
+    }
+}
+
+impl Focusable for MainWindow {
+    fn focus_handle(&self, _: &gpui_kit::App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl Render for MainWindow {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let route = self.route(cx);
+        let session_error = self
+            .stores
+            .session
+            .read(cx)
+            .error
+            .as_ref()
+            .map(|e| e.to_string());
+        let status = self
+            .stores
+            .connection
+            .read(cx)
+            .status(route != Route::Unknown, session_error.as_deref());
+        let blocked = status.blocks(route != Route::Unknown);
+        let sidebar_visible = self.layout.read(cx).state.sidebar_visible;
+        let t = cx.conduit().clone();
+        let shows_main = !blocked && route == Route::Main;
+        let reveal = motion::tween(
+            "sidebar-reveal",
+            if sidebar_visible { 1. } else { 0. },
+            specs::SIDEBAR,
+            Reduced::Snap,
+            window,
+            cx,
+        );
+        cx.set_global(SidebarReveal(reveal));
+        let shows_sidebar = shows_main && reveal > 0.;
+
+        // The material stays full width while any of the sidebar shows:
+        // the opaque content beside the sliding sidebar covers the rest.
+        // (Resized each frame it would run ahead of GPUI's frames, which
+        // AppKit shows a frame or two later, and the desktop would show
+        // through the gap.)
+        #[cfg(target_os = "macos")]
+        {
+            let want = (shows_sidebar && t.prefs.sidebar == SidebarStyle::Material)
+                .then_some(f64::from(t.metrics.sidebar_width));
+            match self.material_hold.step(want, self.material.is_shown()) {
+                MaterialStep::Sync(want) => self.material.sync(window, want),
+                MaterialStep::Hold => window.request_animation_frame(),
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (window, &t);
+        // The list's faded ends are a mask on the window's content: off
+        // while the sidebar is not drawn.
+        if !shows_sidebar {
+            self.sidebar.read(cx).clear_edges(window);
+        }
+
+        let (page, content): (Page, AnyElement) = if shows_main {
+            (
+                Page::Main,
+                self.main_frame(if shows_sidebar { reveal } else { 0. }),
+            )
+        } else {
+            // Blocked, not routed yet, or a session that just ended (the
+            // setup window is taking over).
+            (
+                Page::Status,
+                status_screen(&status, &self.stores.connection, cx).into_any_element(),
+            )
+        };
+        // A field of the page that went (the server form's address, after
+        // Connect) would keep focus out of sight, and Tab would find no way
+        // into the new page: once that page is drawn, focus comes back to
+        // the window unless it already went somewhere on it.
+        if self.page.is_some_and(|p| p != page) {
+            let root = self.focus.clone();
+            window.on_next_frame(move |window, cx| {
+                if !root.contains_focused(window, cx) {
+                    window.focus(&root, cx);
+                }
+            });
+        }
+        self.page = Some(page);
+        let banner = match status {
+            Status::Reconnecting { .. } if !blocked => Some(reconnect_banner(
+                cx.l10n().desktop_core_reconnecting().into(),
+                cx,
+            )),
+            Status::Connecting | Status::CoreStarting if !blocked => Some(reconnect_banner(
+                cx.l10n().desktop_core_connecting().into(),
+                cx,
+            )),
+            // Opened from what the daemon stored, with the server out of
+            // reach: say so, as the phone does, until it answers again.
+            _ if shows_main && self.stores.session.read(cx).server_unreachable(cx) => {
+                Some(offline_banner(cx.l10n().desktop_offline().into(), cx))
+            }
+            _ => None,
+        };
+        // On the main frame the chat pane docks the card above its composer.
+        let approvals =
+            (!blocked && !shows_main && self.approvals.read(cx).has_request(cx)).then(|| {
+                div()
+                    .absolute()
+                    .bottom(px(20.))
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .px(px(20.))
+                    .child(self.approvals.clone())
+            });
+        // On the main frame the chat pane docks toasts above its composer.
+        let toasts = if shows_main {
+            None
+        } else {
+            toast_overlay(&self.stores.toasts, window, cx)
+        };
+        // Centred in the content pane, beside the sidebar (as far as it
+        // has slid in).
+        let banner = banner.map(|b| {
+            b.when(shows_sidebar, |d| {
+                d.pl(px(t.metrics.sidebar_width * reveal))
+            })
+        });
+        // A window with nothing focused sends actions to its root only, past
+        // these handlers (and the menus would read as unavailable): keep
+        // focus somewhere.
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus, cx);
+        }
+        let chat_menu = shows_main && self.menu_chat(cx).is_some();
+        // Find in Chat: over any open chat, read-only ones too.
+        let findable = shows_main && self.chat_pane.read(cx).chat.is_some();
+        let makes_folders = shows_main && self.sidebar.read(cx).can_make_folders(cx);
+
+        div()
+            .id("main-window")
+            .key_context("ConduitMainWindow")
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &AllowRequest, _, cx| {
+                this.approvals.update(cx, |a, cx| a.allow(cx));
+            }))
+            .on_action(cx.listener(|this, _: &DenyRequest, _, cx| {
+                this.approvals.update(cx, |a, cx| a.deny(cx));
+            }))
+            .on_action(
+                cx.listener(|this, _: &NewChat, window, cx| this.new_chat(false, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &NewTemporaryChat, window, cx| {
+                    this.new_chat(true, window, cx)
+                }),
+            )
+            // ⌘W: with "Close to the menu bar" on, the window only hides.
+            .on_action(cx.listener(|_, _: &CloseWindow, window, cx| {
+                if crate::desktop::closes_to_menu_bar(cx) {
+                    log::info!("close window: hiding the main window");
+                    crate::desktop::hide_main(cx);
+                } else {
+                    window.remove_window();
+                }
+            }))
+            .on_action(
+                cx.listener(|this, _: &OpenPalette, window, cx| this.toggle_palette(window, cx)),
+            )
+            .on_action(cx.listener(|this, a: &ChatMenu, window, cx| {
+                let (id, command) = (a.chat_id.clone(), a.command.clone());
+                this.sidebar
+                    .update(cx, |s, cx| s.run(&id, command, window, cx));
+            }))
+            .on_action(cx.listener(|this, a: &MoveSelected, window, cx| {
+                let folder = a.folder_id.clone();
+                this.sidebar
+                    .update(cx, |s, cx| s.bulk(BulkChatAction::Move, folder, window, cx));
+            }))
+            .on_action(cx.listener(|this, a: &ActOnSelected, window, cx| {
+                let action = a.action;
+                this.sidebar
+                    .update(cx, |s, cx| s.bulk(action, None, window, cx));
+            }))
+            .on_action(cx.listener(|this, a: &FolderMenu, window, cx| {
+                let (id, command) = (a.folder_id.clone(), a.command.clone());
+                this.sidebar
+                    .update(cx, |s, cx| s.run_folder(&id, command, window, cx));
+            }))
+            .when(shows_main, |d| {
+                d.on_action(cx.listener(|this, _: &FindChats, window, cx| this.find(window, cx)))
+                    .on_action(cx.listener(|this, _: &NextChat, _, cx| this.step_chat(true, cx)))
+                    .on_action(
+                        cx.listener(|this, _: &PreviousChat, _, cx| this.step_chat(false, cx)),
+                    )
+            })
+            // File › New Folder (and the sidebar list's own menu).
+            .when(makes_folders, |d| {
+                d.on_action(
+                    cx.listener(|this, _: &NewFolder, window, cx| this.new_folder(window, cx)),
+                )
+            })
+            .when(findable, |d| {
+                d.on_action(cx.listener(|this, _: &FindInChat, window, cx| {
+                    this.chat_pane.update(cx, |p, cx| p.open_find(window, cx));
+                }))
+                .on_action(cx.listener(|this, _: &FindNext, window, cx| {
+                    this.chat_pane
+                        .update(cx, |p, cx| p.find_step(true, window, cx));
+                }))
+                .on_action(cx.listener(|this, _: &FindPrevious, window, cx| {
+                    this.chat_pane
+                        .update(cx, |p, cx| p.find_step(false, window, cx));
+                }))
+            })
+            // The Chat menu: available only with a chat open that takes
+            // changes (GPUI greys out an item no handler answers).
+            .when(chat_menu, |d| {
+                d.on_action(cx.listener(|this, _: &RenameChat, window, cx| {
+                    this.chat_command(|_| ChatCommand::Rename, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &TogglePinChat, window, cx| {
+                    this.chat_command(
+                        |c| {
+                            if c.pinned {
+                                ChatCommand::Unpin
+                            } else {
+                                ChatCommand::Pin
+                            }
+                        },
+                        window,
+                        cx,
+                    )
+                }))
+                .on_action(cx.listener(|this, _: &ArchiveChat, window, cx| {
+                    this.chat_command(
+                        |c| {
+                            if c.archived {
+                                ChatCommand::Unarchive
+                            } else {
+                                ChatCommand::Archive
+                            }
+                        },
+                        window,
+                        cx,
+                    )
+                }))
+                .on_action(cx.listener(|this, _: &DeleteChat, window, cx| {
+                    this.chat_command(|_| ChatCommand::Delete, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ShareChat, window, cx| {
+                    this.chat_command(|_| ChatCommand::Share, window, cx)
+                }))
+                .on_action(cx.listener(|this, a: &MoveChatTo, window, cx| {
+                    let folder = a.folder_id.clone();
+                    this.chat_command(
+                        move |_| match folder {
+                            Some(f) => ChatCommand::MoveTo(f),
+                            None => ChatCommand::RemoveFromFolder,
+                        },
+                        window,
+                        cx,
+                    )
+                }))
+                .on_action(cx.listener(
+                    |this, _: &RegenerateLastAnswer, _, cx| {
+                        this.chat_pane.update(cx, |p, cx| p.regenerate_last(cx));
+                    },
+                ))
+            })
+            .relative()
+            .size_full()
+            .child(content)
+            .children(approvals)
+            .children(toasts)
+            .children(banner)
+    }
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::{MaterialHold, MaterialStep};
+
+    #[test]
+    fn the_material_leaves_only_after_frames_without_the_sidebar() {
+        let mut hold = MaterialHold::default();
+        assert_eq!(hold.step(Some(260.), false), MaterialStep::Sync(Some(260.)));
+        assert_eq!(hold.step(Some(260.), true), MaterialStep::Sync(Some(260.)));
+        // The sidebar went (Reduce Motion's instant hide): kept up while the
+        // frames without it reach the screen, then taken off.
+        for _ in 0..MaterialHold::FRAMES {
+            assert_eq!(hold.step(None, true), MaterialStep::Hold);
+        }
+        assert_eq!(hold.step(None, true), MaterialStep::Sync(None));
+        assert_eq!(hold.step(None, false), MaterialStep::Sync(None));
+        // Back before it left: it stays, and the next hide waits again.
+        assert_eq!(hold.step(None, true), MaterialStep::Hold);
+        assert_eq!(hold.step(Some(260.), true), MaterialStep::Sync(Some(260.)));
+        assert_eq!(hold.step(None, true), MaterialStep::Hold);
+    }
+}
