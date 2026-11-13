@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Esta lista puede estar desactualizada.",
   "desktopTasksSelect": "Selecciona una tarea para ver su programación y su historial.",
   "desktopScheduledTasksDescription": "Tu servidor de Open WebUI ejecuta estas tareas según su propio calendario, incluso cuando este Mac está sin conexión.",
-  "desktopTasksLastRun": "Última ejecución"
+  "desktopTasksLastRun": "Última ejecución",
+  "desktopWidgetAsk": "Pregunta a Conduit",
+  "desktopWidgetNewChat": "Nueva conversación",
+  "desktopWidgetVoiceCall": "Llamada de voz",
+  "desktopWidgetRecentChats": "Chats recientes",
+  "desktopWidgetNoChats": "Aún no hay chats",
+  "desktopWidgetSignedOut": "Inicia sesión en Conduit para ver aquí tus chats recientes.",
+  "desktopWidgetOpenConduit": "Abrir Conduit",
+  "desktopWidgetDescription": "Tus chats recientes, con Nueva conversación, Pregunta rápida y Llamada de voz a un clic."
 }

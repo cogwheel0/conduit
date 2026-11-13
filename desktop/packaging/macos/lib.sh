@@ -152,3 +152,35 @@ macho_files() {
     if file -b "$f" | grep -q 'Mach-O'; then printf '%s\n' "$f"; fi
   done
 }
+
+# The team that signs with identity $1: TEAM_ID from release.env, else the
+# certificate's (read off a signed probe), else nothing (ad-hoc).
+signing_team() {
+  [ "$1" = "-" ] && return 0
+  if [ -n "${TEAM_ID:-}" ]; then
+    printf '%s\n' "$TEAM_ID"
+    return 0
+  fi
+  local probe
+  probe="$(mktemp -d "${TMPDIR:-/tmp}/conduit-team.XXXXXX")"
+  cp /usr/bin/true "$probe/probe"
+  if codesign --force --sign "$1" --timestamp=none "$probe/probe" >/dev/null 2>&1; then
+    codesign -dv "$probe/probe" 2>&1 | sed -n 's/^TeamIdentifier=//p' | grep -v '^not set$' || true
+  fi
+}
+
+# The widget's app group (release.env WIDGET_APP_GROUP) for team $1; with
+# no team (ad-hoc) the team prefix is dropped.
+widget_group() {
+  if [ -n "$1" ]; then
+    printf '%s\n' "${WIDGET_APP_GROUP//@TEAM_ID@/$1}"
+  else
+    printf '%s\n' "${WIDGET_APP_GROUP#@TEAM_ID@.}"
+  fi
+}
+
+# The application identifier a provisioning profile grants ("TEAM.bundle.id").
+profile_app_id() {
+  security cms -D -i "$1" 2>/dev/null |
+    plutil -extract Entitlements.com\\.apple\\.application-identifier raw -o - - 2>/dev/null || true
+}

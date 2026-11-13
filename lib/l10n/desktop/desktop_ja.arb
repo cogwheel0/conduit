@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "この一覧は最新ではない可能性があります。",
   "desktopTasksSelect": "タスクを選択すると、スケジュールと履歴が表示されます。",
   "desktopScheduledTasksDescription": "この Mac がオフラインの間も、Open WebUI サーバーが独自のスケジュールでこれらのタスクを実行します。",
-  "desktopTasksLastRun": "前回の実行"
+  "desktopTasksLastRun": "前回の実行",
+  "desktopWidgetAsk": "Conduit に質問",
+  "desktopWidgetNewChat": "新しいチャット",
+  "desktopWidgetVoiceCall": "音声通話",
+  "desktopWidgetRecentChats": "最近のチャット",
+  "desktopWidgetNoChats": "まだチャットがありません",
+  "desktopWidgetSignedOut": "Conduit にサインインすると、ここに最近のチャットが表示されます。",
+  "desktopWidgetOpenConduit": "Conduitを開く",
+  "desktopWidgetDescription": "最近のチャットと、ワンクリックで使える「新しいチャット」「クイック質問」「音声通話」。"
 }

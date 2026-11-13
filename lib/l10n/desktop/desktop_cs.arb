@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Tento seznam může být neaktuální.",
   "desktopTasksSelect": "Vyberte úlohu a zobrazí se její plán a historie.",
   "desktopScheduledTasksDescription": "Váš server Open WebUI spouští tyto úlohy podle vlastního plánu, i když je tento Mac offline.",
-  "desktopTasksLastRun": "Poslední spuštění"
+  "desktopTasksLastRun": "Poslední spuštění",
+  "desktopWidgetAsk": "Zeptejte se Conduitu",
+  "desktopWidgetNewChat": "Nový chat",
+  "desktopWidgetVoiceCall": "Hlasový hovor",
+  "desktopWidgetRecentChats": "Nedávné chaty",
+  "desktopWidgetNoChats": "Zatím žádné chaty",
+  "desktopWidgetSignedOut": "Přihlaste se do Conduitu a uvidíte tu své nedávné chaty.",
+  "desktopWidgetOpenConduit": "Otevřít Conduit",
+  "desktopWidgetDescription": "Vaše nedávné chaty a k tomu Nový chat, Rychlý dotaz a Hlasový hovor na jedno kliknutí."
 }

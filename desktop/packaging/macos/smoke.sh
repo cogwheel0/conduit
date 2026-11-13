@@ -3,7 +3,10 @@
 #
 #   desktop/packaging/macos/smoke.sh APP [--launch]
 #
-# 1. The bundle: Info.plist lints, Apple Silicon only, signature valid.
+# 1. The bundle: Info.plist lints, Apple Silicon only, signature valid;
+#    the desktop widget is embedded (a sandboxed WidgetKit extension under
+#    the app's id, sharing its app group) with the library the app reloads
+#    it through.
 # 2. The bundled conduitd, as signed (hardened runtime, entitlements,
 #    its own libsqlite3): apps/daemon/tool/smoke.dart starts it, checks the
 #    handshake, and that it exits 0 on stdin EOF and on system.shutdown.
@@ -33,6 +36,28 @@ while IFS= read -r f; do
   [ "$(lipo -archs "$f")" = "$ARCH" ] || die "$f is $(lipo -archs "$f")"
 done < <(macho_files "$app")
 codesign --verify --deep --strict --verbose=2 "$app"
+
+log "desktop widget"
+appex="$app/Contents/PlugIns/ConduitWidget.appex"
+[ -d "$appex" ] || die "no Contents/PlugIns/ConduitWidget.appex"
+plutil -lint "$appex/Contents/Info.plist"
+point="$(plutil -extract NSExtension.NSExtensionPointIdentifier raw -o - "$appex/Contents/Info.plist")"
+[ "$point" = com.apple.widgetkit-extension ] || die "the widget's extension point is '$point'"
+app_id="$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")"
+widget_id="$(plutil -extract CFBundleIdentifier raw -o - "$appex/Contents/Info.plist")"
+[ "$widget_id" = "$app_id.widget" ] || die "the widget's id $widget_id is not $app_id.widget"
+group="$(plutil -extract ConduitAppGroup raw -o - "$app/Contents/Info.plist")"
+[ "$(plutil -extract ConduitAppGroup raw -o - "$appex/Contents/Info.plist")" = "$group" ] ||
+  die "the app and the widget name different app groups"
+codesign --verify --strict --verbose=2 "$appex"
+widget_ents="$(codesign -d --entitlements - --xml "$appex" 2>/dev/null | plutil -convert json -o - -)"
+grep -q '"com.apple.security.app-sandbox":true' <<<"$widget_ents" || die "the widget is not sandboxed"
+grep -Fq "\"$group\"" <<<"$widget_ents" || die "the widget lacks the app group $group"
+grep -Fq "\"$group\"" <<<"$(codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert json -o - -)" ||
+  die "the app lacks the app group $group"
+nm -gU "$app/Contents/Frameworks/libconduit_widget.dylib" | grep -q _conduit_widget_reload_all ||
+  die "libconduit_widget.dylib is missing or lacks conduit_widget_reload_all"
+printf 'widget %s, app group %s\n' "$widget_id" "$group"
 
 log "conduitd handshake (apps/daemon/tool/smoke.dart)"
 (cd "$REPO_ROOT/apps/daemon" && dart run tool/smoke.dart "$daemon")

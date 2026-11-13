@@ -159,6 +159,23 @@ jobs:
           echo "CONDUIT_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
+      # The desktop widget is listed by macOS only when provisioning
+      # profiles vouch for the app's and the widget's entitlements
+      # (docs/BUILDING-DESKTOP.md); without them the release ships it unlisted.
+      - name: Write the provisioning profiles
+        env:
+          APP_PROFILE: ${{ secrets.MACOS_APP_PROVISIONING_PROFILE }}
+          WIDGET_PROFILE: ${{ secrets.MACOS_WIDGET_PROVISIONING_PROFILE }}
+        run: |
+          if [ -z "$APP_PROFILE" ] || [ -z "$WIDGET_PROFILE" ]; then
+            echo "::warning::no MACOS_APP_PROVISIONING_PROFILE / MACOS_WIDGET_PROVISIONING_PROFILE: the widget won't be listed (docs/BUILDING-DESKTOP.md)"
+            exit 0
+          fi
+          printf '%s' "$APP_PROFILE" | base64 --decode > "$RUNNER_TEMP/app.provisionprofile"
+          printf '%s' "$WIDGET_PROFILE" | base64 --decode > "$RUNNER_TEMP/widget.provisionprofile"
+          echo "CONDUIT_APP_PROFILE=$RUNNER_TEMP/app.provisionprofile" >> "$GITHUB_ENV"
+          echo "CONDUIT_WIDGET_PROFILE=$RUNNER_TEMP/widget.provisionprofile" >> "$GITHUB_ENV"
+
       - name: Sign
         run: desktop/packaging/macos/bundle.sh sign --release --version "$VERSION"
 

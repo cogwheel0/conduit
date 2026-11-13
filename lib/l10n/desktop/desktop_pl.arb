@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Ta lista może być nieaktualna.",
   "desktopTasksSelect": "Wybierz zadanie, aby zobaczyć jego harmonogram i historię.",
   "desktopScheduledTasksDescription": "Twój serwer Open WebUI wykonuje te zadania według własnego harmonogramu, nawet gdy ten Mac jest offline.",
-  "desktopTasksLastRun": "Ostatnie uruchomienie"
+  "desktopTasksLastRun": "Ostatnie uruchomienie",
+  "desktopWidgetAsk": "Zapytaj Conduit",
+  "desktopWidgetNewChat": "Nowy czat",
+  "desktopWidgetVoiceCall": "Połączenie głosowe",
+  "desktopWidgetRecentChats": "Ostatnie czaty",
+  "desktopWidgetNoChats": "Brak czatów",
+  "desktopWidgetSignedOut": "Zaloguj się do Conduit, aby zobaczyć tu ostatnie czaty.",
+  "desktopWidgetOpenConduit": "Otwórz Conduit",
+  "desktopWidgetDescription": "Ostatnie czaty oraz Nowy czat, Szybkie pytanie i Połączenie głosowe na jedno kliknięcie."
 }

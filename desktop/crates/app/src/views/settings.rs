@@ -2239,18 +2239,22 @@ mod tests {
         assert_eq!(at(100), 1.);
     }
 
-    /// The app's Info.plist carries the same line (LICENSE's holder).
+    /// The app and its widget carry the same line (LICENSE's holder).
     #[test]
     fn the_about_copyright_is_the_bundles() {
-        let plist = include_str!("../../../../packaging/macos/Info.plist");
-        let key = plist.find("NSHumanReadableCopyright").unwrap();
-        let value = &plist[key..];
-        let start = value.find("<string>").unwrap() + "<string>".len();
-        assert!(
-            value[start..].starts_with(super::COPYRIGHT),
-            "{}",
-            &value[start..start + 40]
-        );
+        for plist in [
+            include_str!("../../../../packaging/macos/Info.plist"),
+            include_str!("../../../../packaging/macos/widget/Info.plist"),
+        ] {
+            let key = plist.find("NSHumanReadableCopyright").unwrap();
+            let value = &plist[key..];
+            let start = value.find("<string>").unwrap() + "<string>".len();
+            assert!(
+                value[start..].starts_with(super::COPYRIGHT),
+                "{}",
+                &value[start..start + 40]
+            );
+        }
     }
 
     #[test]

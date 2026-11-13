@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Deze lijst is mogelijk verouderd.",
   "desktopTasksSelect": "Selecteer een taak om het schema en de geschiedenis te zien.",
   "desktopScheduledTasksDescription": "Je Open WebUI-server voert deze taken uit volgens een eigen schema, ook als deze Mac offline is.",
-  "desktopTasksLastRun": "Laatste uitvoering"
+  "desktopTasksLastRun": "Laatste uitvoering",
+  "desktopWidgetAsk": "Vraag het Conduit",
+  "desktopWidgetNewChat": "Nieuwe chat",
+  "desktopWidgetVoiceCall": "Spraakoproep",
+  "desktopWidgetRecentChats": "Recente chats",
+  "desktopWidgetNoChats": "Nog geen chats",
+  "desktopWidgetSignedOut": "Log in bij Conduit om hier je recente chats te zien.",
+  "desktopWidgetOpenConduit": "Open Conduit",
+  "desktopWidgetDescription": "Je recente chats, met Nieuwe chat, Snelle vraag en Spraakoproep binnen één klik."
 }

@@ -7,7 +7,7 @@
 //! menu-bar item ([`tray`]) and open at login ([`login_item`]); Sparkle
 //! updates ([`updater`]); Reduce Motion ([`reduce_motion`]); and read
 //! aloud's voices and player ([`speech_engine`]) and Now Playing
-//! ([`now_playing`]).
+//! ([`now_playing`]); the desktop widget's snapshot ([`widget`]).
 
 pub mod crash;
 pub mod date_picker;
@@ -38,3 +38,4 @@ pub mod sso;
 pub mod tray;
 #[cfg(target_os = "macos")]
 pub mod updater;
+pub mod widget;
