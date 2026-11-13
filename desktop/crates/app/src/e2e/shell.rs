@@ -402,15 +402,15 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     if let Some((handle, _)) = cx.update(|cx| cx.global::<AppState>().settings_window.clone()) {
         let controls = ax(handle, "shell-settings-desktop", dir, cx).await;
         pass &= ok(
-            "Settings › Desktop has its four switches",
+            "Settings › Desktop has its three switches (notifications have their own pane)",
             [
                 "Close to the Menu Bar",
                 "Open at Login",
                 "Open Quick Ask from Anywhere",
-                "Notify When an Answer Finishes",
             ]
             .iter()
-            .all(|l| has(&controls, "Switch", l)),
+            .all(|l| has(&controls, "Switch", l))
+                && !has(&controls, "Switch", "Notify When an Answer Finishes"),
         );
         shoot_both_modes(handle, dir, "shell-settings-desktop", cx).await;
     }
@@ -730,7 +730,9 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
         );
     }
     // The main window shows the first chat; a Quick Ask chat finishes out
-    // of sight.
+    // of sight, with the app counted as behind other apps (the core then
+    // picks a system notification; in front it would be an in-app banner).
+    cx.update(|cx| desktop::set_e2e_background(true, cx));
     links(&[&format!("conduit://chat/{first_chat}")], cx);
     settle(cx, 500).await;
     cx.update(desktop::show_quick_ask);
@@ -756,7 +758,9 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
             "SMOKE info notifications are denied for this bundle in System Settings; delivery is checked under a fresh bundle (--e2e shell-notify)"
         );
         pass &= ok("with notifications denied, nothing is posted", !posted);
-        return failed_turn(first_chat, false, cx).await && pass;
+        let failed = failed_turn(first_chat, false, cx).await;
+        cx.update(|cx| desktop::set_e2e_background(false, cx));
+        return failed && pass;
     }
     let answer = cx.update(|cx| {
         quick_ask(cx)
@@ -799,6 +803,7 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
     pass &= ok("the clicked notification leaves Notification Center", !left);
 
     pass &= failed_turn(first_chat, true, cx).await;
+    cx.update(|cx| desktop::set_e2e_background(false, cx));
     // The chat on screen in the key main window gets no notification.
     links(&[&format!("conduit://chat/{first_chat}")], cx);
     focus_main(cx).await;

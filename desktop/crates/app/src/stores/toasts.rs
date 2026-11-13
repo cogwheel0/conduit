@@ -15,6 +15,9 @@ pub struct Toast {
     pub message: String,
     /// What "Try Again" does, on an error whose change can be sent again.
     pub retry: Option<Retry>,
+    /// The action button's label in place of "Try Again" (a notification
+    /// banner's Open).
+    pub action_label: Option<String>,
 }
 
 /// Sends a failed change again (the toast's "Try Again").
@@ -76,7 +79,30 @@ impl ToastStore {
         retry: Option<Retry>,
         cx: &mut Context<Self>,
     ) {
-        let message = message.into();
+        self.push(level, message.into(), retry, None, cx);
+    }
+
+    /// A toast whose button says `label` and runs `run` (pressing it
+    /// dismisses the toast first): an in-app notification banner.
+    pub fn show_with_action(
+        &mut self,
+        level: NoticeLevel,
+        message: impl Into<String>,
+        label: impl Into<String>,
+        run: Retry,
+        cx: &mut Context<Self>,
+    ) {
+        self.push(level, message.into(), Some(run), Some(label.into()), cx);
+    }
+
+    fn push(
+        &mut self,
+        level: NoticeLevel,
+        message: String,
+        retry: Option<Retry>,
+        action_label: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if message.trim().is_empty() {
             return;
         }
@@ -95,6 +121,7 @@ impl ToastStore {
             level,
             message,
             retry,
+            action_label,
         });
         while self.toasts.len() > MAX_TOASTS {
             self.toasts.remove(0);

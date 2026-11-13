@@ -22,7 +22,7 @@ use objc2_foundation::{NSArray, NSBundle, NSError, NSObject, NSObjectProtocol, N
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification,
     UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
-    UNNotificationRequest, UNNotificationResponse, UNNotificationSettings,
+    UNNotificationRequest, UNNotificationResponse, UNNotificationSettings, UNNotificationSound,
     UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
 
@@ -150,6 +150,9 @@ impl Notifier {
         content.setTitle(&NSString::from_str(&n.title));
         content.setBody(&NSString::from_str(&n.body));
         content.setThreadIdentifier(&NSString::from_str(&n.id));
+        if n.sound {
+            content.setSound(Some(&UNNotificationSound::defaultSound()));
+        }
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
             &NSString::from_str(&n.id),
             &content,

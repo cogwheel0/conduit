@@ -34,7 +34,13 @@ fn tab_description(tab: Tab) -> &'static str {
         Tab::Language => "Settings › Language.",
         Tab::Keyboard => "Settings › Keyboard: every shortcut, rebindable.",
         Tab::Desktop => {
-            "Settings › Desktop: menu bar, open at login, Quick Ask, notifications (the harness's profile turns the global shortcut and notifications off)."
+            "Settings › Desktop: menu bar, open at login, Quick Ask (the harness's profile turns the global shortcut off)."
+        }
+        Tab::Notifications => {
+            "Settings › Notifications: what notifies and how; webhook destinations behind Advanced."
+        }
+        Tab::PersonalConnections => {
+            "Settings › Personal Connections: the account's own tool servers and terminals."
         }
         Tab::Data => {
             "Settings › Data: clear local data; Diagnostics (the report, the background service's version, the data and log folders)."

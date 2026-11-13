@@ -4,9 +4,9 @@
 //! * **General** (`Tab::Desktop`): close to the menu bar (with its
 //!   menu-bar item), open at login (`SMAppService`, with the system's
 //!   status), the Quick Ask shortcut (on/off, rebindable with conflict
-//!   checks, and a note when another app holds it), and "Notify when an
-//!   answer finishes" (whose footer says why a notification never carries
-//!   the answer).
+//!   checks, and a note when another app holds it).
+//! * **Notifications** ([`notifications`]): the phone's page (what notifies
+//!   and how), and the account's webhook destinations behind Advanced.
 //! * **Accounts**: the saved accounts with the active one marked; Switch,
 //!   Sign in again, a row menu to sign out of (and remove) one, and Add
 //!   Account (a window sheet, [`crate::views::add_account`]). Signing out
@@ -28,19 +28,24 @@
 //! The phone's Settings pages, in the phone's groups (see [`Tab::ALL`]):
 //! **Profile**, **Personalization** and **Connection** for the account
 //! ([`profile`], [`personalization`], [`connection`]); **Chat** and
-//! **Audio** with Appearance ([`chats`], [`audio`]); and **Data Controls**
-//! behind Advanced ([`data_controls`]). Accounts ends with Sign Out (this
+//! **Audio** with Appearance ([`chats`], [`audio`]); and **Personal
+//! Connections** and **Data Controls** behind Advanced ([`connections`],
+//! [`data_controls`]). Accounts ends with Sign Out (this
 //! account, or all of them).
 
 pub mod audio;
 pub mod chats;
 pub mod connection;
+pub mod connection_editor;
+pub mod connections;
 pub mod controls;
 pub mod data_controls;
 pub mod hermes;
 pub mod librechat_memories;
+pub mod notifications;
 pub mod personalization;
 pub mod profile;
+pub mod webhook_editor;
 
 use std::rc::Rc;
 
@@ -78,7 +83,7 @@ use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
 use crate::stores::connection::ConnectionStore;
 use crate::stores::settings::{RecordMessage, SettingsStore};
-use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess};
+use crate::stores::shell::{HotkeyState, LoginState};
 use crate::views::accounts::{accounts_sections, remove_account};
 use crate::views::add_account::{self, AddAccountSheet};
 use crate::views::direct::pane::DirectPane;
@@ -109,6 +114,8 @@ pub enum Tab {
     Chats,
     Audio,
     DataControls,
+    Notifications,
+    PersonalConnections,
 }
 
 impl Tab {
@@ -116,12 +123,15 @@ impl Tab {
     /// Accounts); then the phone's groups in the phone's order: the
     /// account's pages (Profile, Personalization, Connection), the app's
     /// (Appearance, Chat, Audio, then the Mac's Language and Keyboard), the
-    /// connections (Direct, Hermes), Advanced (Data Controls), and last
-    /// what is about this Mac and the app (Data, About).
-    pub const ALL: [Self; 15] = [
+    /// connections (Direct, Hermes), Advanced (Personal Connections, Data
+    /// Controls), and last what is about this Mac and the app (Data,
+    /// About). Notifications follows Profile, as on the phone, and shows for
+    /// every backend (answers notify for all of them).
+    pub const ALL: [Self; 17] = [
         Self::Desktop,
         Self::Accounts,
         Self::Profile,
+        Self::Notifications,
         Self::Personalization,
         Self::Connection,
         Self::Appearance,
@@ -131,6 +141,7 @@ impl Tab {
         Self::Keyboard,
         Self::Direct,
         Self::Hermes,
+        Self::PersonalConnections,
         Self::DataControls,
         Self::Data,
         Self::About,
@@ -143,10 +154,10 @@ impl Tab {
     fn group(self) -> u8 {
         match self {
             Self::Desktop | Self::Accounts => 0,
-            Self::Profile | Self::Personalization | Self::Connection => 1,
+            Self::Profile | Self::Notifications | Self::Personalization | Self::Connection => 1,
             Self::Appearance | Self::Chats | Self::Audio | Self::Language | Self::Keyboard => 2,
             Self::Direct | Self::Hermes => 3,
-            Self::DataControls => 4,
+            Self::PersonalConnections | Self::DataControls => 4,
             Self::Data | Self::About => 5,
         }
     }
@@ -168,7 +179,7 @@ impl Tab {
             .filter(|tab| match tab {
                 Self::Profile | Self::Connection => open_webui,
                 Self::Personalization => open_webui || !hermes_only,
-                Self::DataControls => open_webui && advanced,
+                Self::DataControls | Self::PersonalConnections => open_webui && advanced,
                 _ => true,
             })
             .collect()
@@ -200,6 +211,8 @@ impl Tab {
             Self::Chats => "chat",
             Self::Audio => "audio",
             Self::DataControls => "data-controls",
+            Self::Notifications => "notifications",
+            Self::PersonalConnections => "personal-connections",
         }
     }
 
@@ -221,6 +234,8 @@ impl Tab {
             Self::Chats => IconName::MessageSquare,
             Self::Audio => IconName::AudioLines,
             Self::DataControls => IconName::DatabaseBackup,
+            Self::Notifications => IconName::Bell,
+            Self::PersonalConnections => IconName::Network,
         }
     }
 
@@ -241,6 +256,8 @@ impl Tab {
             Self::Chats => l10n.chat_settings(),
             Self::Audio => l10n.audio_settings_title(),
             Self::DataControls => l10n.chat_data_controls_title(),
+            Self::Notifications => l10n.notifications_title(),
+            Self::PersonalConnections => l10n.personal_connections_title(),
         }
     }
 }
@@ -409,6 +426,8 @@ pub struct SettingsView {
     pub chats: Option<Entity<chats::ChatsPane>>,
     pub audio: Option<Entity<audio::AudioPane>>,
     pub data_controls: Option<Entity<data_controls::DataControlsPane>>,
+    pub notifications: Option<Entity<notifications::NotificationsPane>>,
+    pub personal_connections: Option<Entity<connections::PersonalConnectionsPane>>,
     /// About's server rows and links (`settings.about`).
     pub about_info: Option<conduit_protocol::AboutInfo>,
     /// The account the panes above were made for: another one starts them
@@ -488,6 +507,8 @@ impl SettingsView {
             chats: None,
             audio: None,
             data_controls: None,
+            notifications: None,
+            personal_connections: None,
             about_info: None,
             account,
             about_failed: false,
@@ -516,6 +537,10 @@ impl SettingsView {
         self.direct = None;
         self.chats = None;
         self.data_controls = None;
+        // The account's webhook destinations and its own tool servers and
+        // terminals.
+        self.notifications = None;
+        self.personal_connections = None;
         self.about_info = None;
         self.about_failed = false;
         self.about_round += 1;
@@ -550,6 +575,13 @@ impl SettingsView {
                 p.update(cx, |p, cx| p.refresh_quietly(cx));
             }
             cx.notify();
+            // Personal Connections reads them again each time it is shown,
+            // as mobile's page does (another device may have changed them).
+            if tab == Tab::PersonalConnections
+                && let Some(p) = &self.personal_connections
+            {
+                p.update(cx, |p, cx| p.refresh(cx));
+            }
         }
     }
 
@@ -664,6 +696,32 @@ impl SettingsView {
         let stores = self.stores.clone();
         self.audio
             .get_or_insert_with(|| cx.new(|cx| audio::AudioPane::new(stores, window, cx)))
+            .clone()
+    }
+
+    fn notifications_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<notifications::NotificationsPane> {
+        let stores = self.stores.clone();
+        self.notifications
+            .get_or_insert_with(|| {
+                cx.new(|cx| notifications::NotificationsPane::new(stores, window, cx))
+            })
+            .clone()
+    }
+
+    fn personal_connections_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<connections::PersonalConnectionsPane> {
+        let stores = self.stores.clone();
+        self.personal_connections
+            .get_or_insert_with(|| {
+                cx.new(|cx| connections::PersonalConnectionsPane::new(stores, window, cx))
+            })
             .clone()
     }
 
@@ -1650,7 +1708,7 @@ impl SettingsView {
             .map(|d| d.shell.read(cx))
             .map(|s| (s.hotkey, s.notifications, s.login, s.login_error.clone()))
             .unwrap_or_default();
-        let (hotkey, notifications, login, login_error) = shell;
+        let (hotkey, _, login, login_error) = shell;
         let settings = self.settings.clone();
         let toggle = |id: &'static str,
                       label: String,
@@ -1723,55 +1781,6 @@ impl SettingsView {
             _ => None,
         };
 
-        // Notifications.
-        let notify = toggle(
-            "notify-answers",
-            l10n.desktop_notify_answers(),
-            prefs.notify_answers,
-            |d, on| d.notify_answers = on,
-        );
-        let notify_channels = toggle(
-            "notify-channels",
-            l10n.desktop_notify_channels(),
-            prefs.notify_channels,
-            |d, on| d.notify_channels = on,
-        );
-        let mut notify_footer = l10n.desktop_notify_answers_footer();
-        let denied = notifications == NotificationAccess::Denied
-            && (prefs.notify_answers || prefs.notify_channels);
-        if denied {
-            notify_footer = format!("{notify_footer}\n\n{}", l10n.desktop_notifications_denied());
-        } else if notifications == NotificationAccess::Unavailable {
-            notify_footer = format!(
-                "{notify_footer}\n\n{}",
-                l10n.desktop_notifications_unavailable()
-            );
-        }
-        let mut notify_rows = vec![
-            setting_row(l10n.desktop_notify_answers(), None, notify, cx).into_any_element(),
-            setting_row(
-                l10n.desktop_notify_channels(),
-                Some(l10n.desktop_notify_channels_footer().into()),
-                notify_channels,
-                cx,
-            )
-            .into_any_element(),
-        ];
-        if denied {
-            notify_rows.push(
-                setting_row(
-                    l10n.desktop_notifications_off(),
-                    None,
-                    Button::new("notification-settings", l10n.desktop_open_system_settings())
-                        .on_click(Rc::new(|_, _, cx| {
-                            crate::desktop::open_notification_settings(cx)
-                        })),
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
-
         vec![
             settings_section(
                 l10n.desktop_menu_bar_section(),
@@ -1819,13 +1828,6 @@ impl SettingsView {
                     )
                     .into_any_element(),
                 ],
-                cx,
-            )
-            .into_any_element(),
-            settings_section(
-                l10n.desktop_notifications_section(),
-                Some(notify_footer.into()),
-                notify_rows,
                 cx,
             )
             .into_any_element(),
@@ -2229,6 +2231,13 @@ impl Render for SettingsView {
             Tab::Chats => vec![self.chats_pane(window, cx).into_any_element()],
             Tab::Audio => vec![self.audio_pane(window, cx).into_any_element()],
             Tab::DataControls => vec![self.data_controls_pane(window, cx).into_any_element()],
+            Tab::Notifications => vec![self.notifications_pane(window, cx).into_any_element()],
+            Tab::PersonalConnections => {
+                vec![
+                    self.personal_connections_pane(window, cx)
+                        .into_any_element(),
+                ]
+            }
         };
         // A pane replacing another fades in over 100 ms, from the frame the
         // button went down (a plain fade, so Reduce Motion keeps it); the

@@ -1,5 +1,9 @@
 {
   "@@locale": "en",
+  "personalConnectionsDeleteTitle": "Delete connection?",
+  "@personalConnectionsDeleteTitle": {
+    "description": "Title of the confirmation for deleting a personal connection."
+  },
   "scheduledTaskDeleteTitle": "Delete scheduled task?",
   "@scheduledTaskDeleteTitle": {
     "description": "Title of the confirmation dialog before deleting a scheduled task."
@@ -4260,14 +4264,6 @@
   "@desktopChannelAddSearchHint": {
     "description": "Placeholder of the search field that finds people and groups to add to a channel."
   },
-  "desktopNotifyChannels": "Notify About Channel Messages",
-  "@desktopNotifyChannels": {
-    "description": "Settings › Desktop switch: a notification when someone posts in a channel that is not in front of the user."
-  },
-  "desktopNotifyChannelsFooter": "A channel set to Mentions Only notifies only when you're mentioned. Notifications never show the message.",
-  "@desktopNotifyChannelsFooter": {
-    "description": "Footer under the channel notifications switch in Settings › Desktop."
-  },
   "desktopChannelNotificationTitle": "{author} in {channel}",
   "@desktopChannelNotificationTitle": {
     "description": "Title of a notification for a channel message: {author} posted in {channel}.",
@@ -4471,10 +4467,6 @@
   "@desktopQuickAskShortcutUnavailable": {
     "description": "Shown when the system could not start global shortcuts at all."
   },
-  "desktopNotifyAnswers": "Notify When an Answer Finishes",
-  "@desktopNotifyAnswers": {
-    "description": "Switch in Settings > Desktop for system notifications when an answer finishes out of sight."
-  },
   "desktopNotifyAnswersFooter": "Notifications show only the chat's title, never the answer, because they can appear on the lock screen and on shared screens.",
   "@desktopNotifyAnswersFooter": {
     "description": "Footer under the notifications switch explaining why notifications never include message content."
@@ -4487,9 +4479,25 @@
   "@desktopNotificationsUnavailable": {
     "description": "Shown when the app runs outside an app bundle and cannot post notifications."
   },
-  "desktopNotificationsOff": "Notifications Off",
-  "@desktopNotificationsOff": {
-    "description": "Row title next to the button that opens macOS notification settings."
+  "desktopNotifyMentionsOnly": "Only Mentions and Direct Messages",
+  "@desktopNotifyMentionsOnly": {
+    "description": "Settings › Notifications: under Channel Messages, only mentions of you and direct messages alert."
+  },
+  "desktopNotifyMentionsOnlyDetail": "Other channel messages still count as unread.",
+  "@desktopNotifyMentionsOnlyDetail": {
+    "description": "Below Only Mentions and Direct Messages: what happens to the other messages."
+  },
+  "desktopAddDestinationEllipsis": "Add Destination…",
+  "@desktopAddDestinationEllipsis": {
+    "description": "Settings › Notifications › Webhook Destinations: opens the sheet that adds one."
+  },
+  "desktopAddToolServerEllipsis": "Add Tool Server…",
+  "@desktopAddToolServerEllipsis": {
+    "description": "Settings › Personal Connections: opens the sheet that adds a tool server."
+  },
+  "desktopAddTerminalEllipsis": "Add Terminal…",
+  "@desktopAddTerminalEllipsis": {
+    "description": "Settings › Personal Connections: opens the sheet that adds a terminal."
   },
   "desktopMenuBarSection": "Menu Bar",
   "@desktopMenuBarSection": {
