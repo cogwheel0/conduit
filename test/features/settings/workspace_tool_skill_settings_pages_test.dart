@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -397,6 +399,38 @@ final class _Export extends WorkspaceExportController {
   }
 }
 
+/// An Open WebUI server answering every write with [answer], after running
+/// [onWrite]; reads get an empty list.
+final class _Server implements HttpClientAdapter {
+  _Server(this.answer);
+
+  final Object? answer;
+  void Function()? onWrite;
+  final writes = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.method != 'GET') {
+      writes.add('${options.method} ${options.path}');
+      onWrite?.call();
+    }
+    return ResponseBody.fromString(
+      jsonEncode(options.method == 'GET' ? const <Object?>[] : answer),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 final class _Rig {
   _Rig(this.tester, this.container);
 
@@ -482,6 +516,7 @@ void main() {
     String? markdown,
     _Export? export,
     SettingsController? controller,
+    bool serverSkills = false,
   }) async {
     final container = ProviderContainer(
       retry: (_, _) => null,
@@ -500,7 +535,10 @@ void main() {
         ),
         workspaceServerVersionProvider.overrideWithValue(serverVersion),
         workspaceToolsProvider.overrideWith(() => tools ?? _Tools()),
-        workspaceSkillsProvider.overrideWith(() => skills ?? _Skills()),
+        // The skills provider as the app has it, over [api], when a test
+        // needs what the server answers to reach the page.
+        if (!serverSkills)
+          workspaceSkillsProvider.overrideWith(() => skills ?? _Skills()),
         workspaceToolDetailProvider('tool-1')
             .overrideWith((ref) async => tool ?? _tool()),
         workspaceSkillDetailProvider('skill-1')
@@ -1492,6 +1530,26 @@ void main() {
       await rig.open(_skill1);
       check(rig.page(_skill1).announcement)
           .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a delete the server did not confirm, as another account '
+        'signed in, says it was not saved', (tester) async {
+      // Through the app's own provider: a session change it raises means a
+      // change taken, and an unconfirmed one must not read as one.
+      final server = _Server(false);
+      api.dio.httpClientAdapter = server;
+      final rig = await pump(tester, serverSkills: true);
+      server.onWrite = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('delete', _skillKey));
+
+      check(server.writes)
+          .deepEquals(['DELETE /api/v1/skills/id/skill-1/delete']);
+      await rig.open(_skill1);
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
     });
 
     testWidgets('a duplicate refused after another account signed in makes '
