@@ -201,6 +201,10 @@ final class _Files extends WorkspaceKnowledgeFiles {
   final uploaded = <List<String>>[];
   final detached = <(String, bool)>[];
   final made = <String>[];
+
+  /// The folder the browser was in as each folder was made.
+  final madeIn = <String>[];
+  final reindexed = <String>[];
   final renamed = <(String, String)>[];
   final moved = <(String, String?)>[];
   final attached = <String>[];
@@ -266,7 +270,11 @@ final class _Files extends WorkspaceKnowledgeFiles {
   Future<void> createDirectory(String name) async {
     _maybeFail();
     made.add(name);
+    madeIn.add(state.value?.directoryId ?? '');
   }
+
+  @override
+  Future<void> reindex(String fileId) async => reindexed.add(fileId);
 
   @override
   Future<void> rename(String fileId, String filename) async =>
@@ -304,9 +312,12 @@ final class _SignedIn extends Notifier<User?> {
 final _signedInProvider = NotifierProvider<_SignedIn, User?>(_SignedIn.new);
 
 final class _UserFiles extends UserFiles {
-  _UserFiles(this.files);
+  _UserFiles(this.files, [this.error]);
 
   final List<FileInfo> files;
+
+  /// What a read throws, while it says.
+  final Object? Function()? error;
 
   @override
   Future<List<FileInfo>> build() async {
@@ -314,6 +325,8 @@ final class _UserFiles extends UserFiles {
     if (ref.watch(currentUserProvider2)?.id == 'user-2') {
       throw StateError('offline');
     }
+    final failure = error?.call();
+    if (failure != null) throw failure;
     return files;
   }
 }
@@ -464,6 +477,7 @@ void main() {
     WorkspaceCapabilities capabilities = WorkspaceCapabilities.all,
     List<WorkspaceUploadSource> picked = const [],
     List<FileInfo> userFiles = const [],
+    Object? Function()? userFilesError,
     bool newBaseReadable = true,
   }) async {
     late final _Surface surface;
@@ -497,7 +511,9 @@ void main() {
             .overrideWith(() => files ?? _Files()),
         workspaceKnowledgeFilesProvider('kb-new')
             .overrideWith(() => _Files(folders: const [], files: const [])),
-        userFilesProvider.overrideWith(() => _UserFiles(userFiles)),
+        userFilesProvider.overrideWith(
+          () => _UserFiles(userFiles, userFilesError),
+        ),
         workspaceKnowledgeFilePickerProvider.overrideWithValue(
           () async => picked,
         ),
@@ -528,6 +544,8 @@ void main() {
       check(view.kind).equals(NativeSheetItemKind.segment);
       check(view.options.map((option) => option.id))
           .deepEquals(['', 'created', 'shared']);
+      // Every base, as the provider's 'all' means, until another is picked.
+      check(view.value).equals('');
       final base = rig.row(list, _base1)!;
       check(base.subtitle!).contains(_l10n.workspaceKnowledgeSourceLocal);
 
@@ -1204,6 +1222,84 @@ void main() {
       await rig.open(_root);
 
       check(rig.closed).deepEquals([_root]);
+    });
+
+    testWidgets("a row of another account's editor reads and sends nothing", (
+      tester,
+    ) async {
+      final browser = _Files(more: true);
+      final rig = await files(tester, browser: browser);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await rig.change(_row('files-more', _key, ''));
+      await rig.change(_row('reindex', _key, 'file-1'));
+
+      check(browser.loadedMore).equals(0);
+      check(browser.reindexed).isEmpty();
+    });
+
+    testWidgets('back from a folder, the one below is read again, and what '
+        'is made goes there', (tester) async {
+      // As on Settings's own pages, which do not say they appeared again.
+      final browser = _Files();
+      final rig = await files(tester, browser: browser);
+      final maps = workspaceKnowledgeFolderPageId(_key, 'dir-1');
+      await rig.open(maps);
+      check(browser.opened).deepEquals(['dir-1']);
+
+      rig.leave(maps);
+      await rig.settle(Future<void>.value());
+
+      check(browser.opened).deepEquals(['dir-1', '']);
+      check(rig.row(_root, '$_root-file-file-1')).isNotNull();
+      final form = _form(WorkspaceKnowledgeForms.folder, '');
+      await rig.open(form);
+      await rig.change(
+        _formRow('name', WorkspaceKnowledgeForms.folder, ''),
+        'Summits',
+      );
+      await rig.change(_formRow('done', WorkspaceKnowledgeForms.folder, ''));
+      check(browser.madeIn).deepEquals(['']);
+    });
+
+    testWidgets('an Attach read that fails shows Retry, not its last '
+        'answer, and Retry reads again', (tester) async {
+      Object? failure;
+      final rig = await pump(
+        tester,
+        userFiles: [_serverFile('srv-1', 'gear.md')],
+        userFilesError: () => failure,
+      );
+      await rig.open(_base1);
+      await rig.open(_root);
+      final attach = _form(WorkspaceKnowledgeForms.attach, '');
+      final retry = _row(
+        'attach-retry',
+        _key,
+        '${WorkspaceKnowledgeForms.attach}|',
+      );
+      await rig.open(attach);
+      check(rig.titles(attach)).deepEquals(['gear.md']);
+
+      // Read again, as after files change elsewhere, and it fails.
+      failure = StateError('offline');
+      rig.container.invalidate(userFilesProvider);
+      await rig.change(retry);
+      check(rig.row(attach, retry)).isNotNull();
+      check(rig.titles(attach)).not((it) => it.contains('gear.md'));
+
+      failure = null;
+      await rig.change(retry);
+      check(rig.titles(attach)).deepEquals(['gear.md']);
     });
 
     testWidgets('a form left keeps nothing typed into it', (tester) async {

@@ -934,7 +934,17 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       if (editor != null) {
         editor.foldersShown.remove(folder.directoryId);
         editor.folderNotices.remove(folder.directoryId);
-        if (editor.foldersShown.isEmpty) _stopFollowing(editor.key);
+        if (editor.foldersShown.isEmpty) {
+          _stopFollowing(editor.key);
+        } else {
+          // The folder below is on top again, and what is added goes where
+          // the browser is: it goes back there. Settings's own pages do not
+          // say they appeared again, as the native sheet's do.
+          final below = editor.foldersShown.last;
+          if (_current(editor) && _browser(editor)?.directoryId != below) {
+            unawaited(_readFolder(editor, below, refresh: false));
+          }
+        }
       }
       return;
     }
@@ -1346,7 +1356,9 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     // Left, or searched again meanwhile: this answer is not shown.
     if (!_current(editor) || draft == null || draft.query != query) return;
     if (files == null) {
+      // An earlier answer to the same search is not shown as this one's.
       _attachFailed.add(query);
+      _attachCache().remove(query);
     } else {
       _attachCache()[query] = files;
     }
@@ -1366,7 +1378,9 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     final row = parseWorkspaceRowId(id);
     if (row == null || !row.field.startsWith('knowledge-')) return false;
     final editor = _editors[row.key];
-    if (editor == null) return true;
+    // A row of another account's editor, drawn before it signed in, is
+    // not acted on: nothing is read or sent for it under this account.
+    if (editor == null || !_current(editor)) return true;
     final field = row.field.substring('knowledge-'.length);
     if (field == 'retry') {
       await _load(editor);
@@ -1483,6 +1497,11 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
             : workspaceKnowledgeFormPageId(form.kind, editor.key, form.target);
         final draft = pageId == null ? null : editor.forms[pageId];
         if (form == null || draft == null) return true;
+        // Kept alive, a failed read of the account's files stays the answer
+        // until it is dropped.
+        if (draft.query.isEmpty && _ref.read(userFilesProvider).hasError) {
+          _ref.invalidate(userFilesProvider);
+        }
         await _readAttachFiles(editor, form.kind, form.target, draft.query);
       case 'attach-pick' when row.extra != null:
         final bar = row.extra!.indexOf('|');
@@ -1660,6 +1679,8 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     final exported = bytes;
     if (!ok || exported == null) return;
     await _applyEditor(l10n, editor, withPages: false);
+    // Read for an account since gone, the base is not shared.
+    if (!_current(editor)) return;
     try {
       await _ref
           .read(workspaceExportControllerProvider)
@@ -1739,6 +1760,9 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
     if (provider == null || folder == null || (editor.filesReadOnly && !read)) {
       return false;
     }
+    // Checked with no await before the request: a picker or a question may
+    // have waited while another account signed in.
+    if (!_current(editor)) return false;
     editor.folderNotices.remove(folder);
     String? problem;
     try {

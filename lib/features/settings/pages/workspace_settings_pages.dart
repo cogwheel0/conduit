@@ -749,7 +749,8 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           loading: value.isLoading || (data?.isLoading ?? false),
           failed: value.hasError || data?.error != null,
           query: data?.query ?? '',
-          view: data?.view ?? '',
+          // The provider says 'all' for every base: the segment's '' option.
+          view: workspaceKnowledgeViewFilter(data?.view ?? ''),
           source: data?.source ?? '',
           hasMore: data?.hasMore ?? false,
           loadingMore: data?.isLoadingMore ?? false,
