@@ -422,6 +422,36 @@ final class VoiceService {
     }
   }
 
+  // What dictation (`dictation.*`, `recordings.*`) asks of the local
+  // engine; the window chooses the engine, and the server's side is the
+  // chat's own backend there.
+
+  /// `server`, or `local` for whisper on this computer.
+  String get sttEngine => _engine;
+
+  /// Whether this build has the whisper library.
+  bool get localAvailable => _library != null;
+
+  /// Whether whisper can transcribe now: the library and the chosen model.
+  bool get localReady => _readyModel != null;
+
+  /// The whisper model chosen, by id.
+  String? get localModelId => _chosenModel?.id;
+
+  /// Whether the account's Open WebUI server transcribes (its STT engine is
+  /// not the browser's).
+  Future<bool> openWebUiTranscribes() async {
+    final config = await _config();
+    return config != null && transcribes(config);
+  }
+
+  /// [bytes] (16 kHz WAV), transcribed by whisper on this computer.
+  Future<VoiceTranscript> transcribeHere(Uint8List bytes, String type) =>
+      _transcribeLocally(bytes, type);
+
+  /// How a server's refusal reads on the wire.
+  static RpcError rpcErrorFromDio(DioException error) => _fromDio(error);
+
   ApiService _api() {
     final api = _container.read(apiServiceProvider);
     if (api == null) {
