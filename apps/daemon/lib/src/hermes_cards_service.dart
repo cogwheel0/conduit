@@ -4,6 +4,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         HermesDecisionAnswerOutcome,
         HermesPendingDecision,
+        hermesDecisionsAskTheSame,
         answerHermesDecision,
         pendingHermesDecisionOf;
 import 'package:conduit_core/features/hermes/models/hermes_background_work.dart'
@@ -502,9 +503,19 @@ final class HermesCardsService {
       if (offer.chatId != chatId || offer.decision.messageId != message.id) {
         continue;
       }
-      if (decision == null ||
-          decision.requestId != offer.decision.requestId ||
-          decision.runtimeId != offer.decision.runtimeId) {
+      final renewed =
+          decision != null &&
+          (decision.requestId != offer.decision.requestId ||
+              decision.runtimeId != offer.decision.runtimeId);
+      // The same question asked again under new ids (a resumed session
+      // replays what it still waits on): its card stays, with what the
+      // user is typing into it, and its answer goes to the question as
+      // asked now.
+      if (renewed && hermesDecisionsAskTheSame(offer.decision, decision)) {
+        _renew(offer, chatId, decision);
+        continue;
+      }
+      if (decision == null || renewed) {
         _settle(offer, choice: 'deny');
       }
     }
@@ -691,6 +702,24 @@ final class HermesCardsService {
     }
   }
 
+  /// Points [offer]'s card at [decision], the question it shows asked
+  /// again under new ids.
+  void _renew(_Offer offer, String chatId, HermesPendingDecision decision) {
+    // Said in the log as a warning (the daemon's log keeps no core info):
+    // a replay that would have reset a card the user may be typing into.
+    DebugLogger.warning(
+      'hermes-decision-replayed',
+      scope: 'daemon/hermes',
+      data: <String, Object?>{'kind': decision.kind.name},
+    );
+    if (_offered[offer.key] == offer.requestId) _offered.remove(offer.key);
+    offer.key = _key(chatId, decision);
+    offer.decision = decision;
+    // Asked again: by the connection that asks now, which alone answers it.
+    offer.service = offer.container.read(hermesApiServiceProvider);
+    _offered[offer.key] = offer.requestId;
+  }
+
   void _settle(_Offer offer, {required String choice}) {
     if (offer.done) return;
     _uiRequests?.settle(offer.requestId, choice: choice);
@@ -767,15 +796,19 @@ final class _Offer {
 
   final String chatId;
   final String requestId;
-  final String key;
-  final HermesPendingDecision decision;
+
+  /// The question it shows, as asked now ([HermesCardsService._renew]
+  /// moves it to a replay's ids).
+  String key;
+  HermesPendingDecision decision;
   final ProviderContainer container;
 
   /// The conversation that asked, as the scope opened it.
   final String owner;
 
-  /// The Hermes connection that asked: only it is answered.
-  final HermesBackendService? service;
+  /// The Hermes connection that asked: only it is answered
+  /// ([HermesCardsService._renew] takes the one that asks again).
+  HermesBackendService? service;
   bool answering = false;
   bool held = false;
   bool done = false;

@@ -140,6 +140,66 @@ void main() {
       expect(questions.last['multiSelect'], isTrue);
     });
 
+    test(
+      'a question replayed under a new runtime keeps its card, answered anew',
+      () async {
+        // Reading a chat resumes its session, which replays the questions it
+        // still waits on under the resumed runtime: the same question, new
+        // ids. The card the user may be typing into stays.
+        for (final kind in <String>['secret', 'sudo', 'clarification']) {
+          seen.clear();
+          final first = answer(<String, dynamic>{
+            'kind': kind,
+            'prompt': 'Enter your Demo Weather API key',
+            'requestId': 'srq-$kind',
+          });
+          cards.project('local:hermes_session-1', container, 'c1', first);
+          await pumpEventQueue();
+          final request = requests().single;
+
+          final replayed = first.copyWith(
+            metadata: <String, dynamic>{
+              ...first.metadata!,
+              kHermesDecisionMeta: <String, dynamic>{
+                ...(first.metadata![kHermesDecisionMeta] as Map)
+                    .cast<String, dynamic>(),
+                'requestId': 'srq-$kind-replayed',
+                'runtimeId': 'runtime-2',
+              },
+            },
+          );
+          cards.project('local:hermes_session-1', container, 'c1', replayed);
+          await pumpEventQueue();
+          expect(settled(), isEmpty, reason: kind);
+          expect(requests(), hasLength(1), reason: kind);
+
+          // A different question is another card.
+          final other = replayed.copyWith(
+            metadata: <String, dynamic>{
+              ...replayed.metadata!,
+              kHermesDecisionMeta: <String, dynamic>{
+                ...(replayed.metadata![kHermesDecisionMeta] as Map)
+                    .cast<String, dynamic>(),
+                'requestId': 'srq-$kind-other',
+                'prompt': 'Enter your Demo Maps API key',
+              },
+            },
+          );
+          cards.project('local:hermes_session-1', container, 'c1', other);
+          await pumpEventQueue();
+          expect(settled(), <String>[request.requestId], reason: kind);
+          expect(requests(), hasLength(2), reason: kind);
+          cards.project(
+            'local:hermes_session-1',
+            container,
+            'c1',
+            other.copyWith(metadata: <String, dynamic>{}),
+          );
+          await pumpEventQueue();
+        }
+      },
+    );
+
     test('a question answered elsewhere settles its card', () async {
       final waiting = answer(<String, dynamic>{'kind': 'sudo'});
       cards.project('local:hermes_session-1', container, 'c1', waiting);

@@ -13,7 +13,10 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
         effectiveDirectConnectionProfilesFutureProvider,
         openWebUiDirectCompletionSocketRelayProvider;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
-    show hermesConfigProvider;
+    show
+        hermesConfigProvider,
+        hostHermesDashboardBridgeFactoryProvider,
+        hostHermesDashboardSignOutProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
@@ -51,6 +54,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'bootstrap.dart';
 import 'daemon_paths.dart';
+import 'hermes_dashboard_cookies.dart';
 import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
 import 'apple_models_service.dart' show AppleModelsBridge, appleModelsOverrides;
@@ -87,6 +91,7 @@ final class CoreRuntime {
     required this.handoff,
     required this.calls,
     required this.apple,
+    required this.dashboardCookies,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -114,6 +119,10 @@ final class CoreRuntime {
   /// The window's Foundation Models engine, as the core's Apple host: the
   /// Apple service binds it to the event bus once there is one.
   final AppleModelsBridge apple;
+
+  /// The Hermes dashboard sessions the window's sign-in handed over, and
+  /// the core's cookie store ([DaemonHermesDashboardCookies]).
+  final DaemonHermesDashboardCookies dashboardCookies;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -256,6 +265,9 @@ final class CoreRuntime {
     final handoff = DaemonHandoffPort();
     final calls = CallPorts();
     final apple = AppleModelsBridge();
+    final dashboardCookies = await DaemonHermesDashboardCookies.open(
+      secureStore,
+    );
 
     final container = ProviderContainer(
       observers: observers,
@@ -320,6 +332,40 @@ final class CoreRuntime {
         // as the phone's reaches its Swift bridge. Private Cloud Compute is
         // never offered: this build has no entitlement for it.
         ...appleModelsOverrides(apple),
+        // A Desktop Gateway's dashboard sign-in runs in the window's browser
+        // window, which hands the cookies over; the daemon then holds them
+        // as a phone's WebView does, and sends the dashboard's requests with
+        // them (the phone sends them from a hidden WebView page). Its store
+        // holds only those: Open WebUI's sign-in windows keep nothing.
+        cookieJarProvider.overrideWithValue(dashboardCookies),
+        hostHermesDashboardBridgeFactoryProvider.overrideWith(
+          (ref) =>
+              ({
+                required Uri root,
+                required Map<String, String> accessHeaders,
+              }) => dashboardCookies.bridge(
+                root: root,
+                accessHeaders: accessHeaders,
+                httpClient: hermesDashboardHttpClientFor(
+                  root,
+                  ref.read(hermesConfigProvider),
+                ),
+              ),
+        ),
+        hostHermesDashboardSignOutProvider.overrideWith(
+          (ref) =>
+              ({
+                required Uri root,
+                required Map<String, String> accessHeaders,
+              }) => dashboardCookies.signOut(
+                root: root,
+                accessHeaders: accessHeaders,
+                httpClient: hermesDashboardHttpClientFor(
+                  root,
+                  ref.read(hermesConfigProvider),
+                ),
+              ),
+        ),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //
@@ -331,8 +377,6 @@ final class CoreRuntime {
         //   defaults are the correct degenerate case.
         // * `clipboardPortProvider` -- the clipboard belongs to the
         //   renderer's process, not this one, so it crosses as RPC.
-        // * `cookieJarProvider` -- filled in by external sign-in, where
-        //   the desktop app's sign-in windows are what actually hold cookies.
       ],
     );
 
@@ -400,6 +444,7 @@ final class CoreRuntime {
       handoff: handoff,
       calls: calls,
       apple: apple,
+      dashboardCookies: dashboardCookies,
       boxes: boxes.all,
     );
   }

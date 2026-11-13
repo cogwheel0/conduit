@@ -233,6 +233,7 @@ class DaemonServer {
       core.container,
       events: events,
       hermes: _hermes,
+      dashboardCookies: core.dashboardCookies,
     );
     _chats = ChatsService(
       core.container,

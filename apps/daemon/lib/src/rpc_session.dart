@@ -524,10 +524,7 @@ class RpcSession {
       (_) => _requireAuth().twoStepCancel(),
     );
     _on(ConduitMethodSpecs.authRetry, (_) => _requireAuth().retry());
-    _on(
-      ConduitMethodSpecs.authRenewProxy,
-      (p) => _requireAuth().renewProxy(p),
-    );
+    _on(ConduitMethodSpecs.authRenewProxy, (p) => _requireAuth().renewProxy(p));
   }
 
   void _registerSettings() {
@@ -1227,6 +1224,26 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.hermesConnectionsSetEnabled,
       (p) => _need(_hermesAdmin).setEnabled(p.enabled),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsProfiles,
+      (p) => _need(_hermesAdmin).profiles(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesToolsetsSet,
+      (p) => _need(_hermesAdmin).setToolset(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesSkillsReload,
+      (p) => _need(_hermesAdmin).reloadSkills(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDashboardStart,
+      (p) => _need(_hermesAdmin).dashboardStart(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDashboardComplete,
+      (p) => _need(_hermesAdmin).dashboardComplete(p),
     );
     _on(
       ConduitMethodSpecs.hermesMcpList,
