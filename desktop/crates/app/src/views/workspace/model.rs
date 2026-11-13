@@ -3,7 +3,8 @@
 //! base model, description and tags; the system prompt and suggested
 //! prompts; capabilities and the features a new chat starts with; the
 //! knowledge, tools, skills, filters and actions it brings (each chosen in
-//! a sheet); and the advanced parameters, stop sequences and voice. Keys
+//! a sheet); and the advanced parameters, stop sequences, terminal, voice
+//! and built-in tools (a JSON object, as the phone edits them). Keys
 //! the editor does not show are kept by the daemon, which saves over the
 //! model as the server has it.
 
@@ -16,8 +17,9 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::views::kit::{Button, IconButton, Switch, grouped_section};
 use conduit_protocol::{
-    NoticeLevel, WorkspaceDetail, WorkspaceKind, WorkspaceModelDto, WorkspaceModelOptions,
-    WorkspaceRef, WorkspaceRelation, WorkspaceSave, WorkspaceSectionAccess, methods,
+    NoticeLevel, WorkspaceDetail, WorkspaceImageSource, WorkspaceKind, WorkspaceModelDto,
+    WorkspaceModelOptions, WorkspaceRef, WorkspaceRelation, WorkspaceSave, WorkspaceSectionAccess,
+    methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
@@ -169,6 +171,7 @@ fn blank_model() -> WorkspaceModelDto {
         base_model_id: None,
         description: String::new(),
         image_url: None,
+        image_source: WorkspaceImageSource::Server,
         tags: vec![],
         system: String::new(),
         stop: vec![],
@@ -183,6 +186,7 @@ fn blank_model() -> WorkspaceModelDto {
         default_feature_ids: vec![],
         tts_voice: String::new(),
         terminal_id: String::new(),
+        builtin_tools: serde_json::Value::Object(Default::default()),
         active: true,
         hidden: false,
         params: serde_json::Value::Object(Default::default()),
@@ -229,6 +233,17 @@ pub fn data_url_image(url: &str) -> Option<Arc<Image>> {
     Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
+/// The form's errors, by field: none until the first save, then each
+/// field's own.
+#[derive(Debug, Default, PartialEq)]
+struct FieldErrors {
+    name: Option<String>,
+    id: Option<String>,
+    base: Option<String>,
+    params: Option<String>,
+    builtin_tools: Option<String>,
+}
+
 /// What a capability or feature checkbox does to the model.
 type FlagToggle = Rc<dyn Fn(&mut ModelEditor, &mut Context<ModelEditor>)>;
 
@@ -243,6 +258,7 @@ pub struct ModelEditor {
     pub model: WorkspaceModelDto,
     initial: WorkspaceModelDto,
     initial_params: String,
+    initial_builtin: String,
     options: Option<WorkspaceModelOptions>,
     name: Entity<InputState>,
     model_id: Entity<InputState>,
@@ -251,9 +267,19 @@ pub struct ModelEditor {
     system: Entity<TextareaState>,
     params: Entity<TextareaState>,
     stop: Entity<InputState>,
+    terminal: Entity<InputState>,
     voice: Entity<InputState>,
+    builtin_tools: Entity<TextareaState>,
     suggestions: Vec<Entity<InputState>>,
+    /// A picture drawn here: picked, or kept in the model as a `data:` URL.
     image: Option<Arc<Image>>,
+    /// The picture was removed here (not saved yet): the server's is not
+    /// shown either.
+    image_removed: bool,
+    /// The body's scroll position (the E2E brings Advanced into view).
+    pub scroll: gpui_kit::ScrollHandle,
+    /// The last frame drew a picture, not the initial (the E2E pass).
+    drew_picture: std::cell::Cell<bool>,
     id_typed: bool,
     submitted: bool,
     saving: bool,
@@ -282,7 +308,13 @@ impl ModelEditor {
         let description = forms::input(l.desktop_workspace_model_description(), false, window, cx);
         let tags = forms::input(l.desktop_workspace_comma_separated(), false, window, cx);
         let stop = forms::input(l.desktop_workspace_model_stop_hint(), false, window, cx);
+        let terminal = forms::input("", false, window, cx);
         let voice = forms::input("", false, window, cx);
+        let builtin_tools = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(3, 12)
+                .placeholder("{ \"memory\": false }")
+        });
         let system = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(4, 16)
@@ -312,7 +344,7 @@ impl ModelEditor {
                 }
             }),
         ];
-        for state in [&description, &tags, &stop, &voice] {
+        for state in [&description, &tags, &stop, &terminal, &voice] {
             subscriptions.push(
                 cx.subscribe_in(state, window, |_, _, e: &InputEvent, _, cx| {
                     if matches!(e, InputEvent::Change) {
@@ -321,7 +353,7 @@ impl ModelEditor {
                 }),
             );
         }
-        for state in [&system, &params] {
+        for state in [&system, &params, &builtin_tools] {
             subscriptions.push(
                 cx.subscribe_in(state, window, |this, _, e: &InputEvent, _, cx| {
                     if matches!(e, InputEvent::Change) {
@@ -341,6 +373,7 @@ impl ModelEditor {
             model: blank_model(),
             initial: blank_model(),
             initial_params: String::new(),
+            initial_builtin: String::new(),
             options: None,
             name,
             model_id,
@@ -349,9 +382,14 @@ impl ModelEditor {
             system,
             params,
             stop,
+            terminal,
             voice,
+            builtin_tools,
             suggestions: vec![],
             image: None,
+            image_removed: false,
+            scroll: gpui_kit::ScrollHandle::new(),
+            drew_picture: std::cell::Cell::new(false),
             id_typed: false,
             submitted: false,
             saving: false,
@@ -394,12 +432,75 @@ impl ModelEditor {
         );
     }
 
+    /// Where the saved model's picture is on its server, when the window
+    /// loads it from there: the model is saved, keeps no `data:` picture
+    /// and none on another site.
+    fn server_picture(
+        &self,
+        m: &WorkspaceModelDto,
+        cx: &App,
+    ) -> Option<crate::stores::files::ModelImageRef> {
+        if m.id.is_empty() || m.image_source != WorkspaceImageSource::Server {
+            return None;
+        }
+        let server_id = self
+            .stores
+            .accounts
+            .read(cx)
+            .active()
+            .map(|a| a.connection.id.clone())?;
+        Some(crate::stores::files::ModelImageRef {
+            server_id,
+            model_id: m.id.clone(),
+        })
+    }
+
+    /// The picture the editor shows: one drawn here, else the server's
+    /// once loaded; None for the model's initial.
+    ///
+    /// A picture on another site ([`WorkspaceImageSource::Remote`]) is not
+    /// fetched: loading it would tell that site the user opened the model.
+    /// TODO: give a `Remote` picture the answers' click-to-load once it
+    /// exists: classify `image_url`
+    /// with `stores::media::classify`, show its placeholder with Load Image
+    /// (session-only) and Always Load Images from the host
+    /// (`prefs.remote_image_hosts`), and load through the daemon's
+    /// anonymous `GET /media/image?url=` as `views/chat/remote_image.rs`
+    /// does for markdown images. Until then the initial stands in.
+    fn picture(&self, window: &mut Window, cx: &mut App) -> Option<gpui_kit::ImageSource> {
+        if let Some(image) = &self.image {
+            return Some(gpui_kit::ImageSource::Image(image.clone()));
+        }
+        if self.image_removed || self.id.is_none() {
+            return None;
+        }
+        let picture = self.server_picture(&self.model, cx)?;
+        match crate::stores::files::model_image_state(&picture, window, cx)? {
+            Ok(image) => Some(gpui_kit::ImageSource::Render(image)),
+            Err(_) => None,
+        }
+    }
+
+    /// The built-in tools field's error, once a save was tried: the E2E
+    /// pass.
+    pub fn builtin_tools_error(&self, cx: &App) -> Option<String> {
+        let l = cx.l10n().clone();
+        self.errors(false, &l, cx).builtin_tools
+    }
+
+    /// Whether the last frame drew a picture (not the initial): the E2E
+    /// pass. (The picture itself loads only while drawing.)
+    pub fn shows_picture(&self) -> bool {
+        self.drew_picture.get()
+    }
+
     fn writable(&self) -> bool {
         self.access.manage && self.detail.as_ref().is_none_or(|d| d.write_access)
     }
 
-    /// The model as the form holds it now.
-    fn form(&self, cx: &App) -> (WorkspaceModelDto, String) {
+    /// The model as the form holds it now, with the text of its two JSON
+    /// fields (the parameters, the built-in tools).
+    fn form(&self, cx: &App) -> (WorkspaceModelDto, String, String) {
         let mut m = self.model.clone();
         m.name = self.name.read(cx).value().trim().to_string();
         m.id = self.model_id.read(cx).value().trim().to_string();
@@ -407,6 +508,7 @@ impl ModelEditor {
         m.tags = editor::split_list(&self.tags.read(cx).value());
         m.system = self.system.read(cx).value().to_string();
         m.stop = editor::split_list(&self.stop.read(cx).value());
+        m.terminal_id = self.terminal.read(cx).value().trim().to_string();
         m.tts_voice = self.voice.read(cx).value().trim().to_string();
         m.suggestion_prompts = self
             .suggestions
@@ -414,7 +516,11 @@ impl ModelEditor {
             .map(|s| s.read(cx).value().trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        (m, self.params.read(cx).value().to_string())
+        (
+            m,
+            self.params.read(cx).value().to_string(),
+            self.builtin_tools.read(cx).value().to_string(),
+        )
     }
 
     fn set_suggestions(&mut self, prompts: &[String], window: &mut Window, cx: &mut Context<Self>) {
@@ -446,7 +552,7 @@ impl ModelEditor {
     fn saved_under_edits(
         &mut self,
         detail: WorkspaceDetail,
-        mut sent: (WorkspaceModelDto, String),
+        mut sent: (WorkspaceModelDto, String, String),
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -461,7 +567,7 @@ impl ModelEditor {
         sent.0.id = id.clone();
         self.id = Some(id);
         self.detail = Some(detail);
-        (self.initial, self.initial_params) = sent;
+        (self.initial, self.initial_params, self.initial_builtin) = sent;
         self.id_typed = true;
         self.submitted = false;
     }
@@ -483,18 +589,29 @@ impl ModelEditor {
             .update(cx, |s, cx| s.set_value(m.system.clone(), window, cx));
         self.stop
             .update(cx, |s, cx| s.set_value(m.stop.join(", "), window, cx));
+        self.terminal
+            .update(cx, |s, cx| s.set_value(m.terminal_id.clone(), window, cx));
         self.voice
             .update(cx, |s, cx| s.set_value(m.tts_voice.clone(), window, cx));
         let params = params_text(&m.params);
         self.params
             .update(cx, |s, cx| s.set_value(params.clone(), window, cx));
+        let builtin = params_text(&m.builtin_tools);
+        self.builtin_tools
+            .update(cx, |s, cx| s.set_value(builtin, window, cx));
         self.set_suggestions(&m.suggestion_prompts, window, cx);
         self.image = m.image_url.as_deref().and_then(data_url_image);
+        self.image_removed = false;
+        // The server's picture may have changed with this read or save.
+        if let Some(picture) = self.server_picture(&m, cx) {
+            crate::stores::files::forget_model_image(&picture, cx);
+        }
         self.model = m;
         self.detail = Some(detail);
-        let (form, params) = self.form(cx);
+        let (form, params, builtin) = self.form(cx);
         self.initial = form;
         self.initial_params = params;
+        self.initial_builtin = builtin;
         self.id_typed = true;
         self.submitted = false;
         cx.notify();
@@ -508,44 +625,39 @@ impl ModelEditor {
     }
 
     /// The field errors: all of them with `all`, else once submitted.
-    fn errors(
-        &self,
-        all: bool,
-        l: &L10n,
-        cx: &App,
-    ) -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
+    fn errors(&self, all: bool, l: &L10n, cx: &App) -> FieldErrors {
         if !all && !self.submitted {
-            return (None, None, None, None);
+            return FieldErrors::default();
         }
-        let (m, params) = self.form(cx);
-        (
-            m.name
+        let (m, params, builtin) = self.form(cx);
+        FieldErrors {
+            name: m
+                .name
                 .is_empty()
                 .then(|| l.desktop_workspace_model_name_required()),
-            m.id.is_empty()
+            id: m
+                .id
+                .is_empty()
                 .then(|| l.desktop_workspace_model_id_required()),
-            (self.id.is_none()
+            base: (self.id.is_none()
                 && m.base_model_id.is_none()
                 && self
                     .options
                     .as_ref()
                     .is_some_and(|o| !o.base_models.is_empty()))
             .then(|| l.workspace_model_base_model_required()),
-            parse_params(&params)
+            params: parse_params(&params)
                 .is_none()
                 .then(|| l.desktop_workspace_model_invalid_json()),
-        )
+            builtin_tools: parse_params(&builtin)
+                .is_none()
+                .then(|| l.desktop_workspace_model_invalid_json()),
+        }
     }
 
     fn valid(&self, cx: &App) -> bool {
         let l = cx.l10n().clone();
-        let (a, b, c, d) = self.errors(true, &l, cx);
-        a.is_none() && b.is_none() && c.is_none() && d.is_none()
+        self.errors(true, &l, cx) == FieldErrors::default()
     }
 
     // ── Image ──────────────────────────────────────────────────────────
@@ -932,7 +1044,7 @@ pub fn toggle_hidden(pane: &mut WorkspacePane, id: String, cx: &mut Context<Work
 
 impl ModelEditor {
     /// Types `value` into field `field` (`name`, `id`, `description`,
-    /// `system`, `params`): the E2E pass.
+    /// `system`, `params`, `terminal`, `builtin_tools`): the E2E pass.
     pub fn set_field(
         &mut self,
         field: &str,
@@ -964,6 +1076,12 @@ impl ModelEditor {
             "params" => self
                 .params
                 .update(cx, |s, cx| s.set_value(value, window, cx)),
+            "terminal" => self
+                .terminal
+                .update(cx, |s, cx| s.set_value(value, window, cx)),
+            "builtin_tools" => self
+                .builtin_tools
+                .update(cx, |s, cx| s.set_value(value, window, cx)),
             _ => {}
         }
         cx.notify();
@@ -984,11 +1102,13 @@ impl ItemEditor for ModelEditor {
     }
 
     fn is_dirty(&self, cx: &App) -> bool {
-        let (form, params) = self.form(cx);
-        // A new model: any field filled in or changed (its base, abilities
-        // and relations too), as for a saved one.
+        let (form, params, builtin) = self.form(cx);
+        // A new model: any field filled in or changed (its base, abilities,
+        // relations and built-in tools too), as for a saved one.
         (self.id.is_none() || self.detail.is_some())
-            && (form != self.initial || params != self.initial_params)
+            && (form != self.initial
+                || params != self.initial_params
+                || builtin != self.initial_builtin)
     }
 
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1033,8 +1153,9 @@ impl ItemEditor for ModelEditor {
         }
         let creating = self.id.is_none();
         let sent = self.form(cx);
-        let (mut model, params) = sent.clone();
+        let (mut model, params, builtin) = sent.clone();
         model.params = parse_params(&params).unwrap_or_default();
+        model.builtin_tools = parse_params(&builtin).unwrap_or_default();
         let detail = WorkspaceDetail {
             kind: WorkspaceKind::Models,
             model: Some(model),
@@ -1109,8 +1230,14 @@ impl Render for ModelEditor {
         let l = cx.l10n().clone();
         let writable = self.writable();
         let creating = self.id.is_none();
-        let (name_error, id_error, base_error, params_error) = self.errors(false, &l, cx);
-        let (form, _) = self.form(cx);
+        let FieldErrors {
+            name: name_error,
+            id: id_error,
+            base: base_error,
+            params: params_error,
+            builtin_tools: builtin_error,
+        } = self.errors(false, &l, cx);
+        let (form, _, _) = self.form(cx);
         let view = cx.entity().downgrade();
         let mut body: Vec<AnyElement> = vec![];
 
@@ -1121,10 +1248,14 @@ impl Render for ModelEditor {
             .next()
             .map(|c| c.to_uppercase().collect())
             .unwrap_or_else(|| "M".into());
-        let avatar: AnyElement = match &self.image {
-            Some(image) => img(image.clone())
+        let picture = self.picture(window, cx);
+        self.drew_picture.set(picture.is_some());
+        let avatar: AnyElement = match picture {
+            Some(picture) => img(picture)
+                .id("model-image-picture")
                 .size(px(56.))
                 .rounded(px(14.))
+                .object_fit(gpui_kit::ObjectFit::Cover)
                 .into_any_element(),
             None => conduit_components::views::kit::avatar(
                 &initials,
@@ -1161,6 +1292,7 @@ impl Render for ModelEditor {
                                     let _ = clear.update(cx, |v, cx| {
                                         v.model.image_url = None;
                                         v.image = None;
+                                        v.image_removed = true;
                                         cx.notify();
                                     });
                                 })),
@@ -1520,11 +1652,29 @@ impl Render for ModelEditor {
                     )
                     .into_any_element(),
                     forms::field(
+                        l.desktop_workspace_model_terminal(),
+                        &self.terminal,
+                        None,
+                        None,
+                        window,
+                        cx,
+                    )
+                    .into_any_element(),
+                    forms::field(
                         l.workspace_model_tts_voice(),
                         &self.voice,
                         None,
                         None,
                         window,
+                        cx,
+                    )
+                    .into_any_element(),
+                    editor::stacked_row(
+                        l.desktop_workspace_model_builtin_tools(),
+                        Textarea::new(&self.builtin_tools),
+                        builtin_error.map(SharedString::from).or_else(|| {
+                            Some(l.desktop_workspace_model_builtin_tools_hint().into())
+                        }),
                         cx,
                     )
                     .into_any_element(),
@@ -1566,6 +1716,7 @@ impl Render for ModelEditor {
                 creating,
                 loading: self.loading,
                 failure: self.failure.clone(),
+                scroll: Some(self.scroll.clone()),
             },
             self.pane.clone(),
             body,

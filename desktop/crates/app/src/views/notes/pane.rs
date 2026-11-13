@@ -58,6 +58,7 @@ use gpui_kit::{
 };
 use serde_json::Value;
 
+use super::audio::{AudioSource, NoteAudio, PlayerWords};
 use super::doc::{BlockKind, Doc, FileLink, Mark};
 use super::editor::{CardLabels, EditorEvent, FileAction, NoteEditor};
 use super::element::is_audio;
@@ -245,6 +246,8 @@ pub struct NotePane {
     last_own_save: Option<Instant>,
     /// Saves wait (the E2E).
     hold: bool,
+    /// The note's player: its recordings play in the note.
+    pub audio: Entity<NoteAudio>,
     _debounce: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -261,13 +264,20 @@ impl NotePane {
     ) -> Self {
         let l = cx.l10n().clone();
         let rpc = stores.connection.read(cx).rpc();
+        let audio = cx.new(|_| NoteAudio::new());
         let editor = cx.new(|cx| {
             let mut e = NoteEditor::new(window, cx);
+            e.set_audio(audio.clone(), cx);
             e.set_placeholder(
                 l.desktop_note_body_placeholder().into(),
                 l.desktop_note_body().into(),
             );
             e.set_card_labels(CardLabels {
+                play: l.video_play().into(),
+                pause: l.voice_call_pause().into(),
+                position: l.desktop_note_audio_position().into(),
+                audio_failed: l.failed_to_load_audio().into(),
+                audio_loading: l.desktop_loading().into(),
                 quick_look: l.desktop_quick_look().into(),
                 download: l.download().into(),
                 transcribe: l.desktop_transcribe().into(),
@@ -325,6 +335,7 @@ impl NotePane {
                     this.save_now(cx);
                 }
             }),
+            cx.observe(&audio, |_, _, cx| cx.notify()),
             cx.subscribe(&stores.connection, |this, _, e: &ConnectionEvent, cx| {
                 if let ConnectionEvent::Daemon(event) = e
                     && let conduit_protocol::Event::NotesChanged(changed) = event.as_ref()
@@ -384,6 +395,7 @@ impl NotePane {
             run_waiters: vec![],
             last_own_save: None,
             hold: false,
+            audio,
             _debounce: None,
             _subscriptions: subscriptions,
         };
@@ -1567,6 +1579,15 @@ impl NotePane {
             file_id: link.id.clone(),
         };
         match action {
+            FileAction::Play => {
+                let http = self.stores.connection.read(cx).http().cloned();
+                let source = AudioSource::File {
+                    server_id: file.server_id.clone(),
+                    file_id: file.file_id.clone(),
+                };
+                self.audio
+                    .update(cx, |a, cx| a.toggle(&link.id, source, http, cx));
+            }
             FileAction::QuickLook | FileAction::Open => {
                 let how = if action == FileAction::Open {
                     OpenWith::DefaultApp
@@ -2533,6 +2554,75 @@ impl NotePane {
         )
     }
 
+    /// Play or Pause for one of the note's recordings still waiting to
+    /// upload, played from this Mac.
+    pub fn toggle_waiting(&mut self, id: &str, cx: &mut Context<Self>) {
+        let http = self.stores.connection.read(cx).http().cloned();
+        let source = AudioSource::Waiting {
+            note_id: self.id.clone(),
+            id: id.to_string(),
+        };
+        let key = format!("waiting:{id}");
+        self.audio
+            .update(cx, |a, cx| a.toggle(&key, source, http, cx));
+    }
+
+    /// The player's words.
+    fn player_words(&self, cx: &App) -> PlayerWords {
+        let l = self.l(cx);
+        PlayerWords {
+            play: l.video_play().into(),
+            pause: l.voice_call_pause().into(),
+            position: l.desktop_note_audio_position().into(),
+            failed: l.failed_to_load_audio().into(),
+            loading: l.desktop_loading().into(),
+        }
+    }
+
+    /// A recording row's Play or Pause, by the player's state for `key`.
+    fn play_button(
+        &self,
+        id: SharedString,
+        key: &str,
+        on_click: ClickHandler,
+        cx: &App,
+    ) -> AnyElement {
+        let words = self.player_words(cx);
+        let playing = self.audio.read(cx).state(key).is_some_and(|s| s.playing);
+        let label = if playing { words.pause } else { words.play };
+        IconButton::new(
+            id,
+            if playing {
+                IconName::Pause
+            } else {
+                IconName::Play
+            },
+            label.clone(),
+        )
+        .size(28., 14.)
+        .tooltip(label)
+        .on_click(on_click)
+        .into_any_element()
+    }
+
+    /// Under a recording row's name: the player's scrubber and time while
+    /// it holds `key`, else `fallback`.
+    fn player_line(
+        &self,
+        id: &str,
+        key: &str,
+        fallback: AnyElement,
+        t: &ConduitTheme,
+        cx: &App,
+    ) -> AnyElement {
+        match self.audio.read(cx).state(key) {
+            Some(state) => {
+                super::audio::progress(id, key, state, &self.audio, &self.player_words(cx), t)
+            }
+            None => fallback,
+        }
+    }
+
     fn waiting_recordings(
         &mut self,
         t: &ConduitTheme,
@@ -2555,8 +2645,41 @@ impl NotePane {
                     NoteRecordingState::Uploading => l.desktop_recording_uploading(),
                     NoteRecordingState::Failed => l.desktop_recording_upload_failed(),
                 };
-                let (retry, remove) = (entity.clone(), entity.clone());
-                let (retry_id, remove_id) = (rec.id.clone(), rec.id.clone());
+                let (retry, remove, play) = (entity.clone(), entity.clone(), entity.clone());
+                let (retry_id, remove_id, play_id) =
+                    (rec.id.clone(), rec.id.clone(), rec.id.clone());
+                let key = format!("waiting:{}", rec.id);
+                // While it uploads it is not played, as on the phone.
+                let playable = rec.state != NoteRecordingState::Uploading;
+                let leading = if playable {
+                    self.play_button(
+                        SharedString::from(format!("note-waiting-play-{}", rec.id)),
+                        &key,
+                        Rc::new(move |_, _, cx| {
+                            let id = play_id.clone();
+                            play.update(cx, |p, cx| p.toggle_waiting(&id, cx)).ok();
+                        }),
+                        cx,
+                    )
+                } else {
+                    icon(IconName::AudioLines, 18., r.text_subtle).into_any_element()
+                };
+                let status = div()
+                    .text_size(px(t.metrics.small))
+                    .text_color(if rec.state == NoteRecordingState::Failed {
+                        r.danger
+                    } else {
+                        r.text_subtle
+                    })
+                    .child(state.clone())
+                    .into_any_element();
+                let second = self.player_line(
+                    &format!("note-waiting-audio-{}", rec.id),
+                    &key,
+                    status,
+                    t,
+                    cx,
+                );
                 div()
                     .id(SharedString::from(format!("note-waiting-{}", rec.id)))
                     .role(Role::Group)
@@ -2570,7 +2693,7 @@ impl NotePane {
                     .rounded(px(10.))
                     .border_1()
                     .border_color(r.border)
-                    .child(icon(IconName::AudioLines, 18., r.text_subtle))
+                    .child(leading)
                     .child(
                         div()
                             .flex_1()
@@ -2578,16 +2701,7 @@ impl NotePane {
                             .flex()
                             .flex_col()
                             .child(div().truncate().text_color(r.text).child(rec.name.clone()))
-                            .child(
-                                div()
-                                    .text_size(px(t.metrics.small))
-                                    .text_color(if rec.state == NoteRecordingState::Failed {
-                                        r.danger
-                                    } else {
-                                        r.text_subtle
-                                    })
-                                    .child(state),
-                            ),
+                            .child(second),
                     )
                     .when(rec.state == NoteRecordingState::Failed, |d| {
                         d.child(
@@ -2680,6 +2794,38 @@ impl NotePane {
                     })
                 };
                 let audio = is_audio(&f.name);
+                let leading = if audio {
+                    self.play_button(
+                        SharedString::from(format!("note-listed-play-{}", f.id)),
+                        &f.id,
+                        act(FileAction::Play),
+                        cx,
+                    )
+                } else {
+                    icon(IconName::FileText, 18., r.text_subtle).into_any_element()
+                };
+                let name_line = div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(div().truncate().text_color(r.text).child(f.name.clone()))
+                    .when(audio, |d| {
+                        let id = format!("note-listed-audio-{}", f.id);
+                        d.when_some(
+                            self.audio.read(cx).state(&f.id).map(|state| (id, state)),
+                            |d, (id, state)| {
+                                d.child(super::audio::progress(
+                                    &id,
+                                    &f.id,
+                                    state,
+                                    &self.audio,
+                                    &self.player_words(cx),
+                                    t,
+                                ))
+                            },
+                        )
+                    });
                 div()
                     .id(SharedString::from(format!("note-listed-file-{}", f.id)))
                     .role(Role::Group)
@@ -2693,32 +2839,19 @@ impl NotePane {
                     .rounded(px(10.))
                     .border_1()
                     .border_color(r.border)
-                    .child(icon(
-                        if audio {
-                            IconName::AudioLines
-                        } else {
-                            IconName::FileText
-                        },
-                        18.,
-                        r.text_subtle,
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(r.text)
-                            .child(f.name.clone()),
-                    )
-                    .child(
-                        IconButton::new(
-                            SharedString::from(format!("note-listed-look-{}", f.id)),
-                            IconName::Eye,
-                            l.desktop_quick_look(),
+                    .child(leading)
+                    .child(name_line)
+                    .when(!audio, |d| {
+                        d.child(
+                            IconButton::new(
+                                SharedString::from(format!("note-listed-look-{}", f.id)),
+                                IconName::Eye,
+                                l.desktop_quick_look(),
+                            )
+                            .size(26., 14.)
+                            .on_click(act(FileAction::QuickLook)),
                         )
-                        .size(26., 14.)
-                        .on_click(act(FileAction::QuickLook)),
-                    )
+                    })
                     .child(
                         IconButton::new(
                             SharedString::from(format!("note-listed-download-{}", f.id)),

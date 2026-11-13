@@ -1,5 +1,6 @@
 //! Panels that open over the composer from its + menu, as the phone's
-//! sheets do: the server's files (Server Files…), a web page or YouTube
+//! sheets do: the server's files (Server Files…, the shared picker in
+//! [`crate::views::server_files`]), a web page or YouTube
 //! video to read (Web Page…), and a Direct MCP server's prompts and
 //! resources (MCP Content…). Each is a card above the field, Esc closes it,
 //! and its rows are keyboard-driven.
@@ -11,7 +12,7 @@ use conduit_components::theme::{ConduitTheme, with_alpha};
 use conduit_components::views::kit::{Button, overlay_shadow};
 use conduit_protocol::{
     McpContent, McpContentPreview, McpGetPrompt, McpReadResource, McpRef, McpServerSummary,
-    NoParams, ServerFile, methods,
+    NoParams, methods,
 };
 use gpui_kit::Focusable as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -47,57 +48,21 @@ fn next_panel_id() -> u64 {
 
 // ── Server Files ───────────────────────────────────────────────────────────
 
-pub struct ServerFilesPanel {
-    pub id: u64,
-    pub search: Entity<InputState>,
-    /// The answer for `query`, once it came.
-    files: Option<Result<Vec<ServerFile>, ()>>,
-    query: String,
-    pub highlighted: usize,
+/// Server Files…: the shared picker (`crate::views::server_files`), drawn
+/// in a card with Cancel, and the composer's ear on what it picks.
+pub(crate) struct ServerFilesPanel {
+    pub picker: Entity<crate::views::server_files::ServerFilesPicker>,
     _subscription: Subscription,
 }
 
 impl ServerFilesPanel {
-    pub fn new(window: &mut Window, cx: &mut Context<ChatComposer>) -> Self {
-        let placeholder = cx.l10n().desktop_search_files();
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
-        search.update(cx, |s, cx| s.focus(window, cx));
-        let subscription = cx.subscribe(&search, |this, input, e: &InputEvent, cx| {
-            if matches!(e, InputEvent::Change) {
-                let query = input.read(cx).value().trim().to_string();
-                if let Some(Panel::ServerFiles(p)) = &mut this.panel {
-                    p.query = query.clone();
-                    p.highlighted = 0;
-                }
-                this.search_server_files(query, cx);
-            }
-        });
+    pub fn new(
+        picker: Entity<crate::views::server_files::ServerFilesPicker>,
+        subscription: Subscription,
+    ) -> Self {
         Self {
-            id: next_panel_id(),
-            search,
-            files: None,
-            query: String::new(),
-            highlighted: 0,
+            picker,
             _subscription: subscription,
-        }
-    }
-
-    pub fn loaded(
-        &mut self,
-        query: &str,
-        result: Result<Vec<ServerFile>, conduit_daemon::RpcError>,
-        _: &mut Context<ChatComposer>,
-    ) {
-        if query != self.query {
-            return;
-        }
-        self.files = Some(result.map_err(|e| log::warn!("files.list: {e}")));
-    }
-
-    pub fn files(&self) -> &[ServerFile] {
-        match &self.files {
-            Some(Ok(files)) => files,
-            _ => &[],
         }
     }
 }
@@ -408,7 +373,11 @@ fn insertion_text(
 // ── Drawing ────────────────────────────────────────────────────────────────
 
 /// The card every panel is drawn in, above the composer.
-fn card(id: &'static str, title: String, t: &ConduitTheme) -> gpui_kit::Stateful<gpui_kit::Div> {
+pub(crate) fn card(
+    id: &'static str,
+    title: String,
+    t: &ConduitTheme,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
     let r = t.roles;
     div()
         .id(id)
@@ -434,7 +403,11 @@ fn card(id: &'static str, title: String, t: &ConduitTheme) -> gpui_kit::Stateful
         )
 }
 
-fn search_field(input: &Entity<InputState>, label: String, t: &ConduitTheme) -> impl IntoElement {
+pub(crate) fn search_field(
+    input: &Entity<InputState>,
+    label: String,
+    t: &ConduitTheme,
+) -> impl IntoElement {
     let r = t.roles;
     div()
         .h(px(t.metrics.control_height + 4.))
@@ -459,7 +432,7 @@ fn search_field(input: &Entity<InputState>, label: String, t: &ConduitTheme) -> 
 
 /// A list row: icon, title and a quieter second line; `at` is whether it is
 /// highlighted, its index and the list's length.
-fn row(
+pub(crate) fn row(
     id: ElementId,
     ic: IconName,
     title: String,
@@ -514,7 +487,7 @@ fn row(
         )
 }
 
-fn note(text: String, t: &ConduitTheme, danger: bool) -> AnyElement {
+pub(crate) fn note(text: String, t: &ConduitTheme, danger: bool) -> AnyElement {
     div()
         .px(px(8.))
         .py(px(6.))
@@ -528,7 +501,7 @@ fn note(text: String, t: &ConduitTheme, danger: bool) -> AnyElement {
         .into_any_element()
 }
 
-fn when_size(size: Option<i64>) -> String {
+pub(crate) fn when_size(size: Option<i64>) -> String {
     match size {
         Some(b) if b >= 1024 * 1024 => format!("{:.1} MB", b as f64 / (1024. * 1024.)),
         Some(b) if b >= 1024 => format!("{} KB", b / 1024),
@@ -547,7 +520,7 @@ impl ChatComposer {
     ) -> bool {
         // Only while the panel's own field has the keys.
         let field = match &self.panel {
-            Some(Panel::ServerFiles(p)) => p.search.read(cx).focus_handle(cx),
+            Some(Panel::ServerFiles(p)) => p.picker.read(cx).focus_handle(cx),
             Some(Panel::WebPage(p)) => p.url.read(cx).focus_handle(cx),
             Some(Panel::Mcp(p)) => p.search.read(cx).focus_handle(cx),
             None => return false,
@@ -556,7 +529,7 @@ impl ChatComposer {
             return false;
         }
         let len = match &self.panel {
-            Some(Panel::ServerFiles(p)) => p.files().len(),
+            Some(Panel::ServerFiles(p)) => p.picker.read(cx).files().len(),
             Some(Panel::Mcp(p)) if p.preview.is_none() => p.items(cx).len(),
             Some(_) => 0,
             None => return false,
@@ -575,7 +548,9 @@ impl ChatComposer {
             "up" | "down" => {
                 let step = |h: usize| super::composer::menu_step(key, h, len);
                 match &mut self.panel {
-                    Some(Panel::ServerFiles(p)) => p.highlighted = step(p.highlighted),
+                    Some(Panel::ServerFiles(p)) => {
+                        p.picker.update(cx, |p, cx| p.step(key, cx));
+                    }
                     Some(Panel::Mcp(p)) => p.highlighted = step(p.highlighted),
                     _ => return false,
                 }
@@ -583,6 +558,7 @@ impl ChatComposer {
             }
             "enter" => match &mut self.panel {
                 Some(Panel::ServerFiles(p)) => {
+                    let p = p.picker.read(cx);
                     if let Some(file) = p.files().get(p.highlighted).cloned() {
                         self.attach_server_file(file, window, cx);
                     }
@@ -627,53 +603,10 @@ impl ChatComposer {
         };
         let _ = window;
         Some(match self.panel.as_ref()? {
-            Panel::ServerFiles(p) => {
-                let files = p.files().to_vec();
-                let total = files.len();
-                let list: Vec<AnyElement> = files
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, f)| {
-                        let detail = when_size(f.size);
-                        row(
-                            ElementId::NamedInteger("server-file".into(), i as u64),
-                            IconName::FileText,
-                            f.name.clone(),
-                            detail,
-                            (i == p.highlighted, i, total),
-                            t,
-                        )
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.attach_server_file(f.clone(), window, cx)
-                        }))
-                        .into_any_element()
-                    })
-                    .collect();
-                let empty = match &p.files {
-                    None => Some(note(l10n.desktop_loading(), t, false)),
-                    Some(Err(())) => Some(note(l10n.desktop_server_files_failed(), t, true)),
-                    Some(Ok(f)) if f.is_empty() => {
-                        Some(note(l10n.desktop_no_files_match(), t, false))
-                    }
-                    _ => None,
-                };
-                card("server-files", l10n.composer_attach_server_files(), t)
-                    .child(search_field(&p.search, l10n.desktop_search_files(), t))
-                    .child(
-                        div()
-                            .id("server-files-list")
-                            .role(Role::ListBox)
-                            .aria_label(SharedString::from(l10n.composer_attach_server_files()))
-                            .max_h(px(260.))
-                            .overflow_y_scroll()
-                            .flex()
-                            .flex_col()
-                            .children(empty)
-                            .children(list),
-                    )
-                    .child(footer(None))
-                    .into_any_element()
-            }
+            Panel::ServerFiles(p) => card("server-files", l10n.composer_attach_server_files(), t)
+                .child(p.picker.clone())
+                .child(footer(None))
+                .into_any_element(),
             Panel::WebPage(p) => {
                 let attach = {
                     let weak = weak.clone();

@@ -16,7 +16,7 @@ use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, grouped_section};
 use conduit_protocol::{
-    NoticeLevel, WorkspaceDetail, WorkspaceDirectory, WorkspaceDirectoryAction,
+    NoticeLevel, ServerFile, WorkspaceDetail, WorkspaceDirectory, WorkspaceDirectoryAction,
     WorkspaceDirectoryOp, WorkspaceFile, WorkspaceFileAction, WorkspaceFileOp, WorkspaceFiles,
     WorkspaceFilesAttach, WorkspaceFilesQuery, WorkspaceKind, WorkspaceKnowledgeDto, WorkspaceRef,
     WorkspaceSave, WorkspaceSectionAccess, WorkspaceTextFile, methods,
@@ -40,6 +40,8 @@ use crate::stores::Stores;
 use crate::stores::navigation::WorkspaceSection;
 use crate::stores::rpc::Rpc;
 use crate::views::forms;
+use crate::views::server_files::{ServerFilesEvent, ServerFilesPicker};
+use crate::views::sheet::{self, SheetBody};
 
 /// A file's size as Finder writes it ("12 KB", "3.4 MB").
 pub fn size_text(bytes: i64) -> String {
@@ -426,6 +428,47 @@ impl KnowledgeEditor {
         });
         self.files_call(
             l.desktop_workspace_knowledge_uploading(&first),
+            call,
+            None,
+            cx,
+        );
+    }
+
+    /// Attach Server File…: one of the user's files on the server, picked
+    /// in a sheet (the composer's Server Files picker), linked into the
+    /// folder shown as it is (mobile's Attach Server File).
+    pub fn attach_server_file_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.id.is_none() || !self.writable() {
+            return;
+        }
+        let rpc = self.rpc.clone();
+        let stores = self.stores.clone();
+        let editor = cx.entity().downgrade();
+        sheet::open(window, 460., cx, move |window, cx| {
+            ServerFileSheet::new(&stores, rpc, editor, window, cx)
+        });
+    }
+
+    /// Links `file`, one of the user's files on the server, into the
+    /// folder shown.
+    pub fn attach_server_file(&mut self, file: ServerFile, cx: &mut Context<Self>) {
+        let Some(id) = self.id.clone() else {
+            return;
+        };
+        if !self.writable() {
+            return;
+        }
+        let l = cx.l10n().clone();
+        let call = self
+            .rpc
+            .call::<methods::WorkspaceAttachFiles>(&WorkspaceFilesAttach {
+                knowledge_id: id,
+                directory_id: self.directory.clone(),
+                file_ids: vec![file.id.clone()],
+                uploaded: false,
+            });
+        self.files_call(
+            l.desktop_workspace_knowledge_attaching(&file.name),
             call,
             None,
             cx,
@@ -1176,6 +1219,18 @@ impl KnowledgeEditor {
                     .into_any_element(),
             );
             actions.push(
+                Button::new(
+                    "knowledge-attach-server-file",
+                    l.desktop_workspace_attach_server_file(),
+                )
+                .ghost()
+                .disabled(busy.is_some())
+                .on_click(Rc::new(cx.listener(|this, _, window, cx| {
+                    this.attach_server_file_sheet(window, cx)
+                })))
+                .into_any_element(),
+            );
+            actions.push(
                 Button::new("knowledge-add-text", l.desktop_workspace_add_text_file())
                     .ghost()
                     .disabled(busy.is_some())
@@ -1563,6 +1618,7 @@ impl Render for KnowledgeEditor {
                 creating: false,
                 loading: self.loading,
                 failure: self.failure.clone(),
+                scroll: None,
             },
             self.pane.clone(),
             body,
@@ -1570,6 +1626,94 @@ impl Render for KnowledgeEditor {
             Rc::new(|v: &mut Self, window, cx| v.save(window, cx)),
             cx,
         )
+    }
+}
+
+/// Attach Server File…'s sheet: the user's files on the server, to pick
+/// one (the composer's Server Files picker), with Cancel.
+pub struct ServerFileSheet {
+    pub picker: Entity<ServerFilesPicker>,
+    editor: WeakEntity<KnowledgeEditor>,
+    _subscription: Subscription,
+    /// Another account signs in: the sheet, and the last account's files
+    /// listed in it, go.
+    _account: Subscription,
+}
+
+impl ServerFileSheet {
+    fn new(
+        stores: &Stores,
+        rpc: Rpc,
+        editor: WeakEntity<KnowledgeEditor>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let picker = cx.new(|cx| ServerFilesPicker::new(rpc, window, cx));
+        let subscription = cx.subscribe_in(&picker, window, |this, _, e, window, cx| match e {
+            ServerFilesEvent::Picked(file) => this.pick(file.clone(), cx),
+            ServerFilesEvent::Dismissed => this.cancel(window, cx),
+        });
+        Self {
+            picker,
+            editor,
+            _subscription: subscription,
+            _account: sheet::close_with_account(stores, cx),
+        }
+    }
+
+    /// Attaches `file` to the knowledge base and closes the sheet.
+    pub fn pick(&mut self, file: ServerFile, cx: &mut Context<Self>) {
+        let _ = self
+            .editor
+            .update(cx, |e, cx| e.attach_server_file(file, cx));
+        sheet::dismiss(cx);
+    }
+}
+
+impl SheetBody for ServerFileSheet {
+    fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        sheet::dismiss(cx);
+    }
+
+    fn label(&self, cx: &App) -> SharedString {
+        cx.l10n().composer_attach_server_files().into()
+    }
+
+    fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let l = cx.l10n().clone();
+        let cancel = cx.entity().downgrade();
+        Some(
+            forms::form_buttons(vec![
+                Button::new("server-file-cancel", l.cancel())
+                    .on_click(Rc::new(move |_, window, cx| {
+                        let _ = cancel.update(cx, |v, cx| v.cancel(window, cx));
+                    }))
+                    .into_any_element(),
+            ])
+            .into_any_element(),
+        )
+    }
+}
+
+impl Render for ServerFileSheet {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = cx.conduit().clone();
+        let l = cx.l10n().clone();
+        div()
+            .id("knowledge-server-file-sheet")
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .child(
+                div()
+                    .id("sheet-title")
+                    .role(Role::Heading)
+                    .text_size(px(t.metrics.body + 2.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(l.composer_attach_server_files()),
+            )
+            .child(self.picker.clone())
     }
 }
 
@@ -1648,6 +1792,55 @@ mod tests {
             "files were attached after the account changed"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Attach Server File's sheet, opened for one account, closes when
+    /// another signs in: none of the last account's files is linked under
+    /// the next.
+    #[gpui_kit::test]
+    fn the_server_file_sheet_closes_on_another_account(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::switch_account;
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::WorkspaceGet>(bench::detail(
+            WorkspaceKind::Knowledge,
+            serde_json::json!({"id": "k1", "name": "Trail notes", "description": "",
+                               "fileCount": 0, "external": false}),
+        ));
+        daemon.returns::<methods::WorkspaceFiles>(
+            serde_json::from_value(serde_json::json!({
+                "knowledgeId": "k1", "directoryId": "", "breadcrumbs": [],
+                "directories": [], "files": [], "pending": [], "total": 0, "hasMore": false
+            }))
+            .unwrap(),
+        );
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                KnowledgeEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("k1".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.attach_server_file_sheet(window, cx)));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ServerFileSheet>(cx))
+                .is_some(),
+            "Attach Server File opens its sheet"
+        );
+        switch_account(&stores, vcx);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ServerFileSheet>(cx))
+                .is_none(),
+            "Avery's server files stayed open over Blake's account"
+        );
+        assert!(daemon.calls::<methods::WorkspaceAttachFiles>().is_empty());
     }
 
     /// Delete File, Remove and a folder's Delete go only once confirmed:

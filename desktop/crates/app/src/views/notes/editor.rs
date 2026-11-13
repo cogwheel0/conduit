@@ -32,9 +32,9 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::base::text::editor_host::LeafGeometry;
 use gpui_kit::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    KeyBinding, Pixels, Point, ScrollHandle, SharedString, Task, UTF16Selection, Window, actions,
-    point, px,
+    App, Bounds, ClipboardItem, Context, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    Focusable, KeyBinding, Pixels, Point, ScrollHandle, SharedString, Task, UTF16Selection, Window,
+    actions, point, px,
 };
 use serde_json::Value;
 
@@ -191,6 +191,8 @@ pub enum EditorEvent {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileAction {
+    /// A recording: Play or Pause in the note.
+    Play,
     QuickLook,
     Open,
     Download,
@@ -252,6 +254,12 @@ pub enum DragUnit {
 /// The words a file card shows.
 #[derive(Clone, Default)]
 pub struct CardLabels {
+    pub play: SharedString,
+    pub pause: SharedString,
+    /// The scrubber's name ("Playback Position").
+    pub position: SharedString,
+    pub audio_failed: SharedString,
+    pub audio_loading: SharedString,
     pub quick_look: SharedString,
     pub download: SharedString,
     pub transcribe: SharedString,
@@ -288,6 +296,8 @@ pub struct NoteEditor {
     pub(super) drag: Option<DragUnit>,
     /// The cards' labels, from the pane (localized).
     pub(super) card_labels: CardLabels,
+    /// The note's player, for its recordings' cards (the pane's).
+    pub(super) audio: Option<Entity<super::audio::NoteAudio>>,
 }
 
 impl EventEmitter<EditorEvent> for NoteEditor {}
@@ -325,6 +335,7 @@ impl NoteEditor {
             reveal: false,
             drag: None,
             card_labels: CardLabels::default(),
+            audio: None,
         }
     }
 
@@ -357,6 +368,13 @@ impl NoteEditor {
 
     pub fn set_card_labels(&mut self, labels: CardLabels) {
         self.card_labels = labels;
+    }
+
+    /// The note's player: its recordings' cards show it, and redraw as it
+    /// plays.
+    pub fn set_audio(&mut self, audio: Entity<super::audio::NoteAudio>, cx: &mut Context<Self>) {
+        cx.observe(&audio, |_, _, cx| cx.notify()).detach();
+        self.audio = Some(audio);
     }
 
     pub fn marked(&self) -> Option<(Pos, Pos)> {

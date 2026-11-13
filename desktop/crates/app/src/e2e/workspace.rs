@@ -42,13 +42,13 @@ use crate::views::workspace::{
 };
 
 /// The workspace pane, once a section was shown.
-fn pane(cx: &mut App) -> Option<Entity<WorkspacePane>> {
+pub(super) fn pane(cx: &mut App) -> Option<Entity<WorkspacePane>> {
     let view = cx.try_global::<AppState>()?.main_view.clone()?;
     view.read(cx).area_pane.read(cx).workspace.clone()
 }
 
 /// Runs `f` on the workspace pane with the main window.
-fn in_pane<R>(
+pub(super) fn in_pane<R>(
     cx: &mut AsyncApp,
     f: impl FnOnce(&mut WorkspacePane, &mut Window, &mut Context<WorkspacePane>) -> R,
 ) -> Option<R> {
@@ -62,7 +62,7 @@ fn in_pane<R>(
 }
 
 /// The item named `name` in `section`'s list.
-fn listed(section: WorkspaceSection, name: &str, cx: &mut App) -> Option<WorkspaceItem> {
+pub(super) fn listed(section: WorkspaceSection, name: &str, cx: &mut App) -> Option<WorkspaceItem> {
     let pane = pane(cx)?;
     pane.read(cx)
         .lists
@@ -84,14 +84,14 @@ fn prompt_editor(cx: &mut App) -> Option<Entity<PromptEditor>> {
     }
 }
 
-fn model_editor(cx: &mut App) -> Option<Entity<ModelEditor>> {
+pub(super) fn model_editor(cx: &mut App) -> Option<Entity<ModelEditor>> {
     match editor(WorkspaceSection::Models, cx)? {
         EditorView::Model(e) => Some(e),
         _ => None,
     }
 }
 
-fn knowledge_editor(cx: &mut App) -> Option<Entity<KnowledgeEditor>> {
+pub(super) fn knowledge_editor(cx: &mut App) -> Option<Entity<KnowledgeEditor>> {
     match editor(WorkspaceSection::Knowledge, cx)? {
         EditorView::Knowledge(e) => Some(e),
         _ => None,
@@ -113,7 +113,7 @@ fn skill_editor(cx: &mut App) -> Option<Entity<SkillEditor>> {
 }
 
 /// Runs `f` on an editor entity with the main window.
-fn in_editor<T: 'static, R>(
+pub(super) fn in_editor<T: 'static, R>(
     cx: &mut AsyncApp,
     get: fn(&mut App) -> Option<Entity<T>>,
     f: impl FnOnce(&mut T, &mut Window, &mut Context<T>) -> R,
@@ -126,7 +126,7 @@ fn in_editor<T: 'static, R>(
 }
 
 /// Runs `f` on the sheet down now, when it is a `V`.
-fn in_sheet<V: 'static, R>(
+pub(super) fn in_sheet<V: 'static, R>(
     cx: &mut AsyncApp,
     f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
 ) -> Option<R> {
@@ -143,7 +143,7 @@ fn in_sheet<V: 'static, R>(
         .ok()
 }
 
-async fn call<M: RpcMethod>(params: &M::Params, cx: &mut AsyncApp) -> Option<M::Result>
+pub(super) async fn call<M: RpcMethod>(params: &M::Params, cx: &mut AsyncApp) -> Option<M::Result>
 where
     M::Result: Send + 'static,
 {
@@ -157,7 +157,7 @@ where
     }
 }
 
-async fn open_section(section: WorkspaceSection, cx: &mut AsyncApp) -> bool {
+pub(super) async fn open_section(section: WorkspaceSection, cx: &mut AsyncApp) -> bool {
     cx.update(|cx| {
         let nav = cx.global::<AppState>().stores.navigation.clone();
         nav.update(cx, |n, cx| n.open_item(AreaItem::Workspace(section), cx));
@@ -175,7 +175,7 @@ async fn open_section(section: WorkspaceSection, cx: &mut AsyncApp) -> bool {
 }
 
 /// Waits for `section`'s editor to have loaded item `name`'s detail.
-async fn wait_editor_loaded(section: WorkspaceSection, cx: &mut AsyncApp) -> bool {
+pub(super) async fn wait_editor_loaded(section: WorkspaceSection, cx: &mut AsyncApp) -> bool {
     wait_until(cx, Duration::from_secs(20), move |cx| {
         match editor(section, cx) {
             Some(EditorView::Prompt(e)) => e.read(cx).detail.is_some(),
@@ -191,13 +191,13 @@ async fn wait_editor_loaded(section: WorkspaceSection, cx: &mut AsyncApp) -> boo
     .await
 }
 
-fn open(section: WorkspaceSection, id: String, cx: &mut AsyncApp) {
+pub(super) fn open(section: WorkspaceSection, id: String, cx: &mut AsyncApp) {
     in_pane(cx, |p, window, cx| {
         p.open_now(section, Some(id), window, cx)
     });
 }
 
-fn new_item(section: WorkspaceSection, cx: &mut AsyncApp) {
+pub(super) fn new_item(section: WorkspaceSection, cx: &mut AsyncApp) {
     in_pane(cx, |p, window, cx| p.open_now(section, None, window, cx));
 }
 

@@ -1,9 +1,11 @@
 //! Showing a terminal's file, as mobile's preview dialog does: text in a
-//! sheet (with Copy and Download…), a picture in the app's image viewer,
-//! anything else (a PDF) in Quick Look, and when nothing can show it,
-//! mobile's "Preview unavailable. Use Download instead."
+//! sheet (with Copy and Download…), a picture in the app's image viewer, a
+//! PDF in PDFKit's viewer at the page asked for ([`super::pdf`]), video and
+//! audio in Quick Look, and when nothing can show it, mobile's "Preview
+//! unavailable. Use Download instead."
 //!
-//! A model's `display_file` (`terminal.displayFile`) opens the same.
+//! A model's `display_file` (`terminal.displayFile`) opens the same, a PDF
+//! at the page the model names.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -28,7 +30,9 @@ use crate::views::sheet::{self, SheetBody};
 pub enum Shown {
     Text(String),
     Image,
-    /// PDFs and the like: bytes for Quick Look.
+    /// A PDF: bytes for PDFKit's viewer.
+    Pdf,
+    /// Video and audio: bytes for Quick Look.
     Document,
     Unavailable,
 }
@@ -50,8 +54,9 @@ pub fn shown(content: &TerminalFileContent) -> Shown {
     }
     if kind.starts_with("image/") {
         Shown::Image
-    } else if kind == "application/pdf" || kind.starts_with("video/") || kind.starts_with("audio/")
-    {
+    } else if kind == "application/pdf" {
+        Shown::Pdf
+    } else if kind.starts_with("video/") || kind.starts_with("audio/") {
         Shown::Document
     } else {
         Shown::Unavailable
@@ -59,7 +64,7 @@ pub fn shown(content: &TerminalFileContent) -> Shown {
 }
 
 /// Reads `path` through `handle` and shows it. `page` is where a PDF
-/// should open (Quick Look starts at the first).
+/// opens (1-based; the first when none).
 pub fn show(
     stores: Stores,
     handle: String,
@@ -68,7 +73,6 @@ pub fn show(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let _ = page;
     let rpc = stores.connection.read(cx).rpc();
     let call = rpc.call::<methods::TerminalRead>(&TerminalPath {
         handle: handle.clone(),
@@ -111,6 +115,19 @@ pub fn show(
                         cx,
                     );
                 });
+            }
+            Shown::Pdf => {
+                let Some(bytes) = bytes else { return };
+                let opened = cx.update(|cx| super::pdf::open(bytes, name.clone(), page, cx));
+                if !opened {
+                    // PDFKit could not read it: as for any file with no
+                    // preview.
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        sheet::open(window, 640., cx, move |window, cx| {
+                            FileSheet::new(stores, handle, path, name, None, window, cx)
+                        });
+                    });
+                }
             }
             Shown::Document => {
                 let Some(bytes) = bytes else { return };
@@ -357,6 +374,10 @@ mod tests {
         );
         assert_eq!(
             shown(&content("application/pdf; x=y", None, Some("JVBE"))),
+            Shown::Pdf
+        );
+        assert_eq!(
+            shown(&content("video/mp4", None, Some("AAAA"))),
             Shown::Document
         );
         assert_eq!(

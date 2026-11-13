@@ -785,6 +785,7 @@ impl Render for ToolEditor {
                 creating,
                 loading: self.loading,
                 failure: self.failure.clone(),
+                scroll: None,
             },
             self.pane.clone(),
             body,
