@@ -6,6 +6,7 @@
 pub mod actions;
 pub mod blocks;
 pub mod branches;
+pub mod call;
 pub mod composer;
 pub mod composer_panels;
 pub mod diagram;

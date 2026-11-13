@@ -20,6 +20,8 @@
 //! * [`files`]: `/files` images (bearer token added) and attachment opening.
 //! * [`settings`] and [`layout`]: preferences and window geometry.
 //! * [`speech`]: read aloud, which the daemon runs and this window speaks.
+//! * [`call`]: a voice call, which the daemon runs and this window hears
+//!   and, for a realtime voice, plays.
 //! * [`shell`]: the macOS shell extras' state (links waiting for the main
 //!   window, the hotkey, notification and login-item statuses).
 //!
@@ -30,6 +32,7 @@
 pub mod accounts;
 pub mod app_settings;
 pub mod areas;
+pub mod call;
 pub mod chat;
 pub mod chat_list;
 pub mod composer;
@@ -83,6 +86,9 @@ pub struct Stores {
     pub app_settings: Entity<app_settings::AppSettingsStore>,
     /// Read aloud: the reading, and this window's voice and player.
     pub speech: Entity<speech::SpeechStore>,
+    /// A voice call: the call the daemon runs, and this window's ears and
+    /// realtime audio.
+    pub call: Entity<call::CallStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -136,7 +142,8 @@ impl Stores {
             areas: cx.new(|_| AreasStore::new(rpc.clone())),
             sections: cx.new(|_| SectionsStore::load(None)),
             app_settings: cx.new(|_| app_settings::AppSettingsStore::new(rpc.clone())),
-            speech: cx.new(|cx| speech::SpeechStore::new(rpc, connection, cx)),
+            speech: cx.new(|cx| speech::SpeechStore::new(rpc.clone(), connection.clone(), cx)),
+            call: cx.new(|cx| call::CallStore::new(rpc, connection, cx)),
         }
     }
 
@@ -168,6 +175,11 @@ impl Stores {
             let rpc = rpc.clone();
             cx.new(|cx| speech::SpeechStore::new(rpc, connection, cx))
         };
+        let call = {
+            let connection = connection.clone();
+            let rpc = rpc.clone();
+            cx.new(|cx| call::CallStore::new(rpc, connection, cx))
+        };
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -182,12 +194,14 @@ impl Stores {
             sections,
             app_settings,
             speech,
+            call,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
         areas::wire(&stores, cx);
         app_settings::wire(&stores, cx);
         speech::wire(&stores, cx);
+        call::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat

@@ -16,6 +16,8 @@ const HALF: usize = 16;
 /// folds nothing back into the band the recognizers hear.
 pub struct Resampler {
     from: u32,
+    /// The output rate: [`RATE`], unless made with [`Resampler::to`].
+    to: u32,
     /// Input samples per output sample.
     step: f64,
     /// Where the next output falls, in `buf`'s coordinates.
@@ -27,11 +29,18 @@ pub struct Resampler {
 
 impl Resampler {
     pub fn new(from: u32) -> Self {
+        Self::to(from, RATE)
+    }
+
+    /// From `from` to `to` (a realtime call's voice runs at 24 kHz).
+    pub fn to(from: u32, to: u32) -> Self {
         let from = from.max(1);
-        let cutoff = (f64::from(RATE) / f64::from(from)).min(1.0) * 0.92;
+        let to = to.max(1);
+        let cutoff = (f64::from(to) / f64::from(from)).min(1.0) * 0.92;
         Self {
             from,
-            step: f64::from(from) / f64::from(RATE),
+            to,
+            step: f64::from(from) / f64::from(to),
             // The first output lands where the kernel's left half is all
             // padding: silence before the first sample.
             at: HALF as f64,
@@ -46,7 +55,7 @@ impl Resampler {
 
     /// Resamples `input` (more of the stream) and returns what is ready.
     pub fn push(&mut self, input: &[f32]) -> Vec<f32> {
-        if self.from == RATE {
+        if self.from == self.to {
             return input.to_vec();
         }
         self.buf.extend_from_slice(input);

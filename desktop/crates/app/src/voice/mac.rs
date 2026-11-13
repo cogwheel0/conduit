@@ -116,8 +116,17 @@ pub fn request_speech(done: impl FnOnce(Permission) + Send + 'static) {
 
 /// The default input device, through `AVAudioEngine`.
 pub fn microphone_input() -> InputFactory {
-    Box::new(|tx: Sender<WorkerMsg>| {
+    microphone_input_with(false)
+}
+
+/// The default input device; with `voice_processing`, through the
+/// voice-processing unit (a call's microphone), which takes what the Mac
+/// plays out of what it hears, so a spoken answer is not heard back as the
+/// user's words.
+pub fn microphone_input_with(voice_processing: bool) -> InputFactory {
+    Box::new(move |tx: Sender<WorkerMsg>| {
         let mut mic = Mic::new(tx)?;
+        mic.voice_processing = voice_processing;
         mic.start()?;
         Ok(Box::new(mic) as Box<dyn Input>)
     })
@@ -128,6 +137,55 @@ struct Mic {
     tx: Sender<WorkerMsg>,
     observer: Option<Retained<AnyObject>>,
     tapped: bool,
+    voice_processing: bool,
+}
+
+/// `AVAudioVoiceProcessingOtherAudioDuckingConfiguration` (macOS 14).
+#[repr(C)]
+struct DuckingConfiguration {
+    enable_advanced_ducking: Bool,
+    ducking_level: isize,
+}
+
+// SAFETY: the layout and encoding of the AVFAudio struct.
+unsafe impl objc2::Encode for DuckingConfiguration {
+    const ENCODING: objc2::Encoding = objc2::Encoding::Struct(
+        "AVAudioVoiceProcessingOtherAudioDuckingConfiguration",
+        &[Bool::ENCODING, isize::ENCODING],
+    );
+}
+
+/// Turns on `input`'s voice processing (echo cancellation), ducking other
+/// audio as little as it can: the answer a Standard call speaks plays
+/// through the Mac's voices, outside this engine. False when the Mac
+/// refused; the microphone then works without it.
+///
+/// # Safety
+/// `input` is the engine's `AVAudioInputNode`; the engine is stopped.
+pub(crate) unsafe fn enable_voice_processing(input: *mut AnyObject) -> bool {
+    // SAFETY: the caller's.
+    unsafe {
+        let mut error: *mut AnyObject = null_mut();
+        let ok: bool = msg_send![input, setVoiceProcessingEnabled: true, error: &mut error];
+        if !ok {
+            log::warn!("voice processing: {}", describe(error));
+            return false;
+        }
+        let ducking = objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:);
+        let responds: bool = msg_send![input, respondsToSelector: ducking];
+        if responds {
+            let configuration = DuckingConfiguration {
+                enable_advanced_ducking: Bool::YES,
+                // AVAudioVoiceProcessingOtherAudioDuckingLevelMin.
+                ducking_level: 10,
+            };
+            let _: () = msg_send![
+                input,
+                setVoiceProcessingOtherAudioDuckingConfiguration: configuration
+            ];
+        }
+        true
+    }
 }
 
 impl Mic {
@@ -162,6 +220,7 @@ impl Mic {
                 tx,
                 observer,
                 tapped: false,
+                voice_processing: false,
             })
         }
     }
@@ -172,6 +231,10 @@ impl Mic {
             let input: *mut AnyObject = msg_send![&*self.engine, inputNode];
             if input.is_null() {
                 return Err(InputError::Unavailable("no input node".into()));
+            }
+            if self.voice_processing {
+                // Before the format is read: the unit has its own.
+                enable_voice_processing(input);
             }
             let format: *mut AnyObject = msg_send![input, outputFormatForBus: 0usize];
             let rate: f64 = msg_send![format, sampleRate];
@@ -224,7 +287,7 @@ impl Mic {
 ///
 /// # Safety
 /// `buffer` is an `AVAudioPCMBuffer` (or null).
-unsafe fn mono_samples(buffer: *mut AnyObject) -> Option<Vec<f32>> {
+pub(crate) unsafe fn mono_samples(buffer: *mut AnyObject) -> Option<Vec<f32>> {
     if buffer.is_null() {
         return None;
     }
@@ -520,7 +583,7 @@ pub fn transcribe_file(
 }
 
 /// An NSError's description.
-fn describe(error: *mut AnyObject) -> String {
+pub(crate) fn describe(error: *mut AnyObject) -> String {
     if error.is_null() {
         return "unknown error".into();
     }

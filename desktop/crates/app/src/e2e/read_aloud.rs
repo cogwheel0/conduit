@@ -527,5 +527,12 @@ async fn with_dictation(main: AnyWindowHandle, dir: &Path, cx: &mut AsyncApp) ->
     in_pane(cx, |p, window, cx| {
         p.composer.update(cx, |c, cx| c.set_text("", window, cx))
     });
+    // Outside a call, a reading plays as it always did: never on a call's
+    // engine.
+    pass &= ok(
+        "a reading outside a call is not said on a call's engine",
+        crate::voice::call_audio::said_on_calls() == 0
+            && crate::voice::call_audio::current().is_none(),
+    );
     pass
 }

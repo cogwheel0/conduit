@@ -29,7 +29,7 @@ intl_pluralrules = "7"
 unic-langid = "0.9"
 url = "2"
 log = "0.4"
-tokio = { version = "1.54", features = ["sync"] }
+tokio = { version = "1.54", features = ["sync", "rt", "macros"] }
 base64 = "0.22"
 bytes = "1"
 # Frames for the dark-mode chart redraw (`views::chat::diagram`): the copy

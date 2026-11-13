@@ -145,6 +145,13 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
         _ => {}
     })
     .detach();
+    // The menu-bar item shows a voice call.
+    #[cfg(target_os = "macos")]
+    cx.subscribe(
+        &stores.call,
+        |_, _: &crate::stores::call::CallChanged, cx| sync_call_tray(cx),
+    )
+    .detach();
     // `turn.finished` is unscoped: it comes for chats that are not open.
     connection.update(cx, |c, _| {
         c.subscribe(NOTIFICATIONS_KEY, &[events::TURN_FINISHED], vec![])
@@ -459,7 +466,8 @@ pub fn apply_settings(cx: &mut App) {
     let prefs = state.settings.read(cx).prefs.desktop.clone();
     #[cfg(target_os = "macos")]
     {
-        set_tray(prefs.close_to_menu_bar, cx);
+        let in_call = state.stores.call.read(cx).is_active();
+        set_tray(prefs.close_to_menu_bar || in_call, cx);
         let stroke = prefs.quick_ask.then(|| prefs.quick_ask_stroke());
         let status = cx
             .try_global::<Desktop>()
@@ -1104,6 +1112,13 @@ fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
             show_main(cx);
             drain(cx);
         }
+        QuickAskEvent::StartCall(model) => {
+            hide_quick_ask(cx);
+            if let Some(call) = cx.try_global::<AppState>().map(|s| s.stores.call.clone()) {
+                call.update(cx, |c, cx| c.start(None, model, None, false, cx));
+            }
+            show_main(cx);
+        }
         QuickAskEvent::OpenDraft { text, attachments } => {
             hide_quick_ask(cx);
             let text = Some(text).filter(|t| !t.trim().is_empty());
@@ -1206,7 +1221,55 @@ pub fn on_tray_command(command: crate::shell::tray::TrayCommand, cx: &mut App) {
         T::QuickAsk => show_quick_ask(cx),
         T::Settings => crate::open_settings(None, cx),
         T::Quit => cx.quit(),
+        T::ShowCall => {
+            show_main(cx);
+            cx.dispatch_action(&crate::actions::ShowCall);
+        }
+        T::EndCall => cx.dispatch_action(&crate::actions::EndCall),
     }
+}
+
+/// The menu-bar item follows the voice call: installed while one is on
+/// (whatever "Close to menu bar" says), showing its time and state.
+#[cfg(target_os = "macos")]
+fn sync_call_tray(cx: &mut App) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let call = state.stores.call.read(cx);
+    let shown = if call.is_active() {
+        let l10n = cx.l10n();
+        let time = crate::stores::dictation::clock(crate::views::chat::call::elapsed(
+            call.state().started_at_ms,
+        ));
+        Some(crate::shell::tray::TrayCall {
+            status: crate::views::chat::call::status_line(call, l10n),
+            time,
+            show: l10n.desktop_show_call(),
+            end: l10n.voice_call_end(),
+        })
+    } else {
+        None
+    };
+    if shown.is_some() {
+        set_tray(true, cx);
+    }
+    if cx.has_global::<Desktop>()
+        && let Some(tray) = cx.global_mut::<Desktop>().platform.tray.as_mut()
+    {
+        tray.set_call(shown.as_ref());
+    }
+    if shown.is_none() && !closes_to_menu_bar(cx) {
+        set_tray(false, cx);
+    }
+}
+
+/// Whether the menu-bar item shows a call (E2E).
+#[cfg(target_os = "macos")]
+pub fn menu_bar_shows_call(cx: &App) -> bool {
+    cx.try_global::<Desktop>()
+        .and_then(|d| d.platform.tray.as_ref())
+        .is_some_and(|t| t.shows_call())
 }
 
 #[cfg(target_os = "macos")]

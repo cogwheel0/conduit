@@ -3037,6 +3037,42 @@
   "@desktopStopSpeaking": {
     "description": "Stop Speaking: ends the reading aloud (the message action while it reads, the Chat menu item, the playback bar's close button). As macOS's Edit › Speech › Stop Speaking. Title Case."
   },
+  "desktopStartVoiceCall": "Start Voice Call",
+  "@desktopStartVoiceCall": {
+    "description": "Start Voice Call: the composer's call button (its tooltip and label) and the Chat menu item. Starts a voice call in the open chat, or in a new chat. Title Case."
+  },
+  "desktopEndVoiceCall": "End Voice Call",
+  "@desktopEndVoiceCall": {
+    "description": "End Voice Call: the Chat menu item while a call is on (it replaces Start Voice Call). Title Case."
+  },
+  "desktopCallThinking": "Thinking…",
+  "@desktopCallThinking": {
+    "description": "A voice call's state while the user's words went to the chat and the answer is on its way. Short, with an ellipsis character."
+  },
+  "desktopCallStatusTime": "{status} · {time}",
+  "@desktopCallStatusTime": {
+    "description": "A voice call's state and how long it has run, as the call strip and the menu-bar item show them: {status} is the state (Listening, Speaking…) or Voice Call, {time} the time (1:23).",
+    "placeholders": {
+      "status": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopCallRealtimeUnavailable": "Realtime isn’t available for this chat, so this call takes turns.",
+  "@desktopCallRealtimeUnavailable": {
+    "description": "A note in the voice call's strip when Settings › Audio chose Realtime calls but this chat cannot have one (its model's backend has no realtime voice, the chat is temporary, …): the call listens, sends and speaks in turn. Sentence case."
+  },
+  "desktopCallElsewhere": "Voice call in another chat",
+  "@desktopCallElsewhere": {
+    "description": "The minimised voice call's capsule, shown above another chat's composer: the call goes on in another chat. Sentence case."
+  },
+  "desktopShowCall": "Show Call",
+  "@desktopShowCall": {
+    "description": "Show Call: opens the voice call's chat and its call strip (the capsule's button over another chat, and the menu-bar item's command). Title Case."
+  },
   "desktopPreviousSentence": "Previous Sentence",
   "@desktopPreviousSentence": {
     "description": "The playback bar's button that moves the reading back one sentence. Title Case."

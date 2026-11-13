@@ -97,6 +97,8 @@ pub enum ChatComposerEvent {
     SaveAsNote(String),
     /// + › Compare Models.
     CompareModels,
+    /// The call button: a voice call in this chat.
+    StartCall,
 }
 
 /// What the + menu's items do. The menu is native (NSMenu), as the panel
@@ -253,6 +255,13 @@ pub struct ChatComposer {
     /// A message typed now would be queued behind the running answer (the
     /// open chat's `queue.offer`).
     pub queue_offer: bool,
+    /// With nothing to send, Send's place holds Start Voice Call (the main
+    /// window's composer, a chat that takes answers); `call_ready`: one can
+    /// start now (no call is on, a model is chosen, the server answers).
+    pub call_offer: bool,
+    pub call_ready: bool,
+    /// A voice call is on: it has the microphone, so no mic here.
+    pub call_on: bool,
     /// The field grown into a larger editor (⇧⌘E).
     pub expanded: bool,
     /// Enter sends (the Chats setting, as the field was last told).
@@ -468,6 +477,9 @@ impl ChatComposer {
             plus_bounds: Rc::default(),
             frame_bounds: Rc::default(),
             queue_offer: false,
+            call_offer: false,
+            call_ready: false,
+            call_on: false,
             expanded: false,
             send_on_enter,
             compare_ui: true,
@@ -550,6 +562,13 @@ impl ChatComposer {
         };
         if !store.read(cx).is_active() {
             if self.streaming {
+                return;
+            }
+            // A voice call has the microphone.
+            if cx
+                .try_global::<crate::AppState>()
+                .is_some_and(|s| s.stores.call.read(cx).is_active())
+            {
                 return;
             }
             self.dictation_base = Some(self.text(cx));
@@ -3517,6 +3536,16 @@ impl Render for ChatComposer {
                 .children(busy_buttons)
                 .child(stop)
                 .into_any_element()
+        } else if self.call_offer && !can_send && !self.ready(cx) {
+            // Nothing to send: a voice call, as on the phone.
+            let weak = cx.entity().downgrade();
+            super::call::call_button(
+                self.call_ready && !self.offline,
+                Rc::new(move |_, cx| {
+                    let _ = weak.update(cx, |_, cx| cx.emit(ChatComposerEvent::StartCall));
+                }),
+                cx,
+            )
         } else {
             // Waiting on the connection: dimmed, its tooltip saying why
             // (the state itself shows once, in the window's pill).
@@ -3614,7 +3643,7 @@ impl Render for ChatComposer {
             .map(|d| dictation_view::listening_controls(&me, d.read(cx), cx));
         let mic = dictation
             .as_ref()
-            .filter(|_| !dictating && !self.streaming)
+            .filter(|_| !dictating && !self.streaming && !self.call_on)
             .map(|_| dictation_view::mic_button(&me, cx));
         let recordings = dictation
             .as_ref()

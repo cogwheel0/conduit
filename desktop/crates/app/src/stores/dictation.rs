@@ -168,6 +168,10 @@ pub struct DictationStore {
     next_held: u64,
     /// How the last dictation ended.
     pub last_end: Option<EndReason>,
+    /// A voice call's listening ([`Self::for_call`]): the microphone's
+    /// voice processing on, a reading left alone (the call's own answer),
+    /// and nothing heard said by the call, not a toast.
+    call: bool,
     _run: Option<Task<()>>,
     _list: Option<Task<()>>,
     _busy: Option<Task<()>>,
@@ -199,6 +203,7 @@ impl DictationStore {
             held: vec![],
             next_held: 0,
             last_end: None,
+            call: false,
             _run: None,
             _list: None,
             _busy: None,
@@ -209,6 +214,16 @@ impl DictationStore {
     pub fn for_connection(connection: Entity<ConnectionStore>, cx: &App) -> Self {
         let rpc = connection.read(cx).rpc();
         Self::new(rpc, Some(connection))
+    }
+
+    /// A voice call's ears ([`crate::stores::call`]): it keeps no
+    /// recordings, leaves the call's spoken answer alone, says nothing of
+    /// its own when nothing was heard, and listens through the microphone's
+    /// voice processing.
+    pub fn for_call(connection: Entity<ConnectionStore>, cx: &App) -> Self {
+        let mut store = Self::for_connection(connection, cx);
+        store.call = true;
+        store
     }
 
     /// What stands in for the microphone from the next dictation on (the
@@ -375,10 +390,12 @@ impl DictationStore {
         self.level = 0.0;
         cx.notify();
         // The microphone would hear a reading: it pauses (one still
-        // loading stops) before listening starts.
-        if let Some(speech) = cx
-            .try_global::<crate::AppState>()
-            .map(|s| s.stores.speech.clone())
+        // loading stops) before listening starts. A call's answer is the
+        // call's to stop.
+        if !self.call
+            && let Some(speech) = cx
+                .try_global::<crate::AppState>()
+                .map(|s| s.stores.speech.clone())
         {
             speech.update(cx, |s, cx| s.yield_to_dictation(cx));
         }
@@ -488,7 +505,7 @@ impl DictationStore {
         let config = voice::SessionConfig::new(pause, engine != "device");
         self.session = Some(voice::Session::spawn(
             config,
-            voice::input(self.input.as_ref()),
+            voice::input_with(self.input.as_ref(), self.call),
             recognizer,
             tx,
         ));
@@ -686,8 +703,10 @@ impl DictationStore {
             // Nothing said: nothing to keep.
             self.finish_recording(false, cx);
             self.phase = Phase::Idle;
-            let text = nothing_heard(cx);
-            self.toast(text, cx);
+            if !self.call {
+                let text = nothing_heard(cx);
+                self.toast(text, cx);
+            }
             cx.emit(DictationEvent::Ended { restore: true });
             cx.notify();
             return;
@@ -755,8 +774,10 @@ impl DictationStore {
                             cx.emit(DictationEvent::Ended { restore: false });
                         }
                         Ok(_) => {
-                            let text = nothing_heard(cx);
-                            s.toast(text, cx);
+                            if !s.call {
+                                let text = nothing_heard(cx);
+                                s.toast(text, cx);
+                            }
                             cx.emit(DictationEvent::Ended { restore: true });
                         }
                         Err(e) => {
@@ -1013,7 +1034,7 @@ fn nothing_heard(cx: &App) -> String {
 
 /// Runs `f` (an HTTP call) on the daemon's tokio runtime; any executor can
 /// await the answer.
-async fn on_io<T: Send + 'static>(
+pub(crate) async fn on_io<T: Send + 'static>(
     f: impl std::future::Future<Output = T> + Send + 'static,
 ) -> Option<T> {
     let (tx, rx) = futures::channel::oneshot::channel();
@@ -1034,7 +1055,7 @@ fn recognizer(_language: Option<String>) -> voice::session::RecognizerFactory {
 }
 
 /// Whether the microphone may be used, asking the first time.
-async fn microphone_allowed() -> bool {
+pub(crate) async fn microphone_allowed() -> bool {
     #[cfg(target_os = "macos")]
     {
         use voice::mac::{Permission, microphone, request_microphone};

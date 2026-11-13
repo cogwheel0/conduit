@@ -89,6 +89,8 @@ pub struct ShortcutHints {
     pub dictate: Option<SharedString>,
     /// Chat › Read Aloud (the last answer's Read Aloud).
     pub read_aloud: Option<SharedString>,
+    /// Chat › Start Voice Call (the composer's call button).
+    pub voice_call: Option<SharedString>,
 }
 
 impl Global for ShortcutHints {}
