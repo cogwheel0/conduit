@@ -1,6 +1,8 @@
 import 'access.dart';
 import 'accounts.dart';
 import 'auth.dart';
+import 'automations.dart';
+import 'calendar.dart';
 import 'capabilities.dart';
 import 'chat_prompts.dart';
 import 'channels.dart';
@@ -1129,6 +1131,135 @@ abstract final class ConduitMethodSpecs {
     params: CallReport.fromJson,
     result: OkResult.fromJson,
   );
+  // calendar.*
+
+  static const calendarAgenda =
+      ConduitMethodSpec<CalendarAgendaQuery, CalendarAgenda>(
+        ConduitMethods.calendarAgenda,
+        params: CalendarAgendaQuery.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarSetVisible =
+      ConduitMethodSpec<CalendarVisibility, CalendarAgenda>(
+        ConduitMethods.calendarSetVisible,
+        params: CalendarVisibility.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarMakeDefault =
+      ConduitMethodSpec<CalendarRef, CalendarAgenda>(
+        ConduitMethods.calendarMakeDefault,
+        params: CalendarRef.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarCreateCalendar =
+      ConduitMethodSpec<CalendarCreate, CalendarDto>(
+        ConduitMethods.calendarCreateCalendar,
+        params: CalendarCreate.fromJson,
+        result: CalendarDto.fromJson,
+      );
+  static const calendarEvent =
+      ConduitMethodSpec<CalendarItemRef, CalendarEventDetail>(
+        ConduitMethods.calendarEvent,
+        params: CalendarItemRef.fromJson,
+        result: CalendarEventDetail.fromJson,
+      );
+  static const calendarDeleteEvent =
+      ConduitMethodSpec<CalendarItemRef, CalendarAgenda>(
+        ConduitMethods.calendarDeleteEvent,
+        params: CalendarItemRef.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarRespond =
+      ConduitMethodSpec<CalendarRsvpEdit, CalendarEventDetail>(
+        ConduitMethods.calendarRespond,
+        params: CalendarRsvpEdit.fromJson,
+        result: CalendarEventDetail.fromJson,
+      );
+  static const calendarEditor =
+      ConduitMethodSpec<CalendarEditorOpen, CalendarEditor>(
+        ConduitMethods.calendarEditor,
+        params: CalendarEditorOpen.fromJson,
+        result: CalendarEditor.fromJson,
+      );
+  static const calendarCheckDraft =
+      ConduitMethodSpec<CalendarDraftEdit, CalendarDraftState>(
+        ConduitMethods.calendarCheckDraft,
+        params: CalendarDraftEdit.fromJson,
+        result: CalendarDraftState.fromJson,
+      );
+  static const calendarSave =
+      ConduitMethodSpec<CalendarDraftEdit, CalendarDraftState>(
+        ConduitMethods.calendarSave,
+        params: CalendarDraftEdit.fromJson,
+        result: CalendarDraftState.fromJson,
+      );
+
+  // automations.*
+
+  static const automationsList =
+      ConduitMethodSpec<AutomationQuery, AutomationList>(
+        ConduitMethods.automationsList,
+        params: AutomationQuery.fromJson,
+        result: AutomationList.fromJson,
+      );
+  static const automationsLoadMore = ConduitMethodSpec<void, AutomationList>(
+    ConduitMethods.automationsLoadMore,
+    result: AutomationList.fromJson,
+  );
+  static const automationsGet =
+      ConduitMethodSpec<AutomationRef, AutomationDetail>(
+        ConduitMethods.automationsGet,
+        params: AutomationRef.fromJson,
+        result: AutomationDetail.fromJson,
+      );
+  static const automationsRuns =
+      ConduitMethodSpec<AutomationRunsQuery, AutomationRuns>(
+        ConduitMethods.automationsRuns,
+        params: AutomationRunsQuery.fromJson,
+        result: AutomationRuns.fromJson,
+      );
+  static const automationsSetActive =
+      ConduitMethodSpec<AutomationToggle, AutomationDetail>(
+        ConduitMethods.automationsSetActive,
+        params: AutomationToggle.fromJson,
+        result: AutomationDetail.fromJson,
+      );
+  static const automationsRun =
+      ConduitMethodSpec<AutomationRef, AutomationRunProgress>(
+        ConduitMethods.automationsRun,
+        params: AutomationRef.fromJson,
+        result: AutomationRunProgress.fromJson,
+      );
+  static const automationsRunState =
+      ConduitMethodSpec<AutomationRef, AutomationRunProgress>(
+        ConduitMethods.automationsRunState,
+        params: AutomationRef.fromJson,
+        result: AutomationRunProgress.fromJson,
+      );
+  static const automationsDelete =
+      ConduitMethodSpec<AutomationRef, AutomationList>(
+        ConduitMethods.automationsDelete,
+        params: AutomationRef.fromJson,
+        result: AutomationList.fromJson,
+      );
+  static const automationsEditor =
+      ConduitMethodSpec<AutomationEditorOpen, AutomationEditor>(
+        ConduitMethods.automationsEditor,
+        params: AutomationEditorOpen.fromJson,
+        result: AutomationEditor.fromJson,
+      );
+  static const automationsCheckDraft =
+      ConduitMethodSpec<AutomationDraftEdit, AutomationDraftState>(
+        ConduitMethods.automationsCheckDraft,
+        params: AutomationDraftEdit.fromJson,
+        result: AutomationDraftState.fromJson,
+      );
+  static const automationsSave =
+      ConduitMethodSpec<AutomationDraftEdit, AutomationDraftState>(
+        ConduitMethods.automationsSave,
+        params: AutomationDraftEdit.fromJson,
+        result: AutomationDraftState.fromJson,
+      );
 
   // notes.*
 
@@ -2029,6 +2160,27 @@ abstract final class ConduitMethodSpecs {
         callsMute,
         callsSkip,
         callsReport,
+        calendarAgenda,
+        calendarSetVisible,
+        calendarMakeDefault,
+        calendarCreateCalendar,
+        calendarEvent,
+        calendarDeleteEvent,
+        calendarRespond,
+        calendarEditor,
+        calendarCheckDraft,
+        calendarSave,
+        automationsList,
+        automationsLoadMore,
+        automationsGet,
+        automationsRuns,
+        automationsSetActive,
+        automationsRun,
+        automationsRunState,
+        automationsDelete,
+        automationsEditor,
+        automationsCheckDraft,
+        automationsSave,
         notesList,
         notesGet,
         notesSave,
@@ -2372,6 +2524,20 @@ abstract final class ConduitEventSpecs {
     scoped: true,
   );
 
+  static const calendarChanged = ConduitEventSpec<void>(
+    ConduitEvents.calendarChanged,
+    scoped: false,
+  );
+  static const automationsChanged = ConduitEventSpec<void>(
+    ConduitEvents.automationsChanged,
+    scoped: false,
+  );
+  static const automationsRunProgress = ConduitEventSpec<AutomationRunProgress>(
+    ConduitEvents.automationsRunProgress,
+    payload: AutomationRunProgress.fromJson,
+    scoped: false,
+  );
+
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
       <ConduitEventSpec<Object?>>[
@@ -2414,6 +2580,9 @@ abstract final class ConduitEventSpecs {
         hermesWorkChanged,
         callsChanged,
         callsCommand,
+        calendarChanged,
+        automationsChanged,
+        automationsRunProgress,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

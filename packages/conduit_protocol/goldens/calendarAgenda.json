@@ -1,0 +1,42 @@
+{
+  "available": true,
+  "stale": false,
+  "firstDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 0,
+    "minute": 0
+  },
+  "endDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 25,
+    "hour": 0,
+    "minute": 0
+  },
+  "dayCount": 14,
+  "today": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 0,
+    "minute": 0
+  },
+  "calendars": [
+    {
+      "id": "cal-garden",
+      "name": "Garden club",
+      "isDefault": false,
+      "scheduled": false,
+      "owned": true,
+      "writable": false,
+      "canMakeDefault": false,
+      "visible": true
+    }
+  ],
+  "filterable": true,
+  "scheduledTasks": true,
+  "canCreate": true,
+  "days": []
+}

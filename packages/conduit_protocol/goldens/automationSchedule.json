@@ -1,0 +1,13 @@
+{
+  "kind": "weekly",
+  "year": 0,
+  "month": 0,
+  "day": 0,
+  "hour": 8,
+  "minute": 0,
+  "days": [
+    "MO",
+    "TH"
+  ],
+  "rrule": "RRULE:FREQ=WEEKLY;BYDAY=MO,TH;BYHOUR=8;BYMINUTE=0"
+}

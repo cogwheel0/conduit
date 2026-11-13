@@ -6,6 +6,7 @@
   "terminal": true,
   "calendar": true,
   "automations": true,
+  "scheduledTasks": true,
   "hermesOnly": false,
   "workspaceModels": false,
   "workspaceKnowledge": true,

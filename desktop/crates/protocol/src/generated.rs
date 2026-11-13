@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.62.0";
+pub const PROTOCOL_VERSION: &str = "1.63.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -560,6 +560,342 @@ pub struct ReviewerMode {
     pub enabled: bool,
 }
 
+/// A scheduled task's schedule, as the editor's controls hold it.
+///
+/// Times are wall clocks with no zone: the server reads them in the
+/// account's Open WebUI time zone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationScheduleDto {
+    /// `once`, `daily`, `weekly`, or `custom` for a rule the controls do
+    /// not write (kept exactly as stored in `rrule`).
+    pub kind: String,
+    /// A one-time run's day.
+    #[serde(default)]
+    pub year: i64,
+    #[serde(default)]
+    pub month: i64,
+    #[serde(default)]
+    pub day: i64,
+    #[serde(default)]
+    pub hour: i64,
+    #[serde(default)]
+    pub minute: i64,
+    /// A weekly run's days, `MO` to `SU`, Monday first.
+    #[serde(default)]
+    pub days: Vec<String>,
+    /// The rule the server stores.
+    #[serde(default)]
+    pub rrule: String,
+}
+
+/// One scheduled task, as its list row shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationSummary {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_automation_summary_active")]
+    pub active: bool,
+    pub schedule: AutomationScheduleDto,
+    /// The next run of an active task, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_run_at: Option<i64>,
+    /// The last run, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_at: Option<i64>,
+    #[serde(default)]
+    pub last_run_failed: bool,
+}
+
+fn default_automation_summary_active() -> bool {
+    true
+}
+
+/// Reply to `automations.list` and the calls that change the list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationList {
+    /// The server and account allow scheduled tasks.
+    #[serde(default)]
+    pub available: bool,
+    /// Nothing could be read: `unavailable`, `accountChanged` or `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    /// A change went through but reading the list back failed.
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub query: String,
+    /// `all`, `active` or `paused`.
+    #[serde(default = "default_automation_list_status")]
+    pub status: String,
+    #[serde(default)]
+    pub items: Vec<AutomationSummary>,
+    /// Matches across every page.
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub has_more: bool,
+}
+
+impl Default for AutomationList {
+    fn default() -> Self {
+        Self {
+            available: Default::default(),
+            failure: None,
+            stale: Default::default(),
+            query: Default::default(),
+            status: default_automation_list_status(),
+            items: Default::default(),
+            total: Default::default(),
+            has_more: Default::default(),
+        }
+    }
+}
+
+fn default_automation_list_status() -> String {
+    "all".to_owned()
+}
+
+/// Params for `automations.list`. A changed search or status starts again
+/// from the first page; nothing set answers with the list as it stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// `all`, `active` or `paused`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// Params naming one task.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRef {
+    pub id: String,
+}
+
+/// One entry of a task's history.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRunDto {
+    pub id: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub succeeded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// When it finished, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_channel_id: Option<String>,
+}
+
+/// Reply to `automations.get` and `automations.setActive`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationDetail {
+    pub summary: AutomationSummary,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub model_id: String,
+    /// The model's name, when the account's models list it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    /// `chat` or `channel`.
+    #[serde(default = "default_automation_detail_target")]
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_name: Option<String>,
+    /// A terminal is attached; edits keep it.
+    #[serde(default)]
+    pub terminal: bool,
+    /// The server's next runs, in milliseconds since the epoch (empty for a
+    /// paused task).
+    #[serde(default)]
+    pub next_runs: Vec<i64>,
+}
+
+fn default_automation_detail_target() -> String {
+    "chat".to_owned()
+}
+
+/// Params for `automations.runs`: a page of history, newest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRunsQuery {
+    pub id: String,
+    #[serde(default)]
+    pub skip: i64,
+}
+
+/// Reply to `automations.runs`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRuns {
+    #[serde(default)]
+    pub items: Vec<AutomationRunDto>,
+    #[serde(default)]
+    pub has_more: bool,
+}
+
+/// Params for `automations.setActive`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationToggle {
+    pub id: String,
+    pub active: bool,
+}
+
+/// Where a Run Now stands (`automations.run`, `automations.runState` and the
+/// `automations.runProgress` event).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRunProgress {
+    pub id: String,
+    /// `idle`, `requesting`, `waiting`, `finished`, `failed` or `timedOut`.
+    #[serde(default = "default_automation_run_progress_phase")]
+    pub phase: String,
+    /// The run it produced, once recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<AutomationRunDto>,
+    /// Why the request was refused, when it was: the server's own words,
+    /// or `accountChanged` / `unavailable`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+fn default_automation_run_progress_phase() -> String {
+    "idle".to_owned()
+}
+
+/// What the task editor holds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationFields {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub model_id: String,
+    #[serde(default = "default_automation_fields_active")]
+    pub active: bool,
+    pub schedule: AutomationScheduleDto,
+    /// `chat` or `channel`.
+    #[serde(default = "default_automation_fields_target")]
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<String>,
+    /// A chat result's folder, or null for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+}
+
+fn default_automation_fields_active() -> bool {
+    true
+}
+
+fn default_automation_fields_target() -> String {
+    "chat".to_owned()
+}
+
+/// A model, channel or folder the editor offers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationOption {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Params for `automations.editor`: a new task, or the task `id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationEditorOpen {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Reply to `automations.editor`: the draft, held by the daemon for the
+/// account it was opened for under `token`, and what it can pick.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationEditor {
+    pub token: String,
+    #[serde(default = "default_automation_editor_is_new")]
+    pub is_new: bool,
+    pub fields: AutomationFields,
+    /// Null while a list has not loaded: the server decides then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<AutomationOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channels: Option<Vec<AutomationOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folders: Option<Vec<AutomationOption>>,
+    /// A terminal is attached; edits keep it.
+    #[serde(default)]
+    pub terminal: bool,
+}
+
+fn default_automation_editor_is_new() -> bool {
+    true
+}
+
+/// Params for `automations.checkDraft` and `automations.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationDraftEdit {
+    pub token: String,
+    pub fields: AutomationFields,
+    /// The schedule's kind was just chosen (`once`, `daily`, `weekly`):
+    /// it starts from the current schedule's time (`checkDraft` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choose_kind: Option<String>,
+}
+
+/// Reply to `automations.checkDraft` and `automations.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationDraftState {
+    /// The fields with the schedule settled: a `custom` rule that the
+    /// controls can write reads back as their kind, and typed controls
+    /// carry their rule.
+    pub fields: AutomationFields,
+    /// What stops it being saved: `nameRequired`, `promptRequired`,
+    /// `modelRequired`, `modelUnavailable`, `channelRequired`,
+    /// `channelUnavailable`, `channelNoWrite`, `folderUnavailable`,
+    /// `scheduleIncomplete`.
+    #[serde(default)]
+    pub issues: Vec<String>,
+    #[serde(default)]
+    pub changed: bool,
+    /// `automations.save` went through; `id` is the task.
+    #[serde(default)]
+    pub saved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The server refused the save, in its own words when it gave some.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
 /// What a `MessageBlockDto` is.
 ///
 /// An assistant answer is an ordered list of blocks, in the order the
@@ -880,6 +1216,408 @@ pub struct MessageStatusDto {
     /// `ChatSourceDto.snippet`.
     #[serde(default)]
     pub details: Vec<ChatSourceDto>,
+}
+
+/// A calendar day and a wall clock in the Mac's own time zone, to the minute.
+/// A day alone leaves `hour` and `minute` at zero.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarWallTime {
+    pub year: i64,
+    pub month: i64,
+    pub day: i64,
+    #[serde(default)]
+    pub hour: i64,
+    #[serde(default)]
+    pub minute: i64,
+}
+
+/// One of the account's calendars on its Open WebUI server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarDto {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// `#rrggbb` as the server stored it, or null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// The account's own default calendar (a shared calendar's flag is its
+    /// owner's and is not reported here).
+    #[serde(default)]
+    pub is_default: bool,
+    /// The server's read-only calendar of scheduled-task runs.
+    #[serde(default)]
+    pub scheduled: bool,
+    /// The account owns it.
+    #[serde(default)]
+    pub owned: bool,
+    /// Events can be created in it, moved into it and edited in it.
+    #[serde(default)]
+    pub writable: bool,
+    /// It can be made the account's default (one of its own, not already).
+    #[serde(default)]
+    pub can_make_default: bool,
+    /// The agenda shows its events.
+    #[serde(default = "default_calendar_dto_visible")]
+    pub visible: bool,
+}
+
+fn default_calendar_dto_visible() -> bool {
+    true
+}
+
+/// What an agenda row says about its time on its day.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarRowTimeDto {
+    /// `allDay`, `at` (a moment), `range` (start and end on this day),
+    /// `startsAt` (the first day of a longer event) or `endsAt` (its last).
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<CalendarWallTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<CalendarWallTime>,
+}
+
+/// One thing on the agenda: a stored event (or one occurrence of a recurring
+/// one), or a scheduled task's coming run or past run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarItemDto {
+    /// Unique within one agenda: every `calendar.*` call names an item by
+    /// it.
+    pub key: String,
+    /// `event` or `scheduled`.
+    pub kind: String,
+    /// The stored event's id (a series' id for an occurrence), or the
+    /// server's `auto_…`/`run_…` id for a scheduled entry.
+    pub id: String,
+    #[serde(default)]
+    pub calendar_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    /// The event's colour, else its calendar's (`#rrggbb`), or null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub recurring: bool,
+    #[serde(default)]
+    pub all_day: bool,
+    #[serde(default)]
+    pub cancelled: bool,
+    pub start: CalendarWallTime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<CalendarWallTime>,
+    /// The last day the item covers (the start's day for a moment).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_day: Option<CalendarWallTime>,
+    /// What its row says on the day it is listed under.
+    pub time: CalendarRowTimeDto,
+    /// The account is one of the invited people.
+    #[serde(default)]
+    pub invited: bool,
+    /// The account's own answer when `invited`: `accepted`, `tentative`,
+    /// `declined` or `pending`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+    /// The account may change or delete the event.
+    #[serde(default)]
+    pub editable: bool,
+    /// A scheduled entry's task, when the server named one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation_id: Option<String>,
+    /// A past run's id, chat and channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_channel_id: Option<String>,
+    /// A scheduled entry's state: `upcoming`, `finished` or `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_state: Option<String>,
+}
+
+/// One day of the agenda that has something on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarAgendaDay {
+    pub day: CalendarWallTime,
+    #[serde(default)]
+    pub items: Vec<CalendarItemDto>,
+}
+
+/// Reply to `calendar.agenda` and the calls that change it: the calendars
+/// and the agenda for a bounded stretch of days, in the Mac's time zone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarAgenda {
+    /// The server and account allow the calendar.
+    #[serde(default)]
+    pub available: bool,
+    /// Nothing could be read: `unavailable`, `accountChanged` or `failed`.
+    /// Null when there is an agenda.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    /// A change went through but reading the agenda back failed: it may
+    /// not show it yet.
+    #[serde(default)]
+    pub stale: bool,
+    /// The first day of the range, and the day after its last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_day: Option<CalendarWallTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_day: Option<CalendarWallTime>,
+    #[serde(default = "default_calendar_agenda_day_count")]
+    pub day_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub today: Option<CalendarWallTime>,
+    #[serde(default)]
+    pub calendars: Vec<CalendarDto>,
+    /// More than one calendar: each can be shown or hidden.
+    #[serde(default)]
+    pub filterable: bool,
+    /// The scheduled-task entries are listed (the account may use
+    /// scheduled tasks).
+    #[serde(default)]
+    pub scheduled_tasks: bool,
+    /// Some calendar takes new events.
+    #[serde(default)]
+    pub can_create: bool,
+    #[serde(default)]
+    pub days: Vec<CalendarAgendaDay>,
+}
+
+impl Default for CalendarAgenda {
+    fn default() -> Self {
+        Self {
+            available: Default::default(),
+            failure: None,
+            stale: Default::default(),
+            first_day: None,
+            end_day: None,
+            day_count: default_calendar_agenda_day_count(),
+            today: None,
+            calendars: Default::default(),
+            filterable: Default::default(),
+            scheduled_tasks: Default::default(),
+            can_create: Default::default(),
+            days: Default::default(),
+        }
+    }
+}
+
+fn default_calendar_agenda_day_count() -> i64 {
+    14
+}
+
+/// Params for `calendar.agenda`. With nothing set it answers with the
+/// agenda as it stands (loading it the first time).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarAgendaQuery {
+    /// Moves the range to start on this day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_day: Option<CalendarWallTime>,
+    /// Moves the range by this many pages (−1 earlier, 1 later).
+    #[serde(default)]
+    pub shift: i64,
+    /// Moves the range to start today.
+    #[serde(default)]
+    pub today: bool,
+    /// Reads the server again even when the range stays.
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// Params for `calendar.setVisible`. The last shown calendar stays shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarVisibility {
+    pub calendar_id: String,
+    pub visible: bool,
+}
+
+/// Params for `calendar.makeDefault`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarRef {
+    pub calendar_id: String,
+}
+
+/// Params for `calendar.createCalendar`: a private calendar of the
+/// account's own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarCreate {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+/// Params for `calendar.event` and `calendar.deleteEvent`: an agenda item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarItemRef {
+    pub key: String,
+}
+
+/// Reply to `calendar.event` and `calendar.respond`: what the event sheet
+/// shows of an agenda item, read again from the server when the account can
+/// read its calendar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarEventDetail {
+    pub item: CalendarItemDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_color: Option<String>,
+    /// `none`, `daily`, `weekdays`, `weekly`, `monthly`, `yearly` or
+    /// `custom` (a rule the editor does not write, kept as stored).
+    #[serde(default = "default_calendar_event_detail_repeat")]
+    pub repeat: String,
+    /// The organizer's name, when the agenda carried it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organizer: Option<String>,
+    #[serde(default)]
+    pub attendee_count: i64,
+    /// The event may be changed or deleted (a recurring event as a whole
+    /// series: the server cannot change one occurrence).
+    #[serde(default)]
+    pub can_edit: bool,
+    /// How reading it again went: `fresh`, `skipped` (its calendar is not
+    /// one the account can read), `denied`, `gone` or `failed`.
+    #[serde(default = "default_calendar_event_detail_status")]
+    pub status: String,
+}
+
+fn default_calendar_event_detail_repeat() -> String {
+    "none".to_owned()
+}
+
+fn default_calendar_event_detail_status() -> String {
+    "skipped".to_owned()
+}
+
+/// Params for `calendar.respond`: the account's own answer to an
+/// invitation (`accepted`, `tentative` or `declined`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarRsvpEdit {
+    pub key: String,
+    pub answer: String,
+}
+
+/// An invited person, as the editor holds one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarAttendeeDto {
+    pub user_id: String,
+    /// A name to show; the server does not return one with an attendee.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// What the event editor holds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarEventFields {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub location: String,
+    #[serde(default)]
+    pub calendar_id: String,
+    #[serde(default)]
+    pub all_day: bool,
+    /// The start's day and, unless `allDay`, its wall clock.
+    pub start: CalendarWallTime,
+    /// The end's day and wall clock (an all-day event's last day), or null
+    /// for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<CalendarWallTime>,
+    /// As `CalendarEventDetail.repeat`.
+    #[serde(default = "default_calendar_event_fields_repeat")]
+    pub repeat: String,
+    #[serde(default)]
+    pub attendees: Vec<CalendarAttendeeDto>,
+}
+
+fn default_calendar_event_fields_repeat() -> String {
+    "none".to_owned()
+}
+
+/// Params for `calendar.editor`: a new event (`key` null, starting on
+/// `day`), or the stored event behind an agenda item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarEditorOpen {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day: Option<CalendarWallTime>,
+}
+
+/// Reply to `calendar.editor`: the draft to edit, held by the daemon for
+/// the account it was opened for under `token`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarEditor {
+    pub token: String,
+    #[serde(default = "default_calendar_editor_is_new")]
+    pub is_new: bool,
+    /// A recurring event: Save changes the whole series.
+    #[serde(default)]
+    pub series: bool,
+    /// The stored rule a `custom` repeat keeps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    pub fields: CalendarEventFields,
+    /// The calendars the event can go in.
+    #[serde(default)]
+    pub calendars: Vec<CalendarDto>,
+}
+
+fn default_calendar_editor_is_new() -> bool {
+    true
+}
+
+/// Params for `calendar.checkDraft` and `calendar.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarDraftEdit {
+    pub token: String,
+    pub fields: CalendarEventFields,
+    /// The start just moved here: an end that would fall before it moves
+    /// along, keeping the event's length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_start: Option<CalendarWallTime>,
+}
+
+/// Reply to `calendar.checkDraft` and `calendar.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarDraftState {
+    pub fields: CalendarEventFields,
+    /// What stops it being saved, in the order to show it:
+    /// `titleRequired`, `calendarRequired`, `endBeforeStart`.
+    #[serde(default)]
+    pub issues: Vec<String>,
+    /// The user changed something (against the stored event, or the new
+    /// event's first draft).
+    #[serde(default)]
+    pub changed: bool,
+    /// `calendar.save` went through.
+    #[serde(default)]
+    pub saved: bool,
 }
 
 /// Where a voice call is: the phone's `ChatVoiceModePhase`.
@@ -1271,6 +2009,10 @@ pub struct Capabilities {
     /// Scheduled tasks.
     #[serde(default)]
     pub automations: bool,
+    /// Scheduled tasks are offered as a destination: `automations`, and
+    /// Settings' Advanced is on (as the phone shows them).
+    #[serde(default)]
+    pub scheduled_tasks: bool,
     /// Hermes is the only backend: its sessions take the chats' place, and
     /// Open WebUI's own sections are hidden.
     #[serde(default)]
@@ -13227,6 +13969,258 @@ pub mod methods {
         type Result = super::OkResult;
     }
 
+    /// The calendars and the agenda for the range, moving or reloading it.
+    ///
+    /// `calendar.agenda`: CalendarAgendaQuery -> CalendarAgenda.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarAgenda;
+
+    impl RpcMethod for CalendarAgenda {
+        const NAME: &'static str = "calendar.agenda";
+        type Params = super::CalendarAgendaQuery;
+        type Result = super::CalendarAgenda;
+    }
+
+    /// Shows or hides a calendar's events; the last shown one stays.
+    ///
+    /// `calendar.setVisible`: CalendarVisibility -> CalendarAgenda.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarSetVisible;
+
+    impl RpcMethod for CalendarSetVisible {
+        const NAME: &'static str = "calendar.setVisible";
+        type Params = super::CalendarVisibility;
+        type Result = super::CalendarAgenda;
+    }
+
+    /// Makes one of the account's own calendars its default.
+    ///
+    /// `calendar.makeDefault`: CalendarRef -> CalendarAgenda.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarMakeDefault;
+
+    impl RpcMethod for CalendarMakeDefault {
+        const NAME: &'static str = "calendar.makeDefault";
+        type Params = super::CalendarRef;
+        type Result = super::CalendarAgenda;
+    }
+
+    /// Creates a private calendar of the account's own.
+    ///
+    /// `calendar.createCalendar`: CalendarCreate -> CalendarDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarCreateCalendar;
+
+    impl RpcMethod for CalendarCreateCalendar {
+        const NAME: &'static str = "calendar.createCalendar";
+        type Params = super::CalendarCreate;
+        type Result = super::CalendarDto;
+    }
+
+    /// What the event sheet shows of an agenda item.
+    ///
+    /// `calendar.event`: CalendarItemRef -> CalendarEventDetail.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarEvent;
+
+    impl RpcMethod for CalendarEvent {
+        const NAME: &'static str = "calendar.event";
+        type Params = super::CalendarItemRef;
+        type Result = super::CalendarEventDetail;
+    }
+
+    /// Deletes an event (a recurring event's whole series).
+    ///
+    /// `calendar.deleteEvent`: CalendarItemRef -> CalendarAgenda.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarDeleteEvent;
+
+    impl RpcMethod for CalendarDeleteEvent {
+        const NAME: &'static str = "calendar.deleteEvent";
+        type Params = super::CalendarItemRef;
+        type Result = super::CalendarAgenda;
+    }
+
+    /// The account's own answer to an invitation.
+    ///
+    /// `calendar.respond`: CalendarRsvpEdit -> CalendarEventDetail.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarRespond;
+
+    impl RpcMethod for CalendarRespond {
+        const NAME: &'static str = "calendar.respond";
+        type Params = super::CalendarRsvpEdit;
+        type Result = super::CalendarEventDetail;
+    }
+
+    /// Opens the event editor's draft: a new event, or an item's stored event.
+    ///
+    /// `calendar.editor`: CalendarEditorOpen -> CalendarEditor.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarEditor;
+
+    impl RpcMethod for CalendarEditor {
+        const NAME: &'static str = "calendar.editor";
+        type Params = super::CalendarEditorOpen;
+        type Result = super::CalendarEditor;
+    }
+
+    /// Settles an edited draft (an end moved along with the start) and says
+    /// what stops it being saved.
+    ///
+    /// `calendar.checkDraft`: CalendarDraftEdit -> CalendarDraftState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarCheckDraft;
+
+    impl RpcMethod for CalendarCheckDraft {
+        const NAME: &'static str = "calendar.checkDraft";
+        type Params = super::CalendarDraftEdit;
+        type Result = super::CalendarDraftState;
+    }
+
+    /// Creates the draft's event, or sends what changed.
+    ///
+    /// `calendar.save`: CalendarDraftEdit -> CalendarDraftState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CalendarSave;
+
+    impl RpcMethod for CalendarSave {
+        const NAME: &'static str = "calendar.save";
+        type Params = super::CalendarDraftEdit;
+        type Result = super::CalendarDraftState;
+    }
+
+    /// The tasks, newest first, for a search and a status.
+    ///
+    /// `automations.list`: AutomationQuery -> AutomationList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsList;
+
+    impl RpcMethod for AutomationsList {
+        const NAME: &'static str = "automations.list";
+        type Params = super::AutomationQuery;
+        type Result = super::AutomationList;
+    }
+
+    /// The next page of the list.
+    ///
+    /// `automations.loadMore`: no params -> AutomationList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsLoadMore;
+
+    impl RpcMethod for AutomationsLoadMore {
+        const NAME: &'static str = "automations.loadMore";
+        type Params = NoParams;
+        type Result = super::AutomationList;
+    }
+
+    /// One task, read from the server.
+    ///
+    /// `automations.get`: AutomationRef -> AutomationDetail.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsGet;
+
+    impl RpcMethod for AutomationsGet {
+        const NAME: &'static str = "automations.get";
+        type Params = super::AutomationRef;
+        type Result = super::AutomationDetail;
+    }
+
+    /// A page of a task's history.
+    ///
+    /// `automations.runs`: AutomationRunsQuery -> AutomationRuns.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsRuns;
+
+    impl RpcMethod for AutomationsRuns {
+        const NAME: &'static str = "automations.runs";
+        type Params = super::AutomationRunsQuery;
+        type Result = super::AutomationRuns;
+    }
+
+    /// Makes a task active or paused.
+    ///
+    /// `automations.setActive`: AutomationToggle -> AutomationDetail.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsSetActive;
+
+    impl RpcMethod for AutomationsSetActive {
+        const NAME: &'static str = "automations.setActive";
+        type Params = super::AutomationToggle;
+        type Result = super::AutomationDetail;
+    }
+
+    /// Asks the server to run a task now, then watches its history for the
+    /// run (`automations.runProgress`).
+    ///
+    /// `automations.run`: AutomationRef -> AutomationRunProgress.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsRun;
+
+    impl RpcMethod for AutomationsRun {
+        const NAME: &'static str = "automations.run";
+        type Params = super::AutomationRef;
+        type Result = super::AutomationRunProgress;
+    }
+
+    /// Where a task's Run Now stands.
+    ///
+    /// `automations.runState`: AutomationRef -> AutomationRunProgress.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsRunState;
+
+    impl RpcMethod for AutomationsRunState {
+        const NAME: &'static str = "automations.runState";
+        type Params = super::AutomationRef;
+        type Result = super::AutomationRunProgress;
+    }
+
+    /// `automations.delete`: AutomationRef -> AutomationList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsDelete;
+
+    impl RpcMethod for AutomationsDelete {
+        const NAME: &'static str = "automations.delete";
+        type Params = super::AutomationRef;
+        type Result = super::AutomationList;
+    }
+
+    /// Opens the task editor's draft and what it can pick.
+    ///
+    /// `automations.editor`: AutomationEditorOpen -> AutomationEditor.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsEditor;
+
+    impl RpcMethod for AutomationsEditor {
+        const NAME: &'static str = "automations.editor";
+        type Params = super::AutomationEditorOpen;
+        type Result = super::AutomationEditor;
+    }
+
+    /// Settles an edited draft's schedule and says what stops it being saved.
+    ///
+    /// `automations.checkDraft`: AutomationDraftEdit -> AutomationDraftState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsCheckDraft;
+
+    impl RpcMethod for AutomationsCheckDraft {
+        const NAME: &'static str = "automations.checkDraft";
+        type Params = super::AutomationDraftEdit;
+        type Result = super::AutomationDraftState;
+    }
+
+    /// Creates the draft's task, or replaces the task with it.
+    ///
+    /// `automations.save`: AutomationDraftEdit -> AutomationDraftState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsSave;
+
+    impl RpcMethod for AutomationsSave {
+        const NAME: &'static str = "automations.save";
+        type Params = super::AutomationDraftEdit;
+        type Result = super::AutomationDraftState;
+    }
+
     /// Every note, or those matching a query; pinned first.
     ///
     /// `notes.list`: NoteQuery -> NoteList.
@@ -15624,6 +16618,111 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("OkResult"),
     },
     MethodSpec {
+        name: "calendar.agenda",
+        params: Some("CalendarAgendaQuery"),
+        result: Some("CalendarAgenda"),
+    },
+    MethodSpec {
+        name: "calendar.setVisible",
+        params: Some("CalendarVisibility"),
+        result: Some("CalendarAgenda"),
+    },
+    MethodSpec {
+        name: "calendar.makeDefault",
+        params: Some("CalendarRef"),
+        result: Some("CalendarAgenda"),
+    },
+    MethodSpec {
+        name: "calendar.createCalendar",
+        params: Some("CalendarCreate"),
+        result: Some("CalendarDto"),
+    },
+    MethodSpec {
+        name: "calendar.event",
+        params: Some("CalendarItemRef"),
+        result: Some("CalendarEventDetail"),
+    },
+    MethodSpec {
+        name: "calendar.deleteEvent",
+        params: Some("CalendarItemRef"),
+        result: Some("CalendarAgenda"),
+    },
+    MethodSpec {
+        name: "calendar.respond",
+        params: Some("CalendarRsvpEdit"),
+        result: Some("CalendarEventDetail"),
+    },
+    MethodSpec {
+        name: "calendar.editor",
+        params: Some("CalendarEditorOpen"),
+        result: Some("CalendarEditor"),
+    },
+    MethodSpec {
+        name: "calendar.checkDraft",
+        params: Some("CalendarDraftEdit"),
+        result: Some("CalendarDraftState"),
+    },
+    MethodSpec {
+        name: "calendar.save",
+        params: Some("CalendarDraftEdit"),
+        result: Some("CalendarDraftState"),
+    },
+    MethodSpec {
+        name: "automations.list",
+        params: Some("AutomationQuery"),
+        result: Some("AutomationList"),
+    },
+    MethodSpec {
+        name: "automations.loadMore",
+        params: None,
+        result: Some("AutomationList"),
+    },
+    MethodSpec {
+        name: "automations.get",
+        params: Some("AutomationRef"),
+        result: Some("AutomationDetail"),
+    },
+    MethodSpec {
+        name: "automations.runs",
+        params: Some("AutomationRunsQuery"),
+        result: Some("AutomationRuns"),
+    },
+    MethodSpec {
+        name: "automations.setActive",
+        params: Some("AutomationToggle"),
+        result: Some("AutomationDetail"),
+    },
+    MethodSpec {
+        name: "automations.run",
+        params: Some("AutomationRef"),
+        result: Some("AutomationRunProgress"),
+    },
+    MethodSpec {
+        name: "automations.runState",
+        params: Some("AutomationRef"),
+        result: Some("AutomationRunProgress"),
+    },
+    MethodSpec {
+        name: "automations.delete",
+        params: Some("AutomationRef"),
+        result: Some("AutomationList"),
+    },
+    MethodSpec {
+        name: "automations.editor",
+        params: Some("AutomationEditorOpen"),
+        result: Some("AutomationEditor"),
+    },
+    MethodSpec {
+        name: "automations.checkDraft",
+        params: Some("AutomationDraftEdit"),
+        result: Some("AutomationDraftState"),
+    },
+    MethodSpec {
+        name: "automations.save",
+        params: Some("AutomationDraftEdit"),
+        result: Some("AutomationDraftState"),
+    },
+    MethodSpec {
         name: "notes.list",
         params: Some("NoteQuery"),
         result: Some("NoteList"),
@@ -16360,6 +17459,14 @@ pub mod events {
     /// The daemon asks the window to listen, or to open the realtime audio,
     /// for the call. Payload `CallCommand`; answered with `calls.report`.
     pub const CALLS_COMMAND: &str = "calls.command";
+    /// The calendars or the agenda changed: `calendar.agenda` again. No
+    /// payload.
+    pub const CALENDAR_CHANGED: &str = "calendar.changed";
+    /// The scheduled tasks changed: `automations.list` again (and the open
+    /// task). No payload.
+    pub const AUTOMATIONS_CHANGED: &str = "automations.changed";
+    /// A Run Now moved on. Payload `AutomationRunProgress`.
+    pub const AUTOMATIONS_RUN_PROGRESS: &str = "automations.runProgress";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -16559,6 +17666,21 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("CallCommand"),
         scoped: false,
     },
+    EventSpec {
+        name: "calendar.changed",
+        payload: None,
+        scoped: false,
+    },
+    EventSpec {
+        name: "automations.changed",
+        payload: None,
+        scoped: false,
+    },
+    EventSpec {
+        name: "automations.runProgress",
+        payload: Some("AutomationRunProgress"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -16750,6 +17872,20 @@ pub enum Event {
     ///
     /// `calls.command`.
     CallsCommand(CallCommand),
+    /// The calendars or the agenda changed: `calendar.agenda` again. No
+    /// payload.
+    ///
+    /// `calendar.changed`.
+    CalendarChanged,
+    /// The scheduled tasks changed: `automations.list` again (and the open
+    /// task). No payload.
+    ///
+    /// `automations.changed`.
+    AutomationsChanged,
+    /// A Run Now moved on. Payload `AutomationRunProgress`.
+    ///
+    /// `automations.runProgress`.
+    AutomationsRunProgress(AutomationRunProgress),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -16810,6 +17946,11 @@ impl Event {
             }
             events::CALLS_CHANGED => Self::CallsChanged(serde_json::from_value(payload)?),
             events::CALLS_COMMAND => Self::CallsCommand(serde_json::from_value(payload)?),
+            events::CALENDAR_CHANGED => Self::CalendarChanged,
+            events::AUTOMATIONS_CHANGED => Self::AutomationsChanged,
+            events::AUTOMATIONS_RUN_PROGRESS => {
+                Self::AutomationsRunProgress(serde_json::from_value(payload)?)
+            }
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -16859,6 +18000,9 @@ impl Event {
             Self::HermesWorkChanged(_) => events::HERMES_WORK_CHANGED,
             Self::CallsChanged(_) => events::CALLS_CHANGED,
             Self::CallsCommand(_) => events::CALLS_COMMAND,
+            Self::CalendarChanged => events::CALENDAR_CHANGED,
+            Self::AutomationsChanged => events::AUTOMATIONS_CHANGED,
+            Self::AutomationsRunProgress(_) => events::AUTOMATIONS_RUN_PROGRESS,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -16899,12 +18043,15 @@ impl Event {
             Self::HermesWorkChanged(payload) => serde_json::to_value(payload),
             Self::CallsChanged(payload) => serde_json::to_value(payload),
             Self::CallsCommand(payload) => serde_json::to_value(payload),
+            Self::AutomationsRunProgress(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
             | Self::ModelsChanged
             | Self::HermesChanged
-            | Self::SettingsChanged => Ok(serde_json::Value::Object(serde_json::Map::new())),
+            | Self::SettingsChanged
+            | Self::CalendarChanged
+            | Self::AutomationsChanged => Ok(serde_json::Value::Object(serde_json::Map::new())),
             Self::Unknown { payload, .. } => Ok(payload.clone()),
         }
     }
@@ -16949,8 +18096,44 @@ pub mod conformance {
         "AttachmentAvailability",
         "AuthSnapshot",
         "AuthUser",
+        "AutomationDetail",
+        "AutomationDraftEdit",
+        "AutomationDraftState",
+        "AutomationEditor",
+        "AutomationEditorOpen",
+        "AutomationFields",
+        "AutomationList",
+        "AutomationOption",
+        "AutomationQuery",
+        "AutomationRef",
+        "AutomationRunDto",
+        "AutomationRunProgress",
+        "AutomationRuns",
+        "AutomationRunsQuery",
+        "AutomationScheduleDto",
+        "AutomationSummary",
+        "AutomationToggle",
         "BulkChats",
         "BulkChatsResult",
+        "CalendarAgenda",
+        "CalendarAgendaDay",
+        "CalendarAgendaQuery",
+        "CalendarAttendeeDto",
+        "CalendarCreate",
+        "CalendarDraftEdit",
+        "CalendarDraftState",
+        "CalendarDto",
+        "CalendarEditor",
+        "CalendarEditorOpen",
+        "CalendarEventDetail",
+        "CalendarEventFields",
+        "CalendarItemDto",
+        "CalendarItemRef",
+        "CalendarRef",
+        "CalendarRowTimeDto",
+        "CalendarRsvpEdit",
+        "CalendarVisibility",
+        "CalendarWallTime",
         "CallCommand",
         "CallReport",
         "CallStart",
@@ -17461,8 +18644,44 @@ pub mod conformance {
             "AttachmentAvailability" => roundtrip::<super::AttachmentAvailability>(json),
             "AuthSnapshot" => roundtrip::<super::AuthSnapshot>(json),
             "AuthUser" => roundtrip::<super::AuthUser>(json),
+            "AutomationDetail" => roundtrip::<super::AutomationDetail>(json),
+            "AutomationDraftEdit" => roundtrip::<super::AutomationDraftEdit>(json),
+            "AutomationDraftState" => roundtrip::<super::AutomationDraftState>(json),
+            "AutomationEditor" => roundtrip::<super::AutomationEditor>(json),
+            "AutomationEditorOpen" => roundtrip::<super::AutomationEditorOpen>(json),
+            "AutomationFields" => roundtrip::<super::AutomationFields>(json),
+            "AutomationList" => roundtrip::<super::AutomationList>(json),
+            "AutomationOption" => roundtrip::<super::AutomationOption>(json),
+            "AutomationQuery" => roundtrip::<super::AutomationQuery>(json),
+            "AutomationRef" => roundtrip::<super::AutomationRef>(json),
+            "AutomationRunDto" => roundtrip::<super::AutomationRunDto>(json),
+            "AutomationRunProgress" => roundtrip::<super::AutomationRunProgress>(json),
+            "AutomationRuns" => roundtrip::<super::AutomationRuns>(json),
+            "AutomationRunsQuery" => roundtrip::<super::AutomationRunsQuery>(json),
+            "AutomationScheduleDto" => roundtrip::<super::AutomationScheduleDto>(json),
+            "AutomationSummary" => roundtrip::<super::AutomationSummary>(json),
+            "AutomationToggle" => roundtrip::<super::AutomationToggle>(json),
             "BulkChats" => roundtrip::<super::BulkChats>(json),
             "BulkChatsResult" => roundtrip::<super::BulkChatsResult>(json),
+            "CalendarAgenda" => roundtrip::<super::CalendarAgenda>(json),
+            "CalendarAgendaDay" => roundtrip::<super::CalendarAgendaDay>(json),
+            "CalendarAgendaQuery" => roundtrip::<super::CalendarAgendaQuery>(json),
+            "CalendarAttendeeDto" => roundtrip::<super::CalendarAttendeeDto>(json),
+            "CalendarCreate" => roundtrip::<super::CalendarCreate>(json),
+            "CalendarDraftEdit" => roundtrip::<super::CalendarDraftEdit>(json),
+            "CalendarDraftState" => roundtrip::<super::CalendarDraftState>(json),
+            "CalendarDto" => roundtrip::<super::CalendarDto>(json),
+            "CalendarEditor" => roundtrip::<super::CalendarEditor>(json),
+            "CalendarEditorOpen" => roundtrip::<super::CalendarEditorOpen>(json),
+            "CalendarEventDetail" => roundtrip::<super::CalendarEventDetail>(json),
+            "CalendarEventFields" => roundtrip::<super::CalendarEventFields>(json),
+            "CalendarItemDto" => roundtrip::<super::CalendarItemDto>(json),
+            "CalendarItemRef" => roundtrip::<super::CalendarItemRef>(json),
+            "CalendarRef" => roundtrip::<super::CalendarRef>(json),
+            "CalendarRowTimeDto" => roundtrip::<super::CalendarRowTimeDto>(json),
+            "CalendarRsvpEdit" => roundtrip::<super::CalendarRsvpEdit>(json),
+            "CalendarVisibility" => roundtrip::<super::CalendarVisibility>(json),
+            "CalendarWallTime" => roundtrip::<super::CalendarWallTime>(json),
             "CallCommand" => roundtrip::<super::CallCommand>(json),
             "CallReport" => roundtrip::<super::CallReport>(json),
             "CallStart" => roundtrip::<super::CallStart>(json),

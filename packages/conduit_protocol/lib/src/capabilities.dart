@@ -33,6 +33,10 @@ abstract class Capabilities with _$Capabilities {
     /// Scheduled tasks.
     @Default(false) bool automations,
 
+    /// Scheduled tasks are offered as a destination: [automations], and
+    /// Settings' Advanced is on (as the phone shows them).
+    @Default(false) bool scheduledTasks,
+
     /// Hermes is the only backend: its sessions take the chats' place, and
     /// Open WebUI's own sections are hidden.
     @Default(false) bool hermesOnly,

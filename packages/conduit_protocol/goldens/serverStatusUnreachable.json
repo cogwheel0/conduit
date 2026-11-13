@@ -8,6 +8,7 @@
     "terminal": false,
     "calendar": false,
     "automations": false,
+    "scheduledTasks": false,
     "hermesOnly": false,
     "workspaceModels": false,
     "workspaceKnowledge": false,

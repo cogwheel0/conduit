@@ -758,6 +758,77 @@ abstract final class ConduitMethods {
 
   /// The window answers a `calls.command`, or says what a listen did.
   static const String callsReport = 'calls.report';
+  // calendar.* -- the account's Open WebUI calendars and the agenda over
+  // them (core's CalendarAgenda), in the Mac's time zone.
+  static const String calendarPrefix = 'calendar.';
+
+  /// The calendars and the agenda for the range, moving or reloading it.
+  static const String calendarAgenda = 'calendar.agenda';
+
+  /// Shows or hides a calendar's events; the last shown one stays.
+  static const String calendarSetVisible = 'calendar.setVisible';
+
+  /// Makes one of the account's own calendars its default.
+  static const String calendarMakeDefault = 'calendar.makeDefault';
+
+  /// Creates a private calendar of the account's own.
+  static const String calendarCreateCalendar = 'calendar.createCalendar';
+
+  /// What the event sheet shows of an agenda item.
+  static const String calendarEvent = 'calendar.event';
+
+  /// Deletes an event (a recurring event's whole series).
+  static const String calendarDeleteEvent = 'calendar.deleteEvent';
+
+  /// The account's own answer to an invitation.
+  static const String calendarRespond = 'calendar.respond';
+
+  /// Opens the event editor's draft: a new event, or an item's stored event.
+  static const String calendarEditor = 'calendar.editor';
+
+  /// Settles an edited draft (an end moved along with the start) and says
+  /// what stops it being saved.
+  static const String calendarCheckDraft = 'calendar.checkDraft';
+
+  /// Creates the draft's event, or sends what changed.
+  static const String calendarSave = 'calendar.save';
+
+  // automations.* -- the account's Open WebUI scheduled tasks (core's
+  // Automations), behind Settings' Advanced as on the phone.
+  static const String automationsPrefix = 'automations.';
+
+  /// The tasks, newest first, for a search and a status.
+  static const String automationsList = 'automations.list';
+
+  /// The next page of the list.
+  static const String automationsLoadMore = 'automations.loadMore';
+
+  /// One task, read from the server.
+  static const String automationsGet = 'automations.get';
+
+  /// A page of a task's history.
+  static const String automationsRuns = 'automations.runs';
+
+  /// Makes a task active or paused.
+  static const String automationsSetActive = 'automations.setActive';
+
+  /// Asks the server to run a task now, then watches its history for the
+  /// run (`automations.runProgress`).
+  static const String automationsRun = 'automations.run';
+
+  /// Where a task's Run Now stands.
+  static const String automationsRunState = 'automations.runState';
+
+  static const String automationsDelete = 'automations.delete';
+
+  /// Opens the task editor's draft and what it can pick.
+  static const String automationsEditor = 'automations.editor';
+
+  /// Settles an edited draft's schedule and says what stops it being saved.
+  static const String automationsCheckDraft = 'automations.checkDraft';
+
+  /// Creates the draft's task, or replaces the task with it.
+  static const String automationsSave = 'automations.save';
 
   // notes.* -- listed with the prefixes because they are few.
 
@@ -1198,6 +1269,8 @@ abstract final class ConduitMethods {
     chatPromptsPrefix,
     mcpAppsPrefix,
     speechPrefix,
+    calendarPrefix,
+    automationsPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.
