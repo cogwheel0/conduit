@@ -214,14 +214,16 @@ jobs:
             desktop/target
           key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
 
-  # The release bundle as release-desktop.yml builds it, without the
-  # secrets: packaging/macos/bundle.sh with an ad-hoc signature and a
-  # throwaway Sparkle public key (so Sparkle is embedded, thinned and
-  # signed as in a release), then smoke.sh: the bundle's checks, the bundled
+  # The release path, without the secrets: packaging/macos/bundle.sh as a
+  # rehearsal (--rehearsal: the release's strictness about the Sparkle key,
+  # the icon, stripping and dSYMs) on a test bundle id, signed ad hoc, with
+  # a throwaway Sparkle public key (so Sparkle is embedded, thinned and
+  # signed as in a release); then smoke.sh: the bundle's checks, the bundled
   # conduitd's handshake, and the app's own --shots pass on a throwaway
-  # profile with no conduitd left behind.
+  # profile with no conduitd left behind. Without llvm-tools, so the
+  # fallback strip (Apple's) is the one exercised here.
   bundle:
-    name: Release bundle (unsigned) + smoke
+    name: Release bundle (rehearsal, ad hoc) + smoke
     runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 120
     steps:
@@ -263,7 +265,8 @@ jobs:
         run: rustup toolchain install && rustup show active-toolchain
       - name: Make sure the Metal compiler is installed
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
-      # Cargo's downloads only: the release target would crowd the cache out.
+      # Cargo's downloads only: the release target (line tables, for the
+      # dSYMs) would crowd the cache out.
       - name: Restore the Cargo registry
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
@@ -292,7 +295,8 @@ jobs:
           SPARKLE_PUBLIC_ED_KEY="$(openssl genpkey -algorithm ed25519 |
             openssl pkey -pubout -outform DER | tail -c 32 | base64)"
           export SPARKLE_PUBLIC_ED_KEY
-          desktop/packaging/macos/bundle.sh all --version 0.0.0
+          desktop/packaging/macos/bundle.sh all --version 0.0.0 \
+            --rehearsal --bundle-id app.cogwheel.conduit.desktop.ci
       - name: Smoke-test the bundle
         run: desktop/packaging/macos/smoke.sh desktop/target/macos/Conduit-0.0.0/Conduit.app --launch
       - name: Disk left
@@ -307,9 +311,11 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
           key: desktop-registry-${{ hashFiles('desktop/Cargo.lock') }}
-      - name: Keep the DMG
+      - name: Keep the DMG and the dSYMs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: conduit-desktop-unsigned-${{ github.sha }}
-          path: desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0.dmg
+          path: |
+            desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0.dmg
+            desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0-dSYMs.zip
           retention-days: 5

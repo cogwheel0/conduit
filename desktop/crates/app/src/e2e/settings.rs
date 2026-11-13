@@ -682,6 +682,12 @@ async fn accounts_and_about(dir: &Path, cx: &mut AsyncApp) -> bool {
             && has(&controls, "Button", "GitHub Repository")
             && has(&controls, "Button", "Buy Me a Coffee"),
     );
+    // Releases are stable only: Updates has Check Now and no channel switch.
+    pass &= ok(
+        "About's Updates has Check Now and no beta switch",
+        has(&controls, "Button", "Check Now")
+            && !controls.iter().any(|c| c.to_lowercase().contains("beta")),
+    );
     pass
 }
 

@@ -63,10 +63,20 @@ check_version() {
 
 is_beta() { case "$1" in *-beta.*) return 0 ;; *) return 1 ;; esac }
 
+# Releases go out on Sparkle's default (stable) channel only (decided
+# 2026-11-12): a -beta.N version can be built and tested locally, but
+# appcast.sh and release-desktop.yml refuse to publish it.
+refuse_beta_release() {
+  if is_beta "$1"; then
+    die "$1 is a beta: Conduit Desktop publishes stable releases only (one appcast, no beta channel)"
+  fi
+}
+
 # CFBundleVersion (Sparkle's sparkle:version): one integer that orders
-# every release across both channels:
-#   X*1000000 + Y*10000 + Z*100 + (beta N, or 99 for the stable release)
-# so 1.2.0-beta.3 (1020003) < 1.2.0 (1020099) < 1.2.1-beta.1 (1020101).
+# every version:
+#   X*1000000 + Y*10000 + Z*100 + 99 for a release (1.2.0 is 1020099);
+# a local -beta.N build (never released) has N in place of 99, so it sorts
+# before its release: 1.2.0-beta.3 (1020003) < 1.2.0 (1020099).
 build_number() {
   check_version "$1"
   local core="${1%%-*}" beta=99
@@ -153,6 +163,74 @@ macho_files() {
   done
 }
 
+# The oldest macOS a Mach-O file runs on: LC_BUILD_VERSION's minos, or
+# the older LC_VERSION_MIN_MACOSX's version; empty when it names neither.
+macho_minos() {
+  local v
+  v="$(vtool -show-build "$1" 2>/dev/null | awk '/minos/ {print $2; exit}')"
+  if [ -z "$v" ]; then
+    v="$(otool -l "$1" 2>/dev/null | awk '/LC_VERSION_MIN_MACOSX/ {f = 1} f && $1 == "version" {print $2; exit}')"
+  fi
+  printf '%s\n' "$v"
+}
+
+# Whether version $1 is at most $2 (dotted numbers).
+version_le() {
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | awk 'NR == 1')" = "$1" ]
+}
+
+# The UUID of a Mach-O file or of a dSYM (its DWARF file), for matching
+# the two: a dSYM symbolicates only the binary with its UUID.
+macho_uuid() {
+  xcrun dwarfdump --uuid "$1" 2>/dev/null | awk '/arm64/ {print $2; exit}'
+}
+
+# The Rust toolchain's rust-objcopy, printed only when it runs. It needs the
+# toolchain's llvm-tools component (lib/libLLVM.dylib), which
+# rust-toolchain.toml leaves out so that not every checkout downloads it;
+# the release workflow adds it. Without it bundle.sh strips with Apple's
+# strip instead. CONDUIT_RUST_OBJCOPY names another one (say, another
+# installed toolchain's), checked the same way.
+rust_objcopy() {
+  local sysroot host tool
+  if [ -n "${CONDUIT_RUST_OBJCOPY:-}" ]; then
+    "$CONDUIT_RUST_OBJCOPY" --version >/dev/null 2>&1 ||
+      die "CONDUIT_RUST_OBJCOPY ($CONDUIT_RUST_OBJCOPY) does not run"
+    printf '%s\n' "$CONDUIT_RUST_OBJCOPY"
+    return 0
+  fi
+  sysroot="$(cd "$DESKTOP_DIR" && rustc --print sysroot 2>/dev/null)" || return 0
+  host="$(cd "$DESKTOP_DIR" && rustc -vV 2>/dev/null | sed -n 's/^host: //p')"
+  tool="$sysroot/lib/rustlib/$host/bin/rust-objcopy"
+  if [ -x "$tool" ] && "$tool" --version >/dev/null 2>&1; then
+    printf '%s\n' "$tool"
+  fi
+  return 0
+}
+
+# The public half (base64, as SUPublicEDKey) of a private Sparkle EdDSA key
+# given on stdin: base64 of the 32-byte seed `generate_keys -x` exports, or
+# of the 96-byte form older keys were kept in (seed or private key, then
+# the public key). Prints nothing for anything else. The key never reaches
+# argv or a file.
+sparkle_public_key() {
+  python3 -I -c '
+import base64, subprocess, sys
+try:
+    raw = base64.b64decode(sys.stdin.read().strip(), validate=True)
+except Exception:
+    sys.exit(0)
+if len(raw) == 96:
+    print(base64.b64encode(raw[64:]).decode())
+elif len(raw) == 32:
+    der = bytes.fromhex("302e020100300506032b657004220420") + raw
+    out = subprocess.run(["openssl", "pkey", "-inform", "DER", "-pubout", "-outform", "DER"],
+                         input=der, capture_output=True)
+    if out.returncode == 0 and len(out.stdout) >= 32:
+        print(base64.b64encode(out.stdout[-32:]).decode())
+'
+}
+
 set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }
 
 # Refuses a codesign identity ($1: its SHA-1, or its name or part of it)
@@ -196,7 +274,7 @@ signing_identity() {
   # --verbose=2 for the Authority lines (the certificate chain).
   info="$(codesign -dv --verbose=2 "$probe/probe" 2>&1)"
   SIGN_TEAM="$(sed -n 's/^TeamIdentifier=//p' <<<"$info" | grep -v '^not set$' || true)"
-  leaf="$(sed -n 's/^Authority=//p' <<<"$info" | head -1)"
+  leaf="$(awk 'sub(/^Authority=/, "") && !n++' <<<"$info")"
   case "$leaf" in
     "Apple Development:"* | "Mac Developer:"*) SIGN_KIND=development ;;
     *) SIGN_KIND=distribution ;;
@@ -218,7 +296,7 @@ signature_of() {
   }
   team="$(sed -n 's/^TeamIdentifier=//p' <<<"$info")"
   case "$team" in "" | "not set") team="-" ;; esac
-  leaf="$(sed -n 's/^Authority=//p' <<<"$info" | head -1)"
+  leaf="$(awk 'sub(/^Authority=/, "") && !n++' <<<"$info")"
   if grep -q '^Signature=adhoc' <<<"$info"; then
     kind=adhoc
   else

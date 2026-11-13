@@ -1,32 +1,35 @@
 name: Release Desktop
 
-# Conduit Desktop for macOS (Apple Silicon, macOS 14+). Pushing a tag
-# `desktop-v<version>` builds, signs, notarizes and publishes
-# Conduit-<version>.dmg as a GitHub release, then adds it to Sparkle's
-# appcast. A `-beta.N` suffix (`desktop-v1.3.0-beta.2`) makes a prerelease
-# on the beta channel, which only copies with Settings › About › "Receive
-# beta updates" on are offered.
+# Conduit Desktop for macOS: Apple silicon only, macOS 14 Sonoma or later,
+# one stable update channel. docs/RELEASING-DESKTOP.md is the runbook.
 #
-# Secrets (Settings › Secrets and variables › Actions; see
-# docs/BUILDING-DESKTOP.md for how to make each):
-#   MACOS_DEVELOPER_ID_P12           base64 of a .p12 holding the Developer ID
-#                                    Application certificate and its key
-#   MACOS_DEVELOPER_ID_P12_PASSWORD  the .p12's password
-#   MACOS_NOTARY_API_KEY             the App Store Connect API key (.p8 text)
-#   MACOS_NOTARY_API_KEY_ID          its key ID
-#   MACOS_NOTARY_API_ISSUER_ID       its issuer ID
-#   SPARKLE_ED_PRIVATE_KEY           Sparkle's private EdDSA key (generate_keys -x)
-# Variable (not secret):
-#   SPARKLE_PUBLIC_ED_KEY            the matching public key (SUPublicEDKey)
+# - Push a tag `desktop-v<X.Y.Z>` (never `-beta.N`: refused). The `build`
+#   job builds Conduit.app with no secret in reach, signs it inside out
+#   with the Developer ID certificate from a temporary keychain, notarizes
+#   and staples the app and the DMG, verifies and smoke-tests them, signs
+#   the Sparkle appcast, and creates a DRAFT GitHub release carrying the
+#   DMG, the dSYMs, the signed appcast.xml and SHA256SUMS.txt. Nothing
+#   reaches installed copies yet.
+# - Publish the draft (a person, after checking it). The `feed` job then
+#   puts its appcast.xml on the fixed `desktop-appcast` release, the URL
+#   every installed copy reads (SUFeedURL), and they offer the update.
+# - Run the workflow by hand (workflow_dispatch) for a dry run: the same
+#   build as a rehearsal on a test bundle id, signed ad hoc, with a
+#   throwaway Sparkle key; no secret is read and nothing is published.
 #
-# Each secret is handed only to the step that needs it, and the build steps
-# (cargo, dart, cmake) run before any of them is read.
+# Secrets and variables: docs/RELEASING-DESKTOP.md, "Secrets and variables".
+# Each secret is handed only to the step that needs it, and the build
+# (cargo, dart, cmake) runs before any of them is read.
 on:
   push:
     tags:
       - 'desktop-v*'
+  release:
+    types: [published]
+  workflow_dispatch:
 
-# One release at a time: every run rewrites the shared appcast.
+# One at a time: a release and its feed update read and write the same
+# appcast.
 concurrency:
   group: release-desktop
   cancel-in-progress: false
@@ -35,65 +38,101 @@ permissions:
   contents: read
 
 jobs:
-  release:
-    name: Build, sign, notarize and publish
-    # Apple Silicon with Xcode 26 or later (the app links FoundationModels):
-    # the image the desktop workflow builds and smoke-tests on, and the
-    # same DESKTOP_MACOS_RUNNER override. Pinned rather than macos-latest so
-    # an image change never lands in the middle of a release series.
+  build:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Dry run (ad hoc, nothing published)' || 'Build, sign, notarize, draft release' }}
+    if: github.event_name != 'release'
+    # Apple silicon with Xcode 26 or later (FoundationModels needs the
+    # macOS 26 SDK; the app still runs from macOS 14). The repository
+    # variable DESKTOP_MACOS_RUNNER overrides the image.
     runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
-    timeout-minutes: 120
+    timeout-minutes: 150
     permissions:
       contents: write
     env:
       CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      - name: Read the version
+        shell: bash
+        run: |
+          . desktop/packaging/macos/lib.sh
+          if [ "$DRY_RUN" = true ]; then
+            version=0.0.0
+            # A rehearsal on a test bundle id: --release refuses ad-hoc.
+            flags="--rehearsal --bundle-id app.cogwheel.conduit.desktop.dryrun"
+          else
+            version="${GITHUB_REF_NAME#desktop-v}"
+            check_version "$version"
+            refuse_beta_release "$version"
+            flags="--release"
+          fi
+          {
+            echo "VERSION=$version"
+            echo "BUNDLE_FLAGS=$flags"
+            echo "OUT=$PWD/desktop/target/macos/Conduit-$version"
+          } >> "$GITHUB_ENV"
+          echo "Conduit Desktop $version, build $(build_number "$version") ($flags)"
+
+      # Fails in a minute instead of after the build: every secret is
+      # present, and the Sparkle key pair matches.
+      - name: Check the release configuration
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        env:
+          HAS_P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 != '' && secrets.MACOS_DEVELOPER_ID_P12_PASSWORD != '' }}
+          HAS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_API_KEY != '' && secrets.MACOS_NOTARY_API_KEY_ID != '' && secrets.MACOS_NOTARY_API_ISSUER_ID != '' }}
+          HAS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID != '' && secrets.MACOS_NOTARY_APP_PASSWORD != '' }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          . desktop/packaging/macos/lib.sh
+          missing=""
+          [ "$HAS_P12" = true ] || missing="$missing MACOS_DEVELOPER_ID_P12 + MACOS_DEVELOPER_ID_P12_PASSWORD;"
+          if [ "$HAS_NOTARY_KEY" != true ] && [ "$HAS_NOTARY_APPLE_ID" != true ]; then
+            missing="$missing MACOS_NOTARY_API_KEY + _ID + _ISSUER_ID (or MACOS_NOTARY_APPLE_ID + MACOS_NOTARY_APP_PASSWORD);"
+          fi
+          [ -n "$SPARKLE_ED_PRIVATE_KEY" ] || missing="$missing SPARKLE_ED_PRIVATE_KEY;"
+          [ -n "$SPARKLE_PUBLIC_ED_KEY" ] || missing="$missing variable SPARKLE_PUBLIC_ED_KEY;"
+          if [ -n "$missing" ]; then
+            echo "::error::missing release configuration:$missing see docs/RELEASING-DESKTOP.md"
+            exit 1
+          fi
+          derived="$(printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | sparkle_public_key)"
+          if [ "$derived" != "$SPARKLE_PUBLIC_ED_KEY" ]; then
+            echo "::error::SPARKLE_ED_PRIVATE_KEY does not belong to SPARKLE_PUBLIC_ED_KEY: installed copies would refuse the update"
+            exit 1
+          fi
+          if [ "$GITHUB_REPOSITORY" != "$RELEASE_REPO" ]; then
+            echo "::error::this repository is $GITHUB_REPOSITORY; release.env publishes to $RELEASE_REPO"
+            exit 1
+          fi
+
       - name: Pick Xcode 26 or later
         shell: bash
         run: |
           major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
           if [ "$major" -lt 26 ]; then
             newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1)"
-            [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
+            if [ -z "$newest" ]; then
+              echo "::error::Xcode 26 or later is needed (FoundationModels); set DESKTOP_MACOS_RUNNER to an image that has it"
+              exit 1
+            fi
             sudo xcode-select -s "$newest"
           fi
           xcodebuild -version
+          df -h / | tail -1
 
-      - name: Read the version from the tag
-        id: version
-        shell: bash
-        run: |
-          . desktop/packaging/macos/lib.sh
-          version="${GITHUB_REF_NAME#desktop-v}"
-          check_version "$version"
-          echo "VERSION=$version" >> "$GITHUB_ENV"
-          echo "OUT=$PWD/desktop/target/macos/Conduit-$version" >> "$GITHUB_ENV"
-          if is_beta "$version"; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Conduit Desktop $version, build $(build_number "$version")"
-
-      - name: Check the release configuration
-        env:
-          HAS_P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 != '' && secrets.MACOS_DEVELOPER_ID_P12_PASSWORD != '' }}
-          HAS_NOTARY: ${{ secrets.MACOS_NOTARY_API_KEY != '' && secrets.MACOS_NOTARY_API_KEY_ID != '' && secrets.MACOS_NOTARY_API_ISSUER_ID != '' }}
-          HAS_SPARKLE: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
-          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
-        run: |
-          missing=""
-          [ "$HAS_P12" = true ] || missing="$missing MACOS_DEVELOPER_ID_P12(_PASSWORD)"
-          [ "$HAS_NOTARY" = true ] || missing="$missing MACOS_NOTARY_API_KEY(_ID,_ISSUER_ID)"
-          [ "$HAS_SPARKLE" = true ] || missing="$missing SPARKLE_ED_PRIVATE_KEY"
-          [ -n "$SPARKLE_PUBLIC_ED_KEY" ] || missing="$missing vars.SPARKLE_PUBLIC_ED_KEY"
-          if [ -n "$missing" ]; then
-            echo "::error::missing release configuration:$missing (see docs/BUILDING-DESKTOP.md)"
-            exit 1
-          fi
+      # An Xcode older than 27 (macOS 26 SDK) builds the Apple models engine
+      # without its macOS 27 parts (apple_models.sh sdk-gaps). The run says
+      # which, as an annotation and in its summary, so a release built here
+      # is never missing them silently.
+      - name: Name what this Xcode's SDK leaves out
+        run: desktop/packaging/macos/apple_models.sh sdk-gaps --github
 
       # Only the third_party/ submodules: the pub workspace resolves the
       # mobile app's path dependencies too.
@@ -114,9 +153,15 @@ jobs:
               echo "::endgroup::"
             fi
           done
-      - name: Install the pinned Rust toolchain
+      # llvm-tools gives bundle.sh rust-objcopy to strip with (local builds
+      # without it use Apple's strip); rust-toolchain.toml leaves it out so
+      # that not every checkout downloads it.
+      - name: Install the pinned Rust toolchain and llvm-tools
         working-directory: desktop
-        run: rustup toolchain install && rustup show active-toolchain
+        run: |
+          rustup toolchain install
+          rustup component add llvm-tools
+          rustup show active-toolchain
       # GPUI compiles its Metal shaders at build time.
       - name: Make sure the Metal compiler is installed
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
@@ -128,16 +173,29 @@ jobs:
       - name: Make sure CMake is installed
         run: command -v cmake >/dev/null || brew install cmake; cmake --version | head -1
 
-      - name: Build Conduit.app
-        env:
-          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
-        run: desktop/packaging/macos/bundle.sh build --release --version "$VERSION"
+      # The dry run's Sparkle key pair, made for this run only.
+      - name: Make a throwaway Sparkle key (dry run)
+        if: env.DRY_RUN == 'true'
+        shell: bash
+        run: |
+          umask 077
+          openssl genpkey -algorithm ed25519 -outform DER -out "$RUNNER_TEMP/sparkle.der"
+          echo "SPARKLE_PUBLIC_ED_KEY=$(openssl pkey -inform DER -in "$RUNNER_TEMP/sparkle.der" -pubout -outform DER | tail -c 32 | base64)" >> "$GITHUB_ENV"
+          echo "DRY_RUN_SPARKLE_KEY=$RUNNER_TEMP/sparkle.der" >> "$GITHUB_ENV"
 
-      - name: Import the Developer ID certificate
+      - name: Build Conduit.app (stripped; dSYMs kept)
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ env.SPARKLE_PUBLIC_ED_KEY || vars.SPARKLE_PUBLIC_ED_KEY }}
+        run: desktop/packaging/macos/bundle.sh build $BUNDLE_FLAGS --version "$VERSION"
+
+      - name: Import the Developer ID certificate into a temporary keychain
+        if: env.DRY_RUN != 'true'
+        shell: bash
         env:
           P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
           P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
         run: |
+          umask 077
           keychain="$RUNNER_TEMP/signing.keychain-db"
           keychain_password="$(openssl rand -base64 24)"
           security create-keychain -p "$keychain_password" "$keychain"
@@ -146,12 +204,13 @@ jobs:
           printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
           security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$P12_PASSWORD" \
             -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
             -k "$keychain_password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" \
             $(security list-keychains -d user | tr -d '"')
           identity="$(security find-identity -v -p codesigning "$keychain" |
-            awk '/Developer ID Application/ {print $2; exit}')"
+            awk '/"Developer ID Application/ {print $2; exit}')"
           if [ -z "$identity" ]; then
             echo "::error::no Developer ID Application identity in MACOS_DEVELOPER_ID_P12"
             exit 1
@@ -159,16 +218,50 @@ jobs:
           echo "CONDUIT_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
+      # notarytool keeps the credentials in the temporary keychain as a
+      # profile, so neither the key nor the password is on a command line
+      # later. An App Store Connect API key when present, else an Apple ID
+      # with an app-specific password (team: the certificate's).
+      - name: Store the notarization credentials
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        env:
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_API_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_API_ISSUER_ID }}
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_APP_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+        run: |
+          . desktop/packaging/macos/lib.sh
+          profile=conduit-desktop-notary
+          if [ -n "$NOTARY_KEY" ] && [ -n "$NOTARY_KEY_ID" ] && [ -n "$NOTARY_ISSUER" ]; then
+            umask 077
+            printf '%s\n' "$NOTARY_KEY" > "$RUNNER_TEMP/notary-key.p8"
+            xcrun notarytool store-credentials "$profile" --keychain "$SIGNING_KEYCHAIN" \
+              --key "$RUNNER_TEMP/notary-key.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+            rm -f "$RUNNER_TEMP/notary-key.p8"
+            echo "notarization: App Store Connect API key"
+          else
+            signing_identity "$CONDUIT_SIGN_IDENTITY"
+            xcrun notarytool store-credentials "$profile" --keychain "$SIGNING_KEYCHAIN" \
+              --apple-id "$NOTARY_APPLE_ID" --team-id "$SIGN_TEAM" --password "$NOTARY_APP_PASSWORD"
+            echo "notarization: Apple ID with an app-specific password (team $SIGN_TEAM)"
+          fi
+          echo "CONDUIT_NOTARY_PROFILE=$profile" >> "$GITHUB_ENV"
+          echo "CONDUIT_NOTARY_KEYCHAIN=$SIGNING_KEYCHAIN" >> "$GITHUB_ENV"
+
       # The desktop widget is listed by macOS only when provisioning
       # profiles vouch for the app's and the widget's entitlements
-      # (docs/BUILDING-DESKTOP.md); without them the release ships it unlisted.
+      # (docs/BUILDING-DESKTOP.md); without them it ships unlisted.
       - name: Write the provisioning profiles
+        if: env.DRY_RUN != 'true'
+        shell: bash
         env:
           APP_PROFILE: ${{ secrets.MACOS_APP_PROVISIONING_PROFILE }}
           WIDGET_PROFILE: ${{ secrets.MACOS_WIDGET_PROVISIONING_PROFILE }}
         run: |
           if [ -z "$APP_PROFILE" ] || [ -z "$WIDGET_PROFILE" ]; then
-            echo "::warning::no MACOS_APP_PROVISIONING_PROFILE / MACOS_WIDGET_PROVISIONING_PROFILE: the widget won't be listed (docs/BUILDING-DESKTOP.md)"
+            echo "::warning::no MACOS_APP_PROVISIONING_PROFILE / MACOS_WIDGET_PROVISIONING_PROFILE: the widget won't be listed (docs/RELEASING-DESKTOP.md)"
             exit 0
           fi
           printf '%s' "$APP_PROFILE" | base64 --decode > "$RUNNER_TEMP/app.provisionprofile"
@@ -176,64 +269,34 @@ jobs:
           echo "CONDUIT_APP_PROFILE=$RUNNER_TEMP/app.provisionprofile" >> "$GITHUB_ENV"
           echo "CONDUIT_WIDGET_PROFILE=$RUNNER_TEMP/widget.provisionprofile" >> "$GITHUB_ENV"
 
+      # Inside out: conduitd's libraries and conduitd, Sparkle's helpers
+      # and framework, the widget's library and extension, the Share
+      # extension, the app (bundle.sh sign).
       - name: Sign
-        run: desktop/packaging/macos/bundle.sh sign --release --version "$VERSION"
-
-      - name: Write the notary API key
-        env:
-          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_API_KEY }}
-        run: |
-          umask 077
-          printf '%s\n' "$NOTARY_KEY" > "$RUNNER_TEMP/notary-key.p8"
-          echo "CONDUIT_NOTARY_KEY_FILE=$RUNNER_TEMP/notary-key.p8" >> "$GITHUB_ENV"
-
+        run: desktop/packaging/macos/bundle.sh sign $BUNDLE_FLAGS --version "$VERSION"
       - name: Notarize and staple the app
-        env:
-          CONDUIT_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_API_KEY_ID }}
-          CONDUIT_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_API_ISSUER_ID }}
-        run: desktop/packaging/macos/bundle.sh notarize-app --release --version "$VERSION"
-
-      - name: Build the DMG
-        run: desktop/packaging/macos/bundle.sh dmg --release --version "$VERSION"
-
+        run: desktop/packaging/macos/bundle.sh notarize-app $BUNDLE_FLAGS --version "$VERSION"
+      - name: Build and sign the DMG
+        run: desktop/packaging/macos/bundle.sh dmg $BUNDLE_FLAGS --version "$VERSION"
       - name: Notarize and staple the DMG
-        env:
-          CONDUIT_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_API_KEY_ID }}
-          CONDUIT_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_API_ISSUER_ID }}
-        run: desktop/packaging/macos/bundle.sh notarize-dmg --release --version "$VERSION"
-
-      - name: Verify (codesign, Gatekeeper, architecture, Info.plist)
-        run: desktop/packaging/macos/bundle.sh verify --release --version "$VERSION"
-
+        run: desktop/packaging/macos/bundle.sh notarize-dmg $BUNDLE_FLAGS --version "$VERSION"
+      - name: Verify (signatures, Gatekeeper, tickets, arm64, macOS 14, stripping, dSYMs)
+        run: desktop/packaging/macos/bundle.sh verify $BUNDLE_FLAGS --version "$VERSION"
       - name: Smoke-test the signed app
         run: desktop/packaging/macos/smoke.sh "$OUT/Conduit.app" --launch
 
-      # Run again after a failure: a DMG already published for this version
-      # is the one the feed describes (its bytes may already be downloaded and
-      # checked against a feed), so it is reused rather than replaced.
-      - name: Reuse the DMG of a release already published
+      # generate_appcast signs the new item and the feed; appcast.sh checks
+      # the key pair, the item (version, macOS 14, arm64, URL), both
+      # signatures, and that no earlier item is dropped. A new feed only
+      # when none was ever published: a lookup that fails, or a published
+      # feed that cannot be read, stops the release.
+      - name: Sign the appcast
+        if: env.DRY_RUN != 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          . desktop/packaging/macos/lib.sh
-          state="$(release_exists "$GITHUB_REF_NAME")"
-          if [ "$state" = yes ]; then
-            mkdir -p "$OUT/published"
-            if gh release download "$GITHUB_REF_NAME" -R "$RELEASE_REPO" -p "Conduit-$VERSION.dmg" -D "$OUT/published"; then
-              mv -f "$OUT/published/Conduit-$VERSION.dmg" "$OUT/Conduit-$VERSION.dmg"
-              echo "DMG_PUBLISHED=1" >> "$GITHUB_ENV"
-              echo "Reusing the published Conduit-$VERSION.dmg"
-            else
-              echo "The release has no DMG yet: this build's goes up."
-            fi
-          fi
-
-      # A new feed only when none was ever published: a lookup that fails,
-      # or a published feed that cannot be read, stops the release.
-      - name: Add the release to the appcast
-        env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
-          GH_TOKEN: ${{ github.token }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           . desktop/packaging/macos/lib.sh
           state="$(feed_exists)"
@@ -241,45 +304,140 @@ jobs:
           if [ "$state" = no ]; then allow=(--allow-new); fi
           desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
             --version "$VERSION" ${allow[@]+"${allow[@]}"}
+      - name: Sign the appcast (dry run, throwaway key)
+        if: env.DRY_RUN == 'true'
+        shell: bash
+        run: |
+          SPARKLE_ED_PRIVATE_KEY="$(tail -c 32 "$DRY_RUN_SPARKLE_KEY" | base64)" \
+            desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
+            --version "$VERSION" --fresh --download-url-prefix "https://example.invalid/dry-run/"
 
-      # The DMG goes up before the appcast that points at it.
-      - name: Publish the GitHub release
+      - name: Checksums
+        working-directory: ${{ env.OUT }}
+        run: |
+          shasum -a 256 "Conduit-$VERSION.dmg" "Conduit-$VERSION-dSYMs.zip" appcast/appcast.xml |
+            sed 's#appcast/appcast.xml#appcast.xml#' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # A draft: only people with write access see it, and installed copies
+      # are offered the update only once it is published (the feed job).
+      # Never "Latest", which stays the mobile app's.
+      # Run again after a failure: the draft this tag made before takes this
+      # build's assets (nothing of a draft is live). A published release is
+      # never changed here: its DMG is the one its feed describes.
+      - name: Create the draft GitHub release
+        if: env.DRY_RUN != 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          flags=(--verify-tag --latest=false --title "Conduit Desktop $VERSION")
-          [ "$PRERELEASE" = true ] && flags+=(--prerelease)
-          notes="Conduit Desktop $VERSION for Apple Silicon Macs (macOS 14 Sonoma or later). Download Conduit-$VERSION.dmg, open it and drag Conduit to Applications. Installed copies update themselves."
-          [ "$PRERELEASE" = true ] && notes="$notes This is a beta: installed copies get it only with Settings › About › Receive beta updates turned on."
-          # Run again after a later step failed: the release is there; its
-          # DMG goes up only if it never did (a published one is reused).
-          . desktop/packaging/macos/lib.sh
-          state="$(release_exists "$GITHUB_REF_NAME")"
-          if [ "$state" = no ]; then
-            gh release create "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" "${flags[@]}" --notes "$notes"
-          elif [ "${DMG_PUBLISHED:-0}" != 1 ]; then
-            gh release upload "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" -R "$RELEASE_REPO"
+          notes="Conduit Desktop $VERSION for Apple silicon Macs (macOS 14 Sonoma or later). Download Conduit-$VERSION.dmg, open it and drag Conduit to Applications. Installed copies update themselves.
+
+          Release assets: the notarized DMG; Conduit-$VERSION-dSYMs.zip, the debug symbols for crash reports; appcast.xml, the signed Sparkle feed that goes live when this release is published; SHA256SUMS.txt."
+          assets=("$OUT/Conduit-$VERSION.dmg" "$OUT/Conduit-$VERSION-dSYMs.zip"
+            "$OUT/appcast/appcast.xml" "$OUT/SHA256SUMS.txt")
+          if draft="$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>&1)"; then
+            if [ "$draft" != true ]; then
+              echo "::error::$GITHUB_REF_NAME is already published: its DMG and appcast stay as they are"
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+            echo "Replaced the assets of the existing draft $GITHUB_REF_NAME"
+          else
+            case "$draft" in
+              *"release not found"*) ;;
+              *) echo "::error::could not look up the release $GITHUB_REF_NAME: $draft"; exit 1 ;;
+            esac
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --latest=false \
+              --title "Conduit Desktop $VERSION" --notes "$notes" "${assets[@]}"
           fi
 
-      - name: Publish the appcast
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: desktop/packaging/macos/publish-appcast.sh "$OUT/appcast/appcast.xml" --push
-
-      - name: Keep the release reports
+      - name: Keep the build reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: desktop-release-${{ env.VERSION }}
-          retention-days: 30
+          name: desktop-${{ env.DRY_RUN == 'true' && 'dry-run' || 'release' }}-${{ env.VERSION }}
+          retention-days: ${{ env.DRY_RUN == 'true' && 5 || 30 }}
           if-no-files-found: ignore
           path: |
             ${{ env.OUT }}/notary-*.json
             ${{ env.OUT }}/codesign-verify.txt
             ${{ env.OUT }}/appcast/appcast.xml
+            ${{ env.OUT }}/SHA256SUMS.txt
+            ${{ env.OUT }}/Conduit-*-dSYMs.zip
 
       - name: Remove the signing keychain
         if: always()
         run: |
           if [ -n "${SIGNING_KEYCHAIN:-}" ]; then security delete-keychain "$SIGNING_KEYCHAIN" || true; fi
+
+  # Publishing a desktop draft makes its appcast live. Checked first: the
+  # feed is this release's (its newest item is this version, at this
+  # release's DMG, which now downloads), its checksum is the one the build
+  # recorded, and it keeps every item the live feed has (a release
+  # published since this draft was built would otherwise drop out).
+  feed:
+    name: Publish the update feed
+    if: >-
+      github.event_name == 'release' &&
+      startsWith(github.event.release.tag_name, 'desktop-v') &&
+      !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Fetch the release's appcast
+        shell: bash
+        run: |
+          . desktop/packaging/macos/lib.sh
+          [ "$GITHUB_REPOSITORY" = "$RELEASE_REPO" ] || { echo "::error::not $RELEASE_REPO"; exit 1; }
+          version="${TAG#desktop-v}"
+          check_version "$version"
+          refuse_beta_release "$version"
+          dir="$RUNNER_TEMP/release"
+          mkdir -p "$dir"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$dir" -p appcast.xml -p SHA256SUMS.txt
+          (cd "$dir" && grep ' appcast.xml$' SHA256SUMS.txt | shasum -a 256 -c -)
+          code="$(curl -sSL -o "$dir/live.xml" -w '%{http_code}' "$(appcast_url)" || true)"
+          case "$code" in
+            200) ;;
+            404) echo "no live feed yet: this is the first release"; printf '<rss/>' > "$dir/live.xml" ;;
+            *) echo "::error::could not fetch the live feed (HTTP $code)"; exit 1 ;;
+          esac
+          dmg_url="https://github.com/$RELEASE_REPO/releases/download/$TAG/Conduit-$version.dmg"
+          # One byte, by GET: the asset redirects to a URL signed for GET only.
+          curl -fsSL -r 0-0 -o /dev/null "$dmg_url" || { echo "::error::$dmg_url does not download (is the release public?)"; exit 1; }
+          python3 -I - "$dir/appcast.xml" "$dir/live.xml" "$(build_number "$version")" "$dmg_url" <<'EOF'
+          import sys, xml.etree.ElementTree as ET
+          new, live, build, url = sys.argv[1:]
+          ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+          def builds(path):
+              return [(i.findtext("sparkle:version", namespaces=ns) or "").strip()
+                      for i in ET.parse(path).getroot().iter("item")]
+          items = list(ET.parse(new).getroot().iter("item"))
+          newest = max(items, key=lambda i: int((i.findtext("sparkle:version", namespaces=ns) or "0").strip()))
+          enc = newest.find("enclosure")
+          problems = []
+          if (newest.findtext("sparkle:version", namespaces=ns) or "").strip() != build:
+              problems.append(f"the newest item is not build {build}")
+          if enc is None or enc.get("url") != url:
+              problems.append(f"the newest item does not download {url}")
+          lost = sorted(set(builds(live)) - set(builds(new)))
+          if lost:
+              problems.append(f"the live feed has builds this appcast lacks: {lost}; rebuild the release")
+          if problems:
+              sys.exit("::error::" + "; ".join(problems))
+          print(f"appcast ok: build {build} on top, {len(items)} items, nothing lost")
+          EOF
+          command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
+          echo "APPCAST=$dir/appcast.xml" >> "$GITHUB_ENV"
+      - name: Publish the appcast
+        run: desktop/packaging/macos/publish-appcast.sh "$APPCAST" --push

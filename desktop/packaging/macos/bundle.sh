@@ -11,8 +11,11 @@
 #                  (share/build.sh), and assemble an unsigned Conduit.app
 #                  (the intents' metadata and strings from intents.sh, the
 #                  third-party notices from notices/notices.sh, which needs
-#                  cargo-about). The app is built without its test harness
-#                  (no `harness` feature).
+#                  cargo-about); then strip the binaries built here, keeping
+#                  their symbols in <out>/dSYMs and Conduit-<version>-dSYMs.zip
+#                  (rust-objcopy with the toolchain's llvm-tools component,
+#                  Apple's strip without it). The app is built without its
+#                  test harness (no `harness` feature).
 #   sign           sign inside out with the hardened runtime: conduitd's
 #                  libraries, conduitd, Sparkle's helpers and framework, the
 #                  widget's library and extension, the Share extension
@@ -28,17 +31,34 @@
 #   all            everything above
 #
 # Options:
-#   --version V    1.2.0 or 1.3.0-beta.2 (default 0.0.0). The build number
-#                  (CFBundleVersion) is derived from it (lib.sh build_number).
+#   --version V    1.2.0 (default 0.0.0). The build number (CFBundleVersion)
+#                  is derived from it (lib.sh build_number). A -beta.N
+#                  version builds for local tests only: releases are
+#                  stable only.
 #   --out DIR      output folder (default desktop/target/macos/Conduit-<version>);
 #                  `build` moves an existing one aside, never deletes it
 #   --release      CI mode: a missing identity, notarization credentials,
 #                  Sparkle key or app icon is an error instead of a warning
+#   --rehearsal    the release path on a test bundle (--bundle-id required):
+#                  as strict as --release about the Sparkle key, the icon,
+#                  the stripping and the dSYMs, but any identity may sign.
+#                  A Developer ID identity is notarized as in a release
+#                  (credentials required; release-local.sh); an Apple
+#                  Development or ad-hoc one is not, and every step says
+#                  so. Never for distribution.
+#   --test-harness the app built WITH its test harness (the `harness`
+#                  feature: --probe, --e2e, the fixtures) for local tests
+#                  that drive a bundle, such as an update test through the
+#                  probe. A test bundle id only (--bundle-id); refused with
+#                  --release and with a Developer ID identity, and never
+#                  notarized. Every step says "harness build, not for
+#                  distribution", and verify checks that the harness is in.
+#                  Pass it to every step.
 #   --skip-rust, --skip-daemon, --skip-whisper
 #                  reuse what an earlier build left (local iteration)
 #   --bundle-id ID, --test-env K=V
-#                  local update tests only (another bundle id; LSEnvironment
-#                  entries); refused with --release
+#                  local update tests and rehearsals only (another bundle
+#                  id; LSEnvironment entries); refused with --release
 #
 # Environment:
 #   CONDUIT_SIGN_IDENTITY   codesign identity ("Developer ID Application: …"
@@ -49,7 +69,10 @@
 #                           no notarization; Shortcuts can then run the
 #                           App Intents (docs/BUILDING-DESKTOP.md). A
 #                           revoked or unknown identity is refused.
-#   CONDUIT_NOTARY_PROFILE  a `notarytool store-credentials` profile, or
+#   CONDUIT_NOTARY_PROFILE  a `notarytool store-credentials` profile (an App
+#                           Store Connect API key or an Apple ID with an
+#                           app-specific password), in the login keychain
+#                           or in CONDUIT_NOTARY_KEYCHAIN; or
 #   CONDUIT_NOTARY_KEY_FILE + CONDUIT_NOTARY_KEY_ID + CONDUIT_NOTARY_ISSUER
 #                           an App Store Connect API key (.p8)
 #   SPARKLE_PUBLIC_ED_KEY   Sparkle's public EdDSA key (base64). Without it
@@ -76,6 +99,8 @@ command=all
 version=0.0.0
 out=""
 release=0
+rehearsal=0
+test_harness=0
 skip_rust=0
 skip_daemon=0
 skip_whisper=0
@@ -87,6 +112,8 @@ while [ $# -gt 0 ]; do
     --version) version="$2"; shift ;;
     --out) out="$2"; shift ;;
     --release) release=1 ;;
+    --rehearsal) rehearsal=1 ;;
+    --test-harness) test_harness=1 ;;
     --skip-rust) skip_rust=1 ;;
     --skip-daemon) skip_daemon=1 ;;
     --skip-whisper) skip_whisper=1 ;;
@@ -119,25 +146,56 @@ if [ "$bundle_id" != "$BUNDLE_ID_DEFAULT" ]; then
 fi
 
 if [ "$release" = 1 ]; then
+  [ "$rehearsal" = 0 ] || die "--release and --rehearsal: pick one"
   [ "$bundle_id" = "$BUNDLE_ID_DEFAULT" ] || die "--bundle-id is for local tests only"
   [ ${#test_env[@]} -eq 0 ] || die "--test-env is for local tests only"
   [ "$SIGN_KIND" != development ] ||
     die "--release needs a Developer ID Application identity, not an Apple Development one"
 fi
+if [ "$rehearsal" = 1 ] && [ "$bundle_id" = "$BUNDLE_ID_DEFAULT" ]; then
+  die "--rehearsal builds a test bundle: pass --bundle-id <a test id>, never $BUNDLE_ID_DEFAULT"
+fi
 if [ "$SIGN_KIND" = development ] && [ "$bundle_id" = "$BUNDLE_ID_DEFAULT" ]; then
   die "an Apple Development identity signs test bundles only: pass --bundle-id <a test id>, never $BUNDLE_ID_DEFAULT"
 fi
+# A bundle with the test harness in it is for local tests only.
+if [ "$test_harness" = 1 ]; then
+  [ "$release" = 0 ] || die "--test-harness and --release: a release never carries the test harness"
+  [ "$bundle_id" != "$BUNDLE_ID_DEFAULT" ] ||
+    die "--test-harness builds a test bundle: pass --bundle-id <a test id>, never $BUNDLE_ID_DEFAULT"
+  [ "$SIGN_KIND" != distribution ] ||
+    die "--test-harness: a harness build is not for distribution, so never signed with Developer ID"
+fi
+# --release and --rehearsal hold the build to the same standard.
+strict=0
+if [ "$release" = 1 ] || [ "$rehearsal" = 1 ]; then strict=1; fi
 
-# Fails in --release mode, warns otherwise.
+# Fails in --release and --rehearsal mode, warns otherwise.
 need() {
-  if [ "$release" = 1 ]; then die "$1"; else warn "$1"; fi
+  if [ "$strict" = 1 ]; then die "$1"; else warn "$1"; fi
 }
+
+# A rehearsal says what it is on every step, so its output is never taken
+# for a release's.
+rehearsal_note=""
+if [ "$rehearsal" = 1 ]; then
+  case "$SIGN_KIND" in
+    distribution) rehearsal_note="Developer ID (team $SIGN_TEAM), notarized" ;;
+    development) rehearsal_note="Apple Development (team $SIGN_TEAM), NOT notarized" ;;
+    *) rehearsal_note="ad-hoc, NOT notarized" ;;
+  esac
+  warn "REHEARSAL ($command): the release path on test bundle $bundle_id, $rehearsal_note; not for distribution"
+fi
 
 notary_args=()
 notary_credentials() {
   notary_args=()
   if [ -n "${CONDUIT_NOTARY_PROFILE:-}" ]; then
     notary_args=(--keychain-profile "$CONDUIT_NOTARY_PROFILE")
+    # The release workflow keeps the profile in its temporary keychain.
+    if [ -n "${CONDUIT_NOTARY_KEYCHAIN:-}" ]; then
+      notary_args+=(--keychain "$CONDUIT_NOTARY_KEYCHAIN")
+    fi
   elif [ -n "${CONDUIT_NOTARY_KEY_FILE:-}" ] && [ -n "${CONDUIT_NOTARY_KEY_ID:-}" ] &&
     [ -n "${CONDUIT_NOTARY_ISSUER:-}" ]; then
     notary_args=(--key "$CONDUIT_NOTARY_KEY_FILE" --key-id "$CONDUIT_NOTARY_KEY_ID"
@@ -154,10 +212,24 @@ build_rust() {
     [ -f "$binary" ] || die "--skip-rust: no $binary"
     log "reusing $binary"
   else
-    log "cargo build --release --target $RUST_TARGET (version $version, build $build)"
+    # The test harness only when asked (--test-harness, test bundles).
+    local features=()
+    if [ "$test_harness" = 1 ]; then
+      features=(--features harness)
+      log "cargo build --release --target $RUST_TARGET --features harness (version $version, build $build; harness build, not for distribution)"
+    else
+      log "cargo build --release --target $RUST_TARGET (version $version, build $build)"
+    fi
+    # Line tables into a dSYM (rustc runs dsymutil: split-debuginfo
+    # packed), and no stripping by rustc: its rust-objcopy needs the
+    # llvm-tools component. strip_built strips the bundled copy instead,
+    # once the dSYM is kept.
     (cd "$DESKTOP_DIR" &&
       MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" CONDUIT_VERSION="$version" CONDUIT_BUILD="$build" \
-        cargo build --release --locked --target "$RUST_TARGET" -p conduit-desktop)
+        CARGO_PROFILE_RELEASE_DEBUG=line-tables-only \
+        CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
+        CARGO_PROFILE_RELEASE_STRIP=none \
+        cargo build --release --locked --target "$RUST_TARGET" -p conduit-desktop ${features[@]+"${features[@]}"})
   fi
   rust_binary="$binary"
 }
@@ -318,7 +390,12 @@ assemble() {
     set_plist "Add :SUScheduledCheckInterval integer 86400" "$plist"
     # Check the EdDSA signature before unpacking a download.
     set_plist "Add :SUVerifyUpdateBeforeExtraction bool true" "$plist"
-    log "Sparkle $SPARKLE_VERSION embedded; feed $feed_url"
+    # Read only an appcast signed with the same key (Sparkle 2.9+):
+    # generate_appcast signs the feed because the update asks for it, so a
+    # feed changed by anyone without the key (an older item put back on
+    # top, a link swapped) is refused. appcast.sh checks the signature.
+    set_plist "Add :SURequireSignedFeed bool true" "$plist"
+    log "Sparkle $SPARKLE_VERSION embedded; feed $feed_url (signed feed required)"
   else
     need "SPARKLE_PUBLIC_ED_KEY is not set: no Sparkle and no updates in this bundle"
   fi
@@ -334,12 +411,82 @@ assemble() {
   plutil -lint -s "$plist"
 }
 
+# The binaries this script builds, stripped after their symbols are kept in
+# a dSYM each (<out>/dSYMs, zipped beside the DMG for the release). The rest
+# stays as it comes: conduitd is a Dart AOT executable (stripping breaks
+# its snapshot), libsqlite3 comes from the sqlite3 package's build hook,
+# and Sparkle's binaries are Sparkle's own release build.
+#   "<path in the bundle> <exe|lib>"
+built_binaries() {
+  printf '%s\n' \
+    "Contents/MacOS/Conduit exe" \
+    "Contents/Frameworks/libconduit_widget.dylib lib" \
+    "Contents/PlugIns/ConduitWidget.appex/Contents/MacOS/ConduitWidget exe" \
+    "Contents/PlugIns/$SHARE_APPEX/Contents/MacOS/$SHARE_EXECUTABLE exe" \
+    "Contents/Resources/conduitd/lib/libconduit_whisper.dylib lib"
+}
+
+strip_built() {
+  local dsyms="$out/dSYMs" objcopy tool
+  mkdir -p "$dsyms"
+  objcopy="$(rust_objcopy)"
+  if [ -n "$objcopy" ]; then
+    tool="rust-objcopy (llvm-tools)"
+  else
+    tool="Apple's strip (no llvm-tools component in this toolchain)"
+  fi
+  log "stripping the binaries built here with $tool; symbols kept in $dsyms"
+  local rel kind file name dsym before after rustc_dsym="$rust_binary.dSYM"
+  while read -r rel kind; do
+    file="$app/$rel"
+    [ -f "$file" ] || die "no $rel to strip"
+    name="$(basename "$file")"
+    dsym="$dsyms/$name.dSYM"
+    if [ "$name" = Conduit ] && [ -d "$rustc_dsym" ] &&
+      [ "$(macho_uuid "$rustc_dsym")" = "$(macho_uuid "$file")" ]; then
+      # rustc's dSYM, with the line tables (the objects it was made from
+      # are gone, so dsymutil could not make it again). Cargo links it in
+      # from deps/, named for the crate and its hash: copy the real folder
+      # and name its DWARF file for the bundle's executable.
+      ditto "$(cd "$rustc_dsym" && pwd -P)" "$dsym"
+      local dwarf
+      for dwarf in "$dsym"/Contents/Resources/DWARF/*; do
+        [ "$(basename "$dwarf")" = "$name" ] || mv "$dwarf" "$dsym/Contents/Resources/DWARF/$name"
+      done
+    else
+      if [ "$name" = Conduit ]; then
+        need "no dSYM from rustc for $rust_binary (built without line tables?): the dSYM has symbol names only"
+      fi
+      dsymutil "$file" -o "$dsym" 2>"$out/dsymutil-$name.log" || {
+        cat "$out/dsymutil-$name.log" >&2
+        die "dsymutil $rel failed"
+      }
+    fi
+    [ "$(macho_uuid "$dsym")" = "$(macho_uuid "$file")" ] || die "$name.dSYM does not match $rel"
+    before="$(du -k "$file" | cut -f1)"
+    if [ -n "$objcopy" ]; then
+      # As rustc strips: all symbols from executables, the local ones from
+      # libraries (their exports are what dlsym finds).
+      if [ "$kind" = exe ]; then "$objcopy" --strip-all "$file"; else "$objcopy" --discard-all "$file"; fi
+    else
+      if [ "$kind" = exe ]; then strip "$file"; else strip -x "$file"; fi
+    fi
+    after="$(du -k "$file" | cut -f1)"
+    log "  $rel: ${before} KB -> ${after} KB"
+  done < <(built_binaries)
+  local zip="$out/Conduit-$version-dSYMs.zip"
+  move_aside "$zip"
+  ditto -c -k --keepParent "$dsyms" "$zip"
+  log "dSYMs: $zip"
+}
+
 do_build() {
   build_rust
   build_daemon
   build_whisper
   build_widget
   assemble
+  strip_built
 }
 
 # --- sign ------------------------------------------------------------------
@@ -350,7 +497,11 @@ do_sign() {
   if [ "$identity" = "-" ]; then
     adhoc=1
     ts=(--timestamp=none)
-    need "no CONDUIT_SIGN_IDENTITY: ad-hoc signature (runs here only; Gatekeeper rejects it elsewhere)"
+    if [ "$rehearsal" = 1 ]; then
+      warn "REHEARSAL: ad-hoc signature (runs here only; Gatekeeper rejects it elsewhere)"
+    else
+      need "no CONDUIT_SIGN_IDENTITY: ad-hoc signature (runs here only; Gatekeeper rejects it elsewhere)"
+    fi
   elif [ "$SIGN_KIND" = development ]; then
     # As Xcode signs Debug builds: a development signature is never
     # notarized, so it needs no secure timestamp (nor Apple's server).
@@ -426,14 +577,23 @@ notarize() {
 }
 
 skip_notarization() {
+  if [ "$test_harness" = 1 ]; then
+    warn "HARNESS BUILD: notarization skipped (harness build, not for distribution)"
+    return 0
+  fi
   if [ "$identity" = "-" ]; then
-    need "notarization skipped: an ad-hoc build cannot be notarized (set CONDUIT_SIGN_IDENTITY)"
+    if [ "$rehearsal" = 1 ]; then
+      warn "REHEARSAL: notarization skipped (an ad-hoc build cannot be notarized)"
+    else
+      need "notarization skipped: an ad-hoc build cannot be notarized (set CONDUIT_SIGN_IDENTITY)"
+    fi
     return 0
   fi
   if [ "$SIGN_KIND" = development ]; then
-    warn "notarization skipped: an Apple Development build cannot be notarized (Developer ID only)"
+    warn "${rehearsal_note:+REHEARSAL: }notarization skipped: an Apple Development build cannot be notarized (Developer ID only)"
     return 0
   fi
+  # Developer ID: --release and --rehearsal both need the credentials.
   if ! notary_credentials; then
     need "notarization skipped: set CONDUIT_NOTARY_PROFILE, or CONDUIT_NOTARY_KEY_FILE + CONDUIT_NOTARY_KEY_ID + CONDUIT_NOTARY_ISSUER"
     return 0
@@ -535,8 +695,15 @@ do_verify() {
     fail "no THIRD_PARTY_NOTICES.md in Resources"
   fi
   # No test harness in the binary (the `harness` cargo feature), and its
-  # flags refused.
-  if "$PACKAGING_DIR/harness_check.sh" "$app" "$out/harness-check" >"$out/harness-check.txt" 2>&1; then
+  # flags refused; or, built with --test-harness, the harness found in it.
+  if [ "$test_harness" = 1 ]; then
+    if "$PACKAGING_DIR/harness_check.sh" "$app" "$out/harness-check" >"$out/harness-check.txt" 2>&1; then
+      fail "--test-harness, but harness_check.sh finds no test harness in the build"
+      sed 's/^/     /' "$out/harness-check.txt"
+    else
+      ok "harness build, not for distribution: the test harness is in, as --test-harness asked (harness_check.sh finds it)"
+    fi
+  elif "$PACKAGING_DIR/harness_check.sh" "$app" "$out/harness-check" >"$out/harness-check.txt" 2>&1; then
     grep -E '^(ok|note)' "$out/harness-check.txt" | sed 's/^ok   /ok   release build: /'
   else
     fail "the test harness is in the release build (harness_check.sh)"
@@ -544,7 +711,7 @@ do_verify() {
   fi
   v="$(plutil -extract CFBundleIconFile raw -o - "$plist")"
   if [ -f "$app/Contents/Resources/$v.icns" ]; then ok "icon $v.icns (macOS 14/15)"; else
-    if [ "$release" = 1 ]; then fail "no $v.icns"; else printf 'warn no %s.icns in Resources\n' "$v"; fi
+    if [ "$strict" = 1 ]; then fail "no $v.icns"; else printf 'warn no %s.icns in Resources\n' "$v"; fi
   fi
   v="$(plutil -extract CFBundleIconName raw -o - "$plist")"
   local car_info=""
@@ -554,7 +721,7 @@ do_verify() {
   if grep -Fq "\"Name\" : \"$v\"" <<<"$car_info"; then
     ok "icon $v in Assets.car (macOS 26+)"
   else
-    if [ "$release" = 1 ]; then fail "no $v in Resources/Assets.car"; else printf 'warn no %s in Assets.car\n' "$v"; fi
+    if [ "$strict" = 1 ]; then fail "no $v in Resources/Assets.car"; else printf 'warn no %s in Assets.car\n' "$v"; fi
   fi
   printf '     version %s (%s), bundle id %s\n' \
     "$(plutil -extract CFBundleShortVersionString raw -o - "$plist")" \
@@ -566,23 +733,78 @@ do_verify() {
     printf '     no Sparkle (no updater)\n'
   fi
 
-  local f archs minos bad_arch=0 bad_os=0 count=0
+  local f archs minos bad_arch=0 bad_os=0 count=0 floors=""
   while IFS= read -r f; do
     count=$((count + 1))
     archs="$(lipo -archs "$f")"
     [ "$archs" = "$ARCH" ] || {
-      fail "$(basename "$f") is $archs"
+      fail "${f#"$app"/} is $archs"
       bad_arch=1
     }
-    minos="$(vtool -show-build "$f" 2>/dev/null | awk '/minos/ {print $2; exit}')"
-    if [ -n "$minos" ] && [ "$(printf '%s\n%s\n' "$minos" "$MACOS_MIN" | sort -V | tail -1)" != "$MACOS_MIN" ]; then
-      fail "$(basename "$f") needs macOS $minos"
+    minos="$(macho_minos "$f")"
+    if [ -z "$minos" ]; then
+      fail "${f#"$app"/} names no minimum macOS (no LC_BUILD_VERSION or LC_VERSION_MIN_MACOSX)"
+      bad_os=1
+    elif ! version_le "$minos" "$MACOS_MIN"; then
+      fail "${f#"$app"/} needs macOS $minos"
       bad_os=1
     fi
+    floors="$floors $minos"
   done < <(macho_files "$app")
   [ "$bad_arch" = 0 ] && ok "lipo: all $count Mach-O files are $ARCH only"
-  [ "$bad_os" = 0 ] && ok "minimum OS of every Mach-O <= $MACOS_MIN"
+  [ "$bad_os" = 0 ] &&
+    ok "minimum OS of every Mach-O <= $MACOS_MIN ($(tr ' ' '\n' <<<"$floors" | sed '/^$/d' | sort | uniq -c | awk '{printf "%s%s x%s", s, $2, $1; s=", "}'))"
   lipo -info "$app/Contents/MacOS/Conduit"
+
+  # What this script builds targets exactly MACOS_MIN (a newer floor would
+  # pass the check above only on a newer Mac), is stripped, and has a dSYM
+  # that matches it.
+  local rel kind dsym nstab nlocal bad_floor=0 bad_strip=0 bad_dsym=0
+  while read -r rel kind; do
+    f="$app/$rel"
+    minos="$(macho_minos "$f")"
+    [ "$minos" = "$MACOS_MIN" ] || {
+      fail "$rel targets macOS ${minos:-?}, not $MACOS_MIN"
+      bad_floor=1
+    }
+    # Stripped: no debug map (stabs) and no local symbols left. Apple's
+    # strip leaves one marker stab of its own (OPT radr://5614542).
+    nstab="$(nm -ap "$f" 2>/dev/null | awk '$2 == "-" && $0 !~ /radr:\/\/5614542/' | wc -l | tr -d ' ')"
+    nlocal="$(nm -p "$f" 2>/dev/null | awk 'NF >= 3 && $2 ~ /^[a-z]$/' | wc -l | tr -d ' ')"
+    if [ "$nstab" != 0 ] || [ "$nlocal" != 0 ]; then
+      if [ "$strict" = 1 ]; then fail "$rel is not stripped ($nstab debug-map, $nlocal local symbols)"; else
+        printf 'warn %s is not stripped (%s debug-map, %s local symbols)\n' "$rel" "$nstab" "$nlocal"
+      fi
+      bad_strip=1
+    fi
+    dsym="$out/dSYMs/$(basename "$f").dSYM"
+    if [ ! -d "$dsym" ] || [ "$(macho_uuid "$dsym")" != "$(macho_uuid "$f")" ]; then
+      if [ "$strict" = 1 ]; then fail "no dSYM matching $rel in $out/dSYMs"; else
+        printf 'warn no dSYM matching %s\n' "$rel"
+      fi
+      bad_dsym=1
+    fi
+  done < <(built_binaries)
+  [ "$bad_floor" = 0 ] && ok "the $(built_binaries | wc -l | tr -d ' ') binaries built here target macOS $MACOS_MIN (Rust, Swift, whisper)"
+  [ "$bad_strip" = 0 ] && ok "the binaries built here are stripped"
+  [ "$bad_dsym" = 0 ] && ok "a dSYM with the same UUID for each, in dSYMs/ and $(basename "$out")/Conduit-$version-dSYMs.zip"
+  if [ "$bad_dsym" = 0 ]; then
+    if otool -l "$out/dSYMs/Conduit.dSYM/Contents/Resources/DWARF/Conduit" 2>/dev/null | grep -q __debug_line; then
+      ok "Conduit.dSYM has line tables"
+    elif [ "$strict" = 1 ]; then
+      fail "Conduit.dSYM has no line tables (build without --skip-rust)"
+    else
+      printf 'warn Conduit.dSYM has no line tables\n'
+    fi
+  fi
+  if [ "$strict" = 1 ] && [ ! -f "$out/Conduit-$version-dSYMs.zip" ]; then
+    fail "no Conduit-$version-dSYMs.zip"
+  fi
+  if plutil -extract SUPublicEDKey raw -o - "$plist" >/dev/null 2>&1; then
+    [ "$(plutil -extract SURequireSignedFeed raw -o - "$plist" 2>/dev/null)" = true ] &&
+      ok "Sparkle: a signed appcast required (SURequireSignedFeed)" ||
+      fail "Sparkle without SURequireSignedFeed"
+  fi
 
   # conduitd's libraries may only link the system and themselves.
   local dep
@@ -667,13 +889,27 @@ do_verify() {
     # A release's DMG is what users download: Gatekeeper must accept it.
     spctl_out="$(spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1)" &&
       ok "spctl accepts the DMG" || {
-      if [ "$release" = 1 ]; then
+      # A release, or a Developer ID rehearsal of one, must pass.
+      if [ "$release" = 1 ] || { [ "$app_kind" = distribution ] && [ "$strict" = 1 ]; }; then
         fail "spctl rejects the DMG"
       else
         printf 'note spctl on the DMG:\n'
       fi
     }
     printf '%s\n' "$spctl_out" | redact_authorities | sed -E 's/^(origin=[^:]*): .*/\1: …/' | sed 's/^/     /'
+  fi
+  # A notarized release carries its tickets, so Gatekeeper's first check
+  # works offline.
+  if [ "$app_kind" = distribution ] && [ "$strict" = 1 ]; then
+    local target
+    for target in "$app" "$dmg"; do
+      [ -e "$target" ] || continue
+      if xcrun stapler validate "$target" >/dev/null 2>&1; then
+        ok "notarization ticket stapled to $(basename "$target")"
+      else
+        fail "no notarization ticket stapled to $(basename "$target")"
+      fi
+    done
   fi
 
   printf '\nsizes:\n'
@@ -682,23 +918,24 @@ do_verify() {
   [ -d "$app/Contents/Frameworks/Sparkle.framework" ] &&
     du -sh "$app/Contents/Frameworks/Sparkle.framework" | sed 's/^/     /'
   [ -f "$dmg" ] && du -h "$dmg" | sed 's/^/     /'
+  [ -f "$out/Conduit-$version-dSYMs.zip" ] && du -h "$out/Conduit-$version-dSYMs.zip" | sed 's/^/     /'
   [ "$failed" = 0 ] || die "verification failed"
 }
 
+# A harness build says what it is on every step.
+run_step() {
+  if [ "$test_harness" = 1 ]; then
+    warn "HARNESS BUILD ($1): the app carries its test harness ($bundle_id); harness build, not for distribution"
+  fi
+  "do_${1//-/_}"
+}
+
 case "$command" in
-  build) do_build ;;
-  sign) do_sign ;;
-  notarize-app) do_notarize_app ;;
-  dmg) do_dmg ;;
-  notarize-dmg) do_notarize_dmg ;;
-  verify) do_verify ;;
-  all)
-    do_build
-    do_sign
-    do_notarize_app
-    do_dmg
-    do_notarize_dmg
-    do_verify
-    ;;
+  all) for step in build sign notarize-app dmg notarize-dmg verify; do run_step "$step"; done ;;
+  *) run_step "$command" ;;
 esac
-log "done: $out"
+if [ "$test_harness" = 1 ]; then
+  log "done: $out (harness build, not for distribution)"
+else
+  log "done: $out"
+fi

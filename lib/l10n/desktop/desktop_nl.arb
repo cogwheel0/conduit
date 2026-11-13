@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "Zoek naar updates…",
   "desktopUpdatesSection": "Updates",
   "desktopAutomaticUpdateChecks": "Automatisch naar updates zoeken",
-  "desktopBetaUpdates": "Bètaversies ontvangen",
-  "desktopBetaUpdatesFooter": "Bèta's komen eerder en kunnen minder stabiel zijn. Zet je dit uit, dan wacht Conduit op de volgende stabiele versie; het gaat nooit terug naar een oudere versie.",
   "desktopUpdatesUnavailable": "Updates zijn er alleen voor de geïnstalleerde app.",
   "desktopSuggestionsHeading": "Suggesties",
   "desktopImageLoadFailed": "Deze afbeelding kan niet worden geladen.",

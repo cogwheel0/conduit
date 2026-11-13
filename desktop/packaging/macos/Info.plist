@@ -8,7 +8,7 @@
     @BUNDLE_ID@       app.cogwheel.conduit.desktop (dev: ….desktop.dev)
     @BUNDLE_NAME@     Conduit (dev: Conduit Dev)
     @EXECUTABLE@      the binary in Contents/MacOS
-    @VERSION@         CFBundleShortVersionString, e.g. 1.2.0 or 1.3.0-beta.2
+    @VERSION@         CFBundleShortVersionString, e.g. 1.2.0
     @BUILD@           CFBundleVersion: the integer packaging/macos/lib.sh's
                       build_number derives from the version (Sparkle
                       compares it), e.g. 1020099

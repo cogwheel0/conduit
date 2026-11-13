@@ -14,9 +14,11 @@
 #                  (Pages must serve that branch)
 #   branch         commits appcast.xml to APPCAST_BRANCH
 #
-# Why not `releases/latest/download/appcast.xml`: "latest" skips
-# prereleases (every beta) and points at the newest stable release of the
-# whole repository, which is usually the mobile app's.
+# Why not `releases/latest/download/appcast.xml`: "latest" is the newest
+# release of the whole repository, which is usually the mobile app's.
+#
+# release-desktop.yml runs this when a desktop-v* draft is published (job
+# `feed`), with the appcast the build signed and attached to the draft.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh

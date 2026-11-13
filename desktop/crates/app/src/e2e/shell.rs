@@ -21,6 +21,9 @@
 //! [`probe`] (`--probe <file>`) is for the links and files the system
 //! hands a real launch (`open -a … 'conduit://…'`, cold and warm): it
 //! writes the app's state to `<file>` and quits when `<file>.quit` exists.
+//! It also runs the commands a driver appends to `<file>.cmd`, which the
+//! release rehearsal's update test uses to check for updates and answer
+//! Sparkle's windows (listed in `<file>.panels.json`).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -830,12 +833,26 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
 
 /// `--probe <file>`: the state a shell driver checks after `open -a`
 /// (links and files, cold and warm), written every 300 ms. The app quits
-/// when `<file>.quit` appears.
+/// when `<file>.quit` appears. Each line a driver appends to `<file>.cmd`
+/// runs once ([`probe_command`]).
 pub fn probe(path: PathBuf, cx: &mut App) {
     cx.spawn(async move |cx: &mut AsyncApp| {
         let quit = path.with_extension("quit");
+        let commands = path.with_extension("cmd");
+        // `press` lines and the AppKit windows: on a run loop timer that
+        // also runs inside Sparkle's modal alerts (super::panels).
+        #[cfg(target_os = "macos")]
+        super::panels::watch(commands.clone(), path.with_extension("panels.json"));
+        let mut done = 0;
         loop {
             settle(cx, 300).await;
+            let lines: Vec<String> = std::fs::read_to_string(&commands)
+                .map(|s| s.lines().map(str::to_owned).collect())
+                .unwrap_or_default();
+            for line in lines.iter().skip(done) {
+                probe_command(line.trim(), cx);
+            }
+            done = done.max(lines.len());
             let state = cx.update(|cx| {
                 let Some(state) = cx.try_global::<AppState>() else {
                     return json!({});
@@ -873,6 +890,10 @@ pub fn probe(path: PathBuf, cx: &mut App) {
                     "notifications": format!("{:?}", shell_store(cx).read(cx).notifications),
                     "login": format!("{:?}", shell_store(cx).read(cx).login),
                     "menuBarItem": desktop::menu_bar_item_visible(cx),
+                    "updates": {
+                        "available": crate::updates::available(cx),
+                        "canCheck": crate::updates::can_check(cx),
+                    },
                 })
             });
             std::fs::write(&path, serde_json::to_vec_pretty(&state).unwrap_or_default()).ok();
@@ -883,4 +904,19 @@ pub fn probe(path: PathBuf, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// One line of `<file>.cmd`:
+/// * `check-for-updates`: the app menu's Conduit › Check for Updates…
+///   (its action, as the menu item dispatches it);
+/// * `press <title>`: clicks the button with that title in a window AppKit
+///   shows outside GPUI (Sparkle's: Install Update, Install and Relaunch,
+///   OK), as a person would; run by [`super::panels`], not here.
+fn probe_command(line: &str, cx: &mut AsyncApp) {
+    if line == "check-for-updates" {
+        log::info!("probe: {line}");
+        cx.update(|cx| cx.dispatch_action(&crate::actions::CheckForUpdates));
+    } else if !line.is_empty() && !line.starts_with("press ") {
+        log::warn!("probe: unknown command '{line}'");
+    }
 }

@@ -3,9 +3,8 @@
 //! * `window-state.json`: main-window geometry and layout (sidebar shown,
 //!   width);
 //! * `desktop-preferences.json`: appearance, the language override, the
-//!   user's shortcut overrides, Settings › Desktop (menu bar, open at
-//!   login, Quick Ask, answer notifications) and the beta-updates switch
-//!   in Settings › About.
+//!   user's shortcut overrides and Settings › Desktop (menu bar, open at
+//!   login, Quick Ask, answer notifications).
 //!
 //! The daemon keeps the preferences mobile shares (`settings.getApp` and
 //! `settings.setApp`); this stays the app-side store for what only the
@@ -206,9 +205,6 @@ pub struct DesktopPrefs {
     /// The two switches above moved to the core's notification settings
     /// (Settings › Notifications); they are read once more, never written.
     pub notifications_moved: bool,
-    /// Settings › About › "Receive beta updates": Sparkle may offer items
-    /// on the appcast's `beta` channel too.
-    pub beta_updates: bool,
     /// Settings › Keyboard › "Use Option as Meta Key": in the terminal,
     /// Option sends Escape before the key instead of typing a character.
     pub terminal_option_as_meta: bool,
@@ -224,7 +220,6 @@ impl Default for DesktopPrefs {
             notify_answers: true,
             notify_channels: true,
             notifications_moved: false,
-            beta_updates: false,
             terminal_option_as_meta: false,
         }
     }
@@ -354,7 +349,7 @@ mod tests {
     #[test]
     fn desktop_settings_persist_with_their_defaults() {
         let d = DesktopPrefs::default();
-        assert!(!d.close_to_menu_bar && !d.launch_at_login && !d.beta_updates);
+        assert!(!d.close_to_menu_bar && !d.launch_at_login);
         assert!(d.quick_ask && d.notify_answers);
         assert_eq!(
             d.quick_ask_stroke(),
@@ -365,10 +360,12 @@ mod tests {
         prefs.desktop.close_to_menu_bar = true;
         prefs.desktop.notify_answers = false;
         prefs.desktop.quick_ask_shortcut = "mod+alt+k".into();
-        prefs.desktop.beta_updates = true;
         save(&path, &prefs).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("\"betaUpdates\": true"), "{text}");
+        assert!(
+            text.contains("\"quickAskShortcut\": \"mod+alt+k\""),
+            "{text}"
+        );
         let back = load::<Preferences>(&path);
         assert_eq!(back, prefs);
         assert_eq!(
@@ -385,11 +382,28 @@ mod tests {
         let old = load::<Preferences>(&path);
         assert_eq!(old.locale.as_deref(), Some("de"));
         assert!(old.desktop.quick_ask && old.desktop.notify_answers);
-        assert!(!old.desktop.beta_updates);
         assert_eq!(
             old.desktop.quick_ask_stroke(),
             crate::keymap::KeyStroke::new(" ").primary().shift()
         );
+    }
+
+    #[test]
+    fn a_saved_beta_updates_switch_is_ignored() {
+        // Releases are stable only: an older build's "Receive beta updates"
+        // stays in the file until the next save, and nothing reads it.
+        let path = dir("beta").join("desktop-preferences.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            br#"{"desktop": {"betaUpdates": true, "closeToMenuBar": true}}"#,
+        )
+        .unwrap();
+        let prefs = load::<Preferences>(&path);
+        assert!(prefs.desktop.close_to_menu_bar);
+        save(&path, &prefs).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("betaUpdates"), "{text}");
     }
 
     #[test]
@@ -415,7 +429,7 @@ mod tests {
             "appearance": {"palette": "claude", "mode": "sepia", "density": "comfortable"},
             "locale": "de",
             "shortcuts": {"newChat": "mod+n", "search": 7},
-            "desktop": {"quickAsk": "yes", "notifyAnswers": false, "betaUpdates": true}
+            "desktop": {"quickAsk": "yes", "notifyAnswers": false, "launchAtLogin": true}
         }"#;
         std::fs::write(&path, text).unwrap();
         let prefs = load::<Preferences>(&path);
@@ -430,7 +444,7 @@ mod tests {
         // The struct's own default, not the type's.
         assert!(prefs.desktop.quick_ask);
         assert!(!prefs.desktop.notify_answers);
-        assert!(prefs.desktop.beta_updates);
+        assert!(prefs.desktop.launch_at_login);
         // The file as it was, kept beside it.
         assert_eq!(
             std::fs::read(path.with_extension("json.bad")).unwrap(),

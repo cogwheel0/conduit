@@ -182,8 +182,7 @@ cat > "$run_dir/userdata/desktop-preferences.json" <<'JSON'
     "launchAtLogin": false,
     "quickAsk": false,
     "notifyAnswers": false,
-    "notifyChannels": false,
-    "betaUpdates": false
+    "notifyChannels": false
   }
 }
 JSON

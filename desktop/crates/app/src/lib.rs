@@ -74,7 +74,7 @@ use crate::views::main_window::MainWindow;
 use crate::views::settings::{SETTINGS_SIZE, SettingsView, Tab};
 
 /// The app's version: `CONDUIT_VERSION` at build time (the release
-/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0` or `1.3.0-beta.2`;
+/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0`;
 /// see packaging/macos/bundle.sh), else the crate version.
 pub const VERSION: &str = match option_env!("CONDUIT_VERSION") {
     Some(v) => v,

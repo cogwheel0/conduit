@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "Vyhledat aktualizace…",
   "desktopUpdatesSection": "Aktualizace",
   "desktopAutomaticUpdateChecks": "Automaticky vyhledávat aktualizace",
-  "desktopBetaUpdates": "Dostávat beta verze",
-  "desktopBetaUpdatesFooter": "Beta verze přicházejí dřív a mohou být méně stabilní. Po vypnutí Conduit počká na příští stabilní verzi; ke starší verzi se nikdy nevrátí.",
   "desktopUpdatesUnavailable": "Aktualizace fungují jen v nainstalované aplikaci.",
   "desktopSuggestionsHeading": "Návrhy",
   "desktopImageLoadFailed": "Obrázek se nepodařilo načíst.",
