@@ -198,11 +198,19 @@ abstract class TerminalPortRef with _$TerminalPortRef {
 }
 
 /// Reply to `terminal.previewPort`: an address on this computer that
-/// shows the port, for the system browser. It carries a one-time key;
-/// the daemon adds the credential on the way through.
+/// shows the port, for a web view or the system browser. It carries a key
+/// the first visit swaps for a cookie, and a `to` query (a path on the
+/// port, `/` by default) says where that visit lands; the daemon adds the
+/// credential, and a sign-in proxy's cookies, on the way through.
 @freezed
 abstract class TerminalPreview with _$TerminalPreview {
-  const factory TerminalPreview({required String url}) = _TerminalPreview;
+  const factory TerminalPreview({
+    required String url,
+
+    /// Scripts a web view showing the preview runs at the start of each
+    /// page (the core's `terminalPreviewNavigationScript`).
+    @Default(<String>[]) List<String> scripts,
+  }) = _TerminalPreview;
 
   factory TerminalPreview.fromJson(Map<String, dynamic> json) =>
       _$TerminalPreviewFromJson(json);
@@ -215,8 +223,53 @@ abstract class TerminalDisplayFile with _$TerminalDisplayFile {
   const factory TerminalDisplayFile({
     required String chatId,
     required String path,
+
+    /// For a PDF, the 1-based page to open at; null for the first.
+    int? page,
   }) = _TerminalDisplayFile;
 
   factory TerminalDisplayFile.fromJson(Map<String, dynamic> json) =>
       _$TerminalDisplayFileFromJson(json);
+}
+
+
+/// Params for `terminal.watch`: keep [path]'s listing and the listening
+/// ports live, through the terminal's events socket (Open Terminal's
+/// `/events`, relayed by Open WebUI 0.13). Calling it again moves the
+/// watch to another directory.
+@freezed
+abstract class TerminalWatch with _$TerminalWatch {
+  const factory TerminalWatch({required String handle, required String path}) =
+      _TerminalWatch;
+
+  factory TerminalWatch.fromJson(Map<String, dynamic> json) =>
+      _$TerminalWatchFromJson(json);
+}
+
+/// Reply to `terminal.watch`.
+@freezed
+abstract class TerminalWatching with _$TerminalWatching {
+  const factory TerminalWatching({
+    /// Whether the server reports changes at all. When false the window
+    /// refreshes on demand, as before.
+    @Default(false) bool live,
+  }) = _TerminalWatching;
+
+  factory TerminalWatching.fromJson(Map<String, dynamic> json) =>
+      _$TerminalWatchingFromJson(json);
+}
+
+/// Payload of `terminal.changed`: what changed on a watched handle's
+/// machine. [files] when the watched directory changed (list it again);
+/// [ports] when the listening ports changed, with the new list.
+@freezed
+abstract class TerminalChanged with _$TerminalChanged {
+  const factory TerminalChanged({
+    required String handle,
+    @Default(false) bool files,
+    List<TerminalPort>? ports,
+  }) = _TerminalChanged;
+
+  factory TerminalChanged.fromJson(Map<String, dynamic> json) =>
+      _$TerminalChangedFromJson(json);
 }

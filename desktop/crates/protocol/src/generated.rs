@@ -4711,6 +4711,163 @@ fn default_composer_mention_dto_kind() -> MentionKind {
     MentionKind::Entity
 }
 
+/// What a chat's terminal shows in the Computer viewer: its desktop, or
+/// the browser it drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ComputerSurfaceKind {
+    #[serde(rename = "desktop")]
+    Desktop,
+    #[serde(rename = "browser")]
+    Browser,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Where a view stands when it opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ComputerViewState {
+    /// Something to watch: the viewer page connects to `ComputerView.streamUrl`.
+    #[serde(rename = "live")]
+    Live,
+    /// A browser with no tab: the user may open one.
+    #[serde(rename = "empty")]
+    Empty,
+    /// A browser tab the terminal shows through its proxy, which must be
+    /// taken over (opened again with its `ComputerView.tabId`) to be watched.
+    #[serde(rename = "inactive")]
+    Inactive,
+    /// The terminal's browser cannot run Chrome, which watching needs.
+    #[serde(rename = "browserUnavailable")]
+    BrowserUnavailable,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params naming the chat whose terminal is meant: `computer.status`,
+/// `computer.tabs`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerScope {
+    pub chat_id: String,
+}
+
+/// Reply to `computer.status`: whether the chat's header offers Computer.
+/// Only a saved chat with a terminal selected can, and only with the
+/// Computer setting on; the terminal says which surfaces it has.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerStatus {
+    /// The Computer setting (Settings › Chats) is on.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub desktop: bool,
+    #[serde(default)]
+    pub browser: bool,
+}
+
+/// Params for `computer.open`. Opening never makes anything on its own: a
+/// browser tab is selected only with `tabId`, and made only with `newTab`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerOpen {
+    pub chat_id: String,
+    pub surface: ComputerSurfaceKind,
+    /// A browser tab to select and watch (which takes it over).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    /// Opens a new browser tab and watches it.
+    #[serde(default)]
+    pub new_tab: bool,
+}
+
+/// Reply to `computer.open`: a view of the surface. When `state` is
+/// `live`, `streamUrl` is a socket on this computer that relays the
+/// surface; the daemon holds every credential, and the viewer's own auth
+/// message is sent on with the account's token put in. `handle` names the
+/// view until `computer.close`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerView {
+    pub surface: ComputerSurfaceKind,
+    #[serde(default = "default_computer_view_state")]
+    pub state: ComputerViewState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_url: Option<String>,
+    /// How the surface streams: `frames` or `vnc`.
+    #[serde(default = "default_computer_view_transport")]
+    pub transport: String,
+    /// The desktop has sound to play.
+    #[serde(default)]
+    pub audio: bool,
+    /// The browser tab shown, or the one waiting to be taken over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+}
+
+fn default_computer_view_state() -> ComputerViewState {
+    ComputerViewState::Live
+}
+
+fn default_computer_view_transport() -> String {
+    "frames".to_owned()
+}
+
+/// One of a terminal browser's tabs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerTab {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub selected: bool,
+}
+
+/// Reply to `computer.tabs`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerTabs {
+    #[serde(default)]
+    pub tabs: Vec<ComputerTab>,
+}
+
+/// Params for `computer.closeTab`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerTabRef {
+    pub chat_id: String,
+    pub tab_id: String,
+}
+
+/// Params for `computer.shortcut`: a key combination for the surface a
+/// view shows, such as `ctrl+c`, `alt+Tab` or `Return`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerShortcut {
+    pub handle: String,
+    pub key: String,
+}
+
+/// Params naming a view: `computer.close`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerHandleRef {
+    pub handle: String,
+}
+
 /// Reply to `data.summary`: what Chat Data Controls' server-wide actions
 /// would reach, as core's `ServerChatBulkScope` counts it, for the signed-in
 /// Open WebUI account.
@@ -9956,12 +10113,18 @@ pub struct TerminalPortRef {
 }
 
 /// Reply to `terminal.previewPort`: an address on this computer that
-/// shows the port, for the system browser. It carries a one-time key;
-/// the daemon adds the credential on the way through.
+/// shows the port, for a web view or the system browser. It carries a key
+/// the first visit swaps for a cookie, and a `to` query (a path on the
+/// port, `/` by default) says where that visit lands; the daemon adds the
+/// credential, and a sign-in proxy's cookies, on the way through.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalPreview {
     pub url: String,
+    /// Scripts a web view showing the preview runs at the start of each
+    /// page (the core's `terminalPreviewNavigationScript`).
+    #[serde(default)]
+    pub scripts: Vec<String>,
 }
 
 /// Payload of `terminal.displayFile`: a model's tool asks to show a file
@@ -9971,6 +10134,43 @@ pub struct TerminalPreview {
 pub struct TerminalDisplayFile {
     pub chat_id: String,
     pub path: String,
+    /// For a PDF, the 1-based page to open at; null for the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<i64>,
+}
+
+/// Params for `terminal.watch`: keep `path`'s listing and the listening
+/// ports live, through the terminal's events socket (Open Terminal's
+/// `/events`, relayed by Open WebUI 0.13). Calling it again moves the
+/// watch to another directory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalWatch {
+    pub handle: String,
+    pub path: String,
+}
+
+/// Reply to `terminal.watch`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalWatching {
+    /// Whether the server reports changes at all. When false the window
+    /// refreshes on demand, as before.
+    #[serde(default)]
+    pub live: bool,
+}
+
+/// Payload of `terminal.changed`: what changed on a watched handle's
+/// machine. `files` when the watched directory changed (list it again);
+/// `ports` when the listening ports changed, with the new list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalChanged {
+    pub handle: String,
+    #[serde(default)]
+    pub files: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ports: Option<Vec<TerminalPort>>,
 }
 
 /// Params for `turns.send`.
@@ -15487,6 +15687,100 @@ pub mod methods {
         type Result = super::TerminalPreview;
     }
 
+    /// Keeps a directory's listing and the ports live (`terminal.changed`).
+    ///
+    /// `terminal.watch`: TerminalWatch -> TerminalWatching.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct TerminalWatch;
+
+    impl RpcMethod for TerminalWatch {
+        const NAME: &'static str = "terminal.watch";
+        type Params = super::TerminalWatch;
+        type Result = super::TerminalWatching;
+    }
+
+    /// Lets a handle go: its watch, its port previews.
+    ///
+    /// `terminal.detach`: TerminalHandleRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct TerminalDetach;
+
+    impl RpcMethod for TerminalDetach {
+        const NAME: &'static str = "terminal.detach";
+        type Params = super::TerminalHandleRef;
+        type Result = super::OkResult;
+    }
+
+    /// Whether a chat's header offers Computer, and which surfaces.
+    ///
+    /// `computer.status`: ComputerScope -> ComputerStatus.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ComputerStatus;
+
+    impl RpcMethod for ComputerStatus {
+        const NAME: &'static str = "computer.status";
+        type Params = super::ComputerScope;
+        type Result = super::ComputerStatus;
+    }
+
+    /// A view of a chat terminal's desktop or browser.
+    ///
+    /// `computer.open`: ComputerOpen -> ComputerView.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ComputerOpen;
+
+    impl RpcMethod for ComputerOpen {
+        const NAME: &'static str = "computer.open";
+        type Params = super::ComputerOpen;
+        type Result = super::ComputerView;
+    }
+
+    /// The terminal browser's tabs.
+    ///
+    /// `computer.tabs`: ComputerScope -> ComputerTabs.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ComputerTabs;
+
+    impl RpcMethod for ComputerTabs {
+        const NAME: &'static str = "computer.tabs";
+        type Params = super::ComputerScope;
+        type Result = super::ComputerTabs;
+    }
+
+    /// `computer.closeTab`: ComputerTabRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ComputerCloseTab;
+
+    impl RpcMethod for ComputerCloseTab {
+        const NAME: &'static str = "computer.closeTab";
+        type Params = super::ComputerTabRef;
+        type Result = super::OkResult;
+    }
+
+    /// A key combination for the surface a view shows.
+    ///
+    /// `computer.shortcut`: ComputerShortcut -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ComputerShortcut;
+
+    impl RpcMethod for ComputerShortcut {
+        const NAME: &'static str = "computer.shortcut";
+        type Params = super::ComputerShortcut;
+        type Result = super::OkResult;
+    }
+
+    /// Ends a view: its relay closes.
+    ///
+    /// `computer.close`: ComputerHandleRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ComputerClose;
+
+    impl RpcMethod for ComputerClose {
+        const NAME: &'static str = "computer.close";
+        type Params = super::ComputerHandleRef;
+        type Result = super::OkResult;
+    }
+
     /// `voice.settings`: no params -> VoiceSettings.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct VoiceSettings;
@@ -17355,6 +17649,46 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("TerminalPreview"),
     },
     MethodSpec {
+        name: "terminal.watch",
+        params: Some("TerminalWatch"),
+        result: Some("TerminalWatching"),
+    },
+    MethodSpec {
+        name: "terminal.detach",
+        params: Some("TerminalHandleRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "computer.status",
+        params: Some("ComputerScope"),
+        result: Some("ComputerStatus"),
+    },
+    MethodSpec {
+        name: "computer.open",
+        params: Some("ComputerOpen"),
+        result: Some("ComputerView"),
+    },
+    MethodSpec {
+        name: "computer.tabs",
+        params: Some("ComputerScope"),
+        result: Some("ComputerTabs"),
+    },
+    MethodSpec {
+        name: "computer.closeTab",
+        params: Some("ComputerTabRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "computer.shortcut",
+        params: Some("ComputerShortcut"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "computer.close",
+        params: Some("ComputerHandleRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "voice.settings",
         params: None,
         result: Some("VoiceSettings"),
@@ -17568,6 +17902,9 @@ pub mod events {
     /// A model's tool asked to show a file from the chat's terminal. Payload
     /// `TerminalDisplayFile`, scoped to the chat.
     pub const TERMINAL_DISPLAY_FILE: &str = "terminal.displayFile";
+    /// A watched terminal's directory or ports changed (`terminal.watch`).
+    /// Payload `TerminalChanged`; unscoped, named by its handle.
+    pub const TERMINAL_CHANGED: &str = "terminal.changed";
     /// Core's `AppSettings` changed, from any window or the daemon itself.
     /// No payload; `settings.get` says what they are now.
     pub const SETTINGS_CHANGED: &str = "settings.changed";
@@ -17752,6 +18089,11 @@ pub const EVENTS: &[EventSpec] = &[
         name: "terminal.displayFile",
         payload: Some("TerminalDisplayFile"),
         scoped: true,
+    },
+    EventSpec {
+        name: "terminal.changed",
+        payload: Some("TerminalChanged"),
+        scoped: false,
     },
     EventSpec {
         name: "settings.changed",
@@ -17957,6 +18299,11 @@ pub enum Event {
     ///
     /// `terminal.displayFile`, scoped.
     TerminalDisplayFile(TerminalDisplayFile),
+    /// A watched terminal's directory or ports changed (`terminal.watch`).
+    /// Payload `TerminalChanged`; unscoped, named by its handle.
+    ///
+    /// `terminal.changed`.
+    TerminalChanged(TerminalChanged),
     /// Core's `AppSettings` changed, from any window or the daemon itself.
     /// No payload; `settings.get` says what they are now.
     ///
@@ -18077,6 +18424,7 @@ impl Event {
             events::TERMINAL_DISPLAY_FILE => {
                 Self::TerminalDisplayFile(serde_json::from_value(payload)?)
             }
+            events::TERMINAL_CHANGED => Self::TerminalChanged(serde_json::from_value(payload)?),
             events::SETTINGS_CHANGED => Self::SettingsChanged,
             events::QUEUE_CHANGED => Self::QueueChanged(serde_json::from_value(payload)?),
             events::MESSAGES_MERGE => Self::MessagesMerge(serde_json::from_value(payload)?),
@@ -18135,6 +18483,7 @@ impl Event {
             Self::HermesChanged => events::HERMES_CHANGED,
             Self::VoiceChanged(_) => events::VOICE_CHANGED,
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
+            Self::TerminalChanged(_) => events::TERMINAL_CHANGED,
             Self::SettingsChanged => events::SETTINGS_CHANGED,
             Self::QueueChanged(_) => events::QUEUE_CHANGED,
             Self::MessagesMerge(_) => events::MESSAGES_MERGE,
@@ -18179,6 +18528,7 @@ impl Event {
             Self::WorkspaceChanged(payload) => serde_json::to_value(payload),
             Self::VoiceChanged(payload) => serde_json::to_value(payload),
             Self::TerminalDisplayFile(payload) => serde_json::to_value(payload),
+            Self::TerminalChanged(payload) => serde_json::to_value(payload),
             Self::QueueChanged(payload) => serde_json::to_value(payload),
             Self::MessagesMerge(payload) => serde_json::to_value(payload),
             Self::HandoffRequested(payload) => serde_json::to_value(payload),
@@ -18371,6 +18721,15 @@ pub mod conformance {
         "ComposerMentionDto",
         "ComposerOptions",
         "ComposerSearch",
+        "ComputerHandleRef",
+        "ComputerOpen",
+        "ComputerScope",
+        "ComputerShortcut",
+        "ComputerStatus",
+        "ComputerTab",
+        "ComputerTabRef",
+        "ComputerTabs",
+        "ComputerView",
         "ConnectionHealth",
         "ContextAttachmentDto",
         "ContextSuggestion",
@@ -18656,6 +19015,7 @@ pub mod conformance {
         "TagList",
         "TerminalAttach",
         "TerminalAttached",
+        "TerminalChanged",
         "TerminalDisplayFile",
         "TerminalEntry",
         "TerminalFileAction",
@@ -18671,6 +19031,8 @@ pub mod conformance {
         "TerminalSelect",
         "TerminalServerDto",
         "TerminalServers",
+        "TerminalWatch",
+        "TerminalWatching",
         "ToolCallDto",
         "ToolSummary",
         "TurnBlocks",
@@ -18924,6 +19286,15 @@ pub mod conformance {
             "ComposerMentionDto" => roundtrip::<super::ComposerMentionDto>(json),
             "ComposerOptions" => roundtrip::<super::ComposerOptions>(json),
             "ComposerSearch" => roundtrip::<super::ComposerSearch>(json),
+            "ComputerHandleRef" => roundtrip::<super::ComputerHandleRef>(json),
+            "ComputerOpen" => roundtrip::<super::ComputerOpen>(json),
+            "ComputerScope" => roundtrip::<super::ComputerScope>(json),
+            "ComputerShortcut" => roundtrip::<super::ComputerShortcut>(json),
+            "ComputerStatus" => roundtrip::<super::ComputerStatus>(json),
+            "ComputerTab" => roundtrip::<super::ComputerTab>(json),
+            "ComputerTabRef" => roundtrip::<super::ComputerTabRef>(json),
+            "ComputerTabs" => roundtrip::<super::ComputerTabs>(json),
+            "ComputerView" => roundtrip::<super::ComputerView>(json),
             "ConnectionHealth" => roundtrip::<super::ConnectionHealth>(json),
             "ContextAttachmentDto" => roundtrip::<super::ContextAttachmentDto>(json),
             "ContextSuggestion" => roundtrip::<super::ContextSuggestion>(json),
@@ -19209,6 +19580,7 @@ pub mod conformance {
             "TagList" => roundtrip::<super::TagList>(json),
             "TerminalAttach" => roundtrip::<super::TerminalAttach>(json),
             "TerminalAttached" => roundtrip::<super::TerminalAttached>(json),
+            "TerminalChanged" => roundtrip::<super::TerminalChanged>(json),
             "TerminalDisplayFile" => roundtrip::<super::TerminalDisplayFile>(json),
             "TerminalEntry" => roundtrip::<super::TerminalEntry>(json),
             "TerminalFileAction" => roundtrip::<super::TerminalFileAction>(json),
@@ -19224,6 +19596,8 @@ pub mod conformance {
             "TerminalSelect" => roundtrip::<super::TerminalSelect>(json),
             "TerminalServerDto" => roundtrip::<super::TerminalServerDto>(json),
             "TerminalServers" => roundtrip::<super::TerminalServers>(json),
+            "TerminalWatch" => roundtrip::<super::TerminalWatch>(json),
+            "TerminalWatching" => roundtrip::<super::TerminalWatching>(json),
             "ToolCallDto" => roundtrip::<super::ToolCallDto>(json),
             "ToolSummary" => roundtrip::<super::ToolSummary>(json),
             "TurnBlocks" => roundtrip::<super::TurnBlocks>(json),

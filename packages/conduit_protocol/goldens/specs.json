@@ -1567,6 +1567,46 @@
       "result": "TerminalPreview"
     },
     {
+      "name": "terminal.watch",
+      "params": "TerminalWatch",
+      "result": "TerminalWatching"
+    },
+    {
+      "name": "terminal.detach",
+      "params": "TerminalHandleRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "computer.status",
+      "params": "ComputerScope",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.open",
+      "params": "ComputerOpen",
+      "result": "ComputerView"
+    },
+    {
+      "name": "computer.tabs",
+      "params": "ComputerScope",
+      "result": "ComputerTabs"
+    },
+    {
+      "name": "computer.closeTab",
+      "params": "ComputerTabRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "computer.shortcut",
+      "params": "ComputerShortcut",
+      "result": "OkResult"
+    },
+    {
+      "name": "computer.close",
+      "params": "ComputerHandleRef",
+      "result": "OkResult"
+    },
+    {
       "name": "voice.settings",
       "params": null,
       "result": "VoiceSettings"
@@ -1837,6 +1877,11 @@
       "name": "terminal.displayFile",
       "payload": "TerminalDisplayFile",
       "scoped": true
+    },
+    {
+      "name": "terminal.changed",
+      "payload": "TerminalChanged",
+      "scoped": false
     },
     {
       "name": "settings.changed",

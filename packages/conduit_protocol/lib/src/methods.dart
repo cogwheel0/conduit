@@ -1120,6 +1120,32 @@ abstract final class ConduitMethods {
 
   /// An address the system browser can open to see a port.
   static const String terminalPreviewPort = 'terminal.previewPort';
+
+  /// Keeps a directory's listing and the ports live (`terminal.changed`).
+  static const String terminalWatch = 'terminal.watch';
+
+  /// Lets a handle go: its watch, its port previews.
+  static const String terminalDetach = 'terminal.detach';
+  static const String computerPrefix = 'computer.';
+
+  // computer.*. The viewer page streams from a relay on this computer
+  // (`ComputerView.streamUrl`); the daemon holds the credentials.
+
+  /// Whether a chat's header offers Computer, and which surfaces.
+  static const String computerStatus = 'computer.status';
+
+  /// A view of a chat terminal's desktop or browser.
+  static const String computerOpen = 'computer.open';
+
+  /// The terminal browser's tabs.
+  static const String computerTabs = 'computer.tabs';
+  static const String computerCloseTab = 'computer.closeTab';
+
+  /// A key combination for the surface a view shows.
+  static const String computerShortcut = 'computer.shortcut';
+
+  /// Ends a view: its relay closes.
+  static const String computerClose = 'computer.close';
   static const String voicePrefix = 'voice.';
 
   // voice.*. Audio stays in the window; recordings reach the server
@@ -1261,6 +1287,7 @@ abstract final class ConduitMethods {
     mcpPrefix,
     hermesPrefix,
     terminalPrefix,
+    computerPrefix,
     voicePrefix,
     dictationPrefix,
     recordingsPrefix,

@@ -21,6 +21,7 @@ export 'src/channels.dart';
 export 'src/chat_settings.dart';
 export 'src/chats.dart';
 export 'src/composer.dart';
+export 'src/computer.dart';
 export 'src/data.dart';
 export 'src/dictation.dart';
 export 'src/direct.dart';
