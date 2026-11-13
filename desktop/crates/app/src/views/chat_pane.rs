@@ -1,0 +1,1402 @@
+//! The main frame's chat side: the toolbar, the transcript and the composer
+//! for whatever [`NavigationStore`](crate::stores::navigation::NavigationStore)
+//! has selected (the sidebar and the palette set it).
+//!
+//! * **A stored chat** gets its own [`ChatStore`] (and transcript); opening
+//!   another replaces both, and the store subscribes to the chat's event
+//!   scope. Daemon events, reconnects and `route.remap` are forwarded to
+//!   it.
+//! * **A new chat** shows the greeting with the composer centred. Sending
+//!   calls `turns.send` with no chat id; once the daemon answers, the
+//!   chat's store is made (showing the message and the answer on its way)
+//!   and `navigation.open(chatId)` selects it.
+//! * **Approvals** (`ui.request` cards) dock above the composer.
+//! * **Shortcuts:** focus the composer (⇧Esc), the model picker (⇧⌘M, and
+//!   the palette's Choose model), stop generating (Esc), copy the last
+//!   reply (⇧⌘C) and its last code block (⇧⌘;). They are registered on the
+//!   app ([`register_actions`]) so they work wherever focus is in the main
+//!   window.
+//! * **Find in Chat** (⌘F): a find bar under the toolbar, as Safari's, with
+//!   the match count, Find Previous and Next (⇧⌘G, ⌘G; ⇧↩ and ↩ in the
+//!   field) and Done (Esc). The transcript finds and highlights; the bar
+//!   stays open, searching again, when another chat opens.
+
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+use conduit_components::ActiveConduitTheme as _;
+use conduit_components::assets::IconName;
+use conduit_components::views::kit::{Button, IconButton, bare_input};
+use conduit_components::views::shell::{ChatToolbar, TitlePill};
+use conduit_protocol::{Event, NoticeLevel, events, methods};
+use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    AnyElement, App, ClipboardItem, Context, Entity, Focusable as _, Role, SharedString,
+    Subscription, Window, div, px,
+};
+
+use crate::AppState;
+use crate::actions::{
+    ChooseModel, CopyLastCodeBlock, CopyLastResponse, FocusComposer, FocusModelPicker,
+    StopGenerating, ToggleSidebar,
+};
+use crate::l10n::ActiveL10n as _;
+use crate::stores::Stores;
+use crate::stores::chat::{
+    CHAT_EVENTS, ChatAction, ChatStore, ChatStoreEvent, PendingMessage, Subscribe,
+};
+use crate::stores::composer::{
+    ComposerEvent, ComposerStore, UploadFuture, UploadRequest, Uploader,
+};
+use crate::stores::connection::ConnectionEvent;
+use crate::stores::layout::LayoutStore;
+use crate::stores::navigation::Selection;
+use crate::stores::router::RouterEvent;
+use crate::views::approvals::ApprovalsView;
+use crate::views::chat::composer::{ChatComposer, ChatComposerEvent};
+use crate::views::chat::last_code_block;
+use crate::views::chat::rows::{RowHost, RowSink};
+use crate::views::chat::transcript::Transcript;
+use crate::views::main_window::SidebarReveal;
+
+/// The open chat: its store and transcript.
+pub struct OpenChat {
+    pub store: Entity<ChatStore>,
+    pub transcript: Entity<Transcript>,
+    _subscriptions: Vec<Subscription>,
+}
+
+pub struct ChatPane {
+    stores: Stores,
+    layout: Entity<LayoutStore>,
+    approvals: Entity<ApprovalsView>,
+    pub composer_store: Entity<ComposerStore>,
+    pub composer: Entity<ChatComposer>,
+    pub chat: Option<OpenChat>,
+    /// A new chat's first message is on its way.
+    starting: bool,
+    /// A new chat's first send handing over to its transcript: when it
+    /// began, and the greeting that fades out (see [`Handoff`]).
+    handoff: Option<Handoff>,
+    /// Find in Chat's field, and whether its bar shows.
+    find_input: Entity<InputState>,
+    find_open: bool,
+    /// The composer dock's focus scope (not a stop): "below the
+    /// transcript", for Tab ([`Transcript::tab`]).
+    dock_focus: gpui_kit::FocusHandle,
+    /// The toolbar's title as last drawn (with its chat), and the one it
+    /// is crossfading from (a chat named after its first answer).
+    title_shown: Option<(String, String)>,
+    title_change: Option<(String, std::time::Instant)>,
+    _subscriptions: Vec<Subscription>,
+}
+
+/// A new chat's first send, as Messages hands over: the greeting fades out
+/// (120 ms) while the message (with the answer's first line under it) rises
+/// 10 pt into place and fades in (200 ms). Under Reduce Motion only the
+/// fades stay.
+pub struct Handoff {
+    pub start: std::time::Instant,
+    pub greeting: String,
+    pub temporary: bool,
+}
+
+impl Handoff {
+    /// The greeting's opacity, and the transcript's opacity and how far it
+    /// still has to rise, `elapsed` into the hand-off.
+    pub fn at(elapsed: std::time::Duration, reduce_motion: bool) -> (f32, f32, f32) {
+        use conduit_components::motion::{HANDOFF_RISE, specs};
+        let out = elapsed.as_secs_f32() / specs::HANDOFF_OUT.duration.as_secs_f32();
+        let inn = elapsed.as_secs_f32() / specs::HANDOFF_IN.duration.as_secs_f32();
+        let greeting = 1. - specs::HANDOFF_OUT.curve.sample(out);
+        let shown = specs::HANDOFF_IN.curve.sample(inn);
+        let rise = if reduce_motion {
+            0.
+        } else {
+            HANDOFF_RISE * (1. - shown)
+        };
+        (greeting, shown, rise)
+    }
+
+    /// Over once both have finished.
+    pub fn done(elapsed: std::time::Duration) -> bool {
+        use conduit_components::motion::specs;
+        elapsed >= specs::HANDOFF_IN.duration.max(specs::HANDOFF_OUT.duration)
+    }
+}
+
+/// `/upload` through the daemon's HTTP client, on its tokio runtime.
+pub fn daemon_uploader() -> Uploader {
+    Arc::new(|req: UploadRequest| -> UploadFuture {
+        let (tx, rx) = futures::channel::oneshot::channel();
+        let http = CURRENT_HTTP.lock().ok().and_then(|h| h.clone());
+        Box::pin(async move {
+            let Some(http) = http else {
+                return Err("the daemon is not running".to_string());
+            };
+            conduit_daemon::runtime::shared().spawn(async move {
+                let progress = req.progress.clone();
+                let result = http
+                    .upload(
+                        &req.name,
+                        req.content_type.as_deref(),
+                        bytes::Bytes::from(req.bytes),
+                        Some(Arc::new(move |sent, total| progress(sent, total))),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|v| {
+                        serde_json::from_value::<conduit_protocol::UploadedFile>(v)
+                            .map_err(|e| e.to_string())
+                    });
+                let _ = tx.send(result);
+            });
+            rx.await
+                .unwrap_or_else(|_| Err("the upload was dropped".to_string()))
+        })
+    })
+}
+
+/// The daemon's HTTP client, as the connection store last published it
+/// (uploads run off the UI thread and cannot read GPUI globals).
+static CURRENT_HTTP: Mutex<Option<conduit_daemon::http::HttpClient>> = Mutex::new(None);
+
+impl ChatPane {
+    pub fn new(
+        stores: Stores,
+        layout: Entity<LayoutStore>,
+        approvals: Entity<ApprovalsView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let rpc = stores.connection.read(cx).rpc();
+        let composer_store = cx.new(|_| ComposerStore::new(rpc, Some(daemon_uploader())));
+        let composer = cx.new(|cx| {
+            let mut c = ChatComposer::new(composer_store.clone(), window, cx);
+            // The model and the temporary switch are in the toolbar here.
+            c.inline_model = false;
+            c
+        });
+        let find_input = cx.new(|cx| InputState::new(window, cx));
+        let subscriptions = vec![
+            cx.subscribe_in(
+                &find_input,
+                window,
+                |this, input: &Entity<InputState>, e: &InputEvent, window, cx| match e {
+                    InputEvent::Change => {
+                        let query = input.read(cx).value().to_string();
+                        this.find_query(query, cx);
+                    }
+                    InputEvent::PressEnter { shift, .. } => this.find_step(!*shift, window, cx),
+                    _ => {}
+                },
+            ),
+            cx.observe(&stores.navigation, |this, _, cx| this.sync_selection(cx)),
+            cx.observe(&layout, |_, _, cx| cx.notify()),
+            cx.observe(&approvals, |_, _, cx| cx.notify()),
+            cx.observe(&stores.connection, |this, connection, cx| {
+                let http = connection.read(cx).http().cloned();
+                if let Ok(mut current) = CURRENT_HTTP.lock() {
+                    *current = http;
+                }
+                this.sync_offline(cx);
+            }),
+            cx.subscribe(&stores.connection, |this, _, event, cx| {
+                this.on_connection(event, cx)
+            }),
+            cx.subscribe(&stores.router, |this, _, event: &RouterEvent, cx| {
+                let RouterEvent::Remapped { from, to } = event;
+                if let Some(chat) = &this.chat {
+                    chat.store.update(cx, |s, cx| s.remap(from, to, cx));
+                }
+            }),
+            cx.subscribe_in(
+                &composer,
+                window,
+                |this, _, event, window, cx| match event {
+                    ChatComposerEvent::Submit(text) => this.send_text(text.clone(), window, cx),
+                    ChatComposerEvent::Stop => this.stop(cx),
+                    ChatComposerEvent::Temporary(on) => {
+                        let on = *on;
+                        this.stores
+                            .navigation
+                            .update(cx, |n, cx| n.new_chat(on, cx));
+                    }
+                    ChatComposerEvent::PickerChanged => cx.notify(),
+                },
+            ),
+            // The title capsule shows the selected model.
+            cx.observe(&composer_store, |_, _, cx| cx.notify()),
+            // Toasts dock above the composer.
+            cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
+            cx.subscribe(&composer_store, |this, _, event, cx| {
+                let l10n = cx.l10n().clone();
+                let text = match event {
+                    ComposerEvent::AttachmentFailed { name } => {
+                        l10n.desktop_attachment_failed(name)
+                    }
+                    ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                };
+                this.toast(NoticeLevel::Warning, text, cx);
+            }),
+        ];
+        let mut this = Self {
+            stores,
+            layout,
+            approvals,
+            composer_store,
+            composer,
+            chat: None,
+            starting: false,
+            handoff: None,
+            find_input,
+            find_open: false,
+            dock_focus: cx.focus_handle(),
+            title_shown: None,
+            title_change: None,
+            _subscriptions: subscriptions,
+        };
+        // The composer follows the models on offer and the network.
+        this.stores.connection.update(cx, |c, _| {
+            c.subscribe(
+                "composer",
+                &[events::MODELS_CHANGED, events::SYNC_STATUS],
+                vec![],
+            )
+        });
+        this.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+        this.sync_selection(cx);
+        this.sync_offline(cx);
+        this
+    }
+
+    fn toast(&self, level: NoticeLevel, text: String, cx: &mut App) {
+        self.stores
+            .toasts
+            .update(cx, |t, cx| t.show(level, text, cx));
+    }
+
+    /// "Copied", after a copy action.
+    pub fn notify_copied(&mut self, cx: &mut Context<Self>) {
+        let text = cx.l10n().desktop_copied();
+        self.toast(NoticeLevel::Info, text, cx);
+    }
+
+    fn subscribe_hook(&self) -> Subscribe {
+        let connection = self.stores.connection.clone();
+        Rc::new(move |chat_id: Option<&str>, cx: &mut App| {
+            let scopes: Vec<String> = chat_id.into_iter().map(String::from).collect();
+            connection.update(cx, |c, _| c.subscribe("chat", CHAT_EVENTS, scopes));
+        })
+    }
+
+    /// What `/files` takes as the server: the active account's own id
+    /// (its `connection.id`, the core's active server config), not the
+    /// `server_id` it shares with other accounts on the same server, which
+    /// the daemon refuses as "not the active server".
+    fn server_id(&self, cx: &App) -> Option<String> {
+        self.stores
+            .accounts
+            .read(cx)
+            .active()
+            .map(|a| a.connection.id.clone())
+    }
+
+    /// Follows the navigation store's selection.
+    fn sync_selection(&mut self, cx: &mut Context<Self>) {
+        let selection = self.stores.navigation.read(cx).selection().clone();
+        match selection {
+            Selection::Chat(id) => {
+                if let Some(chat) = &self.chat {
+                    let current = chat.store.read(cx).chat_id().to_string();
+                    let resolved = self.stores.router.read(cx).resolve(&current);
+                    if current == id {
+                        return;
+                    }
+                    if resolved == id {
+                        chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
+                        return;
+                    }
+                }
+                self.open_chat(id, cx);
+            }
+            Selection::New { temporary } => {
+                self.chat = None;
+                // Nothing to find in a new chat.
+                self.find_open = false;
+                (self.subscribe_hook())(None, cx);
+                self.composer.update(cx, |c, cx| {
+                    c.new_chat = true;
+                    c.temporary = temporary;
+                    c.streaming = false;
+                    cx.notify();
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    /// Opens `id` in a fresh store and transcript.
+    fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+        let rpc = self.stores.connection.read(cx).rpc();
+        let subscribe = self.subscribe_hook();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
+        let host = RowHost {
+            store: store.downgrade(),
+            pane: RowSink::Pane(cx.entity().downgrade()),
+            server_id: self.server_id(cx),
+            composer: Some(self.composer_store.downgrade()),
+        };
+        let transcript = cx.new(|cx| Transcript::new(store.clone(), host, cx));
+        // The find bar stays open over the next chat, finding the same text.
+        let query = self.find_input.read(cx).value().to_string();
+        if self.find_open && !query.is_empty() {
+            transcript.update(cx, |t, cx| t.set_find(Some(query), cx));
+        }
+        let subscriptions = vec![
+            cx.observe(&store, |this, store, cx| {
+                let streaming = store.read(cx).is_streaming();
+                this.composer.update(cx, |c, cx| {
+                    if c.streaming != streaming {
+                        c.streaming = streaming;
+                        cx.notify();
+                    }
+                });
+                cx.notify();
+            }),
+            cx.subscribe(&store, |this, _, event: &ChatStoreEvent, cx| {
+                let l10n = cx.l10n().clone();
+                match event {
+                    ChatStoreEvent::Failed { action, .. } => {
+                        let text = match action {
+                            ChatAction::Load => l10n.desktop_chat_load_failed(),
+                            ChatAction::Rate => l10n.desktop_rating_not_saved(),
+                            _ => l10n.desktop_action_failed(),
+                        };
+                        this.toast(NoticeLevel::Warning, text, cx);
+                    }
+                    ChatStoreEvent::Missing => cx.notify(),
+                }
+            }),
+        ];
+        self.composer.update(cx, |c, cx| {
+            c.new_chat = false;
+            c.temporary = false;
+            c.streaming = false;
+            cx.notify();
+        });
+        // The model label follows what the daemon has selected now (a first
+        // send lets the daemon pick one).
+        self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+        self.chat = Some(OpenChat {
+            store: store.clone(),
+            transcript,
+            _subscriptions: subscriptions,
+        });
+        cx.notify();
+        store
+    }
+
+    fn on_connection(&mut self, event: &ConnectionEvent, cx: &mut Context<Self>) {
+        match event {
+            ConnectionEvent::Connected { .. } => {
+                if let Some(chat) = &self.chat {
+                    chat.store.update(cx, |s, cx| s.on_reconnected(cx));
+                }
+                self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+            }
+            ConnectionEvent::Gap => {
+                if let Some(chat) = &self.chat {
+                    chat.store.update(cx, |s, cx| s.fetch(cx));
+                }
+            }
+            ConnectionEvent::Daemon(event) => {
+                match event.as_ref() {
+                    Event::ModelsChanged | Event::AccountsChanged(_) => {
+                        self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                    }
+                    Event::SyncStatus(_) => self.sync_offline(cx),
+                    _ => {}
+                }
+                if let Some(chat) = &self.chat {
+                    chat.store.update(cx, |s, cx| s.on_event(event, cx));
+                }
+            }
+            ConnectionEvent::LocalDataReset { .. } => {}
+        }
+    }
+
+    fn sync_offline(&mut self, cx: &mut Context<Self>) {
+        let connection = self.stores.connection.read(cx);
+        let offline = !connection.is_connected() || connection.online() == Some(false);
+        // The window's pill says the state once; Send, dimmed, says why in
+        // its tooltip (no second word beside it).
+        let reason = offline
+            .then(|| crate::views::status::send_waits(&connection.status(true, None), cx.l10n()));
+        self.composer.update(cx, |c, cx| {
+            if c.offline != offline || c.offline_reason != reason || c.offline_word.is_some() {
+                c.offline = offline;
+                c.offline_reason = reason;
+                c.offline_word = None;
+                cx.notify();
+            }
+        });
+    }
+
+    // ── Sending ─────────────────────────────────────────────────────────
+
+    /// Sends `text` with the composer's options: in the open chat, or as a
+    /// new chat.
+    pub fn send_text(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        if text.trim().is_empty() && !self.composer_store.read(cx).has_attachments() {
+            return;
+        }
+        // A new chat's first message is still on its way: keep this one in
+        // the composer rather than starting a second chat.
+        if self.chat.is_none() && self.starting {
+            self.composer
+                .update(cx, |c, cx| c.restore(&text, window, cx));
+            return;
+        }
+        let files = self.composer_store.read(cx).pending_files();
+        let model = self
+            .composer_store
+            .read(cx)
+            .next_model()
+            .map(|m| m.name.clone());
+        let options = self.composer_store.update(cx, |c, cx| c.take_turn(cx));
+        let pending = PendingMessage {
+            files,
+            ..PendingMessage::new(text.clone())
+        };
+        if let Some(chat) = &self.chat {
+            let turn = options.into_turn(text.clone(), None, false);
+            let task = chat.store.update(cx, |s, cx| {
+                s.model_hint = model;
+                s.send(turn, pending, cx)
+            });
+            chat.transcript.update(cx, |t, cx| t.scroll_to_end(cx));
+            let composer = self.composer.downgrade();
+            let models = self.composer_store.downgrade();
+            cx.spawn_in(window, async move |_, cx| {
+                if task.await.is_err() {
+                    let _ = composer.update_in(cx, |c, window, cx| c.restore(&text, window, cx));
+                }
+                // `turns.send` with no model lets the daemon pick (and keep)
+                // one: the label shows it without opening the picker.
+                let _ = models.update(cx, |m, cx| m.refresh_models(cx));
+            })
+            .detach();
+            return;
+        }
+        let temporary = match self.stores.navigation.read(cx).selection() {
+            Selection::New { temporary } => *temporary,
+            Selection::Chat(_) => false,
+        } || self.composer.read(cx).temporary;
+        let turn = options.into_turn(text.clone(), None, temporary);
+        let call = self
+            .stores
+            .connection
+            .read(cx)
+            .rpc()
+            .call::<methods::TurnsSend>(&turn);
+        // "New Chat in Folder": the chat goes in the folder once it exists.
+        let folder = self
+            .stores
+            .navigation
+            .read(cx)
+            .new_chat_folder()
+            .map(str::to_string);
+        self.starting = true;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.starting = false;
+                match result {
+                    Ok(accepted) => {
+                        if let Some(folder) = folder.as_deref() {
+                            let id = accepted.chat_id.clone();
+                            this.stores
+                                .chat_list
+                                .update(cx, |c, cx| c.move_to(&id, Some(folder), cx))
+                                .detach();
+                        }
+                        let greeting = this.greeting(cx);
+                        let store = this.open_chat(accepted.chat_id.clone(), cx);
+                        this.handoff = Some(Handoff {
+                            start: cx.background_executor().now(),
+                            greeting,
+                            temporary,
+                        });
+                        store.update(cx, |s, cx| {
+                            s.model_hint = model;
+                            s.started(pending, &accepted, temporary, cx)
+                        });
+                        let id = accepted.chat_id.clone();
+                        this.stores.navigation.update(cx, |n, cx| n.open(id, cx));
+                        this.composer.update(cx, |c, cx| c.focus_input(window, cx));
+                    }
+                    Err(e) => {
+                        log::warn!("turns.send (new chat): {e}");
+                        this.composer
+                            .update(cx, |c, cx| c.restore(&text, window, cx));
+                        let msg = cx.l10n().desktop_action_failed();
+                        this.toast(NoticeLevel::Warning, msg, cx);
+                    }
+                }
+                this.composer_store.update(cx, |m, cx| m.refresh_models(cx));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Chat › Regenerate: the newest answer again.
+    pub fn regenerate_last(&mut self, cx: &mut Context<Self>) {
+        if let Some(chat) = &self.chat {
+            chat.store.update(cx, |s, cx| {
+                if let Some(id) = s.last_answer_id() {
+                    s.regenerate(&id, None, cx);
+                }
+            });
+        }
+    }
+
+    pub fn stop(&mut self, cx: &mut Context<Self>) {
+        if let Some(chat) = &self.chat {
+            chat.store.update(cx, |s, cx| {
+                if s.is_streaming() {
+                    s.stop(cx)
+                }
+            });
+        }
+    }
+
+    // ── Shortcuts ───────────────────────────────────────────────────────
+
+    pub fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer.update(cx, |c, cx| c.focus_input(window, cx));
+    }
+
+    pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer.update(cx, |c, cx| c.open_picker(window, cx));
+    }
+
+    fn last_reply(&self, cx: &App) -> Option<String> {
+        self.chat.as_ref()?.store.read(cx).last_reply()
+    }
+
+    pub fn copy_last_response(&mut self, cx: &mut Context<Self>) {
+        match self.last_reply(cx) {
+            Some(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                self.notify_copied(cx);
+            }
+            None => {
+                let text = cx.l10n().desktop_nothing_to_copy();
+                self.toast(NoticeLevel::Info, text, cx);
+            }
+        }
+    }
+
+    pub fn copy_last_code_block(&mut self, cx: &mut Context<Self>) {
+        match self.last_reply(cx).as_deref().and_then(last_code_block) {
+            Some(code) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(code));
+                let text = cx.l10n().desktop_code_copied();
+                self.toast(NoticeLevel::Info, text, cx);
+            }
+            None => {
+                let text = cx.l10n().desktop_nothing_to_copy();
+                self.toast(NoticeLevel::Info, text, cx);
+            }
+        }
+    }
+
+    // ── Find in Chat ────────────────────────────────────────────────────
+
+    /// Whether the find bar shows.
+    pub fn find_open(&self) -> bool {
+        self.find_open
+    }
+
+    /// Edit › Find › Find… (⌘F): the find bar, its field focused with its
+    /// text selected (finding it again at once). Only over a chat.
+    pub fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(chat) = &self.chat else {
+            return;
+        };
+        self.find_open = true;
+        self.find_input.update(cx, |s, cx| {
+            s.focus(window, cx);
+            s.select_all(window, cx);
+        });
+        let query = self.find_input.read(cx).value().to_string();
+        if !query.is_empty() {
+            chat.transcript
+                .update(cx, |t, cx| t.set_find(Some(query), cx));
+        }
+        cx.notify();
+    }
+
+    /// Done (Esc): the bar goes, with every highlight, and the message field
+    /// takes focus back.
+    pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.find_open {
+            return;
+        }
+        self.find_open = false;
+        if let Some(chat) = &self.chat {
+            chat.transcript.update(cx, |t, cx| t.set_find(None, cx));
+        }
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    /// Find Next or Previous (⌘G, ⇧⌘G): with the bar closed, it opens on the
+    /// last text found.
+    pub fn find_step(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.find_open {
+            self.open_find(window, cx);
+            if self.find_input.read(cx).value().is_empty() {
+                return;
+            }
+        }
+        if let Some(chat) = &self.chat {
+            chat.transcript.update(cx, |t, cx| t.find_step(forward, cx));
+        }
+        cx.notify();
+    }
+
+    /// Puts `text` in the find field (opening the bar) and finds it: as
+    /// typing it would, for the capture harness and E2E.
+    pub fn type_find(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.find_open {
+            self.open_find(window, cx);
+        }
+        let value = text.to_string();
+        self.find_input
+            .update(cx, |s, cx| s.set_value(value, window, cx));
+        self.find_query(text.to_string(), cx);
+    }
+
+    fn find_query(&mut self, query: String, cx: &mut Context<Self>) {
+        if let Some(chat) = &self.chat {
+            chat.transcript
+                .update(cx, |t, cx| t.set_find(Some(query), cx));
+        }
+        cx.notify();
+    }
+
+    /// The find bar: the match count, Find Previous and Next, the field and
+    /// Done, at the trailing edge as Safari's.
+    fn find_bar(
+        &self,
+        transcript: &Entity<Transcript>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let l10n = cx.l10n().clone();
+        let t = cx.conduit().clone();
+        let r = t.roles;
+        let m = t.metrics;
+        let mac = cfg!(target_os = "macos");
+        let next_keys = crate::keymap::describe(&crate::keymap::KeyStroke::new("g").primary(), mac);
+        let previous_keys =
+            crate::keymap::describe(&crate::keymap::KeyStroke::new("g").primary().shift(), mac);
+        let status = transcript.read(cx).find_status();
+        let count = status.map_or(0, |(_, n)| n);
+        let label = match status {
+            None => String::new(),
+            Some((_, 0)) => l10n.desktop_find_no_matches(),
+            Some((Some(i), n)) => l10n.desktop_position_of(&i.to_string(), &n.to_string()),
+            Some((None, n)) => l10n.desktop_position_of("0", &n.to_string()),
+        };
+        let this = cx.entity().downgrade();
+        let step = move |forward: bool| {
+            let this = this.clone();
+            Rc::new(
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |p, cx| p.find_step(forward, window, cx));
+                },
+            )
+        };
+        let done = {
+            let this = cx.entity().downgrade();
+            Rc::new(
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |p, cx| p.close_find(window, cx));
+                },
+            )
+        };
+        let focused = self.find_input.focus_handle(cx).is_focused(window);
+        div()
+            .id("find-bar")
+            .role(Role::Search)
+            .aria_label(SharedString::from(l10n.desktop_find_in_chat()))
+            .key_context("ConduitFindBar")
+            // Esc closes it: the field and the app's Esc (Stop) would take
+            // the key first, and the capture phase reaches the bar before
+            // either.
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::Escape, window, cx| {
+                    this.close_find(window, cx);
+                    cx.stop_propagation();
+                },
+            ))
+            .capture_action(cx.listener(|this, _: &StopGenerating, window, cx| {
+                this.close_find(window, cx);
+                cx.stop_propagation();
+            }))
+            .flex_none()
+            .w_full()
+            .h(px(40.))
+            .px(px(14.))
+            .flex()
+            .items_center()
+            .justify_end()
+            .gap(px(8.))
+            .border_b_1()
+            .border_color(r.divider)
+            .child(
+                div()
+                    .id("find-count")
+                    .role(Role::Status)
+                    .aria_label(SharedString::from(label.clone()))
+                    .text_size(px(m.small))
+                    .text_color(r.text_subtle)
+                    .child(SharedString::from(label)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .child(
+                        IconButton::new(
+                            "find-previous",
+                            IconName::ChevronUp,
+                            l10n.desktop_find_previous(),
+                        )
+                        .size(26., 14.)
+                        .shortcut(Some(previous_keys.into()))
+                        .disabled(count == 0)
+                        .on_click(step(false)),
+                    )
+                    .child(
+                        IconButton::new(
+                            "find-next",
+                            IconName::ChevronDown,
+                            l10n.desktop_find_next(),
+                        )
+                        .size(26., 14.)
+                        .shortcut(Some(next_keys.into()))
+                        .disabled(count == 0)
+                        .on_click(step(true)),
+                    ),
+            )
+            .child(
+                div().w(px(240.)).child(
+                    conduit_components::views::kit::field_frame(focused, 28., cx)
+                        .rounded_full()
+                        .child(conduit_components::assets::icon(
+                            IconName::Search,
+                            13.,
+                            r.text_subtle,
+                        ))
+                        .child(
+                            div().flex_1().min_w_0().child(
+                                bare_input(
+                                    &self.find_input,
+                                    l10n.desktop_find_in_chat(),
+                                    m.control,
+                                )
+                                .accessibility_id("find-query"),
+                            ),
+                        ),
+                ),
+            )
+            .child(Button::new("find-done", l10n.done()).on_click(done))
+            .into_any_element()
+    }
+
+    fn greeting(&self, cx: &App) -> String {
+        let l10n = cx.l10n().clone();
+        let name = self
+            .stores
+            .accounts
+            .read(cx)
+            .active()
+            .and_then(|a| a.user.as_ref())
+            .and_then(|u| u.name.clone())
+            .and_then(|n| n.split_whitespace().next().map(str::to_string));
+        match name {
+            Some(n) => l10n.greeting_title(&crate::views::privacy::name(&n, cx)),
+            None => l10n.desktop_new_conversation(),
+        }
+    }
+
+    /// The approval card's dock: always drawn, since the card opens and
+    /// closes its own height (and draws nothing without a request).
+    /// The new chat's transcript while its first send hands over to it
+    /// ([`Handoff`]): rising into place and fading in, with the greeting
+    /// fading out where it was. Just the transcript otherwise.
+    fn handed_over(
+        &mut self,
+        transcript: AnyElement,
+        t: &conduit_components::theme::ConduitTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(h) = &self.handoff else {
+            return transcript;
+        };
+        let elapsed = cx
+            .background_executor()
+            .now()
+            .saturating_duration_since(h.start);
+        if Handoff::done(elapsed) {
+            self.handoff = None;
+            return transcript;
+        }
+        window.request_animation_frame();
+        let (greeting, shown, rise) = Handoff::at(elapsed, cx.reduce_motion());
+        let l10n = cx.l10n().clone();
+        let r = t.roles;
+        let leaving = (greeting > 0.001).then(|| {
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(10.))
+                .px(px(32.))
+                .opacity(greeting)
+                .child(
+                    div()
+                        .text_size(px(28.))
+                        .font_weight(gpui_kit::FontWeight::BOLD)
+                        .text_color(r.text)
+                        .child(SharedString::from(h.greeting.clone())),
+                )
+                .when(h.temporary, |d| {
+                    d.child(
+                        div()
+                            .max_w(px(420.))
+                            .text_center()
+                            .text_size(px(t.metrics.control))
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(l10n.desktop_temporary_hint())),
+                    )
+                })
+        });
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .relative()
+            .children(leaving)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .relative()
+                    .top(px(rise))
+                    .opacity(shown)
+                    .child(transcript),
+            )
+            .into_any_element()
+    }
+
+    fn docked(&self, _: &App) -> Option<AnyElement> {
+        Some(self.approvals.clone().into_any_element())
+    }
+}
+
+/// Runs `f` on the main window's chat pane.
+///
+/// Deferred: a key binding dispatches the action from inside the window's
+/// own update, where the window cannot be updated again (the call would
+/// fail quietly).
+fn with_pane(
+    cx: &mut App,
+    f: impl FnOnce(&mut ChatPane, &mut Window, &mut Context<ChatPane>) + 'static,
+) {
+    cx.defer(move |cx| with_pane_now(cx, f));
+}
+
+fn with_pane_now(cx: &mut App, f: impl FnOnce(&mut ChatPane, &mut Window, &mut Context<ChatPane>)) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let (Some(handle), Some(view)) = (state.main_window, state.main_view.clone()) else {
+        return;
+    };
+    // Only for the main window (Settings and the SSO window have their own
+    // keys). A window that has just closed may still read as active.
+    if let Some(active) = cx.active_window()
+        && active != handle
+        && cx.windows().contains(&active)
+    {
+        return;
+    }
+    let pane = view.read(cx).chat_pane.clone();
+    let _ = handle.update(cx, |_, window, cx| {
+        pane.update(cx, |p, cx| f(p, window, cx))
+    });
+}
+
+/// The chat shortcuts, on the app so they work wherever focus is.
+pub fn register_actions(cx: &mut App) {
+    cx.on_action(|_: &FocusComposer, cx| with_pane(cx, |p, w, cx| p.focus_composer(w, cx)));
+    cx.on_action(|_: &FocusModelPicker, cx| with_pane(cx, |p, w, cx| p.open_model_picker(w, cx)));
+    cx.on_action(|_: &ChooseModel, cx| with_pane(cx, |p, w, cx| p.open_model_picker(w, cx)));
+    cx.on_action(|_: &StopGenerating, cx| with_pane(cx, |p, _, cx| p.stop(cx)));
+    cx.on_action(|_: &CopyLastResponse, cx| with_pane(cx, |p, _, cx| p.copy_last_response(cx)));
+    cx.on_action(|_: &CopyLastCodeBlock, cx| with_pane(cx, |p, _, cx| p.copy_last_code_block(cx)));
+}
+
+impl Render for ChatPane {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let l10n = cx.l10n().clone();
+        let t = cx.conduit().clone();
+        let r = t.roles;
+        let (title, temporary, missing, read_only) = match &self.chat {
+            Some(chat) => {
+                let s = chat.store.read(cx);
+                (
+                    s.title()
+                        .map(str::to_string)
+                        .filter(|t| !t.is_empty())
+                        .unwrap_or_else(|| l10n.desktop_new_conversation()),
+                    s.temporary,
+                    s.missing,
+                    s.read_only(),
+                )
+            }
+            None => (
+                String::new(),
+                self.composer.read(cx).temporary,
+                false,
+                false,
+            ),
+        };
+        // The phone's header: a capsule with the chat's title over the
+        // model, which opens the model picker.
+        let model_name = self.composer.read(cx).model_name(cx);
+        let picker_open = self.composer.read(cx).picker_open();
+        let pill_title = self
+            .chat
+            .as_ref()
+            .map(|_| SharedString::from(title.clone()));
+        let pill_label = l10n.desktop_model_chip(&model_name);
+        let composer = self.composer.downgrade();
+        let previous = self.title_crossfade(pill_title.as_ref(), window, cx);
+        let pill = TitlePill::new(model_name.clone(), pill_label)
+            .title(pill_title)
+            .previous(previous)
+            .open(picker_open)
+            .on_click(Rc::new(move |_, window, cx| {
+                let _ = composer.update(cx, |c, cx| c.toggle_picker(window, cx));
+            }));
+        let sidebar_visible = self.layout.read(cx).state.sidebar_visible;
+        let mut toolbar = ChatToolbar::new(title, SharedString::default())
+            .temporary(temporary)
+            .bare()
+            .pill(pill);
+        // Another user's chat, shared through a folder: read, never answered.
+        if read_only {
+            toolbar = toolbar.note(l10n.read_only());
+        }
+        // With the sidebar hidden the toolbar starts under the traffic
+        // lights, so it makes room for them, and offers the sidebar back
+        // (View › Show Sidebar and ⌃⌘S do too) and New Chat, which the
+        // sidebar's header has otherwise: one New Chat button on screen.
+        // While the sidebar slides, the room follows it; the button comes
+        // in over the last stretch, once the sidebar's own toggle has gone
+        // under the traffic lights (never two on screen at once).
+        let keys = conduit_components::views::focus::hints(cx);
+        let reveal = SidebarReveal::of(sidebar_visible, cx);
+        let shown = ((0.3 - reveal) / 0.25).clamp(0., 1.);
+        if reveal < 1. {
+            let covered = t.metrics.sidebar_width * reveal;
+            let inset = (conduit_components::window::TRAFFIC_LIGHTS_WIDTH + 8. - covered).max(10.);
+            toolbar = toolbar.leading_reveal(inset, shown).leading(
+                IconButton::new(
+                    "show-sidebar",
+                    IconName::PanelLeft,
+                    l10n.desktop_menu_show_sidebar(),
+                )
+                .size(30., 16.)
+                .round()
+                .shortcut(keys.toggle_sidebar.clone())
+                .on_click(Rc::new(|_, window, cx| {
+                    window.dispatch_action(Box::new(ToggleSidebar), cx)
+                })),
+            );
+        }
+        // New Chat joins the toolbar the same way, once the sidebar's own
+        // New Chat has slid away.
+        if !sidebar_visible && shown > 0. {
+            toolbar = toolbar.trailing(
+                div().opacity(shown).child(
+                    IconButton::new("toolbar-new-chat", IconName::SquarePen, l10n.new_chat())
+                        .size(30., 16.)
+                        .round()
+                        .shortcut(keys.new_chat.clone())
+                        .on_click(Rc::new(|_, window, cx| {
+                            window.dispatch_action(Box::new(crate::actions::NewChat), cx)
+                        })),
+                ),
+            );
+        }
+        match &self.chat {
+            // The chat's commands, as the sidebar's context menu has them.
+            Some(chat) if !read_only => {
+                let chat_id = chat.store.read(cx).chat_id().to_string();
+                toolbar = toolbar.trailing(
+                    IconButton::new("chat-more", IconName::Ellipsis, l10n.more())
+                        .size(30., 16.)
+                        .round()
+                        .on_click(Rc::new(move |e, window, cx| {
+                            let position = e.position();
+                            let id = chat_id.clone();
+                            show_chat_menu(id, position, window, cx);
+                        })),
+                );
+            }
+            Some(_) => {}
+            // A new chat: the phone's temporary-chat switch in place of
+            // More. The phone's dashed circle reads as nothing at 16 pt on
+            // a Mac; a clock with a dashed rim (Lucide clock-fading) keeps
+            // the dashes and says "for a while".
+            None => {
+                let composer = self.composer.downgrade();
+                toolbar = toolbar.trailing(
+                    IconButton::new(
+                        "temporary-chat",
+                        IconName::ClockFading,
+                        l10n.temporary_chat(),
+                    )
+                    .size(30., 16.)
+                    .round()
+                    .shortcut(keys.temporary_chat.clone())
+                    .active(temporary)
+                    .on_click(Rc::new(move |_, _, cx| {
+                        let _ = composer.update(cx, |c, cx| {
+                            c.temporary = !c.temporary;
+                            cx.emit(ChatComposerEvent::Temporary(c.temporary));
+                            cx.notify();
+                        });
+                    })),
+                );
+            }
+        }
+        // The picker hangs under the title capsule.
+        let picker = self
+            .composer
+            .update(cx, |c, cx| c.picker_view(&t, window, cx))
+            .map(|p| {
+                div()
+                    .absolute()
+                    .top(px(conduit_components::window::TOOLBAR_HEIGHT - 2.))
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .child(p)
+                    .into_any_element()
+            });
+        let docked = self.docked(cx);
+        let toasts = crate::views::toasts::toast_dock(&self.stores.toasts, window, cx)
+            .map(IntoElement::into_any_element);
+        let body: AnyElement = match &self.chat {
+            // The phone's new chat: the greeting in the middle of the page,
+            // the composer at the bottom where every chat has it.
+            None => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(10.))
+                        .px(px(32.))
+                        .child(conduit_components::views::kit::heading(
+                            "greeting",
+                            self.greeting(cx),
+                            1,
+                            28.,
+                            gpui_kit::FontWeight::BOLD,
+                            r.text,
+                        ))
+                        .when(temporary, |d| {
+                            d.child(
+                                div()
+                                    .max_w(px(420.))
+                                    .text_center()
+                                    .text_size(px(t.metrics.control))
+                                    .text_color(r.text_subtle)
+                                    .child(SharedString::from(l10n.desktop_temporary_hint())),
+                            )
+                        }),
+                )
+                .child(div().track_focus(&self.dock_focus).child(composer_dock(
+                    toasts,
+                    docked,
+                    self.composer.clone().into_any_element(),
+                )))
+                .into_any_element(),
+            Some(chat) => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .relative()
+                .child(if missing {
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(t.metrics.body))
+                        .text_color(r.text_subtle)
+                        .child(SharedString::from(l10n.desktop_chat_missing()))
+                        .into_any_element()
+                } else {
+                    self.handed_over(chat.transcript.clone().into_any_element(), &t, window, cx)
+                })
+                .child(div().track_focus(&self.dock_focus).child(composer_dock(
+                    toasts,
+                    docked,
+                    if read_only {
+                        div()
+                            .id("read-only-notice")
+                            .role(Role::Status)
+                            .aria_label(SharedString::from(l10n.read_only_shared_chat()))
+                            .w_full()
+                            .py(px(10.))
+                            .flex()
+                            .justify_center()
+                            .text_size(px(t.metrics.small))
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(l10n.read_only_shared_chat()))
+                            .into_any_element()
+                    } else {
+                        self.composer.clone().into_any_element()
+                    },
+                )))
+                .into_any_element(),
+        };
+        let find_bar = match &self.chat {
+            Some(chat) if self.find_open => {
+                Some(self.find_bar(&chat.transcript.clone(), window, cx))
+            }
+            _ => None,
+        };
+        div()
+            .key_context(CHAT_PANE_CONTEXT)
+            .on_action(
+                cx.listener(|this, _: &crate::actions::FocusNextControl, window, cx| {
+                    this.tab(false, window, cx)
+                }),
+            )
+            .on_action(cx.listener(
+                |this, _: &crate::actions::FocusPreviousControl, window, cx| {
+                    this.tab(true, window, cx)
+                },
+            ))
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(toolbar)
+            .children(find_bar)
+            .child(body)
+            .children(picker)
+    }
+}
+
+impl ChatPane {
+    /// The open chat's new title (named after its first answer) crossfades
+    /// in over the old one (150 ms), rather than cutting; another chat, or
+    /// a first title, shows at once. Returns the old title and how far the
+    /// crossfade is.
+    fn title_crossfade(
+        &mut self,
+        title: Option<&SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<(SharedString, f32)> {
+        let chat = self
+            .chat
+            .as_ref()
+            .map(|c| c.store.read(cx).chat_id().to_string());
+        let now = cx.background_executor().now();
+        let shown = chat.zip(title.map(|t| t.to_string()));
+        if shown != self.title_shown {
+            self.title_change = retitled(&self.title_shown, &shown).map(|was| (was, now));
+            self.title_shown = shown;
+        }
+        let (old, start) = self.title_change.clone()?;
+        let spec = conduit_components::motion::specs::REGEN_CROSSFADE;
+        let p = now.saturating_duration_since(start).as_secs_f32() / spec.duration.as_secs_f32();
+        if p >= 1. {
+            self.title_change = None;
+            return None;
+        }
+        window.request_animation_frame();
+        Some((SharedString::from(old), spec.curve.sample(p)))
+    }
+}
+
+/// The title a toolbar showing `now` (chat id, title) crossfades from, after
+/// showing `was`: the same chat renamed. Another chat, or a first title,
+/// shows at once.
+fn retitled(was: &Option<(String, String)>, now: &Option<(String, String)>) -> Option<String> {
+    match (was, now) {
+        (Some((was_chat, was)), Some((chat, title))) if was_chat == chat && was != title => {
+            Some(was.clone())
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::retitled;
+
+    fn shown(chat: &str, title: &str) -> Option<(String, String)> {
+        Some((chat.into(), title.into()))
+    }
+
+    #[test]
+    fn a_chat_named_after_its_first_answer_crossfades_its_title() {
+        assert_eq!(
+            retitled(
+                &shown("c1", "Some math, please"),
+                &shown("c1", "Orbital speed")
+            ),
+            Some("Some math, please".into())
+        );
+        // Another chat, or none before: at once.
+        assert_eq!(retitled(&shown("c1", "A"), &shown("c2", "B")), None);
+        assert_eq!(retitled(&None, &shown("c1", "A")), None);
+        assert_eq!(retitled(&shown("c1", "A"), &None), None);
+    }
+}
+
+/// The chat pane's key context: Tab and Shift-Tab follow the messages
+/// ([`crate::actions::FocusNextControl`]).
+pub const CHAT_PANE_CONTEXT: &str = "ConduitChatPane";
+
+impl ChatPane {
+    /// Tab and Shift-Tab: in the transcript's rows (and from the composer
+    /// back into them) the order of the messages, scrolling rows off screen
+    /// in ([`Transcript::tab`]); anywhere else the window's own order.
+    fn tab(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let below = self.dock_focus.clone();
+        let handled = self.chat.as_ref().is_some_and(|chat| {
+            chat.transcript
+                .update(cx, |t, cx| t.tab(back, below, window, cx))
+        });
+        if !handled {
+            // Not ours: the window's Tab (and any focus trap) has it.
+            cx.propagate();
+        }
+    }
+}
+
+/// The composer's place at the bottom of the chat column, with toasts and
+/// a card (an approval) docked above it.
+fn composer_dock(
+    toasts: Option<AnyElement>,
+    docked: Option<AnyElement>,
+    composer: AnyElement,
+) -> impl IntoElement {
+    div()
+        .relative()
+        .flex_none()
+        .flex()
+        .flex_col()
+        .items_center()
+        .px(px(32.))
+        .pb(px(16.))
+        .child(
+            div()
+                .w_full()
+                .max_w(px(conduit_components::views::shell::CHAT_COLUMN + 40.))
+                .flex()
+                .flex_col()
+                // The card brings its own gap (it opens and closes with it),
+                // as each toast does.
+                .children(toasts)
+                .children(docked)
+                .child(composer),
+        )
+}
+
+/// The sidebar's native menu for `chat_id`, from the toolbar's More button.
+fn show_chat_menu(
+    chat_id: String,
+    position: gpui_kit::Point<gpui_kit::Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(view) = cx
+        .try_global::<AppState>()
+        .and_then(|s| s.main_view.clone())
+    else {
+        return;
+    };
+    let sidebar = view.read(cx).sidebar.clone();
+    sidebar.update(cx, |s, cx| s.context_menu(&chat_id, position, window, cx));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::Handoff;
+
+    #[test]
+    fn a_first_send_hands_over_in_about_two_hundred_ms() {
+        let at = |ms: u64, reduce| Handoff::at(Duration::from_millis(ms), reduce);
+        // At the press: the greeting fully there, the message not yet, 10 pt
+        // below its place.
+        let (greeting, shown, rise) = at(0, false);
+        assert_eq!((greeting, shown), (1., 0.));
+        assert!((8. ..=12.).contains(&rise), "{rise}");
+        // The greeting is gone by 120 ms, while the message is still rising.
+        let (greeting, shown, rise) = at(120, false);
+        assert!(greeting < 0.01, "{greeting}");
+        assert!(shown > 0.5 && shown < 1. && rise > 0., "{shown} {rise}");
+        // All in place by 200 ms, and over then.
+        let (_, shown, rise) = at(200, false);
+        assert!(shown > 0.999 && rise < 0.01, "{shown} {rise}");
+        assert!(!Handoff::done(Duration::from_millis(190)));
+        assert!(Handoff::done(Duration::from_millis(200)));
+        // Every frame in between moves on (no hold), the rise never back.
+        let frames: Vec<_> = (0..=12).map(|k| at(k * 16, false)).collect();
+        assert!(
+            frames
+                .windows(2)
+                .all(|w| w[1].1 > w[0].1 && w[1].2 <= w[0].2)
+        );
+        // Reduce Motion: the fades, no travel.
+        assert!((0..=12).all(|k| at(k * 16, true).2 == 0.));
+        assert_eq!(at(60, true).1, at(60, false).1);
+    }
+}
