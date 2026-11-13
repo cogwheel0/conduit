@@ -1,0 +1,9 @@
+# Its own options rather than the app's Flutter set: the daemon is a pure
+# Dart CLI, held to the same lints as the packages it hosts.
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    # As in conduit_core: unsatisfiable for a private field set from a public
+    # named parameter, since `this._field` is not a legal parameter.
+    prefer_initializing_formals: false
