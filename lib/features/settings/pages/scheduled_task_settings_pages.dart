@@ -1268,7 +1268,14 @@ NativeSheetDetailConfig _buildRulePage(
 /// nothing that answers for another account, or for a page since left,
 /// changes what is shown.
 class ScheduledTaskSettingsPages extends SettingsPageModule {
-  ScheduledTaskSettingsPages(this._ref);
+  ScheduledTaskSettingsPages(this._ref) {
+    // Gone with Settings's modules, it hears the app no more. Registered
+    // once: Settings opened again makes a new listener, not a new disposer.
+    _ref.onDispose(() {
+      _lifecycle?.dispose();
+      _lifecycle = null;
+    });
+  }
 
   final Ref _ref;
   AppLocalizations? _l10n;
@@ -1420,18 +1427,11 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     void redraw(Object? _, Object? _) => _queueRedraw();
     // Back from the device's settings, say, with the 12 or 24 hour clock
     // changed: the times shown follow.
-    if (_lifecycle == null) {
-      _lifecycle = AppLifecycleListener(
-        onResume: () {
-          if (_ref.mounted) _queueRedraw();
-        },
-      );
-      // Gone with Settings's modules, it hears the app no more.
-      _ref.onDispose(() {
-        _lifecycle?.dispose();
-        _lifecycle = null;
-      });
-    }
+    _lifecycle ??= AppLifecycleListener(
+      onResume: () {
+        if (_ref.mounted) _queueRedraw();
+      },
+    );
     _following.addAll([
       _ref.listen(automationsAvailableProvider, redraw),
       _ref.listen(
