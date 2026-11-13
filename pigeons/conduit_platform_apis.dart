@@ -50,6 +50,13 @@ enum PlatformNativeSheetItemKind {
   /// Each option's swatches paint its preview; one with dark swatches too
   /// previews both halves.
   appearanceTiles,
+
+  /// A day as a compact date control: value is local ISO 8601 without a
+  /// zone; min and max are the first and last days, in epoch milliseconds.
+  date,
+
+  /// A time of day as a compact time control; value as for [date].
+  time,
 }
 
 class PlatformBackgroundStreamLease {
@@ -622,6 +629,7 @@ class PlatformNativeSheetDetail {
     this.busy,
     this.announcement,
     this.edited,
+    this.search,
   });
 
   String id;
@@ -653,6 +661,26 @@ class PlatformNativeSheetDetail {
   /// Holds changes not yet saved, made on this page or on the pages it
   /// leads to: leaving asks the discard question.
   bool? edited;
+
+  /// A search field above the rows, filtering them as the person types.
+  PlatformNativeSheetSearch? search;
+}
+
+/// A page's search field: what is typed goes back as a change of [id] a
+/// moment after typing pauses, and as the empty text on cancel.
+class PlatformNativeSheetSearch {
+  PlatformNativeSheetSearch({
+    required this.id,
+    this.placeholder,
+    required this.value,
+  });
+
+  String id;
+  String? placeholder;
+
+  /// The query the page's rows answer; the field keeps text being typed
+  /// unless this changes.
+  String value;
 }
 
 class PlatformNativeProfileSheetConfig {

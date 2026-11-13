@@ -48,11 +48,8 @@ import 'package:conduit_core/features/direct_connections/controllers/direct_conn
 
 import '../../features/direct_connections/views/direct_connection_editor_page.dart';
 import '../../features/direct_connections/views/direct_connections_page.dart';
-import '../../features/integrations/views/personal_connection_editor_page.dart';
-import '../../features/integrations/views/personal_connections_page.dart';
-import '../../features/automations/views/scheduled_task_detail_page.dart';
-import '../../features/automations/views/scheduled_task_editor_page.dart';
-import '../../features/automations/views/scheduled_tasks_page.dart';
+import '../../features/settings/pages/personal_connection_settings_pages.dart';
+import '../../features/settings/pages/scheduled_task_settings_pages.dart';
 import '../../features/calendar/views/calendar_page.dart';
 
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -481,7 +478,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.personalConnections,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const PersonalConnectionsPage(),
+        child: const SettingsDetailPage(detailId: personalConnectionsPageId),
       ),
     ),
     GoRoute(
@@ -491,14 +488,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         final kind = personalConnectionKindFromRouteValue(
           state.pathParameters['kind'] ?? '',
         );
+        final identity = state.pathParameters['identity']!;
         return _buildPlatformPage(
           state: state,
-          child: kind == null
-              ? const PersonalConnectionsPage()
-              : PersonalConnectionEditorPage(
-                  kind: kind,
-                  identity: state.pathParameters['identity']!,
-                ),
+          child: SettingsDetailPage(
+            detailId: kind == null
+                ? personalConnectionsPageId
+                : personalConnectionEditorPageId(
+                    kind,
+                    identity == personalConnectionNewRouteValue
+                        ? null
+                        : identity,
+                  ),
+          ),
         );
       },
     ),
@@ -516,8 +518,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.scheduledTasks,
       name: RouteNames.scheduledTasks,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const ScheduledTasksPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const SettingsDetailPage(detailId: scheduledTasksPageId),
+      ),
     ),
     // `new` is declared before `:id` so it is never read as a task id.
     GoRoute(
@@ -525,7 +529,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.scheduledTaskNew,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: const ScheduledTaskEditorPage(),
+        child: SettingsDetailPage(detailId: scheduledTaskEditorPageId(null)),
       ),
     ),
     GoRoute(
@@ -533,7 +537,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.scheduledTaskDetail,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: ScheduledTaskDetailPage(taskId: state.pathParameters['id']!),
+        child: SettingsDetailPage(
+          detailId: scheduledTaskPageId(state.pathParameters['id']!),
+        ),
       ),
     ),
     GoRoute(
@@ -541,7 +547,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.scheduledTaskEdit,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: ScheduledTaskEditorPage(taskId: state.pathParameters['id']!),
+        child: SettingsDetailPage(
+          detailId: scheduledTaskEditorPageId(state.pathParameters['id']!),
+        ),
       ),
     ),
     GoRoute(

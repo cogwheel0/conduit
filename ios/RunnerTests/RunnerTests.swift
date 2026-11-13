@@ -10,6 +10,141 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  /// Runs the main loop for [seconds], however often it returns early.
+  private func spin(_ seconds: TimeInterval) {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline { RunLoop.main.run(until: deadline) }
+  }
+
+  private func searchPage(_ sent: @escaping (Any?) -> Void) throws -> UITableViewController {
+    try XCTUnwrap(
+      makeNativeDetailPageForTesting(
+        [
+          "id": "test-tasks", "title": "Tasks", "items": [],
+          "search": ["id": "test-search", "placeholder": "Search", "value": ""],
+        ],
+        onControlChanged: { _, value in sent(value) }))
+  }
+
+  @MainActor
+  func testNativeSheetSearchEchoesAnsweredOutOfOrderKeepTheField() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    // "a" then "ab" are sent (Search tapped after each).
+    search.searchBar.text = "a"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    search.searchBar.text = "ab"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["a", "ab"])
+
+    // The page answers "ab" first, then "a", late.
+    func answering(_ value: String) -> [String: Any] {
+      [
+        "id": "test-tasks", "title": "Tasks", "items": [],
+        "search": ["id": "test-search", "placeholder": "Search", "value": value],
+      ]
+    }
+    applyNativeDetailPageForTesting(page, answering("ab"))
+    applyNativeDetailPageForTesting(page, answering("a"))
+
+    XCTAssertEqual(search.searchBar.text, "ab")
+  }
+
+  @MainActor
+  func testNativeSheetSearchWaitingWhenALeaveIsLetGoOfIsSent() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    search.searchBar.text = "lamp"
+    delegate.searchBar?(search.searchBar, textDidChange: "lamp")
+
+    // A back swipe starts, dropping the wait, and is let go of.
+    leaveNativeDetailPageForTesting(page)
+    spin(0.35)
+    XCTAssertTrue(sent.isEmpty)
+    resumeNativeDetailPageForTesting(page)
+
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["lamp"])
+  }
+
+  private func searchAnswer(_ value: String) -> [String: Any] {
+    [
+      "id": "test-tasks", "title": "Tasks", "items": [],
+      "search": ["id": "test-search", "placeholder": "Search", "value": value],
+    ]
+  }
+
+  @MainActor
+  func testNativeSheetSearchShowAllAfterAClearedDraftEmptiesTheField() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    // Typed and cleared before it searched: "" goes, which the unfiltered
+    // page was already asked for, so it draws nothing.
+    search.searchBar.text = "q"
+    delegate.searchBar?(search.searchBar, textDidChange: "q")
+    search.searchBar.text = ""
+    delegate.searchBar?(search.searchBar, textDidChange: "")
+    // A search that matches nothing, answered.
+    search.searchBar.text = "zz-no-match"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    applyNativeDetailPageForTesting(page, searchAnswer("zz-no-match"))
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["", "zz-no-match"])
+
+    // Show All: the page's own empty query, not an echo of the cleared draft.
+    applyNativeDetailPageForTesting(page, searchAnswer(""))
+
+    XCTAssertEqual(search.searchBar.text, "")
+  }
+
+  @MainActor
+  func testNativeSheetSearchShowAllDropsTheDraftWaitingToBeSent() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    search.searchBar.text = "zz-no-match"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    applyNativeDetailPageForTesting(page, searchAnswer("zz-no-match"))
+    // A new draft, then Show All before typing pauses.
+    search.searchBar.text = "lamp"
+    delegate.searchBar?(search.searchBar, textDidChange: "lamp")
+    applyNativeDetailPageForTesting(page, searchAnswer(""))
+    XCTAssertEqual(search.searchBar.text, "")
+
+    // A back swipe let go of brings the page back: the draft stays dropped.
+    leaveNativeDetailPageForTesting(page)
+    resumeNativeDetailPageForTesting(page)
+    spin(0.35)
+
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["zz-no-match"])
+  }
+
+  @MainActor
+  func testNativeSheetSearchCancelEmptiesTheField() throws {
+    var sent: [Any?] = []
+    let controller = try XCTUnwrap(
+      makeNativeDetailPageForTesting(
+        [
+          "id": "test-tasks", "title": "Tasks", "items": [],
+          "search": ["id": "test-search", "placeholder": "Search", "value": "lamp"],
+        ],
+        onControlChanged: { _, value in sent.append(value) }))
+    let search = try XCTUnwrap(controller.navigationItem.searchController)
+    search.searchBar.text = "lamp"
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+
+    delegate.searchBarCancelButtonClicked?(search.searchBar)
+
+    XCTAssertEqual(search.searchBar.text, "")
+    XCTAssertEqual(sent.count, 1)
+    XCTAssertEqual(sent.first as? String, "")
+  }
+
   @MainActor
   func testWebSignInRetryLoadsThePageThatFailed() throws {
     let start = try XCTUnwrap(URL(string: "https://hermes.example/login"))
@@ -41,6 +176,32 @@ class RunnerTests: XCTestCase {
         domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
         userInfo: [NSURLErrorFailingURLErrorKey: provider]))
     XCTAssertEqual(controller.retryURL, provider)
+  }
+
+  @MainActor
+  func testNativeSheetDateRowKeepsTheDateSetWhenDrawnAgain() throws {
+    let controller = try XCTUnwrap(
+      makeNativeDetailPageForTesting([
+        "id": "test-dates", "title": "Dates",
+        "items": [
+          ["id": "test-day", "title": "Day", "kind": "date", "value": "2026-01-02T00:00:00"]
+        ],
+      ]))
+    let table = try XCTUnwrap(controller.tableView)
+    let source = try XCTUnwrap(table.dataSource)
+    func picker() throws -> UIDatePicker {
+      let cell = source.tableView(table, cellForRowAt: IndexPath(row: 0, section: 0))
+      return try XCTUnwrap(cell.accessoryView as? UIDatePicker)
+    }
+    let chosen = try XCTUnwrap(
+      Calendar(identifier: .gregorian).date(
+        from: DateComponents(year: 2026, month: 3, day: 4)))
+    let first = try picker()
+    first.date = chosen
+    first.sendActions(for: .valueChanged)
+
+    // Scrolled away and back: the row is drawn again with the date set.
+    XCTAssertEqual(try picker().date, chosen)
   }
 
   @MainActor

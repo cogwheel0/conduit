@@ -785,6 +785,8 @@ private struct NativeResultSheetConfiguration {
             return item.value as? Bool ?? false
         case "slider":
             return item.sliderNumericValue
+        case "date", "time":
+            return item.value as? String
         default:
             return nil
         }
@@ -792,6 +794,24 @@ private struct NativeResultSheetConfiguration {
 }
 
 /// The question a page asks before its unsaved changes are dropped.
+/// A page's search field, filtering its rows as the person types.
+private struct NativeSheetSearch: Equatable {
+    let id: String
+    let placeholder: String?
+    /// The query the page's rows answer.
+    let value: String
+
+    init?(_ payload: Any?) {
+        guard let payload = payload as? [String: Any],
+              let id = payload["id"] as? String,
+              !id.isEmpty
+        else { return nil }
+        self.id = id
+        placeholder = payload["placeholder"] as? String
+        value = payload["value"] as? String ?? ""
+    }
+}
+
 private struct NativeSheetDiscardPrompt {
     let title: String
     let message: String
@@ -834,6 +854,8 @@ private struct NativeSheetDetail {
     /// Holds changes not yet saved, as Dart counts them, here or on the
     /// pages it leads to: leaving asks the discard question.
     let edited: Bool
+    /// A search field above the rows, as a long list's filter.
+    let search: NativeSheetSearch?
 
     init(
         id: String,
@@ -849,7 +871,8 @@ private struct NativeSheetDetail {
         discardPrompt: NativeSheetDiscardPrompt? = nil,
         busy: Bool = false,
         announcement: String? = nil,
-        edited: Bool = false
+        edited: Bool = false,
+        search: NativeSheetSearch? = nil
     ) {
         self.id = id
         self.title = title
@@ -865,6 +888,7 @@ private struct NativeSheetDetail {
         self.busy = busy
         self.announcement = announcement
         self.edited = edited
+        self.search = search
     }
 
     init?(_ payload: [String: Any]) {
@@ -893,6 +917,7 @@ private struct NativeSheetDetail {
         busy = payload["busy"] as? Bool ?? false
         announcement = payload["announcement"] as? String
         edited = payload["edited"] as? Bool ?? false
+        search = NativeSheetSearch(payload["search"])
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -1089,6 +1114,11 @@ private extension PlatformNativeSheetDetail {
         payload["busy"] = busy
         payload["announcement"] = announcement
         payload["edited"] = edited
+        if let search {
+            var entry: [String: Any] = ["id": search.id, "value": search.value]
+            entry["placeholder"] = search.placeholder
+            payload["search"] = entry
+        }
         return payload
     }
 }
@@ -1165,6 +1195,8 @@ private extension PlatformNativeSheetItemKind {
         case .source: "source"
         case .statusUpdate: "statusUpdate"
         case .appearanceTiles: "appearanceTiles"
+        case .date: "date"
+        case .time: "time"
         }
     }
 }
@@ -1771,7 +1803,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 // Kept, so the same announcement sent again is not read out
                 // twice.
                 announcement: existing.announcement,
-                edited: existing.edited
+                edited: existing.edited,
+                search: existing.search
             )
             self.detailPayloads[detailId] = patched
             // The page on top, and the same page further down the sheet: one
@@ -5013,6 +5046,32 @@ private final class NativeSheetReadOnlyTextTableViewCell: UITableViewCell {
     }
 }
 
+/// The value of a date or time row: local wall-clock time as ISO 8601
+/// without a zone, so a set time reads the same in Dart and here.
+private enum NativeSheetDateValue {
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        // Follows the device's zone as it changes, as the picker does, so a
+        // set time is not shifted after travel with the app open.
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+
+    static func date(from value: Any?) -> Date? {
+        guard let text = value as? String else { return nil }
+        // Fractional seconds are no part of a wall-clock setting.
+        let whole = text.split(separator: ".").first.map(String.init) ?? text
+        return formatter.date(from: whole)
+    }
+
+    static func string(from date: Date) -> String {
+        formatter.string(from: date)
+    }
+}
+
 private final class NativeSheetSliderTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetSliderTableViewCell"
 
@@ -5553,6 +5612,36 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
     }
 }
 
+/// A Settings page drawn from [payload], acting on nothing, for tests.
+func makeNativeDetailPageForTesting(
+    _ payload: [String: Any],
+    onControlChanged: @escaping (String, Any?) -> Void = { _, _ in }
+) -> UITableViewController? {
+    NativeDetailTableViewController.makeForTesting(
+        payload,
+        onControlChanged: onControlChanged
+    )
+}
+
+/// Gives [page] (made by [makeNativeDetailPageForTesting]) the page
+/// [payload], as Dart sending it again does, for tests.
+func applyNativeDetailPageForTesting(_ page: UITableViewController, _ payload: [String: Any]) {
+    guard let page = page as? NativeDetailTableViewController,
+          let detail = NativeSheetDetail(payload)
+    else { return }
+    page.applyUpdatedDetail(detail)
+}
+
+/// Lets [page] come back as a leave of it was let go of, for tests.
+func resumeNativeDetailPageForTesting(_ page: UITableViewController) {
+    (page as? NativeDetailTableViewController)?.resumeSearch()
+}
+
+/// Starts [page] leaving, as a back swipe does, for tests.
+func leaveNativeDetailPageForTesting(_ page: UITableViewController) {
+    (page as? NativeDetailTableViewController)?.startLeavingForTesting()
+}
+
 private final class NativeDetailTableViewController: UITableViewController, NativeSheetLeaveGuarding {
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
@@ -5571,6 +5660,28 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// any new rows arrive, and a speed is not sent back at all, so the rows
     /// draw this rather than the value they came with.
     private var chosenOptionValues: [String: String] = [:]
+    /// Dates and times set in their pickers since Dart last sent the page. A
+    /// result sheet keeps them without sending the page back, so a row drawn
+    /// again (scrolled away and back) shows this, not the value it came with.
+    private var chosenDateValues: [String: String] = [:]
+
+    /// The page's search bar, kept above its rows as the list's filter.
+    private var searchController: UISearchController?
+    /// The query Dart last put in the search bar; text typed since stays
+    /// until Dart sends another.
+    private var shownSearchValue: String?
+    /// Queries sent that the page has not echoed yet, oldest first,
+    /// trimmed as the page echoes them.
+    private var unechoedSearchQueries: [String] = []
+    /// The query the search bar last sent, trimmed: what the page was last
+    /// asked for since it last showed a query of its own.
+    private var lastSentSearchQuery: String?
+    private var searchDebounce: Timer?
+    /// Set as the page is popped or its sheet closes: it sends no search.
+    private var leaving = false
+    /// The query waiting for typing to pause, kept when a back swipe drops
+    /// its wait: a swipe let go of sends it after all.
+    private var pendingSearchQuery: String?
 
     var detailId: String { detail.id }
 
@@ -5618,6 +5729,24 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    fileprivate static func makeForTesting(
+        _ payload: [String: Any],
+        onControlChanged: @escaping (String, Any?) -> Void
+    ) -> UITableViewController? {
+        guard let detail = NativeSheetDetail(payload) else { return nil }
+        let controller = NativeDetailTableViewController(
+            detail: detail,
+            canNavigate: { _ in false },
+            onSelect: { _ in },
+            onControlChanged: { item, value in onControlChanged(item.id, value) },
+            onReorder: { _, _ in },
+            onConfirmAction: { _ in },
+            onClose: {}
+        )
+        controller.loadViewIfNeeded()
+        return controller
     }
 
     private func onControlChanged(_ item: NativeSheetItem, _ value: Any?) {
@@ -5682,6 +5811,126 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         controlEdits = false
     }
 
+    /// Puts the page's search bar in its navigation item, always shown, so
+    /// it reads as the list's filter. Text being typed stays when the page
+    /// is described again; only a new query from Dart replaces it.
+    private func configureSearch() {
+        guard let search = detail.search else {
+            if searchController != nil {
+                navigationItem.searchController = nil
+                searchController = nil
+                shownSearchValue = nil
+                // A search bar made again shows the query it is given, and
+                // nothing typed into this one is searched for later.
+                unechoedSearchQueries.removeAll()
+                lastSentSearchQuery = nil
+                searchDebounce?.invalidate()
+                searchDebounce = nil
+                pendingSearchQuery = nil
+            }
+            return
+        }
+        let controller: UISearchController
+        if let existing = searchController {
+            controller = existing
+        } else {
+            controller = UISearchController(searchResultsController: nil)
+            controller.obscuresBackgroundDuringPresentation = false
+            controller.hidesNavigationBarDuringPresentation = false
+            controller.searchBar.delegate = self
+            searchController = controller
+            navigationItem.searchController = controller
+            navigationItem.hidesSearchBarWhenScrolling = false
+            definesPresentationContext = true
+        }
+        controller.searchBar.placeholder = search.placeholder
+        if search.value != shownSearchValue {
+            shownSearchValue = search.value
+            // The page echoes a query trimmed; what is typed (a trailing
+            // space included) stays. Only a query from elsewhere -- Show All
+            // -- replaces it, and the send waiting for typing to pause goes.
+            let trimmed = { (text: String?) in
+                (text ?? "").trimmingCharacters(in: .whitespaces)
+            }
+            // An echo of a query sent -- the last or an earlier one answered
+            // late -- leaves what is typed alone.
+            if let echo = unechoedSearchQueries.firstIndex(of: trimmed(search.value)) {
+                // Only this one: an earlier query answered later is still
+                // known as an echo.
+                unechoedSearchQueries.remove(at: echo)
+            } else {
+                // The page's own query: it is what the page was last asked.
+                lastSentSearchQuery = nil
+                if trimmed(controller.searchBar.text) != trimmed(search.value) {
+                    // What was typed and not yet sent is dropped with it, so
+                    // coming back to the page does not search for it.
+                    searchDebounce?.invalidate()
+                    searchDebounce = nil
+                    pendingSearchQuery = nil
+                    unechoedSearchQueries.removeAll()
+                    controller.searchBar.text = search.value
+                }
+            }
+        }
+    }
+
+    /// Sends [query] as the page's search, as a change of its search id.
+    fileprivate func sendSearch(_ query: String) {
+        searchDebounce?.invalidate()
+        searchDebounce = nil
+        pendingSearchQuery = nil
+        guard !leaving, let search = detail.search,
+              let item = NativeSheetItem([
+                  "id": search.id,
+                  "title": search.placeholder ?? search.id,
+                  "kind": "search",
+              ])
+        else { return }
+        let asked = query.trimmingCharacters(in: .whitespaces)
+        let previous = lastSentSearchQuery
+            ?? (shownSearchValue ?? "").trimmingCharacters(in: .whitespaces)
+        lastSentSearchQuery = asked
+        // The page draws nothing for a query it was already asked for (a
+        // field typed into and cleared before it searched, say), so no echo
+        // of it is waited for: Show All's empty query is not taken for one.
+        if asked != previous {
+            unechoedSearchQueries.append(asked)
+        }
+        sendControlChange(item, query)
+    }
+
+    /// Sends what is typed once typing pauses for a moment.
+    fileprivate func searchTextChanged(_ query: String) {
+        searchDebounce?.invalidate()
+        searchDebounce = nil
+        // Cleared (its clear button, say): the whole list comes back at
+        // once, as the field shows it empty.
+        if query.isEmpty {
+            sendSearch("")
+            return
+        }
+        pendingSearchQuery = query
+        searchDebounce = Timer.scheduledTimer(
+            withTimeInterval: 0.25,
+            repeats: false
+        ) { [weak self] _ in
+            self?.sendSearch(query)
+        }
+    }
+
+    fileprivate func startLeavingForTesting() {
+        leaving = true
+        searchDebounce?.invalidate()
+        searchDebounce = nil
+    }
+
+    /// Back on screen after a leave was let go of: what was typed and not yet
+    /// sent is searched for, so the rows match the field.
+    fileprivate func resumeSearch() {
+        leaving = false
+        if let pending = pendingSearchQuery { sendSearch(pending) }
+    }
+
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
         let previousSectionCount = tableSections.count
         let previousAnnouncement = detail.announcement
@@ -5704,6 +5953,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             return previous == (item.value as? String ?? "")
         }
         detail = newDetail
+        configureSearch()
         if let announcement = newDetail.announcement, !announcement.isEmpty,
            announcement != previousAnnouncement {
             UIAccessibility.post(notification: .announcement, argument: announcement)
@@ -5711,6 +5961,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         pendingTextValues = keptText
         committedTextValues.removeAll()
         chosenOptionValues.removeAll()
+        chosenDateValues.removeAll()
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
@@ -5735,6 +5986,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // Back on screen, as after a back swipe or a pull of the sheet let go
+        // of: the page is not leaving, and searches again.
+        resumeSearch()
         NativeSheetBridge.shared.markDetailVisible(self)
         refreshNavigationAction()
     }
@@ -5750,6 +6004,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             }
         }
         refreshNavigationAction()
+        configureSearch()
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(
             NativeSheetChoiceMenuTableViewCell.self,
@@ -5847,6 +6102,18 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         // page, say, then Back.
         if isMovingFromParent, detail.discardPrompt == nil {
             commitPendingTextChanges()
+        }
+        // Left, a search still waiting for typing to pause is for no page,
+        // nor is the field emptied as its bar goes.
+        if isMovingFromParent || navigationController?.isBeingDismissed == true {
+            leaving = true
+            searchDebounce?.invalidate()
+            searchDebounce = nil
+            // A swipe let go of before it finishes leaves the page where it
+            // was: it searches again, for what was waiting too.
+            transitionCoordinator?.notifyWhenInteractionChanges { [weak self] context in
+                if context.isCancelled { self?.resumeSearch() }
+            }
         }
         view.endEditing(true)
     }
@@ -6115,7 +6382,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
              "appearanceTiles", "multilineTextField", "slider", "readOnlyText",
-             "statusUpdate":
+             "statusUpdate", "date", "time":
             break
         case "source":
             guard item.url != nil || canNavigate(item) else { break }
@@ -6167,6 +6434,34 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
 
         case "searchablePicker":
             configureNavigationCell(cell, item: item, showsDisclosure: true)
+
+        case "date", "time":
+            // The system's compact pill, as a form's date and time rows have.
+            configureNavigationCell(cell, item: item, showsDisclosure: false)
+            let picker = UIDatePicker()
+            picker.preferredDatePickerStyle = .compact
+            picker.datePickerMode = item.kind == "time" ? .time : .date
+            picker.minimumDate = item.sliderMin.map {
+                Date(timeIntervalSince1970: $0 / 1000)
+            }
+            picker.maximumDate = item.sliderMax.map {
+                Date(timeIntervalSince1970: $0 / 1000)
+            }
+            picker.date = NativeSheetDateValue.date(
+                from: chosenDateValues[item.id] ?? item.value
+            ) ?? Date()
+            picker.isEnabled = !item.disabled && !detail.busy
+            picker.accessibilityLabel = item.title
+            picker.addAction(UIAction { [weak self, weak picker] _ in
+                guard let picker else { return }
+                let value = NativeSheetDateValue.string(from: picker.date)
+                self?.chosenDateValues[item.id] = value
+                self?.onControlChanged(item, value)
+            }, for: .valueChanged)
+            picker.sizeToFit()
+            cell.accessoryView = picker
+            cell.editingAccessoryView = picker
+            cell.selectionStyle = .none
 
         default:
             // Rows that close the sheet to open a page get a chevron, as on
@@ -9283,5 +9578,22 @@ final class NativeWebSignInViewController: UIViewController,
             ?? webView?.url
             ?? failedURL
         failureLabel.isHidden = false
+    }
+}
+
+extension NativeDetailTableViewController: UISearchBarDelegate {
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        searchTextChanged(searchText)
+    }
+
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        sendSearch(searchBar.text ?? "")
+    }
+
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+        // Cancel clears the field: the whole list comes back at once, and
+        // the field shows it empty (the page's echo of "" changes nothing).
+        searchBar.text = ""
+        sendSearch("")
     }
 }

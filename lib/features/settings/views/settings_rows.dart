@@ -1,11 +1,13 @@
 import 'package:conduit_core/utils/profile_avatar.dart' show extractAvatarInitials;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/adaptive_date_time_picker.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
@@ -209,8 +211,79 @@ class SettingsRow extends StatelessWidget {
         selectedId: _value is String ? _value as String : null,
         onChanged: (id) => onChanged(item, id),
       ),
+      NativeSheetItemKind.date ||
+      NativeSheetItemKind.time => _buildDate(context),
       _ => _buildNavigation(context),
     };
+  }
+
+  /// A day or a time of day. Its value reads under the title, as a Material
+  /// setting puts it; tapping opens the picker, and the choice goes back as
+  /// the iOS row sends it.
+  Widget _buildDate(BuildContext context) {
+    final raw = _value is String ? _value as String : null;
+    final current = raw == null ? null : DateTime.tryParse(raw);
+    final time = item.kind == NativeSheetItemKind.time;
+    final locale = Localizations.localeOf(context).toString();
+    final format = time
+        ? (MediaQuery.alwaysUse24HourFormatOf(context)
+              ? DateFormat.Hm(locale)
+              : DateFormat.jm(locale))
+        : DateFormat.yMMMd(locale);
+    final note = item.subtitle?.trim();
+    final subtitle = [
+      if (current != null) format.format(current),
+      if (note != null && note.isNotEmpty) note,
+    ].join('\n');
+    return UtilityRow(
+      key: ValueKey<String>('settings-row-${item.id}'),
+      leading: SettingsRowGlyph(item: item),
+      title: item.title,
+      subtitle: subtitle.isEmpty ? null : subtitle,
+      subtitleMaxLines: 6,
+      showChevron: true,
+      onTap: () => _pickDate(context, current ?? DateTime.now(), time: time),
+    );
+  }
+
+  Future<void> _pickDate(
+    BuildContext context,
+    DateTime current, {
+    required bool time,
+  }) async {
+    DateTime? bound(double? millis) => millis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(millis.round());
+    final DateTime? picked;
+    if (time) {
+      picked = await showAdaptiveTimeOfDayPicker(
+        context,
+        initial: current,
+        title: item.title,
+      );
+    } else {
+      final day = await showAdaptiveDatePicker(
+        context,
+        initial: current,
+        first: bound(item.min) ?? DateTime(1900),
+        last: bound(item.max) ?? DateTime(2100),
+        title: item.title,
+      );
+      // A new day keeps the time of day the row held.
+      picked = day == null
+          ? null
+          : DateTime(
+              day.year,
+              day.month,
+              day.day,
+              current.hour,
+              current.minute,
+            );
+    }
+    // The page may have closed while the picker was open.
+    if (picked != null && context.mounted) {
+      onChanged(item, nativeSheetDateValue(picked));
+    }
   }
 
   Widget _buildNavigation(BuildContext context) {

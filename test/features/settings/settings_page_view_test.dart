@@ -245,6 +245,200 @@ void main() {
     ).isNotEmpty();
   });
 
+  testWidgets('a date row shows its day and sends the day picked, at the time '
+      'it held; a time row shows its time', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        NativeSheetItemConfig(
+          id: 'run-day',
+          title: 'Date',
+          kind: NativeSheetItemKind.date,
+          value: nativeSheetDateValue(DateTime(2026, 3, 10, 9, 30)),
+          min: DateTime(2026, 3, 1).millisecondsSinceEpoch.toDouble(),
+          max: DateTime(2026, 3, 31).millisecondsSinceEpoch.toDouble(),
+        ),
+        NativeSheetItemConfig(
+          id: 'run-time',
+          title: 'Time',
+          kind: NativeSheetItemKind.time,
+          value: nativeSheetDateValue(DateTime(2000, 1, 1, 17, 5)),
+        ),
+      ]),
+    );
+    check(
+      find
+          .descendant(of: _row('run-day'), matching: find.text('Mar 10, 2026'))
+          .evaluate(),
+    ).isNotEmpty();
+    check(
+      find
+          .descendant(
+            of: _row('run-time'),
+            matching: find.textContaining('5:05'),
+          )
+          .evaluate(),
+    ).isNotEmpty();
+
+    await tester.tap(_row('run-day'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15'));
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    check(controller.changes)
+        .deepEquals([('run-day', '2026-03-15T09:30:00.000')]);
+  });
+
+  testWidgets("a page's search sends what is typed once typing pauses, and "
+      'keeps it when the page is described again', (tester) async {
+    final controller = _RecordingController();
+    final container = ProviderContainer(
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
+    );
+    addTearDown(container.dispose);
+    NativeSheetDetailConfig page(String value) => NativeSheetDetailConfig(
+      id: 'tasks',
+      title: 'Tasks',
+      search: NativeSheetSearchConfig(
+        id: 'tasks.search',
+        placeholder: 'Search tasks',
+        value: value,
+      ),
+      sections: const [
+        NativeSheetSectionConfig(
+          items: [NativeSheetItemConfig(id: 'row', title: 'Row')],
+        ),
+      ],
+    );
+    Future<void> show(NativeSheetDetailConfig detail) => tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: SettingsPageView(detail: detail),
+        ),
+      ),
+    );
+    final field = find.descendant(
+      of: find.byKey(const ValueKey<String>('settings-search-tasks.search')),
+      matching: find.byType(EditableText),
+    );
+    String text() => tester.widget<EditableText>(field).controller.text;
+    await show(page(''));
+
+    await tester.enterText(field, 'new');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(field, 'news');
+    await tester.pump(const Duration(milliseconds: 100));
+    check(controller.changes).isEmpty();
+    await tester.pump(settingsSearchDebounce);
+    check(controller.changes).deepEquals([('tasks.search', 'news')]);
+
+    // Described again while more is typed: the text stays.
+    await tester.enterText(field, 'news d');
+    await show(page('news'));
+    check(text()).equals('news d');
+    await tester.pump(settingsSearchDebounce);
+
+    // A query of the page's own replaces it.
+    await show(page(''));
+    check(text()).equals('');
+
+    // Echoed back trimmed, the query keeps the space typed after it.
+    final before = controller.changes.length;
+    await tester.enterText(field, 'weekly ');
+    await tester.pump(settingsSearchDebounce);
+    await show(page('weekly'));
+    check(text()).equals('weekly ');
+
+    // Show All while typing waits: the text goes, and so does its send.
+    await tester.enterText(field, 'weekly re');
+    await show(page(''));
+    check(text()).equals('');
+    await tester.pump(settingsSearchDebounce);
+    check(controller.changes.skip(before).toList())
+        .deepEquals([('tasks.search', 'weekly ')]);
+
+    // An earlier query answered after a later one leaves what is typed.
+    await tester.enterText(field, 'a');
+    await tester.pump(settingsSearchDebounce);
+    await tester.enterText(field, 'ab');
+    await tester.pump(settingsSearchDebounce);
+    await tester.enterText(field, 'abc');
+    await show(page('a'));
+    check(text()).equals('abc');
+    await show(page('ab'));
+    check(text()).equals('abc');
+    await tester.pump(settingsSearchDebounce);
+
+    // Emptied by hand, the query goes at once.
+    final emptied = controller.changes.length;
+    await tester.enterText(field, 'tide');
+    await tester.pump(settingsSearchDebounce);
+    await tester.enterText(field, '');
+    await tester.pump();
+    check(controller.changes.skip(emptied).toList())
+        .deepEquals([('tasks.search', 'tide'), ('tasks.search', '')]);
+  });
+
+  testWidgets('text typed on a page with no discard question is kept as '
+      'it is left', (tester) async {
+    final controller = _RecordingController();
+    final container = ProviderContainer(
+      overrides: [settingsControllerProvider.overrideWithValue(controller)],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/rule',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Text('editor'),
+          routes: [
+            GoRoute(
+              path: 'rule',
+              builder: (_, _) => SettingsPageView(
+                detail: _detail([
+                  const NativeSheetItemConfig(
+                    id: 'rule',
+                    title: 'Rule',
+                    kind: NativeSheetItemKind.textField,
+                    value: '',
+                  ),
+                ]),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(of: _row('rule'), matching: find.byType(EditableText)),
+      'FREQ=WEEKLY',
+    );
+    await tester.pumpAndSettle();
+    check(controller.changes).isEmpty();
+
+    router.pop();
+    await tester.pumpAndSettle();
+
+    check(controller.changes).deepEquals([('rule', 'FREQ=WEEKLY')]);
+  });
+
   testWidgets('text stays a draft until Done sends it', (tester) async {
     final controller = await _pumpPage(
       tester,

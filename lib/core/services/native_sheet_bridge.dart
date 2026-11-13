@@ -1205,6 +1205,31 @@ class NativeProfileSheetUser {
   }
 }
 
+/// A search field a page keeps above its rows, as a long list's filter.
+///
+/// What the person types goes back as a change of [id] a moment after
+/// typing pauses, and as the empty text when they cancel. Described again,
+/// the page keeps the text being typed unless [value] says otherwise.
+class NativeSheetSearchConfig {
+  const NativeSheetSearchConfig({
+    required this.id,
+    this.placeholder,
+    this.value = '',
+  });
+
+  final String id;
+  final String? placeholder;
+
+  /// The query the page's rows answer.
+  final String value;
+
+  Map<String, Object?> toMap() => {
+    'id': id,
+    if (placeholder != null) 'placeholder': placeholder,
+    'value': value,
+  };
+}
+
 class NativeSheetDetailConfig {
   const NativeSheetDetailConfig({
     required this.id,
@@ -1225,6 +1250,7 @@ class NativeSheetDetailConfig {
     this.busy = false,
     this.announcement,
     this.edited = false,
+    this.search,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -1264,6 +1290,9 @@ class NativeSheetDetailConfig {
   /// [discardPrompt] whatever was changed here since it appeared.
   final bool edited;
 
+  /// A search field above the rows, filtering them as the person types.
+  final NativeSheetSearchConfig? search;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1287,6 +1316,7 @@ class NativeSheetDetailConfig {
       if (busy) 'busy': busy,
       if (announcement != null) 'announcement': announcement,
       if (edited) 'edited': edited,
+      if (search case final search?) 'search': search.toMap(),
     };
   }
 }
@@ -1419,7 +1449,9 @@ class NativeSheetItemConfig {
   final List<NativeSheetLinkConfig> links;
   final bool? pending;
 
-  /// Inclusive bounds for [NativeSheetItemKind.slider] (e.g. STT silence ms, TTS rate).
+  /// Inclusive bounds for [NativeSheetItemKind.slider] (e.g. STT silence ms, TTS rate),
+  /// or the first and last days of a [NativeSheetItemKind.date] row, as
+  /// milliseconds since the epoch.
   final double? min;
   final double? max;
 
@@ -1575,7 +1607,30 @@ enum NativeSheetItemKind {
   /// Preview tiles for a few looks (System, Light, Dark), each painted from
   /// its option's swatches, with a label and a selection mark under it.
   appearanceTiles,
+
+  /// A day, as a compact date control at the row's trailing edge: the
+  /// system's date pill on iOS, and on Android the day, which opens the
+  /// date picker. [NativeSheetItemConfig.value] is the local date and time
+  /// as ISO 8601 without a zone (see [nativeSheetDateValue]); a change sends
+  /// one back the same way. [NativeSheetItemConfig.min] and
+  /// [NativeSheetItemConfig.max], when given, are the first and last days
+  /// allowed, as milliseconds since the epoch.
+  date,
+
+  /// A time of day, drawn and sent as [date] is; only its hour and minute
+  /// count.
+  time,
 }
+
+/// [value] as a [NativeSheetItemKind.date] or [NativeSheetItemKind.time]
+/// row holds it: local wall-clock time, ISO 8601 without a zone.
+String nativeSheetDateValue(DateTime value) => DateTime(
+  value.year,
+  value.month,
+  value.day,
+  value.hour,
+  value.minute,
+).toIso8601String();
 
 class NativeSheetOptionConfig {
   const NativeSheetOptionConfig({
@@ -1862,6 +1917,14 @@ extension on NativeSheetDetailConfig {
       busy: busy ? true : null,
       announcement: announcement,
       edited: edited ? true : null,
+      search: switch (search) {
+        null => null,
+        final search => PlatformNativeSheetSearch(
+          id: search.id,
+          placeholder: search.placeholder,
+          value: search.value,
+        ),
+      },
     );
   }
 }
@@ -1946,6 +2009,8 @@ extension on NativeSheetItemKind {
         PlatformNativeSheetItemKind.statusUpdate,
       NativeSheetItemKind.appearanceTiles =>
         PlatformNativeSheetItemKind.appearanceTiles,
+      NativeSheetItemKind.date => PlatformNativeSheetItemKind.date,
+      NativeSheetItemKind.time => PlatformNativeSheetItemKind.time,
     };
   }
 }

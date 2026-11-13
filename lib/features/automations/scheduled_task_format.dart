@@ -1,67 +1,84 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
-import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/automations/automation_draft.dart';
 import 'package:conduit_core/features/automations/automation_schedule.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
 
-import '../../../l10n/app_localizations.dart';
+import '../../l10n/app_localizations.dart';
 
-String _locale(BuildContext context) =>
-    Localizations.localeOf(context).toString();
+/// How a scheduled task's times read: in the app's language, and in the 12
+/// or 24 hour style the device uses.
+typedef TaskClock = ({String locale, bool use24Hour});
 
-/// A date with its time of day, in the 12 or 24 hour style the device uses.
-DateFormat _dateAndTime(BuildContext context) {
-  final date = DateFormat.yMMMd(_locale(context));
-  return MediaQuery.alwaysUse24HourFormatOf(context)
-      ? date.add_Hm()
-      : date.add_jm();
-}
+/// The clock outside any widget: [l10n]'s language and the device's style.
+TaskClock taskClockFor(AppLocalizations l10n) => (
+  locale: l10n.localeName,
+  use24Hour: WidgetsBinding.instance.platformDispatcher.alwaysUse24HourFormat,
+);
+
+/// A time of day on the device's clock. The device says whether that is the
+/// 24 hour one; when it is not, it is the 12 hour one, whatever the
+/// language's own habit.
+DateFormat _timeOfDay(TaskClock clock) => clock.use24Hour
+    ? DateFormat.Hm(clock.locale)
+    : DateFormat('h:mm a', clock.locale);
+
+/// A date with its time of day.
+DateFormat _dateAndTime(TaskClock clock) =>
+    DateFormat.yMMMd(clock.locale).addPattern(_timeOfDay(clock).pattern);
 
 /// A server nanosecond timestamp as a local date and time, or null when the
 /// server sent none.
-String? formatServerTime(BuildContext context, int? nanoseconds) {
+String? formatServerTime(TaskClock clock, int? nanoseconds) {
   final time = dateTimeFromEpochNanoseconds(nanoseconds);
   if (time == null) return null;
-  return _dateAndTime(context).format(time);
+  return _plain(_dateAndTime(clock).format(time));
 }
 
-/// A wall clock time, in the 12 or 24 hour style the device uses.
-String formatWallClockTime(BuildContext context, int hour, int minute) =>
-    MaterialLocalizations.of(context).formatTimeOfDay(
-      TimeOfDay(hour: hour, minute: minute),
-      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
-    );
+/// [text] with the narrow spaces some locales put before AM and PM made
+/// plain, as the rest of the app writes times.
+String _plain(String text) => text.replaceAll('\u202f', ' ');
+
+/// A wall clock time.
+String formatWallClockTime(TaskClock clock, int hour, int minute) =>
+    _plain(_timeOfDay(clock).format(DateTime(2000, 1, 1, hour, minute)));
 
 /// Short weekday name for a rule code such as `MO`, in the app's language.
-String weekdayLabel(BuildContext context, String code) {
+String weekdayLabel(TaskClock clock, String code) {
   final index = AutomationSchedule.weekdayCodes.indexOf(code);
   // 1 January 2024 was a Monday.
-  return DateFormat.E(_locale(context)).format(DateTime(2024, 1, 1 + index));
+  return DateFormat.E(clock.locale).format(DateTime(2024, 1, 1 + index));
+}
+
+/// Full weekday name for a rule code such as `MO`, in the app's language.
+String weekdayName(TaskClock clock, String code) {
+  final index = AutomationSchedule.weekdayCodes.indexOf(code);
+  return DateFormat.EEEE(clock.locale).format(DateTime(2024, 1, 1 + index));
 }
 
 /// One line describing a schedule. A rule the controls cannot edit is shown as
 /// stored, since a guess at its meaning could be wrong.
 String scheduleSummary(
-  BuildContext context,
+  TaskClock clock,
   AppLocalizations l10n,
   AutomationSchedule schedule,
 ) {
   return switch (schedule) {
     OnceAutomationSchedule() => l10n.scheduledTaskScheduleOnceSummary(
-      _dateAndTime(context).format(schedule.wallClock),
+      _plain(_dateAndTime(clock).format(schedule.wallClock)),
     ),
     DailyAutomationSchedule() => l10n.scheduledTaskScheduleDailySummary(
-      formatWallClockTime(context, schedule.hour, schedule.minute),
+      formatWallClockTime(clock, schedule.hour, schedule.minute),
     ),
     WeeklyAutomationSchedule() => l10n.scheduledTaskScheduleWeeklySummary(
       [
         for (final code in AutomationSchedule.weekdayCodes)
-          if (schedule.days.contains(code)) weekdayLabel(context, code),
+          if (schedule.days.contains(code)) weekdayLabel(clock, code),
       ].join(', '),
-      formatWallClockTime(context, schedule.hour, schedule.minute),
+      formatWallClockTime(clock, schedule.hour, schedule.minute),
     ),
     RawAutomationSchedule() =>
       schedule.rrule.trim().isEmpty

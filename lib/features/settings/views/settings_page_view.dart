@@ -14,6 +14,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/conduit_components.dart'
+    show ConduitGlassSearchField;
 import '../../../shared/widgets/discard_changes.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
@@ -574,10 +576,18 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     // Rows that open pages gain their chevron once the page is known.
     ref.watch(settingsPagesProvider);
     final sections = _sections;
+    final search = widget.detail.search;
     final page = UtilityPageScaffold.settings(
       title: widget.detail.title,
       trailing: _barAction(context),
       children: [
+        if (search != null) ...[
+          SettingsSearchField(
+            search: search,
+            onQuery: (query) => _send(search.id, query),
+          ),
+          _sectionGap,
+        ],
         ...widget.leading,
         for (var index = 0; index < sections.length; index++) ...[
           if (index > 0 || widget.leading.isNotEmpty) _sectionGap,
@@ -587,7 +597,16 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     );
     // A form asks before Back or a swipe drops its unsaved changes; closing
     // it after a save does not ask.
-    if (widget.detail.discardPrompt == null) return page;
+    // A page with no discard question keeps, as it is popped, the text
+    // typed into it, as if done -- as the native sheet does.
+    if (widget.detail.discardPrompt == null) {
+      return PopScope(
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) _commitPendingText();
+        },
+        child: page,
+      );
+    }
     final prompt = widget.detail.discardPrompt!;
     return DiscardChangesScope(
       dirty: _hasUnsavedChanges,
@@ -602,4 +621,100 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       child: page,
     );
   }
+}
+
+/// How long typing in a page's search field pauses before the query goes.
+@visibleForTesting
+const settingsSearchDebounce = Duration(milliseconds: 250);
+
+/// A page's search field above its rows, as a long list's filter. What is
+/// typed goes to [onQuery] once typing pauses for [settingsSearchDebounce],
+/// and clearing it goes at once. The page described again keeps the text
+/// being typed unless its query is a new one the field did not send: the
+/// page echoing a query back must not drop what was typed since.
+@visibleForTesting
+class SettingsSearchField extends StatefulWidget {
+  const SettingsSearchField({
+    super.key,
+    required this.search,
+    required this.onQuery,
+  });
+
+  final NativeSheetSearchConfig search;
+  final ValueChanged<String> onQuery;
+
+  @override
+  State<SettingsSearchField> createState() => _SettingsSearchFieldState();
+}
+
+class _SettingsSearchFieldState extends State<SettingsSearchField> {
+  late final _controller = TextEditingController(text: widget.search.value);
+  Timer? _debounce;
+
+  /// The queries this field sent that the page has not echoed yet, oldest
+  /// first, trimmed as the page echoes them.
+  final List<String> _unechoed = [];
+
+  @override
+  void didUpdateWidget(covariant SettingsSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final value = widget.search.value;
+    if (value == oldWidget.search.value) return;
+    // An echo of a query this field sent -- the last one or an earlier one
+    // answered late -- leaves what is typed (a trailing space included).
+    final echo = _unechoed.indexOf(value.trim());
+    if (echo >= 0) {
+      _unechoed.removeRange(0, echo + 1);
+      return;
+    }
+    // A query from elsewhere -- Show All -- replaces the text, and the send
+    // still waiting for the typing to pause is dropped.
+    if (value.trim() != _controller.text.trim()) {
+      _debounce?.cancel();
+      _unechoed.clear();
+      _controller.text = value;
+    }
+  }
+
+  void _send(String query) {
+    _unechoed.add(query.trim());
+    widget.onQuery(query);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _changed(String query) {
+    setState(() {});
+    _debounce?.cancel();
+    // Emptied: the whole list comes back at once, as the field shows it.
+    if (query.isEmpty) {
+      _send('');
+      return;
+    }
+    _debounce = Timer(settingsSearchDebounce, () => _send(query));
+  }
+
+  void _clear() {
+    _debounce?.cancel();
+    _controller.clear();
+    setState(() {});
+    _send('');
+  }
+
+  @override
+  Widget build(BuildContext context) => KeyedSubtree(
+    key: ValueKey<String>('settings-search-${widget.search.id}'),
+    child: ConduitGlassSearchField(
+      controller: _controller,
+      hintText: widget.search.placeholder ?? '',
+      query: _controller.text,
+      onChanged: _changed,
+      onClear: _clear,
+    ),
+  );
 }

@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:conduit/features/automations/views/scheduled_task_detail_page.dart';
-import 'package:conduit/features/automations/views/scheduled_task_editor_page.dart';
-import 'package:conduit/features/automations/views/scheduled_tasks_page.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
+import 'package:conduit/features/settings/pages/scheduled_task_settings_pages.dart';
+import 'package:conduit/features/settings/settings_page_module.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
@@ -17,7 +19,6 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
-import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
@@ -358,11 +359,25 @@ class _Storage extends Fake implements OptimizedStorageService {
   Future<String?> getActiveServerId() async => automationTestServer.id;
 }
 
-/// A signed-in client under test. The same [ApiService] serves the next account
-/// after [switchAccount], as when another user signs in on the same server.
-final class AutomationSession {
-  AutomationSession(this.wire, this.container, this.router, this.api);
+final AppLocalizations automationL10n = lookupAppLocalizations(
+  const Locale('en'),
+);
 
+/// A signed-in client under test, driving the scheduled tasks' pages of
+/// Settings as either renderer does: opening a page, sending its rows'
+/// changes, and reading the pages as they are described. The same
+/// [ApiService] serves the next account after [switchAccount], as when
+/// another user signs in on the same server.
+final class AutomationSession {
+  AutomationSession(
+    this.tester,
+    this.wire,
+    this.container,
+    this.router,
+    this.api,
+  );
+
+  final WidgetTester tester;
   final AutomationWire wire;
   final ProviderContainer container;
   final GoRouter router;
@@ -378,11 +393,73 @@ final class AutomationSession {
       ..invalidate(openWebUiAuthSessionEpochProvider)
       ..invalidate(authTokenProvider3);
   }
+
+  ScheduledTaskSettingsPages get module => container
+      .read(settingsPageModulesProvider)
+      .whereType<ScheduledTaskSettingsPages>()
+      .single;
+
+  SettingsPages get pages => container.read(settingsPagesProvider.notifier);
+
+  NativeSheetDetailConfig page(String id) =>
+      container.read(settingsPagesProvider)[id]!;
+
+  List<NativeSheetItemConfig> rows(String id) {
+    final detail = page(id);
+    return [...detail.items, for (final s in detail.sections) ...s.items];
+  }
+
+  NativeSheetItemConfig? row(String pageId, String rowId) =>
+      rows(pageId).where((row) => row.id == rowId).firstOrNull;
+
+  Iterable<String> titles(String pageId) => rows(pageId).map((r) => r.title);
+
+  /// Pages Settings was asked to close, once each time.
+  List<String> get closed => [
+    for (final MapEntry(:key, :value)
+        in container.read(settingsPagesProvider).closeRequests.entries)
+      for (var i = 0; i < value; i++) key,
+  ];
+
+  /// Opens page [id], as a page of Settings appears.
+  Future<void> open(String id) async {
+    if (!container.read(settingsPagesProvider).contains(id)) {
+      pages.register([
+        buildNativeLoadingDetail(l10n: automationL10n, id: id, title: ''),
+      ]);
+    }
+    await settle(module.hydrate(id, automationL10n));
+    await settle(Future<void>.value());
+  }
+
+  /// A row change from one of the pages, waited on until it is handled.
+  Future<void> change(String id, [Object? value = true]) =>
+      settle(module.handleChange(id, value, automationL10n));
+
+  /// Lets work a change started without waiting for run to its end.
+  Future<void> idle() =>
+      settle(Future<void>.delayed(const Duration(milliseconds: 200)));
+
+  /// Leaves page [id], as Back or a closing sheet does.
+  Future<void> leave(String id) async {
+    module.pageLeft(id);
+    await settle(Future<void>.value());
+  }
+
+  /// Lets [work] and what it started run to the end, the clock moving.
+  Future<void> settle(Future<Object?> work) async {
+    var done = false;
+    unawaited(work.whenComplete(() => done = true));
+    for (var i = 0; i < 200 && !done; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    await tester.pump(const Duration(milliseconds: 10));
+    await work;
+  }
 }
 
 /// The shell the chat, folder and channel pages live in, and the page each
-/// stub destination shows. Present on screen only while that page is the one
-/// the user sees.
+/// stub destination shows.
 const automationShellKey = Key('automation-shell');
 const automationChatKey = Key('automation-chat');
 const automationFolderKey = Key('automation-folder');
@@ -390,8 +467,6 @@ Key automationChannelKey(String id) => Key('automation-channel-$id');
 
 Future<AutomationSession> pumpAutomations(
   WidgetTester tester, {
-  String location = Routes.scheduledTasks,
-  String shellLocation = Routes.chat,
   AppSettings settings = advancedSettings,
   Map<String, dynamic> permissions = const {
     'features': {'automations': true, 'channels': true},
@@ -404,13 +479,7 @@ Future<AutomationSession> pumpAutomations(
   List<Folder> folders = const [],
   List<Channel> channels = const [],
   void Function(AutomationWire wire)? configureWire,
-  List<LocalizationsDelegate<dynamic>> localizationsDelegates =
-      conduitLocalizationsDelegates,
 }) async {
-  tester.view
-    ..physicalSize = const Size(800, 3200)
-    ..devicePixelRatio = 1;
-  addTearDown(tester.view.reset);
   FakeSelection.selected.clear();
   final wire = AutomationWire(tasks ?? [taskJson('a')]);
   configureWire?.call(wire);
@@ -423,11 +492,11 @@ Future<AutomationSession> pumpAutomations(
   addTearDown(api.dispose);
 
   late final AutomationSession session;
-  // The same shape as the app's router: chat, folder and channel are children
-  // of one shell that is already mounted before Settings is opened over it, and
-  // the scheduled-task pages are top-level routes outside it.
+  // Chat, folder and channel are children of one shell, already mounted
+  // under Settings, as in the app.
   final router = GoRouter(
-    initialLocation: shellLocation,
+    navigatorKey: NavigationService.navigatorKey,
+    initialLocation: Routes.chat,
     routes: [
       ShellRoute(
         builder: (_, _, child) =>
@@ -451,30 +520,9 @@ Future<AutomationSession> pumpAutomations(
             ),
         ],
       ),
-      GoRoute(
-        path: Routes.scheduledTasks,
-        name: RouteNames.scheduledTasks,
-        builder: (_, _) => const ScheduledTasksPage(),
-      ),
-      GoRoute(
-        path: Routes.scheduledTaskNew,
-        name: RouteNames.scheduledTaskNew,
-        builder: (_, _) => const ScheduledTaskEditorPage(),
-      ),
-      GoRoute(
-        path: Routes.scheduledTaskDetail,
-        name: RouteNames.scheduledTaskDetail,
-        builder: (_, state) =>
-            ScheduledTaskDetailPage(taskId: state.pathParameters['id']!),
-      ),
-      GoRoute(
-        path: Routes.scheduledTaskEdit,
-        name: RouteNames.scheduledTaskEdit,
-        builder: (_, state) =>
-            ScheduledTaskEditorPage(taskId: state.pathParameters['id']!),
-      ),
     ],
   );
+  NavigationService.attachRouter(router);
   addTearDown(router.dispose);
 
   final container = ProviderContainer(
@@ -518,27 +566,26 @@ Future<AutomationSession> pumpAutomations(
     ],
   );
   addTearDown(container.dispose);
-  session = AutomationSession(wire, container, router, api);
+  session = AutomationSession(tester, wire, container, router, api);
   // The task list rebuilds when the active server resolves. In the app it is
   // long resolved by the time Settings opens, so settle it first.
   await container.read(activeServerProvider.future);
   await container.read(userPermissionsProvider.future);
   await container.read(backendConfigProvider.future);
+  await container.read(modelsProvider.future);
+  await container.read(foldersProvider.future);
+  await container.read(channelsListProvider.future);
 
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp.router(
         routerConfig: router,
-        localizationsDelegates: localizationsDelegates,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        // As in the app, legacy-design widgets read its theme through this.
-        builder: (context, child) => LegacyDesignCompatibility(child: child!),
       ),
     ),
   );
-  await tester.pumpAndSettle();
-  unawaited(router.push<void>(location));
   await tester.pumpAndSettle();
   return session;
 }

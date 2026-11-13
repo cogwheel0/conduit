@@ -3150,10 +3150,6 @@
   "@personalConnectionsUnsupported": {
     "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
   },
-  "personalConnectionsDeleteTitle": "Delete connection?",
-  "@personalConnectionsDeleteTitle": {
-    "description": "Title of the confirmation for deleting a personal connection."
-  },
   "personalConnectionsDeleteMessage": "{name} will be removed from your Open WebUI account.",
   "@personalConnectionsDeleteMessage": {
     "description": "Confirmation text naming the personal connection {name} that will be deleted.",
@@ -8685,10 +8681,6 @@
   "@personalToolSettingsSaveFailed": {
     "description": "Tool settings sheet: error when saving the user's personal tool settings failed."
   },
-  "scheduledTaskDeleteTitle": "Delete scheduled task?",
-  "@scheduledTaskDeleteTitle": {
-    "description": "Title of the confirmation dialog before deleting a scheduled task."
-  },
   "scheduledTaskRunning": "Running…",
   "@scheduledTaskRunning": {
     "description": "Shown on a scheduled task's page while waiting for a run the user started with Run now to finish."
@@ -8713,10 +8705,6 @@
         "type": "String"
       }
     }
-  },
-  "scheduledTaskFolderSearchHint": "Search folders",
-  "@scheduledTaskFolderSearchHint": {
-    "description": "Placeholder of the search field in the folder picker of the scheduled task editor."
   },
   "scheduledTasksEmptyHint": "Have a model follow your instructions on a schedule, like a morning news digest.",
   "@scheduledTasksEmptyHint": {
@@ -10786,10 +10774,6 @@
   "@modelControlServiceTier": {
     "description": "Row title in the model picker for a coding agent's service tier setting (which processing tier, such as faster or cheaper, the agent's model uses)."
   },
-  "scheduledTaskTerminalSearchHint": "Search terminals",
-  "@scheduledTaskTerminalSearchHint": {
-    "description": "Search field hint in the list of terminals a scheduled task can run with."
-  },
   "scheduledTaskWorkingFolderLabel": "Working Folder",
   "@scheduledTaskWorkingFolderLabel": {
     "description": "Label of the field for the folder on the terminal where a scheduled task starts. Optional."
@@ -11068,6 +11052,18 @@
   "hermesMcpTestFailed": "MCP test failed.",
   "@hermesMcpTestFailed": {
     "description": "Result of an MCP server test that failed without saying why."
+  },
+  "scheduledTasksFilterLabel": "Show",
+  "@scheduledTasksFilterLabel": {
+    "description": "Title of the row choosing which scheduled tasks the list shows: all, active or paused."
+  },
+  "personalConnectionsTurnOn": "Turn On",
+  "@personalConnectionsTurnOn": {
+    "description": "Menu action on a personal tool server or terminal row that turns it on."
+  },
+  "personalConnectionsTurnOff": "Turn Off",
+  "@personalConnectionsTurnOff": {
+    "description": "Menu action on a personal tool server or terminal row that turns it off."
   },
   "pushFallbackTitle": "Conduit",
   "@pushFallbackTitle": {
