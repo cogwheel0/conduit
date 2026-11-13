@@ -6757,6 +6757,18 @@ pub struct HermesConnectionDto {
     /// Signed in natively (a Desktop Gateway with `nativePkce`).
     #[serde(default)]
     pub desktop_signed_in: bool,
+    /// The names of the headers sent with every request to the server
+    /// (Cloudflare Access and the like), in the order saved. Their values
+    /// stay in the daemon.
+    #[serde(default)]
+    pub access_header_names: Vec<String>,
+    /// An API server's memory key is set (else the daemon makes one).
+    #[serde(default)]
+    pub has_memory_key: bool,
+    /// The daemon holds a dashboard sign-in for the server (a Desktop
+    /// Gateway with `dashboardCookie`).
+    #[serde(default)]
+    pub dashboard_signed_in: bool,
 }
 
 fn default_hermes_connection_dto_mode() -> String {
@@ -6843,6 +6855,16 @@ pub struct HermesConnectionEdit {
     /// (asked when the daemon refuses with `hermes.plainHttpConsent`).
     #[serde(default)]
     pub allow_plain_http: bool,
+    /// The headers every request carries, in order; null keeps the saved
+    /// ones. A refused list is `invalidParams` with `reason: accessHeader`,
+    /// `issue` (`tooMany`, `invalidName`, `duplicate`, `reserved`,
+    /// `tooLong`, `invalidValue`) and `header`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_headers: Option<Vec<HermesAccessHeaderEdit>>,
+    /// An API server's memory key (`X-Hermes-Session-Key`): null keeps the
+    /// saved one, empty clears it (the daemon makes one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_key: Option<String>,
 }
 
 fn default_hermes_connection_edit_mode() -> String {
@@ -6855,6 +6877,154 @@ fn default_hermes_connection_edit_desktop_auth_kind() -> String {
 
 fn default_hermes_connection_edit_desktop_profile() -> String {
     "default".to_owned()
+}
+
+/// One access header in a connection's form. A saved header's value is
+/// never sent to the window, so a row left as it was says which saved
+/// header it keeps.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesAccessHeaderEdit {
+    pub name: String,
+    /// The value typed; null keeps the saved value of `savedName` (or of
+    /// `name` when that is null). Saved values never follow a connection
+    /// to another server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// The saved header this row was, when it was renamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_name: Option<String>,
+}
+
+/// Reply to `hermes.connections.profiles`: the profiles a Desktop
+/// Gateway offers the form's connection, as the phone's profile menu
+/// lists them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesProfiles {
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    /// The profile the form should show: the one it had while listed,
+    /// else `default`, else the first. Null when nothing was listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<String>,
+    /// Why none were listed (the form keeps its profile and says so):
+    /// `noUrl`, `testFirst` (credentials would go unencrypted unasked),
+    /// `empty`, `signInFirst`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue: Option<String>,
+}
+
+/// Params naming only the Hermes connection a change is for
+/// (`hermes.skills.reload`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesConnectionRef {
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): a change naming none, or another
+    /// connection than the one in use, is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
+/// Params for `hermes.dashboard.start`: the saved connection whose
+/// dashboard sign-in opens, put in use first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDashboardStart {
+    pub id: String,
+    /// The Hermes connection in use once `id` was put in use
+    /// (`HermesChanged.connection`): refused once another is in use, or
+    /// when it names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
+/// Params for `hermes.toolsets.set`: a toolset on or off for new sessions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesToolsetToggle {
+    pub name: String,
+    pub enabled: bool,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): a change naming none, or another
+    /// connection than the one in use, is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
+/// Reply to `hermes.dashboard.start`: where a Desktop Gateway's dashboard
+/// sign-in opens, for the window's browser window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDashboardPlan {
+    /// The dashboard's own sign-in page.
+    pub login_url: String,
+    /// The dashboard's origin (`scheme://host[:port]`): the flow is done
+    /// back there, and leaving it after the identity provider is refused.
+    pub origin: String,
+    /// False when this Mac's browser window cannot carry the connection's
+    /// access headers to the dashboard (as on an iPhone): the window says
+    /// so instead of opening.
+    #[serde(default = "default_hermes_dashboard_plan_supported")]
+    pub supported: bool,
+}
+
+fn default_hermes_dashboard_plan_supported() -> bool {
+    true
+}
+
+/// One cookie the dashboard sign-in window holds for the dashboard's host.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesCookieDto {
+    pub name: String,
+    pub value: String,
+    /// As WebKit reports it: the host for a host-only cookie, a leading
+    /// dot for a domain cookie.
+    pub domain: String,
+    #[serde(default = "default_hermes_cookie_dto_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Milliseconds since the epoch; null for a session cookie.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_ms: Option<i64>,
+}
+
+fn default_hermes_cookie_dto_path() -> String {
+    "/".to_owned()
+}
+
+/// Params for `hermes.dashboard.complete`: the cookies a page the sign-in
+/// window loaded on the dashboard had.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDashboardCookies {
+    /// The connection signing in.
+    pub id: String,
+    #[serde(default)]
+    pub cookies: Vec<HermesCookieDto>,
+    /// The Hermes connection in use the sign-in was started under
+    /// (`HermesChanged.connection`): refused once another is in use, or
+    /// when it names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
+/// Reply to `hermes.dashboard.complete`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDashboardResult {
+    /// The dashboard accepted the cookies as a signed-in session; they are
+    /// kept. False: not signed in yet (the window keeps waiting).
+    #[serde(default)]
+    pub signed_in: bool,
+    /// The connections, once signed in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connections: Option<HermesConnections>,
 }
 
 /// Reply to `hermes.connections.test`.
@@ -18062,6 +18232,68 @@ pub mod methods {
         type Result = super::HermesConnections;
     }
 
+    /// The profiles a Desktop Gateway offers a connection's form (sent with
+    /// the form's credentials, as the phone's Refresh Profiles).
+    ///
+    /// `hermes.connections.profiles`: HermesConnectionEdit -> HermesProfiles.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesConnectionsProfiles;
+
+    impl RpcMethod for HermesConnectionsProfiles {
+        const NAME: &'static str = "hermes.connections.profiles";
+        type Params = super::HermesConnectionEdit;
+        type Result = super::HermesProfiles;
+    }
+
+    /// Turns a toolset on or off for new sessions (a Desktop Gateway).
+    ///
+    /// `hermes.toolsets.set`: HermesToolsetToggle -> HermesCatalog.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesToolsetsSet;
+
+    impl RpcMethod for HermesToolsetsSet {
+        const NAME: &'static str = "hermes.toolsets.set";
+        type Params = super::HermesToolsetToggle;
+        type Result = super::HermesCatalog;
+    }
+
+    /// Has a Desktop Gateway read its skills again; answers the catalog.
+    ///
+    /// `hermes.skills.reload`: HermesConnectionRef -> HermesCatalog.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesSkillsReload;
+
+    impl RpcMethod for HermesSkillsReload {
+        const NAME: &'static str = "hermes.skills.reload";
+        type Params = super::HermesConnectionRef;
+        type Result = super::HermesCatalog;
+    }
+
+    /// Where a connection's dashboard sign-in opens.
+    ///
+    /// `hermes.dashboard.start`: HermesDashboardStart -> HermesDashboardPlan.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesDashboardStart;
+
+    impl RpcMethod for HermesDashboardStart {
+        const NAME: &'static str = "hermes.dashboard.start";
+        type Params = super::HermesDashboardStart;
+        type Result = super::HermesDashboardPlan;
+    }
+
+    /// Hands over the cookies of a page the sign-in window loaded; kept when
+    /// the dashboard accepts them as a signed-in session.
+    ///
+    /// `hermes.dashboard.complete`: HermesDashboardCookies -> HermesDashboardResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesDashboardComplete;
+
+    impl RpcMethod for HermesDashboardComplete {
+        const NAME: &'static str = "hermes.dashboard.complete";
+        type Params = super::HermesDashboardCookies;
+        type Result = super::HermesDashboardResult;
+    }
+
     /// `hermes.mcp.list`: no params -> HermesMcpServers.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesMcpList;
@@ -20573,6 +20805,31 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesConnections"),
     },
     MethodSpec {
+        name: "hermes.connections.profiles",
+        params: Some("HermesConnectionEdit"),
+        result: Some("HermesProfiles"),
+    },
+    MethodSpec {
+        name: "hermes.toolsets.set",
+        params: Some("HermesToolsetToggle"),
+        result: Some("HermesCatalog"),
+    },
+    MethodSpec {
+        name: "hermes.skills.reload",
+        params: Some("HermesConnectionRef"),
+        result: Some("HermesCatalog"),
+    },
+    MethodSpec {
+        name: "hermes.dashboard.start",
+        params: Some("HermesDashboardStart"),
+        result: Some("HermesDashboardPlan"),
+    },
+    MethodSpec {
+        name: "hermes.dashboard.complete",
+        params: Some("HermesDashboardCookies"),
+        result: Some("HermesDashboardResult"),
+    },
+    MethodSpec {
         name: "hermes.mcp.list",
         params: None,
         result: Some("HermesMcpServers"),
@@ -22029,6 +22286,7 @@ pub mod conformance {
         "HandoffSettled",
         "HandshakeRequest",
         "HandshakeResponse",
+        "HermesAccessHeaderEdit",
         "HermesBotAvatar",
         "HermesBotDto",
         "HermesBotRef",
@@ -22043,12 +22301,18 @@ pub mod conformance {
         "HermesCompactResultDto",
         "HermesConnectionDto",
         "HermesConnectionEdit",
+        "HermesConnectionRef",
         "HermesConnectionTestResult",
         "HermesConnections",
         "HermesContextCategoryDto",
         "HermesContextRef",
         "HermesContextReportDto",
         "HermesContinue",
+        "HermesCookieDto",
+        "HermesDashboardCookies",
+        "HermesDashboardPlan",
+        "HermesDashboardResult",
+        "HermesDashboardStart",
         "HermesDecisionAnswer",
         "HermesDecisionResult",
         "HermesDeliveryOptions",
@@ -22076,6 +22340,7 @@ pub mod conformance {
         "HermesProcessDto",
         "HermesProcessKill",
         "HermesProcessRef",
+        "HermesProfiles",
         "HermesProviderPlanDto",
         "HermesRef",
         "HermesRename",
@@ -22112,6 +22377,7 @@ pub mod conformance {
         "HermesToggle",
         "HermesTokenTotalsDto",
         "HermesToolsetDto",
+        "HermesToolsetToggle",
         "HermesUsageBarDto",
         "HermesUsageBarsDto",
         "HermesWork",
@@ -22664,6 +22930,7 @@ pub mod conformance {
             "HandoffSettled" => roundtrip::<super::HandoffSettled>(json),
             "HandshakeRequest" => roundtrip::<super::HandshakeRequest>(json),
             "HandshakeResponse" => roundtrip::<super::HandshakeResponse>(json),
+            "HermesAccessHeaderEdit" => roundtrip::<super::HermesAccessHeaderEdit>(json),
             "HermesBotAvatar" => roundtrip::<super::HermesBotAvatar>(json),
             "HermesBotDto" => roundtrip::<super::HermesBotDto>(json),
             "HermesBotRef" => roundtrip::<super::HermesBotRef>(json),
@@ -22678,12 +22945,18 @@ pub mod conformance {
             "HermesCompactResultDto" => roundtrip::<super::HermesCompactResultDto>(json),
             "HermesConnectionDto" => roundtrip::<super::HermesConnectionDto>(json),
             "HermesConnectionEdit" => roundtrip::<super::HermesConnectionEdit>(json),
+            "HermesConnectionRef" => roundtrip::<super::HermesConnectionRef>(json),
             "HermesConnectionTestResult" => roundtrip::<super::HermesConnectionTestResult>(json),
             "HermesConnections" => roundtrip::<super::HermesConnections>(json),
             "HermesContextCategoryDto" => roundtrip::<super::HermesContextCategoryDto>(json),
             "HermesContextRef" => roundtrip::<super::HermesContextRef>(json),
             "HermesContextReportDto" => roundtrip::<super::HermesContextReportDto>(json),
             "HermesContinue" => roundtrip::<super::HermesContinue>(json),
+            "HermesCookieDto" => roundtrip::<super::HermesCookieDto>(json),
+            "HermesDashboardCookies" => roundtrip::<super::HermesDashboardCookies>(json),
+            "HermesDashboardPlan" => roundtrip::<super::HermesDashboardPlan>(json),
+            "HermesDashboardResult" => roundtrip::<super::HermesDashboardResult>(json),
+            "HermesDashboardStart" => roundtrip::<super::HermesDashboardStart>(json),
             "HermesDecisionAnswer" => roundtrip::<super::HermesDecisionAnswer>(json),
             "HermesDecisionResult" => roundtrip::<super::HermesDecisionResult>(json),
             "HermesDeliveryOptions" => roundtrip::<super::HermesDeliveryOptions>(json),
@@ -22711,6 +22984,7 @@ pub mod conformance {
             "HermesProcessDto" => roundtrip::<super::HermesProcessDto>(json),
             "HermesProcessKill" => roundtrip::<super::HermesProcessKill>(json),
             "HermesProcessRef" => roundtrip::<super::HermesProcessRef>(json),
+            "HermesProfiles" => roundtrip::<super::HermesProfiles>(json),
             "HermesProviderPlanDto" => roundtrip::<super::HermesProviderPlanDto>(json),
             "HermesRef" => roundtrip::<super::HermesRef>(json),
             "HermesRename" => roundtrip::<super::HermesRename>(json),
@@ -22747,6 +23021,7 @@ pub mod conformance {
             "HermesToggle" => roundtrip::<super::HermesToggle>(json),
             "HermesTokenTotalsDto" => roundtrip::<super::HermesTokenTotalsDto>(json),
             "HermesToolsetDto" => roundtrip::<super::HermesToolsetDto>(json),
+            "HermesToolsetToggle" => roundtrip::<super::HermesToolsetToggle>(json),
             "HermesUsageBarDto" => roundtrip::<super::HermesUsageBarDto>(json),
             "HermesUsageBarsDto" => roundtrip::<super::HermesUsageBarsDto>(json),
             "HermesWork" => roundtrip::<super::HermesWork>(json),

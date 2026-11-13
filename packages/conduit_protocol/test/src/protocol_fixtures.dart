@@ -279,8 +279,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'twoStepSetup': const TwoStepSetup(
     manualKey: 'MFRGGZDFMZTWQ2LK',
     qrSvg: '<svg></svg>',
-    authenticatorUri:
-        'otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI',
+    authenticatorUri: 'otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI',
   ),
   'twoStepCode': const TwoStepCode(code: '123456'),
   'twoStepRecoveryCode': const TwoStepCode(
@@ -1747,6 +1746,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     hasApiKey: true,
     hasLegacyToken: true,
     desktopSignedIn: true,
+    accessHeaderNames: <String>[
+      'CF-Access-Client-Id',
+      'CF-Access-Client-Secret',
+    ],
+    hasMemoryKey: true,
+    dashboardSignedIn: true,
   ),
   'hermesConnections': const HermesConnections(
     enabled: true,
@@ -1769,6 +1774,60 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     legacyToken: 'demo-token',
     allowSelfSignedCertificates: true,
     allowPlainHttp: true,
+    accessHeaders: <HermesAccessHeaderEdit>[
+      HermesAccessHeaderEdit(name: 'CF-Access-Client-Id', value: 'demo.access'),
+      HermesAccessHeaderEdit(name: 'X-Gate', savedName: 'X-Old-Gate'),
+    ],
+    memoryKey: 'demo-memory',
+  ),
+  'hermesAccessHeaderEdit': const HermesAccessHeaderEdit(
+    name: 'X-Gate',
+    value: 'demo-value',
+    savedName: 'X-Old-Gate',
+  ),
+  'hermesProfiles': const HermesProfiles(
+    profiles: <String>['default', 'writer'],
+    selected: 'writer',
+    issue: 'signInFirst',
+  ),
+  'hermesToolsetToggle': const HermesToolsetToggle(
+    name: 'web',
+    enabled: false,
+    connection: '0a1b2c3d:2',
+  ),
+  'hermesConnectionRef': const HermesConnectionRef(connection: '0a1b2c3d:2'),
+  'hermesDashboardStart': const HermesDashboardStart(
+    id: 'c1',
+    connection: '0a1b2c3d:2',
+  ),
+  'hermesDashboardPlan': const HermesDashboardPlan(
+    loginUrl: 'https://agent.example.test/login',
+    origin: 'https://agent.example.test',
+    supported: false,
+  ),
+  'hermesCookieDto': const HermesCookieDto(
+    name: 'hermes_session_at',
+    value: 'demo-session',
+    domain: 'agent.example.test',
+    path: '/',
+    secure: true,
+    httpOnly: true,
+    expiresMs: 1794490018000,
+  ),
+  'hermesDashboardCookies': const HermesDashboardCookies(
+    id: 'c1',
+    connection: '0a1b2c3d:2',
+    cookies: <HermesCookieDto>[
+      HermesCookieDto(
+        name: 'hermes_session_rt',
+        value: 'r',
+        domain: '.example.test',
+      ),
+    ],
+  ),
+  'hermesDashboardResult': const HermesDashboardResult(
+    signedIn: true,
+    connections: HermesConnections(activeId: 'c1'),
   ),
   'hermesConnectionTestResult': const HermesConnectionTestResult(
     ok: true,
@@ -4779,6 +4838,15 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesConnections': HermesConnections.fromJson,
       'hermesConnectionEdit': HermesConnectionEdit.fromJson,
       'hermesConnectionTestResult': HermesConnectionTestResult.fromJson,
+      'hermesAccessHeaderEdit': HermesAccessHeaderEdit.fromJson,
+      'hermesProfiles': HermesProfiles.fromJson,
+      'hermesToolsetToggle': HermesToolsetToggle.fromJson,
+      'hermesConnectionRef': HermesConnectionRef.fromJson,
+      'hermesDashboardStart': HermesDashboardStart.fromJson,
+      'hermesDashboardPlan': HermesDashboardPlan.fromJson,
+      'hermesCookieDto': HermesCookieDto.fromJson,
+      'hermesDashboardCookies': HermesDashboardCookies.fromJson,
+      'hermesDashboardResult': HermesDashboardResult.fromJson,
       'hermesToggle': HermesToggle.fromJson,
       'hermesMcpServerDto': HermesMcpServerDto.fromJson,
       'hermesMcpServers': HermesMcpServers.fromJson,

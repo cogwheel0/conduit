@@ -1198,6 +1198,28 @@ abstract final class ConduitMethods {
   static const String hermesConnectionsSetEnabled =
       'hermes.connections.setEnabled';
 
+  /// The profiles a Desktop Gateway offers a connection's form (sent with
+  /// the form's credentials, as the phone's Refresh Profiles).
+  static const String hermesConnectionsProfiles = 'hermes.connections.profiles';
+
+  // hermes.toolsets.*, hermes.skills.*: the agent's tools and skills.
+
+  /// Turns a toolset on or off for new sessions (a Desktop Gateway).
+  static const String hermesToolsetsSet = 'hermes.toolsets.set';
+
+  /// Has a Desktop Gateway read its skills again; answers the catalog.
+  static const String hermesSkillsReload = 'hermes.skills.reload';
+
+  // hermes.dashboard.*: a Desktop Gateway's dashboard sign-in, run in the
+  // window's browser window and kept by the daemon.
+
+  /// Where a connection's dashboard sign-in opens.
+  static const String hermesDashboardStart = 'hermes.dashboard.start';
+
+  /// Hands over the cookies of a page the sign-in window loaded; kept when
+  /// the dashboard accepts them as a signed-in session.
+  static const String hermesDashboardComplete = 'hermes.dashboard.complete';
+
   // hermes.mcp.*: the MCP servers a Desktop Gateway connects its agent to.
 
   static const String hermesMcpList = 'hermes.mcp.list';

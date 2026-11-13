@@ -437,12 +437,11 @@ abstract final class ConduitMethodSpecs {
     params: WebhookUpdate.fromJson,
     result: WebhookList.fromJson,
   );
-  static const webhooksMakeDefault =
-      ConduitMethodSpec<WebhookRef, WebhookList>(
-        ConduitMethods.webhooksMakeDefault,
-        params: WebhookRef.fromJson,
-        result: WebhookList.fromJson,
-      );
+  static const webhooksMakeDefault = ConduitMethodSpec<WebhookRef, WebhookList>(
+    ConduitMethods.webhooksMakeDefault,
+    params: WebhookRef.fromJson,
+    result: WebhookList.fromJson,
+  );
   static const webhooksTest = ConduitMethodSpec<WebhookRef, WebhookList>(
     ConduitMethods.webhooksTest,
     params: WebhookRef.fromJson,
@@ -1906,6 +1905,42 @@ abstract final class ConduitMethodSpecs {
         params: HermesToggle.fromJson,
         result: HermesConnections.fromJson,
       );
+  static const hermesConnectionsProfiles =
+      ConduitMethodSpec<HermesConnectionEdit, HermesProfiles>(
+        ConduitMethods.hermesConnectionsProfiles,
+        params: HermesConnectionEdit.fromJson,
+        result: HermesProfiles.fromJson,
+      );
+
+  // hermes.toolsets.*, hermes.skills.*
+
+  static const hermesToolsetsSet =
+      ConduitMethodSpec<HermesToolsetToggle, HermesCatalog>(
+        ConduitMethods.hermesToolsetsSet,
+        params: HermesToolsetToggle.fromJson,
+        result: HermesCatalog.fromJson,
+      );
+  static const hermesSkillsReload =
+      ConduitMethodSpec<HermesConnectionRef, HermesCatalog>(
+        ConduitMethods.hermesSkillsReload,
+        params: HermesConnectionRef.fromJson,
+        result: HermesCatalog.fromJson,
+      );
+
+  // hermes.dashboard.*
+
+  static const hermesDashboardStart =
+      ConduitMethodSpec<HermesDashboardStart, HermesDashboardPlan>(
+        ConduitMethods.hermesDashboardStart,
+        params: HermesDashboardStart.fromJson,
+        result: HermesDashboardPlan.fromJson,
+      );
+  static const hermesDashboardComplete =
+      ConduitMethodSpec<HermesDashboardCookies, HermesDashboardResult>(
+        ConduitMethods.hermesDashboardComplete,
+        params: HermesDashboardCookies.fromJson,
+        result: HermesDashboardResult.fromJson,
+      );
 
   // hermes.mcp.*
 
@@ -1917,12 +1952,11 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.hermesMcpCatalog,
     result: HermesMcpCatalog.fromJson,
   );
-  static const hermesMcpAdd =
-      ConduitMethodSpec<HermesMcpAdd, HermesMcpServers>(
-        ConduitMethods.hermesMcpAdd,
-        params: HermesMcpAdd.fromJson,
-        result: HermesMcpServers.fromJson,
-      );
+  static const hermesMcpAdd = ConduitMethodSpec<HermesMcpAdd, HermesMcpServers>(
+    ConduitMethods.hermesMcpAdd,
+    params: HermesMcpAdd.fromJson,
+    result: HermesMcpServers.fromJson,
+  );
   static const hermesMcpAddFromCatalog =
       ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
         ConduitMethods.hermesMcpAddFromCatalog,
@@ -2680,6 +2714,11 @@ abstract final class ConduitMethodSpecs {
         hermesConnectionsActivate,
         hermesConnectionsDelete,
         hermesConnectionsSetEnabled,
+        hermesConnectionsProfiles,
+        hermesToolsetsSet,
+        hermesSkillsReload,
+        hermesDashboardStart,
+        hermesDashboardComplete,
         hermesMcpList,
         hermesMcpCatalog,
         hermesMcpAdd,
