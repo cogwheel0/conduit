@@ -17,6 +17,7 @@ pub mod export;
 pub mod hermes_blocks;
 pub mod hermes_work;
 pub mod inline_web;
+pub mod lazy_chunk;
 pub mod live_connection;
 pub mod markdown;
 pub mod pace;

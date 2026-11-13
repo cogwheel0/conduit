@@ -19,6 +19,7 @@
 //! is drawn transparent otherwise, so VoiceOver still reaches it.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -40,6 +41,7 @@ use gpui_kit::{
 
 use super::actions::{MessageAction, RowCommand, RowContext, RunRowCommand};
 use super::blocks::{ACTIVITY_GAP, error_text, file_list, spinner};
+use super::lazy_chunk::ChunkPlace;
 use super::pace::Pace;
 use crate::l10n::ActiveL10n as _;
 use crate::stores::chat::{ChatStore, Role as MessageRole, RowItem, shows};
@@ -525,6 +527,12 @@ pub struct AssistantRow {
     /// Rich content in the answer, by its place (kept across frames, so
     /// an opened page stays open).
     embeds: HashMap<String, Entity<super::embed::EmbedView>>,
+    /// Where each settled chunk of a long answer was laid out, by its text
+    /// state, so one far from the view can be held ([`LazyChunk`]).
+    pub(super) places: HashMap<gpui_kit::EntityId, Rc<ChunkPlace>>,
+    /// Find in Chat is revealing a match in this answer until then: every
+    /// chunk is laid out, so the one with the match can scroll to it.
+    pub(super) revealing_until: Option<Instant>,
 }
 
 /// One column of a Compare Models answer.
@@ -583,6 +591,8 @@ impl AssistantRow {
             compare: vec![],
             column_of: None,
             embeds: HashMap::new(),
+            places: HashMap::new(),
+            revealing_until: None,
         }
     }
 
@@ -635,6 +645,18 @@ impl AssistantRow {
 
     pub fn item(&self) -> &RowItem {
         &self.item
+    }
+
+    /// A comparison's column views.
+    pub(super) fn column_views(&self) -> Vec<Entity<AssistantRow>> {
+        self.compare.iter().map(|(_, view)| view.clone()).collect()
+    }
+
+    /// The text states of a regenerate's old answer, while it crossfades.
+    pub(super) fn leaving_texts(&self) -> impl Iterator<Item = &Entity<TextViewState>> {
+        self.leaving
+            .iter()
+            .flat_map(|l| l.texts.values().map(|(_, state)| state))
     }
 
     /// The newest answer, just finished, whose suggestions may still come

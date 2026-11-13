@@ -406,6 +406,11 @@ impl Transcript {
             }),
         }
         if let Some(state) = state {
+            // Every chunk of the answer laid out while it reveals: a chunk
+            // held far from the view (`LazyChunk`) could not scroll to it.
+            if let Some(RowView::Assistant(view)) = self.rows.get(&m.row) {
+                view.update(cx, |r, cx| r.reveal_text(cx));
+            }
             let range = m.range.clone();
             let _ = state.update(cx, |s, cx| s.reveal_range(range, cx));
         }

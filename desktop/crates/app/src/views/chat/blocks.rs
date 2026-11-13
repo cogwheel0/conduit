@@ -19,6 +19,7 @@
 //! ordinal so a new block in front (a status line arriving) does not
 //! reset the text after it.
 
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -38,6 +39,7 @@ use gpui_kit::{
     SharedString, Stateful, Transformation, Window, div, img, percentage, px, relative,
 };
 
+use super::lazy_chunk::LazyChunk;
 use super::markdown::{chat_text, chat_text_live, decode_data_image, stable_chunks, streaming_cut};
 use super::pace::Pace;
 use super::rows::AssistantRow;
@@ -45,6 +47,10 @@ use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::files::{
     FileRef, OpenWith, file_image_state, open_attachment, retry_file_image,
 };
+
+/// How long every chunk of an answer stays laid out for Find in Chat's
+/// reveal: a little longer than TextView keeps a reveal it cannot show.
+const REVEAL_LAYOUT: std::time::Duration = std::time::Duration::from_millis(1_500);
 
 /// Longest argument or result drawn in full (the rest is cut, with an
 /// ellipsis; copying the answer still has all of it).
@@ -610,6 +616,57 @@ impl AssistantRow {
         out
     }
 
+    /// A settled chunk of a long answer, held while it is far from the
+    /// view ([`LazyChunk`]) unless something in it changes height on its
+    /// own, it has focus or a selection under way, or Find is revealing a
+    /// match in this answer.
+    fn lazy_chunk(
+        &mut self,
+        state: &gpui_kit::Entity<gpui_kit::component::text::TextViewState>,
+        md: &str,
+        text: impl FnOnce() -> AnyElement + 'static,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> LazyChunk {
+        let place = self.places.entry(state.entity_id()).or_default().clone();
+        let now = cx.background_executor().now();
+        let revealing = self.revealing_until.is_some_and(|until| now < until);
+        let s = state.read(cx);
+        // Its height is only kept from a layout of this text.
+        let settled = s.rendered_text().source() == md;
+        let may_hold = !revealing
+            && !s.is_selecting()
+            && !s.focus_handle().contains_focused(window, cx)
+            && !place.changes_height_later(md);
+        LazyChunk::new(place, text).holdable(may_hold, settled)
+    }
+
+    /// Forgets the places of text states this row no longer has.
+    fn prune_places(&mut self) {
+        let leaving = self.leaving_texts().count();
+        if self.places.len() <= self.texts.len() + leaving + 8 {
+            return;
+        }
+        let live: HashSet<gpui_kit::EntityId> = self
+            .texts
+            .values()
+            .map(|(_, s)| s.entity_id())
+            .chain(self.leaving_texts().map(|s| s.entity_id()))
+            .collect();
+        self.places.retain(|id, _| live.contains(id));
+    }
+
+    /// Lays out every chunk of the answer for a moment: Find in Chat is
+    /// revealing a match in it, which only a laid-out chunk can scroll to.
+    pub fn reveal_text(&mut self, cx: &mut Context<Self>) {
+        self.revealing_until = Some(cx.background_executor().now() + REVEAL_LAYOUT);
+        // A comparison's columns draw their own text.
+        for view in self.column_views() {
+            view.update(cx, |r, cx| r.reveal_text(cx));
+        }
+        cx.notify();
+    }
+
     /// Draws block `i`.
     pub(super) fn render_block(
         &mut self,
@@ -641,16 +698,18 @@ impl AssistantRow {
                 }
                 let (held, live) = text_mode(self.item.streaming, paced);
                 // A long answer is drawn in stable chunks, so streaming
-                // re-lays out only the last one.
+                // re-lays out only the last one, and the earlier ones far
+                // from the view are not laid out at all (`LazyChunk`).
                 let chunks = stable_chunks(md);
                 let last = chunks.len() - 1;
+                let growing = self.item.streaming || pending;
                 let views: Vec<AnyElement> = if chunks.len() == 1 {
                     let state_key = format!("text{ordinal}");
                     let md = if held { self.held(&state_key, md) } else { md };
                     let state = self.text_state(&state_key, md, window, cx);
                     vec![chat_text_live(&state, key.clone().into(), live).into_any_element()]
                 } else {
-                    chunks
+                    let views = chunks
                         .iter()
                         .enumerate()
                         .map(|(k, chunk)| {
@@ -661,10 +720,22 @@ impl AssistantRow {
                                 chunk = self.held(&state_key, chunk);
                             }
                             let state = self.text_state(&state_key, chunk, window, cx);
-                            chat_text_live(&state, key.clone().into(), live && k == last)
+                            let tail = live && k == last;
+                            if growing && k == last {
+                                return chat_text_live(&state, key.clone().into(), tail)
+                                    .into_any_element();
+                            }
+                            // Made only if it is laid out.
+                            let text = {
+                                let (state, key) = (state.clone(), key.clone());
+                                move || chat_text_live(&state, key.into(), tail).into_any_element()
+                            };
+                            self.lazy_chunk(&state, chunk, text, window, cx)
                                 .into_any_element()
                         })
-                        .collect()
+                        .collect();
+                    self.prune_places();
+                    views
                 };
                 div()
                     .w_full()

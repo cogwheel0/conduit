@@ -1470,7 +1470,7 @@ mod tests {
         ChatDetail, ChatMessageDto, ChatResult, ChatSummary, Event, MessageBlockDto,
         MessageBlockKind, TurnBlocks, methods,
     };
-    use gpui_kit::{TestAppContext, VisualTestContext, size};
+    use gpui_kit::{Bounds, ListOffset, Pixels, TestAppContext, VisualTestContext, size};
 
     use super::*;
     use crate::l10n::L10n;
@@ -2435,6 +2435,106 @@ mod tests {
         }
         assert!(transcript.read_with(cx, |t, _| t.chase.is_none()));
         assert!(list.is_following_tail(), "and following again");
+    }
+
+    /// The text states of answer `key`'s chunks, in order.
+    fn chunk_states(
+        transcript: &Entity<Transcript>,
+        key: &str,
+        cx: &mut VisualTestContext,
+    ) -> Vec<Entity<gpui_kit::component::text::TextViewState>> {
+        transcript.read_with(cx, |t, cx| {
+            let Some(RowView::Assistant(view)) = t.rows.get(key) else {
+                panic!("{key} is drawn");
+            };
+            let row = view.read(cx);
+            (0..)
+                .map_while(|k| row.texts.get(&format!("text0.{k}")).map(|(_, s)| s.clone()))
+                .collect()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn a_long_answer_lays_out_only_near_the_view_and_nothing_moves(cx: &mut TestAppContext) {
+        let (_, transcript, cx, _daemon) = open_with(
+            vec![
+                message("u1", "user", "How far is the moon?"),
+                answer("a1", 600, &[]),
+            ],
+            cx,
+        );
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        draw(&transcript, cx);
+        let states = chunk_states(&transcript, "a1", cx);
+        assert!(states.len() > 10, "{} chunks", states.len());
+        let bounds = |cx: &mut VisualTestContext| -> Vec<Bounds<Pixels>> {
+            cx.update(|_, cx| states.iter().map(|s| s.read(cx).bounds()).collect())
+        };
+        // The first frame lays out every chunk (none was measured yet):
+        // where each sits in the answer, and the answer's height.
+        let row = list.bounds_for_item(1).expect("the answer is on screen");
+        let first = bounds(cx);
+        let offsets: Vec<f32> = first
+            .iter()
+            .map(|b| f32::from(b.top() - row.top()))
+            .collect();
+        let heights: Vec<f32> = first.iter().map(|b| f32::from(b.size.height)).collect();
+        let row_height = f32::from(row.size.height);
+        assert!(row_height > VIEWPORT * 10., "a long answer: {row_height}");
+
+        // Up through the answer a step at a time, then a jump past what is
+        // laid out, then back down to its end.
+        let mut moves: Vec<Option<f32>> = vec![Some(-90.); 60];
+        moves.push(None);
+        moves.extend(vec![Some(170.); 30]);
+        let mut held = 0;
+        for (frame, step) in moves.into_iter().enumerate() {
+            match step {
+                Some(dy) => transcript.update(cx, |t, cx| t.scroll_by(px(dy), cx)),
+                None => {
+                    transcript.update(cx, |t, _| t.stop_following());
+                    list.scroll_to(ListOffset {
+                        item_ix: 1,
+                        offset_in_item: px(row_height * 0.3),
+                    });
+                }
+            }
+            draw(&transcript, cx);
+            let row = list.bounds_for_item(1).expect("the answer is on screen");
+            assert!(
+                (f32::from(row.size.height) - row_height).abs() < 0.01,
+                "{frame}: the answer's height changed"
+            );
+            let view = list.viewport_bounds();
+            let now = bounds(cx);
+            // Layout snaps edges to device pixels (half toward zero).
+            let scale = cx.update(|window, _| window.scale_factor());
+            let snap = |y: f32| {
+                let d = y * scale;
+                (if d.fract().abs() == 0.5 {
+                    d.trunc()
+                } else {
+                    d.round()
+                }) / scale
+            };
+            for k in 0..states.len() {
+                let top = snap(f32::from(row.top()) + offsets[k]);
+                let on_screen =
+                    top < f32::from(view.bottom()) && top + heights[k] > f32::from(view.top());
+                let at = f32::from(now[k].top());
+                if on_screen {
+                    // Laid out this frame, exactly where the full layout put it.
+                    assert!(
+                        (at - top).abs() < 0.01,
+                        "{frame}: chunk {k} at {at}, not {top}"
+                    );
+                    assert!((f32::from(now[k].size.height) - heights[k]).abs() < 0.01);
+                } else if (at - top).abs() > 0.01 {
+                    held += 1;
+                }
+            }
+        }
+        assert!(held > 100, "chunks far from the view were held: {held}");
     }
 
     #[gpui_kit::test]
