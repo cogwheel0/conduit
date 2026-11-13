@@ -146,6 +146,14 @@ abstract final class ConduitEvents {
   /// plan or the output a window reads. Payload [HermesWork], scoped to the
   /// chat.
   static const String hermesWorkChanged = 'hermes.work.changed';
+
+  /// A watched Group Chat changed: its log, its bots' state, what it waits
+  /// on. Payload [HermesRoomView], scoped to `hermes-room:<roomId>`.
+  static const String hermesRoomsChanged = 'hermes.rooms.changed';
+
+  /// The Group Chats listed changed: one was made, renamed or disbanded,
+  /// or one had news. Payload [HermesRooms].
+  static const String hermesRoomsListChanged = 'hermes.rooms.listChanged';
   /// The voice call changed: its phase, words, meter or error. Payload
   /// [CallState].
   static const String callsChanged = 'calls.changed';
@@ -209,6 +217,8 @@ abstract final class ConduitEvents {
     calendarChanged,
     automationsChanged,
     automationsRunProgress,
+    hermesRoomsChanged,
+    hermesRoomsListChanged,
   };
 }
 

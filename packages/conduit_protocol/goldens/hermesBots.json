@@ -1,0 +1,19 @@
+{
+  "available": true,
+  "bots": [
+    {
+      "name": "fern",
+      "title": "Fern",
+      "hasAvatar": false,
+      "shape": "squircle",
+      "color": "#8b5cf6"
+    },
+    {
+      "name": "moss",
+      "title": "Moss",
+      "hasAvatar": false,
+      "shape": "drop",
+      "color": "#8b5cf6"
+    }
+  ]
+}

@@ -1092,6 +1092,50 @@ abstract final class ConduitMethods {
   /// Answers a clarify form, a sudo password, a secret or a set-up card,
   /// and waits for Hermes to take it.
   static const String hermesDecisionsAnswer = 'hermes.decisions.answer';
+
+  // hermes.bots.*: Bot Mode. A bot is a Hermes profile with a face and one
+  // permanent Bot Chat.
+
+  /// The gateway's bots, most recently active first.
+  static const String hermesBotsList = 'hermes.bots.list';
+
+  /// A bot's picture, as a `data:image/...` URL.
+  static const String hermesBotsAvatar = 'hermes.bots.avatar';
+
+  /// Opens a bot's Bot Chat (made when it has none); answers with its
+  /// session, opened as a chat.
+  static const String hermesBotsOpen = 'hermes.bots.open';
+
+  // hermes.rooms.*: Group Chats, two to six bots talking together on a
+  // Desktop Gateway.
+
+  /// The gateway's Group Chats, and whether a new one can be made.
+  static const String hermesRoomsList = 'hermes.rooms.list';
+  static const String hermesRoomsCreate = 'hermes.rooms.create';
+
+  /// Follows an open room, read every 2 s while a window watches it;
+  /// changes come as `hermes.rooms.changed`.
+  static const String hermesRoomsWatch = 'hermes.rooms.watch';
+  static const String hermesRoomsUnwatch = 'hermes.rooms.unwatch';
+
+  /// Posts a message in a room.
+  static const String hermesRoomsSend = 'hermes.rooms.send';
+
+  /// Stops the room's work.
+  static const String hermesRoomsStop = 'hermes.rooms.stop';
+
+  /// Continues a discussion that paused at its limit.
+  static const String hermesRoomsContinue = 'hermes.rooms.continue';
+
+  /// Answers an approval in a room, or retries uncertain work.
+  static const String hermesRoomsAnswer = 'hermes.rooms.answer';
+  static const String hermesRoomsRename = 'hermes.rooms.rename';
+
+  /// Saves a room's purpose, notes and who answers.
+  static const String hermesRoomsSaveContext = 'hermes.rooms.saveContext';
+
+  /// Ends a room for good.
+  static const String hermesRoomsDisband = 'hermes.rooms.disband';
   static const String terminalPrefix = 'terminal.';
 
   // terminal.*. The shell itself is `WS /terminal/{handle}`.

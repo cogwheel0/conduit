@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.63.0",
+  "protocolVersion": "1.64.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.63.0",
+  "protocolVersion": "1.64.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -2805,6 +2805,403 @@ const Map<String, String> protocolGoldens = <String, String>{
   "sessionId": "s4",
   "readOnly": true,
   "owner": "Hermes CLI"
+}''',
+
+  'hermesChatDtoBot': r'''
+{
+  "sessionId": "bc-7",
+  "readOnly": false,
+  "owner": "",
+  "bot": {
+    "name": "fern",
+    "title": "Fern",
+    "hasAvatar": false,
+    "shape": "cloud",
+    "color": "#8b5cf6"
+  }
+}''',
+
+  'hermesBotDto': r'''
+{
+  "name": "fern",
+  "title": "Fern",
+  "description": "Keeps the greenhouse log",
+  "preview": "Watered the tomatoes",
+  "sessionId": "bc-7",
+  "hasAvatar": true,
+  "shape": "hexagon",
+  "color": "#0ea5e9",
+  "lastActiveMs": 1767225600000
+}''',
+
+  'hermesBots': r'''
+{
+  "available": true,
+  "bots": [
+    {
+      "name": "fern",
+      "title": "Fern",
+      "hasAvatar": false,
+      "shape": "squircle",
+      "color": "#8b5cf6"
+    },
+    {
+      "name": "moss",
+      "title": "Moss",
+      "hasAvatar": false,
+      "shape": "drop",
+      "color": "#8b5cf6"
+    }
+  ]
+}''',
+
+  'hermesBotsEmpty': r'''
+{
+  "available": false,
+  "bots": []
+}''',
+
+  'hermesBotRef': r'''
+{
+  "name": "fern"
+}''',
+
+  'hermesBotAvatar': r'''
+{
+  "name": "fern",
+  "image": "data:image/png;base64,iVBORw0KGgo="
+}''',
+
+  'hermesRoomMemberDto': r'''
+{
+  "memberId": "fern",
+  "profile": "fern",
+  "handle": "fern",
+  "name": "Fern"
+}''',
+
+  'hermesRoomDto': r'''
+{
+  "id": "room-1",
+  "name": "Greenhouse crew",
+  "members": [
+    {
+      "memberId": "fern",
+      "profile": "fern",
+      "handle": "fern",
+      "name": "Fern"
+    },
+    {
+      "memberId": "moss",
+      "profile": "moss",
+      "handle": "moss",
+      "name": "Moss"
+    }
+  ],
+  "updatedAtMs": 1767225600000,
+  "unread": true,
+  "working": true,
+  "needsYou": true
+}''',
+
+  'hermesRooms': r'''
+{
+  "available": true,
+  "canCreate": true,
+  "seatable": [
+    "fern",
+    "moss"
+  ],
+  "rooms": [
+    {
+      "id": "room-1",
+      "name": "Greenhouse crew",
+      "members": [],
+      "unread": false,
+      "working": false,
+      "needsYou": false
+    }
+  ],
+  "failed": true
+}''',
+
+  'hermesRoomsEmpty': r'''
+{
+  "available": false,
+  "canCreate": false,
+  "seatable": [],
+  "rooms": [],
+  "failed": false
+}''',
+
+  'hermesRoomRef': r'''
+{
+  "roomId": "room-1"
+}''',
+
+  'hermesRoomCreate': r'''
+{
+  "name": "Greenhouse crew",
+  "bots": [
+    "fern",
+    "moss"
+  ]
+}''',
+
+  'hermesRoomRename': r'''
+{
+  "roomId": "room-1",
+  "name": "Seed swap"
+}''',
+
+  'hermesRoomContextDto': r'''
+{
+  "purpose": "Plan the spring beds",
+  "notes": "Tomatoes go by the south wall.",
+  "routing": "lead",
+  "leadMemberId": "fern"
+}''',
+
+  'hermesRoomContextEmpty': r'''
+{
+  "purpose": "",
+  "notes": ""
+}''',
+
+  'hermesRoomContextEdit': r'''
+{
+  "roomId": "room-1",
+  "context": {
+    "purpose": "Plan the spring beds",
+    "notes": "",
+    "routing": "auto"
+  }
+}''',
+
+  'hermesRoomMessage': r'''
+{
+  "roomId": "room-1",
+  "text": "@fern how many seed trays?"
+}''',
+
+  'hermesRoomSendResult': r'''
+{
+  "sent": true,
+  "refused": false
+}''',
+
+  'hermesRoomSendRefused': r'''
+{
+  "sent": false,
+  "refused": true,
+  "detail": "room is busy"
+}''',
+
+  'hermesRoomStopped': r'''
+{
+  "stopped": 2
+}''',
+
+  'hermesRoomContinue': r'''
+{
+  "roomId": "room-1",
+  "discussionEventId": "user:ab12"
+}''',
+
+  'hermesRoomAnswer': r'''
+{
+  "roomId": "room-1",
+  "taskId": "t-9",
+  "executionGeneration": 1,
+  "choice": "once"
+}''',
+
+  'hermesRoomRetry': r'''
+{
+  "roomId": "room-1",
+  "taskId": "t-9",
+  "executionGeneration": 2
+}''',
+
+  'hermesRoomItemMessage': r'''
+{
+  "kind": "message",
+  "key": "message:4",
+  "seq": 4,
+  "own": false,
+  "scheduled": false,
+  "author": "Fern",
+  "memberId": "fern",
+  "text": "Twelve trays should do.",
+  "continued": true,
+  "createdAtMs": 1767225600000,
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemOwn': r'''
+{
+  "kind": "message",
+  "key": "message:3",
+  "seq": 3,
+  "own": true,
+  "scheduled": false,
+  "author": "",
+  "text": "@fern how many seed trays?",
+  "continued": false,
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemNotice': r'''
+{
+  "kind": "notice",
+  "key": "notice:6",
+  "seq": 6,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "memberId": "moss",
+  "text": "",
+  "continued": false,
+  "notice": "turnFailed",
+  "memberName": "Moss",
+  "detail": "rate limited",
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemRoute': r'''
+{
+  "kind": "route",
+  "key": "route:5:handoff:moss",
+  "seq": 5,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "text": "",
+  "continued": false,
+  "route": "handoff",
+  "names": [
+    "Moss"
+  ],
+  "lead": "Fern",
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemPause': r'''
+{
+  "kind": "pause",
+  "key": "pause:9",
+  "seq": 9,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "text": "",
+  "continued": false,
+  "names": [],
+  "discussionEventId": "user:ab12",
+  "messageCount": 10,
+  "actionable": true
+}''',
+
+  'hermesRoomMemberStatusDto': r'''
+{
+  "memberId": "fern",
+  "state": "working",
+  "elapsedMs": 45000,
+  "tool": "web_search"
+}''',
+
+  'hermesRoomActionDto': r'''
+{
+  "kind": "approval",
+  "memberId": "moss",
+  "taskId": "t-9",
+  "executionGeneration": 1,
+  "summary": "rm -rf build",
+  "choices": [
+    "once",
+    "deny"
+  ]
+}''',
+
+  'hermesRoomView': r'''
+{
+  "roomId": "room-1",
+  "loaded": true,
+  "room": {
+    "id": "room-1",
+    "name": "Greenhouse crew",
+    "members": [],
+    "unread": false,
+    "working": false,
+    "needsYou": false
+  },
+  "context": {
+    "purpose": "Plan the spring beds",
+    "notes": ""
+  },
+  "gone": false,
+  "readFailed": true,
+  "running": true,
+  "working": true,
+  "sending": true,
+  "unsentText": "Are the trays in?",
+  "routingModes": [
+    "everyone",
+    "lead"
+  ],
+  "items": [
+    {
+      "kind": "route",
+      "key": "route:2:continued",
+      "seq": 2,
+      "own": false,
+      "scheduled": false,
+      "author": "",
+      "text": "",
+      "continued": false,
+      "route": "continued",
+      "names": [],
+      "messageCount": 0,
+      "actionable": false
+    }
+  ],
+  "members": [
+    {
+      "memberId": "moss",
+      "state": "queued"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "retry",
+      "memberId": "moss",
+      "taskId": "t-3",
+      "executionGeneration": 2,
+      "choices": []
+    }
+  ]
+}''',
+
+  'hermesRoomViewGone': r'''
+{
+  "roomId": "room-2",
+  "loaded": false,
+  "gone": true,
+  "readFailed": false,
+  "running": false,
+  "working": false,
+  "sending": false,
+  "routingModes": [],
+  "items": [],
+  "members": [],
+  "actions": []
 }''',
 
   'hermesJobDto': r'''

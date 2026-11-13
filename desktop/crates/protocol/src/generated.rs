@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.63.0";
+pub const PROTOCOL_VERSION: &str = "1.64.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -5922,6 +5922,10 @@ pub struct HermesChatDto {
     /// when Hermes did not say.
     #[serde(default)]
     pub owner: String,
+    /// The bot whose Bot Chat it is: the chat is titled with the bot, and
+    /// its replies carry the bot's name and face.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot: Option<HermesBotDto>,
 }
 
 /// A scheduled agent.
@@ -6018,6 +6022,495 @@ pub struct HermesCatalog {
     pub skills: Vec<HermesSkillDto>,
     #[serde(default)]
     pub toolsets: Vec<HermesToolsetDto>,
+}
+
+/// A Bot Mode bot: a Hermes profile the gateway marks as a bot, with its
+/// face. Opened with `hermes.bots.open`, as its permanent Bot Chat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesBotDto {
+    /// The profile's name: what the bot is addressed by.
+    pub name: String,
+    /// What the roster calls it (its profile name when it has no title).
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The newest message in its Bot Chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// Its Bot Chat's Hermes session, when known: the chat
+    /// `local:hermes_<sessionId>` is this bot's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// It has a picture (`hermes.bots.avatar`); without one its face is a
+    /// shape in a colour.
+    #[serde(default)]
+    pub has_avatar: bool,
+    /// The face's shape: `circle`, `squircle`, `pill`, `triangle`,
+    /// `hexagon`, `cloud` or `drop`.
+    #[serde(default = "default_hermes_bot_dto_shape")]
+    pub shape: String,
+    /// The face's colour, `#rrggbb`.
+    #[serde(default = "default_hermes_bot_dto_color")]
+    pub color: String,
+    /// When its Bot Chat was last active, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_active_ms: Option<i64>,
+}
+
+fn default_hermes_bot_dto_shape() -> String {
+    "squircle".to_owned()
+}
+
+fn default_hermes_bot_dto_color() -> String {
+    "#8b5cf6".to_owned()
+}
+
+/// Reply to `hermes.bots.list`: the roster, most recently active first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesBots {
+    /// The gateway has Bot Mode (a Desktop Gateway that lists bots); the
+    /// sidebar's Bots group shows only then.
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub bots: Vec<HermesBotDto>,
+}
+
+/// Params naming a bot, by its profile name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesBotRef {
+    pub name: String,
+}
+
+/// Reply to `hermes.bots.avatar`: the bot's picture as a `data:image/...`
+/// URL, or none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesBotAvatar {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+}
+
+/// One bot seated in a room.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomMemberDto {
+    pub member_id: String,
+    /// The profile it runs as (a roster bot's `HermesBotDto.name`).
+    pub profile: String,
+    /// What an @mention calls it.
+    pub handle: String,
+    /// What the room calls it.
+    pub name: String,
+}
+
+/// A Group Chat, as the sidebar lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomDto {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub members: Vec<HermesRoomMemberDto>,
+    /// Its last activity, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at_ms: Option<i64>,
+    /// Something was said since this device last showed it.
+    #[serde(default)]
+    pub unread: bool,
+    /// Its bots were at work when it was last read.
+    #[serde(default)]
+    pub working: bool,
+    /// One of its bots waits for an answer (an approval).
+    #[serde(default)]
+    pub needs_you: bool,
+}
+
+/// Reply to `hermes.rooms.list`, and payload of `hermes.rooms.listChanged`:
+/// the gateway's live Group Chats, most recently active first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRooms {
+    /// The gateway hosts Group Chats: the sidebar's Rooms group shows.
+    #[serde(default)]
+    pub available: bool,
+    /// A new room can be made: the gateway runs rooms and two bots can sit
+    /// in one.
+    #[serde(default)]
+    pub can_create: bool,
+    /// The bots a new room may seat, by profile name.
+    #[serde(default)]
+    pub seatable: Vec<String>,
+    #[serde(default)]
+    pub rooms: Vec<HermesRoomDto>,
+    /// The list could not be read (one read before stays).
+    #[serde(default)]
+    pub failed: bool,
+}
+
+/// Params naming a room.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomRef {
+    pub room_id: String,
+}
+
+/// Params for `hermes.rooms.create`: a name and two to six bots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomCreate {
+    pub name: String,
+    /// The bots to seat, by profile name, in the order picked.
+    pub bots: Vec<String>,
+}
+
+/// Params for `hermes.rooms.rename`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomRename {
+    pub room_id: String,
+    pub name: String,
+}
+
+/// Who answers a message that names nobody.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesRoomRouting {
+    /// Every bot takes a turn.
+    #[serde(rename = "everyone")]
+    Everyone,
+    /// The lead bot hands the message on.
+    #[serde(rename = "lead")]
+    Lead,
+    /// A quick model call picks who answers.
+    #[serde(rename = "auto")]
+    Auto,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A room's purpose, shared notes and who answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomContextDto {
+    #[serde(default)]
+    pub purpose: String,
+    #[serde(default)]
+    pub notes: String,
+    /// None on a Hermes that cannot choose (everyone answers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<HermesRoomRouting>,
+    /// The lead bot, when `routing` is `HermesRoomRouting.lead`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead_member_id: Option<String>,
+}
+
+/// Params for `hermes.rooms.saveContext`; replies with what Hermes saved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomContextEdit {
+    pub room_id: String,
+    pub context: HermesRoomContextDto,
+}
+
+/// Params for `hermes.rooms.send`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomMessage {
+    pub room_id: String,
+    pub text: String,
+}
+
+/// Reply to `hermes.rooms.send`.
+///
+/// Sent: Hermes has the words (the field clears). Otherwise the words stay
+/// in the field: refused before Hermes posted anything (with Hermes's
+/// `detail` when it gave one), or unclear -- Hermes may have them, and
+/// sending again posts them at most once (the room's view keeps
+/// `HermesRoomView.unsentText` until its log settles it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomSendResult {
+    #[serde(default)]
+    pub sent: bool,
+    #[serde(default)]
+    pub refused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Reply to `hermes.rooms.stop`: how many tasks stopped.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomStopped {
+    #[serde(default)]
+    pub stopped: i64,
+}
+
+/// Params for `hermes.rooms.continue`: one more budget for a paused
+/// discussion.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomContinue {
+    pub room_id: String,
+    pub discussion_event_id: String,
+}
+
+/// Params for `hermes.rooms.answer`: an approval answered (`once` or
+/// `deny`), or uncertain work retried (no `choice`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomAnswer {
+    pub room_id: String,
+    pub task_id: String,
+    pub execution_generation: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<String>,
+}
+
+/// What a row of a room's timeline is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesRoomItemKind {
+    /// A message: the user's (`HermesRoomItemDto.own`), a scheduled post's
+    /// or a bot's.
+    #[serde(rename = "message")]
+    Message,
+    /// A quiet line about the room's work (`HermesRoomItemDto.notice`).
+    #[serde(rename = "notice")]
+    Notice,
+    /// Who a message went to (`HermesRoomItemDto.route`).
+    #[serde(rename = "route")]
+    Route,
+    /// A discussion paused at its limit, with Continue while
+    /// `HermesRoomItemDto.actionable`.
+    #[serde(rename = "pause")]
+    Pause,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// What a notice line says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesRoomNoticeKind {
+    #[serde(rename = "turnFailed")]
+    TurnFailed,
+    #[serde(rename = "turnCancelled")]
+    TurnCancelled,
+    #[serde(rename = "turnDeferred")]
+    TurnDeferred,
+    #[serde(rename = "memberUnavailable")]
+    MemberUnavailable,
+    #[serde(rename = "stopped")]
+    Stopped,
+    #[serde(rename = "disbanded")]
+    Disbanded,
+    #[serde(rename = "authorityLost")]
+    AuthorityLost,
+    #[serde(rename = "workLimit")]
+    WorkLimit,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// What a routing line says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesRoomRouteKind {
+    /// Hermes picked who answers (`HermesRoomItemDto.names`).
+    #[serde(rename = "routedTo")]
+    RoutedTo,
+    #[serde(rename = "routedEveryone")]
+    RoutedEveryone,
+    /// Hermes could not pick, so everyone answers.
+    #[serde(rename = "routedFallback")]
+    RoutedFallback,
+    /// The lead gave the message to `HermesRoomItemDto.names`.
+    #[serde(rename = "assigned")]
+    Assigned,
+    /// The lead takes the message itself.
+    #[serde(rename = "leadTaking")]
+    LeadTaking,
+    /// The user continued a paused discussion.
+    #[serde(rename = "continued")]
+    Continued,
+    /// A bot asked another in its reply.
+    #[serde(rename = "handoff")]
+    Handoff,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One row of a room's timeline: one flat record for every
+/// `HermesRoomItemKind`, whose `kind` says which fields it uses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomItemDto {
+    pub kind: HermesRoomItemKind,
+    /// Stays with the row across reads.
+    pub key: String,
+    /// The log event the row belongs to.
+    pub seq: i64,
+    /// `message`: the user's own.
+    #[serde(default)]
+    pub own: bool,
+    /// `message`: a scheduled job's post.
+    #[serde(default)]
+    pub scheduled: bool,
+    /// `message`: who wrote it (empty for the user's own).
+    #[serde(default)]
+    pub author: String,
+    /// `message`: the bot that wrote it; `notice`: the bot it is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_id: Option<String>,
+    /// `message`: its markdown.
+    #[serde(default)]
+    pub text: String,
+    /// `message`: the same author wrote the row before (no name or face).
+    #[serde(default)]
+    pub continued: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_ms: Option<i64>,
+    /// `notice`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<HermesRoomNoticeKind>,
+    /// `notice`: the bot it is about, by name; and Hermes's reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// `route`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<HermesRoomRouteKind>,
+    #[serde(default)]
+    pub names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead: Option<String>,
+    /// `pause`: the discussion Continue continues, how many bot messages
+    /// it had, and whether Continue and Stop still apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discussion_event_id: Option<String>,
+    #[serde(default)]
+    pub message_count: i64,
+    #[serde(default)]
+    pub actionable: bool,
+}
+
+/// A bot's state in the room right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesRoomMemberState {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "working")]
+    Working,
+    /// Working, but silent for two minutes.
+    #[serde(rename = "stalled")]
+    Stalled,
+    #[serde(rename = "replied")]
+    Replied,
+    #[serde(rename = "passed")]
+    Passed,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One bot's state, for the header and the Info sheet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomMemberStatusDto {
+    pub member_id: String,
+    pub state: HermesRoomMemberState,
+    /// How long its turn has run, when it works; the window counts on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<i64>,
+    /// The tool it is in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Why its last turn failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// A decision the room waits on, drawn as a card under the timeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomActionDto {
+    /// `approval` or `retry`.
+    pub kind: String,
+    pub member_id: String,
+    pub task_id: String,
+    pub execution_generation: i64,
+    /// What the approval would run (a command, or the operation it stands
+    /// for).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// The answers this app may give (`once`, `deny`); none: the card says
+    /// what waits, without buttons.
+    #[serde(default)]
+    pub choices: Vec<String>,
+}
+
+/// An open room, as its pane shows it. Reply to `hermes.rooms.watch`, and
+/// payload of `hermes.rooms.changed` (scoped to `hermes-room:<roomId>`)
+/// while a window watches it: the daemon reads the room every 2 s.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesRoomView {
+    pub room_id: String,
+    /// Read once.
+    #[serde(default)]
+    pub loaded: bool,
+    /// None until read, or when the read failed with nothing read before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<HermesRoomDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<HermesRoomContextDto>,
+    /// The room left the gateway (disbanded, or not this user's).
+    #[serde(default)]
+    pub gone: bool,
+    /// The last read failed (the last good read stays shown).
+    #[serde(default)]
+    pub read_failed: bool,
+    /// Its driver runs: messages can be sent.
+    #[serde(default)]
+    pub running: bool,
+    /// Its bots are at work: Stop applies.
+    #[serde(default)]
+    pub working: bool,
+    #[serde(default)]
+    pub sending: bool,
+    /// Words Hermes may or may not have; sending them again posts them at
+    /// most once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsent_text: Option<String>,
+    /// Who-answers modes Hermes offers (none: Hermes cannot choose).
+    #[serde(default)]
+    pub routing_modes: Vec<HermesRoomRouting>,
+    #[serde(default)]
+    pub items: Vec<HermesRoomItemDto>,
+    #[serde(default)]
+    pub members: Vec<HermesRoomMemberStatusDto>,
+    #[serde(default)]
+    pub actions: Vec<HermesRoomActionDto>,
 }
 
 /// Params for `hermes.work.watch`: the window shows `chatId` and wants its
@@ -15581,6 +16074,170 @@ pub mod methods {
         type Result = super::HermesDecisionResult;
     }
 
+    /// The gateway's bots, most recently active first.
+    ///
+    /// `hermes.bots.list`: no params -> HermesBots.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesBotsList;
+
+    impl RpcMethod for HermesBotsList {
+        const NAME: &'static str = "hermes.bots.list";
+        type Params = NoParams;
+        type Result = super::HermesBots;
+    }
+
+    /// A bot's picture, as a `data:image/...` URL.
+    ///
+    /// `hermes.bots.avatar`: HermesBotRef -> HermesBotAvatar.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesBotsAvatar;
+
+    impl RpcMethod for HermesBotsAvatar {
+        const NAME: &'static str = "hermes.bots.avatar";
+        type Params = super::HermesBotRef;
+        type Result = super::HermesBotAvatar;
+    }
+
+    /// Opens a bot's Bot Chat (made when it has none); answers with its
+    /// session, opened as a chat.
+    ///
+    /// `hermes.bots.open`: HermesBotRef -> HermesSessionDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesBotsOpen;
+
+    impl RpcMethod for HermesBotsOpen {
+        const NAME: &'static str = "hermes.bots.open";
+        type Params = super::HermesBotRef;
+        type Result = super::HermesSessionDto;
+    }
+
+    /// The gateway's Group Chats, and whether a new one can be made.
+    ///
+    /// `hermes.rooms.list`: no params -> HermesRooms.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsList;
+
+    impl RpcMethod for HermesRoomsList {
+        const NAME: &'static str = "hermes.rooms.list";
+        type Params = NoParams;
+        type Result = super::HermesRooms;
+    }
+
+    /// `hermes.rooms.create`: HermesRoomCreate -> HermesRoomDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsCreate;
+
+    impl RpcMethod for HermesRoomsCreate {
+        const NAME: &'static str = "hermes.rooms.create";
+        type Params = super::HermesRoomCreate;
+        type Result = super::HermesRoomDto;
+    }
+
+    /// Follows an open room, read every 2 s while a window watches it;
+    /// changes come as `hermes.rooms.changed`.
+    ///
+    /// `hermes.rooms.watch`: HermesRoomRef -> HermesRoomView.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsWatch;
+
+    impl RpcMethod for HermesRoomsWatch {
+        const NAME: &'static str = "hermes.rooms.watch";
+        type Params = super::HermesRoomRef;
+        type Result = super::HermesRoomView;
+    }
+
+    /// `hermes.rooms.unwatch`: HermesRoomRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsUnwatch;
+
+    impl RpcMethod for HermesRoomsUnwatch {
+        const NAME: &'static str = "hermes.rooms.unwatch";
+        type Params = super::HermesRoomRef;
+        type Result = super::OkResult;
+    }
+
+    /// Posts a message in a room.
+    ///
+    /// `hermes.rooms.send`: HermesRoomMessage -> HermesRoomSendResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsSend;
+
+    impl RpcMethod for HermesRoomsSend {
+        const NAME: &'static str = "hermes.rooms.send";
+        type Params = super::HermesRoomMessage;
+        type Result = super::HermesRoomSendResult;
+    }
+
+    /// Stops the room's work.
+    ///
+    /// `hermes.rooms.stop`: HermesRoomRef -> HermesRoomStopped.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsStop;
+
+    impl RpcMethod for HermesRoomsStop {
+        const NAME: &'static str = "hermes.rooms.stop";
+        type Params = super::HermesRoomRef;
+        type Result = super::HermesRoomStopped;
+    }
+
+    /// Continues a discussion that paused at its limit.
+    ///
+    /// `hermes.rooms.continue`: HermesRoomContinue -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsContinue;
+
+    impl RpcMethod for HermesRoomsContinue {
+        const NAME: &'static str = "hermes.rooms.continue";
+        type Params = super::HermesRoomContinue;
+        type Result = super::OkResult;
+    }
+
+    /// Answers an approval in a room, or retries uncertain work.
+    ///
+    /// `hermes.rooms.answer`: HermesRoomAnswer -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsAnswer;
+
+    impl RpcMethod for HermesRoomsAnswer {
+        const NAME: &'static str = "hermes.rooms.answer";
+        type Params = super::HermesRoomAnswer;
+        type Result = super::OkResult;
+    }
+
+    /// `hermes.rooms.rename`: HermesRoomRename -> HermesRoomDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsRename;
+
+    impl RpcMethod for HermesRoomsRename {
+        const NAME: &'static str = "hermes.rooms.rename";
+        type Params = super::HermesRoomRename;
+        type Result = super::HermesRoomDto;
+    }
+
+    /// Saves a room's purpose, notes and who answers.
+    ///
+    /// `hermes.rooms.saveContext`: HermesRoomContextEdit -> HermesRoomContextDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsSaveContext;
+
+    impl RpcMethod for HermesRoomsSaveContext {
+        const NAME: &'static str = "hermes.rooms.saveContext";
+        type Params = super::HermesRoomContextEdit;
+        type Result = super::HermesRoomContextDto;
+    }
+
+    /// Ends a room for good.
+    ///
+    /// `hermes.rooms.disband`: HermesRoomRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesRoomsDisband;
+
+    impl RpcMethod for HermesRoomsDisband {
+        const NAME: &'static str = "hermes.rooms.disband";
+        type Params = super::HermesRoomRef;
+        type Result = super::OkResult;
+    }
+
     /// The terminal servers usable in a scope, and the selected one.
     ///
     /// `terminal.servers`: TerminalScope -> TerminalServers.
@@ -17604,6 +18261,76 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesDecisionResult"),
     },
     MethodSpec {
+        name: "hermes.bots.list",
+        params: None,
+        result: Some("HermesBots"),
+    },
+    MethodSpec {
+        name: "hermes.bots.avatar",
+        params: Some("HermesBotRef"),
+        result: Some("HermesBotAvatar"),
+    },
+    MethodSpec {
+        name: "hermes.bots.open",
+        params: Some("HermesBotRef"),
+        result: Some("HermesSessionDto"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.list",
+        params: None,
+        result: Some("HermesRooms"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.create",
+        params: Some("HermesRoomCreate"),
+        result: Some("HermesRoomDto"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.watch",
+        params: Some("HermesRoomRef"),
+        result: Some("HermesRoomView"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.unwatch",
+        params: Some("HermesRoomRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.send",
+        params: Some("HermesRoomMessage"),
+        result: Some("HermesRoomSendResult"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.stop",
+        params: Some("HermesRoomRef"),
+        result: Some("HermesRoomStopped"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.continue",
+        params: Some("HermesRoomContinue"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.answer",
+        params: Some("HermesRoomAnswer"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.rename",
+        params: Some("HermesRoomRename"),
+        result: Some("HermesRoomDto"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.saveContext",
+        params: Some("HermesRoomContextEdit"),
+        result: Some("HermesRoomContextDto"),
+    },
+    MethodSpec {
+        name: "hermes.rooms.disband",
+        params: Some("HermesRoomRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "terminal.servers",
         params: Some("TerminalScope"),
         result: Some("TerminalServers"),
@@ -17951,6 +18678,12 @@ pub mod events {
     pub const AUTOMATIONS_CHANGED: &str = "automations.changed";
     /// A Run Now moved on. Payload `AutomationRunProgress`.
     pub const AUTOMATIONS_RUN_PROGRESS: &str = "automations.runProgress";
+    /// A watched Group Chat changed: its log, its bots' state, what it waits
+    /// on. Payload `HermesRoomView`, scoped to `hermes-room:<roomId>`.
+    pub const HERMES_ROOMS_CHANGED: &str = "hermes.rooms.changed";
+    /// The Group Chats listed changed: one was made, renamed or disbanded,
+    /// or one had news. Payload `HermesRooms`.
+    pub const HERMES_ROOMS_LIST_CHANGED: &str = "hermes.rooms.listChanged";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -18170,6 +18903,16 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("AutomationRunProgress"),
         scoped: false,
     },
+    EventSpec {
+        name: "hermes.rooms.changed",
+        payload: Some("HermesRoomView"),
+        scoped: true,
+    },
+    EventSpec {
+        name: "hermes.rooms.listChanged",
+        payload: Some("HermesRooms"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -18380,6 +19123,16 @@ pub enum Event {
     ///
     /// `automations.runProgress`.
     AutomationsRunProgress(AutomationRunProgress),
+    /// A watched Group Chat changed: its log, its bots' state, what it waits
+    /// on. Payload `HermesRoomView`, scoped to `hermes-room:<roomId>`.
+    ///
+    /// `hermes.rooms.changed`, scoped.
+    HermesRoomsChanged(HermesRoomView),
+    /// The Group Chats listed changed: one was made, renamed or disbanded,
+    /// or one had news. Payload `HermesRooms`.
+    ///
+    /// `hermes.rooms.listChanged`.
+    HermesRoomsListChanged(HermesRooms),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -18446,6 +19199,12 @@ impl Event {
             events::AUTOMATIONS_RUN_PROGRESS => {
                 Self::AutomationsRunProgress(serde_json::from_value(payload)?)
             }
+            events::HERMES_ROOMS_CHANGED => {
+                Self::HermesRoomsChanged(serde_json::from_value(payload)?)
+            }
+            events::HERMES_ROOMS_LIST_CHANGED => {
+                Self::HermesRoomsListChanged(serde_json::from_value(payload)?)
+            }
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -18499,6 +19258,8 @@ impl Event {
             Self::CalendarChanged => events::CALENDAR_CHANGED,
             Self::AutomationsChanged => events::AUTOMATIONS_CHANGED,
             Self::AutomationsRunProgress(_) => events::AUTOMATIONS_RUN_PROGRESS,
+            Self::HermesRoomsChanged(_) => events::HERMES_ROOMS_CHANGED,
+            Self::HermesRoomsListChanged(_) => events::HERMES_ROOMS_LIST_CHANGED,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -18541,6 +19302,8 @@ impl Event {
             Self::CallsChanged(payload) => serde_json::to_value(payload),
             Self::CallsCommand(payload) => serde_json::to_value(payload),
             Self::AutomationsRunProgress(payload) => serde_json::to_value(payload),
+            Self::HermesRoomsChanged(payload) => serde_json::to_value(payload),
+            Self::HermesRoomsListChanged(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -18788,6 +19551,10 @@ pub mod conformance {
         "HandoffSettled",
         "HandshakeRequest",
         "HandshakeResponse",
+        "HermesBotAvatar",
+        "HermesBotDto",
+        "HermesBotRef",
+        "HermesBots",
         "HermesBranch",
         "HermesCapabilitiesDto",
         "HermesCatalog",
@@ -18816,6 +19583,23 @@ pub mod conformance {
         "HermesProviderPlanDto",
         "HermesRef",
         "HermesRename",
+        "HermesRoomActionDto",
+        "HermesRoomAnswer",
+        "HermesRoomContextDto",
+        "HermesRoomContextEdit",
+        "HermesRoomContinue",
+        "HermesRoomCreate",
+        "HermesRoomDto",
+        "HermesRoomItemDto",
+        "HermesRoomMemberDto",
+        "HermesRoomMemberStatusDto",
+        "HermesRoomMessage",
+        "HermesRoomRef",
+        "HermesRoomRename",
+        "HermesRoomSendResult",
+        "HermesRoomStopped",
+        "HermesRoomView",
+        "HermesRooms",
         "HermesSessionDto",
         "HermesSessionUpdate",
         "HermesSessions",
@@ -19353,6 +20137,10 @@ pub mod conformance {
             "HandoffSettled" => roundtrip::<super::HandoffSettled>(json),
             "HandshakeRequest" => roundtrip::<super::HandshakeRequest>(json),
             "HandshakeResponse" => roundtrip::<super::HandshakeResponse>(json),
+            "HermesBotAvatar" => roundtrip::<super::HermesBotAvatar>(json),
+            "HermesBotDto" => roundtrip::<super::HermesBotDto>(json),
+            "HermesBotRef" => roundtrip::<super::HermesBotRef>(json),
+            "HermesBots" => roundtrip::<super::HermesBots>(json),
             "HermesBranch" => roundtrip::<super::HermesBranch>(json),
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
             "HermesCatalog" => roundtrip::<super::HermesCatalog>(json),
@@ -19381,6 +20169,23 @@ pub mod conformance {
             "HermesProviderPlanDto" => roundtrip::<super::HermesProviderPlanDto>(json),
             "HermesRef" => roundtrip::<super::HermesRef>(json),
             "HermesRename" => roundtrip::<super::HermesRename>(json),
+            "HermesRoomActionDto" => roundtrip::<super::HermesRoomActionDto>(json),
+            "HermesRoomAnswer" => roundtrip::<super::HermesRoomAnswer>(json),
+            "HermesRoomContextDto" => roundtrip::<super::HermesRoomContextDto>(json),
+            "HermesRoomContextEdit" => roundtrip::<super::HermesRoomContextEdit>(json),
+            "HermesRoomContinue" => roundtrip::<super::HermesRoomContinue>(json),
+            "HermesRoomCreate" => roundtrip::<super::HermesRoomCreate>(json),
+            "HermesRoomDto" => roundtrip::<super::HermesRoomDto>(json),
+            "HermesRoomItemDto" => roundtrip::<super::HermesRoomItemDto>(json),
+            "HermesRoomMemberDto" => roundtrip::<super::HermesRoomMemberDto>(json),
+            "HermesRoomMemberStatusDto" => roundtrip::<super::HermesRoomMemberStatusDto>(json),
+            "HermesRoomMessage" => roundtrip::<super::HermesRoomMessage>(json),
+            "HermesRoomRef" => roundtrip::<super::HermesRoomRef>(json),
+            "HermesRoomRename" => roundtrip::<super::HermesRoomRename>(json),
+            "HermesRoomSendResult" => roundtrip::<super::HermesRoomSendResult>(json),
+            "HermesRoomStopped" => roundtrip::<super::HermesRoomStopped>(json),
+            "HermesRoomView" => roundtrip::<super::HermesRoomView>(json),
+            "HermesRooms" => roundtrip::<super::HermesRooms>(json),
             "HermesSessionDto" => roundtrip::<super::HermesSessionDto>(json),
             "HermesSessionUpdate" => roundtrip::<super::HermesSessionUpdate>(json),
             "HermesSessions" => roundtrip::<super::HermesSessions>(json),

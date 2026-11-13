@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'hermes_rooms.dart';
+
 part 'hermes.freezed.dart';
 part 'hermes.g.dart';
 
@@ -244,6 +246,10 @@ abstract class HermesChatDto with _$HermesChatDto {
     /// The app that owns it, by name ("Hermes CLI", "Telegram"), or empty
     /// when Hermes did not say.
     @Default('') String owner,
+
+    /// The bot whose Bot Chat it is: the chat is titled with the bot, and
+    /// its replies carry the bot's name and face.
+    HermesBotDto? bot,
   }) = _HermesChatDto;
 
   factory HermesChatDto.fromJson(Map<String, dynamic> json) =>
