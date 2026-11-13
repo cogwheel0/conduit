@@ -516,6 +516,8 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
           final page? when page.isNotEmpty => NativeSheetItemConfig(
             id: page,
             title: action.label,
+            destructive: action.destructive,
+            confirmMessage: action.confirmMessage,
           ),
           _ => NativeSheetItemConfig(
             id: action.id,

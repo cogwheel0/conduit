@@ -243,6 +243,48 @@ void main() {
     check(controller.changes).isEmpty();
   });
 
+  testWidgets('a row menu item naming a page with a question asks it '
+      'before opening the page', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'account',
+          title: 'Ada',
+          rowActions: [
+            NativeSheetRowAction(
+              id: 'reset',
+              label: 'Start Over',
+              destructive: true,
+              confirmMessage: 'Start this account over?',
+              detailId: 'start-over-page',
+            ),
+          ],
+        ),
+      ]),
+      known: [NativeSheetDetailConfig(id: 'start-over-page', title: 'Over')],
+    );
+    Future<void> choose() async {
+      await tester.tap(
+        find.byKey(const ValueKey<String>('settings-row-actions-account')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start Over').last);
+      await tester.pumpAndSettle();
+    }
+
+    await choose();
+    check(find.text('Start this account over?').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+    check(find.text('page start-over-page').evaluate()).isEmpty();
+
+    await choose();
+    await tester.tap(find.text('Start Over').last);
+    await tester.pumpAndSettle();
+    check(find.text('page start-over-page').evaluate()).isNotEmpty();
+  });
+
   testWidgets("a bar button naming a page pushes it, as a row leading to it "
       'would, and sends nothing', (tester) async {
     final controller = await _pumpPage(

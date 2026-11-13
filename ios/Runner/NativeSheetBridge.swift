@@ -375,7 +375,14 @@ private struct NativeSheetRowAction {
     /// or pushing the page it names.
     var asItem: NativeSheetItem? {
         if let detailId {
-            return NativeSheetItem(["id": detailId, "title": label])
+            // Its question, when it has one, is asked before the page opens.
+            var page: [String: Any] = [
+                "id": detailId,
+                "title": label,
+                "destructive": destructive,
+            ]
+            page["confirmMessage"] = confirmMessage
+            return NativeSheetItem(page)
         }
         var payload: [String: Any] = [
             "id": id,
