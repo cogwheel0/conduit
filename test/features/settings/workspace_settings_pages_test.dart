@@ -651,20 +651,12 @@ void main() {
         _l10n.workspaceTools,
         _l10n.workspaceSkills,
       ]);
-      // Models and Prompts are pages of Settings's own; the others open the
-      // Workspace's pages over the app.
-      check(
-        rig.row(
-          workspaceHubPageId,
-          workspaceSectionPageId(WorkspaceSection.models),
-        ),
-      ).isNotNull();
-      check(
-        rig.row(
-          workspaceHubPageId,
-          workspaceRowId('open', 'hub', WorkspaceSection.tools.name),
-        ),
-      ).isNotNull();
+      // Each section is a page of Settings's own.
+      for (final section in WorkspaceSection.values) {
+        check(
+          rig.row(workspaceHubPageId, workspaceSectionPageId(section)),
+        ).isNotNull();
+      }
       check(
         rig.container
             .read(settingsPagesProvider)

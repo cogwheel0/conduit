@@ -1651,7 +1651,16 @@ class NativeSheetItemConfig {
 }
 
 /// The keyboard a text row brings up.
-enum NativeSheetKeyboard { url, email, number }
+enum NativeSheetKeyboard {
+  url,
+  email,
+
+  /// Digits only: a whole number of zero or more.
+  number,
+
+  /// Digits with a sign and a decimal point.
+  decimal,
+}
 
 /// Which of the account's passwords a secure row holds: the one in use, or
 /// one being set.
@@ -1738,6 +1747,13 @@ enum NativeSheetItemKind {
   /// [NativeSheetItemConfig.subtitle] is what assistive technology reads for
   /// it ("Removed: …"), so the change is said, not only shown.
   diffLine,
+
+  /// Source code to edit as is, in a monospaced font, filling the page it
+  /// is the only row of: no autocorrection, smart quotes or dashes, and on
+  /// iOS a Tab key above the keyboard. Long lines wrap. [title] names it for
+  /// assistive technology; [value] is the code, and what is typed goes back
+  /// as a text row's does. A [disabled] row reads without editing.
+  code,
 }
 
 /// [value] as a [NativeSheetItemKind.date] or [NativeSheetItemKind.time]
@@ -2148,6 +2164,7 @@ extension on NativeSheetItemKind {
       NativeSheetItemKind.date => PlatformNativeSheetItemKind.date,
       NativeSheetItemKind.time => PlatformNativeSheetItemKind.time,
       NativeSheetItemKind.diffLine => PlatformNativeSheetItemKind.diffLine,
+      NativeSheetItemKind.code => PlatformNativeSheetItemKind.code,
     };
   }
 }

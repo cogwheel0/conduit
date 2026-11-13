@@ -492,7 +492,8 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
     final text =
         item.kind == NativeSheetItemKind.textField ||
         item.kind == NativeSheetItemKind.secureTextField ||
-        item.kind == NativeSheetItemKind.multilineTextField;
+        item.kind == NativeSheetItemKind.multilineTextField ||
+        item.kind == NativeSheetItemKind.code;
     return SettingsRow(
       key: text
           ? ValueKey<String>(

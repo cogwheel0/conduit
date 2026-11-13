@@ -33,6 +33,26 @@ const workspaceKnowledgeFolderPagePrefix = 'workspace-knowledge-folder:';
 /// `:`, the editor key, `:`, then the URI-encoded folder or file it is for.
 const workspaceKnowledgeFormPagePrefix = 'workspace-knowledge-form:';
 
+/// Prefix of a tool's editor; the editor key follows.
+const workspaceToolPagePrefix = 'workspace-tool:';
+
+/// Prefix of the page editing a tool's Python source; the editor key
+/// follows.
+const workspaceToolCodePagePrefix = 'workspace-tool-code:';
+
+/// Prefix of a tool's valves; the editor key follows.
+const workspaceToolValvesPagePrefix = 'workspace-tool-valves:';
+
+/// Prefix of the page loading a new tool from a URL; the editor key follows.
+const workspaceToolUrlPagePrefix = 'workspace-tool-url:';
+
+/// Prefix of a skill's editor; the editor key follows.
+const workspaceSkillPagePrefix = 'workspace-skill:';
+
+/// Prefix of the page editing a skill's instructions; the editor key
+/// follows.
+const workspaceSkillContentPagePrefix = 'workspace-skill-content:';
+
 /// Prefix of a prompt's editor; the editor key follows.
 const workspacePromptPagePrefix = 'workspace-prompt:';
 
@@ -111,6 +131,12 @@ String workspaceKnowledgeFormPageId(String kind, String key, String target) =>
   if (parts.length != 3) return null;
   return (kind: parts[0], key: parts[1], target: Uri.decodeComponent(parts[2]));
 }
+
+String workspaceToolPageId(String? id) =>
+    '$workspaceToolPagePrefix${workspaceEditorKey(id)}';
+
+String workspaceSkillPageId(String? id) =>
+    '$workspaceSkillPagePrefix${workspaceEditorKey(id)}';
 
 String workspacePromptPageId(String? id) =>
     '$workspacePromptPagePrefix${workspaceEditorKey(id)}';

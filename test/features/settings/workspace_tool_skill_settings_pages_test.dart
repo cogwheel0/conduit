@@ -1,0 +1,1640 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:checks/checks.dart';
+import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/features/settings/pages/workspace_page_ids.dart';
+import 'package:conduit/features/settings/pages/workspace_settings_pages.dart';
+import 'package:conduit/features/settings/pages/workspace_skill_settings_pages.dart';
+import 'package:conduit/features/settings/pages/workspace_tool_settings_pages.dart';
+import 'package:conduit/features/settings/settings_controller.dart';
+import 'package:conduit/features/settings/settings_page_module.dart';
+import 'package:conduit/features/settings/settings_pages.dart';
+import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:share_plus/share_plus.dart';
+
+final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
+
+const _server = ServerConfig(
+  id: 'server-1',
+  name: 'Home server',
+  url: 'https://owui.example',
+);
+
+User _user({String role = 'user'}) =>
+    User(id: 'owner', username: 'ada', email: 'ada@example.com', role: role);
+
+const _grace = User(
+  id: 'user-2',
+  username: 'grace',
+  email: 'grace@example.com',
+  role: 'user',
+);
+
+/// Who is signed in, when a test switches to another account.
+final class _SignedIn extends Notifier<User?> {
+  @override
+  User? build() => null;
+
+  void use(User user) => state = user;
+}
+
+final _signedInProvider = NotifierProvider<_SignedIn, User?>(_SignedIn.new);
+
+/// The Settings row queue as far as a page reads it: how many changes have
+/// joined it, and which one is handled now.
+final class _Queue extends SettingsController {
+  int queued = 0;
+  int? handling;
+
+  @override
+  int get controlsQueued => queued;
+
+  @override
+  int? get controlHandled => handling;
+}
+
+final _newTool = workspaceToolPageId(null);
+final _tool1 = workspaceToolPageId('tool-1');
+final _toolKey = workspaceEditorKey('tool-1');
+final _newSkill = workspaceSkillPageId(null);
+final _skill1 = workspaceSkillPageId('skill-1');
+final _skillKey = workspaceEditorKey('skill-1');
+
+const _grant = WorkspaceAccessGrant(
+  principalType: WorkspacePrincipalType.group,
+  principalId: 'group-1',
+  permission: WorkspaceGrantPermission.read,
+);
+
+WorkspaceToolSummary _tool({
+  bool writeAccess = true,
+  bool? isActive,
+  Map<String, dynamic> meta = const {'description': 'Reads star charts'},
+}) => WorkspaceToolSummary(
+  id: 'tool-1',
+  name: 'Star Chart',
+  userId: 'owner',
+  content: 'class Tools:\n    pass\n',
+  specs: const [
+    {'name': 'find_star', 'description': 'Finds a star'},
+  ],
+  meta: meta,
+  accessGrants: const [_grant],
+  writeAccess: writeAccess,
+  isActive: isActive,
+);
+
+WorkspaceSkillSummary _skill({bool writeAccess = true, bool isActive = true}) =>
+    WorkspaceSkillSummary(
+      id: 'skill-1',
+      name: 'Trail Planner',
+      userId: 'owner',
+      description: 'Plans a hike',
+      content: '# Trail planner\nPick a route.',
+      accessGrants: const [_grant],
+      writeAccess: writeAccess,
+      isActive: isActive,
+    );
+
+final class _Tools extends WorkspaceTools {
+  _Tools([this.items = const []]);
+
+  final List<WorkspaceToolSummary> items;
+  final created = <WorkspaceToolForm>[];
+  final updated = <WorkspaceToolForm>[];
+  final toggled = <String>[];
+  final deleted = <String>[];
+  final fetched = <String>[];
+  final valveSaves = <(bool, Map<String, dynamic>)>[];
+  Completer<void>? urlGate;
+  Object? createError;
+  Object? valvesError;
+
+  /// Runs as a switch or a valve save is sent, before it answers.
+  void Function()? onSend;
+
+  /// What a switch or a valve save fails with, once sent.
+  Object? sendError;
+
+  @override
+  Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async =>
+      WorkspaceCollectionState(items: items, total: items.length);
+
+  @override
+  Future<WorkspaceToolDetail> create(WorkspaceToolForm form) async {
+    final error = createError;
+    if (error != null) throw error;
+    created.add(form);
+    return WorkspaceToolSummary(id: form.id, name: form.name, userId: 'owner');
+  }
+
+  @override
+  Future<WorkspaceToolDetail> updateItem(
+    String id,
+    WorkspaceToolForm form,
+  ) async {
+    updated.add(form);
+    return _tool();
+  }
+
+  final accessSaves = <List<WorkspaceAccessGrantInput>>[];
+
+  /// What the server keeps of an access list sent: by default all of it.
+  List<WorkspaceAccessGrantInput> Function(
+    List<WorkspaceAccessGrantInput> grants,
+  )
+  keepAccess = (grants) => grants;
+
+  @override
+  Future<WorkspaceToolDetail> updateAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    accessSaves.add(grants);
+    return WorkspaceToolSummary(
+      id: id,
+      name: 'Star Chart',
+      userId: 'owner',
+      writeAccess: true,
+      accessGrants: [
+        for (final grant in keepAccess(grants))
+          WorkspaceAccessGrant(
+            principalType: grant.principalType,
+            principalId: grant.principalId,
+            permission: grant.permission,
+          ),
+      ],
+    );
+  }
+
+  @override
+  Future<WorkspaceToolDetail> toggle(String id) async {
+    onSend?.call();
+    if (sendError case final error?) throw error;
+    toggled.add(id);
+    // As Open WebUI answers a toggle: no source, no write access.
+    return const WorkspaceToolSummary(
+      id: 'tool-1',
+      name: 'Star Chart',
+      userId: 'owner',
+      isActive: false,
+    );
+  }
+
+  @override
+  Future<void> delete(String id) async => deleted.add(id);
+
+  /// Runs as an export is read, before it answers.
+  void Function()? onExport;
+
+  @override
+  Future<Map<String, dynamic>> exportOne(String id) async {
+    onExport?.call();
+    return {'id': id, 'content': 'class Tools:\n    pass\n'};
+  }
+
+  /// Holds the next read of the valves, when set.
+  Completer<void>? valvesGate;
+
+  /// What the server's valves read as: units, in turn, per read.
+  final unitsRead = <String?>[];
+
+  @override
+  Future<Map<String, dynamic>> loadFromUrl(String url) async {
+    fetched.add(url);
+    await urlGate?.future;
+    return {
+      'name': 'moon_phase',
+      'content': '"""\ntitle: Moon Phase\n"""\nclass Tools:\n    pass\n',
+      'meta': {'description': 'Says the phase of the moon'},
+    };
+  }
+
+  @override
+  Future<WorkspaceValveSpec?> toolValvesSpec(String id) async =>
+      const WorkspaceValveSpec(
+        schema: {
+          'properties': {
+            'units': {
+              'title': 'Units',
+              'type': 'string',
+              'enum': ['metric', 'imperial'],
+            },
+            'limit': {'title': 'Limit', 'type': 'integer', 'default': 5},
+          },
+        },
+      );
+
+  @override
+  Future<Map<String, dynamic>> toolValves(String id) async {
+    final gate = valvesGate;
+    valvesGate = null;
+    final units = unitsRead.isEmpty ? null : unitsRead.removeAt(0);
+    await gate?.future;
+    final error = valvesError;
+    if (error != null) throw error;
+    return {'units': units, 'limit': null};
+  }
+
+  @override
+  Future<WorkspaceValveSpec?> userToolValvesSpec(String id) async => null;
+
+  @override
+  Future<Map<String, dynamic>> userToolValves(String id) async => {};
+
+  @override
+  Future<void> updateToolValves(String id, Map<String, dynamic> valves) async {
+    onSend?.call();
+    if (sendError case final error?) throw error;
+    valveSaves.add((false, valves));
+  }
+
+  @override
+  Future<void> refresh() async {}
+}
+
+final class _Skills extends WorkspaceSkills {
+  _Skills();
+
+  final List<WorkspaceSkillSummary> items = const [];
+  final created = <WorkspaceSkillForm>[];
+  final updated = <WorkspaceSkillForm>[];
+  final toggled = <String>[];
+  final deleted = <String>[];
+  final cloned = <(String, String)>[];
+  Object? cloneError;
+
+  /// Runs as a clone is asked for, before it answers.
+  void Function()? onClone;
+
+  @override
+  Future<WorkspaceCollectionState<WorkspaceSkillSummary>> build() async =>
+      WorkspaceCollectionState(items: items, total: items.length);
+
+  @override
+  Future<WorkspaceSkillDetail> clone(
+    String id, {
+    required String newId,
+    required String name,
+  }) async {
+    onClone?.call();
+    final error = cloneError;
+    if (error != null) throw error;
+    cloned.add((id, newId));
+    return WorkspaceSkillSummary(id: newId, name: name, userId: 'owner');
+  }
+
+  Object? createError;
+
+  @override
+  Future<WorkspaceSkillDetail> create(WorkspaceSkillForm form) async {
+    final error = createError;
+    if (error != null) throw error;
+    created.add(form);
+    return WorkspaceSkillSummary(id: form.id, name: form.name, userId: 'owner');
+  }
+
+  /// Runs as a save is sent, before it answers.
+  void Function()? onSave;
+
+  /// What a save fails with, once sent.
+  Object? saveError;
+
+  @override
+  Future<WorkspaceSkillDetail> updateItem(
+    String id,
+    WorkspaceSkillForm form,
+  ) async {
+    updated.add(form);
+    onSave?.call();
+    if (saveError case final error?) throw error;
+    return _skill();
+  }
+
+  @override
+  Future<WorkspaceSkillDetail> toggle(String id) async {
+    toggled.add(id);
+    // As Open WebUI answers a toggle: no write access.
+    return const WorkspaceSkillSummary(
+      id: 'skill-1',
+      name: 'Trail Planner',
+      userId: 'owner',
+      isActive: false,
+    );
+  }
+
+  @override
+  Future<void> delete(String id) async => deleted.add(id);
+
+  @override
+  Future<void> refresh() async {}
+}
+
+/// Settings as the pages see it: each question is answered with [answer].
+final class _Surface extends SettingsSurface {
+  _Surface(super.ref);
+
+  String? answer;
+  final asked = <String>[];
+
+  /// Runs once, as the next page is drawn, then is cleared.
+  void Function()? onNextApply;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final applied = await super.applyDetail(detail, detailSheets: detailSheets);
+    final hook = onNextApply;
+    onNextApply = null;
+    hook?.call();
+    return applied;
+  }
+
+  @override
+  Future<String?> ask({
+    required String title,
+    String? message,
+    required List<NativeSheetAlertAction> actions,
+  }) async {
+    asked.add(title);
+    return answer;
+  }
+}
+
+final class _Export extends WorkspaceExportController {
+  final shared = <String>[];
+
+  @override
+  Future<ShareResult> shareJson({
+    required String filename,
+    required Object? data,
+    String? subject,
+    Rect? sharePositionOrigin,
+  }) async {
+    shared.add(filename);
+    return const ShareResult('ok', ShareResultStatus.success);
+  }
+}
+
+/// An Open WebUI server answering every write with [answer], after running
+/// [onWrite]; reads get an empty list.
+final class _Server implements HttpClientAdapter {
+  _Server(this.answer);
+
+  final Object? answer;
+  void Function()? onWrite;
+  final writes = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.method != 'GET') {
+      writes.add('${options.method} ${options.path}');
+      onWrite?.call();
+    }
+    return ResponseBody.fromString(
+      jsonEncode(options.method == 'GET' ? const <Object?>[] : answer),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+final class _Rig {
+  _Rig(this.tester, this.container);
+
+  final WidgetTester tester;
+  final ProviderContainer container;
+
+  SettingsPageModule _owner(String id) => container
+      .read(settingsPageModulesProvider)
+      .firstWhere((module) => module.ownsPage(id));
+
+  NativeSheetDetailConfig page(String id) =>
+      container.read(settingsPagesProvider)[id]!;
+
+  List<NativeSheetItemConfig> rows(String id) {
+    final detail = page(id);
+    return [...detail.items, for (final s in detail.sections) ...s.items];
+  }
+
+  NativeSheetItemConfig? row(String pageId, String rowId) =>
+      rows(pageId).where((row) => row.id == rowId).firstOrNull;
+
+  List<String> get closed => [
+    for (final MapEntry(:key, :value)
+        in container.read(settingsPagesProvider).closeRequests.entries)
+      for (var i = 0; i < value; i++) key,
+  ];
+
+  Future<void> open(String id) async {
+    if (!container.read(settingsPagesProvider).contains(id)) {
+      container.read(settingsPagesProvider.notifier).register([
+        buildNativeLoadingDetail(l10n: _l10n, id: id, title: ''),
+      ]);
+    }
+    await settle(_owner(id).hydrate(id, _l10n));
+  }
+
+  Future<void> change(String id, [Object? value = true]) => settle(() async {
+    for (final module in container.read(settingsPageModulesProvider)) {
+      if (await module.handleChange(id, value, _l10n)) return;
+    }
+  }());
+
+  void leave(String id) => _owner(id).pageLeft(id);
+
+  Future<void> settle(Future<Object?> work) async {
+    var done = false;
+    unawaited(work.whenComplete(() => done = true));
+    for (var round = 0; round < 60 && !done; round++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    for (var round = 0; round < 3; round++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    await work;
+  }
+}
+
+String _toolRow(String field, [String? key, String? extra]) =>
+    workspaceRowId('tool-$field', key ?? workspaceNewKey, extra);
+
+String _skillRow(String field, [String? key]) =>
+    workspaceRowId('skill-$field', key ?? workspaceNewKey);
+
+void main() {
+  late ApiService api;
+
+  setUp(() {
+    api = ApiService(
+      serverConfig: _server,
+      workerManager: WorkerManager(),
+      authToken: 'token-a',
+    );
+  });
+
+  Future<_Rig> pump(
+    WidgetTester tester, {
+    _Tools? tools,
+    _Skills? skills,
+    WorkspaceToolSummary? tool,
+    WorkspaceSkillSummary? skill,
+    String role = 'user',
+    String? serverVersion = '0.13.0',
+    String? markdown,
+    _Export? export,
+    SettingsController? controller,
+    bool serverSkills = false,
+  }) async {
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        currentUserProvider2.overrideWith(
+          (ref) => ref.watch(_signedInProvider) ?? _user(role: role),
+        ),
+        if (controller != null)
+          settingsControllerProvider.overrideWithValue(controller),
+        apiServiceProvider.overrideWithValue(api),
+        authTokenProvider3.overrideWithValue('token-a'),
+        activeServerProvider.overrideWith((ref) async => _server),
+        workspaceCapabilitiesProvider.overrideWith(
+          (ref) async => WorkspaceCapabilities.all,
+        ),
+        workspaceServerVersionProvider.overrideWithValue(serverVersion),
+        workspaceToolsProvider.overrideWith(() => tools ?? _Tools()),
+        // The skills provider as the app has it, over [api], when a test
+        // needs what the server answers to reach the page.
+        if (!serverSkills)
+          workspaceSkillsProvider.overrideWith(() => skills ?? _Skills()),
+        workspaceToolDetailProvider('tool-1')
+            .overrideWith((ref) async => tool ?? _tool()),
+        workspaceSkillDetailProvider('skill-1')
+            .overrideWith((ref) async => skill ?? _skill()),
+        workspaceSkillMarkdownPickerProvider.overrideWithValue(
+          () async => markdown,
+        ),
+        settingsSurfaceProvider.overrideWith(_Surface.new),
+        workspaceExportControllerProvider.overrideWithValue(
+          export ?? _Export(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(settingsSurfaceProvider);
+    container.listen(workspaceCapabilitiesProvider, (_, _) {});
+    container.listen(activeServerProvider, (_, _) {});
+    final rig = _Rig(tester, container);
+    await rig.settle(Future<void>.value());
+    return rig;
+  }
+
+  group('the Tools and Skills lists', () {
+    testWidgets('a tool on names its functions; one off says so, and only a '
+        'server with the switch offers it', (tester) async {
+      final tools = _Tools([
+        _tool(isActive: true),
+        WorkspaceToolSummary(
+          id: 'tool-2',
+          name: 'Off',
+          userId: 'owner',
+          writeAccess: true,
+          isActive: false,
+        ),
+        WorkspaceToolSummary(
+          id: 'tool-3',
+          name: 'Old',
+          userId: 'owner',
+          writeAccess: true,
+        ),
+      ]);
+      final rig = await pump(tester, tools: tools);
+      final list = workspaceSectionPageId(WorkspaceSection.tools);
+      await rig.open(list);
+
+      check(rig.row(list, _tool1)!.subtitle!)
+          .contains(_l10n.workspaceToolFunctionCount(1));
+      check(rig.row(list, workspaceToolPageId('tool-2'))!.subtitle!)
+          .contains(_l10n.inactiveStatus);
+      final switches = [
+        for (final id in ['tool-1', 'tool-2', 'tool-3'])
+          rig
+              .row(list, workspaceToolPageId(id))!
+              .rowActions
+              .any((a) => a.id == workspaceRowId('list-active', 'tools', id)),
+      ];
+      check(switches).deepEquals([true, true, false]);
+
+      await rig.change(workspaceRowId('list-active', 'tools', 'tool-1'));
+      check(tools.toggled).deepEquals(['tool-1']);
+    });
+
+    testWidgets('both offer Import and Export, and the Workspace hands '
+        'nothing off any more', (tester) async {
+      final rig = await pump(tester);
+      await rig.open(workspaceHubPageId);
+      check(rig.rows(workspaceHubPageId).map((row) => row.id)).deepEquals([
+        for (final section in WorkspaceSection.values)
+          workspaceSectionPageId(section),
+      ]);
+
+      final skills = workspaceSectionPageId(WorkspaceSection.skills);
+      await rig.open(skills);
+      check(rig.row(skills, workspaceRowId('list-import', 'skills'))!.title)
+          .equals(_l10n.workspaceSkillImport);
+      check(rig.row(skills, workspaceRowId('list-export', 'skills'))!.title)
+          .equals(_l10n.workspaceSkillExport);
+    });
+  });
+
+  group("a tool's editor", () {
+    testWidgets('makes a tool whose id follows its name, from the starting '
+        'source, then goes back', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_newTool);
+      check(rig.page(_newTool).confirmActionLabel)
+          .equals(_l10n.workspaceCreate);
+
+      await rig.change(_toolRow('name'), 'Moon Phase');
+      check(rig.row(_newTool, _toolRow('id'))!.value).equals('moon_phase');
+      await rig.change(_toolRow('save'));
+
+      final form = tools.created.single;
+      check(form.id).equals('moon_phase');
+      check(form.content).equals(workspaceToolBoilerplate);
+      check(rig.closed).deepEquals([_newTool]);
+    });
+
+    testWidgets('saves nothing with no source', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_newTool);
+      await rig.change(_toolRow('name'), 'Moon Phase');
+      await rig.change(_toolRow('content'), '');
+      await rig.change(_toolRow('save'));
+
+      check(tools.created).isEmpty();
+      check(rig.page(_newTool).announcement)
+          .equals(_l10n.workspaceToolContentRequired);
+    });
+
+    testWidgets('a source asking for a newer server is not saved, and says '
+        'why', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools, serverVersion: '0.10.0');
+      await rig.open(_newTool);
+      await rig.change(
+        _toolRow('content'),
+        '"""\ntitle: Future Tool\nrequired_open_webui_version: 0.11.0\n"""\n'
+        'class Tools:\n    pass\n',
+      );
+      // The title filled the name, and the id after it.
+      check(rig.row(_newTool, _toolRow('name'))!.value).equals('Future Tool');
+      check(rig.row(_newTool, '$_newTool-incompatible')).isNotNull();
+
+      await rig.change(_toolRow('save'));
+      check(tools.created).isEmpty();
+      check(rig.page(_newTool).announcement)
+          .equals(_l10n.workspaceToolIncompatible('0.11.0', '0.10.0'));
+    });
+
+    testWidgets('a refusal that is not about the id is not said to be one', (
+      tester,
+    ) async {
+      final tools = _Tools()
+        ..createError = DioException(
+          requestOptions: RequestOptions(),
+          response: Response(
+            requestOptions: RequestOptions(),
+            statusCode: 400,
+            data: {'detail': 'Error loading tool: invalid syntax'},
+          ),
+        );
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_newTool);
+      await rig.change(_toolRow('name'), 'Moon Phase');
+      await rig.change(_toolRow('save'));
+
+      check(rig.page(_newTool).announcement)
+          .not((it) => it.equals(_l10n.workspaceToolIdTaken));
+    });
+
+    testWidgets('an id that is not one, or already used, says why', (
+      tester,
+    ) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_newTool);
+      await rig.change(_toolRow('name'), 'Moon Phase');
+      await rig.change(_toolRow('id'), '9 moons');
+      await rig.change(_toolRow('save'));
+      check(tools.created).isEmpty();
+      check(rig.page(_newTool).announcement)
+          .equals(_l10n.workspaceToolIdInvalid);
+    });
+
+    testWidgets("its source is a page of code, and a change there marks the "
+        'editor edited', (tester) async {
+      final rig = await pump(tester);
+      await rig.open(_tool1);
+      final code = '$workspaceToolCodePagePrefix$_toolKey';
+      await rig.open(code);
+      final row = rig.rows(code).single;
+      check(row.kind).equals(NativeSheetItemKind.code);
+      check(row.value).equals('class Tools:\n    pass\n');
+      check(rig.page(_tool1).edited).isFalse();
+
+      await rig.change(_toolRow('content', _toolKey), 'class Tools: ...\n');
+
+      check(rig.page(_tool1).edited).isTrue();
+    });
+
+    testWidgets('an edit saves the tool in place, then goes back', (
+      tester,
+    ) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      check(rig.row(_tool1, _toolRow('id', _toolKey))!.kind)
+          .equals(NativeSheetItemKind.readOnlyText);
+
+      await rig.change(_toolRow('description', _toolKey), 'Charts stars');
+      await rig.change(_toolRow('save', _toolKey));
+
+      final form = tools.updated.single;
+      check(form.id).equals('tool-1');
+      check(form.meta['description']).equals('Charts stars');
+      check(rig.closed).deepEquals([_tool1]);
+    });
+
+    testWidgets("its Access stays on the list the server saved when it kept "
+        'less than was sent', (tester) async {
+      // The server drops what the account may not give: here, Everyone.
+      final tools = _Tools()
+        ..keepAccess = (grants) => [
+          for (final grant in grants)
+            if (grant.principalId != '*') grant,
+        ];
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      final access = workspaceAccessPageId(WorkspaceSection.tools, _toolKey);
+      await rig.open(access);
+      final scope = '${WorkspaceSection.tools.name}|$_toolKey';
+
+      await rig.change(workspaceRowId('access-general', scope), 'server');
+      await rig.change(workspaceRowId('access-done', scope));
+
+      check(tools.accessSaves.single.map((g) => g.principalId)).contains('*');
+      check(rig.closed).not((it) => it.contains(access));
+      check(rig.page(access).announcement)
+          .equals(_l10n.resourceSharingFiltered);
+      check(rig.row(access, workspaceRowId('access-general', scope))!.value)
+          .equals('restricted');
+    });
+
+    testWidgets('a duplicate keeps none of the access list', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      await rig.change(_toolRow('clone', _toolKey));
+
+      check(tools.created.single.id).equals('tool-1_clone');
+      check(tools.created.single.accessGrants).isEmpty();
+    });
+
+    testWidgets('switches the tool off on a server that has the switch, but '
+        'not while it holds changes', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      await rig.open(_tool1);
+      check(rig.row(_tool1, _toolRow('active', _toolKey))!.title)
+          .equals(_l10n.workspaceToolDeactivate);
+
+      await rig.change(_toolRow('description', _toolKey), 'Changed');
+      await rig.change(_toolRow('active', _toolKey));
+      check(tools.toggled).isEmpty();
+      check(rig.page(_tool1).announcement)
+          .equals(_l10n.workspaceToolToggleSaveFirst);
+
+      final switching = _Tools();
+      final fresh = await pump(
+        tester,
+        tools: switching,
+        tool: _tool(isActive: true),
+      );
+      await fresh.open(_tool1);
+      await fresh.change(_toolRow('active', _toolKey));
+      check(switching.toggled).deepEquals(['tool-1']);
+      check(fresh.row(_tool1, _toolRow('active', _toolKey))!.title)
+          .equals(_l10n.workspaceToolActivate);
+      // Still the account's own tool, its source kept.
+      check(fresh.page(_tool1).confirmActionId).isNotNull();
+      final code = '$workspaceToolCodePagePrefix$_toolKey';
+      await fresh.open(code);
+      check(fresh.rows(code).single.value).equals('class Tools:\n    pass\n');
+
+      final older = await pump(tester, tool: _tool());
+      await older.open(_tool1);
+      check(older.row(_tool1, _toolRow('active', _toolKey))).isNull();
+    });
+
+    testWidgets('deletes the tool, then goes back', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      await rig.change(_toolRow('delete', _toolKey));
+
+      check(tools.deleted).deepEquals(['tool-1']);
+      check(rig.closed).deepEquals([_tool1]);
+    });
+
+    testWidgets('a tool the account may only view offers no changes', (
+      tester,
+    ) async {
+      final rig = await pump(tester, tool: _tool(writeAccess: false));
+      await rig.open(_tool1);
+
+      check(rig.page(_tool1).confirmActionId).isNull();
+      check(rig.row(_tool1, _toolRow('name', _toolKey))!.kind)
+          .equals(NativeSheetItemKind.readOnlyText);
+      check(rig.row(_tool1, _toolRow('delete', _toolKey))).isNull();
+      check(rig.row(_tool1, '$workspaceToolValvesPagePrefix$_toolKey'))
+          .isNull();
+      // Open WebUI leaves its source out for this account: nothing to export.
+      check(rig.row(_tool1, _toolRow('export', _toolKey))).isNull();
+    });
+
+    testWidgets('an export read as another account signs in is not shared', (
+      tester,
+    ) async {
+      final tools = _Tools();
+      final export = _Export();
+      final rig = await pump(tester, tools: tools, export: export);
+      final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+      await rig.open(_tool1);
+      // Signed in while the editor is drawn again with the export read.
+      tools.onExport = () =>
+          surface.onNextApply = () =>
+              rig.container.read(_signedInProvider.notifier).use(_grace);
+
+      await rig.change(_toolRow('export', _toolKey));
+
+      check(export.shared).isEmpty();
+    });
+
+    testWidgets('a switch the server took as another account signed in is '
+        'not said to be unsaved', (tester) async {
+      // The notifier answers so a write made for an account since gone.
+      final tools = _Tools()..sendError = const WorkspaceSessionChanged();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      tools.onSend = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_tool1);
+
+      await rig.change(_toolRow('active', _toolKey));
+
+      await rig.open(_tool1);
+      check(rig.page(_tool1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a change queued on an editor since left does not reach '
+        'the one opened in its place', (tester) async {
+      final queue = _Queue();
+      final rig = await pump(tester, controller: queue);
+      await rig.open(_newTool);
+      // A name typed there waits its turn behind a slower change.
+      queue.queued = 1;
+
+      // Left, and New Tool opened again, before that turn came.
+      rig.leave(_newTool);
+      await rig.open(_newTool);
+      queue.handling = 1;
+      await rig.change(_toolRow('name'), 'Old Name');
+      queue.handling = null;
+
+      check(rig.row(_newTool, _toolRow('name'))!.value)
+          .not((it) => it.equals('Old Name'));
+    });
+
+    testWidgets("an editor kept from another account is not shown to the "
+        'next', (tester) async {
+      final rig = await pump(tester);
+      await rig.open(_tool1);
+      await rig.change(_toolRow('name', _toolKey), 'Private Wrench');
+
+      rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_tool1);
+
+      check(rig.row(_tool1, _toolRow('name', _toolKey))!.value)
+          .not((it) => it.equals('Private Wrench'));
+    });
+
+    testWidgets('a save is not sent once another account signed in', (
+      tester,
+    ) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools);
+      await rig.open(_tool1);
+      await rig.change(_toolRow('name', _toolKey), 'Private Wrench');
+
+      rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_toolRow('save', _toolKey));
+
+      check(tools.updated).isEmpty();
+    });
+
+    testWidgets('a switch sent as another account signs in leaves the page '
+        'free, read for that account', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      tools.onSend = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_tool1);
+
+      await rig.change(_toolRow('active', _toolKey));
+
+      check(tools.toggled).deepEquals(['tool-1']);
+      check(rig.page(_tool1).busy).not((it) => it.equals(true));
+      check(rig.row(_tool1, _toolRow('active', _toolKey))).isNotNull();
+      // Sent and taken: nothing says it was not saved.
+      check(rig.page(_tool1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a switch not sent, or refused, as another account signs in '
+        'says so on the page read again', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+      await rig.open(_tool1);
+
+      // Signed in while the switch is drawn busy: it is never sent.
+      surface.onNextApply = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_toolRow('active', _toolKey));
+      check(tools.toggled).isEmpty();
+      check(rig.page(_tool1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
+
+      // Sent, and refused, as the first account signs in again.
+      tools
+        ..sendError = StateError('offline')
+        ..onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_user());
+      await rig.change(_toolRow('active', _toolKey));
+      check(tools.toggled).isEmpty();
+      check(rig.page(_tool1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
+    });
+
+    group('from a URL', () {
+      final url = '$workspaceToolUrlPagePrefix$workspaceNewKey';
+
+      testWidgets('is for admins only', (tester) async {
+        final admin = await pump(tester, role: 'admin');
+        await admin.open(_newTool);
+        check(admin.row(_newTool, url)).isNotNull();
+
+        final user = await pump(tester);
+        await user.open(_newTool);
+        check(user.row(_newTool, url)).isNull();
+      });
+
+      testWidgets('sends no link the server should not fetch', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools, role: 'admin');
+        await rig.open(_newTool);
+        await rig.open(url);
+
+        for (final (link, why) in [
+          ('not a url', _l10n.workspaceToolImportUrlInvalid),
+          (
+            'http://169.254.169.254/latest/meta-data',
+            _l10n.workspaceToolImportUrlHost,
+          ),
+          (
+            'https://intranet.example/tool.py',
+            _l10n.workspaceToolImportUrlHost,
+          ),
+        ]) {
+          await rig.change(_toolRow('url'), link);
+          await rig.change(_toolRow('url-load'));
+          check(rig.page(url).announcement).equals(why);
+        }
+        check(tools.fetched).isEmpty();
+      });
+
+      testWidgets('loads a GitHub link into the new tool', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools, role: 'admin');
+        await rig.open(_newTool);
+        await rig.open(url);
+
+        await rig.change(
+          _toolRow('url'),
+          'https://github.com/example/tools/blob/main/moon.py',
+        );
+        await rig.change(_toolRow('url-load'));
+
+        check(tools.fetched).deepEquals([
+          'https://raw.githubusercontent.com/example/tools/refs/heads/main/moon.py',
+        ]);
+        check(rig.closed).deepEquals([url]);
+        check(rig.row(_newTool, _toolRow('name'))!.value).equals('Moon Phase');
+        check(rig.row(_newTool, _toolRow('description'))!.value)
+            .equals('Says the phase of the moon');
+        check(rig.page(_newTool).edited).isTrue();
+      });
+
+      testWidgets('a load answered after its page was left is not taken in', (
+        tester,
+      ) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools, role: 'admin');
+        await rig.open(_newTool);
+        await rig.change(_toolRow('name'), 'Tide Table');
+        await rig.open(url);
+        final gate = tools.urlGate = Completer<void>();
+        await rig.change(
+          _toolRow('url'),
+          'https://github.com/example/tools/blob/main/moon.py',
+        );
+        final loading = rig
+            ._owner(url)
+            .handleChange(_toolRow('url-load'), true, _l10n);
+        await tester.pump(const Duration(milliseconds: 20));
+
+        rig.leave(url);
+        gate.complete();
+        await rig.settle(loading);
+
+        check(rig.row(_newTool, _toolRow('name'))!.value).equals('Tide Table');
+        check(rig.closed).isEmpty();
+      });
+    });
+
+    group('its valves', () {
+      final valves = '$workspaceToolValvesPagePrefix$_toolKey';
+
+      testWidgets('a save sent as another account signs in closes the page '
+          'rather than leave it busy', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        tools.onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_grace);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(tools.valveSaves).length.equals(1);
+        check(rig.closed).deepEquals([valves]);
+        // Back on the editor, read afresh: the save was taken, so nothing
+        // says otherwise.
+        await rig.open(_tool1);
+        check(rig.page(_tool1).announcement)
+            .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+      });
+
+      testWidgets('a save refused as another account signs in says so on '
+          'the editor read again', (tester) async {
+        final tools = _Tools()..sendError = StateError('offline');
+        final rig = await pump(tester, tools: tools);
+        tools.onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_grace);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(rig.closed).deepEquals([valves]);
+        await rig.open(_tool1);
+        check(rig.page(_tool1).announcement)
+            .equals(_l10n.workspaceEditorAccountChanged);
+      });
+
+      testWidgets('a save the server took as another account signed in is '
+          'not said to be unsaved', (tester) async {
+        final tools = _Tools()..sendError = const WorkspaceSessionChanged();
+        final rig = await pump(tester, tools: tools);
+        tools.onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_grace);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(rig.closed).deepEquals([valves]);
+        await rig.open(_tool1);
+        check(rig.page(_tool1).announcement)
+            .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+      });
+
+      testWidgets('values read for a visit since left are not kept for the '
+          'next', (tester) async {
+        final tools = _Tools()..unitsRead.addAll(['metric', 'imperial']);
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        final first = tools.valvesGate = Completer<void>();
+        rig.container.read(settingsPagesProvider.notifier).register([
+          buildNativeLoadingDetail(l10n: _l10n, id: valves, title: ''),
+        ]);
+        final module = rig.container
+            .read(settingsPageModulesProvider)
+            .whereType<WorkspaceToolSettingsPages>()
+            .single;
+        final opening = module.hydrate(valves, _l10n);
+        await tester.pump(const Duration(milliseconds: 20));
+
+        // Left while the first read waits, then opened again.
+        rig.leave(valves);
+        await rig.open(valves);
+        first.complete();
+        await rig.settle(opening);
+
+        check(
+          rig.row(valves, _toolRow('valve-value', _toolKey, 'units'))?.value,
+        ).equals('imperial');
+      });
+
+      testWidgets('a value of its own is set, then saved', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        check(rig.row(valves, _toolRow('valve-mode', _toolKey, 'units'))!.value)
+            .equals('default');
+        check(rig.row(valves, _toolRow('valve-value', _toolKey, 'units')))
+            .isNull();
+
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+        final value = rig.row(
+          valves,
+          _toolRow('valve-value', _toolKey, 'units'),
+        )!;
+        check(value.kind).equals(NativeSheetItemKind.segment);
+        await rig.change(
+          _toolRow('valve-value', _toolKey, 'units'),
+          'imperial',
+        );
+        await rig.change(_toolRow('valve-mode', _toolKey, 'limit'), 'custom');
+        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '12');
+        check(rig.page(valves).edited).isTrue();
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(tools.valveSaves.single.$2)
+            .deepEquals({'units': 'imperial', 'limit': 12});
+        check(rig.closed).deepEquals([valves]);
+        check(rig.page(_tool1).announcement)
+            .equals(_l10n.workspaceToolValvesSaved);
+      });
+
+      testWidgets('a scope with unsaved edits asks before the other is shown', (
+        tester,
+      ) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+        final scope = _toolRow('valves-scope', _toolKey);
+        final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+
+        surface.answer = 'keep';
+        await rig.change(scope, 'user');
+        check(surface.asked).deepEquals([_l10n.workspaceEditorDiscardTitle]);
+        check(rig.row(valves, _toolRow('valve-mode', _toolKey, 'units'))!.value)
+            .equals('custom');
+        check(rig.page(valves).edited).isTrue();
+
+        surface.answer = 'discard';
+        await rig.change(scope, 'user');
+        check(rig.page(valves).edited).isFalse();
+        check(tools.valveSaves).isEmpty();
+      });
+
+      testWidgets('text that is no number is kept as typed, said, and not '
+          'saved', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'limit'), 'custom');
+        final limit = _toolRow('valve-value', _toolKey, 'limit');
+
+        // On the way to a number, or not one: kept as typed.
+        await rig.change(limit, '-');
+        check(rig.row(valves, limit)!.value).equals('-');
+        // Its keyboard has a minus sign.
+        check(rig.row(valves, limit)!.keyboard)
+            .equals(NativeSheetKeyboard.decimal);
+        check(rig.row(valves, limit)!.subtitle)
+            .equals(_l10n.chatSettingErrorNotAWholeNumber);
+        await rig.change(_toolRow('valves-save', _toolKey));
+        check(tools.valveSaves).isEmpty();
+
+        await rig.change(limit, '-12');
+        check(rig.row(valves, limit)!.subtitle).isNull();
+        await rig.change(_toolRow('valves-save', _toolKey));
+        check(tools.valveSaves.single.$2['limit']).equals(-12);
+      });
+
+      testWidgets('a value put back to its default drops the text typed into '
+          'it', (tester) async {
+        final tools = _Tools();
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        final mode = _toolRow('valve-mode', _toolKey, 'limit');
+        await rig.change(mode, 'custom');
+        await rig.change(_toolRow('valve-value', _toolKey, 'limit'), '-');
+
+        await rig.change(mode, 'default');
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(tools.valveSaves).length.equals(1);
+      });
+
+      testWidgets('valves that cannot be read offer Retry', (tester) async {
+        final tools = _Tools()..valvesError = StateError('offline');
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        await rig.open(valves);
+
+        check(rig.row(valves, _toolRow('valves-retry', _toolKey))!.title)
+            .equals(_l10n.workspaceToolValvesLoadFailed);
+        tools.valvesError = null;
+        await rig.change(_toolRow('valves-retry', _toolKey));
+        check(rig.row(valves, _toolRow('valve-mode', _toolKey, 'units')))
+            .isNotNull();
+      });
+    });
+  });
+
+  group("a skill's editor", () {
+    testWidgets('a name already in use is not said to be the id', (
+      tester,
+    ) async {
+      final skills = _Skills()
+        ..createError = DioException(
+          requestOptions: RequestOptions(),
+          response: Response(
+            requestOptions: RequestOptions(),
+            statusCode: 409,
+            data: {'detail': 'A skill with this name already exists'},
+          ),
+        );
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_newSkill);
+      await rig.change(_skillRow('name'), 'Trail Planner');
+      await rig.change(_skillRow('content'), '# Trail planner');
+      await rig.change(_skillRow('save'));
+
+      check(rig.page(_newSkill).announcement)
+          .not((it) => it.equals(_l10n.workspaceSkillIdTaken));
+    });
+
+    testWidgets('makes a skill whose id follows its name', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_newSkill);
+
+      await rig.change(_skillRow('name'), 'Trail Planner');
+      await rig.change(_skillRow('content'), 'Pick a route.');
+      await rig.change(_skillRow('save'));
+
+      check(skills.created.single.id).equals('trail-planner');
+      check(rig.closed).deepEquals([_newSkill]);
+    });
+
+    testWidgets('saves nothing with no instructions', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_newSkill);
+      await rig.change(_skillRow('name'), 'Trail Planner');
+      await rig.change(_skillRow('save'));
+
+      check(skills.created).isEmpty();
+      check(rig.page(_newSkill).announcement)
+          .equals(_l10n.workspaceSkillContentRequired);
+    });
+
+    testWidgets('an empty id says one is needed; one with other characters '
+        'says which are allowed', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_newSkill);
+      await rig.change(_skillRow('name'), 'Trail Planner');
+      await rig.change(_skillRow('content'), 'Pick a route.');
+
+      await rig.change(_skillRow('id'), '');
+      await rig.change(_skillRow('save'));
+      check(rig.page(_newSkill).announcement)
+          .equals(_l10n.workspaceSkillIdRequired);
+
+      await rig.change(_skillRow('id'), 'trail planner!');
+      await rig.change(_skillRow('save'));
+      check(rig.page(_newSkill).announcement)
+          .equals(_l10n.workspaceSkillIdInvalid);
+      check(skills.created).isEmpty();
+    });
+
+    testWidgets("front matter in its instructions fills what isn't filled", (
+      tester,
+    ) async {
+      final rig = await pump(tester);
+      await rig.open(_newSkill);
+
+      await rig.change(
+        _skillRow('content'),
+        '---\nname: trail planner\ndescription: Plans a hike\n---\nBody',
+      );
+
+      check(rig.row(_newSkill, _skillRow('name'))!.value)
+          .equals('Trail Planner');
+      check(rig.row(_newSkill, _skillRow('id'))!.value).equals('trail-planner');
+      check(rig.row(_newSkill, _skillRow('description'))!.value)
+          .equals('Plans a hike');
+    });
+
+    testWidgets('a Markdown file fills the new skill, its id from the front '
+        'matter', (tester) async {
+      final rig = await pump(
+        tester,
+        markdown: '---\nid: ridge_walk\n---\nFollow the ridge.',
+      );
+      await rig.open(_newSkill);
+
+      await rig.change(_skillRow('import-markdown'));
+
+      check(rig.row(_newSkill, _skillRow('id'))!.value).equals('ridge_walk');
+      check(rig.page(_newSkill).announcement)
+          .equals(_l10n.workspaceSkillImportMarkdownLoaded);
+      check(rig.page(_newSkill).edited).isTrue();
+    });
+
+    testWidgets('an edit saves the skill; it switches off, duplicates without '
+        'its access list, and deletes', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+      // The server's own duplicate, which copies every file of the skill.
+      check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
+      check(skills.created).isEmpty();
+
+      await rig.change(_skillRow('active', _skillKey));
+      check(skills.toggled).deepEquals(['skill-1']);
+      check(rig.row(_skill1, _skillRow('active', _skillKey))!.title)
+          .equals(_l10n.workspaceSkillActivate);
+      // Still the account's own skill.
+      check(rig.page(_skill1).confirmActionId).isNotNull();
+
+      await rig.change(
+        _skillRow('description', _skillKey),
+        'Plans a long hike',
+      );
+      await rig.change(_skillRow('save', _skillKey));
+      check(skills.updated.single.description).equals('Plans a long hike');
+      // Who may open it is the Access page's to save.
+      check(skills.updated.single.accessGrants).isNull();
+      check(rig.closed).deepEquals([_skill1]);
+
+      final removing = _Skills();
+      final again = await pump(tester, skills: removing);
+      await again.open(_skill1);
+      await again.change(_skillRow('delete', _skillKey));
+      check(removing.deleted).deepEquals(['skill-1']);
+    });
+
+    testWidgets('a change queued on an editor since left does not reach '
+        'the one opened in its place', (tester) async {
+      final queue = _Queue();
+      final rig = await pump(tester, controller: queue);
+      await rig.open(_newSkill);
+      queue.queued = 1;
+
+      rig.leave(_newSkill);
+      await rig.open(_newSkill);
+      queue.handling = 1;
+      await rig.change(_skillRow('name'), 'Old Name');
+      queue.handling = null;
+
+      check(rig.row(_newSkill, _skillRow('name'))!.value)
+          .not((it) => it.equals('Old Name'));
+    });
+
+    testWidgets("an editor kept from another account is neither shown to "
+        'the next nor saved', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('name', _skillKey), 'Private Trail');
+
+      rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_skillRow('save', _skillKey));
+      check(skills.updated).isEmpty();
+
+      await rig.open(_skill1);
+      check(rig.row(_skill1, _skillRow('name', _skillKey))!.value)
+          .not((it) => it.equals('Private Trail'));
+    });
+
+    testWidgets('a skill with unsaved changes asks for them to be saved or '
+        'discarded before it is duplicated', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(
+        _skillRow('description', _skillKey),
+        'Plans a long hike',
+      );
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).isEmpty();
+      check(skills.created).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceSkillCloneSaveFirst);
+    });
+
+    DioException notFound() => DioException(
+      requestOptions: RequestOptions(),
+      response: Response(requestOptions: RequestOptions(), statusCode: 404),
+    );
+
+    testWidgets('an older server gets a copy made from the skill as read', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills, serverVersion: '0.11.4');
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).isEmpty();
+      check(skills.created.single.id).equals('skill-1_clone');
+      // Its SKILL.md alone: the content makes it, as it always did.
+      check(skills.created.single.files).isNull();
+      check(skills.created.single.accessGrants).isNotNull().isEmpty();
+    });
+
+    testWidgets('Open WebUI 0.12 duplicates a skill itself', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills, serverVersion: '0.12.4');
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
+      check(skills.created).isEmpty();
+    });
+
+    testWidgets('a server of unknown version without its own duplicate gets '
+        'a copy made instead', (tester) async {
+      final skills = _Skills()..cloneError = notFound();
+      final rig = await pump(tester, skills: skills, serverVersion: null);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.created.single.id).equals('skill-1_clone');
+    });
+
+    testWidgets('a duplicate made as another account signs in leaves the '
+        'page free, read for that account', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      skills.onClone = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
+      check(rig.page(_skill1).busy).not((it) => it.equals(true));
+      check(rig.row(_skill1, _skillRow('clone', _skillKey))).isNotNull();
+      // Made: nothing says it was not.
+      check(rig.page(_skill1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a save not sent as another account signs in says so on the '
+        'skill read again', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a loop');
+
+      surface.onNextApply = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
+    });
+
+    testWidgets('a save the server took as another account signed in is '
+        'not said to be unsaved', (tester) async {
+      // The notifier answers so a write made for an account since gone.
+      final skills = _Skills()..saveError = const WorkspaceSessionChanged();
+      final rig = await pump(tester, skills: skills);
+      skills.onSave = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Changed');
+
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated).length.equals(1);
+      await rig.open(_skill1);
+      check(rig.page(_skill1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a delete the server did not confirm, as another account '
+        'signed in, says it was not saved', (tester) async {
+      // Through the app's own provider: a session change it raises means a
+      // change taken, and an unconfirmed one must not read as one.
+      final server = _Server(false);
+      api.dio.httpClientAdapter = server;
+      final rig = await pump(tester, serverSkills: true);
+      server.onWrite = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('delete', _skillKey));
+
+      check(server.writes)
+          .deepEquals(['DELETE /api/v1/skills/id/skill-1/delete']);
+      await rig.open(_skill1);
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
+    });
+
+    testWidgets('a duplicate refused after another account signed in makes '
+        'no copy for it', (tester) async {
+      final skills = _Skills()..cloneError = notFound();
+      final rig = await pump(tester, skills: skills, serverVersion: null);
+      skills.onClone = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.created).isEmpty();
+    });
+
+    testWidgets('a skill gone from Open WebUI 0.13 is not made again from '
+        'what was read', (tester) async {
+      final skills = _Skills()..cloneError = notFound();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+
+      await rig.change(_skillRow('clone', _skillKey));
+
+      check(skills.created).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceSkillSaveFailed);
+    });
+
+    testWidgets('a save leaves whether the skill is on to the server', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a hike');
+
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated.single.isActive).isNull();
+    });
+
+    testWidgets('a save to Open WebUI 0.11 keeps a switched-off skill off', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(
+        tester,
+        skills: skills,
+        skill: _skill(isActive: false),
+        serverVersion: '0.11.4',
+      );
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a loop');
+
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated.single.isActive).equals(false);
+    });
+
+    testWidgets('a skill with unsaved changes is not switched on or off', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a hike');
+
+      await rig.change(_skillRow('active', _skillKey));
+
+      check(skills.toggled).isEmpty();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceSkillToggleSaveFirst);
+    });
+
+    testWidgets('a skill the account may only view offers no changes', (
+      tester,
+    ) async {
+      final rig = await pump(tester, skill: _skill(writeAccess: false));
+      await rig.open(_skill1);
+
+      check(rig.page(_skill1).confirmActionId).isNull();
+      check(rig.row(_skill1, _skillRow('delete', _skillKey))).isNull();
+      final content = '$workspaceSkillContentPagePrefix$_skillKey';
+      await rig.open(content);
+      check(rig.rows(content).single.disabled).isTrue();
+    });
+  });
+}

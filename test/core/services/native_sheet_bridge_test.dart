@@ -422,6 +422,46 @@ void main() {
     },
   );
 
+  test('a row of code reaches the sheet as code, with its source', () async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    addTearDown(() => NativeSheetBridge.instance.debugIsIOSOverride = null);
+    PlatformNativeSheetApplyDetailPatchRequest? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          received =
+              (message! as List<Object?>).single!
+                  as PlatformNativeSheetApplyDetailPatchRequest;
+          return <Object?>[true];
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(
+            _applyDetailPatchChannel,
+            null,
+          ),
+    );
+
+    await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: 'source',
+      items: [
+        NativeSheetItemConfig(
+          id: 'code',
+          title: 'Python Source',
+          kind: NativeSheetItemKind.code,
+          value: 'class Tools:\n    pass\n',
+          disabled: true,
+        ),
+      ],
+    );
+
+    final [row] = received!.items;
+    check(row.kind).equals(PlatformNativeSheetItemKind.code);
+    check(row.value).equals('class Tools:\n    pass\n');
+    check(row.disabled).equals(true);
+  });
+
   group('NativeSheetBridge.updateProfile', () {
     const channel = MethodChannel(NativeSheetBridge.nativeSheetChannelName);
     const profile = NativeProfileSheetUser(

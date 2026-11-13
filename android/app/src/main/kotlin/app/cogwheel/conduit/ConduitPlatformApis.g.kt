@@ -312,7 +312,12 @@ enum class PlatformNativeSheetItemKind(val raw: Int) {
    * One read-only line of a comparison: title is the line; value is
    * `added`, `removed` or `context`; subtitle is what VoiceOver reads.
    */
-  DIFF_LINE(16);
+  DIFF_LINE(16),
+  /**
+   * Source code, monospaced, filling the page it is the only row of; value
+   * is the code, sent back as a text row's is; disabled reads only.
+   */
+  CODE(17);
 
   companion object {
     fun ofRaw(raw: Int): PlatformNativeSheetItemKind? {

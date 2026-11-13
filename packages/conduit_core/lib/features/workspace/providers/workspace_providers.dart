@@ -1016,10 +1016,11 @@ class WorkspaceTools extends _$WorkspaceTools {
   Future<void> importTool(WorkspaceToolForm form) async {
     final session = WorkspaceSessionIdentity.read(ref);
     final result = await session.api.createWorkspaceTool(form);
-    session.ensureCurrent(ref);
+    // The server's answer first: a session change then means it took it.
     if (result == null) {
       throw StateError('Tool import returned no record.');
     }
+    session.ensureCurrent(ref);
   }
 
   /// Returns every readable tool via the dedicated `/tools/export` endpoint as
@@ -1107,8 +1108,11 @@ class WorkspaceTools extends _$WorkspaceTools {
     final session = WorkspaceSessionIdentity.read(ref);
     try {
       final result = await action(session.api);
-      session.ensureCurrent(ref);
+      // The server's answer first: [WorkspaceSessionChanged] then means the
+      // change was taken, for an account since gone; a missing record stays
+      // a failure whoever is signed in.
       if (result == null) throw StateError('Tool mutation returned no record.');
+      session.ensureCurrent(ref);
       ref.invalidate(workspaceToolDetailProvider(id));
       // The write already succeeded; isolate the refresh so a reload failure
       // does not surface as a failed mutation.
@@ -1262,6 +1266,16 @@ class WorkspaceSkills extends _$WorkspaceSkills {
   Future<WorkspaceSkillDetail> create(WorkspaceSkillForm form) =>
       _mutate((api) => api.createWorkspaceSkill(form), id: form.id);
 
+  /// The server's own duplicate of skill [id], files and all.
+  Future<WorkspaceSkillDetail> clone(
+    String id, {
+    required String newId,
+    required String name,
+  }) => _mutate(
+    (api) => api.cloneWorkspaceSkill(id, newId: newId, name: name),
+    id: newId,
+  );
+
   Future<WorkspaceSkillDetail> updateItem(String id, WorkspaceSkillForm form) =>
       _mutate((api) => api.updateWorkspaceSkill(id, form), id: id);
 
@@ -1285,10 +1299,11 @@ class WorkspaceSkills extends _$WorkspaceSkills {
   Future<void> importSkill(WorkspaceSkillForm form) async {
     final session = WorkspaceSessionIdentity.read(ref);
     final result = await session.api.createWorkspaceSkill(form);
-    session.ensureCurrent(ref);
+    // The server's answer first: a session change then means it took it.
     if (result == null) {
       throw StateError('Skill import returned no record.');
     }
+    session.ensureCurrent(ref);
   }
 
   /// Returns every readable skill (with content) for export via the dedicated
@@ -1310,10 +1325,13 @@ class WorkspaceSkills extends _$WorkspaceSkills {
     final session = WorkspaceSessionIdentity.read(ref);
     try {
       final result = await action(session.api);
-      session.ensureCurrent(ref);
+      // The server's answer first: [WorkspaceSessionChanged] then means the
+      // change was taken, for an account since gone; a missing record stays
+      // a failure whoever is signed in.
       if (result == null) {
         throw StateError('Skill mutation returned no record.');
       }
+      session.ensureCurrent(ref);
       ref.invalidate(workspaceSkillDetailProvider(id));
       // The write already succeeded; isolate the refresh so a reload failure
       // does not surface as a failed mutation.
@@ -1346,8 +1364,11 @@ class WorkspaceSkills extends _$WorkspaceSkills {
     final session = WorkspaceSessionIdentity.read(ref);
     try {
       final confirmed = await action(session.api);
-      session.ensureCurrent(ref);
+      // The server's answer first: [WorkspaceSessionChanged] then means the
+      // change was taken, for an account since gone; one the server did not
+      // confirm stays a failure whoever is signed in.
       if (!confirmed) throw StateError('Skill mutation was not confirmed.');
+      session.ensureCurrent(ref);
       // The write already succeeded; a failure while reloading the collection
       // must not surface as a failed mutation. Isolate the refresh so the write
       // outcome is preserved.

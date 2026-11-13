@@ -2095,8 +2095,6 @@
   "workspaceUnsupported": "Dieser Server unterstützt die Verwaltung des Arbeitsbereichs nicht.",
   "workspaceLoadFailed": "Der Arbeitsbereich konnte nicht geladen werden.",
   "workspaceRetry": "Erneut versuchen",
-  "workspaceSelectItem": "Wähle einen Eintrag aus, um die Details zu sehen.",
-  "workspaceEditorComingSoon": "Dieser Editor ist ab dem nächsten Meilenstein des Arbeitsbereichs verfügbar.",
   "workspaceSearchHint": "Ressourcen im Arbeitsbereich suchen",
   "workspaceLoadMore": "Mehr laden",
   "workspaceAccessPublicDisabled": "Du hast keine Berechtigung, dies öffentlich zu teilen.",
@@ -2125,8 +2123,6 @@
   "workspaceEditorDiscardMessage": "Deine nicht gespeicherten Änderungen gehen verloren.",
   "workspaceEditorDiscardConfirm": "Verwerfen",
   "workspaceEditorKeepEditing": "Weiter bearbeiten",
-  "workspaceEditorSaveTooltip": "Änderungen speichern",
-  "workspaceEditorSaving": "Wird gespeichert…",
   "workspaceEditorMoreActions": "Weitere Aktionen",
   "workspaceImportChooseFile": "JSON-Datei auswählen",
   "workspaceImportPasteLabel": "Oder JSON einfügen",
@@ -2898,18 +2894,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Schreiben",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Vorschau",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Noch nichts für die Vorschau.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Zugriff verwalten",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2942,10 +2926,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Skill löschen?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "„{name}“ wird dauerhaft gelöscht.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2966,10 +2946,6 @@
   "workspaceSkillImportMarkdown": "Markdown importieren",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "JSON importieren",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown geladen. Prüfe den Inhalt und speichere, um den Skill zu erstellen.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3009,10 +2985,8 @@
   "workspaceToolClone": "Duplizieren",
   "workspaceToolCloneSuffix": "(Kopie)",
   "workspaceToolDelete": "Löschen",
-  "workspaceToolDeleteConfirmTitle": "Werkzeug löschen?",
   "workspaceToolDeleteConfirmMessage": "„{name}“ wird dauerhaft gelöscht.",
   "workspaceToolImport": "Werkzeuge importieren",
-  "workspaceToolImportJson": "JSON importieren",
   "workspaceToolImportUrl": "Von URL importieren",
   "workspaceToolImportUrlTitle": "Werkzeug von URL importieren",
   "workspaceToolImportUrlHint": "GitHub-URL zur Python-Datei eines Werkzeugs eingeben",
@@ -3027,7 +3001,6 @@
   "workspaceToolManifestRequiredVersion": "Erfordert Open WebUI {version}",
   "workspaceToolManifestFunding": "Finanzierung: {url}",
   "workspaceToolSpecs": "Generierte Spezifikationen",
-  "workspaceToolDetails": "Tool-Details",
   "workspaceToolFunctionCount": "{count, plural, =1{1 Funktion} other{{count} Funktionen}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "Für dieses Werkzeug wurden keine Spezifikationen generiert.",
@@ -5046,6 +5019,14 @@
   "hermesJobCreatedNotifyFailed": "Job erstellt, aber Benachrichtigungen konnten dafür nicht eingeschaltet werden.",
   "hermesJobUpdatedNotifyFailed": "Job gespeichert, aber seine Benachrichtigungen konnten nicht geändert werden.",
   "hermesJobNotifyNeedsScheduled": "Schalte dafür in den Benachrichtigungen „Geplante Aufgaben“ ein.",
+  "workspaceSkillCloneSaveFirst": "Speichere oder verwirf deine Änderungen, bevor du den Skill duplizierst.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
+  "workspaceSkillToggleSaveFirst": "Speichere oder verwirf deine Änderungen, bevor du den Skill ein- oder ausschaltest.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Geplante Ausführungen zeigen",
   "hermesShowScheduledRunsDescription": "Jede Ausführung eines geplanten Agenten startet einen eigenen Chat. Schalte dies aus, um diese Chats aus der Hermes-Liste herauszulassen. Angeheftete bleiben.",
   "hermesScheduledRunsHidden": "{count, plural, =1{1 geplante Ausführung ausgeblendet} other{{count} geplante Ausführungen ausgeblendet}}",
@@ -5070,6 +5051,10 @@
   },
   "showModelNameInComposer": "Modellnamen im Nachrichtenfeld zeigen",
   "showModelNameInComposerDescription": "Das leere Nachrichtenfeld nennt das ausgewählte Modell statt Conduit.",
+  "workspaceEditorAccountChanged": "Das angemeldete Konto hat sich geändert, deshalb wurde deine Änderung nicht gespeichert.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
+  },
   "settingsAddAction": "Hinzufügen",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

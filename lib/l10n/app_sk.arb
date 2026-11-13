@@ -4013,8 +4013,6 @@
   "workspaceUnsupported": "Tento server nepodporuje správu pracovného priestoru.",
   "workspaceLoadFailed": "Pracovný priestor sa nepodarilo načítať.",
   "workspaceRetry": "Skúsiť znova",
-  "workspaceSelectItem": "Vyberte položku a zobrazte jej podrobnosti.",
-  "workspaceEditorComingSoon": "Tento editor bude k dispozícii v ďalšej etape pracovného priestoru.",
   "workspaceSearchHint": "Hľadať v prostriedkoch pracovného priestoru",
   "workspaceLoadMore": "Načítať ďalšie",
   "workspaceAccessPublicDisabled": "Nemáte oprávnenie zdieľať túto položku verejne.",
@@ -4043,8 +4041,6 @@
   "workspaceEditorDiscardMessage": "Neuložené zmeny sa stratia.",
   "workspaceEditorDiscardConfirm": "Zahodiť",
   "workspaceEditorKeepEditing": "Pokračovať v úpravách",
-  "workspaceEditorSaveTooltip": "Uložiť zmeny",
-  "workspaceEditorSaving": "Ukladá sa…",
   "workspaceEditorMoreActions": "Ďalšie akcie",
   "workspaceImportChooseFile": "Vybrať súbor JSON",
   "workspaceImportPasteLabel": "Alebo vložte JSON",
@@ -4816,18 +4812,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Písať",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Ukážka",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Zatiaľ nie je čo zobraziť.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Spravovať prístup",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -4860,10 +4844,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "Odstrániť zručnosť?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "„{name}“ sa natrvalo odstráni.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -4884,10 +4864,6 @@
   "workspaceSkillImportMarkdown": "Importovať Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "Importovať JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown bol načítaný. Skontrolujte ho a uložením vytvorte zručnosť.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -4927,10 +4903,8 @@
   "workspaceToolClone": "Duplikovať",
   "workspaceToolCloneSuffix": "(kópia)",
   "workspaceToolDelete": "Odstrániť",
-  "workspaceToolDeleteConfirmTitle": "Odstrániť nástroj?",
   "workspaceToolDeleteConfirmMessage": "„{name}“ sa natrvalo odstráni.",
   "workspaceToolImport": "Importovať nástroje",
-  "workspaceToolImportJson": "Importovať JSON",
   "workspaceToolImportUrl": "Importovať z URL",
   "workspaceToolImportUrlTitle": "Importovať nástroj z URL",
   "workspaceToolImportUrlHint": "Zadajte URL na GitHube k súboru Python nástroja",
@@ -4945,7 +4919,6 @@
   "workspaceToolManifestRequiredVersion": "Vyžaduje Open WebUI {version}",
   "workspaceToolManifestFunding": "Financovanie: {url}",
   "workspaceToolSpecs": "Vygenerované špecifikácie",
-  "workspaceToolDetails": "Podrobnosti nástroja",
   "workspaceToolFunctionCount": "Počet funkcií: {count}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "Pre tento nástroj sa nevygenerovali žiadne špecifikácie.",
@@ -6966,6 +6939,14 @@
   "hermesJobCreatedNotifyFailed": "Úloha bola vytvorená, ale upozornenia pre ňu sa nepodarilo zapnúť.",
   "hermesJobUpdatedNotifyFailed": "Úloha bola uložená, ale jej upozornenia sa nepodarilo zmeniť.",
   "hermesJobNotifyNeedsScheduled": "Ak to chcete použiť, zapnite v Upozorneniach Naplánované úlohy.",
+  "workspaceSkillCloneSaveFirst": "Pred duplikovaním zručnosti zmeny uložte alebo zahoďte.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
+  "workspaceSkillToggleSaveFirst": "Pred zapnutím alebo vypnutím zručnosti zmeny uložte alebo zahoďte.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Zobrazovať naplánované spustenia",
   "hermesShowScheduledRunsDescription": "Každé spustenie naplánovaného agenta vytvorí vlastný chat. Vypnutím tieto chaty vynecháte zo zoznamu Hermes. Pripnuté zostanú.",
   "hermesScheduledRunsHidden": "{count, plural, one{Skryté 1 naplánované spustenie} few{Skryté {count} naplánované spustenia} other{Skrytých {count} naplánovaných spustení}}",
@@ -6990,6 +6971,10 @@
   },
   "showModelNameInComposer": "Zobrazovať názov modelu v poli správy",
   "showModelNameInComposerDescription": "Prázdne pole správy uvádza názov vybraného modelu namiesto Conduitu.",
+  "workspaceEditorAccountChanged": "Prihlásený účet sa zmenil, preto sa vaša zmena neuložila.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
+  },
   "settingsAddAction": "Pridať",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

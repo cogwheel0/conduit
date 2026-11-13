@@ -16,6 +16,8 @@ import 'pages/workspace_knowledge_settings_pages.dart';
 import 'pages/workspace_model_settings_pages.dart';
 import 'pages/workspace_prompt_settings_pages.dart';
 import 'pages/workspace_settings_pages.dart';
+import 'pages/workspace_skill_settings_pages.dart';
+import 'pages/workspace_tool_settings_pages.dart';
 
 /// A group of Settings pages kept together: which pages it draws, how it
 /// fills them in when they appear, and what their rows do.
@@ -59,5 +61,7 @@ final settingsPageModulesProvider = Provider<List<SettingsPageModule>>(
     WorkspaceModelSettingsPages(ref),
     WorkspaceKnowledgeSettingsPages(ref),
     WorkspacePromptSettingsPages(ref),
+    WorkspaceToolSettingsPages(ref),
+    WorkspaceSkillSettingsPages(ref),
   ],
 );

@@ -352,6 +352,81 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('a row of code is typed as is, in a monospaced font, and goes '
+      'back as a text row does', (tester) async {
+    final controller = await _pumpPage(
+      tester,
+      _detail([
+        const NativeSheetItemConfig(
+          id: 'source',
+          title: 'Python Source',
+          kind: NativeSheetItemKind.code,
+          value: 'class Tools:',
+        ),
+      ]),
+    );
+
+    final field = tester.widget<AdaptiveTextField>(
+      find.descendant(
+        of: _row('source'),
+        matching: find.byType(AdaptiveTextField),
+      ),
+    );
+    check(field.autocorrect).isFalse();
+    check(field.enableSuggestions).isFalse();
+    check(field.maxLines).isNull();
+    check(field.style?.fontFamily).isNotNull();
+    // Quotes and dashes stay straight, as Python needs them.
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    check(editable.smartQuotesType).equals(SmartQuotesType.disabled);
+    check(editable.smartDashesType).equals(SmartDashesType.disabled);
+
+    await tester.enterText(find.byType(EditableText), 'class Tools:\n    pass');
+    await tester.pump();
+    check(controller.changes).isEmpty();
+    // Done, which typed text brings up, sends it.
+    await tester.tap(
+      find.bySemanticsLabel(lookupAppLocalizations(const Locale('en')).done),
+    );
+    await tester.pumpAndSettle();
+
+    check(controller.changes)
+        .deepEquals([('source', 'class Tools:\n    pass')]);
+  });
+
+  testWidgets('a row of code the account may only view still scrolls and '
+      'selects, but is not edited', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail([
+        NativeSheetItemConfig(
+          id: 'source',
+          title: 'Python Source',
+          kind: NativeSheetItemKind.code,
+          value: [for (var i = 0; i < 200; i++) 'line_$i = $i'].join('\n'),
+          disabled: true,
+        ),
+      ]),
+    );
+
+    final field = find.descendant(
+      of: _row('source'),
+      matching: find.byType(AdaptiveTextField),
+    );
+    check(tester.widget<AdaptiveTextField>(field).readOnly).isTrue();
+    // Nothing above the field swallows its touches.
+    check(
+      find
+          .ancestor(
+            of: find.byType(EditableText),
+            matching: find.byWidgetPredicate(
+              (widget) => widget is IgnorePointer && widget.ignoring,
+            ),
+          )
+          .evaluate(),
+    ).isEmpty();
+  });
+
   testWidgets("a page's search sends what is typed once typing pauses, and "
       'keeps it when the page is described again', (tester) async {
     final controller = _RecordingController();

@@ -2093,8 +2093,6 @@
   "workspaceUnsupported": "Este servidor no admite la gestión del espacio de trabajo.",
   "workspaceLoadFailed": "No se pudo cargar el espacio de trabajo.",
   "workspaceRetry": "Reintentar",
-  "workspaceSelectItem": "Selecciona un elemento para ver sus detalles.",
-  "workspaceEditorComingSoon": "Este editor estará disponible en la próxima etapa del espacio de trabajo.",
   "workspaceSearchHint": "Buscar recursos del espacio de trabajo",
   "workspaceLoadMore": "Cargar más",
   "workspaceAccessPublicDisabled": "No tienes permiso para compartir esto públicamente.",
@@ -2123,8 +2121,6 @@
   "workspaceEditorDiscardMessage": "Se perderán los cambios que no hayas guardado.",
   "workspaceEditorDiscardConfirm": "Descartar",
   "workspaceEditorKeepEditing": "Seguir editando",
-  "workspaceEditorSaveTooltip": "Guardar cambios",
-  "workspaceEditorSaving": "Guardando…",
   "workspaceEditorMoreActions": "Más acciones",
   "workspaceImportChooseFile": "Elegir archivo JSON",
   "workspaceImportPasteLabel": "O pega JSON",
@@ -2896,18 +2892,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "Escribir",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "Vista previa",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "Aún no hay nada que previsualizar.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "Gestionar acceso",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2940,10 +2924,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "¿Eliminar la habilidad?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "«{name}» se eliminará de forma permanente.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2964,10 +2944,6 @@
   "workspaceSkillImportMarkdown": "Importar Markdown",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "Importar JSON",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown cargado. Revísalo y guarda para crear la habilidad.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -3007,10 +2983,8 @@
   "workspaceToolClone": "Duplicar",
   "workspaceToolCloneSuffix": "(copia)",
   "workspaceToolDelete": "Eliminar",
-  "workspaceToolDeleteConfirmTitle": "¿Eliminar la herramienta?",
   "workspaceToolDeleteConfirmMessage": "«{name}» se eliminará de forma permanente.",
   "workspaceToolImport": "Importar herramientas",
-  "workspaceToolImportJson": "Importar JSON",
   "workspaceToolImportUrl": "Importar desde URL",
   "workspaceToolImportUrlTitle": "Importar herramienta desde URL",
   "workspaceToolImportUrlHint": "Introduce una URL de GitHub al archivo Python de una herramienta",
@@ -3025,7 +2999,6 @@
   "workspaceToolManifestRequiredVersion": "Requiere Open WebUI {version}",
   "workspaceToolManifestFunding": "Financiación: {url}",
   "workspaceToolSpecs": "Especificaciones generadas",
-  "workspaceToolDetails": "Detalles de la herramienta",
   "workspaceToolFunctionCount": "{count, plural, =1{1 función} other{{count} funciones}}",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "No se generaron especificaciones para esta herramienta.",
@@ -5046,6 +5019,14 @@
   "hermesJobCreatedNotifyFailed": "Tarea creada, pero no se pudieron activar sus notificaciones.",
   "hermesJobUpdatedNotifyFailed": "Tarea guardada, pero no se pudieron cambiar sus notificaciones.",
   "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto.",
+  "workspaceSkillCloneSaveFirst": "Guarda o descarta los cambios antes de duplicar la habilidad.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
+  "workspaceSkillToggleSaveFirst": "Guarda o descarta los cambios antes de activar o desactivar la habilidad.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "Mostrar ejecuciones programadas",
   "hermesShowScheduledRunsDescription": "Cada ejecución de un agente programado inicia su propio chat. Desactiva esto para dejar esos chats fuera de la lista de Hermes. Los anclados se mantienen.",
   "hermesScheduledRunsHidden": "{count, plural, =1{1 ejecución programada oculta} other{{count} ejecuciones programadas ocultas}}",
@@ -5070,6 +5051,10 @@
   },
   "showModelNameInComposer": "Mostrar el nombre del modelo en el cuadro de mensaje",
   "showModelNameInComposerDescription": "El cuadro de mensaje vacío muestra el nombre del modelo seleccionado en lugar de Conduit.",
+  "workspaceEditorAccountChanged": "La cuenta con la sesión iniciada ha cambiado, así que tu cambio no se guardó.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
+  },
   "settingsAddAction": "Añadir",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

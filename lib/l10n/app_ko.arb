@@ -1871,8 +1871,6 @@
   "workspaceUnsupported": "이 서버는 워크스페이스 관리를 지원하지 않습니다.",
   "workspaceLoadFailed": "워크스페이스를 불러올 수 없습니다.",
   "workspaceRetry": "다시 시도",
-  "workspaceSelectItem": "세부 정보를 보려면 항목을 선택하세요.",
-  "workspaceEditorComingSoon": "이 편집기는 다음 워크스페이스 업데이트에서 제공될 예정입니다.",
   "workspaceSearchHint": "워크스페이스 리소스 검색",
   "workspaceLoadMore": "더 불러오기",
   "workspaceAccessPublicDisabled": "이 항목을 공개로 공유할 권한이 없습니다.",
@@ -1901,8 +1899,6 @@
   "workspaceEditorDiscardMessage": "저장하지 않은 변경 사항이 사라집니다.",
   "workspaceEditorDiscardConfirm": "버리기",
   "workspaceEditorKeepEditing": "계속 편집",
-  "workspaceEditorSaveTooltip": "변경 사항 저장",
-  "workspaceEditorSaving": "저장 중…",
   "workspaceEditorMoreActions": "추가 작업",
   "workspaceImportChooseFile": "JSON 파일 선택",
   "workspaceImportPasteLabel": "또는 JSON 붙여넣기",
@@ -2674,18 +2670,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "작성",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "미리 보기",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "아직 미리 볼 내용이 없습니다.",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "접근 권한 관리",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -2718,10 +2702,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "스킬을 삭제하시겠습니까?",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "\"{name}\"이(가) 영구적으로 삭제됩니다.",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -2742,10 +2722,6 @@
   "workspaceSkillImportMarkdown": "Markdown 가져오기",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "JSON 가져오기",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown을 불러왔습니다. 검토한 후 저장하면 스킬이 만들어집니다.",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -2785,10 +2761,8 @@
   "workspaceToolClone": "복제",
   "workspaceToolCloneSuffix": "(복제본)",
   "workspaceToolDelete": "삭제",
-  "workspaceToolDeleteConfirmTitle": "도구를 삭제하시겠습니까?",
   "workspaceToolDeleteConfirmMessage": "\"{name}\"이(가) 영구적으로 삭제됩니다.",
   "workspaceToolImport": "도구 가져오기",
-  "workspaceToolImportJson": "JSON 가져오기",
   "workspaceToolImportUrl": "URL에서 가져오기",
   "workspaceToolImportUrlTitle": "URL에서 도구 가져오기",
   "workspaceToolImportUrlHint": "도구 Python 파일의 GitHub URL을 입력하세요",
@@ -2803,7 +2777,6 @@
   "workspaceToolManifestRequiredVersion": "Open WebUI {version} 필요",
   "workspaceToolManifestFunding": "후원: {url}",
   "workspaceToolSpecs": "생성된 사양",
-  "workspaceToolDetails": "도구 세부 정보",
   "workspaceToolFunctionCount": "함수 {count}개",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "이 도구에 대해 생성된 사양이 없습니다.",
@@ -4818,6 +4791,14 @@
   "hermesJobCreatedNotifyFailed": "작업을 만들었지만 알림을 켜지 못했습니다.",
   "hermesJobUpdatedNotifyFailed": "작업을 저장했지만 알림을 변경하지 못했습니다.",
   "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요.",
+  "workspaceSkillCloneSaveFirst": "스킬을 복제하기 전에 변경 사항을 저장하거나 취소하세요.",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
+  "workspaceSkillToggleSaveFirst": "스킬을 켜거나 끄기 전에 변경 사항을 저장하거나 취소하세요.",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "예약 실행 표시",
   "hermesShowScheduledRunsDescription": "예약된 에이전트는 실행될 때마다 새 채팅을 만듭니다. 이 설정을 끄면 해당 채팅이 Hermes 목록에 표시되지 않습니다. 고정한 채팅은 그대로 표시됩니다.",
   "hermesScheduledRunsHidden": "{count, plural, other{예약 실행 {count}개 숨김}}",
@@ -4842,6 +4823,10 @@
   },
   "showModelNameInComposer": "메시지 입력란에 모델 이름 표시",
   "showModelNameInComposerDescription": "비어 있는 메시지 입력란에 Conduit 대신 선택한 모델 이름을 표시합니다.",
+  "workspaceEditorAccountChanged": "로그인한 계정이 변경되어 변경 사항을 저장하지 않았습니다.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
+  },
   "settingsAddAction": "추가",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

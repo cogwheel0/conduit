@@ -3707,8 +3707,6 @@
   "workspaceUnsupported": "このサーバーはワークスペースの管理に対応していません。",
   "workspaceLoadFailed": "ワークスペースを読み込めませんでした。",
   "workspaceRetry": "再試行",
-  "workspaceSelectItem": "項目を選択すると詳細が表示されます。",
-  "workspaceEditorComingSoon": "このエディタは、ワークスペースの次の段階で利用できるようになります。",
   "workspaceSearchHint": "ワークスペースのリソースを検索",
   "workspaceLoadMore": "さらに読み込む",
   "workspaceAccessPublicDisabled": "これを公開で共有する権限がありません。",
@@ -3737,8 +3735,6 @@
   "workspaceEditorDiscardMessage": "保存していない変更は失われます。",
   "workspaceEditorDiscardConfirm": "破棄",
   "workspaceEditorKeepEditing": "編集を続ける",
-  "workspaceEditorSaveTooltip": "変更を保存",
-  "workspaceEditorSaving": "保存しています…",
   "workspaceEditorMoreActions": "その他の操作",
   "workspaceImportChooseFile": "JSON ファイルを選択",
   "workspaceImportPasteLabel": "または JSON を貼り付け",
@@ -4510,18 +4506,6 @@
   "@workspaceSkillContentRequired": {
     "description": "Validation error when the skill instructions are empty."
   },
-  "workspaceSkillWriteTab": "編集",
-  "@workspaceSkillWriteTab": {
-    "description": "Toggle label for the editable skill instructions view."
-  },
-  "workspaceSkillPreviewTab": "プレビュー",
-  "@workspaceSkillPreviewTab": {
-    "description": "Toggle label for the rendered markdown preview of the skill instructions."
-  },
-  "workspaceSkillPreviewEmpty": "プレビューする内容はまだありません。",
-  "@workspaceSkillPreviewEmpty": {
-    "description": "Empty-state text shown in the skill preview when there is no content."
-  },
   "workspaceSkillManageAccess": "アクセスを管理",
   "@workspaceSkillManageAccess": {
     "description": "Action to open the sharing/access editor for a skill."
@@ -4554,10 +4538,6 @@
   "@workspaceSkillDelete": {
     "description": "Overflow action that deletes a skill."
   },
-  "workspaceSkillDeleteConfirmTitle": "スキルを削除しますか？",
-  "@workspaceSkillDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a skill."
-  },
   "workspaceSkillDeleteConfirmMessage": "「{name}」を完全に削除します。",
   "@workspaceSkillDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a skill.",
@@ -4578,10 +4558,6 @@
   "workspaceSkillImportMarkdown": "Markdown をインポート",
   "@workspaceSkillImportMarkdown": {
     "description": "Overflow action that imports a skill from a Markdown file into the create editor."
-  },
-  "workspaceSkillImportJson": "JSON をインポート",
-  "@workspaceSkillImportJson": {
-    "description": "Overflow action that imports one or more skills from a JSON file."
   },
   "workspaceSkillImportMarkdownLoaded": "Markdown を読み込みました。内容を確認し、保存してスキルを作成してください。",
   "@workspaceSkillImportMarkdownLoaded": {
@@ -4621,10 +4597,8 @@
   "workspaceToolClone": "複製",
   "workspaceToolCloneSuffix": "（複製）",
   "workspaceToolDelete": "削除",
-  "workspaceToolDeleteConfirmTitle": "ツールを削除しますか？",
   "workspaceToolDeleteConfirmMessage": "「{name}」を完全に削除します。",
   "workspaceToolImport": "ツールをインポート",
-  "workspaceToolImportJson": "JSON をインポート",
   "workspaceToolImportUrl": "URL からインポート",
   "workspaceToolImportUrlTitle": "URL からツールをインポート",
   "workspaceToolImportUrlHint": "ツールの Python ファイルの GitHub URL を入力",
@@ -4639,7 +4613,6 @@
   "workspaceToolManifestRequiredVersion": "Open WebUI {version} が必要",
   "workspaceToolManifestFunding": "支援: {url}",
   "workspaceToolSpecs": "生成された仕様",
-  "workspaceToolDetails": "ツールの詳細",
   "workspaceToolFunctionCount": "{count} 個の関数",
   "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
   "workspaceToolSpecsEmpty": "このツールの仕様は生成されませんでした。",
@@ -6660,6 +6633,14 @@
   "hermesJobCreatedNotifyFailed": "ジョブは作成されましたが、通知をオンにできませんでした。",
   "hermesJobUpdatedNotifyFailed": "ジョブは保存されましたが、通知を変更できませんでした。",
   "hermesJobNotifyNeedsScheduled": "使うには、通知で「スケジュールされたタスク」をオンにしてください。",
+  "workspaceSkillCloneSaveFirst": "スキルを複製する前に、変更を保存するか破棄してください。",
+  "@workspaceSkillCloneSaveFirst": {
+    "description": "Said on a skill's editor when Duplicate is tapped with unsaved changes: Duplicate copies the skill as saved."
+  },
+  "workspaceSkillToggleSaveFirst": "スキルを有効または無効にする前に、変更を保存するか破棄してください。",
+  "@workspaceSkillToggleSaveFirst": {
+    "description": "Said on a skill's editor when its on/off switch is tapped with unsaved changes."
+  },
   "hermesShowScheduledRuns": "スケジュール実行を表示",
   "hermesShowScheduledRunsDescription": "スケジュールされたエージェントは実行のたびに新しいチャットを作成します。オフにすると、それらのチャットを Hermes の一覧に表示しません。ピン留めしたものは残ります。",
   "hermesScheduledRunsHidden": "{count, plural, other{{count} 件のスケジュール実行を非表示}}",
@@ -6684,6 +6665,10 @@
   },
   "showModelNameInComposer": "メッセージ欄にモデル名を表示",
   "showModelNameInComposerDescription": "空のメッセージ欄に、Conduit の代わりに選択中のモデル名を表示します。",
+  "workspaceEditorAccountChanged": "サインイン中のアカウントが変更されたため、変更は保存されませんでした。",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
+  },
   "settingsAddAction": "追加",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
