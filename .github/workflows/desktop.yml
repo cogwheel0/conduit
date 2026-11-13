@@ -1,0 +1,116 @@
+name: Desktop
+
+# The native desktop app's Cargo workspace (desktop/), and the protocol
+# crate generated from packages/conduit_protocol.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'packages/conduit_protocol/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'packages/conduit_protocol/**'
+      - '.github/workflows/desktop.yml'
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Disk and cache size: a GPUI workspace's debug target with full debug
+  # info and incremental state runs to tens of GB, more than a hosted
+  # runner has to spare. CI needs neither (a panic still names its line).
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+
+# Every job installs the toolchain desktop/rust-toolchain.toml pins
+# (channel and components); `rustup toolchain install` with no argument
+# reads it from the working directory.
+#
+# Caches: Cargo's registry and git checkouts, and the jobs' target folders
+# with the workspace's own crates cleaned out (they rebuild every run
+# anyway). Only pushes to main save them, so pull requests restore main's
+# and never evict each other's. The release workflow uses no cache.
+jobs:
+  # desktop/crates/protocol/src/generated.rs must be exactly what the
+  # generator writes from the Dart DTOs. The generator formats with the
+  # pinned rustfmt, so this job needs both Dart and Rust.
+  protocol-codegen:
+    name: Protocol codegen drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # The pub workspace resolves the app's path dependencies too, so the
+      # third_party/ submodules are needed for `pub get`.
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Regenerate the Rust protocol types
+        working-directory: packages/conduit_protocol
+        run: dart run tool/generate_rust.dart
+      - name: Fail if generated.rs drifted from the Dart source
+        run: |
+          git diff --exit-code -- desktop/crates/protocol/src/generated.rs || {
+            echo "::error::generated.rs is stale: run 'dart run tool/generate_rust.dart' in packages/conduit_protocol and commit it."
+            exit 1
+          }
+
+  # The protocol crate is plain serde, so it builds everywhere; Windows and
+  # Linux check it (and run its conformance tests) ahead of shipping there.
+  protocol:
+    name: Protocol crate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-protocol-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+          restore-keys: desktop-protocol-${{ runner.os }}-
+      - run: cargo check -p conduit-protocol --locked
+      - run: cargo test -p conduit-protocol --locked
+      - name: Leave only dependencies in the target folder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cargo clean -p conduit-protocol
+      - name: Save the Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-protocol-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}

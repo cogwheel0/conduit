@@ -8,8 +8,9 @@
 // the platform UI seam, the package boundaries and the ARB checks when their
 // inputs changed; the analyzer for each workspace member that changed and for
 // every member that depends on one; the test files beside the changed files,
-// or the whole suite of a member whose tests sit beside no source file; and
-// the relay's format and lint checks.
+// or the whole suite of a member whose tests sit beside no source file; the
+// protocol's generated Rust; and the format and build checks of the relay and
+// of the desktop app's Cargo workspace.
 //
 // CI still runs the full test suites and the jobs listed at the end of the
 // summary. Steps run one at a time: analyzers started together race to build
@@ -24,6 +25,13 @@ const String appMember = '.';
 /// Members whose tests check goldens and tables rather than sit beside a
 /// source file. Any change in one runs its whole suite, which takes seconds.
 const Set<String> wholeSuiteMembers = {'packages/conduit_protocol'};
+
+/// The paths that start the Desktop workflow (.github/workflows/desktop.yml).
+const List<String> desktopWorkflowPaths = [
+  'desktop/',
+  'packages/conduit_protocol/',
+  '.github/workflows/desktop.yml',
+];
 
 /// One command of the plan.
 class Step {
@@ -329,6 +337,41 @@ Plan planChecks(
       );
   }
 
+  if (any(
+    (path) =>
+        path.startsWith('packages/conduit_protocol/') ||
+        path == 'desktop/crates/protocol/src/generated.rs',
+  )) {
+    steps.add(
+      const Step('Protocol Rust types', [
+        'dart',
+        'run',
+        'tool/generate_rust.dart',
+        '--check',
+      ], directory: 'packages/conduit_protocol'),
+    );
+  }
+
+  if (any((path) => path.startsWith('desktop/'))) {
+    steps
+      ..add(
+        const Step(
+          'Desktop format',
+          ['cargo', 'fmt', '--all', '--check'],
+          directory: 'desktop',
+          optional: true,
+        ),
+      )
+      ..add(
+        const Step(
+          'Desktop build',
+          ['cargo', 'check', '--workspace', '--all-targets', '--locked'],
+          directory: 'desktop',
+          optional: true,
+        ),
+      );
+  }
+
   return Plan(steps, [
     // A fixture or a helper under test/ can change what any test does.
     if (affected.isNotEmpty ||
@@ -372,6 +415,8 @@ Plan planChecks(
           path.startsWith('assets/computer/'),
     ))
       'Computer viewer (npm test, build and the shipped bundle)',
+    if (any((path) => desktopWorkflowPaths.any(path.startsWith)))
+      'Desktop workflow (cargo tests, builds and the generated Rust)',
   ]);
 }
 

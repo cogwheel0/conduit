@@ -107,8 +107,12 @@ void main() {
       'Analyze daemon',
       'Analyze conduit_protocol',
       'Test conduit_protocol (whole suite)',
+      'Protocol Rust types',
     ]);
-    check(plan.steps.last.command).deepEquals(['dart', 'test']);
+    check(plan.steps[3].command).deepEquals(['dart', 'test']);
+    check(
+      plan.leftToCi,
+    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
   });
 
   test('an app change runs the seam and the tests beside what changed', () {
@@ -156,6 +160,14 @@ void main() {
     check(relay.steps.every((step) => step.optional)).isTrue();
     check(relay.steps.first.directory).equals('relay');
     check(relay.leftToCi).deepEquals(['Push relay tests (cargo test)']);
+
+    final desktop = _plan(['desktop/crates/protocol/src/generated.rs']);
+    check(_names(desktop))
+        .deepEquals(['Protocol Rust types', 'Desktop format', 'Desktop build']);
+    check(desktop.steps.skip(1).every((step) => step.optional)).isTrue();
+    check(desktop.leftToCi).deepEquals([
+      'Desktop workflow (cargo tests, builds and the generated Rust)',
+    ]);
 
     final docs = _plan(['README.md', 'docs/BUILDING.md']);
     check(docs.steps).isEmpty();
