@@ -1306,6 +1306,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     mentions: true,
     imageConversions: <String>['.heic', '.bmp'],
     compareModels: true,
+    voiceCall: true,
     quickPills: <QuickPillOption>[
       QuickPillOption(id: 'web', kind: 'web'),
       QuickPillOption(
@@ -3035,6 +3036,58 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     detail: <String, dynamic>{'chatId': 'local:hermes_s-4f2a'},
     timeoutMs: 290000,
   ),
+  'callStateListening': const CallState(
+    phase: CallPhase.listening,
+    call: 2,
+    mode: CallMode.standard,
+    chatId: 'chat-harbour',
+    modelId: 'fake-model',
+    modelName: 'Kestrel 8B',
+    transcript: 'When does the tide turn',
+    level: 0.5,
+    canPause: true,
+    startedAtMs: 1767225600000,
+    standardReason: CallStandardReason.standardChosen,
+  ),
+  'callStateError': const CallState(
+    phase: CallPhase.error,
+    call: 3,
+    errorKind: CallErrorKind.message,
+    error: 'Call permission denied',
+    notice: CallNotice.replyIncomplete,
+    noticeCount: 1,
+  ),
+  'callStateIdle': const CallState(),
+  'callStart': const CallStart(chatId: 'chat-harbour'),
+  'callStartNew': const CallStart(
+    model: 'fake-model',
+    folderId: 'folder-tides',
+    temporary: true,
+  ),
+  'callCommandListen': const CallCommand(
+    id: 4,
+    kind: CallCommandKind.listen,
+    listen: 2,
+    continuous: true,
+    modelId: 'fake-model',
+  ),
+  'callCommandAudio': const CallCommand(
+    id: 5,
+    kind: CallCommandKind.audioStart,
+    path: '/calls/call-7',
+  ),
+  'callReportWords': const CallReport(
+    kind: CallReportKind.words,
+    listen: 2,
+    text: 'When does the tide turn',
+    done: true,
+  ),
+  'callReportAnswer': const CallReport(id: 4, value: true),
+  'callReportFailed': const CallReport(
+    kind: CallReportKind.failed,
+    listen: 2,
+    failure: CallListenFailure.serverUnavailable,
+  ),
 };
 
 /// `fromJson` for each fixture, keyed the same way.
@@ -3555,6 +3608,16 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesModelChoice': HermesModelChoiceDto.fromJson,
       'uiRequestHermesClarify': UiRequest.fromJson,
       'uiRequestHermesSecret': UiRequest.fromJson,
+      'callStateListening': CallState.fromJson,
+      'callStateError': CallState.fromJson,
+      'callStateIdle': CallState.fromJson,
+      'callStart': CallStart.fromJson,
+      'callStartNew': CallStart.fromJson,
+      'callCommandListen': CallCommand.fromJson,
+      'callCommandAudio': CallCommand.fromJson,
+      'callReportWords': CallReport.fromJson,
+      'callReportAnswer': CallReport.fromJson,
+      'callReportFailed': CallReport.fromJson,
     };
 
 /// Every fixture's `toJson`, so the checker can encode without `dynamic`.

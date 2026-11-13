@@ -707,6 +707,34 @@ abstract final class ConduitMethods {
   /// it did.
   static const String speechReport = 'speech.report';
 
+  static const String callsPrefix = 'calls.';
+
+  // calls.* -- voice calls. The call runs here (the core's voice-mode
+  // controller, in its chat's scope); the window is its microphone and,
+  // for a realtime voice, its speaker.
+
+  /// The call now.
+  static const String callsGet = 'calls.get';
+
+  /// Starts a call in a chat, or in a new one.
+  static const String callsStart = 'calls.start';
+
+  /// Ends the call.
+  static const String callsEnd = 'calls.end';
+
+  /// Stops listening and speaking until resumed.
+  static const String callsPause = 'calls.pause';
+  static const String callsResume = 'calls.resume';
+
+  /// Mutes the microphone, or unmutes it.
+  static const String callsMute = 'calls.mute';
+
+  /// Stops the answer being said and listens again.
+  static const String callsSkip = 'calls.skip';
+
+  /// The window answers a `calls.command`, or says what a listen did.
+  static const String callsReport = 'calls.report';
+
   // notes.* -- listed with the prefixes because they are few.
 
   /// Every note, or those matching a query; pinned first.

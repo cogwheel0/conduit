@@ -897,6 +897,46 @@
       "result": "OkResult"
     },
     {
+      "name": "calls.get",
+      "params": null,
+      "result": "CallState"
+    },
+    {
+      "name": "calls.start",
+      "params": "CallStart",
+      "result": "CallState"
+    },
+    {
+      "name": "calls.end",
+      "params": null,
+      "result": "CallState"
+    },
+    {
+      "name": "calls.pause",
+      "params": null,
+      "result": "CallState"
+    },
+    {
+      "name": "calls.resume",
+      "params": null,
+      "result": "CallState"
+    },
+    {
+      "name": "calls.mute",
+      "params": null,
+      "result": "CallState"
+    },
+    {
+      "name": "calls.skip",
+      "params": null,
+      "result": "CallState"
+    },
+    {
+      "name": "calls.report",
+      "params": "CallReport",
+      "result": "OkResult"
+    },
+    {
       "name": "notes.list",
       "params": "NoteQuery",
       "result": "NoteList"
@@ -1562,6 +1602,16 @@
       "name": "hermes.work.changed",
       "payload": "HermesWork",
       "scoped": true
+    },
+    {
+      "name": "calls.changed",
+      "payload": "CallState",
+      "scoped": false
+    },
+    {
+      "name": "calls.command",
+      "payload": "CallCommand",
+      "scoped": false
     }
   ]
 }

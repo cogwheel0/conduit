@@ -11,6 +11,7 @@ library;
 export 'src/access.dart';
 export 'src/accounts.dart';
 export 'src/auth.dart';
+export 'src/calls.dart';
 export 'src/blocks.dart';
 export 'src/capabilities.dart';
 export 'src/chat_prompts.dart';

@@ -772,6 +772,363 @@ pub struct MessageStatusDto {
     pub details: Vec<ChatSourceDto>,
 }
 
+/// Where a voice call is: the phone's `ChatVoiceModePhase`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallPhase {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "starting")]
+    Starting,
+    #[serde(rename = "listening")]
+    Listening,
+    /// The user's words went to the chat; the answer is on its way.
+    #[serde(rename = "sending")]
+    Sending,
+    #[serde(rename = "speaking")]
+    Speaking,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "muted")]
+    Muted,
+    #[serde(rename = "ending")]
+    Ending,
+    #[serde(rename = "ended")]
+    Ended,
+    #[serde(rename = "error")]
+    Error,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// How a call runs: turn by turn (`standard`: listen, send, speak the
+/// answer), or with a realtime voice that hears and speaks as the call goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallMode {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "realtime")]
+    Realtime,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Why a call shows an error: the phone's `ChatVoiceModeError`. Only
+/// `message` carries text meant for the user (`CallState.error`); the window
+/// says the others in its own words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallErrorKind {
+    #[serde(rename = "microphoneDenied")]
+    MicrophoneDenied,
+    #[serde(rename = "inputUnavailable")]
+    InputUnavailable,
+    #[serde(rename = "timeout")]
+    Timeout,
+    #[serde(rename = "noSpeech")]
+    NoSpeech,
+    #[serde(rename = "message")]
+    Message,
+    #[serde(rename = "other")]
+    Other,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Something worth telling the user mid-call that does not end it: the
+/// phone's `ChatVoiceModeNotice`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallNotice {
+    #[serde(rename = "transcriptionFailed")]
+    TranscriptionFailed,
+    #[serde(rename = "replyIncomplete")]
+    ReplyIncomplete,
+    #[serde(rename = "transcriptNotSaved")]
+    TranscriptNotSaved,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Why a call is Standard although Settings › Audio chose Realtime: the
+/// core's `RealtimeCallBlock`, or `noAudio` when the window has no realtime
+/// audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallStandardReason {
+    #[serde(rename = "standardChosen")]
+    StandardChosen,
+    #[serde(rename = "temporaryChat")]
+    TemporaryChat,
+    #[serde(rename = "unsupportedBackend")]
+    UnsupportedBackend,
+    #[serde(rename = "voiceProviderIncomplete")]
+    VoiceProviderIncomplete,
+    #[serde(rename = "serverRealtimeOff")]
+    ServerRealtimeOff,
+    #[serde(rename = "callNotPermitted")]
+    CallNotPermitted,
+    #[serde(rename = "noSessionToken")]
+    NoSessionToken,
+    #[serde(rename = "hermesVoiceLiveOff")]
+    HermesVoiceLiveOff,
+    #[serde(rename = "noAudio")]
+    NoAudio,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// The call now: what `calls.changed` carries and every `calls.*` answers.
+/// There is at most one call at a time, app-wide.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallState {
+    #[serde(default = "default_call_state_phase")]
+    pub phase: CallPhase,
+    /// Each call's own number; 0 before the first.
+    #[serde(default)]
+    pub call: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<CallMode>,
+    /// The call's chat. Null for a call that started a new chat until its
+    /// first turn has given the chat an id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    /// What the user is saying, or said last.
+    #[serde(default)]
+    pub transcript: String,
+    /// What is being said: the sentence of the chat's answer the Mac says
+    /// now in a Standard call (the answer so far before it speaks), the
+    /// voice's caption in a realtime one.
+    #[serde(default)]
+    pub reply: String,
+    /// The meter, 0 to 1: the microphone while listening, the voice while
+    /// it speaks (realtime).
+    #[serde(default)]
+    pub level: f64,
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub can_pause: bool,
+    #[serde(default)]
+    pub can_resume: bool,
+    /// When the call started, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<CallErrorKind>,
+    /// The error's text: for the user when `errorKind` is `message`, else
+    /// only for the log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The latest notice; `noticeCount` grows with each, so the same
+    /// notice twice is shown twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<CallNotice>,
+    #[serde(default)]
+    pub notice_count: i64,
+    /// Why a call that could have been realtime runs Standard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard_reason: Option<CallStandardReason>,
+}
+
+impl Default for CallState {
+    fn default() -> Self {
+        Self {
+            phase: default_call_state_phase(),
+            call: Default::default(),
+            mode: None,
+            chat_id: None,
+            model_id: None,
+            model_name: None,
+            transcript: Default::default(),
+            reply: Default::default(),
+            level: Default::default(),
+            muted: Default::default(),
+            can_pause: Default::default(),
+            can_resume: Default::default(),
+            started_at_ms: None,
+            error_kind: None,
+            error: None,
+            notice: None,
+            notice_count: Default::default(),
+            standard_reason: None,
+        }
+    }
+}
+
+fn default_call_state_phase() -> CallPhase {
+    CallPhase::Idle
+}
+
+/// Params for `calls.start`: a call in chat `chatId`, or in a new chat
+/// (with `model`, in `folderId`, `temporary` as the new chat would be).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CallStart {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    /// The model a new chat's call talks to; the chat's own otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+    #[serde(default)]
+    pub temporary: bool,
+}
+
+/// What `calls.command` asks the window to do for the call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallCommandKind {
+    /// Whether the microphone may be used (asking the user if never asked):
+    /// answered with `CallReport.value`.
+    #[serde(rename = "permission")]
+    Permission,
+    /// Listen as dictation does (Settings › Audio's engine and pause), for
+    /// listen `CallCommand.listen`, reporting words, the meter and the end.
+    /// `CallCommand.continuous`: after each pause, listen again until
+    /// stopped, so the user can talk over the answer (barge-in).
+    #[serde(rename = "listen")]
+    Listen,
+    /// Stop listen `CallCommand.listen` and drop what it heard.
+    #[serde(rename = "stopListen")]
+    StopListen,
+    /// Open the realtime audio: the microphone and the speaker on one
+    /// echo-cancelled engine, over `WS` `CallCommand.path`. Answered once
+    /// the audio runs, or with why it cannot.
+    #[serde(rename = "audioStart")]
+    AudioStart,
+    /// Close the realtime audio.
+    #[serde(rename = "audioStop")]
+    AudioStop,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Payload of `calls.command`. Answered with `calls.report` naming `id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallCommand {
+    pub id: i64,
+    pub kind: CallCommandKind,
+    /// The listen this is about: its reports name it, so a stopped one's
+    /// late reports are told apart.
+    #[serde(default)]
+    pub listen: i64,
+    #[serde(default)]
+    pub continuous: bool,
+    /// The model whose backend transcribes (server speech).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// The realtime audio's WebSocket path on the daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// What a `CallReport` tells, besides answering a command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallReportKind {
+    /// The words so far (`CallReport.text`); `CallReport.done`: the last of
+    /// one utterance.
+    #[serde(rename = "words")]
+    Words,
+    /// The meter, `CallReport.level` 0 to 1.
+    #[serde(rename = "level")]
+    Level,
+    /// The listen ended (nothing more comes for it).
+    #[serde(rename = "ended")]
+    Ended,
+    /// The listen could not go on: `CallReport.failure`.
+    #[serde(rename = "failed")]
+    Failed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Why a listen failed, as the window's dictation says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallListenFailure {
+    #[serde(rename = "microphoneDenied")]
+    MicrophoneDenied,
+    #[serde(rename = "speechDenied")]
+    SpeechDenied,
+    #[serde(rename = "notOnThisMac")]
+    NotOnThisMac,
+    #[serde(rename = "serverUnavailable")]
+    ServerUnavailable,
+    #[serde(rename = "whisperNeedsModel")]
+    WhisperNeedsModel,
+    #[serde(rename = "transcriptionFailed")]
+    TranscriptionFailed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `calls.report`: a command's answer (`id`) and/or what a
+/// listen did (`kind`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallReport {
+    /// The command answered, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(default = "default_call_report_ok")]
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CallReportKind>,
+    #[serde(default)]
+    pub listen: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<CallListenFailure>,
+}
+
+impl Default for CallReport {
+    fn default() -> Self {
+        Self {
+            id: None,
+            ok: default_call_report_ok(),
+            error: None,
+            value: None,
+            kind: None,
+            listen: Default::default(),
+            text: None,
+            done: Default::default(),
+            level: None,
+            failure: None,
+        }
+    }
+}
+
+fn default_call_report_ok() -> bool {
+    true
+}
+
 /// What the currently connected core can actually do.
 ///
 /// The UI gates navigation and affordances on these flags rather than probing
@@ -2639,6 +2996,14 @@ pub struct ComposerOptions {
     /// draws them); none outside Open WebUI.
     #[serde(default)]
     pub quick_pills: Vec<QuickPillOption>,
+    /// A voice call can start with the selected model: the core's
+    /// `voiceCallEligibilityProvider`, the phone's admission. A model is
+    /// chosen, and it is Hermes while its connection is usable (a Hermes
+    /// chat's call is a Standard one on the desktop), an on-device Direct
+    /// model while its connection is there, or else a signed-in Open WebUI
+    /// account's. The composer's call button and Start Voice Call follow it.
+    #[serde(default)]
+    pub voice_call: bool,
 }
 
 /// A knowledge base, as the `#` menu lists it.
@@ -11210,6 +11575,100 @@ pub mod methods {
         type Result = super::OkResult;
     }
 
+    /// The call now.
+    ///
+    /// `calls.get`: no params -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsGet;
+
+    impl RpcMethod for CallsGet {
+        const NAME: &'static str = "calls.get";
+        type Params = NoParams;
+        type Result = super::CallState;
+    }
+
+    /// Starts a call in a chat, or in a new one.
+    ///
+    /// `calls.start`: CallStart -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsStart;
+
+    impl RpcMethod for CallsStart {
+        const NAME: &'static str = "calls.start";
+        type Params = super::CallStart;
+        type Result = super::CallState;
+    }
+
+    /// Ends the call.
+    ///
+    /// `calls.end`: no params -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsEnd;
+
+    impl RpcMethod for CallsEnd {
+        const NAME: &'static str = "calls.end";
+        type Params = NoParams;
+        type Result = super::CallState;
+    }
+
+    /// Stops listening and speaking until resumed.
+    ///
+    /// `calls.pause`: no params -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsPause;
+
+    impl RpcMethod for CallsPause {
+        const NAME: &'static str = "calls.pause";
+        type Params = NoParams;
+        type Result = super::CallState;
+    }
+
+    /// `calls.resume`: no params -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsResume;
+
+    impl RpcMethod for CallsResume {
+        const NAME: &'static str = "calls.resume";
+        type Params = NoParams;
+        type Result = super::CallState;
+    }
+
+    /// Mutes the microphone, or unmutes it.
+    ///
+    /// `calls.mute`: no params -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsMute;
+
+    impl RpcMethod for CallsMute {
+        const NAME: &'static str = "calls.mute";
+        type Params = NoParams;
+        type Result = super::CallState;
+    }
+
+    /// Stops the answer being said and listens again.
+    ///
+    /// `calls.skip`: no params -> CallState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsSkip;
+
+    impl RpcMethod for CallsSkip {
+        const NAME: &'static str = "calls.skip";
+        type Params = NoParams;
+        type Result = super::CallState;
+    }
+
+    /// The window answers a `calls.command`, or says what a listen did.
+    ///
+    /// `calls.report`: CallReport -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct CallsReport;
+
+    impl RpcMethod for CallsReport {
+        const NAME: &'static str = "calls.report";
+        type Params = super::CallReport;
+        type Result = super::OkResult;
+    }
+
     /// Every note, or those matching a query; pinned first.
     ///
     /// `notes.list`: NoteQuery -> NoteList.
@@ -13226,6 +13685,46 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("OkResult"),
     },
     MethodSpec {
+        name: "calls.get",
+        params: None,
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.start",
+        params: Some("CallStart"),
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.end",
+        params: None,
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.pause",
+        params: None,
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.resume",
+        params: None,
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.mute",
+        params: None,
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.skip",
+        params: None,
+        result: Some("CallState"),
+    },
+    MethodSpec {
+        name: "calls.report",
+        params: Some("CallReport"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "notes.list",
         params: Some("NoteQuery"),
         result: Some("NoteList"),
@@ -13820,6 +14319,12 @@ pub mod events {
     /// plan or the output a window reads. Payload `HermesWork`, scoped to the
     /// chat.
     pub const HERMES_WORK_CHANGED: &str = "hermes.work.changed";
+    /// The voice call changed: its phase, words, meter or error. Payload
+    /// `CallState`.
+    pub const CALLS_CHANGED: &str = "calls.changed";
+    /// The daemon asks the window to listen, or to open the realtime audio,
+    /// for the call. Payload `CallCommand`; answered with `calls.report`.
+    pub const CALLS_COMMAND: &str = "calls.command";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -13999,6 +14504,16 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("HermesWork"),
         scoped: true,
     },
+    EventSpec {
+        name: "calls.changed",
+        payload: Some("CallState"),
+        scoped: false,
+    },
+    EventSpec {
+        name: "calls.command",
+        payload: Some("CallCommand"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -14170,6 +14685,16 @@ pub enum Event {
     ///
     /// `hermes.work.changed`, scoped.
     HermesWorkChanged(HermesWork),
+    /// The voice call changed: its phase, words, meter or error. Payload
+    /// `CallState`.
+    ///
+    /// `calls.changed`.
+    CallsChanged(CallState),
+    /// The daemon asks the window to listen, or to open the realtime audio,
+    /// for the call. Payload `CallCommand`; answered with `calls.report`.
+    ///
+    /// `calls.command`.
+    CallsCommand(CallCommand),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -14226,6 +14751,8 @@ impl Event {
             events::HERMES_WORK_CHANGED => {
                 Self::HermesWorkChanged(serde_json::from_value(payload)?)
             }
+            events::CALLS_CHANGED => Self::CallsChanged(serde_json::from_value(payload)?),
+            events::CALLS_COMMAND => Self::CallsCommand(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -14271,6 +14798,8 @@ impl Event {
             Self::SpeechChanged(_) => events::SPEECH_CHANGED,
             Self::SpeechCommand(_) => events::SPEECH_COMMAND,
             Self::HermesWorkChanged(_) => events::HERMES_WORK_CHANGED,
+            Self::CallsChanged(_) => events::CALLS_CHANGED,
+            Self::CallsCommand(_) => events::CALLS_COMMAND,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -14307,6 +14836,8 @@ impl Event {
             Self::SpeechChanged(payload) => serde_json::to_value(payload),
             Self::SpeechCommand(payload) => serde_json::to_value(payload),
             Self::HermesWorkChanged(payload) => serde_json::to_value(payload),
+            Self::CallsChanged(payload) => serde_json::to_value(payload),
+            Self::CallsCommand(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -14359,6 +14890,10 @@ pub mod conformance {
         "AuthUser",
         "BulkChats",
         "BulkChatsResult",
+        "CallCommand",
+        "CallReport",
+        "CallStart",
+        "CallState",
         "CancelledResult",
         "Capabilities",
         "ChangedFileDto",
@@ -14808,6 +15343,10 @@ pub mod conformance {
             "AuthUser" => roundtrip::<super::AuthUser>(json),
             "BulkChats" => roundtrip::<super::BulkChats>(json),
             "BulkChatsResult" => roundtrip::<super::BulkChatsResult>(json),
+            "CallCommand" => roundtrip::<super::CallCommand>(json),
+            "CallReport" => roundtrip::<super::CallReport>(json),
+            "CallStart" => roundtrip::<super::CallStart>(json),
+            "CallState" => roundtrip::<super::CallState>(json),
             "CancelledResult" => roundtrip::<super::CancelledResult>(json),
             "Capabilities" => roundtrip::<super::Capabilities>(json),
             "ChangedFileDto" => roundtrip::<super::ChangedFileDto>(json),
