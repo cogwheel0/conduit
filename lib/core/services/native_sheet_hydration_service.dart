@@ -956,6 +956,7 @@ class NativeSheetHydrationService {
           detailSheets: [
             readNativeAccountSignOutDetail(_ref.read, l10n),
             readNativeAddAccountDetail(_ref.read, l10n),
+            ...buildHermesAccountsDetails(l10n),
             // Each server's page, filled in as it appears.
             for (final serverId in {
               for (final entry

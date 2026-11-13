@@ -9149,6 +9149,171 @@
   "@scheduledTaskAgentsLoading": {"description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."},
   "personalizationMemoryGone": "Tego wspomnienia nie ma już na serwerze. Wróć, aby zobaczyć swoje wspomnienia.",
   "@personalizationMemoryGone": {"description": "Shown on a memory's page when that memory is no longer on the server (cleared or deleted meanwhile), so a change to it cannot be saved."},
+  "hermesConnectionModeTitle": "Tryb połączenia",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "Najpierw wpisz adres URL serwera Hermes.",
+  "hermesProfilesNeedTest": "Przetestuj połączenie, a potem odśwież listę profili.",
+  "hermesProfilesNone": "Hermes nie zwrócił żadnych profili.",
+  "hermesProfilesNeedSignIn": "Zaloguj się, a potem odśwież listę profili.",
+  "hermesNativeSignInFailed": "Logowanie do Hermes nie powiodło się lub zostało anulowane. Sprawdź, czy natywne PKCE jest włączone, i spróbuj ponownie.",
+  "hermesDashboardSignInTitle": "Logowanie do Hermes",
+  "hermesDashboardSignInLoadFailed": "Nie udało się wczytać logowania do Hermes.",
+  "hermesJobLastDeliveryError": "Dostarczenie: {error}",
+  "@hermesJobLastDeliveryError": {
+    "description": "A scheduled agent's last delivery error, as Hermes reported it.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "Nie udało się wczytać historii uruchomień.",
+  "hermesJobPause": "Wstrzymaj",
+  "hermesJobResume": "Wznów",
+  "hermesMcpAddServer": "Dodaj serwer MCP",
+  "hermesMcpAddFromCatalog": "Dodaj z katalogu",
+  "hermesMcpLoadFailed": "Nie udało się wczytać serwerów MCP.",
+  "hermesMcpNone": "Nie skonfigurowano żadnych serwerów MCP.",
+  "hermesMcpTest": "Testuj",
+  "hermesMcpRemove": "Usuń",
+  "hermesMcpRemoveMessage": "Spowoduje to usunięcie serwera z Hermes.",
+  "hermesMcpToolsList": "Narzędzia: {tools}",
+  "@hermesMcpToolsList": {
+    "description": "An MCP server's tools, listed by name.",
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "Filtr narzędzi",
+  "hermesMcpToolFilterSummary": "Filtr narzędzi: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "description": "Which of an MCP server's tools Hermes uses, summarised.",
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "Uwierzytelnij",
+  "hermesMcpSetApiKey": "Ustaw klucz API",
+  "hermesMcpSetApiKeyFor": "Klucz API dla {name}",
+  "@hermesMcpSetApiKeyFor": {
+    "description": "Title of the page setting MCP server {name}'s API key.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "Adres URL HTTP",
+  "hermesMcpStdioCommand": "Polecenie (stdio)",
+  "hermesMcpArguments": "Argumenty (jeden w wierszu)",
+  "hermesMcpApiKeyOptional": "Klucz API (opcjonalnie)",
+  "hermesMcpAdd": "Dodaj",
+  "hermesMcpCatalogAsks": "Prosi o {names}",
+  "@hermesMcpCatalogAsks": {
+    "description": "A catalog MCP server, saying which values it asks for when added.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "Wymaga {names}, czego to połączenie nie może wysłać. Dodaj go z Hermes na swoim komputerze.",
+  "@hermesMcpCatalogNeeds": {
+    "description": "A catalog MCP server whose values this connection cannot send.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Działanie MCP w Hermes nie powiodło się.",
+  "hermesMcpKeepsValues": "Hermes przechowuje każdą wartość dla {name}.",
+  "@hermesMcpKeepsValues": {
+    "description": "Footer of the values a catalog MCP server {name} asks for.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name} (wymagane)",
+  "@hermesMcpValueRequired": {
+    "description": "A value a catalog MCP server cannot be added without.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name} (opcjonalne)",
+  "@hermesMcpValueOptional": {
+    "description": "A value a catalog MCP server can be added without.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "Uzupełnij wszystkie wymagane wartości.",
+  "hermesMcpStillInstallingSignIn": "Hermes wciąż instaluje {name}. Gdy pojawi się na liście, zaloguj się przyciskiem Uwierzytelnij na jego stronie.",
+  "@hermesMcpStillInstallingSignIn": {
+    "description": "Shown after adding a catalog MCP server that signs in with OAuth and is still being installed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes wciąż instaluje {name}. Pojawi się na liście po zakończeniu.",
+  "@hermesMcpStillInstalling": {
+    "description": "Shown after adding a catalog MCP server that is still being installed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "Dodano {name}, ale logowanie nie zostało ukończone. Użyj przycisku Uwierzytelnij na jego stronie, aby spróbować ponownie.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "description": "Shown when a catalog MCP server was added but signing in to it did not finish.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "Zasoby: {resources} · Prompty: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "description": "How many resources and prompts an MCP server offers, from its last test.",
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "Połączono · Narzędzia: {tools} · Zasoby: {resources} · Prompty: {prompts}",
+  "@hermesMcpTestConnected": {
+    "description": "Result of an MCP server test that reached it.",
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "Test MCP nie powiódł się.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nowe powiadomienie",
   "pushReplyTitle": "Nowa odpowiedź",

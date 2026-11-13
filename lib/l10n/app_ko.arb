@@ -4560,6 +4560,157 @@
   "scheduledTaskAgentNeedsChat": "에이전트의 결과는 새 채팅으로 전송됩니다.",
   "scheduledTaskAgentsLoading": "이 터미널의 에이전트를 불러오는 중…",
   "personalizationMemoryGone": "이 메모리는 더 이상 서버에 없습니다. 뒤로 돌아가 메모리 목록을 확인하세요.",
+  "hermesConnectionModeTitle": "연결 모드",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "먼저 Hermes 서버 URL을 입력하세요.",
+  "hermesProfilesNeedTest": "연결을 테스트한 다음 프로필 목록을 새로 고치세요.",
+  "hermesProfilesNone": "Hermes에서 반환된 프로필이 없습니다.",
+  "hermesProfilesNeedSignIn": "로그인한 다음 프로필 목록을 새로 고치세요.",
+  "hermesNativeSignInFailed": "Hermes 로그인에 실패했거나 취소되었습니다. 네이티브 PKCE가 켜져 있는지 확인한 후 다시 시도하세요.",
+  "hermesDashboardSignInTitle": "Hermes 로그인",
+  "hermesDashboardSignInLoadFailed": "Hermes 로그인을 불러올 수 없습니다.",
+  "hermesJobLastDeliveryError": "전달: {error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "실행 기록을 불러올 수 없습니다.",
+  "hermesJobPause": "일시 중지",
+  "hermesJobResume": "재개",
+  "hermesMcpAddServer": "MCP 서버 추가",
+  "hermesMcpAddFromCatalog": "카탈로그에서 추가",
+  "hermesMcpLoadFailed": "MCP 서버를 불러올 수 없습니다.",
+  "hermesMcpNone": "구성된 MCP 서버가 없습니다.",
+  "hermesMcpTest": "테스트",
+  "hermesMcpRemove": "제거",
+  "hermesMcpRemoveMessage": "이 서버를 Hermes에서 제거합니다.",
+  "hermesMcpToolsList": "도구: {tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "도구 필터",
+  "hermesMcpToolFilterSummary": "도구 필터: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "인증",
+  "hermesMcpSetApiKey": "API 키 설정",
+  "hermesMcpSetApiKeyFor": "{name}의 API 키",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP URL",
+  "hermesMcpStdioCommand": "명령 (stdio)",
+  "hermesMcpArguments": "인수(한 줄에 하나씩)",
+  "hermesMcpApiKeyOptional": "API 키(선택 사항)",
+  "hermesMcpAdd": "추가",
+  "hermesMcpCatalogAsks": "{names} 입력 필요",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "{names}이(가) 필요하지만 이 연결로는 보낼 수 없습니다. 컴퓨터의 Hermes에서 추가하세요.",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Hermes MCP 작업에 실패했습니다.",
+  "hermesMcpKeepsValues": "Hermes는 각 값을 {name}용으로 보관합니다.",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name}(필수)",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name}(선택)",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "필수 값을 모두 입력하세요.",
+  "hermesMcpStillInstallingSignIn": "Hermes가 아직 {name}을(를) 설치하는 중입니다. 목록에 표시되면 해당 페이지의 인증으로 로그인하세요.",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes가 아직 {name}을(를) 설치하는 중입니다. 완료되면 목록에 표시됩니다.",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "{name}을(를) 추가했지만 로그인이 완료되지 않았습니다. 해당 페이지의 인증으로 다시 시도하세요.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "리소스: {resources} · 프롬프트: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "연결됨 · 도구: {tools} · 리소스: {resources} · 프롬프트: {prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "MCP 테스트에 실패했습니다.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "새 알림",
   "pushReplyTitle": "새 응답",

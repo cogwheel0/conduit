@@ -2670,6 +2670,83 @@ struct PlatformNativeSheetAlertRequest: Hashable, CustomStringConvertible {
   }
 }
 
+/// A sign-in page shown in a web view over Settings.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformWebSignInRequest: Hashable, CustomStringConvertible {
+  /// Names this sign-in in the questions the web view asks Dart.
+  var sessionId: String
+  var title: String
+  /// The page it opens on.
+  var url: String
+  /// Body of an async JavaScript function (argument `url`) answering
+  /// whether the user is signed in; run on a page Dart agrees to.
+  var checkScript: String
+  /// The `url` argument of [checkScript].
+  var checkUrl: String
+  var cancelLabel: String
+  var reloadLabel: String
+  var loadFailedMessage: String
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformWebSignInRequest? {
+    let sessionId = pigeonVar_list[0] as! String
+    let title = pigeonVar_list[1] as! String
+    let url = pigeonVar_list[2] as! String
+    let checkScript = pigeonVar_list[3] as! String
+    let checkUrl = pigeonVar_list[4] as! String
+    let cancelLabel = pigeonVar_list[5] as! String
+    let reloadLabel = pigeonVar_list[6] as! String
+    let loadFailedMessage = pigeonVar_list[7] as! String
+
+    return PlatformWebSignInRequest(
+      sessionId: sessionId,
+      title: title,
+      url: url,
+      checkScript: checkScript,
+      checkUrl: checkUrl,
+      cancelLabel: cancelLabel,
+      reloadLabel: reloadLabel,
+      loadFailedMessage: loadFailedMessage
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      sessionId,
+      title,
+      url,
+      checkScript,
+      checkUrl,
+      cancelLabel,
+      reloadLabel,
+      loadFailedMessage,
+    ]
+  }
+  static func == (lhs: PlatformWebSignInRequest, rhs: PlatformWebSignInRequest) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.sessionId, rhs.sessionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checkScript, rhs.checkScript) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checkUrl, rhs.checkUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.cancelLabel, rhs.cancelLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.reloadLabel, rhs.reloadLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.loadFailedMessage, rhs.loadFailedMessage)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformWebSignInRequest")
+    ConduitPlatformApisPigeonInternal.deepHash(value: sessionId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: title, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: url, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: checkScript, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: checkUrl, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: cancelLabel, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: reloadLabel, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: loadFailedMessage, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformWebSignInRequest(sessionId: \(String(describing: sessionId)), title: \(String(describing: title)), url: \(String(describing: url)), checkScript: \(String(describing: checkScript)), checkUrl: \(String(describing: checkUrl)), cancelLabel: \(String(describing: cancelLabel)), reloadLabel: \(String(describing: reloadLabel)), loadFailedMessage: \(String(describing: loadFailedMessage)))"
+  }
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformNativeSheetDatePickerRequest: Hashable, CustomStringConvertible {
   var title: String
@@ -4072,52 +4149,54 @@ private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
     case 175:
       return PlatformNativeSheetAlertRequest.fromList(self.readValue() as! [Any?])
     case 176:
-      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformWebSignInRequest.fromList(self.readValue() as! [Any?])
     case 177:
-      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
     case 178:
-      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
     case 179:
-      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
     case 180:
-      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
     case 181:
-      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 182:
-      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
     case 183:
-      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
     case 184:
-      return PlatformNativeSheetModelControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
     case 185:
-      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 186:
-      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
     case 187:
-      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
     case 188:
-      return PlatformPccImage.fromList(self.readValue() as! [Any?])
+      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
     case 189:
-      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
+      return PlatformPccImage.fromList(self.readValue() as! [Any?])
     case 190:
-      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
+      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
     case 191:
-      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
     case 192:
-      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
     case 193:
-      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
     case 194:
-      return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
+      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
     case 195:
-      return PlatformPushSubscription.fromList(self.readValue() as! [Any?])
+      return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
     case 196:
-      return PlatformPushToken.fromList(self.readValue() as! [Any?])
+      return PlatformPushSubscription.fromList(self.readValue() as! [Any?])
     case 197:
-      return PlatformPushConfig.fromList(self.readValue() as! [Any?])
+      return PlatformPushToken.fromList(self.readValue() as! [Any?])
     case 198:
-      return PlatformPushMessage.fromList(self.readValue() as! [Any?])
+      return PlatformPushConfig.fromList(self.readValue() as! [Any?])
     case 199:
+      return PlatformPushMessage.fromList(self.readValue() as! [Any?])
+    case 200:
       return PlatformPushTap.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -4268,77 +4347,80 @@ private class ConduitPlatformApisPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? PlatformNativeSheetAlertRequest {
       super.writeByte(175)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
+    } else if let value = value as? PlatformWebSignInRequest {
       super.writeByte(176)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
+    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
       super.writeByte(177)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetResultRequest {
+    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
       super.writeByte(178)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
+    } else if let value = value as? PlatformNativeSheetResultRequest {
       super.writeByte(179)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
       super.writeByte(180)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
+    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
       super.writeByte(181)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
+    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
       super.writeByte(182)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
+    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
       super.writeByte(183)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
       super.writeByte(184)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
+    } else if let value = value as? PlatformNativeSheetModelControlChangedEvent {
       super.writeByte(185)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetActionResult {
+    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
       super.writeByte(186)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStatus {
+    } else if let value = value as? PlatformNativeSheetActionResult {
       super.writeByte(187)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccImage {
+    } else if let value = value as? PlatformPccStatus {
       super.writeByte(188)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccMessage {
+    } else if let value = value as? PlatformPccImage {
       super.writeByte(189)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolDefinition {
+    } else if let value = value as? PlatformPccMessage {
       super.writeByte(190)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolCall {
+    } else if let value = value as? PlatformPccToolDefinition {
       super.writeByte(191)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolResult {
+    } else if let value = value as? PlatformPccToolCall {
       super.writeByte(192)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccCompletionRequest {
+    } else if let value = value as? PlatformPccToolResult {
       super.writeByte(193)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStreamEvent {
+    } else if let value = value as? PlatformPccCompletionRequest {
       super.writeByte(194)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushSubscription {
+    } else if let value = value as? PlatformPccStreamEvent {
       super.writeByte(195)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushToken {
+    } else if let value = value as? PlatformPushSubscription {
       super.writeByte(196)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushConfig {
+    } else if let value = value as? PlatformPushToken {
       super.writeByte(197)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushMessage {
+    } else if let value = value as? PlatformPushConfig {
       super.writeByte(198)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushTap {
+    } else if let value = value as? PlatformPushMessage {
       super.writeByte(199)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPushTap {
+      super.writeByte(200)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -5194,6 +5276,13 @@ protocol NativeSheetHostApi {
   /// pages included, without closing them. Answers the id of the action
   /// chosen, or null when nothing could be shown.
   func presentAlert(request: PlatformNativeSheetAlertRequest, completion: @escaping (Result<String?, Error>) -> Void)
+  /// Opens [request]'s page in a web view over Settings, for the user to
+  /// sign in there. Each main-frame navigation is Dart's to allow
+  /// ([NativeSheetFlutterApi.webSignInAllowsNavigation]); on each page Dart
+  /// names ([NativeSheetFlutterApi.webSignInChecksPage]) the web view runs
+  /// the request's check. Answers true once the check says the user is
+  /// signed in, closing the web view; false when it is closed before.
+  func presentWebSignIn(request: PlatformWebSignInRequest, completion: @escaping (Result<Bool, Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -5449,6 +5538,29 @@ class NativeSheetHostApiSetup {
     } else {
       presentAlertChannel.setMessageHandler(nil)
     }
+    /// Opens [request]'s page in a web view over Settings, for the user to
+    /// sign in there. Each main-frame navigation is Dart's to allow
+    /// ([NativeSheetFlutterApi.webSignInAllowsNavigation]); on each page Dart
+    /// names ([NativeSheetFlutterApi.webSignInChecksPage]) the web view runs
+    /// the request's check. Answers true once the check says the user is
+    /// signed in, closing the web view; false when it is closed before.
+    let presentWebSignInChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeSheetHostApi.presentWebSignIn\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      presentWebSignInChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let requestArg = args[0] as! PlatformWebSignInRequest
+        api.presentWebSignIn(request: requestArg) { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      presentWebSignInChannel.setMessageHandler(nil)
+    }
   }
 }
 
@@ -5464,6 +5576,12 @@ protocol NativeSheetFlutterApiProtocol {
   func onReasoningEffortChanged(event eventArg: PlatformNativeSheetReasoningEffortChangedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func onModelControlChanged(event eventArg: PlatformNativeSheetModelControlChangedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
   func commitEditProfile(event eventArg: PlatformNativeEditProfileCommittedEvent, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  /// Whether sign-in [sessionId]'s web view may load [url] in its main
+  /// frame.
+  func webSignInAllowsNavigation(sessionId sessionIdArg: String, url urlArg: String, completion: @escaping (Result<Bool, PigeonError>) -> Void)
+  /// Whether sign-in [sessionId]'s web view, having loaded [url], should
+  /// run its check.
+  func webSignInChecksPage(sessionId sessionIdArg: String, url urlArg: String, completion: @escaping (Result<Bool, PigeonError>) -> Void)
 }
 class NativeSheetFlutterApi: NativeSheetFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -5635,6 +5753,52 @@ class NativeSheetFlutterApi: NativeSheetFlutterApiProtocol {
         completion(.failure(PigeonError(code: code, message: message, details: details)))
       } else {
         completion(.success(()))
+      }
+    }
+  }
+  /// Whether sign-in [sessionId]'s web view may load [url] in its main
+  /// frame.
+  func webSignInAllowsNavigation(sessionId sessionIdArg: String, url urlArg: String, completion: @escaping (Result<Bool, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.webSignInAllowsNavigation\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([sessionIdArg, urlArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else if listResponse[0] == nil {
+        completion(.failure(PigeonError(code: "null-error", message: "Flutter api returned null value for non-null return value.", details: "")))
+      } else {
+        let result = listResponse[0] as! Bool
+        completion(.success(result))
+      }
+    }
+  }
+  /// Whether sign-in [sessionId]'s web view, having loaded [url], should
+  /// run its check.
+  func webSignInChecksPage(sessionId sessionIdArg: String, url urlArg: String, completion: @escaping (Result<Bool, PigeonError>) -> Void) {
+    let channelName: String = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.webSignInChecksPage\(messageChannelSuffix)"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([sessionIdArg, urlArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else if listResponse[0] == nil {
+        completion(.failure(PigeonError(code: "null-error", message: "Flutter api returned null value for non-null return value.", details: "")))
+      } else {
+        let result = listResponse[0] as! Bool
+        completion(.success(result))
       }
     }
   }

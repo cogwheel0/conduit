@@ -6405,6 +6405,157 @@
   "scheduledTaskAgentNeedsChat": "エージェントの結果は新しいチャットに送られます。",
   "scheduledTaskAgentsLoading": "このターミナルのエージェントを読み込み中…",
   "personalizationMemoryGone": "このメモリはサーバー上にありません。戻ってメモリの一覧を確認してください。",
+  "hermesConnectionModeTitle": "接続モード",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "先に Hermes サーバーの URL を入力してください。",
+  "hermesProfilesNeedTest": "接続をテストしてから、プロファイル一覧を更新してください。",
+  "hermesProfilesNone": "Hermes からプロファイルが返されませんでした。",
+  "hermesProfilesNeedSignIn": "サインインしてから、プロファイル一覧を更新してください。",
+  "hermesNativeSignInFailed": "Hermes へのサインインに失敗したか、キャンセルされました。ネイティブ PKCE が有効になっていることを確認して、もう一度お試しください。",
+  "hermesDashboardSignInTitle": "Hermes サインイン",
+  "hermesDashboardSignInLoadFailed": "Hermes のサインインを読み込めませんでした。",
+  "hermesJobLastDeliveryError": "配信: {error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "実行履歴を読み込めませんでした。",
+  "hermesJobPause": "一時停止",
+  "hermesJobResume": "再開",
+  "hermesMcpAddServer": "MCP サーバーを追加",
+  "hermesMcpAddFromCatalog": "カタログから追加",
+  "hermesMcpLoadFailed": "MCP サーバーを読み込めませんでした。",
+  "hermesMcpNone": "MCP サーバーが設定されていません。",
+  "hermesMcpTest": "テスト",
+  "hermesMcpRemove": "削除",
+  "hermesMcpRemoveMessage": "このサーバーを Hermes から削除します。",
+  "hermesMcpToolsList": "ツール: {tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "ツールフィルター",
+  "hermesMcpToolFilterSummary": "ツールフィルター: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "認証",
+  "hermesMcpSetApiKey": "API キーを設定",
+  "hermesMcpSetApiKeyFor": "{name} の API キー",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP URL",
+  "hermesMcpStdioCommand": "コマンド (stdio)",
+  "hermesMcpArguments": "引数（1 行に 1 つ）",
+  "hermesMcpApiKeyOptional": "API キー（任意）",
+  "hermesMcpAdd": "追加",
+  "hermesMcpCatalogAsks": "{names} の入力が必要です",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "{names} が必要ですが、この接続では送信できません。お使いのコンピュータの Hermes から追加してください。",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Hermes の MCP 操作に失敗しました。",
+  "hermesMcpKeepsValues": "Hermes は各値を {name} 用に保存します。",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name}（必須）",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name}（任意）",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "必須の値をすべて入力してください。",
+  "hermesMcpStillInstallingSignIn": "Hermes は {name} をまだインストールしています。一覧に表示されたら、そのページの「認証」からサインインしてください。",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes は {name} をまだインストールしています。完了すると一覧に表示されます。",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "{name} を追加しましたが、サインインが完了しませんでした。そのページの「認証」からもう一度お試しください。",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "リソース: {resources} · プロンプト: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "接続済み · ツール: {tools} · リソース: {resources} · プロンプト: {prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "MCP のテストに失敗しました。",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新しい通知",
   "pushReplyTitle": "新しい返信",

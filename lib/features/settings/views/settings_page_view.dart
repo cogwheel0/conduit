@@ -208,14 +208,44 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
         ),
       );
     }
+    // Its owner had it edited and says it no longer is: what was changed on
+    // it has been saved, as the native sheet takes it.
+    if (oldWidget.detail.edited && !widget.detail.edited) {
+      _controlEdits = false;
+    }
     if (!identical(oldWidget.detail, widget.detail)) {
-      _pendingText.clear();
+      // Text typed and not yet done stays in a field the update leaves as
+      // it was (another row filled in meanwhile, say): that field is kept,
+      // with what is in it. Every other field starts from the page.
+      final before = {
+        for (final item in _itemsOf(oldWidget.detail)) item.id: item.value,
+      };
+      final kept = {
+        for (final item in _itemsOf(widget.detail))
+          if (_pendingText[item.id] case final text?
+              when before.containsKey(item.id) && before[item.id] == item.value)
+            item.id: text,
+      };
+      _pendingText
+        ..clear()
+        ..addAll(kept);
       _committedText.clear();
       _chosen.clear();
       _order.clear();
       _generation++;
+      _textKeys.removeWhere((id, _) => !kept.containsKey(id));
     }
   }
+
+  /// The key generation of each text field kept through an update.
+  final Map<String, int> _textKeys = {};
+
+  static Iterable<NativeSheetItemConfig> _itemsOf(
+    NativeSheetDetailConfig detail,
+  ) => [
+    ...detail.items,
+    for (final section in detail.sections) ...section.items,
+  ];
 
   /// The groups as the native sheet lays out a page: its own groups, or its
   /// rows with the subtitle as their footer and destructive rows apart.
@@ -449,7 +479,11 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
         item.kind == NativeSheetItemKind.secureTextField ||
         item.kind == NativeSheetItemKind.multilineTextField;
     return SettingsRow(
-      key: text ? ValueKey<String>('$_generation:${item.id}') : null,
+      key: text
+          ? ValueKey<String>(
+              '${_textKeys.putIfAbsent(item.id, () => _generation)}:${item.id}',
+            )
+          : null,
       item: item,
       leading: widget.leadingFor?.call(item),
       navigable: _navigable(item),

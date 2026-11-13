@@ -5,10 +5,44 @@ import ImageIO
 import UIKit
 import UniformTypeIdentifiers
 import UserNotifications
+import WebKit
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor
+  func testWebSignInRetryLoadsThePageThatFailed() throws {
+    let start = try XCTUnwrap(URL(string: "https://hermes.example/login"))
+    let provider = try XCTUnwrap(URL(string: "https://id.example/authorize"))
+    let controller = NativeWebSignInViewController(
+      request: PlatformWebSignInRequest(
+        sessionId: "test-sign-in", title: "Sign In", url: start.absoluteString,
+        checkScript: "return false;", checkUrl: start.absoluteString,
+        cancelLabel: "Cancel", reloadLabel: "Retry", loadFailedMessage: "Failed"),
+      startURL: start,
+      allowsNavigation: { _, answer in answer(true) },
+      checksPage: { _, answer in answer(false) },
+      onFinish: { _ in })
+    XCTAssertEqual(controller.retryURL, start)
+
+    // A load the page replaced is no failure: Retry still starts over.
+    controller.webView(
+      WKWebView(), didFailProvisionalNavigation: nil,
+      withError: NSError(
+        domain: NSURLErrorDomain, code: NSURLErrorCancelled,
+        userInfo: [NSURLErrorFailingURLErrorKey: provider]))
+    XCTAssertEqual(controller.retryURL, start)
+
+    // The identity provider's page failed: Retry loads it again, not the
+    // dashboard's sign-in, which would end the trip to the provider.
+    controller.webView(
+      WKWebView(), didFailProvisionalNavigation: nil,
+      withError: NSError(
+        domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
+        userInfo: [NSURLErrorFailingURLErrorKey: provider]))
+    XCTAssertEqual(controller.retryURL, provider)
+  }
+
   @MainActor
   func testIconBarButtonsSayWhatTheyDo() {
     let action = UIAction { _ in }

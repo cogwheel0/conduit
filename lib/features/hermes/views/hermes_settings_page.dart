@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,16 +29,19 @@ import 'hermes_settings_sections.dart';
 /// Heading of the backend mode section, also the mode selector's name.
 const _connectionModeTitle = 'Hermes connection mode';
 
-/// Editor for one saved Hermes connection: name, server URL, credentials, and
-/// a connection test. For the active connection it also shows the server's
-/// capabilities and management sections.
+/// The Hermes connection form of first-run setup and of the account
+/// sheet: name, server URL, credentials. Settings edits saved connections in
+/// pages of its own (`HermesSettingsPages`).
 class HermesSettingsPage extends ConsumerStatefulWidget {
   const HermesSettingsPage({
     super.key,
     this.isOnboarding = false,
     this.connectionId,
     this.onFinished,
-  });
+  }) : assert(
+         isOnboarding || onFinished != null,
+         'Outside onboarding the form is part of the account sheet.',
+       );
 
   /// When true, the page is shown as a first-run setup step for the active
   /// connection (or the first one): the enable toggle is implicit, and a
@@ -49,10 +51,8 @@ class HermesSettingsPage extends ConsumerStatefulWidget {
   /// Saved connection to edit; null adds a new one. Ignored in onboarding.
   final String? connectionId;
 
-  /// Set when the editor is part of the account sheet rather than a page: it
-  /// brings no page of its own, leaves the server's management to the page,
-  /// and this is called, rather than going back, once the connection is
-  /// saved -- a new one also tested and put in use -- or deleted.
+  /// Called once the connection is saved -- a new one also tested and put
+  /// in use -- or deleted. Set when the form is part of the account sheet.
   final VoidCallback? onFinished;
 
   @override
@@ -360,12 +360,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             .read(preferredBackendProvider.notifier)
             .set(PreferredBackend.unset);
       }
-      if (!mounted) return;
-      if (_embedded) {
-        widget.onFinished!();
-      } else {
-        unawaited(Navigator.of(context).maybePop());
-      }
+      if (mounted) widget.onFinished?.call();
     } catch (error) {
       DebugLogger.warning(
         'connection-delete-failed',
@@ -474,7 +469,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     });
     // Rebuild when the active connection changes or its state hydrates.
     final activeConfig = ref.watch(hermesConfigProvider);
-    final connectionNames = ref.watch(hermesConnectionsProvider);
     final editsActive = _editsActive;
     final config = editsActive ? activeConfig : _saved();
     final existing = controller.connectionId != null;
@@ -711,81 +705,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           ),
         ),
       ],
-      if (!widget.isOnboarding && !_embedded) ...[
-        gap,
-        if (PlatformInfo.isIOS)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              InsetGroupedList(
-                useNativeSurface: true,
-                children: [
-                  UtilityRow(
-                    title: l10n.testDirectConnection,
-                    titleFontWeight: FontWeight.w400,
-                    foregroundColor: context.conduitTheme.buttonPrimary,
-                    enabled: draftUsable,
-                    status:
-                        controller.operation ==
-                            HermesConnectionOperation.testing
-                        ? const CupertinoActivityIndicator(radius: 8)
-                        : null,
-                    onTap: draftUsable ? _testConnection : null,
-                  ),
-                ],
-              ),
-              if (controller.attempt.isVisible) ...[
-                const SizedBox(height: Spacing.sm),
-                ConnectionAttemptBanner(state: controller.attempt),
-              ],
-            ],
-          )
-        else
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ConduitButton(
-                text: l10n.testDirectConnection,
-                isSecondary: true,
-                isLoading:
-                    controller.operation == HermesConnectionOperation.testing,
-                isFullWidth: true,
-                onPressed: draftUsable ? _testConnection : null,
-              ),
-              const SizedBox(height: Spacing.sm),
-              ConduitButton(
-                key: const ValueKey<String>('hermes-save-button'),
-                text: l10n.save,
-                isLoading:
-                    controller.operation == HermesConnectionOperation.saving,
-                isFullWidth: true,
-                onPressed: draftUsable ? _saveSettings : null,
-              ),
-              if (controller.attempt.isVisible) ...[
-                const SizedBox(height: Spacing.sm),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: ConnectionAttemptBanner(state: controller.attempt),
-                ),
-              ],
-            ],
-          ),
-      ],
-      if (editsActive &&
-          !widget.isOnboarding &&
-          !_embedded &&
-          activeConfig.isUsable) ...[
-        const SizedBox(height: Spacing.xl),
-        const HermesCapabilitiesSection(),
-        const SizedBox(height: Spacing.lg),
-        const HermesToolsetsSection(),
-        if (activeConfig.mode == HermesBackendMode.desktopGateway) ...[
-          const SizedBox(height: Spacing.lg),
-          const HermesDesktopManagementSection(),
-        ],
-        const SizedBox(height: Spacing.lg),
-        const HermesServerStatusSection(),
-      ],
       if (!widget.isOnboarding && !_addingInSheet && existing) ...[
         gap,
         InsetGroupedList(
@@ -826,53 +745,31 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       );
     }
 
-    if (widget.isOnboarding) {
-      return UtilityPageScaffold.auth(
-        title: l10n.backendChooserHermesTitle,
-        backNavigation: UtilityBackNavigation(
-          label: l10n.back,
-          buttonKey: const ValueKey<String>('hermes-onboarding-back-button'),
-          onPressed: _leaveOnboarding,
-        ),
-        bottomAction: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ConnectionAttemptBanner(state: controller.attempt),
-            if (controller.attempt.isVisible)
-              const SizedBox(height: Spacing.sm),
-            ConduitButton(
-              text: l10n.hermesConnectAction,
-              isFullWidth: true,
-              isLoading:
-                  controller.operation == HermesConnectionOperation.finishing,
-              onPressed: draftUsable ? _finishOnboarding : null,
-            ),
-          ],
-        ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: content,
-        ),
-      );
-    }
-
-    final savedName = connectionNames
-        .where((profile) => profile.id == controller.connectionId)
-        .firstOrNull
-        ?.name;
-    return UtilityPageScaffold.settings(
-      title: savedName ?? l10n.hermesNewConnectionTitle,
-      trailing: PlatformInfo.isIOS
-          ? ConduitAdaptiveAppBarTextButton(
-              key: const ValueKey<String>('hermes-save-toolbar-button'),
-              label: l10n.save,
-              onPressed: draftUsable ? _saveSettings : null,
-              isLoading:
-                  controller.operation == HermesConnectionOperation.saving,
-              prominent: true,
-            )
-          : null,
-      children: content,
+    return UtilityPageScaffold.auth(
+      title: l10n.backendChooserHermesTitle,
+      backNavigation: UtilityBackNavigation(
+        label: l10n.back,
+        buttonKey: const ValueKey<String>('hermes-onboarding-back-button'),
+        onPressed: _leaveOnboarding,
+      ),
+      bottomAction: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConnectionAttemptBanner(state: controller.attempt),
+          if (controller.attempt.isVisible) const SizedBox(height: Spacing.sm),
+          ConduitButton(
+            text: l10n.hermesConnectAction,
+            isFullWidth: true,
+            isLoading:
+                controller.operation == HermesConnectionOperation.finishing,
+            onPressed: draftUsable ? _finishOnboarding : null,
+          ),
+        ],
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: content,
+      ),
     );
   }
 }

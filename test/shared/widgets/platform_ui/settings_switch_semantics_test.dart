@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
-import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_sections.dart';
 import 'package:conduit/features/hermes/widgets/hermes_jobs_sheet.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
@@ -44,39 +43,23 @@ void main() {
         PlatformUiCapabilities.debugNativeIOS26Override = configuration.native;
       });
 
-      for (final sheet in [false, true]) {
-        testWidgets('job name labels only its switch ($sheet)', (tester) async {
-          await _pump(
-            tester,
-            sheet ? const HermesJobsSheet() : const HermesJobsPage(),
-          );
-          _expectSwitch(tester, 'Orbit check', true);
-        }, variant: TargetPlatformVariant.only(configuration.platform));
+      testWidgets('job name labels only its switch', (tester) async {
+        await _pump(tester, const HermesJobsSheet());
+        _expectSwitch(tester, 'Orbit check', true);
+      }, variant: TargetPlatformVariant.only(configuration.platform));
 
-        testWidgets('busy job retains its name ($sheet)', (tester) async {
-          final jobs = _Jobs();
-          await _pump(
-            tester,
-            sheet ? const HermesJobsSheet() : const HermesJobsPage(),
-            jobs: jobs,
-          );
-          tester.widget<AdaptiveSwitch>(find.byType(AdaptiveSwitch)).onChanged!(
-            false,
-          );
-          await tester.pump();
-          expect(find.byType(AdaptiveSwitch), findsNothing);
-          expect('Orbit check'.allMatches(_labels(tester)), hasLength(1));
-          jobs.toggle.complete();
-          await tester.pumpAndSettle();
-          _expectSwitch(tester, 'Orbit check', true);
-        }, variant: TargetPlatformVariant.only(configuration.platform));
-      }
-
-      testWidgets('toolset switch is reachable and announces its state', (
-        tester,
-      ) async {
-        await _pump(tester, const HermesToolsetsSection());
-        _expectSwitch(tester, 'Sketch tools', true);
+      testWidgets('busy job retains its name', (tester) async {
+        final jobs = _Jobs();
+        await _pump(tester, const HermesJobsSheet(), jobs: jobs);
+        tester.widget<AdaptiveSwitch>(find.byType(AdaptiveSwitch)).onChanged!(
+          false,
+        );
+        await tester.pump();
+        expect(find.byType(AdaptiveSwitch), findsNothing);
+        expect('Orbit check'.allMatches(_labels(tester)), hasLength(1));
+        jobs.toggle.complete();
+        await tester.pumpAndSettle();
+        _expectSwitch(tester, 'Orbit check', true);
       }, variant: TargetPlatformVariant.only(configuration.platform));
 
       testWidgets('TLS row announces its toggle state', (tester) async {

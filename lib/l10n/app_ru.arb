@@ -4826,6 +4826,157 @@
   "scheduledTaskAgentNeedsChat": "Результаты агента отправляются в новый чат.",
   "scheduledTaskAgentsLoading": "Загрузка агентов этого терминала…",
   "personalizationMemoryGone": "Этого воспоминания больше нет на сервере. Вернитесь назад, чтобы увидеть свои воспоминания.",
+  "hermesConnectionModeTitle": "Режим подключения",
+  "hermesModeResponsesApi": "Responses API",
+  "hermesProfilesNeedUrl": "Сначала введите URL сервера Hermes.",
+  "hermesProfilesNeedTest": "Проверьте подключение, затем обновите список профилей.",
+  "hermesProfilesNone": "Hermes не вернул ни одного профиля.",
+  "hermesProfilesNeedSignIn": "Войдите, затем обновите список профилей.",
+  "hermesNativeSignInFailed": "Не удалось войти в Hermes, или вход был отменён. Убедитесь, что встроенный PKCE включён, и повторите попытку.",
+  "hermesDashboardSignInTitle": "Вход в Hermes",
+  "hermesDashboardSignInLoadFailed": "Не удалось загрузить вход в Hermes.",
+  "hermesJobLastDeliveryError": "Доставка: {error}",
+  "@hermesJobLastDeliveryError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobRunsLoadFailed": "Не удалось загрузить историю запусков.",
+  "hermesJobPause": "Приостановить",
+  "hermesJobResume": "Возобновить",
+  "hermesMcpAddServer": "Добавить сервер MCP",
+  "hermesMcpAddFromCatalog": "Добавить из каталога",
+  "hermesMcpLoadFailed": "Не удалось загрузить серверы MCP.",
+  "hermesMcpNone": "Серверы MCP не настроены.",
+  "hermesMcpTest": "Проверить",
+  "hermesMcpRemove": "Удалить",
+  "hermesMcpRemoveMessage": "Сервер будет удалён из Hermes.",
+  "hermesMcpToolsList": "Инструменты: {tools}",
+  "@hermesMcpToolsList": {
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpToolFilter": "Фильтр инструментов",
+  "hermesMcpToolFilterSummary": "Фильтр инструментов: {filter}",
+  "@hermesMcpToolFilterSummary": {
+    "placeholders": {
+      "filter": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAuthenticate": "Пройти аутентификацию",
+  "hermesMcpSetApiKey": "Задать ключ API",
+  "hermesMcpSetApiKeyFor": "Ключ API для {name}",
+  "@hermesMcpSetApiKeyFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpHttpUrl": "HTTP-адрес",
+  "hermesMcpStdioCommand": "Команда (stdio)",
+  "hermesMcpArguments": "Аргументы (по одному в строке)",
+  "hermesMcpApiKeyOptional": "Ключ API (необязательно)",
+  "hermesMcpAdd": "Добавить",
+  "hermesMcpCatalogAsks": "Запрашивает {names}",
+  "@hermesMcpCatalogAsks": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpCatalogNeeds": "Требуется {names}, но это подключение не может это передать. Добавьте сервер в Hermes на своём компьютере.",
+  "@hermesMcpCatalogNeeds": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpActionFailed": "Не удалось выполнить действие MCP в Hermes.",
+  "hermesMcpKeepsValues": "Hermes сохраняет каждое значение для {name}.",
+  "@hermesMcpKeepsValues": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueRequired": "{name} (обязательно)",
+  "@hermesMcpValueRequired": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpValueOptional": "{name} (необязательно)",
+  "@hermesMcpValueOptional": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpFillRequired": "Заполните все обязательные значения.",
+  "hermesMcpStillInstallingSignIn": "Hermes ещё устанавливает {name}. Когда сервер появится в списке, войдите с помощью «Пройти аутентификацию» на его странице.",
+  "@hermesMcpStillInstallingSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpStillInstalling": "Hermes ещё устанавливает {name}. Сервер появится в списке, когда установка завершится.",
+  "@hermesMcpStillInstalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpAddedSignInUnfinished": "{name} добавлен, но вход не был завершён. Повторите попытку с помощью «Пройти аутентификацию» на его странице.",
+  "@hermesMcpAddedSignInUnfinished": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesMcpResourcesPrompts": "Ресурсы: {resources} · Промпты: {prompts}",
+  "@hermesMcpResourcesPrompts": {
+    "placeholders": {
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestConnected": "Подключено · Инструменты: {tools} · Ресурсы: {resources} · Промпты: {prompts}",
+  "@hermesMcpTestConnected": {
+    "placeholders": {
+      "tools": {
+        "type": "int"
+      },
+      "resources": {
+        "type": "int"
+      },
+      "prompts": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesMcpTestFailed": "Проверка MCP не удалась.",
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Новое уведомление",
   "pushReplyTitle": "Новый ответ",

@@ -42,6 +42,7 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
     readNativeAccountsDetail(read, l10n),
     readNativeAccountSignOutDetail(read, l10n),
     readNativeAddAccountDetail(read, l10n),
+    ...buildHermesAccountsDetails(l10n),
     if (hasOpenWebUiUser && profilePending)
       buildNativeLoadingDetail(
         l10n: l10n,

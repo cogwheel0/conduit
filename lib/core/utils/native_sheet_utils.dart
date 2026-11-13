@@ -37,6 +37,7 @@ import '../../features/push/widgets/push_target_actions.dart'
         pushTargetBusy,
         pushTargetNeedsAttention;
 import '../../features/settings/pages/direct_connection_page_ids.dart';
+import '../../features/settings/pages/hermes_page_ids.dart';
 import 'account_display.dart';
 import 'message_action_settings.dart';
 import 'tts_voice_utils.dart';
@@ -642,15 +643,13 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
         ),
       NativeSheetSectionConfig(
         items: [
+          // Hermes Agent's own page of Settings.
           NativeSheetItemConfig(
-            id: 'accounts-hermes',
+            id: hermesSettingsPageId,
             title: l10n.hermesAgentSettingsTitle,
             sfSymbol: 'sparkles',
             iconAsset: 'assets/icons/hermes_agent.png',
             iconSize: 26,
-            dismissOnSelect: true,
-            actionId: NativeSheetRoutes.hermes,
-            actionValue: true,
           ),
           for (final connection in hermesConnections)
             _nativeSwitchItem(
@@ -667,11 +666,13 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
               actionId: nativeHermesUseActionId,
               actionValue: connection.id,
             ),
+          // A connection is a form of Settings's own, not a sign-in.
           if (hermesConnections.isEmpty)
-            _nativeAddItem(
-              'accounts-hermes-add',
+            NativeSheetItemConfig(
+              id: hermesConnectConnectionPageId,
               title: l10n.hermesAddConnection,
-              kind: 'hermes',
+              sfSymbol: 'plus.circle',
+              accent: true,
             ),
         ],
       ),
@@ -758,6 +759,23 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
   );
 }
 
+/// The Hermes pages Accounts and Add Account open, each filled in as it
+/// appears: Hermes Agent's own page, and the form adding a connection.
+List<NativeSheetDetailConfig> buildHermesAccountsDetails(
+  AppLocalizations l10n,
+) => [
+  buildNativeLoadingDetail(
+    l10n: l10n,
+    id: hermesSettingsPageId,
+    title: l10n.hermesAgentSettingsTitle,
+  ),
+  buildNativeLoadingDetail(
+    l10n: l10n,
+    id: hermesConnectConnectionPageId,
+    title: l10n.backendChooserHermesTitle,
+  ),
+];
+
 /// Id of the Add Account row that ends the native Accounts page.
 const nativeAccountsAddItemId = 'accounts-add';
 
@@ -803,10 +821,12 @@ NativeSheetDetailConfig buildNativeAddAccountDetail(
               l10n.libreChatChooserSubtitle,
               sfSymbol: 'bubble.left.and.bubble.right',
             ),
-          kind(
-            'hermes',
-            l10n.backendChooserHermesTitle,
-            l10n.backendChooserHermesSubtitle,
+          // A Hermes connection is a form of Settings's own, not a sign-in.
+          NativeSheetItemConfig(
+            id: hermesConnectConnectionPageId,
+            title: l10n.backendChooserHermesTitle,
+            subtitle: l10n.backendChooserHermesSubtitle,
+            sfSymbol: 'server.rack',
             iconAsset: 'assets/icons/hermes_agent.png',
           ),
           // A provider is a form of Settings's own, not a sign-in.
@@ -1014,7 +1034,7 @@ const nativeSignOutActionId = 'sign-out';
 
 /// Native Settings rows for accounts and connections. A row that acts on
 /// one carries its id as its action value; an add row, the account sheet's
-/// tab for its kind (`openWebUi`, `libreChat`, `hermes`), or true
+/// tab for its kind (`openWebUi`, `libreChat`), or true
 /// for the first.
 const nativeAccountSwitchActionId = 'account-switch';
 const nativeAccountAddActionId = 'account-add';

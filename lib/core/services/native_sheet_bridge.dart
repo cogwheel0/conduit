@@ -800,6 +800,91 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
   }
 
+  /// The web sign-ins open over Settings, by session id: what each asks
+  /// before it loads a page or checks one.
+  final Map<
+    String,
+    ({
+      bool Function(String url) allowsNavigation,
+      bool Function(String url) checksPage,
+    })
+  >
+  _webSignIns = {};
+  int _webSignInCount = 0;
+
+  /// Opens [url] in a web view over Settings for the user to sign in.
+  /// [allowsNavigation] decides each page its main frame may load; on a page
+  /// [checksPage] names, the web view runs [checkScript] (with [checkUrl] as
+  /// its `url`). Answers true once that says the user is signed in, false
+  /// when the web view is closed first, or cannot open.
+  Future<bool> presentWebSignIn({
+    required String title,
+    required String url,
+    required String checkScript,
+    required String checkUrl,
+    required String loadFailedMessage,
+    required bool Function(String url) allowsNavigation,
+    required bool Function(String url) checksPage,
+    String cancelLabel = 'Cancel',
+    String reloadLabel = 'Reload',
+  }) async {
+    if (!_isIOS) return false;
+    final sessionId = 'web-sign-in-${++_webSignInCount}';
+    _webSignIns[sessionId] = (
+      allowsNavigation: allowsNavigation,
+      checksPage: checksPage,
+    );
+    try {
+      return await _api.presentWebSignIn(
+        PlatformWebSignInRequest(
+          sessionId: sessionId,
+          title: title,
+          url: url,
+          checkScript: checkScript,
+          checkUrl: checkUrl,
+          cancelLabel: cancelLabel,
+          reloadLabel: reloadLabel,
+          loadFailedMessage: loadFailedMessage,
+        ),
+      );
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('presentWebSignIn', error, stackTrace);
+      return false;
+    } finally {
+      _webSignIns.remove(sessionId);
+    }
+  }
+
+  @override
+  Future<bool> webSignInAllowsNavigation(String sessionId, String url) async {
+    // A sign-in no longer waited for loads nothing more.
+    final session = _webSignIns[sessionId];
+    if (session == null) return false;
+    try {
+      return session.allowsNavigation(url);
+    } catch (error, stackTrace) {
+      // Refused: a navigation that cannot be judged is not loaded.
+      _logNativeSheetBridgeError(
+        'webSignInAllowsNavigation',
+        error,
+        stackTrace,
+      );
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> webSignInChecksPage(String sessionId, String url) async {
+    final session = _webSignIns[sessionId];
+    if (session == null) return false;
+    try {
+      return session.checksPage(url);
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('webSignInChecksPage', error, stackTrace);
+      return false;
+    }
+  }
+
   Future<bool> closeDetail(String detailId) async {
     if (!_isIOS) return false;
     try {

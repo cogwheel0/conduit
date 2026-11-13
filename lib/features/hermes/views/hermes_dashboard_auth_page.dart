@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/connection_components.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -19,6 +20,17 @@ final class HermesDashboardAuthPage extends StatefulWidget {
   const HermesDashboardAuthPage({super.key, required this.config});
 
   final HermesConfig config;
+
+  /// Opens the sign-in over [context]'s navigator; answers whether it ended
+  /// signed in.
+  static Future<bool> open(BuildContext context, HermesConfig config) async {
+    final signedIn = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => HermesDashboardAuthPage(config: config),
+      ),
+    );
+    return signedIn == true;
+  }
 
   @override
   State<HermesDashboardAuthPage> createState() =>
@@ -89,8 +101,8 @@ final class _HermesDashboardAuthPageState
 
   @override
   Widget build(BuildContext context) => ConnectionWebAuthScaffold(
-    title: 'Hermes Sign-In',
-    backLabel: 'Back',
+    title: AppLocalizations.of(context)!.hermesDashboardSignInTitle,
+    backLabel: AppLocalizations.of(context)!.back,
     onBack: () => Navigator.of(context).pop(false),
     onRefresh: _controller == null || !_policy.supported
         ? null
@@ -174,7 +186,8 @@ final class _HermesDashboardAuthPageState
                   );
                   setState(() {
                     _loading = false;
-                    _error = 'Hermes sign-in could not be loaded.';
+                    _error = AppLocalizations.of(context)!
+                        .hermesDashboardSignInLoadFailed;
                   });
                 },
                 shouldOverrideUrlLoading: (controller, action) async {
