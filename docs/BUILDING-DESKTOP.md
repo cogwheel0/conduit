@@ -111,6 +111,26 @@ prompts, a file) and its credentials go to an env file the tests read; see
 [`tool/local_owui/README.md`](../tool/local_owui/README.md). Without that
 file the live tests skip, as in CI, which never starts the server.
 
+## Apple's on-device model
+
+Apple's Foundation Models (macOS 26 and later) are a Direct backend, as on
+the iPhone. The chat runs in conduitd (the core's Direct engine and its
+Apple adapter); the model is a Swift API, so it runs in the app:
+`desktop/crates/app/apple/ConduitAppleModels.swift` is compiled by
+`packaging/macos/apple_models.sh` (from `crates/app/build.rs`) into a static
+library the app links, with FoundationModels linked weakly so the app still
+runs on macOS 14 and 15. The daemon asks for status and runs with the
+`apple.command` event; the window answers and streams with `apple.report`.
+
+Only Apple On-Device is offered. Private Cloud Compute needs the
+`com.apple.developer.private-cloud-compute` entitlement, and without it
+FoundationModels stops the app with a fatal error on the first request, so
+the Mac build never compiles it in and the daemon never offers it.
+
+`CONDUIT_APPLE_ENGINE=fake` (debug builds only) puts a scripted model in
+Apple's place; `--e2e apple` reads the Mac's real status first, then uses
+it.
+
 ## Versions and build numbers
 
 A release is a tag `desktop-v<version>`, where the version is `X.Y.Z` or

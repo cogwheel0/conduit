@@ -20,6 +20,8 @@
 //! * [`files`]: `/files` images (bearer token added) and attachment opening.
 //! * [`settings`] and [`layout`]: preferences and window geometry.
 //! * [`speech`]: read aloud, which the daemon runs and this window speaks.
+//! * [`apple_models`]: Apple's on-device model, which the daemon's chats
+//!   use and this window runs.
 //! * [`call`]: a voice call, which the daemon runs and this window hears
 //!   and, for a realtime voice, plays.
 //! * [`calendar`] and [`tasks`]: the calendar's agenda and the scheduled
@@ -33,6 +35,7 @@
 
 pub mod accounts;
 pub mod app_settings;
+pub mod apple_models;
 pub mod areas;
 pub mod calendar;
 pub mod call;
@@ -102,6 +105,8 @@ pub struct Stores {
     pub tasks: Entity<tasks::TasksStore>,
     /// Hermes's bots and Group Chats, and the room the main window shows.
     pub hermes_rooms: Entity<hermes_rooms::HermesRoomsStore>,
+    /// Apple's on-device model: the Swift engine the daemon's chats use.
+    pub apple: Entity<apple_models::AppleModelsStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -160,7 +165,8 @@ impl Stores {
             calendar: cx.new(|_| calendar::CalendarStore::new(rpc.clone())),
             tasks: cx.new(|_| tasks::TasksStore::new(rpc.clone())),
             hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone())),
-            hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc)),
+            hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc.clone())),
+            apple: cx.new(|_| apple_models::AppleModelsStore::for_test(rpc)),
         }
     }
 
@@ -201,6 +207,10 @@ impl Stores {
         let calendar = cx.new(|_| calendar::CalendarStore::new(rpc.clone()));
         let tasks = cx.new(|_| tasks::TasksStore::new(rpc.clone()));
         let hermes_rooms = cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone()));
+        let apple = {
+            let rpc = rpc.clone();
+            cx.new(|cx| apple_models::AppleModelsStore::new(rpc, cx))
+        };
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -220,6 +230,7 @@ impl Stores {
             calendar,
             tasks,
             hermes_rooms,
+            apple,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
@@ -231,6 +242,7 @@ impl Stores {
         calendar::wire(&stores, cx);
         tasks::wire(&stores, cx);
         hermes_rooms::wire(&stores, cx);
+        apple_models::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat

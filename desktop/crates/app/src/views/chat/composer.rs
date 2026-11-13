@@ -3387,7 +3387,13 @@ impl ChatComposer {
         let on = selected == Some(model.id.as_str());
         let hot = i == picker.highlighted;
         let id = model.id.clone();
-        let provider = model.connection.clone().unwrap_or_default();
+        // Apple's model says where it runs, as on the phone.
+        let apple = crate::stores::composer::is_apple_on_device(model);
+        let provider = if apple {
+            l10n.desktop_apple_on_this_mac()
+        } else {
+            model.connection.clone().unwrap_or_default()
+        };
         let label = model_label(model);
         let group = SharedString::from(format!("model-row-{}", model.id));
         let pinned = model.pinned;
@@ -3436,6 +3442,8 @@ impl ChatComposer {
                     None => icon(
                         if pinned {
                             IconName::Pin
+                        } else if apple {
+                            IconName::Cpu
                         } else {
                             IconName::Sparkles
                         },

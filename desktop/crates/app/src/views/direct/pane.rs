@@ -1,6 +1,10 @@
 //! Settings › Direct Connections, mobile's Direct Connections page in the
 //! Settings window's groups:
 //!
+//! * **Apple Intelligence**: Apple's on-device model, whether this Mac can
+//!   run it now and why not (`apple.status`), and Check Again
+//!   (`apple.refresh`), as the phone's Apple rows. Private Cloud Compute is
+//!   never offered: this build has no entitlement for it.
 //! * **Open WebUI History**: keep direct chats on this Mac or save them to
 //!   the account (`direct.setHistory`), when the server allows it.
 //! * **Open WebUI Server**: the connections kept in the account
@@ -26,14 +30,15 @@ use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, ClickHandler, Switch, setting_row};
 use conduit_components::views::settings::settings_section;
 use conduit_protocol::{
+    AppleAvailability, AppleModelKind, AppleModelStatus, AppleModels, AppleUnavailableReason,
     DirectConnectionList, DirectConnectionSummary, DirectContextLimit, DirectEnable, DirectHistory,
     DirectImagesPerRequest, DirectKind, DirectOptions, McpAuth, McpEnable, McpServerList,
     McpServerSummary, NoParams, WebSearchSettings, WebSearchSettingsPatch, methods,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncWindowContext, ClickEvent, Context, ElementId, SharedString, WeakEntity,
-    Window, div, px,
+    AnyElement, App, AsyncWindowContext, ClickEvent, Context, ElementId, Role, SharedString,
+    WeakEntity, Window, div, px,
 };
 
 use super::editor::{DirectEditorSheet, OnChange};
@@ -70,6 +75,10 @@ pub struct DirectPane {
     history_confirmed: Option<bool>,
     /// History switches sent and not yet answered.
     history_out: u32,
+    /// Apple Intelligence on this Mac, once asked; and whether it is being
+    /// asked (again) now.
+    pub apple: Option<AppleModels>,
+    pub apple_checking: bool,
 }
 
 impl DirectPane {
@@ -84,6 +93,8 @@ impl DirectPane {
             reloading: false,
             history_confirmed: None,
             history_out: 0,
+            apple: None,
+            apple_checking: false,
         };
         this.refresh(window, cx);
         this
@@ -101,6 +112,8 @@ impl DirectPane {
         let mcp = rpc.call::<methods::McpList>(&NoParams);
         let options = rpc.call::<methods::DirectOptions>(&NoParams);
         let search = rpc.call::<methods::WebSearchGet>(&NoParams);
+        let apple = cfg!(target_os = "macos").then(|| rpc.call::<methods::AppleStatus>(&NoParams));
+        self.apple_checking = apple.is_some();
         self.reloading = true;
         cx.spawn_in(
             window,
@@ -114,6 +127,17 @@ impl DirectPane {
                     }
                     cx.notify();
                 });
+                if let Some(apple) = apple {
+                    let apple = apple.await;
+                    let _ = this.update(cx, |s, cx| {
+                        s.apple_checking = false;
+                        match apple {
+                            Ok(a) => s.apple = Some(a),
+                            Err(e) => log::warn!("apple.status: {e}"),
+                        }
+                        cx.notify();
+                    });
+                }
                 let mcp = mcp.await;
                 let search = search.await;
                 let _ = this.update(cx, |s, cx| {
@@ -139,6 +163,33 @@ impl DirectPane {
                     match options {
                         Ok(o) => s.options = Some(o),
                         Err(e) => log::warn!("direct.options: {e}"),
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
+    }
+
+    /// Asks the Mac again whether Apple's model can answer: the phone's
+    /// refresh on its Apple row. A model that became ready is listed in the
+    /// model picker from then on.
+    pub fn check_apple(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.apple_checking {
+            return;
+        }
+        self.apple_checking = true;
+        cx.notify();
+        let call = self.rpc(cx).call::<methods::AppleRefresh>(&NoParams);
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    s.apple_checking = false;
+                    match result {
+                        Ok(a) => s.apple = Some(a),
+                        Err(e) => log::warn!("apple.refresh: {e}"),
                     }
                     cx.notify();
                 });
@@ -524,6 +575,116 @@ impl DirectPane {
                 .on_click(toggle),
             )
             .into_any_element()
+    }
+
+    /// Apple's on-device model: where it runs, whether it can answer now or
+    /// why not, and Check Again.
+    fn apple_row(&self, m: &AppleModelStatus, l10n: &L10n, cx: &mut Context<Self>) -> AnyElement {
+        let t = cx.conduit().clone();
+        let r = t.roles;
+        let title = l10n.backend_chooser_apple_on_device_title();
+        let detail = if self.apple_checking {
+            l10n.desktop_apple_checking()
+        } else {
+            apple_detail(m, l10n)
+        };
+        let available = m.availability == AppleAvailability::Available;
+        let check = self.listener(cx, |s, window, cx| s.check_apple(window, cx));
+        div()
+            .id("apple-on-device-row")
+            .role(Role::Group)
+            .aria_label(SharedString::from(format!("{title}, {detail}")))
+            .w_full()
+            .min_h(px(t.metrics.row_height + 20.))
+            .px(px(12.))
+            .py(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(
+                div()
+                    .size(px(28.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(7.))
+                    .bg(with_alpha(r.text, if t.dark { 0.12 } else { 0.06 }))
+                    .child(icon(
+                        IconName::Cpu,
+                        15.,
+                        if available { r.text } else { r.text_faint },
+                    )),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(t.metrics.control))
+                            .text_color(r.text)
+                            .child(SharedString::from(title.clone())),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(t.metrics.small))
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(detail)),
+                    ),
+            )
+            .child(
+                div()
+                    .id("apple-check-tip")
+                    .flex_none()
+                    .tooltip(conduit_components::views::focus::tooltip_builder(
+                        l10n.desktop_apple_check_again_tooltip().into(),
+                        None,
+                    ))
+                    .child(
+                        Button::new("apple-check", l10n.desktop_apple_check_again())
+                            .icon(IconName::RefreshCw)
+                            .disabled(self.apple_checking)
+                            .on_click(check),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Apple Intelligence: the models this Mac may offer (Apple On-Device
+    /// only), with the phone's notes in the footer.
+    fn apple_section(
+        &self,
+        apple: &AppleModels,
+        l10n: &L10n,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows: Vec<AnyElement> = apple
+            .models
+            .iter()
+            .filter(|m| m.model == AppleModelKind::OnDevice)
+            .map(|m| self.apple_row(m, l10n, cx))
+            .collect();
+        let mut footer = l10n.desktop_apple_footer();
+        if !self.apple_checking
+            && apple
+                .models
+                .iter()
+                .any(|m| m.supports_current_locale == Some(false))
+        {
+            footer = format!("{}\n\n{footer}", l10n.desktop_apple_language_unsupported());
+        }
+        settings_section(
+            l10n.backend_chooser_apple_section_title(),
+            Some(footer.into()),
+            rows,
+            cx,
+        )
+        .into_any_element()
     }
 
     /// A list of connections, or the sentence for none with Add beside it.
@@ -965,6 +1126,30 @@ pub fn endpoint_label(endpoint: &str) -> String {
     }
 }
 
+/// The line under Apple On-Device: "Available" with its context limit, or
+/// why it cannot answer now.
+pub fn apple_detail(m: &AppleModelStatus, l10n: &L10n) -> String {
+    if m.availability == AppleAvailability::Available {
+        let available = l10n.apple_pcc_status_available();
+        return match m.context_size {
+            Some(tokens) if tokens > 0 => format!(
+                "{available} \u{b7} {}",
+                l10n.direct_context_limit(&tokens_label(tokens))
+            ),
+            _ => available,
+        };
+    }
+    match m.reason {
+        Some(AppleUnavailableReason::SystemTooOld) => l10n.desktop_apple_needs_macos26(),
+        Some(AppleUnavailableReason::DeviceNotEligible) => l10n.desktop_apple_mac_not_eligible(),
+        Some(AppleUnavailableReason::AppleIntelligenceNotEnabled) => {
+            l10n.desktop_apple_intelligence_off()
+        }
+        Some(AppleUnavailableReason::ModelNotReady) => l10n.desktop_apple_model_not_ready(),
+        _ => l10n.desktop_apple_unavailable_now(),
+    }
+}
+
 /// A token count as the phone writes it: `8K`, `1M`.
 pub fn tokens_label(tokens: i64) -> String {
     const K: i64 = 1024;
@@ -989,6 +1174,12 @@ impl Render for DirectPane {
             .iter()
             .cloned()
             .partition(|c| c.open_web_ui);
+        // Apple's models first, as on the phone.
+        if let Some(apple) = self.apple.clone()
+            && !apple.models.is_empty()
+        {
+            sections.push(self.apple_section(&apple, &l10n, cx));
+        }
         if list.open_web_ui_available {
             let sync = !list.local_history;
             sections.push(
@@ -1317,6 +1508,55 @@ mod tests {
                 "the pane went back past the setting the daemon read out since"
             );
         });
+    }
+
+    #[test]
+    fn apple_on_device_says_its_context_or_why_it_cannot_answer() {
+        let l10n = crate::l10n::L10n::new("en");
+        let status = |availability, reason, context_size| AppleModelStatus {
+            model: AppleModelKind::OnDevice,
+            availability,
+            reason,
+            context_size,
+            supports_current_locale: Some(true),
+        };
+        assert_eq!(
+            apple_detail(
+                &status(AppleAvailability::Available, None, Some(4096)),
+                &l10n
+            ),
+            "Available \u{b7} Context limit: 4K"
+        );
+        assert_eq!(
+            apple_detail(&status(AppleAvailability::Available, None, None), &l10n),
+            "Available"
+        );
+        let why = |reason| {
+            apple_detail(
+                &status(AppleAvailability::Unavailable, Some(reason), None),
+                &l10n,
+            )
+        };
+        assert_eq!(
+            why(AppleUnavailableReason::ModelNotReady),
+            "The model is still downloading or isn't ready yet."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::AppleIntelligenceNotEnabled),
+            "Turn on Apple Intelligence in System Settings to use it."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::DeviceNotEligible),
+            "This Mac can't run Apple Intelligence."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::SystemTooOld),
+            "Requires macOS 26 or later."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::NoEngine),
+            "Not available right now."
+        );
     }
 
     #[test]

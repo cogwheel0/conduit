@@ -2251,9 +2251,16 @@ pub fn mentions_in(
 /// comes from one.
 pub fn model_label(model: &ModelSummary) -> String {
     match &model.connection {
-        Some(c) => format!("{} \u{b7} {c}", model.name),
-        None => model.name.clone(),
+        // Apple On-Device's connection is named as the model is.
+        Some(c) if c != &model.name => format!("{} \u{b7} {c}", model.name),
+        _ => model.name.clone(),
     }
+}
+
+/// Whether `model` is Apple's on-device model: a Direct model the daemon's
+/// Apple adapter lists (`apple_on_device` among its capabilities).
+pub fn is_apple_on_device(model: &ModelSummary) -> bool {
+    model.connection.is_some() && model.capabilities.iter().any(|c| c == "apple_on_device")
 }
 
 /// One row of the model picker's list.
@@ -2604,6 +2611,19 @@ mod tests {
         let mut direct = model("d", "Llama");
         direct.connection = Some("Local".into());
         assert_eq!(model_label(&direct), "Llama \u{b7} Local");
+        assert!(!is_apple_on_device(&direct));
+        // Apple's model and its connection share a name: said once.
+        let mut apple = model(
+            "direct:apple-on-device:system-language-model",
+            "Apple On-Device",
+        );
+        apple.connection = Some("Apple On-Device".into());
+        apple.capabilities = vec!["apple_on_device".into(), "structured_outputs".into()];
+        assert_eq!(model_label(&apple), "Apple On-Device");
+        assert!(is_apple_on_device(&apple));
+        // A server's model cannot claim to be Apple's: it has no connection.
+        apple.connection = None;
+        assert!(!is_apple_on_device(&apple));
 
         let prompts = vec![
             prompt("/translate", "Summarize in French"),

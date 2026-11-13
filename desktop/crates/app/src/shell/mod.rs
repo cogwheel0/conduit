@@ -7,10 +7,12 @@
 //! menu-bar item ([`tray`]) and open at login ([`login_item`]); Sparkle
 //! updates ([`updater`]); Reduce Motion ([`reduce_motion`]); read
 //! aloud's voices and player ([`speech_engine`]) and Now Playing
-//! ([`now_playing`]); the desktop widget's snapshot ([`widget`]); and the
+//! ([`now_playing`]); the desktop widget's snapshot ([`widget`]); the
 //! Share extension's inbox ([`share_inbox`]) and "Ask Conduit" in the
-//! Services menu ([`services`]).
+//! Services menu ([`services`]); and Apple's on-device model
+//! ([`apple_models`]).
 
+pub mod apple_models;
 pub mod crash;
 pub mod date_picker;
 pub mod deep_link;

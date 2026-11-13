@@ -3363,6 +3363,50 @@
       }
     }
   },
+  "desktopAppleChecking": "Checking…",
+  "@desktopAppleChecking": {
+    "description": "Settings › Direct Connections, Apple On-Device row: shown while the app asks this Mac whether Apple's on-device model is ready."
+  },
+  "desktopAppleNeedsMacos26": "Requires macOS 26 or later.",
+  "@desktopAppleNeedsMacos26": {
+    "description": "Settings › Direct Connections, Apple On-Device row: why the model can't be used on a Mac whose macOS is older than 26."
+  },
+  "desktopAppleMacNotEligible": "This Mac can't run Apple Intelligence.",
+  "@desktopAppleMacNotEligible": {
+    "description": "Settings › Direct Connections, Apple On-Device row: this Mac's hardware can't run Apple Intelligence."
+  },
+  "desktopAppleIntelligenceOff": "Turn on Apple Intelligence in System Settings to use it.",
+  "@desktopAppleIntelligenceOff": {
+    "description": "Settings › Direct Connections, Apple On-Device row: Apple Intelligence is turned off in macOS System Settings."
+  },
+  "desktopAppleModelNotReady": "The model is still downloading or isn't ready yet.",
+  "@desktopAppleModelNotReady": {
+    "description": "Settings › Direct Connections, Apple On-Device row: Apple's on-device model is still downloading or not ready."
+  },
+  "desktopAppleUnavailableNow": "Not available right now.",
+  "@desktopAppleUnavailableNow": {
+    "description": "Settings › Direct Connections, Apple On-Device row: the model can't answer now, for a reason the app can't name."
+  },
+  "desktopAppleLanguageUnsupported": "Apple Intelligence may not support this Mac's language.",
+  "@desktopAppleLanguageUnsupported": {
+    "description": "Settings › Direct Connections, footer note under Apple On-Device when Apple says the Mac's language may not be supported."
+  },
+  "desktopAppleCheckAgain": "Check Again",
+  "@desktopAppleCheckAgain": {
+    "description": "Settings › Direct Connections, button beside Apple On-Device: asks this Mac again whether Apple's model is ready (Title Case)."
+  },
+  "desktopAppleCheckAgainTooltip": "Check whether Apple's model is ready on this Mac",
+  "@desktopAppleCheckAgainTooltip": {
+    "description": "Tooltip of the Check Again button beside Apple On-Device in Settings › Direct Connections."
+  },
+  "desktopAppleFooter": "Apple's private model runs on this Mac, even offline. Once it's ready, it appears in the model picker.",
+  "@desktopAppleFooter": {
+    "description": "Settings › Direct Connections, footer of the Apple Intelligence section."
+  },
+  "desktopAppleOnThisMac": "On this Mac, works offline",
+  "@desktopAppleOnThisMac": {
+    "description": "Model picker: the line under Apple On-Device, saying where it runs (the phone says 'On this device, works offline')."
+  },
   "desktopDirectOpenRouterUrl": "Use OpenRouter's address, https://openrouter.ai/api/v1.",
   "@desktopDirectOpenRouterUrl": {
     "description": "Error under a Direct connection's address when OpenRouter is chosen but the address is not its HTTPS API root."
@@ -4362,6 +4406,18 @@
   "desktopKeyboardTasksFooter": "These work in Scheduled Tasks: Delete removes the selected task, and Save saves the task you're editing.",
   "@desktopKeyboardTasksFooter": {
     "description": "Settings › Keyboard: footer under the Scheduled Tasks group, whose keys work only in the Scheduled Tasks pane (Delete on the selected task; Save in the task editor). Sentence case."
+  },
+  "desktopKeyboardTerminalFooter": "These work in a terminal: Find searches its output, and Clear Scrollback clears the history above the screen.",
+  "@desktopKeyboardTerminalFooter": {
+    "description": "Settings › Keyboard: footer under the Terminal group, whose keys work only in a terminal's console (Find opens its own Find bar; Clear Scrollback, ⌥⌘K as in Terminal, clears the lines scrolled off above the screen). Sentence case."
+  },
+  "desktopKeyboardRoomsFooter": "Sends your message in a room, whether or not Return sends.",
+  "@desktopKeyboardRoomsFooter": {
+    "description": "Settings › Keyboard: footer under the Rooms group (Hermes Group Chats), whose ⌘↩ sends the message typed in a room whether or not Return is set to send. Sentence case."
+  },
+  "desktopKeyboardHermesJobsFooter": "Saves the scheduled agent you're editing.",
+  "@desktopKeyboardHermesJobsFooter": {
+    "description": "Settings › Keyboard: footer under the Scheduled Agents group (Hermes cron jobs), whose ⌘↩ saves the scheduled agent open in its sheet. Sentence case."
   },
   "desktopNotificationAnswerReady": "The answer is ready.",
   "@desktopNotificationAnswerReady": {

@@ -68,7 +68,7 @@ fn shell_store(cx: &mut App) -> Entity<crate::stores::shell::ShellStore> {
     cx.global::<desktop::Desktop>().shell.clone()
 }
 
-fn quick_ask(cx: &mut App) -> Option<(gpui_kit::AnyWindowHandle, Entity<QuickAskView>)> {
+pub(super) fn quick_ask(cx: &mut App) -> Option<(gpui_kit::AnyWindowHandle, Entity<QuickAskView>)> {
     cx.try_global::<desktop::Desktop>()?.quick_ask.clone()
 }
 
@@ -77,7 +77,7 @@ fn settings_tab(cx: &mut App) -> Option<Tab> {
     cx.windows().contains(&handle).then(|| view.read(cx).tab)
 }
 
-fn links(urls: &[&str], cx: &mut AsyncApp) {
+pub(super) fn links(urls: &[&str], cx: &mut AsyncApp) {
     let urls: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
     cx.update(|cx| desktop::handle_urls(urls, cx));
 }
@@ -91,7 +91,7 @@ fn close_settings(cx: &mut AsyncApp) {
 }
 
 /// The Quick Ask window's chat has a finished, stored answer.
-async fn wait_quick_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
+pub(super) async fn wait_quick_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
     wait_until(cx, timeout, |cx| {
         let Some((_, view)) = quick_ask(cx) else {
             return false;
@@ -109,7 +109,7 @@ async fn wait_quick_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
     .await
 }
 
-fn quick_send(text: &str, cx: &mut AsyncApp) {
+pub(super) fn quick_send(text: &str, cx: &mut AsyncApp) {
     let text = text.to_string();
     cx.update(|cx| {
         let Some((handle, view)) = quick_ask(cx) else {
@@ -126,7 +126,7 @@ fn quick_send(text: &str, cx: &mut AsyncApp) {
     });
 }
 
-fn quick_new_chat(cx: &mut AsyncApp) {
+pub(super) fn quick_new_chat(cx: &mut AsyncApp) {
     cx.update(|cx| {
         if let Some((handle, view)) = quick_ask(cx) {
             let _ = handle.update(cx, |_, window, cx| {
