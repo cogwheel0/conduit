@@ -1551,7 +1551,11 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     // and the page says it was not saved rather than closing as if it was.
     if (!_current(editor)) return l10n.workspacePromptSaveFailed;
     try {
-      await _notifier.updateAccess(summary.id, grants);
+      final saved = await _notifier.updateAccess(summary.id, grants);
+      draft.kept = [
+        for (final grant in saved.accessGrants)
+          WorkspaceAccessGrantInput.fromGrant(grant),
+      ];
     } catch (error, stackTrace) {
       DebugLogger.error(
         'workspace-prompt-access-failed',

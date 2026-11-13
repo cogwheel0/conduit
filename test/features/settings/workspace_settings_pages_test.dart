@@ -106,6 +106,10 @@ final class _Models extends WorkspaceModels {
   final imported = <Map<String, dynamic>>[];
   Completer<void>? importGate;
   bool failAccess = false;
+
+  /// What the server keeps of a list sent: all of it unless a test says.
+  List<WorkspaceAccessGrantInput> Function(List<WorkspaceAccessGrantInput>)
+  keepAccess = (grants) => grants;
   Completer<void>? saveGate;
 
   @override
@@ -138,7 +142,19 @@ final class _Models extends WorkspaceModels {
   ) async {
     accessSaves.add(grants);
     if (failAccess) throw StateError('refused');
-    return WorkspaceModelSummary(id: id, name: name, userId: 'u');
+    return WorkspaceModelSummary(
+      id: id,
+      name: name,
+      userId: 'u',
+      accessGrants: [
+        for (final grant in keepAccess(grants))
+          WorkspaceAccessGrant(
+            principalType: grant.principalType,
+            principalId: grant.principalId,
+            permission: grant.permission,
+          ),
+      ],
+    );
   }
 
   @override
@@ -501,6 +517,7 @@ void main() {
     _Models? models,
     _Prompts? prompts,
     WorkspaceCapabilities capabilities = WorkspaceCapabilities.all,
+    WorkspaceCapabilities Function()? capabilitiesNow,
     Object? capabilitiesError,
     bool reviewer = false,
     String role = 'user',
@@ -525,7 +542,7 @@ void main() {
         activeServerProvider.overrideWith((ref) async => _server),
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => capabilitiesError == null
-              ? capabilities
+              ? capabilitiesNow?.call() ?? capabilities
               : throw capabilitiesError,
         ),
         workspaceModelsProvider.overrideWith(() => models ?? _Models()),
@@ -1144,6 +1161,30 @@ void main() {
       check(reads).equals(2);
     });
 
+    testWidgets('an editor opened after the last one was left reads the '
+        'base models afresh', (tester) async {
+      // Settings's own pages are never closed as the sheet is, so leaving
+      // is when the list may be read again.
+      var reads = 0;
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+        baseModels: () async {
+          reads++;
+          return const [
+            WorkspaceRelationshipOption(id: 'base-1', label: 'One'),
+          ];
+        },
+      );
+      await rig.open(_model1);
+      check(reads).equals(1);
+
+      rig.leave(_model1);
+      await rig.open(_newModel);
+
+      check(reads).equals(2);
+    });
+
     testWidgets('an editor opened while an earlier account still reads '
         'its base models gets its own', (tester) async {
       var reads = 0;
@@ -1451,6 +1492,148 @@ void main() {
         );
         check(models.accessSaves).length.equals(2);
         check(rig.closed).deepEquals([access]);
+      });
+
+      testWidgets('refuses a grant from rows the account may no longer use', (
+        tester,
+      ) async {
+        final models = _Models();
+        final rig = await pump(
+          tester,
+          models: models,
+          capabilities: const WorkspaceCapabilities(
+            models: WorkspaceSectionCapabilities(manage: true, share: true),
+            allowGroupGrants: true,
+          ),
+          modelDetails: {'model-1': _writableModel()},
+        );
+        await rig.open(_model1);
+        await rig.open(access);
+
+        // Sent from rows drawn before the server took these away.
+        await rig.change(everyone, 'server');
+        await rig.change(
+          workspaceRowId(
+            'access-add',
+            '${WorkspaceSection.models.name}|$_model1Key',
+            'user|friend-1',
+          ),
+        );
+        check(rig.page(access).edited).isFalse();
+        check(rig.row(access, everyone)!.value).equals('restricted');
+      });
+
+      testWidgets('sends nothing on Done once sharing was taken away', (
+        tester,
+      ) async {
+        final models = _Models();
+        var capabilities = WorkspaceCapabilities.all;
+        final rig = await pump(
+          tester,
+          models: models,
+          capabilitiesNow: () => capabilities,
+          modelDetails: {'model-1': _writableModel()},
+        );
+        await rig.open(_model1);
+        await rig.open(access);
+        await rig.change(everyone, 'server');
+        check(rig.page(access).edited).isTrue();
+
+        capabilities = const WorkspaceCapabilities(
+          models: WorkspaceSectionCapabilities(manage: true),
+        );
+        rig.container.invalidate(workspaceCapabilitiesProvider);
+        await rig.settle(
+          rig.container.read(workspaceCapabilitiesProvider.future),
+        );
+        await rig.change(
+          workspaceRowId(
+            'access-done',
+            '${WorkspaceSection.models.name}|$_model1Key',
+          ),
+        );
+
+        check(models.accessSaves).isEmpty();
+        check(rig.closed).isEmpty();
+      });
+
+      testWidgets('stays on the list the server saved when it kept less '
+          'than was sent', (tester) async {
+        // The server drops what the account may not give: here, Everyone.
+        final models = _Models()
+          ..keepAccess = (grants) => [
+            for (final grant in grants)
+              if (grant.principalId != '*') grant,
+          ];
+        final rig = await pump(
+          tester,
+          models: models,
+          modelDetails: {'model-1': _writableModel()},
+        );
+        await rig.open(_model1);
+        await rig.open(access);
+
+        await rig.change(everyone, 'server');
+        await rig.change(
+          workspaceRowId(
+            'access-done',
+            '${WorkspaceSection.models.name}|$_model1Key',
+          ),
+        );
+        check(models.accessSaves.single.map((g) => g.principalId))
+            .contains('*');
+        check(rig.closed).isEmpty();
+        check(rig.page(access).announcement)
+            .equals(_l10n.resourceSharingFiltered);
+        check(rig.row(access, everyone)!.value).equals('restricted');
+        check(rig.page(access).edited).isFalse();
+
+        // Saved again whole, the model sends what the server kept.
+        rig.leave(access);
+        await rig.change(_modelRow('name', _model1Key), 'Renamed Model');
+        await rig.change(_modelRow('save', _model1Key));
+        check(models.updated.single.accessGrants.map((g) => g.principalId))
+            .not((it) => it.contains('*'));
+      });
+
+      testWidgets('names who the server did not give access', (tester) async {
+        final models = _Models()
+          ..keepAccess = (grants) => [
+            for (final grant in grants)
+              if (grant.principalId != 'friend-1') grant,
+          ];
+        final rig = await pump(
+          tester,
+          models: models,
+          modelDetails: {'model-1': _writableModel()},
+        );
+        await rig.open(_model1);
+        await rig.open(access);
+
+        await rig.change(
+          workspaceRowId(
+            'access-add',
+            '${WorkspaceSection.models.name}|$_model1Key',
+            'user|friend-1',
+          ),
+        );
+        final friend = workspaceRowId(
+          'access-principal',
+          '${WorkspaceSection.models.name}|$_model1Key',
+          'user|friend-1',
+        );
+        final name = rig.row(access, friend)!.title;
+        await rig.change(
+          workspaceRowId(
+            'access-done',
+            '${WorkspaceSection.models.name}|$_model1Key',
+          ),
+        );
+
+        check(rig.closed).not((it) => it.contains(access));
+        check(rig.page(access).announcement)
+            .equals(_l10n.libraryAccessPartialSave(name));
+        check(rig.row(access, friend)).isNull();
       });
 
       testWidgets('its Add rows open pages of their own', (tester) async {

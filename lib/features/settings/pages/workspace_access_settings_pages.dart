@@ -45,6 +45,11 @@ final class WorkspaceAccessDraft {
   bool saving = false;
   String? notice;
 
+  /// What the server kept of the list [WorkspaceAccessPages.onSave] sent, when
+  /// it says: it drops grants the account may not give, so what stands can be
+  /// less than what was sent.
+  List<WorkspaceAccessGrantInput>? kept;
+
   /// The people found for the search typed on the Add People page.
   String userQuery = '';
   int userSearch = 0;
@@ -661,12 +666,26 @@ final class WorkspaceAccessPages {
     if (bar < 0 || row.key.substring(0, bar) != section.name) return false;
     final draft = _drafts[row.key];
     if (draft == null) return true;
-    final canEdit = !draft.readOnly && !draft.saving;
+    // What the account may grant now, as the page draws it: a change from a
+    // page drawn before the server said otherwise is refused, and the page
+    // drawn again as it stands.
+    final capabilities = _capabilities;
+    final rights = _sectionCapabilities(capabilities);
+    final canEdit = !draft.readOnly && !draft.saving && rights.share;
+    bool mayGrant(WorkspacePrincipalType type) => switch (type) {
+      WorkspacePrincipalType.user => capabilities?.allowUserGrants ?? false,
+      WorkspacePrincipalType.group => capabilities?.allowGroupGrants ?? false,
+    };
     switch (row.field) {
-      case 'access-general' when value is String && canEdit:
+      case 'access-general'
+          when value is String &&
+              canEdit &&
+              (value != 'server' || rights.sharePublicly):
         draft
           ..grants = setWorkspacePublicGrant(draft.grants, value == 'server')
           ..notice = null;
+        await apply(l10n, draft);
+      case 'access-general' when value is String:
         await apply(l10n, draft);
       case 'access-view' || 'access-edit' || 'access-remove'
           when row.extra != null && canEdit:
@@ -690,7 +709,7 @@ final class WorkspaceAccessPages {
         await apply(l10n, draft);
       case 'access-add' when row.extra != null && canEdit:
         final principal = _principalOf(row.extra!);
-        if (principal == null) return true;
+        if (principal == null || !mayGrant(principal.type)) return true;
         draft
           ..grants = upsertWorkspacePrincipalGrant(
             draft.grants,
@@ -733,6 +752,11 @@ final class WorkspaceAccessPages {
 
   Future<void> _done(AppLocalizations l10n, WorkspaceAccessDraft draft) async {
     if (draft.readOnly || draft.saving) return;
+    // Sharing taken away while the page was open: nothing is sent.
+    if (!_sectionCapabilities(_capabilities).share) {
+      await apply(l10n, draft);
+      return;
+    }
     final grants = draft.grants;
     final pageId = workspaceAccessPageId(section, draft.editorKey);
     if (!draft.saveOnDone) {
@@ -747,7 +771,8 @@ final class WorkspaceAccessPages {
     }
     draft
       ..saving = true
-      ..notice = null;
+      ..notice = null
+      ..kept = null;
     await apply(l10n, draft);
     final problem = await onSave(draft, grants);
     if (!_current(draft)) return;
@@ -757,10 +782,30 @@ final class WorkspaceAccessPages {
       await apply(l10n, draft);
       return;
     }
-    draft.baseline = grants;
+    // The list as saved is the server's, not the one sent: it drops grants
+    // the account may not give.
+    final saved = normalizeWorkspaceGrants(draft.kept ?? grants);
+    draft
+      ..grants = saved
+      ..baseline = saved;
+    final keptAll = workspaceGrantKeys(saved)
+        .containsAll(workspaceGrantKeys(grants));
+    if (keptAll) await apply(l10n, draft);
+    await onDone(draft, saved, saved: true);
+    if (keptAll) {
+      await _surface.closeDetail(pageId);
+      return;
+    }
+    // Saved, but not all of it: as the access sheet does, the page stays on
+    // the server's answer and names the people and groups it dropped.
+    final dropped = [
+      for (final principal in workspaceDroppedPrincipals(grants, saved))
+        _principalName(l10n, _lookup, principal.type, principal.id),
+    ];
+    draft.notice = dropped.isEmpty
+        ? l10n.resourceSharingFiltered
+        : l10n.libraryAccessPartialSave(dropped.join(', '));
     await apply(l10n, draft);
-    await onDone(draft, grants, saved: true);
-    await _surface.closeDetail(pageId);
   }
 
   /// An Access page or its Add page was left.

@@ -856,7 +856,19 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       // Left, the edit is abandoned, its access list with it.
       _editors.remove(key)?.dispose();
       _access.forget(key);
+      // The last editor gone, the next one reads the server's base models
+      // afresh: Settings's own pages are never closed as the sheet is.
+      if (_editors.isEmpty) _forgetBaseModels();
     }
+  }
+
+  void _forgetBaseModels() {
+    if (_baseModels != null || _baseModelsFailed) {
+      _ref.invalidate(workspaceBaseModelsProvider);
+    }
+    _baseModels = null;
+    _baseModelsSession = null;
+    _baseModelsFailed = false;
   }
 
   @override
@@ -866,9 +878,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     }
     _editors.clear();
     _access.clear();
-    _baseModels = null;
-    _baseModelsSession = null;
-    _baseModelsFailed = false;
+    _forgetBaseModels();
   }
 
   // -- Loading -----------------------------------------------------------------
@@ -965,7 +975,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     final l10n = _l10n;
     if (l10n == null) return;
     for (final editor in _editors.values.toList()) {
-      await _applyEditor(l10n, editor, withPages: false);
+      if (_current(editor)) await _applyEditor(l10n, editor, withPages: false);
     }
   }
 
@@ -1618,7 +1628,15 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     // and the page says it was not saved.
     if (!_current(editor)) return l10n.workspaceModelSaveFailed;
     try {
-      await _notifier.updateAccess(state.draft.id, state.draft.name, grants);
+      final saved = await _notifier.updateAccess(
+        state.draft.id,
+        state.draft.name,
+        grants,
+      );
+      draft.kept = [
+        for (final grant in saved.accessGrants)
+          WorkspaceAccessGrantInput.fromGrant(grant),
+      ];
     } catch (error, stackTrace) {
       DebugLogger.error(
         'workspace-model-access-failed',
