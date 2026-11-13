@@ -44,6 +44,9 @@ codesign --verify --deep --strict --verbose=2 "$app"
 share_verify "$app" "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" ||
   die "the Share extension or the Services items are not as they should be"
 log "Share extension and Services items"
+python3 "$here/native_strings.py" infoplist --verify "$REPO_ROOT/lib/l10n" "$app" ||
+  die "a privacy prompt is missing its words in a language"
+log "privacy prompts in every language (InfoPlist.strings)"
 
 log "desktop widget"
 appex="$app/Contents/PlugIns/ConduitWidget.appex"

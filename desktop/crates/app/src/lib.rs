@@ -296,6 +296,9 @@ pub fn run() {
     let scripted = shots.is_some() || capture.is_some();
     #[cfg(not(all(target_os = "macos", feature = "harness")))]
     let scripted = shots.is_some();
+    // `{{USER_LOCATION}}`: a scripted run answers with a stand-in and never
+    // reaches CoreLocation (no test may raise the system's prompt).
+    shell::location::choose(scripted, std::env::var("CONDUIT_LOCATION_STANDIN").ok());
 
     let app = gpui_kit::application().with_assets(crate::views::model_logo::AppAssets);
     // `conduit://` links and "Open with" files, cold launch included: they

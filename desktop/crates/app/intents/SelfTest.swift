@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UniformTypeIdentifiers
 
 // `--e2e intents` (crates/app/src/e2e/intents.rs) and the smoke pass: the
 // intents' own `perform()` and queries, run in this process as the App
@@ -17,6 +18,13 @@ private struct Step: Decodable {
     var text: String?
     var ids: [String]?
     var query: String?
+    var url: String?
+    /// `sendImage`: a file to hand the intent, and how it says what it is
+    /// (`inMemory`: as a provider that gives data, not a file, does).
+    var path: String?
+    var filename: String?
+    var type: String?
+    var inMemory: Bool?
 }
 
 private struct Script: Decodable {
@@ -100,6 +108,34 @@ private func run(_ step: Step) async -> Outcome {
             let intent = QuickAskIntent()
             intent.text = step.text
             _ = try await intent.perform()
+        case "sendText":
+            // `@Parameter` values are set through the wrapper, not the struct.
+            let intent = SendTextIntent()
+            intent.text = step.text
+            outcome.value = try await intent.perform().value
+        case "sendLink":
+            let intent = SendLinkIntent()
+            guard let url = URL(string: step.url ?? "") else {
+                outcome.ok = false
+                outcome.error = "no URL in the step"
+                break
+            }
+            intent.url = url
+            outcome.value = try await intent.perform().value
+        case "sendImage":
+            let intent = SendImageIntent()
+            let fileURL = URL(fileURLWithPath: step.path ?? "")
+            let type = step.type.flatMap { UTType($0) }
+            if step.inMemory ?? false {
+                let data = (try? Data(contentsOf: fileURL)) ?? Data()
+                intent.image = IntentFile(
+                    data: data, filename: step.filename ?? fileURL.lastPathComponent, type: type)
+            } else {
+                intent.image = IntentFile(
+                    fileURL: fileURL, filename: step.filename ?? fileURL.lastPathComponent,
+                    type: type)
+            }
+            outcome.value = try await intent.perform().value
         case "suggested", "search", "byId":
             let query = ChatEntityQuery()
             let chats: [ChatEntity]

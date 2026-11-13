@@ -70,6 +70,9 @@
 //!   new chat, the language, sign-out) and its links ([`widget`]).
 //! * `intents`: Shortcuts' actions (App Intents) through the Swift
 //!   intents' own `perform()` and chat query ([`intents`]).
+//! * `mac-extras-2`: Send to Conduit, Send Link and Send Image; the Dock
+//!   menu; the clipboard link; Continuity Camera in the + menu; and
+//!   `{{USER_LOCATION}}` from the window's stand-in ([`mac_extras`]).
 //! * `apple`: Apple's on-device model: this Mac's real status in Settings ›
 //!   Direct Connections, then the engine's scripted model checked ready, in
 //!   the model picker, a chat streamed, stopped and failed ([`apple`]).
@@ -105,6 +108,7 @@ mod integration;
 mod integrations;
 mod intents;
 mod librechat;
+mod mac_extras;
 mod notes;
 mod notifications;
 mod offline;
@@ -837,6 +841,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "tasks" => tasks::run(&inputs, &dir, cx).await,
         "widget" => widget::run(&inputs, &dir, cx).await,
         "intents" => intents::run(&inputs, &dir, cx).await,
+        "mac-extras-2" => mac_extras::run(&inputs, &dir, cx).await,
         "terminal" => terminal::run(&inputs, &dir, cx).await,
         "apple-only" => apple::only(&inputs, &dir, cx).await,
         "onboarding-apple" => apple::onboarding(&inputs, &dir, cx).await,

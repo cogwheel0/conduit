@@ -42,6 +42,33 @@ struct ConduitShortcuts: AppShortcutsProvider {
             systemImageName: "waveform"
         )
         AppShortcut(
+            intent: SendTextIntent(),
+            phrases: [
+                "Send text to \(.applicationName)",
+                "Summarize this in \(.applicationName)",
+            ],
+            shortTitle: "Send Text",
+            systemImageName: "paperplane"
+        )
+        AppShortcut(
+            intent: SendLinkIntent(),
+            phrases: [
+                "Send a link to \(.applicationName)",
+                "Summarize a link in \(.applicationName)",
+            ],
+            shortTitle: "Send Link",
+            systemImageName: "link"
+        )
+        AppShortcut(
+            intent: SendImageIntent(),
+            phrases: [
+                "Send an image to \(.applicationName)",
+                "Analyze an image with \(.applicationName)",
+            ],
+            shortTitle: "Send Image",
+            systemImageName: "photo"
+        )
+        AppShortcut(
             intent: QuickAskIntent(),
             phrases: [
                 "Show Quick Ask in \(.applicationName)",

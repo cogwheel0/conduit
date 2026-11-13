@@ -246,6 +246,191 @@
   "@desktopIntentOffline": {
     "description": "The error a Shortcuts action shows (sentence case). Conduit could not reach the server to ask the question."
   },
+  "desktopIntentSendTextTitle": "Send to Conduit",
+  "@desktopIntentSendTextTitle": {
+    "description": "Shortcuts action title: puts text into a new Conduit chat (mobile's Send to Conduit)."
+  },
+  "desktopIntentSendTextDescription": "Starts a new Conduit chat with the text you give it.",
+  "@desktopIntentSendTextDescription": {
+    "description": "Shortcuts action description of Send to Conduit."
+  },
+  "desktopIntentSendTextPrompt": "What should Conduit process?",
+  "@desktopIntentSendTextPrompt": {
+    "description": "Shortcuts asks for Send to Conduit's text with this question (mobile's wording)."
+  },
+  "desktopIntentSendTextSummary": "Send {text} to Conduit",
+  "@desktopIntentSendTextSummary": {
+    "description": "Shortcuts action summary of Send to Conduit; {text} is the text the user gives.",
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentSendTextShortTitle": "Send Text",
+  "@desktopIntentSendTextShortTitle": {
+    "description": "Short title of the Send to Conduit App Shortcut in Shortcuts and Spotlight."
+  },
+  "desktopIntentPhraseSendText": "Send text to {applicationName}",
+  "@desktopIntentPhraseSendText": {
+    "description": "Siri and Spotlight phrase for Send to Conduit; {applicationName} is the app's name.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseSummarizeText": "Summarize this in {applicationName}",
+  "@desktopIntentPhraseSummarizeText": {
+    "description": "Siri and Spotlight phrase for Send to Conduit; {applicationName} is the app's name.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentSendLinkTitle": "Send Link to Conduit",
+  "@desktopIntentSendLinkTitle": {
+    "description": "Shortcuts action title: a link into a new Conduit chat for a summary (mobile's Send Link to Conduit)."
+  },
+  "desktopIntentSendLinkDescription": "Sends a link into Conduit for a summary or an analysis.",
+  "@desktopIntentSendLinkDescription": {
+    "description": "Shortcuts action description of Send Link to Conduit."
+  },
+  "desktopIntentUrl": "URL",
+  "@desktopIntentUrl": {
+    "description": "Name of Send Link to Conduit's parameter in Shortcuts: the web address."
+  },
+  "desktopIntentSendLinkPrompt": "Which link should Conduit analyze?",
+  "@desktopIntentSendLinkPrompt": {
+    "description": "Shortcuts asks for Send Link to Conduit's link with this question (mobile's wording)."
+  },
+  "desktopIntentSendLinkSummary": "Send {url} to Conduit",
+  "@desktopIntentSendLinkSummary": {
+    "description": "Shortcuts action summary of Send Link to Conduit; {url} is the link.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentSendLinkShortTitle": "Send Link",
+  "@desktopIntentSendLinkShortTitle": {
+    "description": "Short title of the Send Link to Conduit App Shortcut."
+  },
+  "desktopIntentPhraseSendLink": "Send a link to {applicationName}",
+  "@desktopIntentPhraseSendLink": {
+    "description": "Siri and Spotlight phrase for Send Link to Conduit; {applicationName} is the app's name.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseSummarizeLink": "Summarize a link in {applicationName}",
+  "@desktopIntentPhraseSummarizeLink": {
+    "description": "Siri and Spotlight phrase for Send Link to Conduit; {applicationName} is the app's name.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentSendImageTitle": "Send Image to Conduit",
+  "@desktopIntentSendImageTitle": {
+    "description": "Shortcuts action title: an image into a new Conduit chat (mobile's Send Image to Conduit)."
+  },
+  "desktopIntentSendImageDescription": "Sends an image into Conduit for analysis.",
+  "@desktopIntentSendImageDescription": {
+    "description": "Shortcuts action description of Send Image to Conduit."
+  },
+  "desktopIntentImage": "Image",
+  "@desktopIntentImage": {
+    "description": "Name of Send Image to Conduit's parameter in Shortcuts."
+  },
+  "desktopIntentSendImagePrompt": "Choose an image for Conduit.",
+  "@desktopIntentSendImagePrompt": {
+    "description": "Shortcuts asks for Send Image to Conduit's image with this (mobile's wording)."
+  },
+  "desktopIntentSendImageSummary": "Send {image} to Conduit",
+  "@desktopIntentSendImageSummary": {
+    "description": "Shortcuts action summary of Send Image to Conduit; {image} is the image.",
+    "placeholders": {
+      "image": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentSendImageShortTitle": "Send Image",
+  "@desktopIntentSendImageShortTitle": {
+    "description": "Short title of the Send Image to Conduit App Shortcut."
+  },
+  "desktopIntentPhraseSendImage": "Send an image to {applicationName}",
+  "@desktopIntentPhraseSendImage": {
+    "description": "Siri and Spotlight phrase for Send Image to Conduit; {applicationName} is the app's name.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseAnalyzeImage": "Analyze an image with {applicationName}",
+  "@desktopIntentPhraseAnalyzeImage": {
+    "description": "Siri and Spotlight phrase for Send Image to Conduit; {applicationName} is the app's name.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentSentText": "Sent to Conduit",
+  "@desktopIntentSentText": {
+    "description": "Shortcuts output of Send to Conduit when the new chat opened with the text (mobile's wording)."
+  },
+  "desktopIntentSentPage": "Webpage attached in Conduit",
+  "@desktopIntentSentPage": {
+    "description": "Shortcuts output of Send Link to Conduit when the page's text was attached (mobile's wording)."
+  },
+  "desktopIntentSentVideo": "YouTube video attached in Conduit",
+  "@desktopIntentSentVideo": {
+    "description": "Shortcuts output of Send Link to Conduit when a YouTube transcript was attached (mobile's wording)."
+  },
+  "desktopIntentSentLinkUnread": "Opening Conduit with the link (its content couldn't be read)",
+  "@desktopIntentSentLinkUnread": {
+    "description": "Shortcuts output of Send Link to Conduit when the server could not read the link: the chat opens with the link in the message box."
+  },
+  "desktopIntentSentImage": "Image attached in Conduit",
+  "@desktopIntentSentImage": {
+    "description": "Shortcuts output of Send Image to Conduit when the image was attached (mobile's wording)."
+  },
+  "desktopIntentSendTextEmpty": "No text provided.",
+  "@desktopIntentSendTextEmpty": {
+    "description": "Send to Conduit fails with this when it was given no text (mobile's wording)."
+  },
+  "desktopIntentSendLinkEmpty": "No link provided.",
+  "@desktopIntentSendLinkEmpty": {
+    "description": "Send Link to Conduit fails with this when it was given no link."
+  },
+  "desktopIntentSendImageNotImage": "Only image files are supported.",
+  "@desktopIntentSendImageNotImage": {
+    "description": "Send Image to Conduit fails with this for a file that is not an image (mobile's wording)."
+  },
+  "desktopIntentSendImageTooLarge": "This image is larger than 20 MB.",
+  "@desktopIntentSendImageTooLarge": {
+    "description": "Send Image to Conduit fails with this for an image over the phone's 20 MB limit."
+  },
+  "desktopIntentSendImageFailed": "Unable to send the image. Please try again.",
+  "@desktopIntentSendImageFailed": {
+    "description": "Send Image to Conduit fails with this when the image could not be taken (mobile's wording)."
+  },
+  "desktopIntentLinkPromptPage": "Please summarize or analyze this page:",
+  "@desktopIntentLinkPromptPage": {
+    "description": "Put in the message box of the new chat Send Link to Conduit opens for a web page (mobile's wording); the page's text is attached."
+  },
+  "desktopIntentLinkPromptVideo": "Please summarize or analyze this video:",
+  "@desktopIntentLinkPromptVideo": {
+    "description": "Put in the message box of the new chat Send Link to Conduit opens for a YouTube video (mobile's wording); its transcript is attached."
+  },
   "desktopAddLinkEllipsis": "Add Link…",
   "@desktopAddLinkEllipsis": {
     "description": "Format menu item that asks for an address and links the selected text (⌘K). Title Case, ellipsis because it asks."
@@ -5573,6 +5758,14 @@
   "desktopWidgetVoiceCall": "Voice Call",
   "@desktopWidgetVoiceCall": {
     "description": "The desktop widget's Voice Call button: a voice call in a new chat (the phone widget's mic). Title Case."
+  },
+  "desktopWidgetClipboard": "Clipboard",
+  "@desktopWidgetClipboard": {
+    "description": "The desktop widget's button that opens a new chat with what was copied (the phone widget's Clipboard)."
+  },
+  "desktopUsageLocation": "Conduit shares your approximate location with a prompt that asks for it, when your account's settings allow it.",
+  "@desktopUsageLocation": {
+    "description": "macOS asks for location permission with this (Info.plist NSLocationUsageDescription). Sentence case."
   },
   "desktopWidgetRecentChats": "Recent Chats",
   "@desktopWidgetRecentChats": {

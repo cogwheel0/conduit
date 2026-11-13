@@ -1,0 +1,58 @@
+import AppIntents
+import Foundation
+import UniformTypeIdentifiers
+
+/// Send Image to Conduit's image, copied where the app takes it from: a
+/// folder of its own under the temporary directory (this process's, which
+/// the app reads as `std::env::temp_dir()`), one folder per image. The app
+/// attaches it from there and clears old copies (crates/app/src/intents.rs).
+///
+/// Only an image of at most [maxBytes] is copied, as the phone stages it;
+/// for anything else the app is told what it was, and says why it can't
+/// take it in the user's language.
+enum ImageStaging {
+    /// The phone's limit.
+    static let maxBytes = 20 * 1024 * 1024
+
+    /// The folder's name under the temporary directory.
+    static let folderName = "conduit-shortcuts-images"
+
+    struct Staged {
+        var path: String?
+        var filename: String
+        var isImage: Bool
+        var byteCount: Int
+    }
+
+    static func stage(_ file: IntentFile) throws -> Staged {
+        // Some providers leave the type out: the extension then decides.
+        let name = (file.filename as NSString).lastPathComponent
+        let type = file.type ?? UTType(filenameExtension: (name as NSString).pathExtension)
+        let isImage = type?.conforms(to: .image) ?? false
+        let byteCount: Int
+        if let url = file.fileURL,
+            let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        {
+            byteCount = size
+        } else {
+            byteCount = file.data.count
+        }
+        guard isImage, byteCount > 0, byteCount <= maxBytes else {
+            return Staged(path: nil, filename: name, isImage: isImage, byteCount: byteCount)
+        }
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(folderName, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let safeName = name.isEmpty || name.hasPrefix(".") ? "Image" : name
+        let target = folder.appendingPathComponent(safeName)
+        if let url = file.fileURL {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            try FileManager.default.copyItem(at: url, to: target)
+        } else {
+            try file.data.write(to: target, options: .atomic)
+        }
+        return Staged(path: target.path, filename: safeName, isImage: true, byteCount: byteCount)
+    }
+}

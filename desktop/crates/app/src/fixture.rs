@@ -458,6 +458,7 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         speech,
         call,
         apple,
+        location: cx.new(|_| crate::stores::location::LocationStore::new(rpc.clone())),
         ui_requests: cx.new(|_| UiRequestsStore::new(rpc.clone())),
         router: cx.new(|_| RouterStore::new()),
         toasts: cx.new(|_| ToastStore::new()),

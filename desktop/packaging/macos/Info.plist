@@ -80,6 +80,14 @@
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Conduit turns what you dictate into text on this Mac when you choose On This Mac in Settings › Audio.</string>
 
+	<!-- {{USER_LOCATION}}: asked only for a prompt that names it, while the
+	     Open WebUI account's location setting is on; translated in each
+	     <lang>.lproj/InfoPlist.strings (native_strings.py infoplist). -->
+	<key>NSLocationUsageDescription</key>
+	<string>Conduit shares your approximate location with a prompt that asks for it, when your account's settings allow it.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Conduit shares your approximate location with a prompt that asks for it, when your account's settings allow it.</string>
+
 	<!-- conduit://chat/<id>, conduit://new?q=…, conduit://settings/<tab> -->
 	<key>CFBundleURLTypes</key>
 	<array>

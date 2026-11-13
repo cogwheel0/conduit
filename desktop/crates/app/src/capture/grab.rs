@@ -277,15 +277,26 @@ unsafe fn menu_items(menu: *mut objc2::runtime::AnyObject) -> Vec<String> {
                 continue;
             }
             let hidden: bool = msg_send![item, isHidden];
-            if hidden {
-                continue;
-            }
             let title: *mut NSString = msg_send![item, title];
             let mut line = if title.is_null() {
                 String::new()
             } else {
                 (*title).to_string()
             };
+            // An item with no title (a placeholder AppKit fills, such as
+            // Continuity Camera's) is listed by its identifier.
+            if line.is_empty() {
+                let identifier: *mut NSString = msg_send![item, identifier];
+                if !identifier.is_null() {
+                    line = format!("[{}]", *identifier);
+                }
+            }
+            if hidden {
+                if line.starts_with('[') {
+                    out.push(format!("{line} (hidden)"));
+                }
+                continue;
+            }
             let state: isize = msg_send![item, state];
             if state == 1 {
                 line = format!("\u{2713} {line}");
@@ -396,6 +407,11 @@ pub fn arm_menu_closer(give_up: Duration) {
         unsafe {
             if menu != 0 {
                 let menu = menu as *mut AnyObject;
+                // The items as they are now, open: AppKit may have filled
+                // placeholders since the menu began tracking.
+                if let Ok(mut items) = LAST_ITEMS.lock() {
+                    *items = menu_items(menu);
+                }
                 let _: () = msg_send![menu, cancelTrackingWithoutAnimation];
                 let _: () = msg_send![menu, release];
             }

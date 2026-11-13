@@ -1,0 +1,445 @@
+//! Continuity Camera in the composer's + menu: Take Photo and Scan
+//! Documents with a nearby iPhone or iPad (the phone's Camera, on the Mac).
+//!
+//! AppKit does it all, given two things:
+//!
+//! * **A placeholder item** in the menu, identified by
+//!   `NSMenuItemImportFromDeviceIdentifier`. When the menu opens, AppKit
+//!   puts each nearby device's items in its place (Take Photo, Scan
+//!   Documents, Add Sketch), in the system's words, or nothing when no
+//!   device is near. GPUI Kit's `NativeMenu` builds its NSMenu out of
+//!   reach, so the + menu's NSMenu is built here ([`popup`]), from the same
+//!   entries, with the composer's actions.
+//! * **A requestor** in the main window's responder chain ([`install`]): it
+//!   answers `validRequestorForSendType:returnType:` for pictures and PDFs
+//!   (the types are registered with `registerServicesMenuSendTypes`), and
+//!   AppKit hands the photo or scan to its `readSelectionFromPasteboard:`.
+//!   What it reads goes through a channel to the app, which attaches it to
+//!   the main window's composer ([`crate::desktop`]).
+//!
+//! The items work only with a device nearby; `--e2e mac-extras-2` checks
+//! the placeholder and the chain, and hands the requestor a synthetic
+//! picture through the same callback ([`deliver`]).
+
+/// The folder (under the temporary directory) a device's photos and scans
+/// are saved in for the composer, one folder each; cleared with Send
+/// Image's copies ([`crate::intents::prune_images`]).
+pub const IMPORT_FOLDER: &str = "conduit-continuity-camera";
+
+/// What came back from a device: one picture or one scanned PDF.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Imported {
+    pub bytes: Vec<u8>,
+    /// The file extension its type calls for (`jpeg`, `png`, `heic`,
+    /// `tiff`, `pdf`).
+    pub extension: &'static str,
+}
+
+impl Imported {
+    /// The attachment's name: a photo or a scan, as the system's items call
+    /// them (the composer turns a HEIC or TIFF photo into a JPEG).
+    pub fn file_name(&self) -> String {
+        let stem = if self.extension == "pdf" {
+            "Scan"
+        } else {
+            "Photo"
+        };
+        format!("{stem}.{}", self.extension)
+    }
+}
+
+/// The pasteboard types the requestor takes, in the order it prefers them,
+/// with the extension each is saved as. A scan comes as a PDF; a photo as
+/// a JPEG or HEIC (or PNG, TIFF).
+pub const RETURN_TYPES: &[(&str, &str)] = &[
+    ("public.jpeg", "jpeg"),
+    ("public.heic", "heic"),
+    ("public.png", "png"),
+    ("com.adobe.pdf", "pdf"),
+    ("public.tiff", "tiff"),
+];
+
+/// Whether the requestor takes `return_type` with nothing sent: Continuity
+/// Camera asks for pictures and documents and sends nothing.
+pub fn takes(send_type: Option<&str>, return_type: Option<&str>) -> bool {
+    send_type.is_none_or(str::is_empty)
+        && return_type.is_some_and(|t| RETURN_TYPES.iter().any(|(ty, _)| *ty == t))
+}
+
+/// One entry of the + menu as [`popup`] builds it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Entry {
+    /// An item; `action` is its index in the caller's actions (none: a
+    /// heading or a disabled row).
+    Item {
+        label: String,
+        disabled: bool,
+        checked: bool,
+        action: Option<usize>,
+    },
+    Separator,
+    /// AppKit's Continuity Camera items go here.
+    ImportFromDevice,
+}
+
+#[cfg(target_os = "macos")]
+pub use macos::{MenuReport, chain, deliver, install, popup, requestor_in_chain, set_accepting};
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use futures::channel::mpsc;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, Bool, NSObject};
+    use objc2::{
+        AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
+        sel,
+    };
+    use objc2_app_kit::{NSApplication, NSPasteboard, NSResponder, NSView, NSWindow};
+    use objc2_foundation::{NSArray, NSPoint, NSString};
+
+    use super::{Entry, Imported, RETURN_TYPES, takes};
+
+    #[link(name = "AppKit", kind = "framework")]
+    unsafe extern "C" {
+        static NSMenuItemImportFromDeviceIdentifier: &'static NSString;
+    }
+
+    /// Whether the main window's composer takes pictures now (set as the +
+    /// menu opens); AppKit offers the items only while it does.
+    static ACCEPTING: AtomicBool = AtomicBool::new(true);
+
+    pub fn set_accepting(on: bool) {
+        ACCEPTING.store(on, Ordering::SeqCst);
+    }
+
+    struct RequestorIvars {
+        imports: mpsc::UnboundedSender<Imported>,
+    }
+
+    define_class!(
+        // SAFETY: NSResponder has no subclassing requirements and
+        // `Requestor` does not implement Drop.
+        #[unsafe(super(NSResponder))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "ConduitImportRequestor"]
+        #[ivars = RequestorIvars]
+        struct Requestor;
+
+        impl Requestor {
+            #[unsafe(method(validRequestorForSendType:returnType:))]
+            fn valid_requestor(
+                &self,
+                send_type: *mut NSString,
+                return_type: *mut NSString,
+            ) -> *mut AnyObject {
+                // SAFETY: AppKit passes NSStrings or nil.
+                let (send, ret) = unsafe {
+                    (
+                        send_type.as_ref().map(|s| s.to_string()),
+                        return_type.as_ref().map(|s| s.to_string()),
+                    )
+                };
+                if ACCEPTING.load(Ordering::SeqCst) && takes(send.as_deref(), ret.as_deref()) {
+                    return self as *const Self as *mut AnyObject;
+                }
+                // SAFETY: NSResponder's own answer (the next responder's).
+                unsafe {
+                    msg_send![super(self), validRequestorForSendType: send_type, returnType: return_type]
+                }
+            }
+
+            #[unsafe(method(readSelectionFromPasteboard:))]
+            fn read_selection(&self, pasteboard: &NSPasteboard) -> Bool {
+                Bool::new(self.read(pasteboard))
+            }
+
+            #[unsafe(method(writeSelectionToPasteboard:types:))]
+            fn write_selection(&self, _pasteboard: &NSPasteboard, _types: &NSArray<NSString>) -> Bool {
+                // Nothing goes out: Continuity Camera only brings things in.
+                Bool::NO
+            }
+        }
+    );
+
+    impl Requestor {
+        fn read(&self, pasteboard: &NSPasteboard) -> bool {
+            for (ty, extension) in RETURN_TYPES {
+                let data = pasteboard.dataForType(&NSString::from_str(ty));
+                if let Some(data) = data {
+                    let bytes = data.to_vec();
+                    if bytes.is_empty() {
+                        continue;
+                    }
+                    log::info!("continuity camera: a {extension} came back");
+                    let _ = self
+                        .ivars()
+                        .imports
+                        .unbounded_send(Imported { bytes, extension });
+                    return true;
+                }
+            }
+            log::warn!("continuity camera: nothing it can take on the pasteboard");
+            false
+        }
+    }
+
+    thread_local! {
+        static REQUESTOR: std::cell::RefCell<Option<Retained<Requestor>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Puts the requestor right after the window's first responder (GPUI's
+    /// view, which takes every key and click) in its responder chain, once,
+    /// and registers the types it takes; what devices send comes on
+    /// `imports`. (After the window itself it is never asked: NSWindow
+    /// answers `validRequestorForSendType:` without its next responder.)
+    pub fn install(window: &NSWindow, imports: mpsc::UnboundedSender<Imported>) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let requestor = REQUESTOR.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    let this = Requestor::alloc(mtm).set_ivars(RequestorIvars { imports });
+                    // SAFETY: NSResponder's designated initializer.
+                    unsafe { msg_send![super(this), init] }
+                })
+                .clone()
+        });
+        let Some(first) = window.firstResponder() else {
+            return;
+        };
+        // The first responder is the window itself before GPUI's view takes
+        // it: nothing to follow yet.
+        if std::ptr::eq(&*first, &**window as &NSResponder) {
+            return;
+        }
+        // SAFETY: the responder chain, on the main thread. The view keeps
+        // whatever followed it (its superview) after the requestor; the
+        // requestor lives as long as the app (thread-local, never dropped).
+        unsafe {
+            let next = first.nextResponder();
+            // Already there.
+            if next
+                .as_deref()
+                .is_some_and(|next| std::ptr::eq(next, &**requestor as &NSResponder))
+            {
+                return;
+            }
+            requestor.setNextResponder(next.as_deref());
+            first.setNextResponder(Some(&requestor));
+        }
+        let types: Vec<Retained<NSString>> = RETURN_TYPES
+            .iter()
+            .map(|(ty, _)| NSString::from_str(ty))
+            .collect();
+        let returns = NSArray::from_retained_slice(&types);
+        let sends: Retained<NSArray<NSString>> = NSArray::new();
+        let app = NSApplication::sharedApplication(mtm);
+        // SAFETY: AppKit call on the main thread.
+        unsafe {
+            let _: () =
+                msg_send![&*app, registerServicesMenuSendTypes: &*sends, returnTypes: &*returns];
+        }
+        log::info!("continuity camera: the requestor follows the main window");
+    }
+
+    /// Whether `window`'s responder chain, from its first responder, offers
+    /// the requestor for `return_type` (as AppKit asks when the menu opens).
+    pub fn requestor_in_chain(window: &NSWindow, return_type: &str) -> bool {
+        let Some(requestor) = REQUESTOR.with(|slot| slot.borrow().clone()) else {
+            return false;
+        };
+        let ret = NSString::from_str(return_type);
+        let none = std::ptr::null_mut::<NSString>();
+        // SAFETY: NSResponder's method on the main thread; nil send type.
+        let found: *mut AnyObject = unsafe {
+            match window.firstResponder() {
+                Some(responder) => {
+                    msg_send![&*responder, validRequestorForSendType: none, returnType: &*ret]
+                }
+                None => msg_send![window, validRequestorForSendType: none, returnType: &*ret],
+            }
+        };
+        std::ptr::eq(
+            found as *const AnyObject,
+            &*requestor as *const Requestor as *const AnyObject,
+        )
+    }
+
+    /// The classes in `window`'s responder chain from its first responder,
+    /// for the log.
+    pub fn chain(window: &NSWindow) -> Vec<String> {
+        let mut out = vec![];
+        let mut next = window.firstResponder();
+        while let Some(responder) = next {
+            out.push(responder.class().name().to_string_lossy().into_owned());
+            if out.len() > 12 {
+                break;
+            }
+            // SAFETY: reads on the main thread.
+            next = unsafe { responder.nextResponder() };
+        }
+        out
+    }
+
+    /// Hands the requestor `bytes` of `pasteboard_type` through its own
+    /// `readSelectionFromPasteboard:`, as AppKit does when a device sends a
+    /// photo (on a private pasteboard: the user's clipboard is not touched).
+    /// For `--e2e mac-extras-2`.
+    pub fn deliver(pasteboard_type: &str, bytes: &[u8]) -> bool {
+        let Some(requestor) = REQUESTOR.with(|slot| slot.borrow().clone()) else {
+            return false;
+        };
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        let ty = NSString::from_str(pasteboard_type);
+        let types = NSArray::from_retained_slice(std::slice::from_ref(&ty));
+        // SAFETY: Foundation/AppKit calls on the main thread.
+        let read = unsafe {
+            pasteboard.declareTypes_owner(&types, None);
+            let data = objc2_foundation::NSData::with_bytes(bytes);
+            pasteboard.setData_forType(Some(&data), &ty);
+            let read: Bool = msg_send![&*requestor, readSelectionFromPasteboard: &*pasteboard];
+            read.as_bool()
+        };
+        // SAFETY: as above; the pasteboard is this call's own.
+        unsafe {
+            let _: () = msg_send![&*pasteboard, releaseGlobally];
+        }
+        read
+    }
+
+    /// What [`popup`] built and what was chosen: the items as AppKit had
+    /// them while the menu was open (for the E2E pass), and the action.
+    #[derive(Debug, Default)]
+    pub struct MenuReport {
+        pub chosen: Option<usize>,
+        /// Whether the placeholder was in the menu when it opened.
+        pub had_placeholder: bool,
+    }
+
+    struct TargetIvars {
+        chosen: Cell<isize>,
+    }
+
+    define_class!(
+        // SAFETY: NSObject has no subclassing requirements and `Target`
+        // does not implement Drop.
+        #[unsafe(super(NSObject))]
+        #[name = "ConduitPlusMenuTarget"]
+        #[ivars = TargetIvars]
+        struct Target;
+
+        impl Target {
+            #[unsafe(method(itemChosen:))]
+            fn item_chosen(&self, sender: &AnyObject) {
+                // SAFETY: an NSMenuItem.
+                let tag: isize = unsafe { msg_send![sender, tag] };
+                self.ivars().chosen.set(tag);
+            }
+        }
+    );
+
+    /// Shows the + menu over `view` with its top-left at `location` (view
+    /// coordinates, flipped as AppKit's are), runs it, and says which
+    /// action was chosen. Main thread, outside any GPUI borrow (AppKit's
+    /// tracking loop runs here).
+    pub fn popup(view: &NSView, entries: &[Entry], location: NSPoint) -> MenuReport {
+        let mut report = MenuReport::default();
+        let target = {
+            let this = Target::alloc().set_ivars(TargetIvars {
+                chosen: Cell::new(-1),
+            });
+            // SAFETY: NSObject's designated initializer.
+            let target: Retained<Target> = unsafe { msg_send![super(this), init] };
+            target
+        };
+        // SAFETY: AppKit calls on the main thread; the menu owns its items
+        // and lives until the tracking loop ends.
+        unsafe {
+            let menu: Retained<AnyObject> = msg_send![class!(NSMenu), new];
+            let _: () = msg_send![&*menu, setAutoenablesItems: false];
+            for entry in entries {
+                match entry {
+                    Entry::Separator => {
+                        let item: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
+                        let _: () = msg_send![&*menu, addItem: item];
+                    }
+                    Entry::ImportFromDevice => {
+                        // Hidden and untitled: AppKit shows a nearby
+                        // device's items in its place, and nothing without
+                        // one.
+                        let item: Retained<AnyObject> = msg_send![class!(NSMenuItem), new];
+                        let _: () = msg_send![&*item, setTitle: &*NSString::from_str("")];
+                        let _: () = msg_send![&*item, setHidden: true];
+                        let _: () =
+                            msg_send![&*item, setIdentifier: NSMenuItemImportFromDeviceIdentifier];
+                        let _: () = msg_send![&*menu, addItem: &*item];
+                        report.had_placeholder = true;
+                    }
+                    Entry::Item {
+                        label,
+                        disabled,
+                        checked,
+                        action,
+                    } => {
+                        let item: Retained<AnyObject> = msg_send![class!(NSMenuItem), new];
+                        let _: () = msg_send![&*item, setTitle: &*NSString::from_str(label)];
+                        let _: () = msg_send![&*item, setEnabled: !*disabled];
+                        if *checked {
+                            let _: () = msg_send![&*item, setState: 1isize];
+                        }
+                        if let (Some(action), false) = (action, *disabled) {
+                            let _: () = msg_send![&*item, setTag: *action as isize];
+                            let _: () = msg_send![&*item, setTarget: &*target];
+                            let _: () = msg_send![&*item, setAction: sel!(itemChosen:)];
+                        }
+                        let _: () = msg_send![&*menu, addItem: &*item];
+                    }
+                }
+            }
+            let _: Bool = msg_send![
+                &*menu,
+                popUpMenuPositioningItem: std::ptr::null_mut::<AnyObject>(),
+                atLocation: location,
+                inView: view
+            ];
+        }
+        let chosen = target.ivars().chosen.get();
+        report.chosen = (chosen >= 0).then_some(chosen as usize);
+        report
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn takes_pictures_and_scans_with_nothing_sent() {
+        assert!(takes(None, Some("public.jpeg")));
+        assert!(takes(Some(""), Some("com.adobe.pdf")));
+        assert!(takes(None, Some("public.heic")));
+        // Services that want the selection, or bring text back: not ours.
+        assert!(!takes(Some("public.utf8-plain-text"), Some("public.jpeg")));
+        assert!(!takes(None, Some("public.utf8-plain-text")));
+        assert!(!takes(None, None));
+    }
+
+    #[test]
+    fn names_a_photo_or_a_scan() {
+        let photo = Imported {
+            bytes: vec![1],
+            extension: "heic",
+        };
+        assert_eq!(photo.file_name(), "Photo.heic");
+        let scan = Imported {
+            bytes: vec![1],
+            extension: "pdf",
+        };
+        assert_eq!(scan.file_name(), "Scan.pdf");
+    }
+}

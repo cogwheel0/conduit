@@ -208,6 +208,9 @@ ACTIONS = {
     "OpenChatIntent",
     "StartVoiceCallIntent",
     "QuickAskIntent",
+    "SendTextIntent",
+    "SendLinkIntent",
+    "SendImageIntent",
 }
 ENTITIES = {"ChatEntity"}
 QUERIES = {"ChatEntityQuery"}
@@ -376,6 +379,7 @@ WIDGET_KEYS = [
     ("ask", "desktopWidgetAsk"),
     ("newChat", "desktopWidgetNewChat"),
     ("voiceCall", "desktopWidgetVoiceCall"),
+    ("clipboard", "desktopWidgetClipboard"),
     ("recentChats", "desktopWidgetRecentChats"),
     ("noChats", "desktopWidgetNoChats"),
     ("signedOut", "desktopWidgetSignedOut"),
@@ -436,6 +440,8 @@ USAGE_KEYS = {
     "NSMicrophoneUsageDescription": "desktopUsageMicrophone",
     "NSSpeechRecognitionUsageDescription": "desktopUsageSpeechRecognition",
     "NSLocalNetworkUsageDescription": "desktopUsageLocalNetwork",
+    "NSLocationUsageDescription": "desktopUsageLocation",
+    "NSLocationWhenInUseUsageDescription": "desktopUsageLocation",
 }
 
 

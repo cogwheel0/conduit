@@ -53,7 +53,7 @@ use gpui_kit::{AnyWindowHandle, App, AppContext as _, Bounds, Entity, Global, px
 
 use crate::AppState;
 use crate::l10n::ActiveL10n as _;
-use crate::shell::deep_link::{self, OpenRequest};
+use crate::shell::deep_link::{self, Compose, OpenRequest};
 use crate::shell::notify::{self, NotificationKind, OnScreen};
 use crate::shell::open_files;
 use crate::shell::services::{self, ServiceRequest};
@@ -101,6 +101,9 @@ pub struct Desktop {
 #[cfg(target_os = "macos")]
 #[derive(Default)]
 struct Platform {
+    /// What Continuity Camera's requestor hands over (made with the first
+    /// + menu that offers it).
+    continuity: Option<mpsc::UnboundedSender<crate::shell::continuity_camera::Imported>>,
     notifier: Option<crate::shell::notifications::Notifier>,
     hotkey: Option<crate::shell::hotkey::Hotkey>,
     tray: Option<crate::shell::tray::MenuBarItem>,
@@ -154,6 +157,7 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
     #[cfg(target_os = "macos")]
     install_platform(cx);
     apply_settings(cx);
+    install_dock_menu(cx);
 
     let Some(state) = cx.try_global::<AppState>() else {
         return;
@@ -173,6 +177,7 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
         // New words, or new chords beside New Chat.
         SettingsEvent::LocaleChanged | SettingsEvent::KeymapChanged => {
             relabel_tray(cx);
+            set_dock_menu(cx);
             // The widget speaks the app's language.
             schedule_widget(cx);
         }
@@ -312,6 +317,8 @@ pub fn open_request(request: OpenRequest, cx: &mut App) {
 fn describe(request: &OpenRequest) -> &'static str {
     match request {
         OpenRequest::Share { .. } => "share",
+        OpenRequest::Clipboard => "clipboard",
+        OpenRequest::Compose(_) => "new chat with content",
         OpenRequest::Chat { .. } => "chat",
         OpenRequest::NewChat { files, .. } if !files.is_empty() => "new chat with files",
         OpenRequest::NewChat { .. } => "new chat",
@@ -375,58 +382,34 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
             let Some((text, attachments)) = take_quick_ask_draft(id, cx) else {
                 return;
             };
-            open_new_chat(text, vec![], attachments, cx);
+            open_new_chat(
+                Compose {
+                    text,
+                    ..Compose::default()
+                },
+                attachments,
+                false,
+                cx,
+            );
         }
-        OpenRequest::NewChat { text, files } => open_new_chat(text, files, vec![], cx),
+        OpenRequest::NewChat { text, files } => open_new_chat(
+            Compose {
+                text,
+                files,
+                ..Compose::default()
+            },
+            vec![],
+            false,
+            cx,
+        ),
+        OpenRequest::Compose(compose) => open_new_chat(*compose, vec![], true, cx),
+        OpenRequest::Clipboard => open_clipboard(cx),
         OpenRequest::Share { id } => open_share(&id, cx),
         OpenRequest::Channel { id } => open_item(AreaItem::Channel(id), cx),
         OpenRequest::Note { id } => open_item(AreaItem::Note(id), cx),
         OpenRequest::QuickAsk { text } => quick_ask_with(text, cx),
         OpenRequest::VoiceCall => start_voice_call(cx),
     }
-}
-
-/// The main window on a new chat with `text`, the files at `files` and
-/// `attachments` (already uploaded) in its composer, never sent; toasts for
-/// files left out.
-fn open_new_chat(
-    text: Option<String>,
-    files: Vec<std::path::PathBuf>,
-    carried: Vec<crate::stores::composer::Attachment>,
-    cx: &mut App,
-) {
-    show_main(cx);
-    let plan = open_files::plan(&files, open_files::file_size);
-    for path in &plan.skipped {
-        log::info!("open with: skipped a folder or missing file");
-        let _ = path;
-    }
-    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
-    crate::with_main_view(cx, move |view, window, cx| {
-        view.new_chat(false, window, cx);
-        let pane = view.chat_pane.clone();
-        // After this update: the pane follows the new selection as it ends,
-        // and its draft switch empties the message box (a chat was open
-        // before), so the text goes in after that.
-        cx.spawn_in(window, async move |_, cx| {
-            let _ = pane.update_in(cx, |p, window, cx| {
-                if let Some(text) = &text {
-                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-                }
-                if !plan.accepted.is_empty() {
-                    p.composer_store
-                        .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
-                }
-                if !carried.is_empty() {
-                    p.composer_store
-                        .update(cx, |c, cx| c.adopt_attachments(carried, cx));
-                }
-                p.focus_composer(window, cx);
-            });
-        })
-        .detach();
-    });
-    refused_files(too_many, &too_large, cx);
 }
 
 /// The Quick Ask panel, as the menu-bar item and the hotkey show it; with
@@ -470,7 +453,7 @@ fn start_voice_call(cx: &mut App) {
         });
         return;
     }
-    open_new_chat(None, vec![], vec![], cx);
+    open_new_chat(Compose::default(), vec![], false, cx);
     // After open_new_chat's own task: the pane shows the new chat by then,
     // and the call takes that chat's Temporary switch and folder.
     crate::with_main_view(cx, |view, window, cx| {
@@ -480,6 +463,137 @@ fn start_voice_call(cx: &mut App) {
         })
         .detach();
     });
+}
+
+/// A new chat in the main window with the text in the composer and the
+/// files, pictures and page text attached, with `carried` attachments
+/// already uploaded (Quick Ask's Open in Conduit), never sent; toasts for
+/// files left out. `fresh`: the new chat starts empty, as the phone's Send
+/// to Conduit, Send Link, Send Image and widget Clipboard reset it (a new
+/// chat keeps an unsent draft otherwise, as New Chat does).
+fn open_new_chat(
+    compose: Compose,
+    carried: Vec<crate::stores::composer::Attachment>,
+    fresh: bool,
+    cx: &mut App,
+) {
+    let Compose {
+        text,
+        files,
+        images,
+        context,
+    } = compose;
+    show_main(cx);
+    let plan = open_files::plan(&files, open_files::file_size);
+    for path in &plan.skipped {
+        log::info!("open with: skipped a folder or missing file");
+        let _ = path;
+    }
+    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
+    crate::with_main_view(cx, move |view, window, cx| {
+        view.new_chat(false, window, cx);
+        let pane = view.chat_pane.clone();
+        // After this update: the pane follows the new selection as it ends,
+        // and its draft switch empties the message box (a chat was open
+        // before), so the text goes in after that.
+        cx.spawn_in(window, async move |_, cx| {
+            let _ = pane.update_in(cx, |p, window, cx| {
+                if fresh {
+                    p.composer_store.update(cx, |c, cx| c.clear_message(cx));
+                    let text = text.as_deref().unwrap_or_default();
+                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
+                } else if let Some(text) = &text {
+                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
+                }
+                if !plan.accepted.is_empty() {
+                    p.composer_store
+                        .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
+                }
+                for image in &images {
+                    p.composer_store.update(cx, |c, cx| c.add_image(image, cx));
+                }
+                for item in &context {
+                    p.composer_store
+                        .update(cx, |c, cx| c.add_context(item.clone(), cx));
+                }
+                if !carried.is_empty() {
+                    p.composer_store
+                        .update(cx, |c, cx| c.adopt_attachments(carried.clone(), cx));
+                }
+                p.focus_composer(window, cx);
+            });
+        })
+        .detach();
+    });
+    refused_files(too_many, &too_large, cx);
+}
+
+/// `conduit://clipboard` (the widget's Clipboard): a new chat with what
+/// was copied, as the phone's widget opens one: text in the message box;
+/// on the Mac a copied picture or copied files are attached too (the phone
+/// reads text only). An empty clipboard still opens the new chat.
+fn open_clipboard(cx: &mut App) {
+    let item = cx.read_from_clipboard();
+    let compose = clipboard_compose(item.as_ref());
+    log::info!(
+        "clipboard: text {}, {} picture(s), {} file(s)",
+        compose.text.is_some(),
+        compose.images.len(),
+        compose.files.len()
+    );
+    open_new_chat(compose, vec![], true, cx);
+}
+
+/// What a copied item starts a new chat with: its text (trimmed, as the
+/// phone trims it, cut to [`deep_link::MAX_TEXT`]), else its pictures,
+/// else its files.
+pub fn clipboard_compose(item: Option<&gpui_kit::ClipboardItem>) -> Compose {
+    use gpui_kit::ClipboardEntry;
+    let Some(item) = item else {
+        return Compose::default();
+    };
+    let text: String = item
+        .entries()
+        .iter()
+        .filter_map(|e| match e {
+            ClipboardEntry::String(s) => Some(s.text().as_str()),
+            _ => None,
+        })
+        .collect();
+    let text = text.trim();
+    if !text.is_empty() {
+        return Compose {
+            text: Some(text.chars().take(deep_link::MAX_TEXT).collect()),
+            ..Compose::default()
+        };
+    }
+    let images: Vec<gpui_kit::Image> = item
+        .entries()
+        .iter()
+        .filter_map(|e| match e {
+            ClipboardEntry::Image(image) => Some(image.clone()),
+            _ => None,
+        })
+        .collect();
+    if !images.is_empty() {
+        return Compose {
+            images,
+            ..Compose::default()
+        };
+    }
+    let files = item
+        .entries()
+        .iter()
+        .filter_map(|e| match e {
+            ClipboardEntry::ExternalPaths(paths) => Some(paths.paths().to_vec()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    Compose {
+        files,
+        ..Compose::default()
+    }
 }
 
 /// The toasts for files a new chat could not take: past the count limit,
@@ -517,7 +631,16 @@ fn open_share(id: &str, cx: &mut App) {
                 shared.files.len(),
                 shared.text.is_some()
             );
-            open_new_chat(shared.text, shared.files, vec![], cx);
+            open_new_chat(
+                Compose {
+                    text: shared.text,
+                    files: shared.files,
+                    ..Compose::default()
+                },
+                vec![],
+                false,
+                cx,
+            );
             refused_files(shared.too_many, &shared.too_large, cx);
         }
         Err(error) => {
@@ -1950,6 +2073,122 @@ fn new_chat_with(text: String, cx: &mut App) {
     drain(cx);
 }
 
+// ── Continuity Camera ──────────────────────────────────────────────────────
+
+/// Puts Continuity Camera's requestor after the main window (once per
+/// window) and takes what it reads: a photo or a scan from a nearby iPhone
+/// or iPad, attached to the main window's composer.
+#[cfg(target_os = "macos")]
+pub fn install_continuity_camera(window: &objc2_app_kit::NSWindow, cx: &mut App) {
+    let Some(desktop) = cx.try_global::<Desktop>() else {
+        return;
+    };
+    let sender = match &desktop.platform.continuity {
+        Some(sender) => sender.clone(),
+        None => {
+            let (sender, mut imports) = mpsc::unbounded();
+            cx.spawn(async move |cx| {
+                while let Some(imported) = imports.next().await {
+                    cx.update(|cx| on_continuity_import(imported, cx));
+                }
+            })
+            .detach();
+            cx.global_mut::<Desktop>().platform.continuity = Some(sender.clone());
+            sender
+        }
+    };
+    crate::shell::continuity_camera::install(window, sender);
+}
+
+/// A photo or scan from Continuity Camera: saved where the composer reads
+/// files from, and attached to the main window's composer (a HEIC or TIFF
+/// photo goes as a JPEG, as a dropped one does).
+#[cfg(target_os = "macos")]
+fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx: &mut App) {
+    // One folder each, named by the time it came (nanoseconds), so a second
+    // photo never replaces the first before the composer read it.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let folder = std::env::temp_dir()
+        .join(crate::shell::continuity_camera::IMPORT_FOLDER)
+        .join(stamp.to_string());
+    let path = folder.join(imported.file_name());
+    if let Err(e) =
+        std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&path, &imported.bytes))
+    {
+        log::warn!("continuity camera: not saved ({e})");
+        return;
+    }
+    show_main(cx);
+    crate::with_main_view(cx, move |view, window, cx| {
+        view.chat_pane.update(cx, |p, cx| {
+            p.composer_store
+                .update(cx, |c, cx| c.add_paths(std::slice::from_ref(&path), cx));
+            p.focus_composer(window, cx);
+        })
+    });
+}
+
+// ── The Dock icon's menu ───────────────────────────────────────────────────
+
+/// The Dock icon's menu and what its items do: the phone's home-screen
+/// quick actions (New Chat, Voice Call) and Quick Ask, each the way the
+/// app's own link of that kind goes ([`open_request`]): a new chat in the
+/// main window; a voice call in a new chat ([`start_voice_call`], never the
+/// toggling Voice Call action); the Quick Ask panel.
+fn install_dock_menu(cx: &mut App) {
+    use crate::actions::{DockNewChat, DockQuickAsk, DockVoiceCall};
+    cx.on_action(|_: &DockNewChat, cx| {
+        log::info!("dock menu: new chat");
+        cx.defer(|cx| {
+            open_request(
+                OpenRequest::NewChat {
+                    text: None,
+                    files: vec![],
+                },
+                cx,
+            )
+        });
+    });
+    cx.on_action(|_: &DockVoiceCall, cx| {
+        log::info!("dock menu: voice call");
+        cx.defer(|cx| open_request(OpenRequest::VoiceCall, cx));
+    });
+    cx.on_action(|_: &DockQuickAsk, cx| {
+        log::info!("dock menu: quick ask");
+        cx.defer(|cx| open_request(OpenRequest::QuickAsk { text: None }, cx));
+    });
+    set_dock_menu(cx);
+}
+
+/// The Dock menu's items, in the app's language (again when it changes).
+pub fn set_dock_menu(cx: &mut App) {
+    use crate::actions::{DockNewChat, DockQuickAsk, DockVoiceCall};
+    let l10n = cx.l10n().clone();
+    cx.set_dock_menu(dock_menu_items(
+        &l10n,
+        DockNewChat,
+        DockVoiceCall,
+        DockQuickAsk,
+    ));
+}
+
+/// The Dock menu's titles and actions, in order.
+pub fn dock_menu_items(
+    l10n: &crate::l10n::L10n,
+    new_chat: impl gpui_kit::Action,
+    voice_call: impl gpui_kit::Action,
+    quick_ask: impl gpui_kit::Action,
+) -> Vec<gpui_kit::MenuItem> {
+    vec![
+        gpui_kit::MenuItem::action(l10n.new_chat(), new_chat),
+        gpui_kit::MenuItem::action(l10n.voice_call_title(), voice_call),
+        gpui_kit::MenuItem::action(l10n.desktop_tray_quick_ask(), quick_ask),
+    ]
+}
+
 // ── The menu-bar item, the hotkey and notification clicks ──────────────────
 
 #[cfg(target_os = "macos")]
@@ -2351,5 +2590,59 @@ mod widget_tests {
             let feed = &cx.global::<Desktop>().widget;
             assert!(feed.retry.is_none(), "but not forever");
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{ClipboardItem, Image, ImageFormat};
+
+    #[test]
+    fn the_clipboard_link_takes_text_else_a_picture() {
+        let text = clipboard_compose(Some(&ClipboardItem::new_string(
+            "  Packing list for the ferry \n".into(),
+        )));
+        assert_eq!(text.text.as_deref(), Some("Packing list for the ferry"));
+        assert!(text.images.is_empty() && text.files.is_empty());
+
+        let picture = Image::from_bytes(ImageFormat::Png, vec![0x89, b'P', b'N', b'G']);
+        let image = clipboard_compose(Some(&ClipboardItem::new_image(&picture)));
+        assert_eq!(image.text, None);
+        assert_eq!(image.images, vec![picture]);
+
+        // Blank text is no text; nothing copied still opens a new chat.
+        let blank = clipboard_compose(Some(&ClipboardItem::new_string(" \n ".into())));
+        assert_eq!(blank, Compose::default());
+        assert_eq!(clipboard_compose(None), Compose::default());
+
+        let long = "x".repeat(deep_link::MAX_TEXT + 10);
+        let cut = clipboard_compose(Some(&ClipboardItem::new_string(long)));
+        assert_eq!(
+            cut.text.map(|t| t.chars().count()),
+            Some(deep_link::MAX_TEXT)
+        );
+    }
+
+    #[test]
+    fn the_dock_menu_has_the_phones_quick_actions_and_quick_ask_in_every_language() {
+        use crate::actions::{DockNewChat, DockQuickAsk, DockVoiceCall};
+        let titles = |locale: &str| -> Vec<String> {
+            let l = crate::l10n::L10n::new(locale);
+            dock_menu_items(&l, DockNewChat, DockVoiceCall, DockQuickAsk)
+                .into_iter()
+                .map(|item| match item {
+                    gpui_kit::MenuItem::Action { name, .. } => name.to_string(),
+                    _ => String::new(),
+                })
+                .collect()
+        };
+        assert_eq!(titles("en"), vec!["New Chat", "Voice Call", "Quick Ask"]);
+        for locale in crate::l10n::LOCALES {
+            let words = titles(locale);
+            assert_eq!(words.len(), 3, "{locale}");
+            assert!(words.iter().all(|w| !w.is_empty()), "{locale}: {words:?}");
+        }
+        assert_ne!(titles("de"), titles("en"));
     }
 }

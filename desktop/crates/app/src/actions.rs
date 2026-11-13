@@ -63,6 +63,11 @@ actions!(conduit, [ChatSettings, ToolSettings]);
 // Window › Quick Ask (also the global shortcut and the menu-bar item).
 actions!(conduit, [ToggleQuickAsk]);
 
+// The Dock icon's menu (`desktop::set_dock_menu`): the phone's home-screen
+// quick actions, New Chat and Voice Call, and Quick Ask. Handled by the app
+// (`desktop::install`), whichever window is in front, or none.
+actions!(conduit, [DockNewChat, DockVoiceCall, DockQuickAsk]);
+
 // Conduit › Check for Updates… (Sparkle; handled only when the build has
 // an updater, so the item is disabled otherwise).
 actions!(conduit, [CheckForUpdates]);

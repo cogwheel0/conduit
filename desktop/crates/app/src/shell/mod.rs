@@ -13,13 +13,15 @@
 //! ([`apple_models`]).
 
 pub mod apple_models;
+#[cfg(target_os = "macos")]
+pub mod continuity_camera;
 pub mod crash;
 pub mod date_picker;
 pub mod deep_link;
 #[cfg(target_os = "macos")]
-#[cfg(target_os = "macos")]
 pub mod grab;
 pub mod hotkey;
+pub mod location;
 pub mod logger;
 #[cfg(target_os = "macos")]
 pub mod login_item;

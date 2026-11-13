@@ -131,6 +131,20 @@ pub enum ComposerMenu {
 /// A menu's rows as drawn: each one's group heading and title.
 pub type MenuRows = Vec<(Option<String>, String)>;
 
+/// One row of the + menu.
+enum PlusRow {
+    Item {
+        label: String,
+        disabled: bool,
+        /// A switch's state (`None`: not a switch).
+        checked: Option<bool>,
+        action: ComposerMenu,
+    },
+    Separator,
+    /// Continuity Camera's items (AppKit's), when a device is near.
+    ImportFromDevice,
+}
+
 /// A `/`, `@`, `#` or `$` menu open over the composer.
 struct Menu {
     trigger: Trigger,
@@ -1883,13 +1897,12 @@ impl ChatComposer {
     /// Generation, Code Interpreter, Compare Models…, Save as Note), then
     /// Tools and Filters under their headings. Switches show a check while
     /// on.
-    fn show_plus_menu(
+    pub(crate) fn show_plus_menu(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use gpui_kit::component::native_menu::NativeMenu;
         let l10n = cx.l10n().clone();
         let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
@@ -1903,35 +1916,43 @@ impl ChatComposer {
         let filter_ids = store.filter_ids.clone();
         // Save as Note is the main window's (not Quick Ask's).
         let notes_button = self.follow_ups && store.prefs.show_notes_button;
-        // The entries as drawn, to measure the menu (`None`: a separator).
-        let mut entries: Vec<Option<String>> = vec![];
-        let mut menu = NativeMenu::new();
-        let item = |menu: NativeMenu,
-                    entries: &mut Vec<Option<String>>,
+        // The rows in order; shown by AppKit (with Continuity Camera's
+        // items) or GPUI Kit's native menu.
+        let mut rows: Vec<PlusRow> = vec![];
+        let item = |rows: &mut Vec<PlusRow>,
                     label: String,
                     disabled: bool,
                     checked: Option<bool>,
                     action: ComposerMenu| {
-            entries.push(Some(label.clone()));
-            match checked {
-                Some(on) if !disabled => menu.menu_with_check(label, on, Box::new(action)),
-                _ => menu.menu_with_disabled(label, disabled, Box::new(action)),
-            }
+            rows.push(PlusRow::Item {
+                label,
+                disabled,
+                checked,
+                action,
+            });
         };
         let a = &options.attachments;
         let ellipsis = |s: String| format!("{s}\u{2026}");
-        menu = item(
-            menu,
-            &mut entries,
+        item(
+            &mut rows,
             ellipsis(l10n.desktop_attach_files()),
             !(a.files || a.images),
             None,
             ComposerMenu::AttachFiles,
         );
+        // Take Photo and Scan Documents with a nearby iPhone or iPad
+        // (Continuity Camera): AppKit's own items, in the main window's
+        // composer while it takes pictures.
+        let in_main = cx
+            .try_global::<crate::AppState>()
+            .and_then(|s| s.main_window)
+            == Some(window.window_handle());
+        if a.images && in_main {
+            rows.push(PlusRow::ImportFromDevice);
+        }
         if a.server_files {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.composer_attach_server_files()),
                 false,
                 None,
@@ -1939,9 +1960,8 @@ impl ChatComposer {
             );
         }
         if a.web_page {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.web_page()),
                 false,
                 None,
@@ -1949,9 +1969,8 @@ impl ChatComposer {
             );
         }
         if a.mcp_content {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.direct_mcp_content_action()),
                 false,
                 None,
@@ -1964,13 +1983,11 @@ impl ChatComposer {
         // Not for a temporary chat, which the server never stores.
         let compare = options.compare_models && self.compare_ui && !self.temporary;
         if options.web_search || options.image_generation || code_shown || compare || draft_note {
-            entries.push(None);
-            menu = menu.separator();
+            rows.push(PlusRow::Separator);
         }
         if options.web_search {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.web_search(),
                 false,
                 Some(web),
@@ -1978,9 +1995,8 @@ impl ChatComposer {
             );
         }
         if options.image_generation {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.desktop_image_generation(),
                 false,
                 Some(image),
@@ -1991,9 +2007,8 @@ impl ChatComposer {
             // One that will not run stays visible, off, to say so; one chosen
             // can always be turned off.
             let blocked = options.code_interpreter_block.is_some();
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.code_interpreter(),
                 blocked && !code,
                 Some(code),
@@ -2001,9 +2016,8 @@ impl ChatComposer {
             );
         }
         if compare {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.chat_compare_models_action()),
                 !has_text,
                 None,
@@ -2011,9 +2025,8 @@ impl ChatComposer {
             );
         }
         if draft_note {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.composer_save_draft_as_note(),
                 false,
                 None,
@@ -2026,20 +2039,11 @@ impl ChatComposer {
         let tools: Vec<_> = options.tools.iter().chain(&options.mcp_tools).collect();
         let librechat = store.librechat_tools();
         if !tools.is_empty() || !librechat.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
-                l10n.tools(),
-                true,
-                None,
-                ComposerMenu::Heading,
-            );
+            rows.push(PlusRow::Separator);
+            item(&mut rows, l10n.tools(), true, None, ComposerMenu::Heading);
             for tool in tools {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     tool.name.clone(),
                     false,
                     Some(tool_ids.contains(&tool.id)),
@@ -2068,24 +2072,15 @@ impl ChatComposer {
                 };
                 let checked =
                     matches!(action, ComposerMenu::Tool(_)).then(|| tool_ids.contains(&id));
-                menu = item(menu, &mut entries, label, false, checked, action);
+                item(&mut rows, label, false, checked, action);
             }
         }
         if !options.filters.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
-                l10n.filters(),
-                true,
-                None,
-                ComposerMenu::Heading,
-            );
+            rows.push(PlusRow::Separator);
+            item(&mut rows, l10n.filters(), true, None, ComposerMenu::Heading);
             for filter in &options.filters {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     filter.name.clone(),
                     false,
                     Some(filter_ids.contains(&filter.id)),
@@ -2127,20 +2122,17 @@ impl ChatComposer {
             })
             .unwrap_or_default();
         if !terminals.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
+            rows.push(PlusRow::Separator);
+            item(
+                &mut rows,
                 l10n.terminal(),
                 true,
                 None,
                 ComposerMenu::Heading,
             );
             for (id, name, selected) in terminals {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     name,
                     false,
                     Some(selected),
@@ -2151,7 +2143,115 @@ impl ChatComposer {
         // The menu's action goes to the focused element's path: keep focus
         // in the composer so its handler hears it.
         self.focus_input(window, cx);
-        menu.show(self.plus_menu_origin(&entries, position), window, cx);
+        // The entries as drawn, to measure the menu (`None`: a separator).
+        let entries: Vec<Option<String>> = rows
+            .iter()
+            .filter_map(|r| match r {
+                PlusRow::Item { label, .. } => Some(Some(label.clone())),
+                PlusRow::Separator => Some(None),
+                PlusRow::ImportFromDevice => None,
+            })
+            .collect();
+        let origin = self.plus_menu_origin(&entries, position);
+        #[cfg(target_os = "macos")]
+        self.show_plus_rows(rows, origin, window, cx);
+        #[cfg(not(target_os = "macos"))]
+        {
+            use gpui_kit::component::native_menu::NativeMenu;
+            let mut menu = NativeMenu::new();
+            for row in rows {
+                menu = match row {
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        checked: Some(on),
+                        action,
+                    } if !disabled => menu.menu_with_check(label, on, Box::new(action)),
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        action,
+                        ..
+                    } => menu.menu_with_disabled(label, disabled, Box::new(action)),
+                    PlusRow::Separator => menu.separator(),
+                    PlusRow::ImportFromDevice => menu,
+                };
+            }
+            menu.show(origin, window, cx);
+        }
+    }
+
+    /// The + menu built by the app (AppKit's NSMenu), with Continuity
+    /// Camera's placeholder ([`crate::shell::continuity_camera`]); the item
+    /// chosen does what GPUI Kit's menu would dispatch. AppKit's tracking
+    /// loop runs from a task, outside any GPUI borrow.
+    #[cfg(target_os = "macos")]
+    fn show_plus_rows(
+        &mut self,
+        rows: Vec<PlusRow>,
+        origin: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::shell::continuity_camera::{self as camera, Entry};
+        let mut actions: Vec<ComposerMenu> = vec![];
+        let mut import = false;
+        let entries: Vec<Entry> = rows
+            .into_iter()
+            .map(|row| match row {
+                PlusRow::Item {
+                    label,
+                    disabled,
+                    checked,
+                    action,
+                } => {
+                    let index = (!disabled).then(|| {
+                        actions.push(action);
+                        actions.len() - 1
+                    });
+                    Entry::Item {
+                        label,
+                        disabled,
+                        checked: checked.unwrap_or(false) && !disabled,
+                        action: index,
+                    }
+                }
+                PlusRow::Separator => Entry::Separator,
+                PlusRow::ImportFromDevice => {
+                    import = true;
+                    Entry::ImportFromDevice
+                }
+            })
+            .collect();
+        let Some(ns_window) = crate::shell::macos::ns_window(window) else {
+            return;
+        };
+        if import {
+            crate::desktop::install_continuity_camera(&ns_window, cx);
+        }
+        camera::set_accepting(import);
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(view) = ns_window.contentView() else {
+                return;
+            };
+            // `origin` is window-relative, top-left; AppKit's view
+            // coordinates start at the bottom-left.
+            let location = objc2_foundation::NSPoint::new(
+                f32::from(origin.x) as f64,
+                view.bounds().size.height - f32::from(origin.y) as f64,
+            );
+            let report = camera::popup(&view, &entries, location);
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(action) = report.chosen.and_then(|i| actions.get(i)) {
+                    this.on_menu(action, window, cx);
+                }
+                // As GPUI Kit's menu does: wake the window after AppKit's
+                // tracking loop.
+                window.refresh();
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Where the + menu's top-left goes: over the button, its bottom edge

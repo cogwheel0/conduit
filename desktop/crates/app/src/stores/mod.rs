@@ -22,6 +22,8 @@
 //! * [`speech`]: read aloud, which the daemon runs and this window speaks.
 //! * [`apple_models`]: Apple's on-device model, which the daemon's chats
 //!   use and this window runs.
+//! * [`location`]: the Mac's location, which the daemon asks for when a
+//!   prompt names `{{USER_LOCATION}}`.
 //! * [`call`]: a voice call, which the daemon runs and this window hears
 //!   and, for a realtime voice, plays.
 //! * [`calendar`] and [`tasks`]: the calendar's agenda and the scheduled
@@ -50,6 +52,7 @@ pub mod hermes_admin;
 pub mod hermes_rooms;
 pub mod hermes_work;
 pub mod layout;
+pub mod location;
 pub mod navigation;
 pub mod notifications;
 pub mod palette;
@@ -110,6 +113,8 @@ pub struct Stores {
     pub hermes_rooms: Entity<hermes_rooms::HermesRoomsStore>,
     /// Apple's on-device model: the Swift engine the daemon's chats use.
     pub apple: Entity<apple_models::AppleModelsStore>,
+    /// The Mac's location services, for `{{USER_LOCATION}}`.
+    pub location: Entity<location::LocationStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -171,7 +176,8 @@ impl Stores {
             hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone())),
             hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc.clone())),
             apple: cx.new(|_| apple_models::AppleModelsStore::for_test(rpc.clone())),
-            notifications: cx.new(|_| notifications::NotificationsStore::new(rpc)),
+            notifications: cx.new(|_| notifications::NotificationsStore::new(rpc.clone())),
+            location: cx.new(|_| location::LocationStore::new(rpc)),
         }
     }
 
@@ -217,6 +223,7 @@ impl Stores {
             let rpc = rpc.clone();
             cx.new(|cx| apple_models::AppleModelsStore::new(rpc, cx))
         };
+        let location = cx.new(|_| location::LocationStore::new(rpc.clone()));
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -238,6 +245,7 @@ impl Stores {
             tasks,
             hermes_rooms,
             apple,
+            location,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
@@ -251,6 +259,7 @@ impl Stores {
         tasks::wire(&stores, cx);
         hermes_rooms::wire(&stores, cx);
         apple_models::wire(&stores, cx);
+        location::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat
