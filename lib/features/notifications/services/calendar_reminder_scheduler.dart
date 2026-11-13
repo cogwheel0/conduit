@@ -14,6 +14,8 @@ import 'package:conduit_core/features/calendar/calendar_reminders.dart';
 import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show isChatStreamingProvider;
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -265,6 +267,11 @@ CalendarReminderScheduler calendarReminderScheduler(Ref ref) {
     (_, _) => resync(),
   );
   ref.listen<bool>(calendarAvailableProvider, (_, _) => resync());
+  // A reply in the open chat finished, however it arrived (socket or the HTTP
+  // completion recovery): the calendar tool may have added an event.
+  ref.listen<bool>(isChatStreamingProvider, (previous, next) {
+    if (previous == true && !next) resync();
+  }, weak: true);
   // An event created, edited or deleted in the calendar. Weak, so the agenda
   // is not loaded just for this when the calendar was never opened.
   ref.listen(calendarAgendaProvider, (previous, next) {
