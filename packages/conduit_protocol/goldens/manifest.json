@@ -86,6 +86,7 @@
   "calendarWallTime": "CalendarWallTime",
   "callCommandAudio": "CallCommand",
   "callCommandListen": "CallCommand",
+  "callCommandWebRtc": "CallCommand",
   "callReportAnswer": "CallReport",
   "callReportFailed": "CallReport",
   "callReportWords": "CallReport",

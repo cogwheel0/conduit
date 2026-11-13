@@ -2264,9 +2264,15 @@ pub enum CallCommandKind {
     /// the audio runs, or with why it cannot.
     #[serde(rename = "audioStart")]
     AudioStart,
-    /// Close the realtime audio.
+    /// Close the realtime audio, or the WebRTC peer, at `CallCommand.path`.
     #[serde(rename = "audioStop")]
     AudioStop,
+    /// Open the realtime voice's WebRTC peer (Hermes GPT-Live): the
+    /// microphone with echo cancellation, the voice played, and a data channel
+    /// for the voice's events, driven over `WS` `CallCommand.path`. Answered
+    /// once the peer is ready to make its offer, or with why it cannot.
+    #[serde(rename = "webRtcStart")]
+    WebRtcStart,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -2288,7 +2294,7 @@ pub struct CallCommand {
     /// The model whose backend transcribes (server speech).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
-    /// The realtime audio's WebSocket path on the daemon.
+    /// The realtime audio's (or WebRTC peer's) WebSocket path on the daemon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
