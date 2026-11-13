@@ -39,6 +39,16 @@ final class FakeOwuiAuthServer {
   /// The method and path of every request, in order.
   final List<String> requests = <String>[];
 
+  /// Answers every signed-in request as a sign-in proxy whose session
+  /// expired does: a redirect to its sign-in page.
+  bool turnAway = false;
+
+  /// Ends every session server-side: their tokens are refused from now on.
+  void revokeSessions() => _tokens.clear();
+
+  /// How many sessions password sign-ins have been given.
+  int get signIns => _issued;
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   static Future<FakeOwuiAuthServer> start({
@@ -138,6 +148,18 @@ final class FakeOwuiAuthServer {
       final token = 'fake-token-${++_issued}';
       _tokens[token] = email;
       return json(<String, dynamic>{'token': token});
+    }
+
+    if (turnAway) {
+      await request.drain<void>();
+      response
+        ..statusCode = HttpStatus.found
+        ..headers.set(
+          HttpHeaders.locationHeader,
+          'http://127.0.0.1:${_server.port}/oauth2/start',
+        );
+      await response.close();
+      return;
     }
 
     final bearer = request.headers.value('authorization');

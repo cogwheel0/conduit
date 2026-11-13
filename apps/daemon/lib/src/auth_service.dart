@@ -359,7 +359,10 @@ final class AuthService {
 
   /// The connection issue's Retry, as the phone's: the kept session is
   /// checked with the server again, or, with none kept, the saved sign-in
-  /// is tried.
+  /// is tried. The server is asked before the session is shown signed in
+  /// ([AuthStateManager.retryConnectionIssue]): a refresh trusts the stored
+  /// token at once, and a proxy still turning it away came back as signed
+  /// in until its check failed a moment later.
   Future<AuthSnapshot> retry() async {
     final state = await readSettled(
       _container,
@@ -368,10 +371,6 @@ final class AuthService {
     _manager.resetRetryCounter();
     try {
       if (state.hasValidToken) {
-        // The server is asked about the kept session before it shows signed
-        // in, as the phone's Retry asks: a refresh would trust it at once,
-        // reopen the main window, and come back here while a sign-in proxy
-        // still turns it away.
         await _manager.retryConnectionIssue();
       } else {
         await _manager.silentLogin();

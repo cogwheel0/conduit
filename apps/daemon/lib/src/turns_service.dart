@@ -70,6 +70,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
+import 'apple_models_service.dart' show appleErrorType;
 import 'chat_prompts_service.dart';
 import 'chats_service.dart' show ChatTurns;
 import 'composer_wire.dart';
@@ -2759,8 +2760,13 @@ final class TurnsService implements ChatTurns {
               messageId: turn.messageId,
               code: ConduitErrorCodes.serverError,
               // The server's own words: a refusal like "this model needs a
-              // paid plan" is information only the server has.
-              args: <String, String>{'detail': ?error},
+              // paid plan" is information only the server has. Apple's
+              // engine's own texts carry their code too, as the stored
+              // error block does.
+              args: <String, String>{
+                'detail': ?error,
+                'type': ?appleErrorType(error),
+              },
               partialText: turn.text,
             ),
           )
