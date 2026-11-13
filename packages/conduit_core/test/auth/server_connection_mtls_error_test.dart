@@ -1,6 +1,6 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/features/auth/views/server_connection_page.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/auth/openwebui_server_address.dart';
+import 'package:test/test.dart';
 
 void main() {
   // A TLS 1.3 server that refuses the client certificate closes the connection
