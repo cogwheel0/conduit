@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Пока нет чатов",
   "desktopWidgetSignedOut": "Войдите в Conduit, чтобы видеть здесь недавние чаты.",
   "desktopWidgetOpenConduit": "Открыть Conduit",
-  "desktopWidgetDescription": "Недавние чаты, а также «Новый чат», «Быстрый вопрос» и «Голосовой звонок» в один клик."
+  "desktopWidgetDescription": "Недавние чаты, а также «Новый чат», «Быстрый вопрос» и «Голосовой звонок» в один клик.",
+  "desktopShareSheetMessage": "Добавьте сообщение",
+  "desktopShareSheetItems": "Переданные объекты",
+  "desktopShareSheetNothing": "Ни один из этих объектов нельзя добавить в чат.",
+  "desktopShareSheetFailed": "Не удалось открыть Conduit. Повторите попытку.",
+  "desktopServicesNewChat": "Новый чат Conduit с выбранным текстом",
+  "desktopShareSheetUnavailable": "Не удалось открыть переданные объекты. Поделитесь ими ещё раз."
 }

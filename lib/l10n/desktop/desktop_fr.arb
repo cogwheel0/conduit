@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Aucun chat pour l’instant",
   "desktopWidgetSignedOut": "Connectez-vous à Conduit pour voir ici vos chats récents.",
   "desktopWidgetOpenConduit": "Ouvrir Conduit",
-  "desktopWidgetDescription": "Vos chats récents, avec Nouveau chat, Question rapide et Appel vocal à portée de clic."
+  "desktopWidgetDescription": "Vos chats récents, avec Nouveau chat, Question rapide et Appel vocal à portée de clic.",
+  "desktopShareSheetMessage": "Ajouter un message",
+  "desktopShareSheetItems": "Éléments partagés",
+  "desktopShareSheetNothing": "Aucun de ces éléments ne peut être ajouté à un chat.",
+  "desktopShareSheetFailed": "Impossible d'ouvrir Conduit. Veuillez réessayer.",
+  "desktopServicesNewChat": "Nouveau chat Conduit avec la sélection",
+  "desktopShareSheetUnavailable": "Impossible d'ouvrir les éléments partagés. Veuillez les partager à nouveau."
 }

@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Nog geen chats",
   "desktopWidgetSignedOut": "Log in bij Conduit om hier je recente chats te zien.",
   "desktopWidgetOpenConduit": "Open Conduit",
-  "desktopWidgetDescription": "Je recente chats, met Nieuwe chat, Snelle vraag en Spraakoproep binnen één klik."
+  "desktopWidgetDescription": "Je recente chats, met Nieuwe chat, Snelle vraag en Spraakoproep binnen één klik.",
+  "desktopShareSheetMessage": "Voeg een bericht toe",
+  "desktopShareSheetItems": "Gedeelde onderdelen",
+  "desktopShareSheetNothing": "Geen van deze onderdelen kan aan een chat worden toegevoegd.",
+  "desktopShareSheetFailed": "Conduit kon niet worden geopend. Probeer het opnieuw.",
+  "desktopServicesNewChat": "Nieuwe Conduit-chat met selectie",
+  "desktopShareSheetUnavailable": "De gedeelde onderdelen konden niet worden geopend. Deel ze opnieuw."
 }

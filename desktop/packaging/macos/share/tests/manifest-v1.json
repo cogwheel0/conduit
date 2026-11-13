@@ -1,0 +1,24 @@
+{
+  "files" : [
+    {
+      "name" : "garden plan.pdf",
+      "path" : "files/0/garden plan.pdf"
+    },
+    {
+      "name" : "Image.png",
+      "path" : "files/1/Image.png"
+    }
+  ],
+  "message" : "What should go in the north bed?",
+  "texts" : [
+    "Tomatoes like six hours of sun."
+  ],
+  "tooLarge" : [
+    "orchard tour.mov"
+  ],
+  "tooMany" : 0,
+  "urls" : [
+    "https://example.org/allotment/beds"
+  ],
+  "version" : 1
+}

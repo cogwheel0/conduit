@@ -287,6 +287,18 @@ impl QuickAskView {
         cx.notify();
     }
 
+    /// "Ask Conduit" from another app's Services menu: a new exchange with
+    /// `text` (the quoted selection) in the composer and the caret after
+    /// it, for the question. An exchange on screen stays in the sidebar.
+    pub fn ask_about(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.chat.is_some() || !self.composer.read(cx).text(cx).trim().is_empty() {
+            self.new_chat(window, cx);
+        }
+        self.composer
+            .update(cx, |c, cx| c.set_text(text, window, cx));
+        cx.notify();
+    }
+
     /// Open in Conduit: the main window on this chat, or on a new chat with
     /// the draft.
     pub fn open_in_conduit(&mut self, window: &mut Window, cx: &mut Context<Self>) {

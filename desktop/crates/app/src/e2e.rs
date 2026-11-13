@@ -46,6 +46,11 @@
 //!   Desktop, Quick Ask, notifications, close to the menu bar, open at
 //!   login, the model the composer names after a send and Show Sidebar
 //!   ([`shell`]).
+//! * `share`: the Share menu's hand-off (a share staged in the inbox as the
+//!   Share extension stages it, opened by its `conduit://share/` link) and
+//!   the Services menu's Ask Conduit and New Conduit Chat With Selection
+//!   ([`share`]); `share-system` waits for the real extension and Services
+//!   menu (`packaging/macos/share/e2e-system.sh`).
 //! * `sections`: the sidebar's areas on the seeded server: sections per
 //!   capability, collapse kept per account, the keyboard across sections,
 //!   note and channel links, the Go menu, lists on `*.changed`, and
@@ -87,6 +92,7 @@ mod read_aloud;
 mod rendering;
 mod sections;
 mod settings;
+mod share;
 pub mod shell;
 mod tasks;
 mod voice_call;
@@ -750,6 +756,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "composer" => composer::run(&inputs, &dir, cx).await,
         "chat-settings" => chat_settings::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,
+        "share" | "share-system" => share::run(&inputs, &dir, cx).await,
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
         "settings" => settings::run(&inputs, &dir, cx).await,

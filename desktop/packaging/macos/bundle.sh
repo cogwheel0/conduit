@@ -6,11 +6,13 @@
 #
 # Commands (default: all, in this order):
 #   build          compile the app (Rust), conduitd (`dart build cli`),
-#                  libconduit_whisper and the desktop widget (widget/build.sh),
-#                  and assemble an unsigned Conduit.app
+#                  libconduit_whisper, the desktop widget (widget/build.sh) and
+#                  the Share extension (share/build.sh), and assemble an
+#                  unsigned Conduit.app
 #   sign           sign inside out with the hardened runtime: conduitd's
 #                  libraries, conduitd, Sparkle's helpers and framework, the
-#                  widget's library and extension, the app
+#                  widget's library and extension, the Share extension
+#                  (sandboxed), the app
 #   notarize-app   notarize Conduit.app and staple it (skipped without
 #                  credentials, see below)
 #   dmg            Conduit-<version>.dmg with an Applications link (signed
@@ -56,6 +58,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
+# shellcheck source=share/build.sh
+. "$here/share/build.sh"
 
 command=all
 version=0.0.0
@@ -230,6 +234,11 @@ assemble() {
     "$PACKAGING_DIR/Info.plist" >"$app/Contents/Info.plist"
   printf 'APPL????' >"$app/Contents/PkgInfo"
 
+  # The Share extension (Contents/PlugIns/ConduitShare.appex) and the
+  # Services menu titles in every language (share/build.sh).
+  share_build "$app" "$bundle_id" Conduit "$version" "$build"
+  services_strings "$app"
+
   # conduitd: the `dart build cli` bundle (bin/conduitd, lib/libsqlite3)
   # plus the whisper library next to libsqlite3, where conduitd looks.
   ditto "$daemon_bundle" "$app/Contents/Resources/conduitd"
@@ -329,6 +338,7 @@ do_sign() {
     set_plist "Add :com.apple.security.application-groups:0 string $group" "$ent/$e.entitlements"
   done
   embed_profiles
+  share_entitlements "$bundle_id" "$ent/Share.entitlements"
   if [ "$adhoc" = 1 ]; then
     # No team ID to match: let the ad-hoc binaries load their own libraries.
     set_plist "Add :com.apple.security.cs.disable-library-validation bool true" "$ent/Conduit.entitlements"
@@ -352,6 +362,9 @@ do_sign() {
   fi
   sign "$app/Contents/Frameworks/libconduit_widget.dylib"
   sign --entitlements "$ent/ConduitWidget.entitlements" "$appex"
+  # The extension before the app that contains it; sandboxed, with the one
+  # folder it hands shares through.
+  sign --entitlements "$ent/Share.entitlements" "$app/Contents/PlugIns/$SHARE_APPEX"
   sign --entitlements "$ent/Conduit.entitlements" "$app"
   codesign --verify --deep --strict "$app"
 }
@@ -485,6 +498,11 @@ do_verify() {
   [ "$v" = "conduit" ] && ok "URL scheme conduit://" || fail "URL scheme '$v'"
   v="$(plutil -extract CFBundleDocumentTypes raw -o - "$plist")"
   [ "$v" = "2" ] && ok "CFBundleDocumentTypes: 2 (documents, images)" || fail "CFBundleDocumentTypes: $v"
+  if share_verify "$app" "$(plutil -extract CFBundleIdentifier raw -o - "$plist")"; then
+    ok "Share extension: embedded, sandboxed, signed; Services: 2 items, 14 languages"
+  else
+    failed=1
+  fi
   if [ -s "$app/Contents/Resources/THIRD_PARTY_NOTICES.md" ]; then
     ok "THIRD_PARTY_NOTICES.md: $(grep -c '' "$app/Contents/Resources/THIRD_PARTY_NOTICES.md") lines"
   else

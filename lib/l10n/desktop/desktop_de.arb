@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Noch keine Chats",
   "desktopWidgetSignedOut": "Melde dich bei Conduit an, um hier deine letzten Chats zu sehen.",
   "desktopWidgetOpenConduit": "Conduit öffnen",
-  "desktopWidgetDescription": "Deine letzten Chats, dazu Neuer Chat, Schnellfrage und Sprachanruf mit einem Klick."
+  "desktopWidgetDescription": "Deine letzten Chats, dazu Neuer Chat, Schnellfrage und Sprachanruf mit einem Klick.",
+  "desktopShareSheetMessage": "Nachricht hinzufügen",
+  "desktopShareSheetItems": "Geteilte Objekte",
+  "desktopShareSheetNothing": "Keines dieser Objekte kann zu einem Chat hinzugefügt werden.",
+  "desktopShareSheetFailed": "Conduit konnte nicht geöffnet werden. Versuch es noch einmal.",
+  "desktopServicesNewChat": "Neuer Conduit-Chat mit Auswahl",
+  "desktopShareSheetUnavailable": "Die geteilten Objekte konnten nicht geöffnet werden. Teile sie noch einmal."
 }

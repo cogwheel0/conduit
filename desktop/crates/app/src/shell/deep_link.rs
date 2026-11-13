@@ -43,6 +43,9 @@ pub enum OpenRequest {
     /// `conduit://call`, or mobile's `conduit://mic`: a voice call in a new
     /// chat (the widget's Voice Call).
     VoiceCall,
+    /// `conduit://share/<id>`: what the Share extension staged in the
+    /// inbox ([`super::share_inbox`]), as a new chat.
+    Share { id: String },
 }
 
 impl OpenRequest {
@@ -140,6 +143,9 @@ pub fn parse(url: &str) -> Option<OpenRequest> {
             .map(|id| OpenRequest::Note { id }),
         "quick-ask" => id.is_none().then_some(OpenRequest::QuickAsk),
         "call" | "mic" => id.is_none().then_some(OpenRequest::VoiceCall),
+        "share" => id
+            .filter(|i| super::share_inbox::valid_id(i))
+            .map(|id| OpenRequest::Share { id }),
         "settings" => match id {
             None => Some(OpenRequest::Settings { tab: None }),
             Some(tab) if valid_tab(&tab) => Some(OpenRequest::Settings { tab: Some(tab) }),
@@ -212,7 +218,14 @@ pub fn redacted(url: &str) -> String {
                 .filter(|k| {
                     matches!(
                         k.as_str(),
-                        "chat" | "new" | "settings" | "new_chat" | "quick-ask" | "call" | "mic"
+                        "chat"
+                            | "new"
+                            | "settings"
+                            | "new_chat"
+                            | "quick-ask"
+                            | "call"
+                            | "mic"
+                            | "share"
                     )
                 })
                 .unwrap_or_else(|| "?".into());
@@ -312,6 +325,29 @@ mod tests {
     }
 
     #[test]
+    fn opens_a_share_from_the_share_menu() {
+        assert_eq!(
+            parse("conduit://share/6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60"),
+            Some(OpenRequest::Share {
+                id: "6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60".into()
+            })
+        );
+        for rejected in [
+            "conduit://share",
+            "conduit://share/abc",
+            "conduit://share/6F1C2B9E-0D2A-4C1E-9A77-1B2C3D4E5F60",
+            "conduit://share/6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60.part",
+            "conduit://share/../6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60",
+        ] {
+            assert_eq!(parse(rejected), None, "{rejected}");
+        }
+        assert!(
+            OpenRequest::Share { id: "x".into() }.needs_main(),
+            "a share opens in the main window"
+        );
+    }
+
+    #[test]
     fn refuses_what_is_not_a_link_this_app_opens() {
         for rejected in [
             "https://example.com/chat/1",
@@ -385,6 +421,10 @@ mod tests {
     fn the_log_never_sees_ids_or_text() {
         assert_eq!(redacted("conduit://chat/secret-id"), "conduit://chat/…");
         assert_eq!(redacted("conduit://new?q=private"), "conduit://new/…");
+        assert_eq!(
+            redacted("conduit://share/6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60"),
+            "conduit://share/…"
+        );
         assert_eq!(redacted("https://example.org/x"), "https:…");
         assert_eq!(redacted("nope"), "(not a URL)");
         assert_eq!(

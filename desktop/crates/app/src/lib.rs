@@ -302,6 +302,10 @@ pub fn run() {
         let hidden = hidden_arg || shell::login_item::launched_as_login_item();
         #[cfg(not(target_os = "macos"))]
         let hidden = hidden_arg;
+        // The Services menu's provider, before anything else: a launch made
+        // for "Ask Conduit" delivers its request right after this.
+        #[cfg(target_os = "macos")]
+        let services = shell::services::install();
         gpui_kit::init(cx);
         menus::KitBindings::capture(cx);
         conduit_components::views::markdown::preload_grammars(&["python", "rust", "bash"]);
@@ -430,6 +434,8 @@ pub fn run() {
         install_menu_observers(cx);
         register_actions(cx);
         desktop::install(urls_rx, hidden, cx);
+        #[cfg(target_os = "macos")]
+        desktop::install_services(services, cx);
         updates::install(cx);
         // The setup window and the main window follow the session.
         windows::install(cx);

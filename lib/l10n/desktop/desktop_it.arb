@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Ancora nessuna chat",
   "desktopWidgetSignedOut": "Accedi a Conduit per vedere qui le tue chat recenti.",
   "desktopWidgetOpenConduit": "Apri Conduit",
-  "desktopWidgetDescription": "Le tue chat recenti, con Nuova chat, Domanda rapida e Chiamata vocale a un clic."
+  "desktopWidgetDescription": "Le tue chat recenti, con Nuova chat, Domanda rapida e Chiamata vocale a un clic.",
+  "desktopShareSheetMessage": "Aggiungi un messaggio",
+  "desktopShareSheetItems": "Elementi condivisi",
+  "desktopShareSheetNothing": "Nessuno di questi elementi può essere aggiunto a una chat.",
+  "desktopShareSheetFailed": "Impossibile aprire Conduit. Riprova.",
+  "desktopServicesNewChat": "Nuova chat di Conduit con la selezione",
+  "desktopShareSheetUnavailable": "Impossibile aprire gli elementi condivisi. Condividili di nuovo."
 }
